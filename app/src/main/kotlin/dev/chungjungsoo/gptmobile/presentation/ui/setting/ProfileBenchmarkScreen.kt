@@ -202,6 +202,14 @@ fun ProfileBenchmarkScreen(
     var allowAuditNetworkReads by rememberSaveable { mutableStateOf(false) }
     var auditProfileIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var selectedAuditId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedGitHubAuditId by rememberSaveable { mutableStateOf<String?>(null) }
+    selectedGitHubAuditId?.let { batchId ->
+        GitHubAiAuditResults(
+            batch = batches.singleOrNull { it.id == batchId && it.mode == BenchmarkMode.GITHUB_INTEGRATION },
+            runs = history,
+            onDismiss = { selectedGitHubAuditId = null }
+        )
+    }
     var cancellationRequestedFor by rememberSaveable { mutableStateOf<String?>(null) }
     androidx.compose.runtime.LaunchedEffect(session) {
         if (session == null) cancellationRequestedFor = null
@@ -411,6 +419,38 @@ fun ProfileBenchmarkScreen(
                             }
                         }
                     )
+                }
+                item(key = "github_ai_audit_controls") {
+                    GitHubAiProfileAuditControls(
+                        profiles = auditModelCandidates,
+                        ready = ready,
+                        busy = session != null || progress != null,
+                        onStart = { profileUid, allActions, strictDeterministic ->
+                            if (viewModel.startGitHubToolAudit(profileUid, allActions, strictDeterministic)) cancellationRequestedFor = null
+                        }
+                    )
+                }
+                val githubProfileRuns = batches.filter { it.mode == BenchmarkMode.GITHUB_INTEGRATION }.sortedByDescending { it.createdAt }.take(5)
+                if (githubProfileRuns.isNotEmpty()) {
+                    item(key = "github_ai_audit_saved_header") {
+                        Text("Saved GitHub AI tool audits", style = MaterialTheme.typography.titleMedium)
+                    }
+                    items(githubProfileRuns, key = { "github.ai.audit." + it.id }) { batch ->
+                        BenchmarkQueueCard(
+                            batch,
+                            session == batch.id,
+                            viewModel::skipProfile,
+                            requestCancel,
+                            onResume = { viewModel.resumeRemaining(batch.id) },
+                            onRetry = { viewModel.retryFailed(batch.id) },
+                            onRunWithProfileSettings = { viewModel.retryFailed(batch.id, BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) },
+                            onResults = {
+                                selectedGitHubAuditId = batch.id
+                            },
+                            runs = history,
+                            onExport = { requestExport(false, null) }
+                        )
+                    }
                 }
                 if (selectedAudit == null) {
                     item { Text("No app audit has been recorded. Run an audit to see its accepted plan, measured coverage and category results.") }

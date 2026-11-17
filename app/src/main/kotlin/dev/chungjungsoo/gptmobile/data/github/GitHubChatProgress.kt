@@ -39,8 +39,11 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var pendingSummary: ApiState.ActivitySummary? = null
     private var pendingSummaryRevision = -1L
     private var lastSummaryKey = ""
+    private val reportedFactKeys = linkedSetOf<String>()
     private var lastSummaryRevision = -1L
-    private var modelSummaryRetained = false
+
+    // Preserve selected-profile findings until a new source-owned result or blocker arrives.
+    private var selectedAuthoredSummary = false
     private val terminalCalls = mutableSetOf<Pair<String, String>>()
     private val activeCalls = mutableSetOf<Pair<String, String>>()
     private val blockedCalls = mutableSetOf<Pair<String, String>>()
@@ -75,19 +78,37 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         if (!initial && at - lastSummaryAt < SUMMARY_INTERVAL_MS) return null
         val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision }
         pendingSummary = null
-        val candidate = generated ?: if (allowFallback && !modelSummaryRetained && (initial || revision != lastSummaryRevision)) {
-            ApiState.ActivitySummary(if (initial) summary else GitHubProgressNarrator.factualSummary(summarySnapshot()))
+        // A timer or generic application summary cannot displace selected-profile findings.
+        if (selectedAuthoredSummary && generated?.modelAuthored != true) return null
+        val source = summarySnapshot()
+        val factKeys = GitHubRichSummaryPresentation.factKeys(source)
+        // A rotated bounded history, event replay, timer or changed "Next" label
+        // cannot manufacture a new insight without a previously unreported fact.
+        val allFactsReported = factKeys.isNotEmpty() && factKeys.all(reportedFactKeys::contains)
+        val noNewFacts = generated == null && factKeys.isEmpty()
+        if (!initial && (allFactsReported || noNewFacts)) {
+            lastSummaryRevision = revision
+            return null
+        }
+        val candidate = generated ?: if (allowFallback && (initial || revision != lastSummaryRevision)) {
+            ApiState.ActivitySummary(if (initial) summary else GitHubRichSummaryPresentation.render(source))
         } else {
             return null
         }
         lastSummaryRevision = revision
         val key = GitHubProgressPresentation.lineKey(candidate.text)
         if (key.isBlank() || key == lastSummaryKey) return null
+        val introduction = initial && generated == null
         summary = candidate.text
         lastSummaryKey = key
         lastSummaryAt = at
-        modelSummaryRetained = candidate.modelAuthored
         initial = false
+        selectedAuthoredSummary = candidate.modelAuthored
+        // Introduction is only a promise, not a completed observation.
+        if (!introduction) {
+            factKeys.forEach(reportedFactKeys::add)
+            while (reportedFactKeys.size > 256) reportedFactKeys.remove(reportedFactKeys.first())
+        }
         return candidate
     }
 
@@ -161,7 +182,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         terminalKey?.takeUnless { it in terminalCalls }?.let(activeCalls::add)
                         activity = operationSummary(name, progress.toolArgs)
                         nextStep = nextFor(operation)
-                        revision++
+                        // Started is a public observation, not a successful completion.
+                        rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} started; no result has been verified.")
                     }
                     "tool_failed" -> {
                         if (terminalKey != null && !terminalCalls.add(terminalKey)) return
@@ -169,8 +191,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         terminalKey?.let(activeCalls::remove)
                         terminalKey?.let(blockedCalls::remove)
                         failures++
-                        modelSummaryRetained = false
                         pendingSummary = null
+                        selectedAuthoredSummary = false
                         activity = milestone(name, true, false, progress.toolArgs)
                         nextStep = "inspect the ${operation.subject} error and identify whether a corrected request or connection recovery is needed"
                         rememberStep(observation(name, true, false, progress.toolArgs), problem = true)
@@ -180,8 +202,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         resultObservations.remove(progress.toolCallId)
                         terminalKey?.let(activeCalls::remove)
                         blocked++
-                        modelSummaryRetained = false
                         pendingSummary = null
+                        selectedAuthoredSummary = false
                         activity = "${operation.subject.replaceFirstChar(Char::uppercase)} blocked${sourceFocus(progress.toolArgs).let { if (it.isBlank()) "" else " · $it" }}"
                         nextStep = "inspect the recorded blocker and identify the required approval, setup or correction before continuing"
                         rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} is blocked; the requested action has not been verified.", problem = true)
@@ -193,8 +215,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         if (eventName == "tool_skipped") {
                             resultObservations.remove(progress.toolCallId)
                             skipped++
-                            modelSummaryRetained = false
                             pendingSummary = null
+                            selectedAuthoredSummary = false
                             activity = "${operation.subject.replaceFirstChar(Char::uppercase)} skipped${sourceFocus(progress.toolArgs).let { if (it.isBlank()) "" else " · $it" }}"
                             nextStep = "check why the ${operation.subject} was skipped before treating it as validation evidence"
                             rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} was skipped; it did not provide an executed validation result.", problem = true)
@@ -202,10 +224,10 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         }
                         completed++
                         val observed = resultObservations.remove(progress.toolCallId)
+                        if (observed != null || sourceFocus(progress.toolArgs).isNotBlank()) selectedAuthoredSummary = false
                         activity = observed?.preview ?: milestone(name, false, false, progress.toolArgs)
                         nextStep = nextFor(operation)
                         if (observed?.problem == true) {
-                            modelSummaryRetained = false
                             pendingSummary = null
                         }
                         if (observed != null || sourceFocus(progress.toolArgs).isNotBlank() || operation.mutation) {
@@ -222,7 +244,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 if (activity != event.text && GitHubProgressPresentation.liveKey(event.text) == null) revision++
                 activity = event.text
             }
-            is ApiState.ActivitySummary -> if (event.text.isNotBlank() && (event.modelAuthored || !modelSummaryRetained && pendingSummary?.modelAuthored != true && !GitHubProgressPresentation.isGenericProgress(event.text))) {
+            is ApiState.ActivitySummary -> if (event.text.isNotBlank() && (event.modelAuthored || !selectedAuthoredSummary && pendingSummary?.modelAuthored != true && !GitHubProgressPresentation.isGenericProgress(event.text))) {
                 pendingSummary = event
                 pendingSummaryRevision = revision
             }

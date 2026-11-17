@@ -510,7 +510,24 @@ class GitHubWorkspaceClient(
                 pageResult(request("$root/pulls/$number/files?$pagination"), page, perPage, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
             }
             "get_pull_request_comments" -> pullRequestComments(root, required("pull_number").toInt().also { require(it > 0) }, page)
-            "pr_context" -> prContext(root, required("pull_number").toInt().also { require(it > 0) }, args, page)
+            "pr_context" -> {
+                val number = required("pull_number").toInt().also { require(it > 0) }
+                try {
+                    prContext(root, number, args, page)
+                } catch (changed: IllegalArgumentException) {
+                    // A live unpinned *read* may race with a commit during file listing.
+                    // Never move a pinned review or a write to another revision.
+                    val pinned = listOf("expected_head", "expected_head_sha", "expected_base_sha").any {
+                        (args[it] as? JsonPrimitive)?.content?.isNotBlank() == true
+                    }
+                    val isConcurrentFileRead = changed.message == "Pull request head changed or its base changed while files were loading; restart the review at its new revision."
+                    if (args["verify_live"] != JsonPrimitive(true) || pinned || !isConcurrentFileRead) {
+                        throw changed
+                    }
+                    val refreshed = prContext(root, number, args, page)
+                    JsonObject(refreshed + ("pr_context_refresh_reason" to JsonPrimitive("HEAD_CHANGED_DURING_FILES")))
+                }
+            }
             "ci_failure_digest" -> ciFailureDigest(root, ref, args)
             "get_commit_checks" -> {
                 val result = request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject

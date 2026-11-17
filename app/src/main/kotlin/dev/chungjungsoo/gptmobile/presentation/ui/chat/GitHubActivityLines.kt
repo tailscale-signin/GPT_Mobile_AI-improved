@@ -63,7 +63,7 @@ internal fun gitHubResponsePresentation(text: String, timeline: List<AssistantTi
 /** Presentation order is the last activation order, independent of retained evidence slots. */
 internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false, active: Boolean = false): List<AssistantTimelineItem> {
     val previews = mutableSetOf<String>()
-    val summaries = mutableSetOf<String>()
+    val summaryPositions = mutableMapOf<String, Int>()
     val counterPositions = mutableMapOf<String, Int>()
     val activationOrder = mutableMapOf<String, Long>()
     val coalesced = mutableListOf<AssistantTimelineItem>()
@@ -101,10 +101,23 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
                 }
             }
             item.statusSummary -> {
-                // Summaries are already authored public prose. Do not collapse distinct
-                // model explanations through the one-line preview vocabulary.
-                val key = item.content.replace(summaryWhitespace, " ").trim().lowercase(Locale.ROOT)
-                if (summaries.add(key)) coalesced.add(item)
+                // Local fallback reports can be rehydrated with a new next-action
+                // phrase after reconnect. Compare only their recorded findings.
+                // Preserve distinct selected-model explanations without rewriting them.
+                val isFactualRich = !item.modelAuthored && dev.chungjungsoo.gptmobile.data.github.GitHubRichSummaryPresentation.isRich(item.content)
+                val key = if (isFactualRich) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubRichSummaryPresentation.publicationKey(item.content)
+                } else {
+                    item.content.replace(summaryWhitespace, " ").trim().lowercase(Locale.ROOT)
+                }
+                val previous = summaryPositions[key]
+                if (previous == null) {
+                    summaryPositions[key] = coalesced.size
+                    coalesced.add(item)
+                } else if (isFactualRich) {
+                    // Keep the newest actionable wording in the existing slot.
+                    coalesced[previous] = item
+                }
             }
             else -> {
                 val previewKey = GitHubProgressPresentation.lineKey(item.content)

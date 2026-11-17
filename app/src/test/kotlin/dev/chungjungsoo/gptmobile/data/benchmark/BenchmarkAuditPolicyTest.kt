@@ -119,4 +119,10 @@ class BenchmarkAuditPolicyTest {
         assertNull(BenchmarkScoreboard.evaluate(submission.copy(fixtureManifestHash = "0".repeat(64))))
         assertFalse(benchmarkScoreboardIneligibility(run.copy(executionPolicy = null)).isNullOrBlank())
     }
+
+    @Test
+    fun githubAuditDefaultsToSavedModelReasoningAndRequiresExplicitStrictOptIn() {
+        assertEquals(savedProfile, githubAuditExecutionPolicy(false))
+        assertEquals(capability, githubAuditExecutionPolicy(true))
+    }
 }

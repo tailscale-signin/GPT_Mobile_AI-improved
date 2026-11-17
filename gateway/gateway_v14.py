@@ -101,7 +101,12 @@ runtime.gateway_service = service
 service.authorized = lambda principal: principal_can_chat(config, principal, runtime.device_store)
 activity = ActivityTracker(os.getenv("GATEWAY_ACTIVITY_STATE"))
 activity.install_tools(runtime)
-engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime),
+engineering_store = EngineeringStore(runtime)
+engineering_backend = GitHubEngineeringBackend(runtime)
+if runtime.GATEWAY_DURABLE_JOBS:
+    from v14.github_api_governor import DurableGitHubCooldowns, GitHubApiGovernor
+    engineering_backend.github_governor = GitHubApiGovernor(cooldowns=DurableGitHubCooldowns(engineering_store.tx))
+engineering = EngineeringService(engineering_store, engineering_backend,
                                  public_repository_maps=config.public_repository_maps)
 runtime.gateway_engineering = engineering
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)

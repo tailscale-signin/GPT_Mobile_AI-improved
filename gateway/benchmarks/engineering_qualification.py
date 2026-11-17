@@ -4,6 +4,8 @@ This evaluator does not turn fixture tests or missing telemetry into live passes
 The caller supplies already-authorized jobs in a designated test repository.
 """
 import json
+import re
+from v14.batch import digest
 
 SCENARIOS = {
     'unfamiliar_bug': 'Diagnose and repair an unfamiliar bug',
@@ -19,9 +21,77 @@ SCENARIOS = {
 }
 
 
+PRODUCTION_SCHEMA = 'gateway.production-qualification.v1'
+CONTINUOUS_SCHEMA = 'gateway.continuous-engineering-reliability.v1'
+CONTINUOUS_SCENARIOS = {
+    'repeated_rate_limits': 'Resume after repeated 30–120-second HTTP 429 responses',
+    'provider_scope_isolation': 'Keep unrelated providers available during throttling',
+    'restart_during_wait': 'Recover the same cooldown checkpoint after a Gateway restart',
+    'windows_restart_and_disconnect': 'Resume after Windows restart with the phone disconnected',
+    'continuous_lost_mutation': 'Reconcile a lost GitHub write without duplication',
+    'one_thousand_steps': 'Complete 1,000 logical steps across durable sessions',
+    'repeated_ci_repair': 'Retain CI repair evidence across repeated failures',
+    'same_branch_concurrency': 'Serialize publication for jobs on the same branch',
+    'revoked_credentials_or_credits': 'Retain work and request action when authorization or credits end',
+    'exact_head_merge': 'Verify approved exact-head merge and post-merge checks',
+}
+
+
+def retry_pairs(job):
+    request, data = job['request'], job['data']
+    expected_binding = request.get('execution_binding_id')
+    if not expected_binding:
+        return []
+    binding_hash, job_hash = digest(expected_binding), digest(job['id'])
+    scheduled, pairs = {}, []
+    for entry in data.get('retry_history', []):
+        if (not isinstance(entry, dict) or entry.get('binding_hash') != binding_hash or entry.get('job_hash') != job_hash
+                or type(entry.get('checkpoint_revision')) is not int
+                or type(entry.get('observed_at')) not in (float, int)
+                or type(entry.get('retry_at')) not in (float, int)
+                or not entry.get('boot_hash')):
+            continue
+        identity = (entry['checkpoint_revision'], entry.get('stage'), entry['retry_at'])
+        if entry.get('outcome') == 'SCHEDULED':
+            scheduled[identity] = entry
+        elif entry.get('outcome') == 'RESUMED' and entry['observed_at'] >= entry['retry_at']:
+            prior = scheduled.pop(identity, None)
+            if prior:
+                pairs.append((prior, entry))
+    return pairs
+
+
+def continuous_signals(job, accepted, completed, lost_mutation_proven, duplicates):
+    data = job['data']
+    pairs = retry_pairs(job)
+    resumptions = [(before, after) for before, after in pairs if before.get('http_status') == 429]
+    observed_cooldowns = [before['retry_at'] - before['observed_at'] for before, _ in resumptions]
+    restarts = any(before['boot_hash'] != after['boot_hash'] for before, after in resumptions)
+    approval = job.get('approval') or {}
+    post_merge = data.get('post_merge') or {}
+    blocked = data.get('blocked_reason') or {}
+    return {
+        'repeated_rate_limits': completed and sum(29 <= wait <= 121 for wait in observed_cooldowns) >= 3,
+        'provider_scope_isolation': completed and 'provider_scope_isolation' in accepted and bool(resumptions),
+        'restart_during_wait': completed and restarts,
+        'windows_restart_and_disconnect': completed and restarts and 'windows_restart_and_disconnect' in accepted,
+        'continuous_lost_mutation': completed and duplicates == 0 and lost_mutation_proven and 'continuous_lost_mutation' in accepted,
+        'one_thousand_steps': completed and job.get('steps', 0) >= 1000 and (job.get('execution_session') or {}).get('number', 0) > 1,
+        'repeated_ci_repair': completed and sum(job.get('repairs', {}).values()) >= 2 and 'repeated_ci_repair' in accepted,
+        'same_branch_concurrency': completed and 'same_branch_concurrency' in accepted,
+        'revoked_credentials_or_credits': job['state'] == 'NEEDS_INPUT' and blocked.get('retryable') is False
+            and (blocked.get('http_status') in (401, 402) or blocked.get('code') == 'ENGINEERING_ACCESS_DENIED'),
+        'exact_head_merge': completed and bool(data.get('merge_sha')) and post_merge.get('status') == 'PASSED'
+            and bool(approval.get('head_sha')) and approval.get('head_sha') == data.get('head_sha')
+            and post_merge.get('qualified_revision') == data.get('merge_sha'),
+    }
+
+
 def snapshot(service, principal, job_id, scenario):
-    if scenario not in SCENARIOS:
-        raise ValueError('Unknown production qualification scenario')
+    continuous = scenario in CONTINUOUS_SCENARIOS
+    scenarios = CONTINUOUS_SCENARIOS if continuous else SCENARIOS
+    if scenario not in scenarios:
+        raise ValueError('Unknown engineering qualification scenario')
     job = service.evidence_access(principal, job_id)
     data = job['data']
     def records(db):
@@ -75,11 +145,13 @@ def snapshot(service, principal, job_id, scenario):
         'terminal_ci_blocker': job['state'] in {'NEEDS_INPUT', 'FAILED'} and bool(data.get('ci')) and not completed and 'terminal_ci_blocker' in accepted,
         'post_merge_failure': bool(data.get('merge_sha')) and data.get('post_merge', {}).get('status') == 'FAILED' and not completed,
     }
+    if continuous:
+        signals = continuous_signals(job, accepted, completed, lost_mutation_proven, duplicates)
     # Completion metadata alone does not measure a production model attempt.
     attempts_measured = complete_records and bool(dispatched)
     passed = signals[scenario] and attempts_measured and not false_completion
     latest = dispatched[-1] if dispatched else {}
-    return {'schema': 'gateway.production-qualification.v1', 'scenario': scenario, 'title': SCENARIOS[scenario],
+    return {'schema': CONTINUOUS_SCHEMA if continuous else PRODUCTION_SCHEMA, 'scenario': scenario, 'title': scenarios[scenario],
             'job_id': job_id, 'repository': job['request']['repository'], 'source_sha': job['request'].get('source_sha'),
             'head_sha': data.get('head_sha'), 'model': job['request']['model'],
             'model_revision': latest.get('model_revision'), 'quantization': latest.get('hardware', {}).get('quantization'),
@@ -104,15 +176,20 @@ def run_manifest(client, manifest, *, execute=False, progress=lambda _: None):
     Model/route selection, test-repository choice, restart/disconnect injections
     and exact merge confirmations remain explicit setup/operator actions.
     """
-    if not isinstance(manifest, dict) or manifest.get('schema') != 'gateway.production-qualification.v1':
-        raise ValueError('Use a production qualification manifest')
+    schema = manifest.get('schema') if isinstance(manifest, dict) else None
+    if schema not in (PRODUCTION_SCHEMA, CONTINUOUS_SCHEMA):
+        raise ValueError('Use a production or continuous engineering qualification manifest')
+    scenarios = CONTINUOUS_SCENARIOS if schema == CONTINUOUS_SCHEMA else SCENARIOS
     repository, cases = manifest.get('test_repository'), manifest.get('cases')
-    if not isinstance(repository, str) or not isinstance(cases, list) or len(cases) != 10 or {row.get('scenario') for row in cases} != set(SCENARIOS):
+    if (not isinstance(repository, str) or not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', repository)
+            or not isinstance(cases, list) or len(cases) != len(scenarios)
+            or not all(isinstance(row, dict) and isinstance(row.get('scenario'), str) for row in cases)
+            or {row['scenario'] for row in cases} != set(scenarios)):
         raise ValueError('Name one designated test repository and all ten distinct scenarios')
     results = []
     for row in cases:
         scenario = row['scenario']
-        progress(SCENARIOS[scenario])
+        progress(scenarios[scenario])
         job_id = row.get('job_id')
         if job_id is None and execute:
             request = row.get('request', {})
@@ -127,10 +204,10 @@ def run_manifest(client, manifest, *, execute=False, progress=lambda _: None):
         if job.get('repository') != repository:
             raise ValueError('Qualification job belongs to another repository')
         result = client.request('GET', '/gateway/engineering/jobs/' + job_id + '/qualification?scenario=' + scenario)
-        if result.get('job_id') != job_id or result.get('scenario') != scenario or result.get('repository') != repository:
+        if (schema == CONTINUOUS_SCHEMA and result.get('schema') != schema) or result.get('job_id') != job_id or result.get('scenario') != scenario or result.get('repository') != repository:
             raise ValueError('Qualification result identity changed')
         results.append(result)
     return {'schema': manifest['schema'], 'test_repository': repository, 'cases': results,
-            'passed': sum(row['status'] == 'PASSED' for row in results), 'total': 10,
+            'passed': sum(row['status'] == 'PASSED' for row in results), 'total': len(scenarios),
             'qualified': all(row['status'] == 'PASSED' for row in results),
             'execution_scope': 'PRODUCTION_JOBS', 'fixture_results_included': False}

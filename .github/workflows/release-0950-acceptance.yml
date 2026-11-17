@@ -26,8 +26,13 @@ jobs:
         include:
           - api: 34
             profile: pixel_2
+            # AOSP Launcher3 avoids the cold Google Pixel Launcher ANR observed
+            # before instrumentation on the API 34 google_apis guest (run 43822499387).
+            # Keep Google APIs coverage on API 36; never ignore process errors.
+            target: default
           - api: 36
             profile: pixel_c
+            target: google_apis
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
@@ -79,10 +84,10 @@ jobs:
           cores: 4
           ram-size: 4096M
           arch: x86_64
-          target: google_apis
+          target: ${{ matrix.target }}
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
-          script: bash scripts/run_release0950_acceptance.sh
+          script: ACCEPTANCE_EMULATOR_API=${{ matrix.api }} ACCEPTANCE_EMULATOR_TARGET=${{ matrix.target }} bash scripts/run_release0950_acceptance.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

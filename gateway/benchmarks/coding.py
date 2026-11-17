@@ -2,6 +2,7 @@
 import ast
 from copy import deepcopy
 import json
+import math
 
 from benchmarks import fixtures, sandbox
 from benchmarks.contracts import CODING_WEIGHTS, digest
@@ -13,10 +14,96 @@ def same(left, right):
     return json.dumps(left, sort_keys=True, ensure_ascii=True, allow_nan=False) == json.dumps(right, sort_keys=True, ensure_ascii=True, allow_nan=False)
 
 
+
+# Closed, source-owned diagnostic categories. Never export raw model patches
+# or exception messages: both may contain private source and filenames.
+PATCH_REPAIR_HINTS = {
+    'PATCH_JSON_INVALID': 'Return one complete JSON object without Markdown or trailing commentary.',
+    'PATCH_OUTPUT_TRUNCATED': 'Use smaller anchored edits and shorter regression vectors so the JSON can finish.',
+    'PATCH_GENERATION_INCOMPLETE': 'Return one complete proposal with a verified terminal response.',
+    'PATCH_BLOB_MISMATCH': 'Copy the exact displayed BLOB SHA for each changed file.',
+    'PATCH_ANCHOR_CONFLICT': 'Choose old text that occurs exactly once in the displayed file.',
+    'PATCH_ANCHOR_NOT_EXPOSED': 'Use only exact anchors from the displayed source.',
+    'PATCH_ANCHOR_OVERLAP': 'Use disjoint edits or combine them into one replacement.',
+    'PATCH_REPRESENTATION_INVALID': 'Select exactly one of edits, hunks, content, or delete per change.',
+    'PATCH_PATH_INVALID': 'Use only the displayed safe relative paths.',
+    'PATCH_CONTRACT_INVALID': 'Follow the declared changes, diagnosis, tests and evidence JSON schema.',
+    'PATCH_SCOPE_VIOLATION': 'Edit only allowed displayed files; do not request deletion.',
+    'PATCH_UNCHANGED': 'Provide an actual correction, not the original source.',
+    'REGRESSION_VECTOR_LIMIT': 'Provide no more than six bounded regression vectors.',
+    'REGRESSION_VECTOR_INVALID': 'Each vector needs an input object and expected value.',
+    'PATCH_OUTPUT_TOO_LARGE': 'Reduce the output to a bounded patch.',
+    'PATCH_PARSE_OR_ANCHOR_INVALID': 'Verify JSON structure, exact source anchors and blob hashes.',
+}
+
+
+def classify_patch_rejection(error):
+    """Map validator messages to privacy-safe codes, never raw exception text."""
+    if isinstance(error, json.JSONDecodeError):
+        return 'PATCH_JSON_INVALID'
+    message = str(error)
+    if message in PATCH_REPAIR_HINTS:
+        return message
+    matchers = (
+        ('ANCHOR_CONFLICT', 'PATCH_ANCHOR_CONFLICT'),
+        ('Read the exact existing blob', 'PATCH_BLOB_MISMATCH'),
+        ('New files must have null expected_blob_sha', 'PATCH_BLOB_MISMATCH'),
+        ('Read the exact patch anchor range', 'PATCH_ANCHOR_NOT_EXPOSED'),
+        ('Patch anchors must not overlap', 'PATCH_ANCHOR_OVERLAP'),
+        ('Select exactly one patch representation', 'PATCH_REPRESENTATION_INVALID'),
+        ('Invalid anchored edits', 'PATCH_ANCHOR_CONFLICT'),
+        ('Invalid repository file path', 'PATCH_PATH_INVALID'),
+        ('Unsafe repository file path', 'PATCH_PATH_INVALID'),
+        ('Invalid change contract', 'PATCH_CONTRACT_INVALID'),
+        ('Duplicate file change', 'PATCH_CONTRACT_INVALID'),
+        ('Return 1–20 coordinated file changes', 'PATCH_CONTRACT_INVALID'),
+    )
+    for fragment, code in matchers:
+        if fragment in message:
+            return code
+    return 'PATCH_PARSE_OR_ANCHOR_INVALID'
+
+
+def rejected_submission(task, code):
+    """Grade a received invalid submission without claiming sandbox execution."""
+    safe = code if code in PATCH_REPAIR_HINTS else 'PATCH_PARSE_OR_ANCHOR_INVALID'
+    return {
+        'id': task['id'], 'family': task['family'], 'title': task['title'],
+        'capstone': task['capstone'], 'fixtureDigest': task['manifestDigest'],
+        'status': 'FAILED', 'executed': False, 'graded': True, 'resolved': False,
+        'qualified': False,
+        'integrity': 'VIOLATION' if safe in {'PATCH_SCOPE_VIOLATION', 'PATCH_PATH_INVALID'} else 'VERIFIED',
+        'error': safe,
+        'failureStage': 'MODEL_OUTPUT' if safe in {'PATCH_OUTPUT_TRUNCATED', 'PATCH_GENERATION_INCOMPLETE'} else 'PATCH_VALIDATION',
+        'repairHint': PATCH_REPAIR_HINTS[safe], 'score': 0,
+        'dimensions': {key: None if key == 'safety' else 0.0 for key in CODING_WEIGHTS},
+    }
+
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('PATCH_CONTRACT_INVALID')
+        result[key] = value
+    return result
+
+
+def reject_json_constant(_value):
+    raise ValueError('PATCH_CONTRACT_INVALID')
+
+
+def finite_json_float(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError('PATCH_CONTRACT_INVALID')
+    return number
+
+
 def proposal(text, task):
     if len(text.encode()) > 65536:
         raise ValueError('PATCH_OUTPUT_TOO_LARGE')
-    value = json.loads(text)
+    value = json.loads(text, object_pairs_hook=unique_object, parse_constant=reject_json_constant, parse_float=finite_json_float)
     if not isinstance(value, dict) or set(value) - {'changes', 'diagnosis', 'tests', 'evidence'}:
         raise ValueError('PATCH_CONTRACT_INVALID')
     sources = task['sources']
@@ -62,7 +149,7 @@ def source_design(candidate):
     return sum(checks) / len(checks)
 
 
-def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None):
+def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None, prior=None):
     result = {'id': task['id'], 'family': task['family'], 'title': task['title'],
               'capstone': task['capstone'], 'fixtureDigest': task['manifestDigest'],
               'status': 'FAILED', 'executed': False, 'graded': False, 'resolved': False,
@@ -71,12 +158,14 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
     try:
         value, candidate, changes = proposal(text, task)
     except (ValueError, KeyError, TypeError, RecursionError, OverflowError) as error:
-        code = str(error) if str(error) in {'PATCH_OUTPUT_TOO_LARGE', 'PATCH_CONTRACT_INVALID', 'PATCH_SCOPE_VIOLATION', 'PATCH_UNCHANGED', 'REGRESSION_VECTOR_LIMIT', 'REGRESSION_VECTOR_INVALID'} else 'PATCH_PARSE_OR_ANCHOR_INVALID'
-        # A received model answer that cannot form a patch is an observed failed
-        # submission. Infrastructure/transport failures remain ungraded instead.
-        result.update(error=code, integrity='VIOLATION' if code == 'PATCH_SCOPE_VIOLATION' else 'VERIFIED',
-                      graded=True, qualified=True, score=0, dimensions={key: 0.0 for key in CODING_WEIGHTS})
-        return result
+        # Keep distinct reasons separate; never retain the raw source exception.
+        rejected = rejected_submission(task, classify_patch_rejection(error))
+        if isinstance(error, json.JSONDecodeError):
+            rejected['parserLocation'] = {'line': error.lineno, 'column': error.colno}
+        return rejected
+    evaluation_key = digest([candidate, value.get('tests', []), value.get('diagnosis'), value.get('evidence')]) if prior is not None else None
+    if prior is not None and evaluation_key in prior:
+        return dict(prior[evaluation_key], evaluationReused=True)
     # Randomized data was frozen before dispatch. The model does not receive
     # these inputs until its candidate runs; expected values never enter Docker.
     vectors = task['vectors']
@@ -102,8 +191,20 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
                 trusted_tests.append((test, expected, killed))
         except (ValueError, TypeError, KeyError, RecursionError, OverflowError):
             continue
-    inputs = vectors + list(reversed(vectors)) + [test['input'] for test, _, _ in trusted_tests]
+    # Each call gets an independent fixture value and the host retains the original
+    # JSON digest. This verifies the transport boundary, not mutation inside Python.
+    inputs = [deepcopy(vector) for vector in (
+        *vectors, *reversed(vectors), *(test['input'] for test, _, _ in trusted_tests))]
+    input_digest = digest(inputs)
     observation = execute(candidate, inputs, settings, cancel, docker=docker)
+    try:
+        host_preserved = digest(inputs) == input_digest
+    except (ValueError, TypeError, RecursionError):
+        host_preserved = False
+    if not host_preserved:
+        result.update(status='ERROR', integrity='VIOLATION', error='HOST_FIXTURE_INPUT_CHANGED',
+                      executed=observation.get('executed'), hostInputBoundary='CHANGED')
+        return result
     if observation.get('executed') is not True or observation.get('status') == 'ERROR':
         result.update(status='ERROR', error=observation.get('error', 'SANDBOX_EXECUTION_NOT_CONFIRMED'),
                       executed=observation.get('executed'), outputDigest=observation.get('outputDigest'))
@@ -154,11 +255,12 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
                           'validRegressionVectors': len(trusted_tests), 'bugRevealingRegressionVectors': sum(tested),
                           'independentDefectsCaught': len(killed_faults), 'independentDefectsTotal': len(task['sources']),
                           'unchangedSourceFiles': len(task['sources']) - len(changes)},
+                  uncoveredDefectModules=sorted(set(task['sources']) - killed_faults),
                   patchDigest=digest(candidate), outputDigest=observation.get('outputDigest'),
                   validationMs=observation.get('durationMs'), sandboxImageDigest=settings['sandbox_image'].split('@')[-1],
                   executionScope='LOCAL_CONTAINER_NO_NETWORK',
                   patchScopeVerification='PASSED',
-                  inputMutationVerification='NOT_VERIFIED',
+                  hostInputBoundary='PRESERVED', inputMutationVerification='NOT_VERIFIED',
                   qualificationBlockers=['INPUT_PRESERVATION_NOT_VERIFIED'],
                   dimensionDefinitions={
                       'functional': 'Hidden contract vectors', 'regression': 'Empty/invalid request boundaries',
@@ -175,4 +277,6 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
     result['earned'] = sum(CODING_WEIGHTS[key] * score for key, score in result['dimensions'].items() if score is not None)
     result['possible'] = sum(CODING_WEIGHTS.values())
     result['unknownWeight'] = sum(CODING_WEIGHTS[key] for key, score in result['dimensions'].items() if score is None)
+    if prior is not None and received and observation.get('status') == 'COMPLETED':
+        prior[evaluation_key] = dict(result)
     return result

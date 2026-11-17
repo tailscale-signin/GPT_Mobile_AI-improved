@@ -14,11 +14,43 @@ DEPENDENCY = re.compile(
     r'Downloading https?://|services\.gradle\.org/distributions|gradle-distributions/releases/download',
     re.I,
 )
+# Gradle can hide transport failures behind UnknownPluginException with no HTTP
+# status. These exact artifacts are independently published on Maven Central;
+# a missing version, authentication denial, or HTTP 404 is never retried.
+# Match each plugin and module together, not one plugin from a different error.
+KNOWN_PUBLISHED_PLUGINS = (
+    (
+        re.compile(
+            r"Plugin \[id: 'org\.jetbrains\.kotlin\.multiplatform', version: '2\.4\.20', "
+            r"artifact: 'org\.jetbrains\.kotlin:kotlin-gradle-plugin:2\.4\.20', apply: false\] was not found",
+            re.I,
+        ),
+        re.compile(r"could not resolve plugin artifact 'org\.jetbrains\.kotlin:kotlin-gradle-plugin:2\.4\.20'", re.I),
+    ),
+    (
+        re.compile(
+            r"Plugin \[id: 'io\.objectbox', version: '5\.4\.2', "
+            r"artifact: 'io\.objectbox:objectbox-gradle-plugin:5\.4\.2', apply: false\] was not found",
+            re.I,
+        ),
+        re.compile(r"could not resolve plugin artifact 'io\.objectbox:objectbox-gradle-plugin:5\.4\.2'", re.I),
+    ),
+)
+NON_TRANSIENT_HTTP = re.compile(r'(?:HTTP|status(?: code)?|response code:)\D{0,12}(?:401|403|404)\b', re.I)
 DETERMINISTIC = re.compile(r'There were failing tests|\btests completed, [1-9]\d* failed|Compilation error|^e: .*\.(?:kt|java):|Lint found .* errors', re.I)
 
 
 def retryable(lines):
-    return any(DEPENDENCY.search(line) for line in lines) and any(TRANSIENT.search(line) for line in lines) and not any(DETERMINISTIC.search(line) for line in lines)
+    lines = list(lines)
+    throttled = any(DEPENDENCY.search(line) for line in lines) and any(TRANSIENT.search(line) for line in lines)
+    known_plugin = any(
+        any(plugin.search(line) for line in lines) and
+        any(artifact.search(line) for line in lines)
+        for plugin, artifact in KNOWN_PUBLISHED_PLUGINS
+    )
+    return (throttled or known_plugin) and not any(
+        DETERMINISTIC.search(line) or NON_TRANSIENT_HTTP.search(line) for line in lines
+    )
 
 
 def stop_process_group(process, force=False):
@@ -33,7 +65,7 @@ def stop_process_group(process, force=False):
         pass
 
 
-def run(arguments, attempts=3, delay_seconds=10, executable='./gradlew', timeout_seconds=None, termination_grace_seconds=15):
+def run(arguments, attempts=4, delay_seconds=10, executable='./gradlew', timeout_seconds=None, termination_grace_seconds=15):
     if attempts < 1 or timeout_seconds is not None and timeout_seconds <= 0 or termination_grace_seconds < 0:
         raise ValueError('Attempts and timeout must be positive; termination grace must be nonnegative')
     environment = dict(os.environ)
@@ -42,7 +74,9 @@ def run(arguments, attempts=3, delay_seconds=10, executable='./gradlew', timeout
     for attempt in range(attempts):
         if deadline is not None and time.monotonic() >= deadline:
             return 124
-        dependency = transient = deterministic = False
+        dependency = transient = deterministic = denied = False
+        published = [False] * len(KNOWN_PUBLISHED_PLUGINS)
+        artifact = [False] * len(KNOWN_PUBLISHED_PLUGINS)
         with subprocess.Popen([executable, *arguments], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', env=environment, start_new_session=os.name == 'posix') as process:
             finished, timed_out = threading.Event(), threading.Event()
 
@@ -64,6 +98,10 @@ def run(arguments, attempts=3, delay_seconds=10, executable='./gradlew', timeout
                     print(line, end='', flush=True)
                     dependency |= bool(DEPENDENCY.search(line))
                     transient |= bool(TRANSIENT.search(line))
+                    for index, (plugin_pattern, artifact_pattern) in enumerate(KNOWN_PUBLISHED_PLUGINS):
+                        published[index] |= bool(plugin_pattern.search(line))
+                        artifact[index] |= bool(artifact_pattern.search(line))
+                    denied |= bool(NON_TRANSIENT_HTTP.search(line))
                     deterministic |= bool(DETERMINISTIC.search(line))
                 code = process.wait()
             except BaseException:
@@ -83,12 +121,12 @@ def run(arguments, attempts=3, delay_seconds=10, executable='./gradlew', timeout
                 # Kill surviving descendants even if the parent exited on SIGTERM.
                 stop_process_group(process, force=True)
                 return 124
-        if code == 0 or attempt + 1 == attempts or not (dependency and transient) or deterministic:
+        if code == 0 or attempt + 1 == attempts or not ((dependency and transient) or any(p and a for p, a in zip(published, artifact))) or deterministic or denied:
             return code
         pause = delay_seconds * (attempt + 1)
         if deadline is not None:
             pause = min(pause, max(0, deadline - time.monotonic()))
-        print(f'Dependency service throttled or unavailable; retry {attempt + 2}/{attempts} after {pause}s. Gradle cache is retained.', flush=True)
+        print(f'Qualified dependency resolution failure; retry {attempt + 2}/{attempts} after {pause}s. Gradle cache is retained.', flush=True)
         time.sleep(pause)
     raise AssertionError('Unreachable retry state')
 

@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 import asyncio
 
 from v14.actions import canonical_json
-from v14.batch import digest, provider_rate_limit_delay, retry_delay
+from v14.batch import digest, is_rate_limit_response, provider_rate_limit_delay, retry_delay
 from v14.evidence import EvidenceLedger, completion_gate
 from v14.engineering_memory import EngineeringMemory
 from v14.execution_binding import ExecutionBindings, ExecutionBindingError, fingerprint
@@ -24,6 +24,7 @@ from v14.inference_scheduler import install_scheduler
 from v14.graph_context import public_graph_receipt
 from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_operations import EngineeringOperations
+from v14.engineering_recovery import CONTINUOUS_SESSIONS, SESSION_REPAIRS, SESSION_STEPS, continuous_progress, retry_summary
 from v14.engineering_defaults import EXECUTION_BUDGET_LIMITS, new_request_defaults, retained_request_defaults, effective_execution_budget
 from v14.engineering_batch_policy import authorize_request, load_policy as load_batch_policy
 from v14.engineering_batch_plan import new_plan, claimed as batch_claimed, transition as batch_transition, control_transition as batch_control, summary as batch_summary
@@ -290,6 +291,8 @@ class EngineeringStore:
                'updated_at': now, 'steps': 0, 'milestones': [], 'repairs': {}, 'patches': [], 'stalls': 0,
                'message': 'Queued for repository inspection', 'data': {}, 'approval': None,
                'execution_binding': binding}
+        if request['duration_hours'] == 0 and recovery_of is None:
+            job['execution_session'] = {'number': 1, 'start_steps': 0, 'start_repairs': 0}
         if recovery_of is not None:
             if recovery_of['principal'] != principal or recovery_of['request']['repository'] != request['repository']:
                 raise ValueError('Recovery cannot change repository or owner')
@@ -406,6 +409,7 @@ class EngineeringStore:
         if (remaining['model_calls'] <= remaining['verification_calls'] + remaining['final_calls']
                 or remaining['model_tokens'] < 1024 or deadline <= now + remaining['final_seconds']):
             raise ConversationConflict('The recovery has insufficient time or model budget for another instruction.')
+        successor.pop('execution_session', None)
         successor.update(
             recovery_of=parent_id, recovery_depth=previous['recovery_depth'],
             recovery_objective=previous['recovery_objective'], deadline=deadline,
@@ -887,18 +891,33 @@ class EngineeringSupervisor:
             return 'Job duration limit reached; confirmed work is retained'
         if job['state'] not in {'MERGE', 'VERIFY'} and now >= job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30):
             return 'The remaining duration is reserved for verification and a durable partial report'
-        if job['steps'] >= 256 and job['state'] not in {'CI', 'MERGE', 'VERIFY'}:
-            return 'Step budget reached'
         if job['stalls'] >= 3:
             return 'Three attempts made no verified progress'
+        session = job.get('execution_session') or {}
+        if job['steps'] - session.get('start_steps', 0) >= SESSION_STEPS and job['state'] not in {'CI', 'MERGE', 'VERIFY'}:
+            if not EngineeringSupervisor.renew(job):
+                return 'Step budget reached; confirmed work is retained'
         return None
+
+    @staticmethod
+    def renew(job):
+        session = job.get('execution_session')
+        if session is None or session['number'] >= CONTINUOUS_SESSIONS:
+            return False
+        job['execution_session'] = {'number': session['number'] + 1, 'start_steps': job['steps'],
+                                    'start_repairs': sum(job['repairs'].values())}
+        return True
 
     @staticmethod
     def repair(job, fingerprint):
         counts = dict(job['repairs'])
         count = counts.get(fingerprint, 0)
-        if count >= job['request']['repair_attempts'] or sum(counts.values()) >= 20:
+        if count >= job['request']['repair_attempts']:
             return False
+        session = job.get('execution_session') or {}
+        if sum(counts.values()) - session.get('start_repairs', 0) >= SESSION_REPAIRS:
+            if not EngineeringSupervisor.renew(job):
+                return False
         counts[fingerprint] = count + 1
         job['repairs'] = counts
         job['message'] = f"Repairing validation failure · attempt {count + 1}/{job['request']['repair_attempts']}"
@@ -1137,6 +1156,12 @@ class EngineeringService:
         finally:
             self.store.confirm_cancellation(job_id, job['_owner_epoch'])
 
+    @staticmethod
+    def retry_checkpoint(job, retry_at, source, attempts):
+        return {'retry_at': retry_at, 'source': source, 'attempts': attempts,
+                'stage': job['state'], 'checkpoint_revision': job['revision'] + 1,
+                'job_hash': digest(job['id']), 'binding_hash': digest(job['request'].get('execution_binding_id'))}
+
     def _tick_claimed(self, job, lease, recovering):
         phase, output, delay = job['state'], {}, 0
         previous_wait = job.pop('provider_wait', None) or {}
@@ -1300,15 +1325,10 @@ class EngineeringService:
             http_status = getattr(response, 'status_code', None)
             http_status = http_status if type(http_status) is int else None
             response_headers = getattr(response, 'headers', None) or {}
-            lowered_headers = {str(key).lower(): str(value) for key, value in response_headers.items()}
-            rate_limited = http_status == 429 or (
-                http_status == 403 and
-                ('retry-after' in lowered_headers or lowered_headers.get('x-ratelimit-remaining') == '0')
-            )
+            rate_limited = is_rate_limit_response(http_status, response_headers)
             mutation = job['state'] in MUTATIONS
             before_dispatch = (mutation and getattr(self.backend, 'physical_operation_journal', False)
                                and not self.operations.dispatched(job))
-            deferred_write = before_dispatch and rate_limited
             model_readiness_wait = (
                 isinstance(error, ExecutionBindingError) and
                 error.code in {'EXECUTION_MODEL_NOT_LOADED', 'EXECUTION_MODEL_LOADING'}
@@ -1320,8 +1340,12 @@ class EngineeringService:
             )
             readiness_wait = model_readiness_wait or backend_readiness_wait
             host_interrupted = isinstance(error, InterruptedError) and (self.stop.is_set() or getattr(self.store.runtime, 'gateway_draining', False))
-            recovery_delay = None if rate_limited or readiness_wait else retry_delay(error, 0)
+            recovery_delay = (None if rate_limited or readiness_wait else
+                              retry_delay(error, 0, max_retry_after=None, now=self.store.now))
             transient = recovery_delay is not None
+            # Before-dispatch recovery can retry safely. A dispatched mutation
+            # must still reconcile, even when its error looks transient.
+            deferred_write = before_dispatch and (rate_limited or transient or readiness_wait or host_interrupted)
             if not host_interrupted:
                 job['connection_retries'] = job.get('connection_retries', 0) + 1 if transient else 0
             if not transient and not rate_limited and not readiness_wait and not host_interrupted:
@@ -1371,7 +1395,7 @@ class EngineeringService:
                 if deferred_write:
                     output['dispatched'] = False
                 if can_resume:
-                    job['provider_wait'] = {'retry_at': retry_at, 'source': source, 'attempts': attempts}
+                    job['provider_wait'] = self.retry_checkpoint(job, retry_at, source, attempts)
                     job['message'] = 'Waiting for provider capacity. The saved step will resume automatically.'
                     delay = wait
                 else:
@@ -1394,8 +1418,7 @@ class EngineeringService:
                 output.update(error_code=error.code, retryable=can_resume,
                               retry_at=retry_at, retry_source=source, attempts=attempts)
                 if can_resume:
-                    job['provider_wait'] = {'retry_at': retry_at, 'source': source, 'attempts': attempts,
-                                            'reason_code': error.code}
+                    job['provider_wait'] = dict(self.retry_checkpoint(job, retry_at, source, attempts), reason_code=error.code)
                     job['message'] = ('Waiting for the exact selected model. The saved step will resume automatically after host preparation completes.'
                                       if model_readiness_wait else
                                       'Waiting for the selected backend to recover. The saved step will resume with the same model and binding.')
@@ -1417,6 +1440,8 @@ class EngineeringService:
                 status = http_status
                 if status == 401:
                     code, instruction = 'ENGINEERING_AUTHENTICATION_REQUIRED', 'Restore the host connection authentication'
+                elif status == 402:
+                    code, instruction = 'ENGINEERING_PROVIDER_CREDITS_REQUIRED', 'Restore provider credits or explicitly select an approved alternative'
                 elif status == 403 or isinstance(error, PermissionError):
                     code, instruction = 'ENGINEERING_ACCESS_DENIED', 'Review execution authority and repository access'
                 elif isinstance(error, InterruptedError):
@@ -1439,10 +1464,22 @@ class EngineeringService:
                 job['data']['blocked_reason'] = {'code': code, 'retryable': False}
                 output.update(error_code=code, retryable=False)
             else:
-                phase = 'NEEDS_INPUT' if job['connection_retries'] >= 12 else job['state']
-                delay = max(recovery_delay, min(300, 5 * 2 ** min(6, job['connection_retries'])))
-                output.update(retryable=phase != 'NEEDS_INPUT', retry_after_seconds=delay)
-                job['message'] = 'Connection unavailable; waiting for the bounded retry deadline. Confirmed work is retained.'
+                attempts = job['connection_retries']
+                wait = max(recovery_delay, min(300, 5 * 2 ** min(6, attempts - 1)))
+                retry_at = self.store.now() + wait
+                available = retry_at < job['deadline'] - effective_execution_budget(job['request'])['final_seconds']
+                resume_limit = (job['request'].get('batch_preferences') or {}).get('resume_after_transient_limits', True)
+                can_resume = available and (job['request'].get('execution_mode') != 'full' or resume_limit)
+                output.update(error_code='ENGINEERING_TRANSPORT_RETRY_WAIT', retryable=can_resume,
+                              retry_after_seconds=wait, retry_at=retry_at, retry_source='TRANSIENT_TRANSPORT', attempts=attempts)
+                if can_resume:
+                    job['provider_wait'] = self.retry_checkpoint(job, retry_at, 'TRANSIENT_TRANSPORT', attempts)
+                    job['message'] = 'Connection unavailable. The saved step will resume automatically.'
+                    delay = wait
+                else:
+                    phase = 'NEEDS_INPUT'
+                    job['data']['blocked_reason'] = dict(output)
+                    job['message'] = 'Connection recovery reached the accepted limits. Confirmed work is retained.'
         if output and 'error_type' not in output:
             job['connection_retries'] = 0
             job['stalls'] = 0
@@ -1458,6 +1495,20 @@ class EngineeringService:
                 if reference['receipt_id'] not in references:
                     references.append(reference['receipt_id'])
             del references[:-512]
+        wait = job.get('provider_wait')
+        retry_event = None
+        if wait and wait != previous_wait:
+            retry_event = dict(wait, outcome='SCHEDULED', http_status=output.get('http_status'),
+                               observed_at=self.store.now(), boot_hash=digest(self.bindings.boot_id))
+        elif previous_wait and not wait:
+            outcome = ('NEEDS_INPUT' if phase == 'NEEDS_INPUT' else
+                       'RESUMED' if 'error_type' not in output else 'INTERRUPTED')
+            retry_event = dict(previous_wait, outcome=outcome, observed_at=self.store.now(),
+                               boot_hash=digest(self.bindings.boot_id))
+        if retry_event:
+            job['data']['latest_retry'] = retry_event
+            history = job['data'].get('retry_history', [])
+            job['data']['retry_history'] = (history + [retry_event])[-12:]
         confirmed = output and 'error_type' not in output and phase != 'NEEDS_INPUT' and phase != job['state']
         if job['state'] == 'REVIEW' and output.get('review', {}).get('approved') is not True:
             confirmed = False
@@ -1560,12 +1611,16 @@ def public_job(job):
     data = job['data']
     state = job['state']
     completed = len(job.get('milestones', []))
+    wait = job.get('provider_wait') or {}
+    active_retry = retry_summary(job, active_only=True) or {}
     readiness = data.get('readiness') or {}
     return {'conversation_id': job.get('conversation_id'), 'gateway_id': job.get('gateway_id'), 'principal_id': job['principal'],
             'command_id': job.get('command_id', job['request']['request_id']), 'accepted_at': job.get('accepted_at', job['created_at']),
             'server_now': time.time(), 'detach_safe': bool(job.get('detach_safe')), 'task_scope': accepted_scope(job['request']),
             'started_at': job.get('started_at'), 'queued_at': job.get('queued_at'), 'title': job.get('title'),
-            'provider_retry_at': (job.get('provider_wait') or {}).get('retry_at'),
+            'provider_retry_at': wait.get('retry_at'),
+            'provider_retry_source': active_retry.get('source'), 'provider_retry_attempts': active_retry.get('attempts'),
+            'retry': retry_summary(job), 'continuous_progress': continuous_progress(job),
             'execution_mode': job['request'].get('execution_mode', 'standard'),
             'batch_progress': batch_summary(data.get('integration_batch')),
             'cancellation_requested': bool(job.get('cancellation_requested')), 'cancellation_outcome': job.get('cancellation_outcome'),

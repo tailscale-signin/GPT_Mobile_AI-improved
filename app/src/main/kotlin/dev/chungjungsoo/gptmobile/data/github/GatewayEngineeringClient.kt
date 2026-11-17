@@ -145,7 +145,10 @@ class GatewayEngineeringClient internal constructor(
                                 config.lockedModel,
                                 preflight.ready,
                                 preflight.blockers.map { it.reasonCode },
-                                policyState = preflight.validationPolicyState
+                                policyState = preflight.validationPolicyState,
+                                recoveryActions = preflight.blockers.map { it.recoveryAction },
+                                discoveryState = (preflight.acceptancePreparation?.get("status") as? JsonPrimitive)?.contentOrNull,
+                                candidateCount = (preflight.acceptancePreparation?.get("candidates") as? kotlinx.serialization.json.JsonArray)?.size
                             )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
                             throw GatewayEngineeringPrerequisites.rejected(response.status.value, preflight)
                                 .withCommandOutcomeUnknown(detail?.get("command_outcome_unknown") == JsonPrimitive(true))
@@ -228,7 +231,10 @@ class GatewayEngineeringClient internal constructor(
             request.model,
             result.ready,
             result.blockers.map { it.reasonCode },
-            policyState = result.validationPolicyState
+            policyState = result.validationPolicyState,
+            recoveryActions = result.blockers.map { it.recoveryAction },
+            discoveryState = (result.acceptancePreparation?.get("status") as? JsonPrimitive)?.contentOrNull,
+            candidateCount = (result.acceptancePreparation?.get("candidates") as? kotlinx.serialization.json.JsonArray)?.size
         )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
         if (!result.ready) throw GatewayEngineeringPrerequisites.rejected(412, result)
         check(request.taskScope != "implement" || result.acceptance.isNotEmpty()) { "The gateway did not provide a testable acceptance contract." }

@@ -10,6 +10,39 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_gateway_preflight_receipt_retains_all_closed_blockers_without_private_values(self):
+        from authentication.engineering_report_contract import GATEWAY_ADMISSION_CORE
+
+        values = {
+            "gateway_admission_ready": False,
+            "gateway_preflight_reason": "ACCEPTANCE_CONTRACT_REQUIRED",
+            "gateway_preflight_blocker_count": 2,
+            "gateway_preflight_blocker_codes": [
+                "ACCEPTANCE_CONTRACT_REQUIRED", "VALIDATION_RUNTIME_UNAVAILABLE"
+            ],
+            "gateway_preflight_recovery_actions": [
+                "DEFINE_ACCEPTANCE_REQUIREMENTS", "PROVISION_VALIDATION_RUNTIME"
+            ],
+            "gateway_preflight_discovery_state": "REVIEW_REQUIRED",
+            "gateway_preflight_candidate_count": 3,
+        }
+        receipt = {
+            "schemaVersion": 2, "area": "GATEWAY", "capturedAtMillis": 1_800_000_000_000,
+            "captureMode": "INCIDENT", "values": values,
+            "unavailableFields": sorted((CORE_FIELDS["GATEWAY"] | GATEWAY_ADMISSION_CORE) - values.keys()),
+        }
+        self.assertEqual(receipt, validate_diagnostics(copy.deepcopy(receipt)))
+        for field, malformed in [
+            ("gateway_preflight_blocker_codes", ["PRIVATE_SOURCE_PATH"]),
+            ("gateway_preflight_recovery_actions", ["RUN_HOST_COMMAND"]),
+            ("gateway_preflight_discovery_state", "PRIVATE_STATUS"),
+            ("gateway_preflight_candidate_count", -1),
+        ]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                forged = copy.deepcopy(receipt)
+                forged["values"][field] = malformed
+                validate_diagnostics(forged)
+
     def capture(self, area="TOOL", values=None):
         values = {
             "incident_phase": "tool_precheck", "causal_provenance": "TOOL_CALL", "causal_id_hash": "a" * 64,
@@ -23,6 +56,82 @@ class IncidentReportContractTest(unittest.TestCase):
         context["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - context.keys())
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
+
+    def test_voice_pronunciation_reason_is_closed_and_contains_no_spoken_word(self):
+        values = {
+            "incident_phase": "voice_playback",
+            "causal_provenance": "UNAVAILABLE",
+            "causal_failure_code": "VOICE_PLAYBACK_FAILED",
+            "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+            "voice_pronunciation_failure_kind": "UNKNOWN_WORD",
+            "voice_pronunciation_unknown_words": 1,
+            "voice_pronunciation_audio_queued": True,
+        }
+        valid = self.capture("VOICE", values)
+        self.assertEqual(valid, validate_diagnostics(copy.deepcopy(valid)))
+        for kind in ("private_spoken_word", "UNKNOWN", "", 4, None):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                forged = copy.deepcopy(valid)
+                forged["values"]["voice_pronunciation_failure_kind"] = kind
+                validate_diagnostics(forged)
+
+    def test_tool_protocol_frame_kind_is_closed_and_private_input_never_published(self):
+        observed = self.capture("PROVIDER", {
+            "provider_failure_code": "TOOL_PROTOCOL_INVALID_FRAME",
+            "tool_protocol_frame_kind": "MALFORMED_JSON",
+        })
+        self.assertEqual(observed, validate_diagnostics(copy.deepcopy(observed)))
+        for invalid in ("private arguments", "OTHER", None, 3):
+            forged = copy.deepcopy(observed)
+            forged["values"]["tool_protocol_frame_kind"] = invalid
+            with self.assertRaises(ValueError):
+                validate_diagnostics(forged)
+
+    def test_pending_gateway_tool_results_accept_closed_handoff_diagnostics(self):
+        capture = self.capture("PROVIDER", {
+            "provider_failure_code": "CLIENT_TOOL_RESULTS_REQUIRED",
+            "conflict_pending_tool_count": 2,
+            "conflict_pending_tool_state": "IDENTIFIED",
+            "conflict_pending_tool_ids_hash": "a" * 64,
+            "conflict_handoff_sequence": 3,
+        })
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for value in ("private job", "CLIENT_TOOL_RESULTS_REQUIRED extra", False, -1):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {"provider_failure_code": value}))
+
+    def test_pr_context_race_capture_is_bounded_and_does_not_reveal_revision_or_cause(self):
+        observed = {"pr_context_revision_changed": True, "pr_context_read_requests": 3, "pr_context_read_responses": 3}
+        capture = self.capture("TOOL", observed)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        report["errorCode"] = "GITHUB_PR_HEAD_CHANGED"
+        _, issue = issue_from_report(report)
+        for field in observed:
+            self.assertIn(f"| {field} |", issue["body"])
+        self.assertNotIn("private-head-sha", issue["body"])
+        self.assertEqual(observed, {field: capture["values"][field] for field in capsule.PR_CONTEXT_RACE_FIELDS})
+        for field, valid, invalid in (
+            ("pr_context_revision_changed", True, ["true", 1, "private", None]),
+            ("pr_context_read_requests", 3, [-1, "3", True, 16000001]),
+            ("pr_context_read_responses", 3, [-1, "3", True, 16000001]),
+        ):
+            for value in invalid:
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("TOOL", {field: value}))
+            for area in CORE_FIELDS.keys() - {"TOOL"}:
+                with self.subTest(field=field, area=area), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture(area, {field: valid}))
+            missing = self.capture("TOOL")
+            missing["unavailableFields"].append(field)
+            with self.assertRaises(ValueError):
+                validate_diagnostics(missing)
+        legacy = {"schemaVersion": 1, "area": "TOOL", "capturedAtMillis": 1000,
+                  "captureMode": "INCIDENT", "values": {}, "unavailableFields": sorted(CORE_FIELDS["TOOL"])}
+        self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        legacy["values"]["pr_context_revision_changed"] = True
+        with self.assertRaises(ValueError):
+            validate_diagnostics(legacy)
 
     def test_search_validation_names_preserve_observed_order_without_private_values_or_siblings(self):
         key = "search_validation_field_names"
@@ -931,6 +1040,35 @@ class IncidentReportContractTest(unittest.TestCase):
         for key in values:
             with self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("VOICE", {key: "raw recorder or speech text"}))
+
+    def test_kokoro_pronunciation_focus_receipt_is_bounded_and_contains_no_spoken_text(self):
+        values = {
+            "voice_playback_failure": "AUDIO_FOCUS_TIMEOUT",
+            "voice_focus_last_transition": "PAUSE",
+            "voice_focus_transition_count": 2,
+            "voice_pronunciation_unknown_words": 1,
+            "voice_pronunciation_initialisms": 3,
+            "voice_pronunciation_audio_queued": True,
+            "voice_pronunciation_first_audio_observed": True,
+        }
+        receipt = self.capture("VOICE", values)
+        validate_diagnostics(receipt)
+        self.assertEqual(values, {key: receipt["values"][key] for key in values})
+        for reason in ("AUDIO_FOCUS_TIMEOUT", "AUDIO_FOCUS_RESUME_FAILED"):
+            validate_diagnostics(self.capture("VOICE", {"voice_playback_failure": reason}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", values))
+        invalid = {
+            "voice_focus_last_transition": "PRIVATE_SPEECH",
+            "voice_focus_transition_count": -1,
+            "voice_pronunciation_unknown_words": 16_000_001,
+            "voice_pronunciation_initialisms": "PRIVATE_SPEECH",
+            "voice_pronunciation_audio_queued": "true",
+            "voice_pronunciation_first_audio_observed": None,
+        }
+        for field, bad in invalid.items():
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {field: bad}))
 
     def test_github_prerequisite_evidence_is_typed_and_keeps_policy_unknown(self):
         values = {"repository_graph_observation": "NOT_INDEXED", "graph_input_blocked_count": 16,

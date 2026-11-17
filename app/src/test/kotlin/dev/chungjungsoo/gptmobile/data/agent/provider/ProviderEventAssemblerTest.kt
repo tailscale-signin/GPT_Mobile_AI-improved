@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatFunctionDelta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -131,6 +132,32 @@ class ProviderEventAssemblerTest {
         assertTrue(assembler.accept(null, null, listOf(ChatToolCallDelta(0, "call_1", function = ChatFunctionDelta("read_", ""))), null).isEmpty())
         val events = assembler.accept(null, null, listOf(ChatToolCallDelta(0, "call_1", function = ChatFunctionDelta("read_file", "{}"))), "tool_calls")
         assertEquals("read_file", events.filterIsInstance<ProviderEvent.ToolCall>().single().name)
+    }
+
+    @Test
+    fun `malformed tool frames retain only closed parser evidence`() {
+        val cases = listOf(
+            Triple("weather", "{", "MALFORMED_JSON"),
+            Triple("weather", "[]", "NON_OBJECT_ARGUMENTS"),
+            Triple(null, "{}", "MISSING_FUNCTION_NAME")
+        )
+        for ((name, arguments, reason) in cases) {
+            val events = ChatCompletionsEventAssembler().accept(
+                null,
+                null,
+                listOf(ChatToolCallDelta(function = ChatFunctionDelta(name, arguments))),
+                "tool_calls"
+            )
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals("TOOL_PROTOCOL_INVALID_FRAME", failure.errorCode)
+            assertEquals(JsonPrimitive(reason), failure.failureDetails?.get("tool_protocol_frame_kind"))
+            assertTrue(events.none { it is ProviderEvent.ToolCall })
+            assertFalse(failure.failureDetails.toString().contains("weather"))
+        }
+        val interrupted = ChatCompletionsEventAssembler()
+        interrupted.accept(null, null, listOf(ChatToolCallDelta(function = ChatFunctionDelta("weather", "{}"))), null)
+        val failure = interrupted.discardIncomplete().single() as ProviderEvent.Failed
+        assertEquals(JsonPrimitive("UNFINISHED_STREAM"), failure.failureDetails?.get("tool_protocol_frame_kind"))
     }
 
     @Test

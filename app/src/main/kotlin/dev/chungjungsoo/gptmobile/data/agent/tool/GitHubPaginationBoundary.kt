@@ -18,17 +18,31 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
 
     private fun key(operation: String, args: JsonObject): String = operation + dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(operation, args)
     private fun page(args: JsonObject) = (args["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
-    private fun numberedRemotePage(args: JsonObject) = "view_cursor" !in args && "index_cursor" !in args && args["action"] !in setOf(JsonPrimitive("workflow_catalog"), JsonPrimitive("search_repository"))
+
+    // The failure digest bounds a search for one failed job. Its continuation
+    // advances that search without publishing a page of workflow jobs.
+    private fun numberedRemotePage(args: JsonObject) = "view_cursor" !in args &&
+        "index_cursor" !in args &&
+        args["action"] !in setOf(
+            JsonPrimitive("workflow_catalog"),
+            JsonPrimitive("search_repository"),
+            JsonPrimitive("ci_failure_digest")
+        )
 
     @Synchronized fun completedPage(operation: String, args: JsonObject): Int? {
         if (!numberedRemotePage(args)) return null
         val key = key(operation, args)
         val end = ends[key]
-        if (args["verify_live"] == JsonPrimitive(true) || page(args) == 1 && end != null) {
-            if (page(args) == 1) {
-                ends.remove(key)
-                traversals.remove(key)
-            }
+        // An explicit live refresh starts a new observation epoch even when the
+        // caller requests a non-first page. Never join a fresh page to stale page 1.
+        if (args["verify_live"] == JsonPrimitive(true)) {
+            ends.remove(key)
+            traversals.remove(key)
+            return null
+        }
+        if (page(args) == 1 && end != null) {
+            ends.remove(key)
+            traversals.remove(key)
             return null
         }
         if (end == null) return null
@@ -42,7 +56,12 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
 
     private fun rows(result: JsonObject): Map<String, JsonArray> {
         val upstream = result["upstream_record_ids"] as? JsonArray
-        return if (!upstream.isNullOrEmpty()) mapOf("upstream_record_ids" to upstream) else result.filter { (name, value) -> name in COLLECTIONS && value is JsonArray }.mapValues { it.value as JsonArray }
+        if (!upstream.isNullOrEmpty()) return mapOf("upstream_record_ids" to upstream)
+        val direct = result.filter { (name, value) -> name in COLLECTIONS && value is JsonArray }.mapValues { it.value as JsonArray }
+        if (direct.isNotEmpty()) return direct
+        // Commit status summaries store the actual check rows inside check_details.
+        val nested = (result["check_details"] as? JsonObject)?.get("check_runs") as? JsonArray
+        return if (nested != null) mapOf("check_runs" to nested) else emptyMap()
     }
 
     private fun identity(collection: String, row: JsonElement): String {
@@ -55,7 +74,41 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     @Synchronized fun assessPage(operation: String, args: JsonObject, result: JsonObject): Assessment {
         if (!numberedRemotePage(args) || "has_more" !in result) return Assessment(result)
         val collections = rows(result)
-        if (collections.isEmpty()) return Assessment(result)
+        if (collections.isEmpty()) {
+            // A successful envelope with no record collection cannot establish
+            // coverage when the provider advertises records or another page.
+            // An explicitly empty terminal result remains valid.
+            val reportedTotal = ((result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")) as? JsonPrimitive)?.content?.toIntOrNull()
+            if ((reportedTotal ?: 0) == 0 && result["has_more"] != JsonPrimitive(true)) return Assessment(result)
+            val number = page(args)
+            val progress = buildJsonObject {
+                put("schema", "github.pagination-progress.v1")
+                put("remote_page", number)
+                put("remote_pages_observed", JsonArray(listOf(JsonPrimitive(number))))
+                put("upstream_rows_returned", 0)
+                put("unique_records_observed", 0)
+                put("new_records_on_page", 0)
+                put("duplicate_records_on_page", 0)
+                reportedTotal?.let { put("reported_total", it) }
+                put("contiguous_from_first_page", number == 1)
+                put("upstream_changed_during_traversal", false)
+                put("complete", false)
+                put("acceptance_status", "NOT_MEASURED")
+            }
+            val withoutContinuations = result.filterKeys {
+                it !in setOf("continuation", "continuation_call", "remote_continuations", "next_page")
+            }
+            val failureBody = buildJsonObject {
+                put("reason", "MISSING_REMOTE_RECORD_COLLECTION")
+                put("complete", false)
+                put("has_more", false)
+                put("traversal_state", "INCOMPLETE")
+                put("upstream_has_more", result["has_more"] ?: JsonPrimitive(false))
+                put("pagination_progress", progress)
+                put("message", "Remote coverage is unverified: no record collection was returned. Refresh page 1 with verify_live=true before accepting evidence.")
+            }
+            return Assessment(JsonObject(withoutContinuations + failureBody), "GITHUB_PAGINATION_INCOMPLETE")
+        }
         val key = key(operation, args)
         val state = traversals.getOrPut(key) { Traversal() }
         if (state.pages.values.any { now() - it.at !in 0..300_000_000_000L }) {
@@ -68,7 +121,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val earlier = state.pages.filterKeys { it < number }.values.flatMapTo(mutableSetOf()) { it.identities }
         val previous = state.pages[number]
         if (previous != null && previous.identities != identities) state.changed = true
-        val total = (result["total_count"] as? JsonPrimitive)?.content?.toIntOrNull()
+        val total = ((result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")) as? JsonPrimitive)?.content?.toIntOrNull()
         if (state.total != null && total != null && state.total != total) state.changed = true
         if (state.total == null) state.total = total
         state.pages[number] = Page(identities, now())

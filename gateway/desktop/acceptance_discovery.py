@@ -8,10 +8,13 @@ from desktop import repository_validation as setup
 from v14.validation_host import command as host_command, environment as host_environment
 
 
-def discover(options, query='', cancel=None, *, source_sha=None, approved_cases=None):
+def discover(options, query='', cancel=None, *, source_sha=None, approved_cases=None,
+             max_files=80, max_candidates=256):
     mirror = setup.mirror_path(options['mirror'])
     if not isinstance(query, str) or len(query) > 200:
         raise ValueError('Use a test filename or path fragment of at most 200 characters.')
+    if type(max_files) is not int or not 1 <= max_files <= 80 or type(max_candidates) is not int or not 1 <= max_candidates <= 256:
+        raise ValueError('Test discovery limits must be explicit and bounded.')
 
     def git(*args):
         setup.cancelled(cancel)
@@ -32,7 +35,7 @@ def discover(options, query='', cancel=None, *, source_sha=None, approved_cases=
                 and path.endswith(('.py', '.kt', '.java'))):
             paths.append((path, fields[2]))
     candidates = []
-    for path, sha in paths[:80]:
+    for path, sha in paths[:max_files]:
         setup.cancelled(cancel)
         if not re.fullmatch('[a-f0-9]{40}', sha):
             raise ValueError('Invalid test blob identity')
@@ -41,10 +44,10 @@ def discover(options, query='', cancel=None, *, source_sha=None, approved_cases=
         text = git('cat-file', 'blob', sha)
         candidates.extend(dict(candidate, source_sha=head, blob_sha=sha) for candidate in parse_tests(path, text)
                           if approved_cases is None or candidate['case_id'] in approved_cases)
-        if len(candidates) >= 256:
+        if len(candidates) >= max_candidates:
             break
-    return {'head_sha': head, 'candidates': candidates[:256], 'matching_files': len(paths),
-            'truncated': len(paths) > 80 or len(candidates) > 256, 'executed': False}
+    return {'head_sha': head, 'candidates': candidates[:max_candidates], 'matching_files': len(paths),
+            'truncated': len(paths) > max_files or len(candidates) > max_candidates, 'executed': False}
 
 
 def parse_tests(path, text):

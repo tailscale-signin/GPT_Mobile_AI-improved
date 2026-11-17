@@ -622,4 +622,28 @@ class BenchmarkRunnerTest {
         assertEquals(benchmarkHash(answer), result.answerHash)
         assertFalse(result.completed)
     }
+
+    @Test
+    fun githubFixtureToolRoundExhaustionIsGradedAsModelFailureNotGatewayFailure() = runTest {
+        val test = GitHubProfileAuditSuite.cases(allActions = false).first()
+        val fixture = requireNotNull(GitHubProfileAuditSuite.fixture(test))
+        var attempts = 0
+        val runner = BenchmarkRunner({ _, supplied ->
+            assertEquals(listOf(fixture.operation), supplied.map { it.definition.name })
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    attempts++
+                    emit(ProviderEvent.ToolCall("wrong-$attempts", fixture.operation, buildJsonObject {}))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+        })
+        val result = runner.run(test, true)
+        assertEquals(3, attempts)
+        assertEquals(3, result.toolCalls)
+        assertEquals(0, result.successfulToolCalls)
+        assertEquals(BenchmarkOutcome.FAILED, result.outcome)
+        assertEquals("MODEL_TOOL_ROUND_LIMIT", result.failureCategory)
+        assertEquals(BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES, result.recoveryAction())
+    }
 }

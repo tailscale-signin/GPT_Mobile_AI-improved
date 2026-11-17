@@ -108,7 +108,8 @@ def request(root, action, timeout=50):
 
 
 class Supervisor:
-    def __init__(self, root):
+    def __init__(self, root, *, headless=False):
+        self.headless = headless
         self.root = Path(root).resolve()
         self.cfg = load(self.root)
         self.token = secrets.token_urlsafe(48)
@@ -133,6 +134,11 @@ class Supervisor:
         status.update(values, updatedAt=time.time())
         atomic_json(self.root / 'status.json', status, retry_windows_sharing=True)
         self.status = status
+
+    def respond(self, payload):
+        # Windows readers can briefly deny a same-directory atomic replacement.
+        # Retry the same fsynced response, preserving the exact request identity.
+        atomic_json(self.root / 'response.json', payload, retry_windows_sharing=True)
 
     def control(self, action=None):
         url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/maintenance'
@@ -326,14 +332,15 @@ class Supervisor:
 
     def start_desktop_observer(self):
         from desktop.dashboard_model import counters, read_snapshot
-        from desktop.tray import TrayIcon
-        def tooltip():
-            snapshot = read_snapshot(self.root)
-            clients, active, _, _ = counters(snapshot)
-            return f'Gateway {self.status.get("state", "starting")} | {clients if clients is not None else "—"} clients | {active if active is not None else "—"} open jobs'
-        self.tray = TrayIcon(tooltip, {
-            'dashboard': lambda: self.open_window('dashboard'), 'settings': lambda: self.open_window('settings'),
-            'restart': lambda: request(self.root, 'restart'), 'stop': lambda: request(self.root, 'stop')}).start()
+        if not self.headless:
+            from desktop.tray import TrayIcon
+            def tooltip():
+                snapshot = read_snapshot(self.root)
+                clients, active, _, _ = counters(snapshot)
+                return f'Gateway {self.status.get("state", "starting")} | {clients if clients is not None else "—"} clients | {active if active is not None else "—"} open jobs'
+            self.tray = TrayIcon(tooltip, {
+                'dashboard': lambda: self.open_window('dashboard'), 'settings': lambda: self.open_window('settings'),
+                'restart': lambda: request(self.root, 'restart'), 'stop': lambda: request(self.root, 'stop')}).start()
         def observe():
             with requests.Session() as client:
                 client.trust_env = False
@@ -362,7 +369,7 @@ class Supervisor:
             self.observer_thread.join(timeout=5)
 
     def notify(self, number):
-        if os.name != 'nt':
+        if self.headless or os.name != 'nt':
             return
         marker = self.root / 'notified.json'
         try:
@@ -384,19 +391,32 @@ class Supervisor:
             return result
         self.start_desktop_observer()
         next_check, next_activate, candidate = time.monotonic() + 30, 0, None
-        crashes = []
+        crashes, retry_at = [], None
         while True:
-            if self.child.poll() is not None:
-                crashes = [t for t in crashes if time.monotonic() - t < 600]
-                if len(crashes) >= 5:
-                    raise RuntimeError('Five unexpected exits within ten minutes; restart stopped')
-                crashes.append(time.monotonic())
-                self.publish(state='recovering')
-                self.startup_reason = 'crash_recovery'
-                time.sleep(min(2 ** len(crashes), 30))
-                result = self.boot()
-                if result:
-                    return result
+            if self.child is None or self.child.poll() is not None:
+                now = time.monotonic()
+                if retry_at is not None and now >= retry_at:
+                    try:
+                        result = self.boot()
+                    except (OSError, RuntimeError, requests.RequestException) as error:
+                        # Restart failures only return to the watchdog when the
+                        # process is gone. Never duplicate a live engine.
+                        if self.child is not None and self.child.poll() is None:
+                            raise
+                        self.log.warning('Gateway recovery boot failed: %s', type(error).__name__)
+                        retry_at = None
+                    else:
+                        if result:
+                            return result
+                        retry_at = None
+                        self.publish(recoveryAttempt=None, recoveryRetryAt=None)
+                if (self.child is None or self.child.poll() is not None) and retry_at is None:
+                    crashes = [t for t in crashes if now - t < 600]
+                    crashes.append(now)
+                    delay = min(300, 2 ** min(9, len(crashes)))
+                    retry_at = now + delay
+                    self.publish(state='recovering', recoveryAttempt=len(crashes), recoveryRetryAt=time.time() + delay)
+                    self.startup_reason = 'crash_recovery'
             request_path = self.root / 'request.json'
             action, ident = None, None
             try:
@@ -413,17 +433,19 @@ class Supervisor:
                 current_cfg = load(self.root)
                 if action in {'stop', 'restart'}:
                     accepted = self.stop()
-                    atomic_json(self.root / 'response.json', {'id': ident, 'accepted': accepted, 'error': 'Active work must finish before restarting'})
+                    self.respond({'id': ident, 'accepted': accepted, 'error': 'Active work must finish before restarting'})
                     if accepted:
                         self.publish(state='stopped')
                         return RESTART if action == 'restart' else 0
                 elif action == 'export-debug':
                     self.export_diagnostics()
-                    atomic_json(self.root / 'response.json', {'id': ident, 'accepted': True})
+                    self.respond({'id': ident, 'accepted': True})
                     # Do not acknowledge this request again through update checks.
                     ident = None
                 elif action not in {None, 'check', 'install'}:
                     raise ValueError('Unknown manager command')
+                if action == 'install' and retry_at is not None:
+                    raise RuntimeError('Install is available when Gateway has recovered')
                 if action in {'check', 'install'} or current_cfg['update_mode'] != 'off' and time.monotonic() >= next_check:
                     candidate = releases.check(read_pointer(self.root)['version'])
                     next_check = time.monotonic() + current_cfg['update_interval_hours'] * 3600
@@ -431,10 +453,10 @@ class Supervisor:
                     if candidate and current_cfg['update_mode'] == 'notify':
                         self.notify(candidate['version'])
                     if ident:
-                        atomic_json(self.root / 'response.json', {'id': ident, 'accepted': True})
+                        self.respond({'id': ident, 'accepted': True})
                 automatic = current_cfg['update_mode'] == 'auto' and time.monotonic() >= next_activate
                 failed = read_pointer(self.root).get('failedVersion')
-                if candidate and (action == 'install' or automatic and candidate['version'] != failed):
+                if retry_at is None and candidate and (action == 'install' or automatic and candidate['version'] != failed):
                     self.publish(updateState='downloading')
                     self.stage(candidate)
                     next_activate = time.monotonic() + 60
@@ -446,11 +468,11 @@ class Supervisor:
                 next_check = time.monotonic() + 3600
                 next_activate = time.monotonic() + 3600
                 if ident:
-                    atomic_json(self.root / 'response.json', {'id': ident, 'accepted': False, 'error': str(exc)})
+                    self.respond({'id': ident, 'accepted': False, 'error': str(exc)})
             time.sleep(.5)
 
 
-def supervise(root):
+def supervise(root, *, headless=False):
     lock = StateDirectoryLock(Path(root) / 'manager.sqlite3')
     try:
         lock.acquire()
@@ -458,7 +480,7 @@ def supervise(root):
         return 0  # Idempotent launch; existing process continues.
     manager = None
     try:
-        manager = Supervisor(root)
+        manager = Supervisor(root, headless=headless)
         return manager.run()
     except Exception as exc:
         if manager:

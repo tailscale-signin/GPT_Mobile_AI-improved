@@ -64,6 +64,14 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertEqual([2], scan.findings(b'line1\n' + b'ghp_' + b'A' * 36))
         self.assertEqual([], scan.findings(b'no secrets here'))
 
+    def test_github_workspace_appearance_preferences_remain_off_main_thread(self):
+        source = (SCRIPTS.parent / 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt').read_text()
+        self.assertNotIn('remember(workspaceContext) { workspaceContext.getSharedPreferences', source)
+        self.assertIn('withContext(Dispatchers.IO)', source)
+        self.assertIn('scope.launch(Dispatchers.IO)', source)
+        self.assertIn('if (!fadePreferenceTouched)', source)
+        self.assertIn('fadePreferenceTouched = true', source)
+
 
 class WorkflowPolicyTest(unittest.TestCase):
     def test_floating_action_rejected_and_sha_accepted(self):
@@ -85,6 +93,56 @@ class WorkflowPolicyTest(unittest.TestCase):
             required_review_thread_resolution=False,
         )
         self.assertGreaterEqual(len(policy.check_ruleset(weakened)), 4)
+
+
+    def test_diagnostic_lint_deadline_preserves_full_analysis_and_artifact_budget(self):
+        # Run 43968609247 passed unit tests and APK, but lint analysis was
+        # killed by its own 2040-second deadline without a lint finding.
+        import re
+
+        workflow = (SCRIPTS.parent / '.github/workflows/audit-workspace.yml').read_text()
+        android = workflow.split('\n  android:\n', 1)[1]
+        job_minutes = int(re.search(r'(?m)^    timeout-minutes: (\d+)$', android).group(1))
+        lint = android.split('\n      - name: Android lint\n', 1)[1].split('\n      - uses:', 1)[0]
+        step_minutes = int(re.search(r'(?m)^        timeout-minutes: (\d+)$', lint).group(1))
+        process_seconds = int(re.search(r'--timeout-seconds (\d+)', lint).group(1))
+
+        self.assertGreaterEqual(step_minutes, 65)
+        self.assertGreaterEqual(process_seconds, 3840)
+        self.assertLessEqual(process_seconds, step_minutes * 60 - 60)
+        # Lint began 57 minutes after job start in the observed failed run.
+        self.assertLessEqual(57 + step_minutes + 10, job_minutes)
+        self.assertIn(':app:lintDebug', lint)
+        self.assertIn('set -o pipefail', lint)
+        self.assertNotIn('continue-on-error: true', lint)
+
+
+    def test_pr_unit_coverage_budget_preserves_strict_gates(self):
+        # Run 43988347373 exhausted the old 25-minute unit step mid-suite.
+        workflow = (SCRIPTS.parent / '.github/workflows/pr-validation.yml').read_text()
+        validate = workflow.split('  validate:', 1)[1].split('  android_lint:', 1)[0]
+        unit = validate.split(
+            '      - name: Run Unit Tests & JaCoCo Coverage Report', 1
+        )[1].split('      - name: Collect named audit qualification', 1)[0]
+        job_minutes = next(
+            int(line.split(':', 1)[1].strip())
+            for line in validate.splitlines()
+            if line.startswith('    timeout-minutes: ')
+        )
+        step_minutes = next(
+            int(line.split(':', 1)[1].strip())
+            for line in unit.splitlines()
+            if line.startswith('        timeout-minutes: ')
+        )
+        self.assertGreaterEqual(step_minutes, 55)
+        self.assertGreaterEqual(job_minutes, step_minutes + 60)
+        for required in (':core-domain:jvmTest', ':app:testDebugUnitTest',
+                         ':app:jacocoTestReport', '--rerun', 'check_jacoco_coverage.py',
+                         'set -o pipefail', 'exit 1'):
+            self.assertIn(required, unit)
+        self.assertNotIn('continue-on-error: true', unit)
+        self.assertIn('fail_on_failure: true', validate)
+        self.assertIn('require_tests: true', validate)
 
 
 class WorkflowHealthTest(unittest.TestCase):

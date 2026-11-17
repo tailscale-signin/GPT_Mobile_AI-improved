@@ -155,9 +155,9 @@ internal class GitHubOperationTool(
                 )
             }
             val cursor = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-                ?: return AgentToolResult(callId, ToolResultContent.Text("view_cursor must be the exact saved cursor string."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+                ?: return malformedSavedCursor(callId, "view_cursor must be the exact saved cursor string.")
             if (!cursor.contains(':')) {
-                return AgentToolResult(callId, ToolResultContent.Text("Invalid saved-view cursor. Use the exact continuation_call arguments returned by the previous result. To read an evidence_id, omit view_cursor and provide evidence_id alone with the repository context."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+                return malformedSavedCursor(callId, "Invalid saved-view cursor. Use the exact continuation_call arguments returned by the previous result. To read an evidence_id, omit view_cursor and provide evidence_id alone with the repository context.")
             }
             val context = JsonObject(arguments - "view_cursor")
             var saved = views.read(scope, operation, definition.name, cursor, callId, context)
@@ -473,7 +473,8 @@ internal class GitHubOperationTool(
         }
         val outputAllowance = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance]?.bytes ?: 8 * 1024
         val body = (paged.content as? ToolResultContent.Json)?.value as? JsonObject ?: data
-        val projected = body?.let { dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project(operation, effectiveArguments, it) }
+        val retainedSource = (paged.retainedContent as? ToolResultContent.Json)?.value
+        val projected = body?.let { dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project(operation, effectiveArguments, it, retainedSource ?: it) }
         val presented = if (projected != null && projected != body && !paged.isError) {
             paged.copy(content = ToolResultContent.Json(projected), retainedContent = paged.retainedContent ?: paged.content)
         } else {
@@ -481,6 +482,18 @@ internal class GitHubOperationTool(
         }
         return retainSavedView(views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance))
     }
+
+    private fun malformedSavedCursor(callId: String, message: String) = AgentToolResult(
+        callId,
+        ToolResultContent.Text(message),
+        true,
+        errorCode = "INVALID_ARGUMENTS",
+        dispatched = false,
+        executionReceipt = buildJsonObject {
+            put("reason_code", "SAVED_VIEW_CURSOR_MALFORMED")
+            put("phase", "PREFLIGHT_REJECTED")
+        }
+    )
 
     /** Original rows stay intact, but every consumer must see the same traversal state and exact recipe. */
     private fun withPaginationState(result: AgentToolResult, data: JsonObject): AgentToolResult {

@@ -235,4 +235,69 @@ class BenchmarkBatchRunnerTest {
             store.close()
         }
     }
+
+    @Test fun githubQuickAuditPreflightFailureKeepsOnlySelectedFourteenCases() = runBlocking {
+        val store = BenchmarkStore(context)
+        try {
+            val selected = GitHubProfileAuditSuite.cases(allActions = false)
+            assertEquals(14, selected.size)
+            val profile = profiles.first()
+            val accepted = BenchmarkBatch(
+                "github-quick-preflight-failure",
+                BenchmarkMode.GITHUB_INTEGRATION,
+                1,
+                listOf(BenchmarkQueueItem(0, profile.benchmarkSnapshot(), "github-quick-failure", benchmarkConfigKey(profile))),
+                caseManifest = selected
+            )
+            store.checkpoint(accepted, event = "MANIFEST_SAVED")
+            runner(store, savedProfiles = listOf(profile)) {
+                throw CancellationException("provider preflight child cancelled")
+            }.run(accepted.id) {}
+            val run = store.history.value.single { it.batchId == accepted.id }
+            assertEquals(14, run.plannedTrials)
+            assertEquals(selected.map { it.id }, run.caseManifest?.map { it.id })
+            assertEquals(selected.map { it.id }, run.samples.map { it.testId })
+            assertEquals(0, benchmarkCoverage(run).executed)
+            assertEquals(14, benchmarkCoverage(run).accounted)
+            assertTrue(run.samples.all { it.requestDispatched == false })
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test fun githubQuickAuditUserSkipDoesNotAddDuplicateOrPretendProviderFailure() = runBlocking {
+        val store = BenchmarkStore(context)
+        try {
+            val selected = GitHubProfileAuditSuite.cases(allActions = false)
+            val profile = profiles.first()
+            val accepted = BenchmarkBatch(
+                "github-quick-user-skip",
+                BenchmarkMode.GITHUB_INTEGRATION,
+                1,
+                listOf(BenchmarkQueueItem(0, profile.benchmarkSnapshot(), "github-quick-skip-run", benchmarkConfigKey(profile))),
+                caseManifest = selected
+            )
+            store.checkpoint(accepted, event = "MANIFEST_SAVED")
+            val entered = CompletableDeferred<Unit>()
+            val batchRunner = runner(store, savedProfiles = listOf(profile)) {
+                entered.complete(Unit)
+                awaitCancellation()
+            }
+            val running = launch { batchRunner.run(accepted.id) {} }
+            entered.await()
+            assertTrue(batchRunner.requestStop(accepted.id, BenchmarkStopOrigin.USER_SKIP))
+            running.join()
+            val run = store.history.value.single { it.batchId == accepted.id }
+            assertEquals(BenchmarkQueueState.SKIPPED, checkNotNull(store.batch(accepted.id)).items.single().state)
+            assertEquals(BenchmarkStopOrigin.USER_SKIP, run.cancellationOrigin)
+            assertEquals(14, run.plannedTrials)
+            assertEquals(selected.map { it.id }, run.caseManifest?.map { it.id })
+            assertEquals(selected.map { it.id }, run.samples.map { it.testId })
+            assertEquals(14, benchmarkCoverage(run).accounted)
+            assertEquals(0, benchmarkCoverage(run).executed)
+            assertEquals(BenchmarkOutcome.SKIPPED, run.samples.first().outcome)
+        } finally {
+            store.close()
+        }
+    }
 }

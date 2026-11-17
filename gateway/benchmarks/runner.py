@@ -5,14 +5,110 @@ import random
 import re
 import threading
 import time
+import traceback
 
 import requests
 
-from benchmark_selected_model import BenchmarkInterrupted, measure
+from benchmark_selected_model import BenchmarkInterrupted, BenchmarkInvocationError, OUTPUT_LIMIT, measure
 from benchmarks import coding, fixtures, sandbox
 from benchmarks.contracts import coding_score, coverage, digest, paired_summary
 from desktop.benchmark import CASES, client_session, get_json, matches, models
 from v14 import VERSION
+
+
+def benchmark_error_receipt(error, stage):
+    """Retain a bounded failure category and phase, never raw provider text.
+
+    Unknown model/transport outcomes must not be relabelled as invalid model
+    patches or treated as permission to replay an uncertain HTTP request.
+    """
+    known = {'SELECTED_EXECUTION_CHANGED', 'GATEWAY_NOT_READY',
+             'SELECTED_MODEL_NOT_ADVERTISED', 'GATEWAY_INSTANCE_CHANGED'}
+    if isinstance(error, BenchmarkInvocationError):
+        code = error.code
+    elif isinstance(error, requests.Timeout):
+        code = 'BENCHMARK_TRANSPORT_TIMEOUT'
+    elif isinstance(error, requests.ConnectionError):
+        code = 'BENCHMARK_CONNECTION_FAILED'
+    elif isinstance(error, requests.HTTPError):
+        code = 'BENCHMARK_HTTP_ERROR'
+    elif isinstance(error, requests.RequestException):
+        code = 'BENCHMARK_TRANSPORT_ERROR'
+    elif isinstance(error, TimeoutError):
+        code = 'BENCHMARK_LOCAL_TIMEOUT'
+    elif isinstance(error, TypeError):
+        code = 'BENCHMARK_RESPONSE_TYPE_ERROR'
+    elif isinstance(error, ValueError):
+        code = str(error) if str(error) in known else 'BENCHMARK_VALUE_ERROR'
+    else:
+        code = 'BENCHMARK_UNCLASSIFIED_ERROR'
+    result = {'error': type(error).__name__, 'errorCode': code, 'failureStage': stage}
+    frames = traceback.extract_tb(error.__traceback__, limit=-8)
+    if frames:
+        # Only a digest of code coordinates, never a path, source line or message.
+        result['failureFingerprint'] = digest([(frame.name, frame.lineno) for frame in frames])
+    if isinstance(error, BenchmarkInvocationError):
+        if error.admission_code is not None:
+            result['admissionCode'] = error.admission_code
+        if error.status is not None:
+            result['httpStatus'] = error.status
+        if error.job_id is not None:
+            result.update(gatewayJobId=error.job_id, requestOutcome='OBSERVATION_FAILED')
+        elif error.pre_dispatch or error.status in {400, 401, 403, 404, 409, 413, 422}:
+            result['requestOutcome'] = 'REJECTED'
+        else:
+            result['requestOutcome'] = 'UNKNOWN'
+        if error.settlement is not None:
+            result['jobSettlement'] = error.settlement
+        if error.pre_dispatch and error.job_id is None:
+            result['dispatchState'] = 'NOT_DISPATCHED'
+        if error.retry_after is not None:
+            result['retryAfterSeconds'] = error.retry_after
+    if isinstance(error, requests.RequestException):
+        # The server may have accepted the request before the client failed.
+        result['requestOutcome'] = 'UNKNOWN'
+        response = getattr(error, 'response', None)
+        status = getattr(response, 'status_code', None)
+        if type(status) is int and 100 <= status <= 599:
+            result['httpStatus'] = status
+    return result
+
+
+def best_verified_attempt_index(attempts):
+    """Retain the strongest measured repair without hiding unsafe attempts.
+
+    Every attempted candidate remains in the evidence journal. Never promote an
+    unexecuted/unknown observation or roll back a terminal integrity violation.
+    """
+    last = len(attempts) - 1
+    if last < 1 or attempts[last].get('status') not in {'FAILED', 'BLOCKED'} or any(
+            row.get('integrity') == 'VIOLATION' for row in attempts):
+        return last
+
+    def rank(case):
+        if (case.get('status') not in {'FAILED', 'BLOCKED'} or case.get('integrity') != 'VERIFIED'
+                or case.get('executed') is not True or case.get('graded') is not True):
+            return None
+        checks = case.get('checks')
+        if not isinstance(checks, dict):
+            return None
+        hidden, total = checks.get('hiddenPassed'), checks.get('hiddenTotal')
+        replay, replay_total = checks.get('replayPassed'), checks.get('replayTotal')
+        if (type(hidden) is not int or type(total) is not int or not 0 <= hidden <= total
+                or total == 0 or type(replay) is not int or type(replay_total) is not int
+                or not 0 <= replay <= replay_total or replay_total == 0):
+            return None
+        earned = case.get('earned', 0)
+        earned = float(earned) if type(earned) in (int, float) else 0.0
+        detected = checks.get('independentDefectsCaught', 0)
+        return (hidden / total, replay / replay_total, detected if type(detected) is int else 0, earned)
+
+    if attempts[last].get('status') == 'BLOCKED' and rank(attempts[last]) is None:
+        return last
+    candidates = [(rank(row), index) for index, row in enumerate(attempts)]
+    candidates = [(quality, index) for quality, index in candidates if quality is not None]
+    # Prefer a physical measurement over a reused evaluation at equal quality.
+    return max(candidates, default=(None, last), key=lambda item: (item[0] is not None, item[0] or (), not attempts[item[1]].get('evaluationReused'), item[1]))[1]
 
 
 class BenchmarkRunner:
@@ -57,14 +153,14 @@ class BenchmarkRunner:
         if self.identity() != run['provenance']['executionIdentity']:
             raise ValueError('SELECTED_EXECUTION_CHANGED')
 
-    def measure_case(self, run, name, turns, expected, *, validate=None, output_tokens=512):
+    def measure_case(self, run, name, turns, expected, *, validate=None, output_tokens=512, output_format=None, on_admitted=None):
         self.guard(run)
         try:
             with client_session() as client:
                 measured = measure(client.post, self.origin, run['request']['model'], turns,
                                    output_tokens=output_tokens, validate_output=validate or (lambda text: matches(text, expected)),
                                    gateway_options={'store_conversation': False, 'budget': {'totalDeadlineMs': 120000}},
-                                   cancel_event=self.cancelled, cancel_request=self.cancel_request)
+                                   cancel_event=self.cancelled, cancel_request=self.cancel_request, output_format=output_format, on_admitted=on_admitted)
         except BenchmarkInterrupted as error:
             with self.receipt_lock:
                 self.cancellation_receipts.append(dict(error.cancellation, case=name))
@@ -79,7 +175,8 @@ class BenchmarkRunner:
                 'gapMs': measured['maximumContentGapMs'], 'inputTokens': usage.get('prompt_tokens'),
                 'outputTokens': usage.get('completion_tokens'),
                 'tokensPerSecond': 1000 * tokens / elapsed if tokens and elapsed else None,
-                'outputDigest': measured['outputSha256'], 'finishReason': measured['finishReason'],
+                'outputDigest': measured['outputSha256'], 'outputBytes': measured['outputBytes'],
+                'finishReason': measured['finishReason'],
                 'requestedModel': run['request']['model'], 'transport': 'HTTP_SSE',
                 'observedModel': measured['observedModel'], 'modelReceipt': measured['modelReceipt'],
                 'identityScope': measured['identityScope'], 'gatewayJobId': measured['gatewayJobId'],
@@ -125,7 +222,7 @@ class BenchmarkRunner:
                 case = self.measure_case(run, name, turns, expected)
             except (requests.RequestException, TimeoutError, ValueError, TypeError) as error:
                 case = {'id': name, 'name': name, 'status': 'ERROR', 'executed': None, 'graded': False,
-                        'error': type(error).__name__}
+                        **benchmark_error_receipt(error, 'MODEL_INVOCATION')}
             cases.append(case)
             self.checkpoint(run, ordinal, case)
         complete = all(c['graded'] for c in cases)
@@ -163,17 +260,37 @@ class BenchmarkRunner:
                         self.cancelled.set()
                         raise
                     except (requests.RequestException, TimeoutError, ValueError, TypeError) as error:
-                        return {'id': name, 'status': 'ERROR', 'executed': None, 'graded': False, 'error': type(error).__name__}
+                        return {'id': name, 'status': 'ERROR', 'executed': None, 'graded': False,
+                                **benchmark_error_receipt(error, 'MODEL_INVOCATION')}
                 if arm == 'sequential':
                     samples = [sample(entry) for entry in CASES]
                 else:
                     with ThreadPoolExecutor(max_workers=width, thread_name_prefix='benchmark-request') as pool:
-                        futures = {pool.submit(sample, entry): index for index, entry in enumerate(CASES)}
-                        results = {}
+                        # Submit only the admitted wave. Previously every trial
+                        # was queued at once, making cancellation race with
+                        # already-scheduled work beyond the requested width.
+                        futures, results = {}, {}
+                        next_index = 0
+
+                        def admit_one():
+                            nonlocal next_index
+                            if next_index >= len(CASES) or self.cancelled.is_set():
+                                return
+                            future = pool.submit(sample, CASES[next_index])
+                            futures[future] = next_index
+                            next_index += 1
+
+                        for _ in range(min(width, len(CASES))):
+                            admit_one()
                         try:
-                            for future in as_completed(futures):
-                                results[futures[future]] = future.result()
+                            while futures:
+                                future = next(as_completed(tuple(futures)))
+                                index = futures.pop(future)
+                                results[index] = future.result()
+                                admit_one()
                         except InterruptedError:
+                            # Wait for already-admitted observations to settle;
+                            # no additional trial may be dispatched.
                             self.cancelled.set()
                             for pending in futures:
                                 pending.cancel()
@@ -204,10 +321,13 @@ class BenchmarkRunner:
     def sandbox_interrupted(self, run, ordinal, task, error, stage, attempts=(), timing=None):
         receipt = dict(error.cancellation, case=task['id'], stage=stage)
         with self.receipt_lock:
-            self.cancellation_receipts.append(dict(error.cancellation))
+            self.cancellation_receipts.append(dict(receipt))
         observed = error.observation or {}
         case = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
-        case.update(status='INTERRUPTED', executed=observed.get('executed') if stage == 'CANDIDATE' else False, graded=False, resolved=False,
+        previous = self.store.get(run['id'])
+        checkpoint = next((item for item in previous.get('activeCases', []) if item.get('id') == task['id']), {})
+        case.update(startedAt=checkpoint.get('startedAt'), endedAt=time.time(), phase=stage,
+                    status='INTERRUPTED', executed=observed.get('executed') if stage == 'CANDIDATE' else False, graded=False, resolved=False,
                     score=None, integrity='VERIFIED', error='SANDBOX_CLEANUP_UNCONFIRMED' if receipt['outcome'] == 'unknown' else 'BENCHMARK_STOPPED',
                     dimensions={key: None for key in coding.CODING_WEIGHTS}, cancellation=receipt,
                     sandboxObservation={key: observed[key] for key in ('status', 'executed', 'error', 'exitCode', 'outputDigest', 'durationMs') if key in observed})
@@ -220,13 +340,18 @@ class BenchmarkRunner:
 
     def code(self, run):
         tasks = fixtures.suite(run['request']['preset'], run['request']['seed'])
-        self.store.update(run['id'], planned=len(tasks), progress='Checking isolated evaluator')
+        self.store.update(run['id'], planned=len(tasks), casePlan=[task['id'] for task in tasks],
+                          progress='Checking isolated evaluator')
         settings = self.settings()
         docker = sandbox.preflight(settings)
         cases = []
         for ordinal, task in enumerate(tasks):
             self.guard(run)
             self.store.update(run['id'], progress=f'{ordinal + 1}/{len(tasks)} · {task["title"]}')
+            started_at = time.time()
+            active = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
+            active.update(status='RUNNING', startedAt=started_at, phase='REFERENCE', executed=False, graded=False)
+            self.store.case(run['id'], ordinal, active)
             # Pin a fresh, trusted reference evaluation before trusting this
             # task's environment; its expected answers remain outside Docker.
             try:
@@ -239,19 +364,85 @@ class BenchmarkRunner:
                 raise sandbox.SandboxUnavailable('The trusted reference failed in this sandbox; no model score was recorded.')
             turns = [{'role': 'user', 'content': fixtures.prompt(task)}]
             attempts = []
+            evaluated_attempts = []
+            verified_candidates = {}
             final = None
+            allowance, output_format = 4096, {'type': 'json_object'}
             for attempt in range(settings['repair_attempts'] + 1):
                 answer = []
+                admission_rejections = []
+                retried_transient = False
                 timing = None
+                phase = 'MODEL_INVOCATION'
                 def capture(text):
                     answer.append(text)
                     return True
+                def record_invocation(**fields):
+                    self.store.case(run['id'], ordinal, dict(active, phase='MODEL_INVOCATION', attempt=attempt + 1,
+                                                            attempts=attempts, admissionRejections=admission_rejections, **fields))
                 try:
-                    timing = self.measure_case(run, task['id'], turns, None, validate=capture, output_tokens=4096)
-                    final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker,
-                                         execute=lambda *args, **kwargs: self.execute_sandbox(run, *args, **kwargs))
+                    record_invocation()
+                    # Reduce the requested cap only after typed context rejection.
+                    # An admitted Gateway job must first be confirmed settled.
+                    while True:
+                        try:
+                            timing = self.measure_case(run, task['id'], turns, None, validate=capture,
+                                                       output_tokens=allowance, output_format=output_format,
+                                                       on_admitted=lambda job_id: record_invocation(gatewayJobId=job_id))
+                            break
+                        except BenchmarkInvocationError as error:
+                            rejected_before_admission = error.job_id is None and error.status in {400, 409, 413, 422}
+                            settled_context_guard = (error.code == 'BENCHMARK_STREAM_REJECTED' and error.job_id is not None
+                                                     and error.settlement in {'confirmed', 'terminal'}
+                                                     and error.admission_code == 'context_budget_exceeded')
+                            if error.job_id is not None and not settled_context_guard:
+                                raise
+                            next_allowance, next_format, delay = allowance, output_format, 0
+                            context_rejected = error.admission_code in {
+                                'EXECUTION_CONTEXT_EXHAUSTED', 'EXECUTION_OUTPUT_LIMIT', 'CONTEXT_LIMIT_EXCEEDED',
+                                'context_length_exceeded', 'context_budget_exceeded',
+                            }
+                            if allowance > 1024 and (settled_context_guard or rejected_before_admission and context_rejected):
+                                next_allowance = allowance // 2
+                            elif error.status in {400, 422} and error.admission_code == 'unsupported_response_format' and output_format:
+                                next_format = None
+                            elif (error.pre_dispatch and error.status in {429, 503} and not retried_transient and
+                                  (error.retry_after is None or error.retry_after <= 10)):
+                                retried_transient = True
+                                delay = max(1, error.retry_after or 0)
+                            else:
+                                raise
+                            admission_rejections.append(dict(benchmark_error_receipt(error, phase), outputAllowance=allowance))
+                            record_invocation()
+                            allowance, output_format = next_allowance, next_format
+                            if delay and self.cancelled.wait(delay):
+                                raise InterruptedError('Benchmark stopped during retry wait')
+                    # A terminated-at-max-tokens response is not an anchor error.
+                    # Never pass a truncated JSON proposal into the evaluator.
+                    finish = timing.get('finishReason')
+                    if finish != 'stop':
+                        code = 'PATCH_OUTPUT_TRUNCATED' if finish == 'length' else 'PATCH_GENERATION_INCOMPLETE'
+                        final = coding.rejected_submission(task, code)
+                    elif not answer:
+                        code = 'PATCH_OUTPUT_TOO_LARGE' if timing.get('outputBytes', 0) > OUTPUT_LIMIT else 'PATCH_JSON_INVALID'
+                        final = coding.rejected_submission(task, code)
+                    else:
+                        phase = 'CANDIDATE_EVALUATION'
+                        self.store.case(run['id'], ordinal, dict(active, phase=phase, attempt=attempt + 1,
+                                                                attempts=attempts, gatewayJobId=timing.get('gatewayJobId')))
+                        final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker, prior=verified_candidates,
+                                             execute=lambda *args, **kwargs: self.execute_sandbox(run, *args, **kwargs))
+                    final = dict(final, outputAllowance=allowance, admissionRejections=admission_rejections,
+                                 outputFormat='JSON_OBJECT' if output_format else 'PROMPT_JSON')
                     final['timing'] = {key: timing.get(key) for key in ('firstMs', 'totalMs', 'inputTokens', 'outputTokens', 'finishReason')}
-                    final.update({key: timing.get(key) for key in ('observedModel', 'modelReceipt', 'identityScope', 'gatewayJobId')})
+                    # Case-level evidence is sufficient for later issue triage
+                    # without storing unapproved model-generated patch content.
+                    final.update({key: timing.get(key) for key in (
+                        'observedModel', 'modelReceipt', 'identityScope', 'gatewayJobId')})
+                    # The sandbox's outputDigest measures executed candidate
+                    # outputs; a model submission has a separate digest.
+                    final['submissionDigest'] = timing.get('outputDigest')
+                    final['submissionBytes'] = timing.get('outputBytes')
                 except sandbox.SandboxInterrupted as error:
                     self.sandbox_interrupted(run, ordinal, task, error, 'CANDIDATE', attempts, timing)
                     raise
@@ -260,19 +451,35 @@ class BenchmarkRunner:
                         raise
                     final = {'id': task['id'], 'family': task['family'], 'title': task['title'], 'capstone': task['capstone'],
                              'status': 'ERROR', 'executed': None, 'graded': False, 'resolved': False,
-                             'integrity': 'VERIFIED', 'error': type(error).__name__, 'dimensions': {key: None for key in coding.CODING_WEIGHTS}}
+                             'integrity': 'VERIFIED', **benchmark_error_receipt(error, phase),
+                             'admissionRejections': admission_rejections,
+                             'dimensions': {key: None for key in coding.CODING_WEIGHTS}}
+                evaluated_attempts.append(final)
                 attempts.append({key: value for key, value in final.items() if key not in {'dimensionDefinitions'}})
-                self.store.case(run['id'], ordinal, dict(final, status='RUNNING', graded=False, attempts=list(attempts), repairBudget=settings['repair_attempts']))
-                # A missing evaluator proof cannot be repaired by another model
-                # proposal. Observed candidate failures remain repairable.
-                if final.get('resolved') or final.get('integrity') == 'VIOLATION' or final['status'] in {'ERROR', 'BLOCKED'}:
+                self.store.case(run['id'], ordinal, dict(final, status='RUNNING', startedAt=started_at, phase='ATTEMPT_RECORDED', graded=False,
+                                                             attempts=list(attempts), repairBudget=settings['repair_attempts']))
+                # A model repair can improve regression vectors, but cannot
+                # manufacture missing grader authority over input preservation.
+                evaluator_only = final['status'] == 'BLOCKED' and not final.get('uncoveredDefectModules')
+                if final.get('resolved') or final.get('integrity') == 'VIOLATION' or final['status'] == 'ERROR' or evaluator_only:
                     break
-                turns = [{'role': 'user', 'content': fixtures.prompt(task)},
-                         {'role': 'assistant', 'content': answer[0] if answer else '{}'},
-                         {'role': 'user', 'content': 'The independent evaluator did not resolve the task. '
-                          + json.dumps({key: final.get(key) for key in ('error', 'checks')})
-                          + '. Return a full corrected proposal against the original displayed files. Hidden answers remain unavailable.'}]
+                # Do not reintroduce a full, possibly truncated assistant answer:
+                # that wastes scarce local context and can repeat malformed data.
+                feedback = {key: final[key] for key in ('error', 'failureStage', 'repairHint', 'parserLocation', 'checks', 'uncoveredDefectModules') if final.get(key) is not None}
+                if final.get('evaluationReused'):
+                    feedback['next'] = 'The previous proposal was already evaluated. Change the repair or supply a different regression vector.'
+                turns = [{'role': 'user', 'content': fixtures.prompt(task) +
+                          '\nPrevious submission failed independent validation: ' +
+                          json.dumps(feedback, sort_keys=True, ensure_ascii=True) +
+                          '\nReturn ONE concise complete JSON proposal for the ORIGINAL displayed files. '
+                          'Use their exact BLOB hashes and unique anchors. No Markdown; do not claim tests ran.'}]
+            selected_index = best_verified_attempt_index(attempts)
+            final = dict(evaluated_attempts[selected_index])
+            final['selectedAttempt'] = selected_index + 1
+            final['attemptSelection'] = 'BEST_VERIFIED_MEASURED' if selected_index != len(attempts) - 1 else 'LATEST'
             final['attempts'] = attempts
+            final['startedAt'] = started_at
+            final['endedAt'] = time.time()
             final['firstSubmissionScore'] = attempts[0].get('score')
             final['firstSubmissionResolved'] = attempts[0].get('resolved', False)
             final['repairBudget'] = settings['repair_attempts']

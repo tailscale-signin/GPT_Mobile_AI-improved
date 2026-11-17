@@ -18,7 +18,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from benchmarks.contracts import TERMINAL, digest, validate_request
-from benchmarks.runner import BenchmarkRunner
+from benchmarks.runner import BenchmarkRunner, benchmark_error_receipt
 from benchmarks import sandbox
 from benchmarks.sandbox import SandboxUnavailable
 from benchmarks.settings import load_settings
@@ -69,7 +69,9 @@ class BenchmarkService:
                 'manifestDigest': hashlib.sha256(raw).hexdigest() if raw else None,
                 'executionIdentity': self.identity(), 'instanceId': self.runtime.gateway_service.instance_id,
                 'modelArtifact': None, 'runtimeBuild': None, 'gpu': None,
-                'settingsEvidence': 'REQUESTED_MODEL_HTTP_RECEIPTS', 'nativeBatching': 'NOT_VERIFIED'}
+                'settingsEvidence': 'REQUESTED_MODEL_HTTP_RECEIPTS', 'nativeBatching': 'NOT_VERIFIED',
+                'provenanceCoverage': {'modelArtifact': 'NOT_MEASURED', 'runtimeBuild': 'NOT_MEASURED',
+                                       'gpu': 'NOT_MEASURED', 'quantization': 'NOT_MEASURED'}}
 
     def snapshot(self):
         with self.lock:
@@ -208,8 +210,17 @@ class BenchmarkService:
             self.store.update(ident, state='COMPLETED', summary=summary, endedAt=time.time(), progress='Results saved')
         except InterruptedError as error:
             receipts = getattr(runner, 'cancellation_receipts', [])
-            if getattr(error, 'cancellation', None) and error.cancellation not in receipts:
-                receipts = [*receipts, error.cancellation]
+            # The runner's richer case receipt and the raised exception can
+            # describe the same cancelled HTTP job. Keep the case/stage while
+            # avoiding duplicate shutdown requests in the final evidence.
+            raised = getattr(error, 'cancellation', None)
+            if raised:
+                key = 'jobId' if raised.get('jobId') else 'container' if raised.get('container') else None
+                seen = any(row.get('outcome') == raised.get('outcome') and
+                           (row.get(key) == raised.get(key) if key else row == raised)
+                           for row in receipts)
+                if not seen:
+                    receipts = [*receipts, raised]
             unknown = any(row.get('outcome') not in {'confirmed', 'terminal', 'not_canceled'} for row in receipts)
             state = 'INTERRUPTED' if self.stop.is_set() or unknown else 'CANCELLED'
             self.store.update(ident, state=state, endedAt=time.time(),
@@ -221,8 +232,9 @@ class BenchmarkService:
                                         **({'reason': error.reason} if isinstance(error, SandboxUnavailable) else {})})
         except Exception as error:
             # Never persist exception text, server bodies or generated source.
+            receipt = benchmark_error_receipt(error, 'RUN_EXECUTION')
             self.store.update(ident, state='FAILED', endedAt=time.time(), progress='The run stopped. Open Evidence for the retained outcome.',
-                              failure={'code': str(error) if str(error) in {'SELECTED_EXECUTION_CHANGED', 'GATEWAY_NOT_READY', 'SELECTED_MODEL_NOT_ADVERTISED', 'GATEWAY_INSTANCE_CHANGED'} else type(error).__name__})
+                              failure=dict(receipt, code=receipt['errorCode']))
         finally:
             with self.lock:
                 self.active.pop(ident, None)

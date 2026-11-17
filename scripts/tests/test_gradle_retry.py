@@ -54,6 +54,78 @@ class GradleRetryTest(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 2)
             self.assertEqual(1, len(counter.read_text().splitlines()))
 
+    def test_published_kotlin_plugin_lookup_without_status_retries_only_exact_version(self):
+        lines = [
+            "Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', "
+            "artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found",
+            "Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')",
+        ]
+        self.assertTrue(retry.retryable(lines))
+        self.assertFalse(retry.retryable([lines[0]]))
+        self.assertFalse(retry.retryable([lines[1]]))
+        self.assertFalse(retry.retryable([line.replace('2.4.20', '2.4.21') for line in lines]))
+        self.assertFalse(retry.retryable(lines + ["Received HTTP response code: 404"]))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            counter, fake = root / 'attempts', root / 'gradlew'
+            fake.write_text(
+                '#!/bin/sh\n'
+                + f'echo attempt >> "{counter}"\n'
+                + f'if [ "$(wc -l < "{counter}")" -eq 1 ]; then\n'
+                + "echo \"Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', "
+                + "artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found\"\n"
+                + "echo \"Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')\"\n"
+                + 'exit 1\nfi\nexit 0\n'
+            )
+            fake.chmod(0o755)
+            self.assertEqual(0, retry.run([':app:lintDebug'], delay_seconds=0, executable=str(fake)))
+            self.assertEqual(2, len(counter.read_text().splitlines()))
+
+    def test_published_objectbox_plugin_lookup_is_bounded_and_exact(self):
+        lines = [
+            "Plugin [id: 'io.objectbox', version: '5.4.2', "
+            "artifact: 'io.objectbox:objectbox-gradle-plugin:5.4.2', apply: false] was not found",
+            "Plugin Repositories (could not resolve plugin artifact 'io.objectbox:objectbox-gradle-plugin:5.4.2')",
+        ]
+        self.assertTrue(retry.retryable(lines))
+        self.assertFalse(retry.retryable([lines[0]]))
+        self.assertFalse(retry.retryable([lines[1]]))
+        self.assertFalse(retry.retryable([line.replace('5.4.2', '5.4.3') for line in lines]))
+        self.assertFalse(retry.retryable(lines + ["Received HTTP response code: 404"]))
+        kotlin_plugin = [
+            "Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', "
+            "artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found",
+            "Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')",
+        ]
+        self.assertFalse(retry.retryable([kotlin_plugin[0], lines[1]]))
+        self.assertFalse(retry.retryable([lines[0], kotlin_plugin[1]]))
+
+    def test_bounded_retry_recovers_when_published_plugin_failure_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            counter, fake = root / 'attempts', root / 'gradlew'
+            fake.write_text(
+                '#!/bin/sh\n'
+                + f'echo attempt >> "{counter}"\n'
+                + f'case "$(wc -l < "{counter}")" in\n'
+                + ' 1|2)\n'
+                + "echo \"Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', "
+                  "artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found\"\n"
+                + "echo \"Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')\"\n"
+                + 'exit 1;;\n'
+                + ' 3)\n'
+                + "echo \"Plugin [id: 'io.objectbox', version: '5.4.2', "
+                  "artifact: 'io.objectbox:objectbox-gradle-plugin:5.4.2', apply: false] was not found\"\n"
+                + "echo \"Plugin Repositories (could not resolve plugin artifact 'io.objectbox:objectbox-gradle-plugin:5.4.2')\"\n"
+                + 'exit 1;;\n'
+                + 'esac\n'
+                + 'exit 0\n'
+            )
+            fake.chmod(0o755)
+            self.assertEqual(0, retry.run([':app:compileDebugKotlin'], delay_seconds=0, executable=str(fake)))
+            self.assertEqual(4, len(counter.read_text().splitlines()))
+
     def test_dependency_throttling_is_retryable(self):
         self.assertTrue(retry.retryable(['Could not resolve dependency.', 'Received status code 429 from server: Too Many Requests']))
         self.assertTrue(retry.retryable(['Could not GET resource.', 'HTTP 503']))
@@ -117,7 +189,7 @@ class GradleRetryTest(unittest.TestCase):
             self.assertEqual(0, retry.run(arguments, delay_seconds=0, executable=str(fake)))
             self.assertEqual([' '.join(arguments)] * 2, counter.read_text().splitlines())
 
-    def test_persistent_throttling_stops_after_three_attempts(self):
+    def test_persistent_throttling_stops_after_four_attempts(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             counter = root / 'count'
@@ -125,4 +197,4 @@ class GradleRetryTest(unittest.TestCase):
             fake.write_text(f'#!/bin/sh\necho attempt >> "{counter}"\necho "Could not GET resource. HTTP 429"\nexit 7\n')
             fake.chmod(0o755)
             self.assertEqual(7, retry.run(['help'], delay_seconds=0, executable=str(fake)))
-            self.assertEqual(3, len(counter.read_text().splitlines()))
+            self.assertEqual(4, len(counter.read_text().splitlines()))

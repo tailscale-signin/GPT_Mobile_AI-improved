@@ -1,12 +1,14 @@
 """One-in-flight GitHub API and durable cooldown contract."""
+import sqlite3
 import sys
+import tempfile
 import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from v14.github_api_governor import GitHubApiGovernor, GitHubApiRateWait
+from v14.github_api_governor import DurableGitHubCooldowns, GitHubApiGovernor, GitHubApiRateWait
 
 
 class GovernorTests(unittest.TestCase):
@@ -38,6 +40,43 @@ class GovernorTests(unittest.TestCase):
         now[0] += 601
         with governor.lease('account'):
             pass
+
+    def test_restart_restores_only_exhausted_resource_and_credential(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'cooldowns.sqlite3'
+
+            def transaction(fn):
+                db = sqlite3.connect(path)
+                try:
+                    with db:
+                        return fn(db)
+                finally:
+                    db.close()
+
+            wall = [1_800_000_000]
+            before = GitHubApiGovernor(clock=lambda: 200.0, wall=lambda: wall[0],
+                                       cooldowns=DurableGitHubCooldowns(transaction))
+            before.observe('one', 403, {'X-RateLimit-Resource': 'search', 'X-RateLimit-Remaining': '0',
+                                        'X-RateLimit-Reset': str(wall[0] + 120)})
+            before.observe('two', 429, {'Retry-After': '120'})
+            wall[0] += 61
+            now = [7.0]
+            after = GitHubApiGovernor(clock=lambda: now[0], wall=lambda: wall[0],
+                                      cooldowns=DurableGitHubCooldowns(transaction))
+            with after.lease('one'):
+                pass
+            with after.lease('three', resource='search'):
+                pass
+            with self.assertRaises(GitHubApiRateWait) as caught:
+                with after.lease('one', resource='search'):
+                    self.fail('the primary resource cooldown must survive a restart')
+            self.assertEqual('59', caught.exception.response.headers['Retry-After'])
+            with self.assertRaises(GitHubApiRateWait):
+                with after.lease('two', resource='graphql'):
+                    self.fail('the account-wide cooldown must survive a restart')
+            now[0] += 60
+            with after.lease('one', resource='search'), after.lease('two', resource='graphql'):
+                pass
 
     def test_secondary_403_paces_and_auth_403_does_not(self):
         now = [10.0]

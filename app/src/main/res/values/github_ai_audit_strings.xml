@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="github_ai_audit_title">GitHub AI tool audit</string>
+    <string name="github_ai_audit_scope">Test one model’s tool calls and answers against the app’s GitHub schemas. Repository actions use isolated offline fixtures.</string>
+    <string name="github_ai_audit_profile">1. Choose an AI profile</string>
+    <string name="github_ai_audit_search">Search profiles or models</string>
+    <string name="github_ai_audit_no_profiles">Add or enable an AI profile with a model to run this audit.</string>
+    <string name="github_ai_audit_no_matches">No matching profiles. Clear or change your search.</string>
+    <string name="github_ai_audit_selected">Selected: %1$s · %2$s</string>
+    <string name="github_ai_audit_coverage">2. Choose coverage</string>
+    <string name="github_ai_audit_quick">Quick check</string>
+    <string name="github_ai_audit_full">Full action coverage</string>
+    <string name="github_ai_audit_quick_detail">%1$d scenarios · one per tool family</string>
+    <string name="github_ai_audit_full_detail">%1$d scenarios · every advertised action</string>
+    <string name="github_ai_audit_show_advanced">Advanced settings</string>
+    <string name="github_ai_audit_hide_advanced">Hide advanced settings</string>
+    <string name="github_ai_audit_strict">Require deterministic behavior</string>
+    <string name="github_ai_audit_strict_detail">Strict policy selected. A model that cannot verify Reasoning OFF may be blocked before execution.</string>
+    <string name="github_ai_audit_saved_settings">Uses the saved model, reasoning and sampling settings.</string>
+    <string name="github_ai_audit_usage">Model requests may incur provider charges. No GitHub account is used and no repository is changed. Live permissions, CI and merges need separate checks; use Comprehensive App audit with service reads for bounded live read evidence.</string>
+    <string name="github_ai_audit_busy">Another benchmark owns execution. Stop it or wait for it to finish.</string>
+    <string name="github_ai_audit_loading">Loading saved benchmark state…</string>
+    <string name="github_ai_audit_choose_profile">Choose an available profile to continue.</string>
+    <string name="github_ai_audit_start">Run %1$d scenarios</string>
+    <string name="github_ai_audit_saved_result">Saved GitHub AI audit</string>
+    <string name="github_ai_audit_result_scope">Showing this saved attempt only. Newer audits and current profile edits do not replace these results.</string>
+    <string name="github_ai_audit_result_missing">This saved audit is no longer available.</string>
+</resources>

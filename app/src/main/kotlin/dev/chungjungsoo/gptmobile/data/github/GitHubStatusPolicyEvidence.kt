@@ -33,17 +33,24 @@ internal object GitHubStatusPolicyEvidence {
         }
         val protection = sourceState("protection", expectsArray = false)
         val rules = sourceState("rules", expectsArray = true)
+        // A server-observed "Branch not protected" describes the classic
+        // protection endpoint only. It does not imply missing read permission
+        // or that applicable repository rulesets impose no requirements.
+        val responseEvidence = GitHubPolicyResponseObservation.policyFields(policy)
+        val explicitlyNoClassicProtection =
+            responseEvidence["status_policy_protection_404_kind"] == JsonPrimitive("EXPLICIT_BRANCH_NOT_PROTECTED")
         put("branch_protection_observation", protection)
         put("branch_rules_observation", rules)
         for ((source, destination) in listOf("protection" to "status_policy_protection_http_status", "rules" to "status_policy_rules_http_status")) {
             (policy?.get(source) as? JsonObject)?.httpStatus()?.let { put(destination, it) }
         }
-        GitHubPolicyResponseObservation.policyFields(policy).forEach { (key, value) -> put(key, value) }
+        responseEvidence.forEach { (key, value) -> put(key, value) }
         // protected=false cannot prove absence when either policy endpoint is unavailable.
         ((policy?.get("branch") as? JsonObject)?.get("protected") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("status_branch_protected", it) }
         ((policy?.get("policy") as? JsonObject)?.get("required_checks_complete") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("status_policy_complete", it) }
         if (policy != null && (policy["policy"] as? JsonObject)?.get("required_checks_complete") != JsonPrimitive(true)) {
-            val protectionDenied = protection in setOf("ACCESS_DENIED", "NOT_FOUND_OR_INACCESSIBLE")
+            val protectionDenied = protection in setOf("ACCESS_DENIED", "NOT_FOUND_OR_INACCESSIBLE") &&
+                !explicitlyNoClassicProtection
             val rulesDenied = rules in setOf("ACCESS_DENIED", "NOT_FOUND_OR_INACCESSIBLE")
             put(
                 "status_policy_recovery_hint",

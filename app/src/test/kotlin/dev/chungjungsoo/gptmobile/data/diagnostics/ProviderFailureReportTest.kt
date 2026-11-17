@@ -30,6 +30,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderFailureReportTest {
+    @Test
+    fun toolProtocolFrameReportOnlyRetainsAClosedParserReason() {
+        val failure = dev.chungjungsoo.gptmobile.data.agent.provider.toolCall("call", "weather", "{")
+            .single() as ProviderEvent.Failed
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+        val fields = ProviderFailureReport.fields("run", failure, receipt)
+        assertEquals(JsonPrimitive("MALFORMED_JSON"), fields["tool_protocol_frame_kind"])
+        val diagnostic = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L).diagnostics)
+        assertEquals(JsonPrimitive("MALFORMED_JSON"), diagnostic.values["tool_protocol_frame_kind"])
+        assertTrue("TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1" in diagnostic.requiredServiceFeatures())
+        val unrelated = failure.copy(errorCode = "CONTEXT_CAPACITY_EXCEEDED")
+        val other = ProviderFailureReport.fields("run", unrelated, ProviderFailureReceipt.from(profile, "primary", unrelated))
+        assertFalse("tool_protocol_frame_kind" in other)
+    }
+
     private val profile = PlatformV2(uid = "private-profile", name = "Private selected profile", model = "private-model", compatibleType = ClientType.LLAMA)
 
     private fun profileSelectionError(registered: Boolean = true) = dev.chungjungsoo.gptmobile.data.context.GitHubProfileSelectionRejected(
@@ -641,6 +656,40 @@ class ProviderFailureReportTest {
             calls++
             return events.asFlow()
         }
+    }
+
+    @Test fun pendingGatewayResultsReportSafeHandoffIdentityWithoutReplayingCalls() {
+        val failure = ProviderEvent.Failed(
+            "private gateway handoff details",
+            errorCode = "CLIENT_TOOL_RESULTS_REQUIRED",
+            failureDetails = buildJsonObject {
+                put("active_job_kind", "generation")
+                put("active_job_provenance", "CONVERSATION_ACTIVE_JOB")
+                put("active_job_id", "private-job-123")
+                put("conversation_id", "private-conversation")
+                put("conversation_revision", 7)
+                put("pending_client_tool_count", 2)
+                put("pending_client_tool_state", "IDENTIFIED")
+                put("pending_client_tool_ids_hash", "a".repeat(64))
+                put("client_tool_handoff_sequence", 3)
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+        assertEquals("CLIENT_TOOL_RESULTS_REQUIRED", receipt.errorCode)
+        assertTrue(receipt.valid())
+        val fields = ProviderFailureReport.fields("run", failure, receipt)
+        val diagnostics = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1_800_000_000_000L))
+        assertEquals(JsonPrimitive("CLIENT_TOOL_RESULTS_REQUIRED"), diagnostics.values["provider_failure_code"])
+        assertEquals(JsonPrimitive(2), diagnostics.values["conflict_pending_tool_count"])
+        assertEquals(JsonPrimitive(3), diagnostics.values["conflict_handoff_sequence"])
+        assertEquals(JsonPrimitive("IDENTIFIED"), diagnostics.values["conflict_pending_tool_state"])
+        assertEquals(JsonPrimitive("a".repeat(64)), diagnostics.values["conflict_pending_tool_ids_hash"])
+        assertEquals(JsonPrimitive("NO_VERIFIED_STREAM_JOB"), diagnostics.values["conflict_stream_job_relation"])
+        assertTrue("SESSION_RECOVERY_DIAGNOSTICS_V1" in diagnostics.requiredServiceFeatures())
+        assertTrue("CONVERSATION_CONFLICT_EVIDENCE_V1" in diagnostics.requiredServiceFeatures())
+        assertFalse(diagnostics.toString().contains("private-job"))
+        assertFalse(diagnostics.toString().contains("private gateway"))
+        assertTrue(diagnostics.isValid())
     }
 
     @Test fun capacityFailuresRemainTypedAndCarryOwningBudget() {

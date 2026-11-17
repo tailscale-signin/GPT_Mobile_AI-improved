@@ -126,7 +126,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
                     // "Show earlier" only reveals retained rows and adds no reading budget.
                     val animateEntry = remember { (lineIdentity to item.statusSummary) !in seenEntries }
                     if (item.statusSummary) {
-                        GitHubActivitySummary(item.content, animateEntry, lineIdentity)
+                        GitHubActivitySummary(item.content, animateEntry, lineIdentity, sourceOwned = !item.modelAuthored)
                     } else {
                         GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(item.content) == null }, animateEntry = animateEntry, lineIdentity = lineIdentity)
                     }
@@ -137,29 +137,48 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
 }
 
 @Composable
-private fun GitHubActivitySummary(text: String, animateEntry: Boolean, lineIdentity: Any) {
+private fun GitHubActivitySummary(text: String, animateEntry: Boolean, lineIdentity: Any, sourceOwned: Boolean) {
     val entry = rememberGitHubActivityEntry(animateEntry)
-    val reportLayout = rememberGitHubTextLayout("summary" to lineIdentity, firstAppearanceAddsLines = animateEntry)
-    GitHubActivityCrossfade(
-        text,
-        // Preserve the complete authored paragraphs. Fade only the drawing so
-        // neither scrolling nor neighbouring rows move during the entrance.
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).graphicsLayer { alpha = entry.value }
-    ) { displayed, current ->
-        Text(
-            displayed,
-            onTextLayout = { if (current) reportLayout(it) },
-            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.5.em),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.fillMaxWidth().then(
-                if (current) {
-                    Modifier.testTag("github_activity_summary")
-                        .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
-                } else {
-                    Modifier
-                }
+    if (dev.chungjungsoo.gptmobile.data.github.GitHubRichSummaryPresentation.isRich(text)) {
+        // The normal Markdown renderer already supports headings, bullets and
+        // bounded tables. Keep earlier plain summaries on their measured Text path.
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                .graphicsLayer { alpha = entry.value }
+                .testTag("github_activity_rich_summary")
+                .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
+        ) {
+            ChatMarkdown(
+                content = text,
+                contentIdentity = "github-rich-summary:$lineIdentity",
+                streaming = false,
+                animateStreaming = false,
+                modifier = Modifier.fillMaxWidth()
             )
-        )
+            if (sourceOwned) GitHubRichSummaryChart(text)
+        }
+    } else {
+        val reportLayout = rememberGitHubTextLayout("summary" to lineIdentity, firstAppearanceAddsLines = animateEntry)
+        GitHubActivityCrossfade(
+            text,
+            // Preserve complete historical paragraphs and measured text layouts.
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).graphicsLayer { alpha = entry.value }
+        ) { displayed, current ->
+            Text(
+                displayed,
+                onTextLayout = { if (current) reportLayout(it) },
+                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.5.em),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.fillMaxWidth().then(
+                    if (current) {
+                        Modifier.testTag("github_activity_summary")
+                            .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
+                    } else {
+                        Modifier
+                    }
+                )
+            )
+        }
     }
 }
 

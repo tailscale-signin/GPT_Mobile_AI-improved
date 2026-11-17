@@ -38,17 +38,65 @@ def digest_file(path):
     return value.hexdigest()
 
 
+OUTPUT_LIMIT = 65536
+ADMISSION_CODES = frozenset({
+    'EXECUTION_CONTEXT_EXHAUSTED', 'EXECUTION_OUTPUT_LIMIT', 'EXECUTION_CONTEXT_UNAVAILABLE',
+    'EXECUTION_OUTPUT_INVALID', 'EXECUTION_TOKEN_COUNT_INVALID', 'EXECUTION_MODEL_NOT_ADVERTISED',
+    'EXECUTION_MODEL_NOT_LOADED', 'EXECUTION_RUNTIME_UNREACHABLE', 'EXECUTION_BINDING_REQUIRED',
+    'EXECUTION_REASONING_UNSUPPORTED', 'CONTEXT_LIMIT_EXCEEDED', 'context_length_exceeded',
+    'unsupported_response_format', 'PROVIDER_RATE_LIMITED', 'PROVIDER_UNAVAILABLE',
+    'context_budget_exceeded', 'context_capacity_unverified', 'backend_timeout', 'backend_stream_interrupted',
+})
+
+
+class BenchmarkInvocationError(ValueError):
+    def __init__(self, code, *, status=None, job_id=None, admission_code=None, pre_dispatch=False, retry_after=None):
+        super().__init__(code)
+        self.code, self.status, self.job_id, self.admission_code = code, status, job_id, admission_code
+        self.pre_dispatch, self.retry_after = pre_dispatch, retry_after
+        self.settlement = None
+
+
+def rejection_code(value):
+    error = value.get('error') if isinstance(value, dict) else None
+    code = error.get('code') if isinstance(error, dict) else None
+    return code if isinstance(code, str) and code in ADMISSION_CODES else None
+
+
+def response_lines(response):
+    # Buffer bytes to preserve split UTF-8 and CRLF, with a bound even when no
+    # newline arrives. Test doubles and the standalone harness can supply lines.
+    if not hasattr(response, 'iter_content'):
+        yield from response.iter_lines(chunk_size=1024)
+        return
+    pending = bytearray()
+    for chunk in response.iter_content(chunk_size=1024):
+        pending.extend(chunk)
+        while (end := pending.find(b'\n')) >= 0:
+            if end > OUTPUT_LIMIT:
+                raise BenchmarkInvocationError('BENCHMARK_SSE_FRAME_LIMIT')
+            yield bytes(pending[:end]).removesuffix(b'\r')
+            del pending[:end + 1]
+        if len(pending) > OUTPUT_LIMIT:
+            raise BenchmarkInvocationError('BENCHMARK_SSE_FRAME_LIMIT')
+    if pending:
+        yield bytes(pending)
+
+
 def decode_event(line):
-    if len(line) > 65536:
-        raise ValueError('Benchmark SSE record exceeds the bound')
+    if len(line) > OUTPUT_LIMIT:
+        raise BenchmarkInvocationError('BENCHMARK_SSE_FRAME_LIMIT')
     if not line.startswith(b'data:'):
         return None
     raw = line[5:].strip()
     if raw == b'[DONE]':
         return 'DONE'
-    value = json.loads(raw)
+    try:
+        value = json.loads(raw)
+    except (ValueError, RecursionError) as error:
+        raise BenchmarkInvocationError('BENCHMARK_SSE_JSON_INVALID') from error
     if not isinstance(value, dict):
-        raise ValueError('Invalid stream envelope')
+        raise BenchmarkInvocationError('BENCHMARK_SSE_ENVELOPE_INVALID')
     return value
 
 
@@ -58,7 +106,7 @@ class BenchmarkInterrupted(InterruptedError):
         self.cancellation = receipt
 
 
-def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256, clock=time.perf_counter, validate_output=None, gateway_options=None, cancel_event=None, cancel_request=None, on_admitted=None):
+def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256, clock=time.perf_counter, validate_output=None, gateway_options=None, cancel_event=None, cancel_request=None, on_admitted=None, output_format=None):
     if cancel_event is not None and cancel_event.is_set():
         raise InterruptedError('Benchmark cancelled before dispatch')
     started = clock()
@@ -72,6 +120,8 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
                'tools': [], 'tool_choice': 'none'}
     if gateway_options is not None:
         payload['gateway'] = gateway_options
+    if output_format is not None:
+        payload['response_format'] = output_format
     response = None
     finished = threading.Event()
     watcher = None
@@ -103,8 +153,24 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
             watcher = threading.Thread(target=watch, name='benchmark-stream-cancel', daemon=True)
             watcher.start()
         if response.status_code != 200:
-            raise ValueError('Benchmark selected route rejected the request: HTTP ' + str(response.status_code))
-        for line in response.iter_lines(chunk_size=1024):
+            raw = bytearray()
+            if hasattr(response, 'iter_content'):
+                for chunk in response.iter_content(chunk_size=1024):
+                    raw.extend(chunk)
+                    if len(raw) > 8192 or clock() - started > 20:
+                        break
+            try:
+                envelope = json.loads(raw) if len(raw) <= 8192 else None
+            except (ValueError, RecursionError):
+                envelope = None
+            detail = envelope.get('error') if isinstance(envelope, dict) else None
+            not_dispatched = isinstance(detail, dict) and detail.get('dispatch_state') == 'not_dispatched'
+            retry_after = received_headers.get('Retry-After')
+            retry_after = int(retry_after) if isinstance(retry_after, str) and re.fullmatch(r'[0-9]{1,4}', retry_after) else None
+            raise BenchmarkInvocationError('BENCHMARK_HTTP_REJECTED', status=response.status_code,
+                                           job_id=cancellation['jobId'], admission_code=rejection_code(envelope),
+                                           pre_dispatch=not_dispatched, retry_after=retry_after)
+        for line in response_lines(response):
             if cancel_event is not None and cancel_event.is_set():
                 raise InterruptedError('Benchmark cancelled during response')
             if clock() - started > 180:
@@ -116,15 +182,24 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
             if not isinstance(event, dict):
                 continue
             if event.get('error'):
-                raise ValueError('Selected route returned a stream error')
+                raise BenchmarkInvocationError('BENCHMARK_STREAM_REJECTED', admission_code=rejection_code(event))
             reported = event.get('model')
             if reported is not None and reported != model:
-                raise ValueError('Selected model receipt contradicted the requested identifier')
+                raise BenchmarkInvocationError('BENCHMARK_MODEL_MISMATCH')
             if isinstance(reported, str):
                 observed_model = reported
-            for choice in event.get('choices', []):
-                text = choice.get('delta', {}).get('content')
-                finish = choice.get('finish_reason') or finish
+            choices = event.get('choices', [])
+            if not isinstance(choices, list):
+                raise BenchmarkInvocationError('BENCHMARK_SSE_ENVELOPE_INVALID')
+            for choice in choices:
+                delta = choice.get('delta', {}) if isinstance(choice, dict) else None
+                if not isinstance(delta, dict):
+                    raise BenchmarkInvocationError('BENCHMARK_SSE_ENVELOPE_INVALID')
+                text = delta.get('content')
+                reason = choice.get('finish_reason')
+                if reason is not None and (not isinstance(reason, str) or not re.fullmatch(r'[a-z_]{1,32}', reason)):
+                    raise BenchmarkInvocationError('BENCHMARK_SSE_ENVELOPE_INVALID')
+                finish = reason or finish
                 if isinstance(text, str) and text:
                     instant = clock()
                     first = instant if first is None else first
@@ -135,23 +210,26 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
                     output_bytes += len(encoded)
                     content_digest.update(encoded)
                     if validate_output is not None:
-                        if len(output) + len(encoded) > 16384:
-                            raise ValueError('Benchmark output exceeded the validation limit')
-                        output.extend(encoded)
+                        if len(output) + len(encoded) <= OUTPUT_LIMIT:
+                            output.extend(encoded)
             if isinstance(event.get('usage'), dict):
                 usage = {key: value for key, value in event['usage'].items() if key in {'prompt_tokens', 'completion_tokens', 'total_tokens'} and type(value) is int and value >= 0}
             if isinstance(event.get('timings'), dict):
                 timings = {key: value for key, value in event['timings'].items() if key in {'prompt_ms', 'predicted_ms', 'prompt_n', 'predicted_n'} and type(value) in (int, float) and math.isfinite(value) and value >= 0}
-        if not done or first is None or finish is None:
-            raise ValueError('Benchmark stream lacks first content or a verified terminal envelope')
-    except Exception:
+        if not done or finish is None:
+            raise BenchmarkInvocationError('BENCHMARK_STREAM_INCOMPLETE')
+        if first is None and output_format is None:
+            raise BenchmarkInvocationError('BENCHMARK_NO_VISIBLE_OUTPUT')
+    except Exception as error:
+        if isinstance(error, BenchmarkInvocationError):
+            error.job_id = cancellation['jobId']
         if cancel_event is not None and cancel_event.is_set():
             # The watcher records a requested/unknown outcome rather than
             # treating a closed response as proof of stopped inference.
             if watcher is not None:
                 watcher.join(25)
             raise BenchmarkInterrupted(dict(cancellation)) from None
-        if cancel_request is not None and (response is None or response.status_code == 200):
+        if cancel_request is not None and (response is None or response.status_code == 200 or cancellation['jobId'] is not None):
             # A lost stream may leave an admitted worker running. Stop/reconcile
             # that exact observed job before the coordinator dispatches another
             # trial. Unconfirmed admission or cancellation ends this run.
@@ -159,7 +237,11 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
                 cancellation.update(cancel_request(cancellation['jobId']))
             except Exception:
                 cancellation['outcome'] = 'unknown'
+            if isinstance(error, BenchmarkInvocationError):
+                error.settlement = cancellation['outcome']
             if cancellation['outcome'] not in {'confirmed', 'terminal', 'not_canceled'}:
+                if isinstance(error, BenchmarkInvocationError):
+                    cancellation.update(observationError=error.code, admissionCode=error.admission_code)
                 raise BenchmarkInterrupted(dict(cancellation)) from None
         raise
     finally:
@@ -174,7 +256,7 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
         if cancellation['outcome'] == 'unknown' and cancel_request is not None:
             cancellation.update(cancel_request(cancellation['jobId']))
         raise BenchmarkInterrupted(dict(cancellation))
-    result = {'firstContentMs': (first - started) * 1000, 'totalMs': (clock() - started) * 1000,
+    result = {'firstContentMs': (first - started) * 1000 if first is not None else None, 'totalMs': (clock() - started) * 1000,
             'maximumContentGapMs': largest_gap * 1000, 'contentEvents': events, 'outputBytes': output_bytes,
             'outputSha256': content_digest.hexdigest(), 'finishReason': finish, 'usage': usage,
             'backendTimings': timings, 'queueMs': None, 'coldLoadMs': None, 'offload': 'NOT_MEASURED',
@@ -183,7 +265,7 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
             'identityScope': 'HTTP_ROUTE_AND_REPORTED_IDENTIFIER' if observed_model else 'HTTP_ROUTE_ONLY',
             'gatewayJobId': cancellation['jobId'], 'modelArtifactDigest': None}
     if validate_output is not None:
-        result['passed'] = bool(validate_output(output.decode()))
+        result['passed'] = output_bytes <= OUTPUT_LIMIT and bool(validate_output(output.decode()))
     return result
 
 

@@ -17,10 +17,10 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmark_selected_model import BenchmarkInterrupted, measure
+from benchmark_selected_model import BenchmarkInterrupted, BenchmarkInvocationError, measure
 from benchmarks import coding, fixtures, sandbox
-from benchmarks.contracts import CODING_WEIGHTS, coding_score, coverage, paired_summary, validate_request
-from benchmarks.runner import BenchmarkRunner
+from benchmarks.contracts import CODING_WEIGHTS, coding_score, coverage, digest, paired_summary, validate_request
+from benchmarks.runner import BenchmarkRunner, benchmark_error_receipt, best_verified_attempt_index
 from benchmarks.service import BenchmarkService, install_benchmark_routes
 from benchmarks.store import BenchmarkConflict, BenchmarkStore
 from desktop import benchmark
@@ -135,6 +135,30 @@ class BenchmarkJournalTest(unittest.TestCase):
         self.assertEqual(completed, saved['cases'][1])
         self.assertEqual([], self.store.pending())
 
+    def test_terminal_coverage_reconciles_provisional_case_after_last_checkpoint(self):
+        run = self.create()
+        self.store.update(run['id'], state='RUNNING', planned=12, completed=1,
+                          summary={'score': None, 'qualified': False,
+                                   'coverage': {'recorded': 0, 'outcomes': {'PENDING': 12}}})
+        self.store.case(run['id'], 0, {'id': 'pagination-1', 'status': 'FAILED',
+                                      'executed': True, 'graded': True})
+        self.store.case(run['id'], 1, {'id': 'idempotency-1', 'status': 'RUNNING',
+                                      'executed': True, 'graded': False,
+                                      'attempts': [{'error': 'ValueError'}]})
+        self.store.update(run['id'], state='INTERRUPTED')
+        saved = self.store.get(run['id'])
+        observed = saved['summary']['coverage']
+        self.assertEqual(2, observed['recorded'])
+        self.assertEqual(1, observed['outcomes']['FAILED'])
+        self.assertEqual(1, observed['outcomes']['INTERRUPTED'])
+        self.assertEqual(10, observed['outcomes']['PENDING'])
+        self.assertEqual(2, observed['executed'])
+        self.assertEqual(1, observed['graded'])
+        self.assertEqual('INTERRUPTED', saved['summary']['invalidatedBy'])
+        self.assertEqual('INTERRUPTED', saved['cases'][1]['status'])
+        self.assertEqual([{'error': 'ValueError'}], saved['cases'][1]['attempts'])
+        self.assertIsNone(saved['summary']['score'])
+
     def test_history_pages_do_not_leak_other_principals(self):
         for index in range(5):
             run = self.create(str(index), 'alice' if index % 2 else 'bob')
@@ -180,6 +204,14 @@ class BenchmarkScoreTest(unittest.TestCase):
         self.assertAlmostEqual(916.67, score['firstSubmissionScore'])
         del cases[1]['firstSubmissionResolved']
         self.assertIsNone(coding_score(cases, 12, 'quick')['passAtOne'])
+
+    def test_all_rejected_submissions_do_not_qualify_a_formal_score(self):
+        cases = [coding.rejected_submission(task, 'PATCH_JSON_INVALID') for task in fixtures.suite()]
+        summary = coding_score(cases, len(cases), 'quick')
+        self.assertFalse(summary['qualified'])
+        self.assertIsNone(summary['score'])
+        self.assertEqual(0, summary['coverage']['executed'])
+        self.assertEqual(CODING_WEIGHTS['safety'], summary['dimensions']['safety']['unknownWeight'])
 
     def test_duplicate_identity_or_integrity_violation_cannot_qualify(self):
         cases = full_cases('quick')
@@ -251,6 +283,17 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
                 self.assertIsNone(result['dimensions']['safety'])
                 self.assertEqual(950, result['earned'])
                 self.assertEqual(50, result['unknownWeight'])
+
+    def test_host_input_mutation_invalidates_observations_without_changing_original_fixtures(self):
+        task = fixtures.suite()[0]
+        original = deepcopy(task['vectors'])
+        def execute(_candidate, inputs, *_args, **_kwargs):
+            inputs[0]['items'].clear()
+            return {'executed': True, 'status': 'COMPLETED', 'outputs': []}
+        result = coding.grade(task, gold_proposal(task), {}, threading.Event(), execute=execute)
+        self.assertEqual('HOST_FIXTURE_INPUT_CHANGED', result['error'])
+        self.assertEqual('VIOLATION', result['integrity'])
+        self.assertEqual(original, task['vectors'])
 
     def test_container_launch_failure_is_ungraded_and_invalid_answer_is_observed_zero(self):
         task = fixtures.suite()[0]
@@ -398,6 +441,50 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
                 self.assertEqual(950, result['earned'])
                 self.assertEqual(50, result['unknownWeight'])
 
+    def test_typed_output_rejection_retries_same_case_and_exports_active_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = BenchmarkStore(Path(directory) / 'benchmarks.sqlite3')
+            run, _ = store.create('owner', request(), {'executionIdentity': 'route'})
+            store.update(run['id'], state='RUNNING')
+            runner = BenchmarkRunner(store, 'http://localhost', threading.Event(), lambda: 'route',
+                                     lambda: {'repair_attempts': 1, 'sandbox_image': 'python@sha256:' + 'a' * 64})
+            task = fixtures.suite()[0]
+            allowances, executions = [], []
+            def measured(*_args, **kwargs):
+                allowance = kwargs['output_tokens']
+                allowances.append(allowance)
+                if allowance == 4096:
+                    raise BenchmarkInvocationError('BENCHMARK_HTTP_REJECTED', status=400,
+                                                   admission_code='EXECUTION_OUTPUT_LIMIT')
+                kwargs['on_admitted']('admitted-job')
+                snapshot = store.get(run['id'])
+                self.assertEqual(task['id'], snapshot['activeCases'][0]['id'])
+                self.assertEqual('admitted-job', snapshot['activeCases'][0]['gatewayJobId'])
+                self.assertEqual(0, snapshot['completed'])
+                self.assertEqual(1, snapshot['summary']['coverage']['outcomes']['RUNNING'])
+                kwargs['validate'](gold_proposal(task))
+                return {'finishReason': 'stop', 'gatewayJobId': 'admitted-job'}
+            def evaluate(sources, inputs, *_args, **_kwargs):
+                executions.append(len(inputs))
+                outputs = [{'output': fixtures.expected(task, vector)} for vector in inputs]
+                if len(executions) > 1:
+                    outputs[0] = {'output': {'wrong': True}}
+                return {'status': 'COMPLETED', 'executed': True, 'outputs': outputs}
+            with patch.object(fixtures, 'suite', return_value=[task]), patch.object(sandbox, 'preflight', return_value='docker'), \
+                    patch.object(sandbox, 'execute', side_effect=evaluate), patch.object(runner, 'measure_case', side_effect=measured):
+                summary = runner.code(run)
+            store.update(run['id'], state='COMPLETED', summary=summary, endedAt=100)
+            saved = store.get(run['id'])
+            case = saved['cases'][0]
+            self.assertEqual([4096, 2048, 2048], allowances)
+            self.assertEqual(2, len(executions))
+            self.assertTrue(case['attempts'][1]['evaluationReused'])
+            self.assertEqual(1, case['selectedAttempt'])
+            self.assertEqual(400, case['attempts'][0]['admissionRejections'][0]['httpStatus'])
+            self.assertEqual([], saved['pendingCaseIds'])
+            self.assertEqual(digest(saved['cases']), saved['completionReceipt']['casesDigest'])
+            self.assertEqual(digest(saved['summary']), saved['completionReceipt']['summaryDigest'])
+
     def test_reference_output_count_must_match_before_dispatching_model(self):
         store = Mock()
         runner = BenchmarkRunner(store, 'http://localhost', threading.Event(), lambda: 'route', lambda: {'repair_attempts': 0})
@@ -428,6 +515,84 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
             for key, value in receipt.items():
                 self.assertEqual(value, saved[key])
                 self.assertEqual(value, saved['attempts'][0][key])
+
+
+class BenchmarkErrorReceiptTest(unittest.TestCase):
+    def test_private_model_exception_is_redacted_but_failure_phase_is_retained(self):
+        receipt = benchmark_error_receipt(
+            ValueError('private API key and /home/user/code.py'), 'MODEL_INVOCATION')
+        self.assertEqual('ValueError', receipt['error'])
+        self.assertEqual('BENCHMARK_VALUE_ERROR', receipt['errorCode'])
+        self.assertEqual('MODEL_INVOCATION', receipt['failureStage'])
+        self.assertNotIn('private API key', json.dumps(receipt))
+        self.assertNotIn('/home/user', json.dumps(receipt))
+        self.assertEqual('SELECTED_EXECUTION_CHANGED', benchmark_error_receipt(
+            ValueError('SELECTED_EXECUTION_CHANGED'), 'MODEL_INVOCATION')['errorCode'])
+
+    def test_transport_receipt_retains_status_without_server_body(self):
+        import requests
+        response = requests.Response()
+        response.status_code = 429
+        response._content = b'private token in response'
+        error = requests.HTTPError('secret header', response=response)
+        receipt = benchmark_error_receipt(error, 'MODEL_INVOCATION')
+        self.assertEqual('BENCHMARK_HTTP_ERROR', receipt['errorCode'])
+        self.assertEqual(429, receipt['httpStatus'])
+        self.assertEqual('UNKNOWN', receipt['requestOutcome'])
+        self.assertNotIn('secret', json.dumps(receipt))
+        self.assertNotIn('private', json.dumps(receipt))
+
+    def test_coding_value_error_includes_stage_and_preserves_no_raw_message(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = BenchmarkStore(Path(directory) / 'benchmarks.sqlite3')
+            run, _ = store.create('owner', request(), {'executionIdentity': 'route'})
+            runner = BenchmarkRunner(store, 'http://localhost', threading.Event(),
+                                     lambda: 'route', lambda: {'repair_attempts': 0})
+            task = fixtures.suite()[0]
+            reference_outputs = [{'output': fixtures.expected(task, vector)}
+                                 for vector in task['vectors']]
+            with patch.object(fixtures, 'suite', return_value=[task]), \
+                    patch.object(sandbox, 'preflight', return_value='docker'), \
+                    patch.object(sandbox, 'execute', return_value={'status': 'COMPLETED', 'outputs': reference_outputs}), \
+                    patch.object(runner, 'measure_case', side_effect=ValueError('secret internal input')):
+                runner.code(run)
+            case = store.get(run['id'])['cases'][0]
+            self.assertEqual('ERROR', case['status'])
+            self.assertEqual('BENCHMARK_VALUE_ERROR', case['errorCode'])
+            self.assertEqual('MODEL_INVOCATION', case['failureStage'])
+            self.assertNotIn('secret internal input', json.dumps(case))
+            self.assertEqual('MODEL_INVOCATION', case['attempts'][0]['failureStage'])
+
+
+class BenchmarkRetrySelectionTest(unittest.TestCase):
+    def test_regressive_repair_preserves_better_verified_candidate(self):
+        first = {'status': 'FAILED', 'integrity': 'VERIFIED', 'executed': True,
+                 'graded': True, 'earned': 712.5,
+                 'checks': {'hiddenPassed': 5, 'hiddenTotal': 6,
+                            'replayPassed': 5, 'replayTotal': 6}}
+        worse = {'status': 'FAILED', 'integrity': 'VERIFIED', 'executed': True,
+                 'graded': True, 'earned': 575.0,
+                 'checks': {'hiddenPassed': 4, 'hiddenTotal': 6,
+                            'replayPassed': 4, 'replayTotal': 6}}
+        self.assertEqual(0, best_verified_attempt_index([first, worse]))
+        self.assertEqual(1, best_verified_attempt_index([worse, first]))
+        self.assertEqual(1, best_verified_attempt_index([first, dict(first)]))
+
+    def test_unknown_or_unsafe_final_outcome_is_never_hidden(self):
+        verified = {'status': 'FAILED', 'integrity': 'VERIFIED', 'executed': True,
+                    'graded': True, 'earned': 750,
+                    'checks': {'hiddenPassed': 5, 'hiddenTotal': 6,
+                               'replayPassed': 5, 'replayTotal': 6}}
+        unsafe = {'status': 'FAILED', 'integrity': 'VIOLATION', 'executed': False,
+                  'graded': True}
+        blocked = {'status': 'BLOCKED', 'integrity': 'VERIFIED', 'executed': True,
+                   'graded': True}
+        unknown = {'status': 'ERROR', 'integrity': 'VERIFIED', 'executed': None,
+                   'graded': False}
+        self.assertEqual(1, best_verified_attempt_index([verified, unsafe]))
+        self.assertEqual(1, best_verified_attempt_index([verified, blocked]))
+        self.assertEqual(1, best_verified_attempt_index([verified, unknown]))
+        self.assertEqual(1, best_verified_attempt_index([unsafe, verified]))
 
 
 class BenchmarkLifecycleTest(unittest.TestCase):
@@ -507,6 +672,24 @@ class BenchmarkLifecycleTest(unittest.TestCase):
             self.assertEqual('INTERRUPTED', saved['state'])
             self.assertEqual('CANCELLATION_UNCONFIRMED', saved['failure']['code'])
 
+    def test_cancel_exception_reuses_richer_case_receipt_for_same_job(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.make_service(directory)
+            run = service.create(Principal('admin', frozenset(), True), request())
+            with patch('benchmarks.service.BenchmarkRunner') as runner:
+                runner.return_value.execute.side_effect = BenchmarkInterrupted(
+                    {'jobId': 'gwjob-same', 'outcome': 'requested'})
+                runner.return_value.cancellation_receipts = [
+                    {'jobId': 'gwjob-same', 'outcome': 'requested',
+                     'case': 'streaming-1', 'stage': 'CANDIDATE'}]
+                service.run_one(run['id'])
+            saved = service.store.get(run['id'])
+            self.assertEqual('INTERRUPTED', saved['state'])
+            self.assertEqual('CANCELLATION_UNCONFIRMED', saved['failure']['code'])
+            self.assertEqual([{'jobId': 'gwjob-same', 'outcome': 'requested',
+                               'case': 'streaming-1', 'stage': 'CANDIDATE'}],
+                             saved['failure']['cancellationReceipts'])
+
     def test_unknown_concurrent_outcome_fences_queued_trials_and_keeps_completed_pair_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             service = self.make_service(directory)
@@ -516,7 +699,7 @@ class BenchmarkLifecycleTest(unittest.TestCase):
             lock = threading.Lock()
             dispatched = []
             receipt = dict(passed=True, firstContentMs=1, totalMs=2, maximumContentGapMs=0,
-                           backendTimings=None, usage=None, outputSha256='measured', finishReason='stop',
+                           backendTimings=None, usage=None, outputSha256='measured', outputBytes=8, finishReason='stop',
                            observedModel='selected', modelReceipt='REPORTED_IDENTIFIER',
                            identityScope='HTTP_ROUTE_AND_REPORTED_IDENTIFIER', gatewayJobId='completed')
 

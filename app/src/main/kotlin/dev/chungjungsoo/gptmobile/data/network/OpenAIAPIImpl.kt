@@ -127,7 +127,7 @@ class OpenAIAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<ChatCompletionChunk> = flow {
-        var config = if (config.freeProvider != null) config.copy(freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics()) else config
+        var config = (if (config.freeProvider != null) config.copy(freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics()) else config).copy(selectedModel = request.model)
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         val connectionTimeout = kotlinx.coroutines.currentCoroutineContext()[ProfileConnectionTimeout]?.millis
         var receivedAssistantPayload = false
@@ -190,6 +190,14 @@ class OpenAIAPIImpl @Inject constructor(
             if (free == FreeAiProvider.AI_HORDE || free == FreeAiProvider.HUGGING_FACE) {
                 FreeQueuedTransport(networkClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
                 return@flow
+            }
+            if (free == null && OpenRouterRateLimitScopes.isOpenRouter(config)) {
+                config = config.copy(
+                    openRouterPinnedProvider = OpenRouterRateLimitScopes.pinnedProvider(
+                        preparedRequest.provider,
+                        !preparedRequest.models.isNullOrEmpty()
+                    )
+                )
             }
             config = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
                 gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
@@ -323,7 +331,8 @@ class OpenAIAPIImpl @Inject constructor(
                                         response.headers["X-Gateway-Job-ID"].isNullOrBlank(),
                                     rateReset = response.headers["X-RateLimit-Reset"],
                                     errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                    errorType = rateLimitErrorType(errorBody)
+                                    errorType = rateLimitErrorType(errorBody),
+                                    limitSource = OpenRouterRateLimitScopes.sourceFromBody(errorBody)
                                 )
                             }
                             if (!retainedGatewayAttempts) throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
@@ -515,6 +524,7 @@ class OpenAIAPIImpl @Inject constructor(
                                     rateReset = response.headers["X-RateLimit-Reset"],
                                     errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
                                     errorType = rateLimitErrorType(data),
+                                    limitSource = OpenRouterRateLimitScopes.sourceFromBody(data),
                                     checkpointContinuationAllowed = true
                                 )
                             }
@@ -796,10 +806,10 @@ class OpenAIAPIImpl @Inject constructor(
         var receivedTerminal = false
         var resolvedFreeModel: String? = null
         var preparedRequest = request.withModelSamplingPolicy()
-        var effectiveConfig = config
+        var effectiveConfig = config.copy(selectedModel = request.model)
         try {
             effectiveConfig = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
-                gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+                gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(effectiveConfig, request.model))
             }
             val endpoint = effectiveConfig.buildEndpoint("responses")
 
@@ -882,7 +892,8 @@ class OpenAIAPIImpl @Inject constructor(
                                                 response.headers["X-Gateway-Job-ID"].isNullOrBlank(),
                                             rateReset = response.headers["X-RateLimit-Reset"],
                                             errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                            errorType = rateLimitErrorType(errorBody)
+                                            errorType = rateLimitErrorType(errorBody),
+                                            limitSource = OpenRouterRateLimitScopes.sourceFromBody(errorBody)
                                         )
                                     }
                                     throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)

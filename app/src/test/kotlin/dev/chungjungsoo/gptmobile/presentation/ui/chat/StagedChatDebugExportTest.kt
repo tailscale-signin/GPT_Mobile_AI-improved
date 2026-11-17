@@ -281,6 +281,34 @@ class StagedChatDebugExportTest {
         assertTrue(stage(omitted, "conversation")["omissions"].toString().contains("RECORD_CHARACTER_LIMIT"))
     }
 
+    @Test fun automaticReducedMemoryPolicyProtectsConstrainedHeapWithoutChangingHealthyDefault() {
+        val mib = 1024L * 1024
+        val maximum = 268L * mib
+        val healthy = DiagnosticExportMemory(1, maximum, maximum, 64L * mib, 204L * mib)
+        val pressured = DiagnosticExportMemory(1, maximum, maximum, 252L * mib, 16L * mib)
+        assertFalse(diagnosticCaptureUsesReducedMemory(false, healthy))
+        assertTrue(diagnosticCaptureUsesReducedMemory(false, pressured))
+        assertTrue(diagnosticCaptureUsesReducedMemory(true, healthy))
+    }
+
+    @Test fun automaticReducedMemoryCaptureRetainsCriticalEvidenceAndExplainsSelection() = runBlocking {
+        val mib = 1024L * 1024
+        every { AndroidDiagnosticExportMemory.sample() } returns DiagnosticExportMemory(
+            1,
+            268L * mib,
+            268L * mib,
+            252L * mib,
+            16L * mib
+        )
+        val result = capture()
+        assertEquals(JsonPrimitive(true), result.manifest["reducedMemory"])
+        val contextSection = archive(result).getValue("capture-context.jsonl")
+        val contextRecord = kotlinx.serialization.json.Json.parseToJsonElement(contextSection.lineSequence().first()) as JsonObject
+        assertEquals(JsonPrimitive("REDUCED"), contextRecord["captureMemoryProfile"])
+        assertEquals(JsonPrimitive(true), contextRecord["reducedMemorySelectedAutomatically"])
+        assertEquals(JsonPrimitive("COMPLETED"), stage(result, "critical_logs")["status"])
+    }
+
     private suspend fun capture(temporary: Boolean = false, resume: Boolean = false): DiagnosticCaptureResult = writeStagedChatDiagnostics(
         context, destination, ChatRoomV2(chatId, "Test", isTemporary = temporary),
         listOf(PlatformV2(name = "Profile", token = "private-secret", systemPrompt = "Prompt private-secret")),

@@ -170,6 +170,56 @@ class SettingsTests(unittest.TestCase):
                 self.assertEqual({'id': 'accepted-id', 'accepted': True}, request(root, 'restart', timeout=1))
 
 
+    def test_manager_response_retries_windows_access_denial_with_unchanged_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / 'response.json'
+            atomic_json(path, {'id': 'old', 'accepted': True})
+            manager = Supervisor.__new__(Supervisor)
+            manager.root = root
+            actual_replace = os.replace
+            attempts = []
+            payload = {'id': 'new', 'accepted': True}
+
+            def transient_replace(source, destination):
+                attempts.append(Path(source).read_bytes())
+                if len(attempts) <= 2:
+                    error = PermissionError(13, 'Windows reader denies replacement')
+                    error.winerror = 5
+                    raise error
+                return actual_replace(source, destination)
+
+            with patch('desktop.configuration.sys.platform', 'win32'), \
+                    patch('desktop.configuration.os.replace', side_effect=transient_replace), \
+                    patch('desktop.configuration.time.sleep') as sleep:
+                manager.respond(payload)
+            self.assertEqual(3, len(attempts))
+            self.assertEqual(2, sleep.call_count)
+            self.assertTrue(all(value == attempts[0] for value in attempts))
+            self.assertEqual(payload, json.loads(path.read_text(encoding='utf-8')))
+            self.assertEqual([path], list(root.iterdir()))
+
+    def test_manager_response_permanent_windows_denial_preserves_previous_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / 'response.json'
+            old = {'id': 'prior', 'accepted': True}
+            atomic_json(path, old)
+            manager = Supervisor.__new__(Supervisor)
+            manager.root = root
+            denied = PermissionError(13, 'Persistent replacement denial')
+            denied.winerror = 5
+            with patch('desktop.configuration.sys.platform', 'win32'), \
+                    patch('desktop.configuration.os.replace', side_effect=denied) as replace, \
+                    patch('desktop.configuration.time.sleep') as sleep:
+                with self.assertRaises(PermissionError) as caught:
+                    manager.respond({'id': 'new', 'accepted': True})
+            self.assertIs(denied, caught.exception)
+            self.assertEqual(6, replace.call_count)
+            self.assertEqual(5, sleep.call_count)
+            self.assertEqual(old, json.loads(path.read_text(encoding='utf-8')))
+            self.assertEqual([path], list(root.iterdir()))
+
     def test_settings_preflight_rejects_invalid_origin_without_writing_installation(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)/'install';settings=Path(temp)/'chosen.json'
@@ -482,6 +532,52 @@ class UpdateTransactionTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_headless_supervisor_collects_dashboard_without_tray_or_notifications(self):
+        manager = self.manager
+        manager.headless = True
+        manager.tray = None
+        manager.observer_stop = Mock()
+        observer = Mock()
+        with patch('desktop.manager.threading.Thread', return_value=observer) as thread:
+            manager.start_desktop_observer()
+            manager.notify('15.0.1')
+            thread.assert_called_once()
+        self.assertIsNone(manager.tray)
+        self.assertIs(manager.observer_thread, observer)
+        observer.start.assert_called_once_with()
+        self.assertFalse((self.root / 'notified.json').exists())
+
+    def test_watchdog_keeps_trying_after_five_crashes_and_records_recovery(self):
+        manager = self.manager
+        manager.start_desktop_observer = Mock()
+        clock = [0.0]
+        starts = []
+        manager.child = Mock()
+        manager.child.poll.return_value = 1
+
+        def boot():
+            starts.append(clock[0])
+            if 1 < len(starts) <= 7:
+                raise RuntimeError('fixture failure')
+            if len(starts) == 8:
+                manager.child.poll.return_value = None
+                atomic_json(self.root / 'request.json', {'action': 'stop', 'id': 'fixture'})
+            return 0
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        manager.boot = boot
+        manager.respond = Mock()
+        with patch('desktop.manager.load', return_value={'update_mode': 'off'}), \
+                patch('desktop.manager.time.monotonic', side_effect=lambda: clock[0]), \
+                patch('desktop.manager.time.sleep', side_effect=sleep):
+            self.assertEqual(0, manager.run())
+        self.assertEqual([0, 2, 6, 14, 30, 62, 126, 254], starts)
+        self.assertEqual('crash_recovery', manager.startup_reason)
+        self.assertTrue(any(call.kwargs.get('recoveryAttempt') == 7 for call in manager.publish.mock_calls))
+        manager.respond.assert_called_once_with({'id': 'fixture', 'accepted': True, 'error': 'Active work must finish before restarting'})
 
     def test_busy_gateway_never_changes_pointer_or_cancels_work(self):
         self.manager.stop.return_value=False

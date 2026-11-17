@@ -44,12 +44,14 @@ class GitHubPolicyResponseObservationTest {
         assertEquals(JsonPrimitive(true), selected.row()["status_branch_protected"])
         assertEquals(JsonPrimitive(false), selected.row()["status_policy_complete"])
         assertEquals(JsonPrimitive("NOT_FOUND_OR_INACCESSIBLE"), selected.row()["branch_protection_observation"])
-        assertEquals(JsonPrimitive("CHECK_PROTECTION_READ_PERMISSION"), selected.row()["status_policy_recovery_hint"])
+        assertEquals(JsonPrimitive("REFRESH_POLICY_OBSERVATIONS"), selected.row()["status_policy_recovery_hint"])
         val requirements = GitHubStatusEvidence.requirements(health, null, coverage, records)
         assertEquals(7, requirements.size)
         assertEquals(6, requirements.count { it["acceptance_state"] == JsonPrimitive("PASS") })
         val projected = recovery(selected.row())
         assertEquals(JsonPrimitive("EXPLICIT_BRANCH_NOT_PROTECTED"), projected["status_policy_protection_404_kind"])
+        // Explicit classic-protection absence is not a missing-permission claim.
+        assertNull(projected["status_policy_recovery"])
         assertEquals(jsonArray("REPORTED_OAUTH_SCOPES", "ACCEPTED_OAUTH_SCOPES", "ACCEPTED_GITHUB_PERMISSIONS", "SSO"), projected["status_policy_protection_permission_header_names"])
         assertNull(projected["status_policy_rules_404_kind"])
         for (privateValue in listOf("private-token-scope", "private-permission-value", "private.invalid", "private-header-value", "private-response-value", "owner/repo")) {

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import java.security.MessageDigest
+import java.util.Locale
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -27,6 +28,17 @@ data class GatewayJobCounts(
 ) {
     val active: Int get() = running + queued + needsAttention
 }
+
+@Serializable
+data class GatewayJobRetry(val source: String, val attempts: Int, val stage: String? = null, val outcome: String? = null)
+
+@Serializable
+data class GatewayContinuousProgress(
+    val session: Int,
+    @SerialName("session_limit") val sessionLimit: Int,
+    @SerialName("confirmed_steps") val confirmedSteps: Int,
+    @SerialName("verified_milestones") val verifiedMilestones: Int
+)
 
 @Serializable
 data class GatewayJobSummary(
@@ -57,6 +69,8 @@ data class GatewayJobSummary(
     @SerialName("source_sha") val sourceSha: String? = null,
     @SerialName("working_branch") val workingBranch: String? = null,
     @SerialName("provider_retry_at") val providerRetryAt: Double? = null,
+    val retry: GatewayJobRetry? = null,
+    @SerialName("continuous_progress") val continuousProgress: GatewayContinuousProgress? = null,
     @SerialName("execution_mode") val executionMode: String? = null,
     @SerialName("batch_progress") val batchProgress: GatewayIntegrationBatchProgress? = null,
     @SerialName("recovery_of") val recoveryOf: String? = null,
@@ -67,13 +81,13 @@ data class GatewayJobSummary(
     @SerialName("qualified_revision") val qualifiedRevision: String? = null
 ) {
     val group: GatewayJobGroup get() = gatewayJobGroup(schedulingState ?: state)
-    val acceptsInstruction: Boolean get() = jobKind == "engineering" && conversationId != null && !cancellationRequested && group in setOf(GatewayJobGroup.RUNNING, GatewayJobGroup.QUEUED) && state.uppercase() != "CANCELLING" && phase?.uppercase() != "CANCELLING"
+    val acceptsInstruction: Boolean get() = jobKind == "engineering" && conversationId != null && !cancellationRequested && group in setOf(GatewayJobGroup.RUNNING, GatewayJobGroup.QUEUED) && state.uppercase(Locale.ROOT) != "CANCELLING" && phase?.uppercase(Locale.ROOT) != "CANCELLING"
     val displayTitle: String get() = title.trim().take(120).ifBlank { repository ?: model.ifBlank { "Gateway job" } }
 }
 
 enum class GatewayJobGroup { RUNNING, QUEUED, NEEDS_ATTENTION, RECENT }
 
-internal fun gatewayJobGroup(state: String): GatewayJobGroup = when (state.uppercase()) {
+internal fun gatewayJobGroup(state: String): GatewayJobGroup = when (state.uppercase(Locale.ROOT)) {
     "QUEUED", "PENDING", "ACCEPTED", "WAITING_CAPACITY" -> GatewayJobGroup.QUEUED
     "CANCELLING", "NEEDS_ATTENTION", "NEEDS_INPUT", "MERGE_READY", "AWAITING_APPROVAL", "WAITING_APPROVAL", "WAITING_DEVICE", "WAITING_FOR_DEVICE", "BLOCKED", "RECOVERY_BLOCKED", "RECONCILING", "INTERRUPTED", "UNKNOWN_OUTCOME" -> GatewayJobGroup.NEEDS_ATTENTION
     "COMPLETED", "SUCCEEDED", "FINISHED", "DONE", "FAILED", "ERROR", "CANCELED", "CANCELLED", "EXPIRED" -> GatewayJobGroup.RECENT

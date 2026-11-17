@@ -18,8 +18,8 @@ import kotlinx.serialization.json.intOrNull
 /** Only the persisted call supplies identity and argument shape; result prose never supplies either. */
 internal object ToolReportDiagnostics {
     private val actions = setOf("status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch")
-    private val errors = setOf("APP_ERROR", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_COOLDOWN_ACTIVE")
-    private val reasons = setOf("BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH")
+    private val errors = setOf("APP_ERROR", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PR_HEAD_CHANGED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_COOLDOWN_ACTIVE")
+    private val reasons = setOf("BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH")
 
     // Closed graph-specific codes are emitted only by an exact call-bound, source-owned graph receipt.
     // Keep them separate from generic tool reasons so arbitrary tool receipts cannot impersonate graph evidence.
@@ -105,6 +105,21 @@ internal object ToolReportDiagnostics {
             ?: (result.executionReceipt?.get("reasonCode") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?: precheckReason
         reason?.takeIf { it in reasons }?.let { put("tool_reason_code", it) }
+        // Report a missing immutable GitHub path only when the original read's
+        // call-bound dispatch receipt proves that no upstream operation ran.
+        // Retain the closed reason, never the path or the result preview.
+        val pathReceipt = result.executionReceipt
+        val missingPathPrecheck = event.modelToolName.substringBefore("__") == "github_read" &&
+            result.isError &&
+            !result.dispatched &&
+            result.errorCode == "GITHUB_PATH_NOT_FOUND" &&
+            pathReceipt?.get("schema") == JsonPrimitive("github.dispatch.v1") &&
+            pathReceipt["call_id"] == JsonPrimitive(result.callId) &&
+            pathReceipt["error_code"] == JsonPrimitive(result.errorCode) &&
+            pathReceipt["phase"] == JsonPrimitive("PREFLIGHT_REJECTED") &&
+            pathReceipt["dispatched"] == JsonPrimitive(false) &&
+            pathReceipt["requires_reconciliation"] == JsonPrimitive(false)
+        if (missingPathPrecheck) put("tool_reason_code", "GITHUB_PATH_NOT_FOUND")
         (result.executionReceipt?.get("phase") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?.takeIf { it in phases }?.let { put("tool_dispatch_phase", it) }
         put("original_reason_code_hash", IssueReportContext.identifierHash("tool-reason-code", reason))
@@ -119,6 +134,84 @@ internal object ToolReportDiagnostics {
             putAll(typeShape(arguments, "argument"))
         }
         val receipt = result.executionReceipt
+        // Retain only a bounded hash of an already-captured, sanitized exception
+        // type. Never infer one from generic TOOL_FAILURE text or a precheck label.
+        // A source-owned, call-bound receipt must establish that no operation ran.
+        if (
+            result.isError &&
+            result.errorCode == "TOOL_FAILURE" &&
+            !result.dispatched &&
+            event.modelToolName.substringBefore("__").startsWith("github_") &&
+            receipt != null &&
+            receipt["schema"] in setOf(JsonPrimitive("github.dispatch.v1"), JsonPrimitive("gptmobile.tool-execution.v1")) &&
+            receipt["call_id"] == JsonPrimitive(result.callId) &&
+            receipt["error_code"] == JsonPrimitive(result.errorCode) &&
+            receipt["dispatched"] == JsonPrimitive(false) &&
+            receipt["requires_reconciliation"] == JsonPrimitive(false) &&
+            receipt["phase"] in setOf(JsonPrimitive("PREFLIGHT_REJECTED"), JsonPrimitive("tool_precheck"))
+        ) {
+            val observed = (receipt["cause_types"] as? JsonArray)
+                ?.takeIf { it.size in 1..8 }
+                ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.contentOrNull }
+                ?.takeIf { types ->
+                    types.isNotEmpty() &&
+                        types.all { it.length in 1..160 && it.matches(Regex("[A-Za-z0-9_.$]+")) }
+                }
+            observed?.distinct()?.mapNotNull { IssueReportContext.identifierHash("tool-exception-type", it) }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { put("exception_type_hashes", JsonArray(it.map(::JsonPrimitive))) }
+        }
+        // GitHubDispatchAccounting owns the dispatch receipt. Match it to the
+        // persisted tool call, and never derive a revision from response prose.
+        if (event.modelToolName.substringBefore("__") == "github_pr" &&
+            action == "context" &&
+            result.isError &&
+            result.errorCode == "GITHUB_PR_HEAD_CHANGED" &&
+            result.dispatched &&
+            receipt?.get("schema") == JsonPrimitive("github.dispatch.v1") &&
+            receipt["live_read_performed"] == JsonPrimitive(true)
+        ) {
+            put("pr_context_revision_changed", true)
+            for ((source, target) in listOf(
+                "read_requests" to "pr_context_read_requests",
+                "read_response_observations" to "pr_context_read_responses"
+            )) {
+                (receipt[source] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                    ?.takeIf { it in 0..100 }?.let { put(target, it) }
+            }
+        }
+        // A successful upstream HTTP response does not prove full pagination coverage.
+        // Preserve only typed counts and flags from the call-bound traversal receipt,
+        // never upstream record IDs, URLs or unbounded provider text.
+        val paginationState = (receipt?.get("traversal_state") as? JsonPrimitive)?.contentOrNull
+        if (event.modelToolName.substringBefore("__") == "github_ci" &&
+            result.isError &&
+            result.errorCode in setOf("GITHUB_PAGINATION_INCOMPLETE", "GITHUB_PAGINATION_STALLED") &&
+            (paginationState == "INCOMPLETE" || paginationState == "STALLED")
+        ) {
+            val pagination = receipt?.get("pagination_progress") as? JsonObject
+            if (pagination?.get("schema") == JsonPrimitive("github.pagination-progress.v1")) {
+                for ((source, target) in listOf(
+                    "remote_page" to "remote_pagination_page",
+                    "reported_total" to "remote_pagination_reported_total",
+                    "unique_records_observed" to "remote_pagination_unique_records",
+                    "duplicate_records_on_page" to "remote_pagination_duplicate_records"
+                )) {
+                    (pagination[source] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                        ?.takeIf { it in 0..16_000_000 }?.let { put(target, it) }
+                }
+                (pagination["remote_pages_observed"] as? JsonArray)?.takeIf { it.size <= 512 }
+                    ?.let { put("remote_pagination_pages_observed", it.size) }
+                for ((source, target) in listOf(
+                    "contiguous_from_first_page" to "remote_pagination_contiguous",
+                    "upstream_changed_during_traversal" to "remote_pagination_changed"
+                )) {
+                    (pagination[source] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+                        ?.let { put(target, it) }
+                }
+                paginationState?.let { put("remote_pagination_reason", it) }
+            }
+        }
         if (event.modelToolName.substringBefore("__") == "repository_graph" &&
             receipt?.get("schema") == JsonPrimitive(RepositoryGraphTool.RECEIPT_SCHEMA) &&
             receipt["call_id"] == JsonPrimitive(result.callId) &&

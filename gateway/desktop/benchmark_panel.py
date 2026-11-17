@@ -187,9 +187,11 @@ class BenchmarkPanel(tk.Frame):
     def show_qualification(self, report):
         self.selected = None
         self.metrics['score'].configure(text='Qualified' if report['qualified'] else 'Not qualified')
-        self.metrics['completion'].configure(text=str(report['passed']) + ' / 10')
+        self.metrics['completion'].configure(text=f"{report['passed']} / {report['total']}")
         self.metrics['latency'].configure(text='Not measured')
-        self.metrics['state'].configure(text='Production tasks')
+        from benchmarks.engineering_qualification import CONTINUOUS_SCHEMA
+        label = 'Continuous engineering' if report['schema'] == CONTINUOUS_SCHEMA else 'Production tasks'
+        self.metrics['state'].configure(text=label)
         measured = [row for row in report['cases'] if row.get('elapsed_seconds') is not None]
         self.chart.set([(row['scenario'].replace('_', ' '), row['elapsed_seconds'], theme.CYAN if row['status'] == 'PASSED' else theme.ERROR) for row in measured], ' s')
         self.summary_text.configure(text='Ten scenario-specific evidence gates. Missing runtime, recovery, device, or mutation observations remain unverified. Fixture scores are separate.')
@@ -380,7 +382,12 @@ class BenchmarkPanel(tk.Frame):
             detail = f'{16 if run["request"]["preset"] == "deep" else 12} distinct fixture problems · {run.get("planned", 0)} trials · {summary.get("resolved", 0)} resolved. '
             detail += 'The 1000-point result covers declared isolated fixture criteria. Live GitHub, GPU and general intelligence are not measured.'
             if score is None:
-                detail += ' Overall score needs complete valid evidence.'
+                detail += ' Overall score unavailable pending complete verification.'
+                provisional = summary.get('provisionalEarned', summary.get('earned'))
+                if type(provisional) in (int, float):
+                    detail += f' Provisional evidence: {provisional:.2f} weighted points.'
+                if summary.get('dimensions', {}).get('safety', {}).get('unknownWeight', 0) > 0:
+                    detail += ' Independent input preservation has not been measured.'
         elif suite == 'batch_comparison':
             values = summary.get('makespanMs', {})
             self.chart.set([(name.title(), values.get(name, {}).get('median'), theme.CYAN if name == 'sequential' else theme.PURPLE) for name in ('sequential', 'concurrent')], ' ms')
@@ -396,7 +403,7 @@ class BenchmarkPanel(tk.Frame):
         for index, case in enumerate(cases):
             timing = case.get('timing', case)
             self.case_table.insert('', 'end', iid=str(index), values=(case.get('title', case.get('name', case['id'])), case.get('status'), pretty(case.get('score'), '', 0), pretty(timing.get('firstMs'), ' ms', 0), pretty(timing.get('totalMs', case.get('validationMs')), ' ms', 0)))
-        self.write_evidence({'request': run['request'], 'provenance': run.get('provenance'), 'summary': summary, 'failure': run.get('failure'), 'detail': 'Select a Breakdown row for case-level receipts.'})
+        self.write_evidence({'request': run['request'], 'provenance': run.get('provenance'), 'summary': summary, 'failure': run.get('failure'), 'completionReceipt': run.get('completionReceipt'), 'pendingCaseIds': run.get('pendingCaseIds'), 'detail': 'Select a Breakdown row for case-level receipts.'})
         self.update_controls()
 
     def write_evidence(self, value):

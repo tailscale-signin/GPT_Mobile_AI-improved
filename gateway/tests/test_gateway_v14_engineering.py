@@ -486,17 +486,87 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertFalse(self.store.complete(claimed, lease, 'READ', {'ok': True}))
         self.assertEqual('CANCELLED', self.store.get(job['id'])['state'])
 
-    def test_network_interruption_retries_with_a_separate_bounded_budget(self):
+    def test_network_interruption_waits_durably_beyond_twelve_attempts_and_recovers(self):
         job = self.store.create('owner', self.request)
-        self.backend.step = lambda *args: (_ for _ in ()).throw(requests.ConnectionError('offline'))
-        for _ in range(4):
+        original_step = self.backend.step
+        failures = [0]
+
+        def temporarily_offline(current, phase):
+            if failures[0] < 16:
+                failures[0] += 1
+                raise requests.ConnectionError('offline')
+            return original_step(current, phase)
+
+        self.backend.step = temporarily_offline
+        for attempt in range(1, 17):
+            self.service.tick(job['id'])
+            waiting = self.store.get(job['id'])
+            self.assertEqual('PLAN', waiting['state'])
+            self.assertEqual(0, waiting['stalls'])
+            self.assertEqual(attempt, waiting['connection_retries'])
+            self.assertEqual('TRANSIENT_TRANSPORT', waiting['provider_wait']['source'])
+            self.assertEqual(waiting['revision'], waiting['provider_wait']['checkpoint_revision'])
+            self.assertEqual('PLAN', waiting['provider_wait']['stage'])
+            self.assertGreater(waiting['provider_wait']['retry_at'], self.time)
+            self.assertNotIn(job['id'], self.store.due())
+            # Even an explicit tick must honor the saved retry deadline.
+            self.service.tick(job['id'])
+            self.assertEqual(attempt, failures[0])
+            self.time = waiting['provider_wait']['retry_at'] + .1
+        self.store.recover()
+        self.service.tick(job['id'])
+        recovered = self.store.get(job['id'])
+        self.assertEqual('READ', recovered['state'])
+        self.assertEqual(0, recovered['connection_retries'])
+        self.assertNotIn('provider_wait', recovered)
+        self.assertEqual(16, failures[0])
+
+    def test_public_job_reports_sanitized_retry_source_attempts_and_deadline(self):
+        job = self.store.create('owner', self.request)
+        job['provider_wait'] = {'retry_at': self.time + 120, 'source': 'TRANSIENT_TRANSPORT', 'attempts': 16}
+        snapshot = public_job(job)
+        self.assertEqual(self.time + 120, snapshot['provider_retry_at'])
+        self.assertEqual('TRANSIENT_TRANSPORT', snapshot['provider_retry_source'])
+        self.assertEqual(16, snapshot['provider_retry_attempts'])
+        job['provider_wait'].update(source='unsafe private error text', attempts=-2)
+        redacted = public_job(job)
+        self.assertIsNone(redacted['provider_retry_source'])
+        self.assertIsNone(redacted['provider_retry_attempts'])
+
+    def test_gateway_suite_watchdogs_preserve_windows_durability_coverage(self):
+        from check_gateway import suite_timeout
+        self.assertEqual(480, suite_timeout('test_gateway_v14_engineering.py', 'win32'))
+        self.assertEqual(120, suite_timeout('test_gateway_v14_engineering.py', 'linux'))
+        self.assertEqual(600, suite_timeout('test_gateway_diagnostic_stress.py', 'win32'))
+        self.assertEqual(600, suite_timeout('test_gateway_diagnostic_stress.py', 'linux'))
+        self.assertEqual(120, suite_timeout('test_gateway_v14_debug.py', 'win32'))
+        self.assertEqual(120, suite_timeout('test_gateway_v14_engineering_extended.py', 'win32'))
+
+    def test_until_complete_checkpoints_one_thousand_steps_without_resetting_authority(self):
+        job = self.store.create('owner', dict(self.request, duration_hours=0))
+        self.service.tick(job['id'])
+        self.service.tick(job['id'])
+        start = self.store.get(job['id'])
+        self.backend.step = lambda current, phase: {'workspace_continue': True}
+        for index in range(1000):
+            if index in (254, 510, 766):
+                self.store.recover()
             self.service.tick(job['id'])
         current = self.store.get(job['id'])
-        self.assertEqual('PLAN', current['state'])
-        self.assertEqual(0, current['stalls'])
-        for _ in range(8):
-            self.service.tick(job['id'])
-        self.assertEqual('NEEDS_INPUT', self.store.get(job['id'])['state'])
+        self.assertEqual('IMPLEMENT', current['state'])
+        self.assertEqual(1002, current['steps'])
+        self.assertEqual(4, current['execution_session']['number'])
+        self.assertEqual(start['deadline'], current['deadline'])
+        self.assertEqual(start['request'], current['request'])
+        self.assertEqual(start['execution_binding'], current['execution_binding'])
+
+    def test_continuous_ci_repair_renews_aggregate_budget_without_resetting_fingerprint(self):
+        job = self.store.create('owner', dict(self.request, duration_hours=0))
+        for index in range(25):
+            self.assertTrue(EngineeringSupervisor.repair(job, str(index)))
+        self.assertEqual(2, job['execution_session']['number'])
+        self.assertTrue(all(EngineeringSupervisor.repair(job, '0') for _ in range(4)))
+        self.assertFalse(EngineeringSupervisor.repair(job, '0'))
 
     def test_server_cooldown_is_preserved_in_the_durable_schedule(self):
         job = self.store.create('owner', self.request)
@@ -737,7 +807,7 @@ class DurableEngineeringTests(unittest.TestCase):
     def test_tls_failures_and_excessive_cooldowns_pause_without_replaying_stages(self):
         response = requests.Response()
         response.status_code = 503
-        response.headers['Retry-After'] = '600'
+        response.headers['Retry-After'] = '300000'
         errors = (requests.exceptions.SSLError('fixture TLS secret'), requests.HTTPError('fixture cooldown secret', response=response))
         for index, error in enumerate(errors):
             self.request['request_id'] = f'safe-stop-{index}'
@@ -756,9 +826,30 @@ class DurableEngineeringTests(unittest.TestCase):
             self.service.tick(job['id'])
             self.assertEqual(['PLAN'], calls)
 
+    def test_long_503_retry_after_uses_the_server_deadline(self):
+        job = self.store.create('owner', self.request)
+        original_step = self.backend.step
+        response = requests.Response()
+        response.status_code = 503
+        response.headers['Retry-After'] = '600'
+        self.backend.step = lambda *args: (_ for _ in ()).throw(requests.HTTPError(response=response))
+        self.service.tick(job['id'])
+        waiting = self.store.get(job['id'])
+        self.assertEqual(self.time + 600, waiting['provider_wait']['retry_at'])
+        self.assertEqual('PLAN', waiting['state'])
+        self.time += 599
+        self.service.tick(job['id'])
+        self.assertEqual(waiting['revision'], self.store.get(job['id'])['revision'])
+        self.time += 1
+        self.backend.step = original_step
+        self.service.tick(job['id'])
+        recovered = self.store.get(job['id'])
+        self.assertEqual('READ', recovered['state'])
+        self.assertEqual('RESUMED', recovered['data']['latest_retry']['outcome'])
+
     def test_definitive_http_failures_pause_without_repeating_the_backend_request(self):
         for phase in ('PLAN', 'CI'):
-            for status in (400, 401, 403, 404, 409, 422):
+            for status in (400, 401, 402, 403, 404, 409, 422):
                 with self.subTest(phase=phase, status=status):
                     self.request['request_id'] = f'blocked-{phase}-{status}'
                     job = self.store.create('owner', self.request)
@@ -781,6 +872,7 @@ class DurableEngineeringTests(unittest.TestCase):
                     self.assertFalse(current['data']['blocked_reason']['retryable'])
                     self.assertEqual(status, current['data']['blocked_reason']['http_status'])
                     expected = ('ENGINEERING_AUTHENTICATION_REQUIRED' if status == 401 else
+                                'ENGINEERING_PROVIDER_CREDITS_REQUIRED' if status == 402 else
                                 'ENGINEERING_ACCESS_DENIED' if status == 403 else 'ENGINEERING_VALIDATION_REJECTED')
                     self.assertEqual(expected, current['data']['blocked_reason']['code'])
                     for _ in range(5):

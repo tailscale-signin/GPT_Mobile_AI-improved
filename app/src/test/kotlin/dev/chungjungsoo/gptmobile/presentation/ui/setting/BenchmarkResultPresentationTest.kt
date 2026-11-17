@@ -14,6 +14,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BenchmarkResultPresentationTest {
+    @Test fun openingSavedAuditUsesItsOriginalProfileAndRunDespiteNewerEvidence() {
+        val profile = PlatformV2(uid = "p", name = "Original profile", model = "original-model")
+        val policy = BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1
+        val old = BenchmarkRun("old", "p", profile.name, "OPENAI", profile.model, "old-config", false, BenchmarkMode.GITHUB_INTEGRATION, 1000, executionPolicy = policy)
+        val newer = old.copy(id = "new", profileName = "Renamed profile", model = "changed-model", startedAt = 3000)
+        val batch = BenchmarkBatch("saved", BenchmarkMode.GITHUB_INTEGRATION, 1000, listOf(BenchmarkQueueItem(0, profile, old.id, "old-config", BenchmarkQueueState.COMPLETED)), executionPolicy = policy)
+        val result = benchmarkBatchResults(batch, listOf(old, newer)).single()
+        assertEquals("old", result.latestRun?.id)
+        assertEquals("Original profile", result.profileName)
+        assertEquals("original-model", result.latestRun?.model)
+        assertEquals("COMPLETED", result.status)
+    }
+
+    @Test fun savedAuditWithoutARetainedRunStillShowsItsOwnBlockedAttempt() {
+        val profile = PlatformV2(uid = "deleted", name = "Deleted profile", model = "model")
+        val item = BenchmarkQueueItem(0, profile, "missing", "config", BenchmarkQueueState.BLOCKED, failure = BenchmarkFailure("REASONING_OFF_UNSUPPORTED", "admission", "Unsupported"))
+        val batch = BenchmarkBatch("saved", BenchmarkMode.GITHUB_INTEGRATION, 1000, listOf(item), executionPolicy = BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1)
+        val result = benchmarkBatchResults(batch, emptyList()).single()
+        assertEquals("BLOCKED", result.status)
+        assertEquals("Deleted profile", result.profileName)
+        assertNull(result.latestRun)
+        assertNull(result.attemptScore)
+        assertEquals("REASONING_OFF_UNSUPPORTED", result.failure?.code)
+    }
+
     @Test fun profileIndependentAuditNeverCreatesAModelScorePopulation() {
         val profile = PlatformV2(uid = "p", name = "Profile", model = "model")
         val run = auditRun(listOf(auditEntry("storage")))

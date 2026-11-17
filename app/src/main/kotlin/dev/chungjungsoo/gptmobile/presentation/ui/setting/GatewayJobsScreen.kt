@@ -105,7 +105,7 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
             item("empty") { Text(stringResource(R.string.gateway_jobs_empty), style = MaterialTheme.typography.bodyLarge) }
         }
         for (group in GatewayJobGroup.entries) {
-            val grouped = displayedRows.filter { gatewayJobDisplayGroup(it.summary.schedulingState ?: it.summary.state, it.summary.phase) == group }
+            val grouped = displayedRows.filter { gatewayJobDisplayGroup(it.summary.schedulingState ?: it.summary.state, it.summary.phase, it.summary.providerRetryAt, it.summary.retry?.outcome, it.summary.cancellationRequested) == group }
             val rows = if (group == GatewayJobGroup.QUEUED) grouped.sortedBy { it.summary.acceptedAt } else grouped.sortedByDescending { it.summary.acceptedAt }
             if (rows.isEmpty()) continue
             item("section:$group") {
@@ -157,12 +157,36 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                         Text(stringResource(R.string.gateway_jobs_total, gatewayElapsedLabel(timer)), style = MaterialTheme.typography.labelLarge)
                         if (!rowFresh && job.finishedAt == null) Text(stringResource(R.string.gateway_jobs_cached_state), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (row.record.key in state.partialHistoryKeys) Text(stringResource(R.string.gateway_transcript_history_partial), style = MaterialTheme.typography.bodySmall)
-                        if (job.group == GatewayJobGroup.QUEUED) {
+                        job.continuousProgress?.let { progress ->
+                            Text(
+                                stringResource(R.string.gateway_jobs_continuous_progress, progress.session, progress.sessionLimit, progress.verifiedMilestones),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        if (gatewayJobDisplayGroup(job.schedulingState ?: job.state, job.phase, job.providerRetryAt, job.retry?.outcome, job.cancellationRequested) == GatewayJobGroup.QUEUED) {
                             val formatter = android.text.format.DateFormat.getTimeFormat(androidx.compose.ui.platform.LocalContext.current)
-                            val waitLabel = job.providerRetryAt?.takeIf { it.isFinite() && it > 0 }
-                                ?.let { stringResource(R.string.provider_wait_retry_at, formatter.format(java.util.Date((it * 1000).toLong()))) }
+                            val waitLabel = job.providerRetryAt?.takeIf { it.isFinite() && it > 0 }?.let { retryAt ->
+                                val observedServerNow = job.serverNow ?: state.serverNow
+                                val remainingMs = gatewayRetryRemainingMillis(retryAt, observedServerNow, row.observedAtElapsed, elapsedNow, rowFresh)
+                                when {
+                                    remainingMs != null && remainingMs > 0 -> stringResource(R.string.gateway_jobs_retry_countdown, gatewayElapsedLabel(remainingMs + 999))
+                                    remainingMs != null -> stringResource(R.string.gateway_jobs_retry_due)
+                                    else -> stringResource(R.string.gateway_jobs_retry_at, formatter.format(java.util.Date((retryAt * 1000).toLong())))
+                                }
+                            }
                             val queueText = waitLabel ?: job.queuePosition?.let { stringResource(R.string.gateway_jobs_queue_position, it) } ?: job.queueReason
                             queueText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        }
+                        job.retry?.let { retry ->
+                            val stage = retry.stage?.let(::gatewayPhaseLabel) ?: gatewayPhaseLabel(job.phase ?: job.state)
+                            val label = when (gatewayRetryPresentation(job)) {
+                                GatewayRetryPresentation.RESUMED -> R.string.gateway_jobs_retry_resumed
+                                GatewayRetryPresentation.SCHEDULED -> R.string.gateway_jobs_retry_attempt
+                                GatewayRetryPresentation.NEEDS_INPUT -> R.string.gateway_jobs_retry_needs_input
+                                GatewayRetryPresentation.INTERRUPTED -> R.string.gateway_jobs_retry_interrupted
+                                GatewayRetryPresentation.RECORDED -> R.string.gateway_jobs_retry_recorded
+                            }
+                            Text(stringResource(label, stage, retry.attempts), style = MaterialTheme.typography.bodySmall)
                         }
                         job.recoveryJobId?.let { recoveryId ->
                             val child = displayedRows.singleOrNull { it.summary.jobId == recoveryId && it.summary.recoveryOf == job.jobId }

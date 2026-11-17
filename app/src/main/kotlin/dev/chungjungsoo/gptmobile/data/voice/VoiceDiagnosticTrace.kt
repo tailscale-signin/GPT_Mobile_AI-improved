@@ -140,7 +140,7 @@ class VoiceDiagnosticTrace internal constructor(
             val previous = owner.values["voice_engine"]
             if (previous != null && previous != engine.name) {
                 listOf("warmup", "ready", "synthesis", "audio").forEach(owner.moments::remove)
-                listOf("voice_warmup_ms", "voice_engine_warm", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_first_audio_basis", "voice_playback_failure", "voice_playback_focus_attempts").forEach(owner.values::remove)
+                listOf("voice_warmup_ms", "voice_engine_warm", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_first_audio_basis", "voice_playback_failure", "voice_playback_focus_attempts", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed").forEach(owner.values::remove)
             }
             owner.values["voice_engine"] = engine.name
         }
@@ -156,6 +156,24 @@ class VoiceDiagnosticTrace internal constructor(
         fun playbackFocus(result: Focus, attempt: Int) = owner.record(this) {
             owner.values["voice_focus_result"] = result.name
             owner.values["voice_playback_focus_attempts"] = attempt
+        }
+
+        /** Counts and already-audible state only; no unsupported word or reply text leaves the device. */
+        internal fun pronunciationFailure(unknownWords: Int, initialisms: Int, audioQueued: Boolean, firstAudioObserved: Boolean, failure: KokoroPronunciationFailure? = null) = owner.record(this) {
+            owner.values["voice_pronunciation_unknown_words"] = unknownWords.toLong().coerceIn(0L, MAX_COUNT)
+            owner.values["voice_pronunciation_initialisms"] = initialisms.toLong().coerceIn(0L, MAX_COUNT)
+            failure?.let { owner.values["voice_pronunciation_failure_kind"] = it.name }
+            owner.values["voice_pronunciation_audio_queued"] = audioQueued
+            owner.values["voice_pronunciation_first_audio_observed"] = firstAudioObserved
+        }
+
+        /** A transient focus interruption is not the same event as permanent loss. */
+        fun playbackFocusTransition(action: String) = owner.record(this) {
+            if (action in setOf("RESTORE", "PAUSE", "DUCK", "STOP")) {
+                owner.values["voice_focus_last_transition"] = action
+                owner.values["voice_focus_transition_count"] =
+                    ((owner.values["voice_focus_transition_count"] as? Long ?: 0L) + 1L).coerceAtMost(MAX_COUNT)
+            }
         }
         fun playbackFailure(reason: String) = owner.record(this) { owner.values["voice_playback_failure"] = reason }
         fun captureSilenced(stage: String) = owner.record(this) { owner.values["voice_capture_silenced_stage"] = stage }

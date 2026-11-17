@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from benchmark_selected_model import measure
+from benchmark_selected_model import BenchmarkInvocationError, measure
 
 
 class Stream:
@@ -59,3 +59,41 @@ class SelectedModelBenchmarkTest(unittest.TestCase):
         self.assertEqual([], sent['tools'])
         self.assertEqual(options, sent['gateway'])
         self.assertEqual('selected', sent['model'])
+
+    def test_fragmented_utf8_and_crlf_preserve_the_terminal_receipt(self):
+        wire = ('data: {"choices":[{"delta":{"content":"雪"},"finish_reason":"stop"}]}\r\n\r\n'
+                'data: [DONE]\r\n\r\n').encode()
+        class Fragmented(Stream):
+            def iter_content(self, **_kwargs):
+                yield from (wire[i:i + 1] for i in range(len(wire)))
+        report = measure(lambda *a, **kw: Fragmented(), 'http://localhost', 'selected', [],
+                         validate_output=lambda text: text == '雪')
+        self.assertTrue(report['passed'])
+
+    def test_typed_http_rejection_keeps_status_and_allowlisted_code(self):
+        class Rejected(Stream):
+            status_code = 400
+            def iter_content(self, **_kwargs):
+                yield b'{"error":{"code":"EXECUTION_OUTPUT_LIMIT","message":"private model data"}}'
+        with self.assertRaises(BenchmarkInvocationError) as observed:
+            measure(lambda *a, **kw: Rejected(), 'http://localhost', 'selected', [])
+        self.assertEqual('BENCHMARK_HTTP_REJECTED', observed.exception.code)
+        self.assertEqual(400, observed.exception.status)
+        self.assertEqual('EXECUTION_OUTPUT_LIMIT', observed.exception.admission_code)
+        self.assertNotIn('private', str(observed.exception))
+
+    def test_stream_context_failure_retains_job_and_requires_confirmed_settlement(self):
+        class Rejected(Stream):
+            headers = {'X-Gateway-Job-ID': 'job-123'}
+            def iter_lines(self, **_kwargs):
+                yield b'data: {"error":{"code":"context_budget_exceeded","message":"private prompt"}}'
+        settled = []
+        def settle(job_id):
+            settled.append(job_id)
+            return {'outcome': 'terminal'}
+        with self.assertRaises(BenchmarkInvocationError) as observed:
+            measure(lambda *a, **kw: Rejected(), 'http://localhost', 'selected', [], cancel_request=settle)
+        self.assertEqual(['job-123'], settled)
+        self.assertEqual('terminal', observed.exception.settlement)
+        self.assertEqual('context_budget_exceeded', observed.exception.admission_code)
+        self.assertEqual('job-123', observed.exception.job_id)

@@ -59,6 +59,20 @@ class GatewayEngineeringRepository @Inject constructor(
 
     suspend fun options(): GatewayEngineeringSettings = settings.getFeatureSettings().githubEngineeringSettings
 
+    suspend fun setContinuousEngineering(enabled: Boolean) {
+        settings.mutateFeatureSettings { current ->
+            val options = current.githubEngineeringSettings
+            val duration = if (enabled) {
+                0
+            } else if (options.durationHours == 0) {
+                GatewayEngineeringSettings().durationHours
+            } else {
+                options.durationHours
+            }
+            current.copy(githubEngineeringSettings = options.copy(durationHours = duration))
+        }
+    }
+
     /** Composer guard: checking uncertainty never creates or resumes gateway execution. */
     suspend fun hasUnconfirmedAdmission(chatId: Int, profileUid: String): Boolean = store.hasMigratedAdmission(chatId, profileUid) || bindings(chatId).any { it.request.profileId == profileUid && it.job == null && store.admissionState(it.request.requestId)?.startsWith("REJECTED:") != true }
 
@@ -478,6 +492,13 @@ class GatewayEngineeringRepository @Inject constructor(
             val snapshot = client.get(config, requireNotNull(binding.job).id, binding.syncedRevision)
             check(snapshot.id == binding.job?.id) { "Engineering job identity changed." }
             verifyReceipt(binding, snapshot)
+            // Retain only an already-observed wait. This read never dispatches
+            // inference or repeats a command, and the cache enforces privacy.
+            dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.engineeringWait(
+                snapshot,
+                binding.request.profileId,
+                binding.request.model
+            )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
             if (binding.request.executionBindingId != null) {
                 check(snapshot.executionBindingId == binding.request.executionBindingId && snapshot.executionBinding == binding.executionAdmission?.binding) { "The retained execution identity changed." }
             }

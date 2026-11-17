@@ -403,6 +403,23 @@ class RepositoryLifecycleTests(unittest.TestCase):
             self.lifecycle.slots.release()
             self.lifecycle.slots.release()
 
+    def expire_owner_lease_for_restart(self):
+        """Simulate a dead process, not a living owner racing to renew its lease.
+
+        An active fixture heartbeat can refresh the forced-zero lease on slow
+        Windows runners and make the resumed operation appear PENDING again.
+        Serializing the simulated crash with the heartbeat lock preserves the
+        production ownership boundary and keeps the interruption test stable.
+        """
+        with self.lifecycle.lock:
+            self.lifecycle.active.clear()
+            self.lifecycle._tx(
+                lambda db: db.execute(
+                    'UPDATE repository_lifecycle_instances SET heartbeat_ms=0 WHERE id=?',
+                    (self.lifecycle.instance,),
+                )
+            )
+
     def test_pending_requests_are_bounded_and_an_interrupted_process_never_redispatches(self):
         starts = []
         self.lifecycle.start = starts.append
@@ -417,7 +434,7 @@ class RepositoryLifecycleTests(unittest.TestCase):
         self.assertEqual('REPOSITORY_QUEUE_FULL', full.exception.code)
         reopened = FixtureLifecycle(self.service, self.source, self.destination, self.runner, start=lambda _: self.fail('Restart must not repeat work'))
         self.assertEqual('PENDING', reopened.submit('owner', self.payload)['status'])
-        self.lifecycle._tx(lambda db: db.execute('UPDATE repository_lifecycle_instances SET heartbeat_ms=0'))
+        self.expire_owner_lease_for_restart()
         self.assertEqual('BLOCKED', reopened.submit('owner', self.payload)['status'])
         self.assertEqual([], self.runner.calls)
         with self.assertRaises(RepositoryLifecycleError) as hidden:
@@ -428,7 +445,7 @@ class RepositoryLifecycleTests(unittest.TestCase):
         actions = []
         self.lifecycle.start = actions.append
         result = self.lifecycle.submit('owner', self.payload)
-        self.lifecycle._tx(lambda db: db.execute('UPDATE repository_lifecycle_instances SET heartbeat_ms=0'))
+        self.expire_owner_lease_for_restart()
         reopened = FixtureLifecycle(self.service, self.source, self.destination, self.runner)
         self.assertEqual('BLOCKED', reopened.status('owner', result['operation_id'])['status'])
         actions[0]()

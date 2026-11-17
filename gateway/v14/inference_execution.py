@@ -17,6 +17,7 @@ from v14.graph_context import admitted_graph_receipt
 from v14.execution_budget_receipt import receipt as budget_receipt
 from v14.inference_scheduler import admission_context, bound_invocation
 from v14.debug import diagnostic_execution_event
+from v14.batch import is_rate_limit_response
 from gateway_v13_runtime import GatewayContractError, normalize_backend_messages
 
 
@@ -256,13 +257,15 @@ class BoundModelInvocation:
             if self.current is None:
                 self.current = self.new_receipt()
             if self.current['state'] in {'PRECHECK', 'DISPATCHED'}:
-                http_status = getattr(getattr(error, 'response', None), 'status_code', None)
-                rate_limited = http_status == 429 and self.current['dispatched']
+                error_response = getattr(error, 'response', None)
+                http_status = getattr(error_response, 'status_code', None)
+                headers = getattr(error_response, 'headers', {}) or {}
+                rate_limited = self.current['dispatched'] and is_rate_limit_response(http_status, headers)
                 rejected = rate_limited or isinstance(error, GatewayContractError) and error.details.get('dispatch_state') == 'backend_rejected'
                 self.current.update(state='FAILED' if rejected else 'UNKNOWN_OUTCOME' if self.current['dispatched'] else 'PRECHECK_REJECTED',
                                     error_code='PROVIDER_RATE_LIMITED' if rate_limited else getattr(error, 'code', type(error).__name__))
                 if rate_limited:
-                    self.current.update(http_status=429, reserved_tokens=0, completed_at_ms=int(time.time() * 1000),
+                    self.current.update(http_status=http_status, reserved_tokens=0, completed_at_ms=int(time.time() * 1000),
                                         failure_details={'dispatch_state': 'backend_rejected', 'retryable': True})
                 elif rejected:
                     self.current.update(failure_details=copy.deepcopy(error.details), completed_at_ms=int(time.time() * 1000))

@@ -45,7 +45,11 @@ data class ProviderRequestConfig(
     internal val freeModelSnapshot: dev.chungjungsoo.gptmobile.data.free.FreeModelOption? = null,
     internal val freeDiagnostics: dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics? = null,
     /** Captured display label only; identity and authorization never depend on this value. */
-    val profileName: String? = null
+    val profileName: String? = null,
+    /** Actual request model, including when the selected route is not locked. */
+    val selectedModel: String? = null,
+    /** A provider allowlist containing one route, resolved from the outgoing request. */
+    internal val openRouterPinnedProvider: String? = null
 ) {
     /**
      * Resolves an API endpoint path against the base apiUrl, normalizing any

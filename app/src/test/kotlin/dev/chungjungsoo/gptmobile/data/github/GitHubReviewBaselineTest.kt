@@ -104,6 +104,27 @@ class GitHubReviewBaselineTest {
         }
     }
 
+    @Test fun defaultBranchAsksForBaselineWithoutSpendingCallsOnPrInventory() {
+        // A user-selected main branch is not a review of every unrelated open PR.
+        // The exported regression repeatedly spent a run before asking for a base.
+        val missing = requireNotNull(GitHubReviewComparison.plan(review, tools, mapOf("status" to context())))
+        assertEquals(JsonPrimitive("BASELINE_REQUIRED"), missing.checkpoint["state"])
+        assertEquals(JsonPrimitive(true), missing.checkpoint["user_input_required"])
+        assertNull(missing.nextCall)
+        assertFalse(missing.checkpoint.containsKey("base_sha"))
+        assertTrue(missing.checkpoint.toString().contains("Baseline:"))
+    }
+
+    @Test fun defaultBranchCanStillUseAnAlreadyObservedExactPrHeadAndBase() {
+        val matching = requireNotNull(
+            GitHubReviewComparison.plan(review, tools, mapOf("status" to context(), "pr" to matchingPull()))
+        )
+        assertEquals(JsonPrimitive("OBSERVED_PR_BASE"), matching.checkpoint["comparison_policy"])
+        assertEquals(JsonPrimitive("COMPARE_REQUIRED"), matching.checkpoint["state"])
+        assertEquals(JsonPrimitive("c".repeat(40)), matching.nextCall?.arguments?.get("base_sha"))
+        assertEquals(JsonPrimitive(head), matching.nextCall?.arguments?.get("commit_sha"))
+    }
+
     @Test fun completeShippedReviewPresetNeverTreatsHeadBaseProseAsARef() {
         val preset = GitHubWorkflowPreset.selected("review_branch").prompt()
         assertTrue(preset.contains("head/base revisions"))

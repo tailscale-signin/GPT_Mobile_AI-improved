@@ -20,6 +20,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolReportIncidentProjectionTest {
+    @Test fun githubMissingPathKeepsCallBoundReasonWithoutDisclosingTheRequestedPath() {
+        val event = event("""{"action":"ranges","ranges":[{"path":"PRIVATE_FILE_PATH"}]}""").copy(modelToolName = "github_read__selected")
+        val receipt = buildJsonObject {
+            put("schema", "github.dispatch.v1")
+            put("call_id", event.callId)
+            put("error_code", "GITHUB_PATH_NOT_FOUND")
+            put("phase", "PREFLIGHT_REJECTED")
+            put("dispatched", false)
+            put("requires_reconciliation", false)
+        }
+        val result = AgentToolResult(
+            event.callId,
+            ToolResultContent.Text("PRIVATE_FILE_PATH"),
+            true,
+            errorCode = "GITHUB_PATH_NOT_FOUND",
+            dispatched = false,
+            executionReceipt = receipt
+        )
+        assertEquals("GITHUB_PATH_NOT_FOUND", ToolReportDiagnostics.reportCode(event, result))
+        val fields = ToolReportDiagnostics.fields(event, result)
+        assertEquals("GITHUB_PATH_NOT_FOUND", fields["tool_reason_code"])
+        val diagnostics = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("GITHUB_PATH_NOT_FOUND"), diagnostics.values["tool_reason_code"])
+        assertFalse(diagnostics.toString().contains("PRIVATE_FILE_PATH"))
+        val context = IssueReportContext.fromFields(
+            "TOOL_RESULT",
+            fields + mapOf("failed_stage" to "tool_precheck", "operation" to "github_read", "dispatched" to false)
+        )
+        assertEquals("GITHUB_VALIDATION_FAILED", IssueReportCodes.nativeGitHubPrecheck("GITHUB_PATH_NOT_FOUND", context)?.code)
+        val wrongReceipt = result.copy(executionReceipt = JsonObject(receipt + ("call_id" to JsonPrimitive("wrong-call"))))
+        assertFalse(ToolReportDiagnostics.fields(event, wrongReceipt).containsKey("tool_reason_code"))
+    }
+
     @Test fun savedIndexPublicAliasRequiresTheExactPersistedCallAndTypedPriorCheckpointReceipt() = runBlocking {
         val event = event("""{"action":"index"}""").copy(modelToolName = "repository_graph__selected")
         val tool = RepositoryGraphTool(event.modelToolName) {
@@ -205,5 +238,131 @@ class ToolReportIncidentProjectionTest {
         }
     }
 
+    @Test fun incompleteGitHubPaginationRetainsSafeCountsWithoutRawRecords() {
+        val event = event("""{"action":"runs","page":7,"per_page":30}""")
+            .copy(modelToolName = "github_ci__selected")
+        val receipt = buildJsonObject {
+            put("traversal_state", "INCOMPLETE")
+            put(
+                "pagination_progress",
+                buildJsonObject {
+                    put("schema", "github.pagination-progress.v1")
+                    put("remote_page", 7)
+                    put("remote_pages_observed", JsonArray((1..7).map(::JsonPrimitive)))
+                    put("reported_total", 206)
+                    put("unique_records_observed", 197)
+                    put("duplicate_records_on_page", 7)
+                    put("contiguous_from_first_page", true)
+                    put("upstream_changed_during_traversal", false)
+                    put("private_record_id", "never include this")
+                }
+            )
+        }
+        val result = AgentToolResult(
+            event.callId,
+            ToolResultContent.Text("private-upstream-response"),
+            true,
+            errorCode = "GITHUB_PAGINATION_INCOMPLETE",
+            executionReceipt = receipt,
+            dispatched = true
+        )
+        val fields = ToolReportDiagnostics.fields(event, result)
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(3, report.schemaVersion)
+        assertEquals(JsonPrimitive(7), report.values["remote_pagination_page"])
+        assertEquals(JsonPrimitive(7), report.values["remote_pagination_pages_observed"])
+        assertEquals(JsonPrimitive(206), report.values["remote_pagination_reported_total"])
+        assertEquals(JsonPrimitive(197), report.values["remote_pagination_unique_records"])
+        assertEquals(JsonPrimitive(7), report.values["remote_pagination_duplicate_records"])
+        assertEquals(JsonPrimitive(true), report.values["remote_pagination_contiguous"])
+        assertEquals(JsonPrimitive(false), report.values["remote_pagination_changed"])
+        assertEquals(JsonPrimitive("INCOMPLETE"), report.values["remote_pagination_reason"])
+        assertFalse(report.toString().contains("never include this"))
+        assertFalse(report.toString().contains("private-upstream-response"))
+        assertFalse(ToolReportDiagnostics.fields(event.copy(callId = "different-call"), result).containsKey("remote_pagination_reason"))
+        assertFalse(ToolReportDiagnostics.fields(event, result.copy(executionReceipt = JsonObject(receipt + ("traversal_state" to JsonPrimitive("COMPLETE"))))).containsKey("remote_pagination_reason"))
+        assertFalse(ToolReportDiagnostics.fields(event.copy(modelToolName = "github_issue"), result).containsKey("remote_pagination_reason"))
+    }
+
     private fun event(arguments: String) = ToolEvent("private-event", "private-run", 1, "private-call", null, null, "github_issue", "github_issue", arguments, null, null, "FAILED")
+
+    @Test fun genericGitHubPrecheckOnlyReportsHashesFromExactObservedExceptionReceipt() {
+        val event = event("""{"action":"ranges","ranges":[{"path":"README.md"}]}""")
+            .copy(modelToolName = "github_read__selected")
+        val receipt = buildJsonObject {
+            put("schema", "github.dispatch.v1")
+            put("call_id", event.callId)
+            put("error_code", "TOOL_FAILURE")
+            put("phase", "PREFLIGHT_REJECTED")
+            put("dispatched", false)
+            put("requires_reconciliation", false)
+            put("cause_types", JsonArray(listOf(JsonPrimitive("java.lang.IllegalStateException"))))
+            put("private_exception_message", "token and local-private-path")
+        }
+        val failure = AgentToolResult(
+            event.callId,
+            ToolResultContent.Text("private failure description"),
+            true,
+            errorCode = "TOOL_FAILURE",
+            dispatched = false,
+            executionReceipt = receipt
+        )
+        val fields = ToolReportDiagnostics.fields(event, failure)
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        val hashes = requireNotNull(report.values["exception_type_hashes"] as? JsonArray)
+        assertEquals(1, hashes.size)
+        assertEquals(
+            JsonPrimitive(IssueReportContext.identifierHash("tool-exception-type", "java.lang.IllegalStateException")),
+            hashes.single()
+        )
+        assertTrue(report.isValid())
+        assertFalse(report.toString().contains("IllegalStateException"))
+        assertFalse(report.toString().contains("token and local-private-path"))
+        assertFalse(report.toString().contains("private failure description"))
+
+        val withoutTypes = failure.copy(executionReceipt = JsonObject(receipt - "cause_types"))
+        assertFalse("exception_type_hashes" in ToolReportDiagnostics.fields(event, withoutTypes))
+        assertFalse("exception_type_hashes" in ToolReportDiagnostics.fields(event.copy(callId = "other-call"), failure))
+        assertFalse("exception_type_hashes" in ToolReportDiagnostics.fields(event, failure.copy(dispatched = true)))
+        assertFalse(
+            "exception_type_hashes" in ToolReportDiagnostics.fields(
+                event,
+                failure.copy(executionReceipt = JsonObject(receipt + ("call_id" to JsonPrimitive("other-call"))))
+            )
+        )
+    }
+
+    @Test fun changedPrHeadReportRetainsOnlyMeasuredReadCounts() {
+        val event = event("""{"action":"context","pull_number":1349}""")
+            .copy(modelToolName = "github_pr__selected")
+        val receipt = buildJsonObject {
+            put("schema", "github.dispatch.v1")
+            put("live_read_performed", true)
+            put("read_requests", 3)
+            put("read_response_observations", 3)
+            put("private_head_sha", "never-expose-this")
+        }
+        val result = AgentToolResult(
+            event.callId,
+            ToolResultContent.Text("private-error-body"),
+            true,
+            errorCode = "GITHUB_PR_HEAD_CHANGED",
+            executionReceipt = receipt,
+            dispatched = true
+        )
+        val fields = ToolReportDiagnostics.fields(event, result)
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("GITHUB_PR_HEAD_CHANGED"), report.values["tool_error_code"])
+        assertEquals(report, report.validated()) // Restored schema must retain the allowlisted head-race code.
+        assertEquals(JsonPrimitive(true), report.values["pr_context_revision_changed"])
+        assertEquals(JsonPrimitive(3), report.values["pr_context_read_requests"])
+        assertEquals(JsonPrimitive(3), report.values["pr_context_read_responses"])
+        assertTrue(IssueReportIncidentCapsule.GITHUB_PR_CONTEXT_RACE_FEATURE in report.requiredServiceFeatures())
+        assertFalse(report.toString().contains("never-expose-this"))
+        assertFalse(report.toString().contains("private-error-body"))
+        assertFalse(ToolReportDiagnostics.fields(event.copy(callId = "wrong"), result).containsKey("pr_context_revision_changed"))
+        assertFalse(ToolReportDiagnostics.fields(event.copy(modelToolName = "github_ci"), result).containsKey("pr_context_revision_changed"))
+        assertFalse(ToolReportDiagnostics.fields(event, result.copy(dispatched = false)).containsKey("pr_context_revision_changed"))
+        assertFalse(ToolReportDiagnostics.fields(event, result.copy(executionReceipt = JsonObject(receipt + ("live_read_performed" to JsonPrimitive(false))))).containsKey("pr_context_revision_changed"))
+    }
 }

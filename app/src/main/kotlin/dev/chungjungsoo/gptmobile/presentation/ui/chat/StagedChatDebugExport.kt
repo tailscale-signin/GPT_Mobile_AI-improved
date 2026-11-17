@@ -16,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureStage
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureStorage
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportGate
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportMemory
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticLogSnapshot
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticRecordChunks
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticStageSink
@@ -44,6 +45,14 @@ internal fun diagnosticCaptureIdentity(chatId: Int, fullHistory: Boolean = false
     "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v4" + if (fullHistory) "" else "-summary"
 
 /** UI snapshots are small references; history comes from bounded database/file producers. */
+/** Select the existing bounded mode before history allocation on constrained ART heaps. */
+internal fun diagnosticCaptureUsesReducedMemory(requested: Boolean, memory: DiagnosticExportMemory): Boolean {
+    if (requested) return true
+    val mib = 1024L * 1024
+    val reserve = minOf(64L * mib, maxOf(32L * mib, memory.javaMaxBytes / 8))
+    return memory.javaHeadroomBytes < reserve
+}
+
 internal suspend fun writeStagedChatDiagnostics(
     context: Context,
     destinationDirectory: File,
@@ -75,9 +84,11 @@ internal suspend fun writeStagedChatDiagnostics(
         val includeHistory = resumed?.third ?: fullHistory
         val identity = resumed?.second ?: diagnosticCaptureIdentity(room.id, includeHistory)
         var sessionDirectory: File? = null
+        val useReducedMemory = diagnosticCaptureUsesReducedMemory(reducedMemory, AndroidDiagnosticExportMemory.sample())
+        val automaticReducedMemory = useReducedMemory && !reducedMemory
         val options = DiagnosticCaptureOptions(
-            reducedMemory = reducedMemory,
-            minimumHeadroomBytes = if (reducedMemory) 4L * 1024 * 1024 else 16L * 1024 * 1024,
+            reducedMemory = useReducedMemory,
+            minimumHeadroomBytes = if (useReducedMemory) 4L * 1024 * 1024 else 16L * 1024 * 1024,
             memorySampler = AndroidDiagnosticExportMemory::sample,
             guard = {
                 guard()
@@ -90,11 +101,12 @@ internal suspend fun writeStagedChatDiagnostics(
                 finish
             },
             resumable = !room.isTemporary,
-            deferArchiveHandoff = !room.isTemporary
+            deferArchiveHandoff = !room.isTemporary,
+            cooperativeHeapRecovery = useReducedMemory
         )
-        val maximumCharacters = if (reducedMemory) 12 * 1024 else 96 * 1024
+        val maximumCharacters = if (useReducedMemory) 12 * 1024 else 96 * 1024
         // A single measured source row may exceed one JSONL record; redact it once, then chunk.
-        val maximumSourceCharacters = if (reducedMemory) 256 * 1024 else 1024 * 1024
+        val maximumSourceCharacters = if (useReducedMemory) 256 * 1024 else 1024 * 1024
         val json = Json { encodeDefaults = true }
         val redactor = dev.chungjungsoo.gptmobile.data.diagnostics.ChatDebugRedactor(profiles.mapNotNull { it.token })
         val logs = mutableMapOf<Boolean, DiagnosticLogSnapshot>()
@@ -135,7 +147,7 @@ internal suspend fun writeStagedChatDiagnostics(
                         if (redacted is JsonPrimitive && redacted.isString) redacted.content else redacted.toString()
                     }
                 },
-                capture = { AppLogRecorder.captureForExport(it, reducedMemory) },
+                capture = { AppLogRecorder.captureForExport(it, useReducedMemory) },
                 critical = critical
             ).also { logs[critical] = it }
             sink.note(
@@ -249,6 +261,8 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("acceptedPolicyLocations", "Accepted GitHub policy references are indexed in tool-catalog.jsonl and retained as workspace records in latest-state.jsonl and full-history workspace.jsonl. Empty legacy policy tables do not establish that no accepted policy was retained.")
                         put("profileScope", "Current configured profiles; actual routing evidence is in runs and invocations, not inferred from settings.")
                         put("memoryMeasurements", "Native allocated heap and ART counters where available; null does not mean zero.")
+                        put("captureMemoryProfile", if (useReducedMemory) "REDUCED" else "STANDARD")
+                        put("reducedMemorySelectedAutomatically", automaticReducedMemory)
                         put("privacy", "Credentials are redacted; this user-requested export can contain private conversation text.")
                     },
                     evidence = false
@@ -339,7 +353,7 @@ internal suspend fun writeStagedChatDiagnostics(
             } else {
                 research.streamDiagnosticRecords(
                     room.id,
-                    if (reducedMemory) 32 * 1024 else 128 * 1024,
+                    if (useReducedMemory) 32 * 1024 else 128 * 1024,
                     {
                         authorized()
                         sink.checkBudget()

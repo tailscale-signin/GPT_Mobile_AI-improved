@@ -212,17 +212,24 @@ class GitHubToolContractsTest {
                 when (request.url.encodedPath) {
                     "/repos/o/r/actions/runs/7" -> respond("""{"id":7,"head_sha":"$sha"}""")
                     "/repos/o/r/actions/runs/7/jobs" -> {
-                        val failed = request.url.parameters["page"] == "11"
-                        respond("""{"total_count":1001,"jobs":[{"id":8,"run_id":7,"head_sha":"$sha","status":"completed","conclusion":"${if (failed) "failure" else "success"}"}]}""")
+                        val page = request.url.parameters["page"]?.toIntOrNull() ?: 1
+                        val failed = page == 11
+                        val jobs = (1..(if (failed) 1 else 100)).joinToString(",") { index ->
+                            val id = (page - 1) * 100 + index
+                            """{"id":$id,"run_id":7,"head_sha":"$sha","status":"completed","conclusion":"${if (failed) "failure" else "success"}"}"""
+                        }
+                        respond("""{"total_count":1001,"jobs":[$jobs]}""")
                     }
-                    "/repos/o/r/actions/jobs/8/logs" -> respond("error: build failed")
+                    "/repos/o/r/actions/jobs/1001/logs" -> respond("error: build failed")
                     else -> error("Unexpected request")
                 }
             }
         )
         try {
             val tool = GitHubOperationTool("github_ci", GitHubTool("token", http), "failure-search")
-            val first = data(tool.execute("first", call("failure", """, "run_id":7""")))
+            val searched = tool.execute("first", call("failure", """, "run_id":7"""))
+            assertFalse(searched.isError)
+            val first = data(searched)
             assertEquals(JsonPrimitive("job_search_incomplete"), first["data"]!!.jsonObject["status"])
             val next = first["continuation_call"]!!.jsonObject["arguments"]!!.jsonObject
             assertEquals(JsonPrimitive(11), next["page"])

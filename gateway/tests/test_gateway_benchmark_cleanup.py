@@ -222,10 +222,11 @@ class BenchmarkCleanupOwnershipTest(unittest.TestCase):
                         return {'exit_code': 0, 'output_sha256': hashlib.sha256(raw).hexdigest(), 'elapsed_ms': 6}
                     destination.write(STARTED)
                     raise failure('Synthetic bounded evaluator failure')
-                def measure(_runner, _run, _name, _turns, _expected, *, validate, output_tokens):
+                def measure(_runner, _run, _name, _turns, _expected, *, validate, output_tokens, output_format=None, on_admitted=None):
                     dispatches.append(_name)
                     validate(proposal)
-                    return {'firstMs': 3, 'totalMs': 9, 'observedModel': 'selected', 'gatewayJobId': 'observed-job'}
+                    return {'firstMs': 3, 'totalMs': 9, 'finishReason': 'stop',
+                            'observedModel': 'selected', 'gatewayJobId': 'observed-job'}
                 with patch.object(fixtures, 'suite', return_value=[task, dict(task, id='unstarted-trial')]), \
                         patch.object(sandbox, 'preflight', return_value='/local/docker'), \
                         patch.object(sandbox, 'run_bounded', side_effect=bounded), \

@@ -113,6 +113,7 @@ internal object IssueReportCodes {
         "GITHUB_FORBIDDEN_UNKNOWN",
         "GITHUB_NOT_FOUND_OR_INACCESSIBLE",
         "GITHUB_CONFLICT",
+        "GITHUB_PR_HEAD_CHANGED",
         "GITHUB_VALIDATION_FAILED",
         "GITHUB_HTTP_ERROR",
         "GITHUB_OPERATION_FAILED",
@@ -261,6 +262,7 @@ internal object IssueReportCodes {
         "EVIDENCE_UNAVAILABLE" -> PrecheckCategory("GITHUB_EVIDENCE_REQUIRED")
         "GITHUB_TOOL_CONTRACT_UNSUPPORTED" -> PrecheckCategory("TOOL_UNAVAILABLE", "RETRY_AFTER_CONFIGURATION_CHANGE")
         "GITHUB_STATE_UNAVAILABLE" -> PrecheckCategory("GITHUB_OPERATION_FAILED")
+        "GITHUB_PATH_NOT_FOUND" -> PrecheckCategory("GITHUB_VALIDATION_FAILED")
         else -> null
     }
 

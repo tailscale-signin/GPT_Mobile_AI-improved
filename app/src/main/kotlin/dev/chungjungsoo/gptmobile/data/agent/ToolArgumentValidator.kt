@@ -39,7 +39,9 @@ internal object ToolArgumentValidator {
                 "For saved content use only the exact view_cursor from continuation_call. " +
                     "For a fresh page use per_page=1..100. Do not copy an action from a different request. "
             "github_search" ->
-                "Use the search schema for a new query. For another page, use the last result's exact continuation_call. "
+                "Use action=search, search_repository or search_code with query. Do not send per_page: " +
+                    "github_search does not accept it. max_new_blobs bounds source fetches, not remote pagination. " +
+                    "For another page, use the last result's exact continuation_call. "
             else -> ""
         }
         val declared = (schema["properties"] as? JsonObject).orEmpty().keys.sorted().joinToString(", ").take(1000)

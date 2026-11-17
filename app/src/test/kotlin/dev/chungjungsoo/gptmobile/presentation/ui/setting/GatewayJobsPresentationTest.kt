@@ -1,10 +1,47 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobRetry
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobSummary
+import java.util.Locale
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class GatewayJobsPresentationTest {
+    @Test fun protocolStateClassificationDoesNotDependOnDeviceLocale() {
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+            assertEquals(GatewayJobGroup.RUNNING, gatewayJobDisplayGroup("running"))
+            assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("interrupted"))
+        } finally {
+            Locale.setDefault(previous)
+        }
+    }
+
+    @Test fun retryOutcomesDoNotTurnMissingTimingIntoAClaimOfInterruption() {
+        val job = GatewayJobSummary("job", "engineering", state = "queued", acceptedAt = 100.0, providerRetryAt = 200.0, retry = GatewayJobRetry("APP_BACKOFF", 2, "READ", "SCHEDULED"))
+        assertEquals(GatewayRetryPresentation.SCHEDULED, gatewayRetryPresentation(job))
+        assertEquals(GatewayRetryPresentation.NEEDS_INPUT, gatewayRetryPresentation(job.copy(retry = job.retry?.copy(outcome = "NEEDS_INPUT"))))
+        assertEquals(GatewayRetryPresentation.RESUMED, gatewayRetryPresentation(job.copy(retry = job.retry?.copy(outcome = "RESUMED"))))
+        assertEquals(GatewayRetryPresentation.INTERRUPTED, gatewayRetryPresentation(job.copy(retry = job.retry?.copy(outcome = "INTERRUPTED"))))
+        assertEquals(GatewayRetryPresentation.RECORDED, gatewayRetryPresentation(job.copy(providerRetryAt = null)))
+        assertEquals(GatewayRetryPresentation.RECORDED, gatewayRetryPresentation(job.copy(providerRetryAt = Double.NaN)))
+        assertEquals(GatewayRetryPresentation.RECORDED, gatewayRetryPresentation(job.copy(state = "cancelled")))
+    }
+
+    @Test fun retryCountdownRequiresFreshFiniteServerEvidenceAndMonotonicTime() {
+        assertEquals(9_000L, gatewayRetryRemainingMillis(110.0, 100.0, 500, 1500, true))
+        assertEquals(0L, gatewayRetryRemainingMillis(100.0, 100.0, 500, 1500, true))
+        assertNull(gatewayRetryRemainingMillis(110.0, 100.0, 500, 1500, false))
+        assertNull(gatewayRetryRemainingMillis(110.0, Double.NaN, 500, 1500, true))
+        assertNull(gatewayRetryRemainingMillis(Double.POSITIVE_INFINITY, 100.0, 500, 1500, true))
+        assertNull(gatewayRetryRemainingMillis(110.0, 100.0, 500, 499, true))
+        assertNull(gatewayRetryRemainingMillis(110.0, 100.0, 500, 30_501, true))
+        assertNull(gatewayRetryRemainingMillis(110.0, 100.0, 0, 500, true))
+    }
+
     @Test fun schedulingGroupsKeepWaitingDistinctFromRunningPhases() {
         assertEquals(GatewayJobGroup.RUNNING, gatewayJobDisplayGroup("running"))
         assertEquals(GatewayJobGroup.QUEUED, gatewayJobDisplayGroup("queued"))
@@ -20,6 +57,43 @@ class GatewayJobsPresentationTest {
         assertEquals("Waiting for device validation", gatewayPhaseLabel("WAITING_FOR_DEVICE"))
         assertEquals("Waiting for approval", gatewayPhaseLabel("MERGE_READY"))
         assertEquals("Waiting for this device", gatewayPhaseLabel("WAITING_FOR_CLIENT_TOOL"))
+    }
+
+    @Test fun scheduledCooldownIsQueuedWithoutConcealingRequiredHumanInput() {
+        val retry = GatewayJobRetry("PROVIDER_RATE_LIMIT", 2, "RETRY", "scheduled")
+        val job = GatewayJobSummary("job", "engineering", state = "waiting", phase = "PROVIDER_COOLDOWN", acceptedAt = 100.0, providerRetryAt = 200.0, retry = retry)
+        assertEquals(GatewayJobGroup.QUEUED, gatewayJobDisplayGroup(job.state, job.phase, job.providerRetryAt, job.retry?.outcome))
+        assertEquals(GatewayRetryPresentation.SCHEDULED, gatewayRetryPresentation(job))
+        assertEquals("Waiting to retry", gatewayPhaseLabel("PROVIDER_COOLDOWN"))
+        assertEquals("waiting for input or a checkpoint", gatewaySchedulingLabel("WAITING"))
+        assertEquals("running", gatewaySchedulingLabel(" Running "))
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting", "MERGE_READY", 200.0))
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting", "PROVIDER_COOLDOWN", 200.0, "NEEDS_INPUT"))
+        assertEquals(GatewayRetryPresentation.NEEDS_INPUT, gatewayRetryPresentation(job.copy(retry = retry.copy(outcome = "needs_input"))))
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting", "PROVIDER_COOLDOWN", Double.NaN))
+    }
+
+    @Test fun userBlockersTakePrecedenceOverActiveSchedulingAndOldRetryTimestamps() {
+        for (state in listOf("waiting", "queued", "running")) {
+            for (phase in listOf("DEVICE_VALIDATION", "MERGE_READY", "WAITING_FOR_CLIENT_TOOL", "CANCELLING")) {
+                assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup(state, phase, 200.0, "SCHEDULED"))
+            }
+            assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup(state, "CI", 200.0, "NEEDS_INPUT"))
+            assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup(state, "CI", 200.0, "INTERRUPTED"))
+            assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup(state, "READ", 200.0, "SCHEDULED", cancellationRequested = true))
+        }
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting", "READ", 200.0, "RESUMED"))
+        assertEquals(GatewayJobGroup.QUEUED, gatewayJobDisplayGroup(" Waiting ", " provider_cooldown ", 200.0, " scheduled "))
+    }
+
+    @Test fun terminalJobsStayRecentEvenWhenTheyRetainEarlierBlockers() {
+        for (state in listOf("completed", "failed", "cancelled")) {
+            assertEquals(GatewayJobGroup.RECENT, gatewayJobDisplayGroup(state, "MERGE_READY", 200.0, "NEEDS_INPUT", cancellationRequested = true))
+            val job = GatewayJobSummary("job", "engineering", state = state, phase = "CI", acceptedAt = 100.0, providerRetryAt = 200.0, retry = GatewayJobRetry("APP_BACKOFF", 2, "CI", "SCHEDULED"))
+            for (outcome in listOf("SCHEDULED", "NEEDS_INPUT", "RESUMED", "INTERRUPTED")) {
+                assertEquals(GatewayRetryPresentation.RECORDED, gatewayRetryPresentation(job.copy(retry = job.retry?.copy(outcome = outcome))))
+            }
+        }
     }
 
     @Test fun durationShowsTotalAcceptedTimeAndUnknownMeansUnmeasured() {

@@ -65,6 +65,47 @@ class ToolArgumentDiagnosticsTest {
         assertEquals(JsonArray(listOf(JsonPrimitive("UNKNOWN_FIELD"), JsonPrimitive("WRONG_TYPE"))), receipt["invalid_field_classes"])
     }
 
+    @Test
+    fun githubSearchUnknownPageSizeSuggestsOnlySchemaValidCorrection() {
+        val schema = GitHubOperationTool.definition("github_search").inputSchema
+        val args = buildJsonObject {
+            put("action", "search")
+            put("query", "fixture")
+            put("per_page", 50)
+        }
+        val failures = ToolArgumentValidator.errors(args, schema)
+        assertTrue(failures.any { "per_page" in it })
+        val rejected = ToolArgumentValidator.rejection("search-invalid-page", "github_search", args, schema)
+        assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+        assertFalse(rejected.dispatched)
+        val response = (rejected.content as ToolResultContent.Json).value as JsonObject
+        val guidance = (response.getValue("message") as JsonPrimitive).content
+        assertTrue(guidance.contains("Do not send per_page"))
+        val fix = ((response.getValue("correction_call") as JsonObject).getValue("arguments") as JsonObject)
+        assertFalse("per_page" in fix)
+        assertEquals(JsonPrimitive("search"), fix["action"])
+        assertEquals(JsonPrimitive("fixture"), fix["query"])
+        assertTrue(ToolArgumentValidator.errors(fix, schema).isEmpty())
+        assertFalse((rejected.executionReceipt ?: JsonObject(emptyMap())).toString().contains("fixture"))
+    }
+
+    @Test
+    fun githubSearchInvalidActionDoesNotInventAReplacementAction() {
+        val schema = GitHubOperationTool.definition("github_search").inputSchema
+        val args = buildJsonObject {
+            put("action", "unsupported")
+            put("query", "fixture")
+        }
+        assertTrue(ToolArgumentValidator.errors(args, schema).isNotEmpty())
+        val rejected = ToolArgumentValidator.rejection("bad-action", "github_search", args, schema)
+        val response = (rejected.content as ToolResultContent.Json).value as JsonObject
+        assertFalse("correction_call" in response)
+        assertFalse(rejected.dispatched)
+        val guidance = (response.getValue("message") as JsonPrimitive).content
+        assertTrue(guidance.contains("search_repository"))
+        assertTrue(guidance.contains("search_code"))
+    }
+
     @Test fun unknownPublicFieldProjectsItsIdentityWithoutBecomingAnInvalidDeclaredField() {
         val args = buildJsonObject {
             put("query", "private query contents")

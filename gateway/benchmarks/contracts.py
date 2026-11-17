@@ -84,7 +84,8 @@ def coding_score(cases, planned, preset):
     def points(rows):
         if set(rows) != set(slots):
             return None
-        if not all(row.get('graded') is True and row.get('integrity') == 'VERIFIED'
+        if not all(row.get('graded') is True and row.get('executed') is True and row.get('qualified') is not False
+                   and row.get('integrity') == 'VERIFIED'
                    and all(valid(row.get('dimensions', {}).get(name)) for name in CODING_WEIGHTS) for row in rows.values()):
             return None
         return sum(slots[key] * sum(weight * row['dimensions'][name] for name, weight in CODING_WEIGHTS.items())
@@ -103,6 +104,7 @@ def coding_score(cases, planned, preset):
     first = {key: row['attempts'][0] for key, row in observed.items() if isinstance(row.get('attempts'), list) and row['attempts']}
     first_score = points(first) if valid_identity else None
     first_resolved_known = complete and all(type(row.get('firstSubmissionResolved')) is bool for row in observed.values())
+    earned = sum(d['earned'] for d in dimensions.values())
     return {'version': 'coding-evidence-v1', 'maximum': 1000, 'score': round(score, 2) if score is not None else None,
             'qualified': complete, 'dimensions': dimensions, 'coverage': coverage(cases, planned),
             'resolved': sum(c.get('resolved') is True for c in cases), 'planned': planned,
@@ -111,7 +113,7 @@ def coding_score(cases, planned, preset):
             'finalResolvedRate': sum(c.get('resolved') is True for c in cases) / planned if complete and planned else None,
             'scope': 'isolated_repository_fixtures', 'liveGitHub': 'NOT_EXECUTED',
             'label': 'Complete coding evidence' if complete else 'Partial coding evidence; overall score unavailable',
-            'earned': sum(d['earned'] for d in dimensions.values()), 'possible': 1000,
+            'earned': earned, 'provisionalEarned': earned if not complete else None, 'possible': 1000,
             'unknownWeight': sum(d['unknownWeight'] for d in dimensions.values()),
             'preset': preset, 'aggregation': 'equal_family_mean; deep_core_80_capstones_20; no_speed_points'}
 

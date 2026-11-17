@@ -257,6 +257,7 @@ REPEAT_HISTORY_LIST_FIELDS = REPEAT_HISTORY_HASH_FIELDS | {'dependency_repeat_pr
 REPEAT_HISTORY_FIELDS = REPEAT_HISTORY_LIST_FIELDS | {'dependency_repeat_prior_coverage', 'dependency_repeat_batch_coverage'}
 REPEAT_HISTORY_OUTCOMES = {'UNOBSERVED', 'DISPATCHED_SUCCESS', 'DISPATCHED_FAILURE', 'NOT_DISPATCHED', 'SHARED_RESULT', 'UNKNOWN_OUTCOME'}
 INVENTORY_PAGINATION_FIELDS = {'inventory_pagination_reason', 'inventory_restart_offered'}
+PR_CONTEXT_RACE_FIELDS = {'pr_context_revision_changed', 'pr_context_read_requests', 'pr_context_read_responses'}
 POLICY_RESPONSE_HEADER_ORDER = ('REPORTED_OAUTH_SCOPES', 'ACCEPTED_OAUTH_SCOPES', 'ACCEPTED_GITHUB_PERMISSIONS', 'SSO')
 POLICY_RESPONSE_HEADER_FIELDS = {'status_policy_protection_permission_header_names', 'status_policy_rules_permission_header_names'}
 POLICY_RESPONSE_FIELDS = POLICY_RESPONSE_HEADER_FIELDS | {'status_policy_protection_404_kind', 'status_policy_rules_404_kind'}
@@ -329,8 +330,8 @@ ACCEPTANCE_OBSERVATION_FIELDS = {'acceptance_claim_trust_failures', 'acceptance_
 REVIEW_COMPARISON_OBSERVATION_FIELDS = {'review_comparison_state', 'review_comparison_policy'}
 TOOL_EVENT_SIGNED_SEQUENCES = {'tool_event_requested_sequence', 'tool_event_previous_max_sequence'}
 TOOL_EVENT_PERSISTENCE_FIELDS = TOOL_EVENT_SIGNED_SEQUENCES | {'tool_event_persistence_operation', 'tool_event_persistence_phase', 'tool_event_persistence_failure', 'tool_event_assigned_sequence', 'tool_event_write_attempted'}
-PROVIDER_FIELDS = {'provider_route_hash', 'provider_wait_checkpoint_hash', 'provider_wait_claim_hash', 'provider_wait_terminal_status', 'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
-VOICE_FIELDS = {'run_id_hash', 'invocation_id_hash', 'voice_reply_failed', 'voice_reply_terminal_status', 'voice_reply_failure_evidence', 'voice_chat_failure_code', 'voice_chat_failure_code_hash', 'voice_chat_failure_phase'}
+PROVIDER_FIELDS = {'provider_route_hash', 'provider_wait_checkpoint_hash', 'provider_wait_claim_hash', 'provider_wait_terminal_status', 'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'tool_protocol_frame_kind', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
+VOICE_FIELDS = {'run_id_hash', 'invocation_id_hash', 'voice_reply_failed', 'voice_reply_terminal_status', 'voice_reply_failure_evidence', 'voice_chat_failure_code', 'voice_chat_failure_code_hash', 'voice_chat_failure_phase', 'voice_focus_last_transition', 'voice_focus_transition_count', 'voice_pronunciation_unknown_words', 'voice_pronunciation_initialisms', 'voice_pronunciation_failure_kind', 'voice_pronunciation_audio_queued', 'voice_pronunciation_first_audio_observed'}
 
 GATEWAY_FIELDS = {
     'command_id_hash',
@@ -377,6 +378,8 @@ FLAGS = {
     'provider_wait_persisted',
     'saved_view_cursor_issued',
     'saved_view_expired',
+    'pr_context_revision_changed',
+    'voice_pronunciation_audio_queued', 'voice_pronunciation_first_audio_observed',
 }
 
 COUNTS = {
@@ -391,7 +394,10 @@ COUNTS = {
     'unknown_field_count',
     'untested_capability_count',
     'verified_capability_count',
-} | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS | CHAT_DELIVERY_COUNTS | ACCEPTANCE_PUBLICATION_COUNTS | TOOL_REPEAT_COUNTS
+} | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS | CHAT_DELIVERY_COUNTS | ACCEPTANCE_PUBLICATION_COUNTS | TOOL_REPEAT_COUNTS | {
+    'pr_context_read_requests', 'pr_context_read_responses',
+    'voice_focus_transition_count', 'voice_pronunciation_unknown_words', 'voice_pronunciation_initialisms'
+}
 
 TYPES = {
     'ARRAY',
@@ -532,6 +538,7 @@ ENUMS = {
     'tool_permission_scope': {'ANDROID_LOCATION', 'GITHUB_LOCAL_GRANT'},
     'tls_failure_kind': {'CERTIFICATE', 'PROTOCOL', 'HANDSHAKE', 'OTHER'},
     'provider_tool_rejection': {'TOOL_USE_FAILED'},
+    'tool_protocol_frame_kind': {'MISSING_FUNCTION_NAME', 'UNFINISHED_STREAM', 'NON_OBJECT_ARGUMENTS', 'MALFORMED_JSON'},
     'reasoning_probe_observation': {'GATEWAY_OBSERVATION_AVAILABLE', 'DEADLINE_WITHOUT_GATEWAY_OBSERVATION', 'NO_GATEWAY_OBSERVATION'},
     'gateway_terminal_status': {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'},
     'gateway_result_quality': {'complete', 'partial'},
@@ -550,6 +557,8 @@ ENUMS = {
     'voice_reply_terminal_status': {'COMPLETED', 'FAILED', 'CANCELED', 'INTERRUPTED', 'PARTIAL', 'EVIDENCE_MISSING', 'BLOCKED', 'WAITING_FOR_APPROVAL'},
     'voice_reply_failure_evidence': {'TYPED_INVOCATION_REFERENCE', 'CLASSIFICATION_ONLY', 'MISSING_FAILURE_RECORD'},
     'voice_chat_failure_phase': PHASES - {'unknown'},
+    'voice_pronunciation_failure_kind': {'UNKNOWN_WORD', 'UNSUPPORTED_SCRIPT', 'MISSING_LETTER'},
+    'voice_focus_last_transition': {'RESTORE', 'PAUSE', 'DUCK', 'STOP'},
     'receipt_count_scope': {'LINKED_CRITERION_EVIDENCE'},
     'acceptance_publication_source': {'STATUS', 'COVERAGE', 'CI_OBSERVATION', 'CLAIM_EXTRACTION', 'PARTIAL_FALLBACK', 'EVIDENCE_ADVANCED'},
     'acceptance_extraction_observation': {'NOT_NEEDED', 'NO_DRAFT', 'PLAN_BATCH_LIMIT', 'PLAN_INPUT_LIMIT', 'PLAN_LIMIT_CHANGED', 'COMPLETED', 'FAILED'},
@@ -598,7 +607,7 @@ ENUM_LISTS = {
 
 
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | INVENTORY_PAGINATION_FIELDS, 'INCIDENT': COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS, 'INCIDENT': COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):

@@ -67,12 +67,20 @@ class ProviderLimitDecisionTest {
         assertNull(providerLimitDecision(paid, "different-model", false, failure))
     }
 
-    @Test fun credentialCooldownIsSharedAcrossProfilesWithoutPersistingCredentials() {
-        val paid = ProviderRequestConfig("https://openrouter.ai/api/v1", "private-credential", profileUid = "one")
+    @Test fun credentialCooldownIsSharedAcrossProfilesForTheSameModelOnlyWithoutPersistingCredentials() {
+        val paid = ProviderRequestConfig(
+            "https://openrouter.ai/api/v1",
+            "private-credential",
+            profileUid = "one",
+            providerType = "OPENROUTER",
+            selectedModel = "one-model"
+        )
         val failure = ProviderHttpFailure(429, 2_000, knownNotAccepted = true, observedAtMillis = 10_000)
         val first = requireNotNull(providerLimitDecision(paid, "one-model", false, failure))
-        val other = requireNotNull(providerLimitDecision(paid.copy(profileUid = "two"), "two-model", false, failure))
-        assertEquals(first.scope, other.scope)
+        val sameModelOtherProfile = requireNotNull(providerLimitDecision(paid.copy(profileUid = "two"), "one-model", false, failure))
+        val unrelatedModel = requireNotNull(providerLimitDecision(paid.copy(profileUid = "two", selectedModel = "two-model"), "two-model", false, failure))
+        assertEquals(first.scope, sameModelOtherProfile.scope)
+        assertFalse(first.scope == unrelatedModel.scope)
         assertFalse(first.scope.contains("private-credential"))
         assertFalse(first.scope.contains("openrouter.ai"))
         assertFalse(first.scope == providerLimitDecision(paid.copy(token = "different"), "one-model", false, failure)!!.scope)

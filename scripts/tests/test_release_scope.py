@@ -72,3 +72,15 @@ class ReleaseScopeTests(unittest.TestCase):
         canonical = dict(id=100, name='PR Validation', head_sha='candidate', event='pull_request',
                          status='completed', conclusion='success')
         self.assertEqual(([], ['PR Validation']), checks.conclusions([*runs, canonical], 'candidate', required))
+
+    def test_new_design_spec_scope_is_explicit_without_general_docs_expansion(self):
+        design = 'docs/design/github-chat-rich-evidence-summaries-2026-11-16.md'
+        manifest = {**self.manifest, 'allowedPaths': [*self.manifest['allowedPaths'], design]}
+        self.assertEqual('scoped', scope.validate(self.root, manifest, [design]))
+        with self.assertRaisesRegex(ValueError, 'Changes outside release scope'):
+            scope.validate(self.root, manifest, ['docs/design/unreviewed.md'])
+        live = json.loads((ROOT / 'release-scope.json').read_text())
+        self.assertIn(design, live['allowedPaths'])
+        self.assertIn('scripts/tests/test_release_scope.py', live['allowedPaths'])
+        content = (ROOT / design).read_text()
+        self.assertFalse(any(line.endswith((' ', '\t')) for line in content.splitlines()))

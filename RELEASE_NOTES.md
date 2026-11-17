@@ -1,3 +1,15 @@
+## Scoped GitHub AI-profile tool audit
+
+The GitHub benchmark now offers an explicitly selected AI-profile audit with action-level cases derived from the versioned GitHub tool definitions. The benchmark tool executor uses only isolated, in-memory fixtures; it does not connect a real GitHub account or perform any repository mutation. Distinguish model tool-call behavior from live account or permission qualification.
+
+The new GitHub AI-profile audit uses in-memory fixture tools only; it does not exercise a live GitHub account, authorized mutations, connected-provider completeness, or affected-device performance.
+
+## GitHub AI tool audit — selected-profile qualification
+
+Benchmark → App Audit now offers one model-facing GitHub tool-family probe per tool or the complete advertised action catalog against a single explicitly selected AI profile. The benchmark stores per-case real model-call and tool-result handling evidence, while tool calls execute only against temporary host fixtures. The user can run the separate read-only App Audit checks for observed GitHub account, repository, pull-request and CI readiness.
+
+GitHub AI tool audit exercises selected-profile tool calls against isolated offline fixtures, not live GitHub authorization or mutations; bounded live-read probes remain separately qualified.
+
 ## Capability dashboard and consented report evidence
 
 Android and the Windows Gateway dashboard now share one normalized inventory of every authorized tool returned by the selected Gateway catalog, including stable contract-bound IDs, explicit complete/partial/blocked source states, and measured retained per-tool success, failure, and latency observations. Discovery does not claim live execution readiness, and capabilities outside the selected Gateway remain explicit.

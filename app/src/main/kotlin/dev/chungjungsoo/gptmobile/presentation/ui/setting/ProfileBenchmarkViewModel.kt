@@ -429,6 +429,48 @@ class ProfileBenchmarkViewModel @Inject constructor(
         if (debugMode.value) start(BenchmarkMode.FULL, diagnostics = true)
     }
 
+    /** Uses exactly the selected saved AI profile, never the active chat, a reviewer or another provider. */
+    fun startGitHubToolAudit(profileUid: String, allActions: Boolean, strictDeterministic: Boolean = false): Boolean {
+        if (execution.isRunning || !mutableReady.value) return false
+        val target = profiles.value.singleOrNull {
+            it.uid == profileUid && it.enabled && it.model.isNotBlank()
+        }
+        if (target == null) {
+            mutableError.value = "Select a currently enabled AI profile for the GitHub tool audit."
+            return false
+        }
+        val suite = dev.chungjungsoo.gptmobile.data.benchmark.GitHubProfileAuditSuite.cases(allActions)
+        if (suite.isEmpty()) {
+            mutableError.value = "GitHub tool contracts are unavailable in this build."
+            return false
+        }
+        val policy = dev.chungjungsoo.gptmobile.data.benchmark.githubAuditExecutionPolicy(strictDeterministic)
+        val batch = BenchmarkBatch(
+            id = UUID.randomUUID().toString(),
+            mode = BenchmarkMode.GITHUB_INTEGRATION,
+            createdAt = System.currentTimeMillis(),
+            items = listOf(
+                BenchmarkQueueItem(
+                    0,
+                    target.benchmarkSnapshot(),
+                    UUID.randomUUID().toString(),
+                    benchmarkConfigKey(target, localEnvironment.value, policy)
+                )
+            ),
+            caseManifest = suite,
+            localEnvironment = localEnvironment.value,
+            executionPolicy = policy
+        )
+        mutableError.value = null
+        mutableProgress.value = BenchmarkProgress(target.name, "Saving isolated GitHub tool audit", 0, suite.size)
+        val started = execution.startBatch(batch) != null
+        if (!started) {
+            mutableProgress.value = null
+            mutableError.value = "Another benchmark owns execution; the GitHub tool audit was not queued."
+        }
+        return started
+    }
+
     fun startAppAudit(options: AppAuditOptions): Boolean {
         if (execution.isRunning || !mutableReady.value) return false
         mutableError.value = null

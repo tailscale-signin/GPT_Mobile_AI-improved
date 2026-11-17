@@ -118,7 +118,7 @@ class BenchmarkQualificationTest(unittest.TestCase):
             self.assert_correct_but_unqualified(case, task)
             self.assert_correct_but_unqualified(case['attempts'][0], task)
 
-    def run_coding(self, *, first_output_incorrect=False):
+    def run_coding(self, *, first_output_incorrect=False, missing_regressions=False):
         proposals = {task['id']: gold_proposal(task) for task in self.tasks}
         sources = {digest(task['referenceSources']): (task, True) for task in self.tasks}
         first = self.tasks[0]
@@ -129,11 +129,18 @@ class BenchmarkQualificationTest(unittest.TestCase):
         sources[digest(bad_sources)] = (first, False)
         dispatches = Counter()
 
-        def measure(_run, name, turns, _expected, *, validate, output_tokens):
+        def measure(_run, name, turns, _expected, *, validate, output_tokens, output_format=None, on_admitted=None):
             dispatches[name] += 1
             repairing = first_output_incorrect and name == first['id'] and dispatches[name] > 1
-            self.assertEqual(3 if repairing else 1, len(turns))
+            self.assertEqual(1, len(turns))
+            if repairing:
+                self.assertIn('Previous submission failed independent validation', turns[0]['content'])
+                self.assertNotIn('observed_wrong_output', turns[0]['content'])
             text = json.dumps(bad) if first_output_incorrect and name == first['id'] and dispatches[name] == 1 else proposals[name]
+            if missing_regressions and name == first['id'] and dispatches[name] == 1:
+                text = json.dumps(dict(json.loads(text), tests=[]))
+            if missing_regressions and name == first['id'] and dispatches[name] > 1:
+                self.assertIn('uncoveredDefectModules', turns[0]['content'])
             self.assertTrue(validate(text))
             return {'firstMs': 4, 'totalMs': 8, 'inputTokens': 30, 'outputTokens': 40,
                     'finishReason': 'stop', 'observedModel': 'selected',
@@ -167,6 +174,16 @@ class BenchmarkQualificationTest(unittest.TestCase):
             self.assertEqual(8, case['timing']['totalMs'])
             self.assertEqual('selected', case['observedModel'])
             self.assertEqual('observed-' + task['id'] + '-1', case['gatewayJobId'])
+
+    def test_correct_output_can_retry_when_regression_vectors_miss_calibrated_defects(self):
+        self.run_coding(missing_regressions=True)
+        case = self.store.get(self.run['id'])['cases'][0]
+        first, repaired = case['attempts']
+        self.assertTrue(first['outputCorrect'])
+        self.assertEqual(0, first['checks']['independentDefectsCaught'])
+        self.assertEqual(repaired['checks']['independentDefectsTotal'], repaired['checks']['independentDefectsCaught'])
+        self.assertEqual(2, case['selectedAttempt'])
+        self.assertIsNone(case['score'])
 
     def test_observed_output_failure_is_repaired_once_then_stops_at_evaluator_gap(self):
         summary, dispatches, model_calls, sandbox_calls = self.run_coding(first_output_incorrect=True)

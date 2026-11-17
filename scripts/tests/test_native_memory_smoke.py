@@ -2,6 +2,9 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+import json
+
+from scripts import check_release_scope as release_scope
 
 spec = importlib.util.spec_from_file_location("native_smoke", Path(__file__).resolve().parents[1] / "check_native_memory_smoke.py")
 smoke = importlib.util.module_from_spec(spec)
@@ -99,6 +102,70 @@ INSTRUMENTATION_STATUS_CODE: 0
         for invalid in [self.SUCCESS + self.FINISH, self.START + self.START + self.SUCCESS + self.FINISH, self.START + self.SUCCESS + self.SUCCESS + self.FINISH]:
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 self.check_output(invalid)
+
+
+    def test_aosp_no_english_tts_is_only_an_exactly_identified_prerequisite_skip(self):
+        voice_class = 'dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest'
+        voice_test = 'kokoroDelegateFallsBackToRealAndroidTextToSpeechWhenModelIsMissing'
+        reason = 'The Android device has no available English TTS voice'
+        identity = (voice_class, voice_test)
+        # Reproduces API34 AndroidJUnitRunner: start(1), exact assumption(-4),
+        # and completed instrumentation(-1). The old checker rejected this.
+        started = (f'INSTRUMENTATION_STATUS: class={voice_class}\n'
+                   f'INSTRUMENTATION_STATUS: test={voice_test}\n'
+                   'INSTRUMENTATION_STATUS_CODE: 1\n')
+        skipped = (f'INSTRUMENTATION_STATUS: class={voice_class}\n'
+                   f'INSTRUMENTATION_STATUS: stack=org.junit.AssumptionViolatedException: {reason}\n'
+                   f'INSTRUMENTATION_STATUS: test={voice_test}\n'
+                   'INSTRUMENTATION_STATUS_CODE: -4\n')
+        approved = {identity: reason}
+        self.check_output(started + skipped + self.FINISH, test_class=voice_class, test_method=voice_test,
+                          optional_assumption_reasons=approved)
+        # API36, different exceptions and unrelated failures remain hard errors.
+        with self.assertRaisesRegex(ValueError, 'failed or was skipped'):
+            self.check_output(started + skipped + self.FINISH, test_class=voice_class, test_method=voice_test)
+        for bad in (skipped.replace(reason, 'Unrelated instrumentation failure'),
+                    skipped.replace('CODE: -4', 'CODE: -2'),
+                    skipped.replace('org.junit.AssumptionViolatedException:', 'java.lang.IllegalStateException:')):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'failed or was skipped'):
+                self.check_output(started + bad + self.FINISH, test_class=voice_class, test_method=voice_test,
+                                  optional_assumption_reasons=approved)
+        for bad in (skipped + self.FINISH,
+                    started + skipped + skipped + self.FINISH,
+                    started + skipped + f'INSTRUMENTATION_STATUS: class={voice_class}\n'
+                                        f'INSTRUMENTATION_STATUS: test={voice_test}\n'
+                                        'INSTRUMENTATION_STATUS_CODE: 0\n' + self.FINISH):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.check_output(bad, test_class=voice_class, test_method=voice_test,
+                                  optional_assumption_reasons=approved)
+        with self.assertRaisesRegex(ValueError, 'did not execute'):
+            self.check_output(self.FINISH, test_class=voice_class, test_method=voice_test,
+                              optional_assumption_reasons=approved)
+        with self.assertRaisesRegex(ValueError, 'did not execute'):
+            self.check_output(started + skipped + self.FINISH, optional_assumption_reasons=approved)
+
+
+    def test_aosp_tts_prerequisite_scope_is_bound_to_ci_emulator_matrix(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / '.github/workflows/release-0950-acceptance.yml').read_text()
+        acceptance = (root / 'scripts/run_release0950_acceptance.sh').read_text()
+        self.assertIn('ACCEPTANCE_EMULATOR_API=${{ matrix.api }} ACCEPTANCE_EMULATOR_TARGET=${{ matrix.target }}', workflow)
+        self.assertIn("os.environ.get('ACCEPTANCE_EMULATOR_API') == '34'", acceptance)
+        self.assertIn("os.environ.get('ACCEPTANCE_EMULATOR_TARGET') == 'default'", acceptance)
+        self.assertIn('optional_assumption_reasons=aosp_tts_assumptions', acceptance)
+
+
+    def test_current_scoped_release_includes_exact_aosp_smoke_fixes_and_no_generic_scripts(self):
+        root = Path(__file__).resolve().parents[2]
+        manifest = json.loads((root / 'release-scope.json').read_text())
+        required = ['scripts/check_native_memory_smoke.py', 'scripts/tests/test_native_memory_smoke.py']
+        self.assertEqual('scoped', release_scope.validate(root, manifest, required))
+        for path in required:
+            with self.subTest(path=path):
+                self.assertIn(path, manifest['allowedPaths'])
+        self.assertNotIn('scripts/', manifest['allowedPaths'])
+        with self.assertRaisesRegex(ValueError, 'Changes outside release scope'):
+            release_scope.validate(root, manifest, required + ['scripts/unrelated-regression.py'])
 
 
 if __name__ == "__main__":

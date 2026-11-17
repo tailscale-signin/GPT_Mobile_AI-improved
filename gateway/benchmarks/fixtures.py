@@ -388,6 +388,9 @@ def prompt(task_value):
             '"diagnosis":{"path.py":"exact buggy source line"},'
             '"tests":[{"input":{"items":[],"config":{}},"expected":{"result":null}}],'
             '"evidence":{"tests_executed":false,"changed_files":["core.py"]}}. '
-            'Only edit displayed files. Supply three to six substantive regression input/expected vectors. '
+            'Use short unique anchors and compact replacements; do not repeat whole files. '
+            'Only edit displayed files. Supply one to three concise regression input/expected vectors. '
+            'Use regression cases that fail on each original faulty module and pass after repair. '
+            'For top-level boundaries, use exact JSON types and compare the complete service result. '
             'For capstones use the integrated service contract. You have not executed tests; do not claim execution. '
             'The evaluator is separate and expected hidden answers are not available. Preserve function interfaces.')

@@ -118,6 +118,7 @@ done
 timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.ResponseSwipeInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/response-swipe-instrumentation.txt"
 swipe_status=${PIPESTATUS[0]}
 timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.setting.AuditActionsInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/audit-actions-instrumentation.txt"
+timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubAiAuditControlsInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/github-ai-audit-instrumentation.txt"
 audit_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.localmodel.NativeModelSourceInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/model-source-instrumentation.txt"
 model_source_status=${PIPESTATUS[0]}
@@ -217,6 +218,15 @@ for test in (
     'largeTextTranscriptActionsRemainReachableAndKeepMessageOwnership',
 ):
     check_instrumentation(folder / 'voice-transcript-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceTranscriptInstrumentedTest', test)
+# API34's AOSP guest has no English Android TTS engine; API36 Google APIs must
+# still run actual Android fallback playback. Never ignore other failures.
+aosp_tts_assumptions = {}
+if os.environ.get('ACCEPTANCE_EMULATOR_API') == '34' and os.environ.get('ACCEPTANCE_EMULATOR_TARGET') == 'default':
+    aosp_tts_assumptions = {
+        ('dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest',
+         'kokoroDelegateFallsBackToRealAndroidTextToSpeechWhenModelIsMissing'):
+        'The Android device has no available English TTS voice'
+    }
 for test in (
     'packagedNativeSpeechRuntimeMatchesItsJavaApi',
     'kokoroPlaybackClassVerifiesBeforeAnyModelIsInstalled',
@@ -224,7 +234,8 @@ for test in (
     'modelInstallRequiresExplicitAction',
     'downloadCancellationAndModelRemovalHaveSeparateActions',
 ):
-    check_instrumentation(folder / 'local-voice-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest', test)
+    check_instrumentation(folder / 'local-voice-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest', test,
+                          optional_assumption_reasons=aosp_tts_assumptions)
 for test in ('roundTripOverwriteAndDelete', 'rejectsUnsafeReferencesAndOversizedSecrets', 'rejectsMalformedRecords', 'oversizedRecordIsRejectedBeforeAllocationAndSizeDoesNotRequireAKey', 'rejectsRecordMovedToAnotherReference', 'missingKeystoreKey_preservesEncryptedRecord'):
     check_instrumentation(folder / 'secret-vault-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.security.SecretVaultInstrumentedTest', test)
 for test in ('readableDescriptorWithDeniedPathCanBeExplicitlyImported', 'compatibleSourceRemainsInPlaceAndProbeDoesNotOwnItsDescriptor', 'oversizedFileIsRejectedInsteadOfOfferingAnImpossibleCopy'):
@@ -233,6 +244,8 @@ for test in ('horizontalSwipeSwitchesProfilesAndVerticalScrollDoesNot', 'rtlSwip
     check_instrumentation(folder / 'response-swipe-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ResponseSwipeInstrumentedTest', test)
 check_instrumentation(folder / 'audit-actions-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.AuditActionsInstrumentedTest', 'modelPickerKeepsTheChosenProfileAfterReordering')
 check_instrumentation(folder / 'audit-actions-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.AuditActionsInstrumentedTest', 'localModelCopyIsExplicitAndRestrictedSourcesExplainStorage')
+check_instrumentation(folder / 'github-ai-audit-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubAiAuditControlsInstrumentedTest', 'explicitProfileCoverageAndPolicySurviveReorderingAndDispatchTogether')
+check_instrumentation(folder / 'github-ai-audit-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubAiAuditControlsInstrumentedTest', 'unavailableSelectionAndExecutionOwnershipPreventNewRequests')
 check_instrumentation(folder / 'editor-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.Release0950InstrumentedTest', 'planEditorAppliesStepsAtCompactWidthLargeFontAndRtl')
 check_instrumentation(folder / 'performance-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsPerformanceInstrumentedTest', 'catalogParseAndStatisticsOverheadProduceMeasuredEvidence')
 for test in ('encryptedCutoverPreservesIdentityAndRejectsStaleWrites', 'portableRestoreUsesNewKeyAndCannotResurrectDeletedFacts'):

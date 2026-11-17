@@ -139,3 +139,169 @@ The partial `a7` Gateway matrix also exposed an anchored-regex fixture failure o
 If companion overlays are included, verify exact pinned source, publisher integrity, clean install with lifecycle scripts disabled, supported Node builds, actual stdio initialization/tool discovery, deterministic allowed/blocked resource fixtures and bridge compatibility. Live upstream availability is separate from fixture success.
 
 Merge only after current-head required checks and repository rules pass. Reconcile each issue's current identity and body, publish its complete disposition with final evidence, then close it. Recheck actual main and the live issue frontier after merge. Final execution receipts belong in the PR so recording a completed run does not change the source it qualified.
+
+---
+
+# Post-1299 diagnostic reconciliation (November 15, 2026)
+
+## Provenance and safety
+
+- Repository: `tailscale-signin/GPT_Mobile_AI-improved`. PR #1299 was merged into `main` at `4a1d790939ae1ab50bb582bbf8ce7c34000e1d1c` before this intake. PR #1349 is its single follow-up branch.
+- Incoming archive: `diagnostics-7b550448-…-part-1-….zip`, captured on Android **0.9.66.7 build 141**, app commit `482eb81645e462f0690979d152cd02070ee4eda3`. This build is older than the merged main. The capture was completed but not fully comprehensive. The 20 retained issue-correlation records are not an exhaustive replay of all 25 GitHub issues.
+- The archive contains configuration and profile records. Do not attach or paste these raw records into public GitHub issues. Preserve only allowlisted evidence, privacy-safe hashes, enum categories, measured counts, and revision-bound receipts. A missing field is unknown, not false.
+- Audit window: 25 open issues, #1293–#1348 as retrieved on November 15 Toronto time. Not every issue in that numeric range is open. All listed observations are from reports, not reproductions on a newly installed/current app build.
+
+## All 25 open issues: evidence, disposition and corrective action
+
+| Issue(s) | Count | Observed failure | Resolution and required next evidence |
+| --- | ---: | --- | --- |
+| #1348, #1340 | 2 | OpenRouter HTTP **429**, with measured retry-after delays and no response content | Respect server delay and persist one resumable wait when a *proven* checkpoint exists. Keep `remoteAcceptance=NO` distinct from a successful retry. Capture a later scheduler outcome bound to the originating run; never invent recovery. These are provider responses, not proof of an app source regression. |
+| #1347, #1344, #1310, #1293 | 4 | GitHub status required-check policy unavailable; branch protection endpoint returned **404** | Retain endpoint name, 404 classification and permission-header **names only**, ruleset coverage, connection capability and exact repo/head. Use active rulesets if authorized, but do not interpret an inaccessible endpoint as no required checks. Requires privileged policy observation or a separately verified substitute before `completion_verified`. |
+| #1342, #1341, #1312, #1298 | 4 | GitHub full-catalog tasks ended without verified capability prerequisites or authorized test fixtures; some reports counted **7 approval** and **47 input** blockers | Keep read-only progress, request exact missing input/approval per operation family, resume under the same task identity after permission/fixture prerequisites are met. Do not repeatedly invoke forbidden operations or claim full-catalog coverage. |
+| #1346, #1343, #1335, #1327, #1326, #1311 | 6 | Generic `CHAT_FAILED`: raw producer code unrecognized or absent, some lacking a reliable stage or exception | **PR #1349:** debounce now differentiates independently observed failure stage or privacy-safe exception fingerprint; regression tests cover both. For remaining code-less failures, the producer must attach a trusted failure stage, provenance, invocation and typed transport error before it can be classified. Do not infer cause from a nearby prior run. |
+| #1345 | 1 | `GATEWAY_CAPABILITY_UNAVAILABLE` in Llama connection preflight | Re-evaluate model loaded state, gateway identity, negotiated capabilities and reachability on the installed Windows gateway; retain capability version, route state and source-build match as typed diagnostics when available. No evidence of restored gateway service in this archive. |
+| #1336, #1323 | 2 | `REPOSITORY_GRAPH_UNAVAILABLE` during `status` read; one observed HTTP **500**, the other lacks an HTTP status | Merged #1299 already added a revision/authority-fenced single native read retry. Verify its exact-head behavior with permission-preserving tests and a new build. Retain physical dispatch state, observed HTTP status, allowed retry and native-tool receipt per attempt. |
+| #1328 | 1 | Kokoro `PRONUNCIATION_UNAVAILABLE` during voice playback; recognized speech and measured first-audio latency are present | Merged #1299 already added safe pre-audio unknown-word fallback. Validate on a real device, including spoken words, captions, interruptions and fallback latency; a host test is not proof of audibility. |
+| #1324 | 1 | `RECONCILIATION_REQUIRED` after tool/fixture blockers | Inspect saved operation receipts before any replay. Preserve attempted/accepted/unknown mutation counts, reconciliation identity, pending tool IDs and authority revision. Unapproved fixture creation is not a source patch. |
+| #1321 | 1 | `GITHUB_TOOL_CONTEXT_BUDGET`; observed route 5,632 tokens, tool schema needed 2,280, available 1,673 | Allocate schema after verified physical route capacity and reserve; compact or narrow the admitted catalog without silently omitting required tools. Re-test on exact selected local model/context settings. |
+| #1304, #1305 | 2 | `CONTEXT_CAPACITY_EXCEEDED`; observed conservative 4,096 capacity versus more than 10,400 prompt tokens | Use verified selected-route window and a bounded safe context reserve; summarize/prune histories rather than repeatedly submitting oversized requests. Merged #1299 changed the proportional local admission reserve, but this old build cannot verify it. |
+| #1300 | 1 | `BUDGET_RESTRICTED` after a successfully dispatched GitHub CI workflow read (HTTP 200); result-bytes ceiling reached | Retain read receipt and page cursor, return a bounded projection and explicit resume path. Do not relabel a successful remote read as a network failure or silently raise accepted budgets. |
+
+**Total: 25 open issue reports in 10 categories.** This document is a triage ledger; an old-build report, a merged patch, or a passing synthetic test alone is not grounds to close a confirmed runtime regression.
+
+## Additional evidence visible in the uploaded archive
+
+The 20 most recent retained issue-correlations also included `INVALID_ARGUMENTS` (2), `GITHUB_TRANSIENT_NETWORK` (2), `DNS_RESOLUTION_FAILED` (1), and `GITHUB_CIRCUIT_OPEN` (1). These observations are not automatically equivalent to additional currently open GitHub issues. Other retained correlations covered `PROVIDER_RATE_LIMITED` (5), `GITHUB_TASK_INCOMPLETE` (4), `CHAT_FAILED` (3), `REPOSITORY_GRAPH_UNAVAILABLE` (1), and `GATEWAY_CAPABILITY_UNAVAILABLE` (1). Investigate unknown arguments against the exact pinned tool schema; for DNS and the circuit breaker, record observed network/route health, cooldown source and replay safety instead of blindly retrying.
+
+## Closure / verification contract
+
+1. **Fixed:** tag the issue with the exact fixing PR/commit, test(s), and a subsequent matching installed-build or live-operation observation. No stale predecessor build may qualify the current head.
+2. **Diagnostic-limited:** retain a privacy-safe source-owned missing-evidence list plus a tested capture improvement, explain what remains unobserved, provide repro instructions, and close using a transparent `not_planned`/follow-up disposition only if the tracked request is explicitly triaged rather than falsely described as repaired.
+3. **External blocker:** record missing permissions, quota, installed runtime, approval or network route, plus next responsible action. Keep the issue open while the required action is pending, or close explicitly as external/duplicate if an accountable tracking issue retains it.
+4. **Merge:** exact PR head must pass the canonical Required verification aggregate plus all applicable Android, emulator, gateway/Windows, Kotlin format, CodeQL and diagnostic checks. A draft, pending, skipped-required or failed check is not merge-ready.
+
+## New regression scope in #1349
+
+The in-memory issue-report deduplication previously keyed generic reports by public category and available run/invocation/call IDs but omitted the observed failed stage and already privacy-safe exception fingerprint. Two distinct failures during the three-second debounce could be collapsed. The patch adds these observed dimensions without changing the public report contract, leaving same-incident deduplication and source-owned causal identity rules intact. Tests assert distinct stage and type retention, same-key duplicate suppression and no private exception text in approved payloads.
+
+
+---
+
+## New intake reconciliation: November 16, 2026 UTC (PR #1349)
+
+### Source boundaries
+
+- New uploaded capture: `diagnostics-dca45322-…-part-1-….zip`; 21 archive members containing 12 agent-run records, 80 tool-receipt records, 20 retained incident-correlation records, and bounded app/timeline snapshots. The staged manifest says `captureCompleted=true`, `capturedFully=false`, `captureCompletionPercent=100`, and `externalPartsRequired=false`. Completion of the bounded capture is **not** full historical coverage.
+- The app revision in the capture is **0.9.66.7 (build 141)**, `482eb81645e462f0690979d152cd02070ee4eda3`. All captured failures predate this branch and do not prove a regression in the new PR head.
+- A subsequent issue query found **19 currently open issue reports**, numbered #1350, #1348, #1347, #1346, #1345, #1343, #1342, #1336, #1335, #1328, #1327, #1326, #1324, #1323, #1321, #1312, #1311, #1305 and #1300. The older 25-report ledger above is an earlier snapshot, **not** the current open-issue count. Do not reopen other issues based on an old report.
+- Exclude personal profile fields, chat text, raw identifiers, request URLs, authorization headers, complete exception messages and opaque service responses from issue comments. The GitHub issue body and source-provided sanitized capsule are the public evidence boundary.
+
+### Newly observed pagination report #1350
+
+Issue [#1350](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1350) contains an observed `GITHUB_PAGINATION_INCOMPLETE` for `github_ci`, action `runs`, with `per_page=30`, `dispatched=true` and HTTP **200**. The old report contains argument names/types and call hashes but does **not** contain the traversal's page count, deduplicated record counts, prior page coverage, changing-inventory flag, or terminal reason. Thus no one can safely distinguish changed history, overlapping pages, omitted earlier pages or a cross-epoch refresh from that report alone. Treat HTTP success as a successful *remote read*, not verified *complete inventory*.
+
+**Current-branch source fix:** `GitHubPaginationBoundary.completedPage` now invalidates the entire previous traversal (including stale first-page observations) on an explicit `verify_live=true` request even when the requested page is later than one. Previously that flag bypassed the page-end guard without resetting earlier page membership. A regression test checks that a fresh page 2 cannot inherit page 1 from an older epoch or be counted as a complete traversal.
+
+**Current-branch reporting improvement:** when an actual GitHub CI pagination tool result has an `INCOMPLETE` or `STALLED` traversal receipt, `ToolReportDiagnostics` copies only validated local counts and booleans from `github.pagination-progress.v1`: requested page, number of observed pages, upstream reported total, unique seen records, duplicates on the page, first-page contiguity, and observed upstream inventory changes. The incident capsule accepts only these bounded fields and the closed traversal-state enum. It never copies raw identifiers, response text or live URLs. Tests cover the safely projected diagnostic fields and non-GitHub/mismatched-call suppression.
+
+**Remaining verification:** These tests and the exact PR head must compile and pass CI. The Android app with the new build must reproduce a controlled changing-inventory or refresh case; prior issue #1350 must not be described as repaired in a deployed installation before that observation. The reporter enhancement provides the missing evidence for subsequent occurrences.
+
+### Required disposition of the remaining open reports
+
+The existing ledger above documents the independent causes and missing evidence. None of the old-build issues should be blanket-closed as `fixed` simply because a synthetic code test passes. Provider 429 and DNS retry windows require actual provider/network observations; GitHub policy 404 requires a permission-qualified policy read; full-catalog integration requires authorized fixtures and approvals; Llama model loading requires gateway reachability; Kokoro pronunciation requires physical-device playback; and acceptance/checkpoint failures require a current-head receipt. Publish final issue closure evidence only after a matching verified run, or close transparently as a duplicate/diagnostic-limited issue only when an accountable open tracking issue retains the work.
+
+No other branch was rewritten in this intake. All patches remain on the single existing PR #1349 branch, and merge stays blocked until the exact head's required checks and policy visibility are satisfied.
+
+
+## November 16, 2026 UTC — newer diagnostic archive and concurrent PR updates
+
+This intake inspects the uploaded archive `diagnostics-e0007ab2-...-part-1-...zip`. The ZIP has 21 entries and contains the older Android build 0.9.66.7 (141), source `482eb81645e462f0690979d152cd02070ee4eda3`; it does not establish a failure or a deployed fix at this pull request's head. The captured GitHub task stopped as `PARTIAL`, with `GITHUB_TASK_INCOMPLETE`, `RECORDED_OPERATION_BLOCKERS`, and no verified completion criterion. Its selected run includes 33 tool receipts, 31 completed and two failed.
+
+- **Workflow pagination / visibility.** A GitHub CI run-history request for page 2 received a successful HTTP response with a reported upstream total of 53. Its resulting model-visible observation was truncated; successful remote retrieval is **not** verified complete historical coverage. The existing pagination epoch/continuation protections remain in place. The native `list_workflow_runs` projection now keeps stable workflow fields but reduces nested actor and head-commit objects to a minimal typed identity, avoiding unnecessary duplication of profile and commit text in each row. The new regression preserves important run identifiers, status, continuation-sensitive output and artifact links without leaking nested profile information.
+- **PR revision raced while reading files.** A read-only `github_pr context` operation observed a concurrent PR head change after three successful remote reads; no mutation was sent. A guarded one-time reread now applies **only** to an unpinned `verify_live=true` context request when its before/after file-list revision check fails. Reads with explicit expected head/base and all writes continue to reject revision drift. The successful refreshed result records `pr_context_refresh_reason=HEAD_CHANGED_DURING_FILES`. Unit regressions cover the bounded recovery and the strictly pinned refusal.
+- **Next-report diagnostics.** `GITHUB_PR_HEAD_CHANGED` is a recognized public code. A persisted matching tool result may project only the fact of a detected revision race and the dispatch-owned request/response counts; it cannot project raw PR SHAs, actor profiles, provider text or inferred causality. Optional capability `GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1` marks the additional reporter fields. The existing outbox must retain the approved report if the receiving service lacks the capability.
+
+The live issue query found **26 open issue reports** at this intake; several new reports (including #1356 and #1357) are still tied to the older build. Review each as a distinct incident but correlate common root causes. External provider 429, GitHub policy permissions, approval/fixture limits, gateway availability and voice hardware still need fresh runtime verification. Nothing here authorizes a blind issue closure, a branch history rewrite or a merge of a draft PR. Closure as fixed requires the current source's successful checks and a matching deployed/live observation, while diagnostic-limited disposition must name the missing evidence and a route to recapture.
+
+
+---
+
+## November 16, 2026 — Gateway coding benchmark and refreshed issue frontier
+
+### Evidence from the uploaded Gateway benchmark
+
+- Benchmark ID: `bench_79ddfba0995845b1928d23e623c9b35d`, schema `gateway.benchmark.v1`.
+- The **source commit in the benchmark equals the reviewed initial PR #1349 head**: `e85c2dce759a403172b3cc01995b38d751fc22b2`.
+- Gateway 17.0.0, selected model `qwen3.5-9b`, coding/standard preset, seed 17, concurrency 2.
+- The snapshot was still `RUNNING`: **12 recorded failures, 24 pending, 0 executed, 0 passes**, from 36 planned trials. The global score was `null`. All 12 completed grades showed `PATCH_PARSE_OR_ANCHOR_INVALID`, but the first three budget-family cases reached the exact **4,096-token output ceiling** with `finishReason=length`. This is not proof of 36 failures or a final zero model score.
+- The reported families were pagination, idempotency, dependencies, and budget (three trials each). Reused gateway job IDs and token counts within families may correspond to identical seeded prompts; this cannot establish independent inference without per-submission digests.
+- The benchmark uses isolated Python repository fixtures; it does **not** exercise the Android GitHub AI tool audit, real GitHub permissions, or protected-branch publication.
+- The score remains unqualified when independent caller-input-preservation evidence is absent. Never relabel model-output correctness as full safety qualification.
+
+### Source repair on the existing PR branch
+
+1. `gateway/benchmarks/coding.py` now classifies safe JSON, blob, anchor, edit-representation and scope rejection codes instead of conflating distinct causes. Fixed allowlisted repair hints never contain raw generated patches or source exception text.
+2. `gateway/benchmarks/runner.py` recognizes `finishReason=length` as `PATCH_OUTPUT_TRUNCATED` **before** applying a partial patch. It records output digest and byte count, provider finish reason and model job ID per attempt.
+3. Retried local-model prompts use the original immutable fixture plus a short, typed validator result instead of replaying the truncated model answer, preserving more of the selected model's context.
+4. The fixture prompt prioritizes compact exact anchors and concise regression vectors. New `gateway/tests/test_gateway_benchmark_patch_recovery.py` verifies failure classification, SHA/anchor distinction, scope enforcement, valid anchored edits and absence of sensitive exception text in exported feedback.
+5. `gateway/manifest-v14.json` was refreshed to include current file SHA-256 values and the new discoverable gateway test.
+
+These are **source fixes**. A successful current-head GitHub Actions run, a newly packaged Gateway and an actual rerun of the 36-case coding suite are still required before claiming that local `qwen3.5-9b` performance improved.
+
+### Live GitHub issue frontier
+
+The subsequent connected GitHub query found **31 currently open reports**. Five reports were newly present compared with the preceding 26-report snapshot:
+
+| Report | Source-owned observation | Disposition / next verification |
+| --- | --- | --- |
+| #1358 | `INVALID_ARGUMENTS`, precheck `github_search`, field `max_new_blobs`, `OUT_OF_RANGE`; not dispatched | This is a correctly rejected model-provided argument, not remote GitHub failure. Inspect the model-visible tool schema and retry feedback on the current Android head; retain field name/class and bounded attempt count only. |
+| #1359 | `GITHUB_TASK_INCOMPLETE`, one unmet criterion with `MATCHING_EVIDENCE_MISSING`, only 6 of 512 calls consumed | Investigate acceptance claim mapping and evidence attribution; no authorization to declare completed or to generate missing acceptance evidence. |
+| #1360 | `CHAT_FAILED`, unrecognized producer code and no trustworthy failed stage | Diagnostic-limited: origin remains unknown. Require typed boundary, invocation identity, safe original-code fingerprint and sanitized exception type on a future reproduction. |
+| #1361, #1362 | OpenRouter HTTP 429, explicit retry-after ~60s / ~120s, `remoteAcceptance=NO` | Provider-side throttling observed. Respect cooldown; restore only proven resumable work, never claim the provider has recovered without new receipts. |
+
+The other 26 issues remain classified in the earlier ledger and require refreshed installed-build evidence or an explicit documented diagnostic-limited/duplicate disposition. Different reports from a single run can represent distinct layers of the same underlying problem; do not equate a fixed validator with a fixed network/provider failure.
+
+### Privacy-safe recapture contract
+
+For coding benchmark reports, retain only the case ID/family, selected-model route/identity scope, exact source revision, fixture digest, terminal finish reason, attempted output token/byte counts, output digest, closed patch-validator code, closed failure stage, repair count, and independent sandbox status. No raw code snippets, prompts, credentials, repository access tokens or paths should appear in public issue bodies.
+
+For Android issues, source-owned call/dispatch identity and typed failure stages must be preserved when available. Missing evidence stays explicitly unknown. Device-only voice, branch-protection permissions, provider quotas and real gateway availability cannot be replaced by synthetic fixtures.
+
+**Closure and merge gate:** Verify the exact final PR head, required Actions checks, and follow-up behavior on the installed build before closing a report as fixed. Diagnostic-limited reports may close only with a documented missing-evidence list, a tested reporter improvement and an accountable follow-up tracker. Do not merge a failing or draft head merely because the initial benchmark was incomplete.
+
+
+---
+
+## New report frontier #1363–#1380 and bounded benchmark scheduling
+
+### Current reported state (16 November, 2026)
+
+The live GitHub issue frontier grew by 18 reports to #1380 after the earlier 31-report intake. These are from Android 0.9.66.7 build 141 at app source `72a2cd0884874dec9be9e6411e72cd6dd0751db1`, **not** from an installed build corresponding to this PR. Report states are an intake snapshot and can change independently of the source branch.
+
+| Reports | Source-owned evidence | Corrective/diagnostic next step |
+| --- | --- | --- |
+| #1363, #1364, #1365 | `github_read` rejects unsupported top-level `path`, `UNKNOWN_FIELD`, not dispatched; later attempts exhausted | Root-cause tracker #1363 remains open. Verify selected-profile schema/handoff and one corrective retry with the action-specific `ranges` form. Never guess read scope or expand read permissions. #1364/#1365 closed strictly as linked duplicates, not fixed. |
+| #1366, #1367, #1368, #1369 | `SAVED_VIEW_UNAVAILABLE`, `BODY_MISSING`, no remote dispatch; one originating run, different operations (`github_read`, `github_ci`, `github_issue`) | Root-cause tracker #1366 remains open; #1367–#1369 linked duplicates only. Inspect saved-body/access atomicity, quota pruning and scope/restart. Next report should record *booleans* for persisted body/access and bounded storage pressure without raw cursors, source text or values. Never replay a mutation to repair a missing read-body cache. |
+| #1370, #1371, #1376 | OpenRouter DNS failures in model continuation; no terminal transport or generated content | Capture retry authority, DNS/route health and confirmed continuation receipt; resume only under verified replay/continuation policy. |
+| #1372 | A `github_ci` saved-view handle supplied to `github_read` is rejected as `SAVED_VIEW_WRONG_OPERATION` before dispatch | Protective cross-operation handle fence is working. Provide the exact originating tool/continuation call to the model; never translate a handle into another tool's authority. |
+| #1373 | `GITHUB_EVIDENCE_REQUIRED` on `github_read`; required evidence identifier not proven | Preserve no-dispatch state; discover evidence ID from an authorized source read before resuming. |
+| #1374, #1380 | OpenRouter HTTP 200 response stream aborted with reasoning bytes but **0 visible output bytes**; request replay disallowed | Distinguish accepted unfinished model generation from safe re-request. Check continuation checkpoint and connection persistence; never silently resend an accepted generation. |
+| #1375 | GitHub `branches` read: DNS transport, three unanswered requests, 30-second waiting | Respect bounded retry schedule; retain read/transport receipts and avoid treating a network error as a completed repository observation. |
+| #1377 | Precheck `INVALID_ARGUMENTS` with a query-shaped invocation | Capture exact chosen tool contract, safe invalid-field names and accepted correction receipt before classifying. Do not infer tool from argument shape alone. |
+| #1378 | `github_read` dependency precheck fails before dispatch (`native_dependency_state=FAILED`, one dependency) | Retain the predecessor's typed failure and dependency binding; do not fail the dependent read as an independent network outage. |
+| #1379 | A saved-view body was restored; subsequent `GITHUB_TRANSIENT_NETWORK` guard observed with no dispatch | Separate the successful local restore from the ensuing remote readiness failure. Recheck network when permitted; preserve both receipts. |
+
+### Dispositions and outstanding source work
+
+- External/expected guard reports #1348, #1353, #1358, #1361, and #1362 were closed **not_planned** with source-owned evidence and explicit language stating no software repair or external provider recovery was claimed.
+- #1367–#1369 closed as duplicates of the **still-open** #1366; #1364/#1365 closed as duplicates of the **still-open** #1363. All original report bodies remain retained on GitHub.
+- Remaining execution failures, source diagnosis and physical-device issues stay open until matching-current-build reproducibility or a properly tested reporter enhancement supports a clearly documented closure.
+
+### Additional Gateway runner correction
+
+- `gateway/benchmarks/runner.py` now submits only up to the selected comparison concurrency and admits the next trial after a predecessor settles. On interrupted/unknown outcomes it fences new dispatch, sets the shared cancellation event, and cancels pending requests. This avoids queueing every trial ahead of cancellation and leaves already-admitted requests to settle.
+- The source manifest and generated app audit inventory were refreshed to match the exact Python content. Concurrency cancellation must pass the existing `test_unknown_concurrent_outcome_fences_queued_trials_and_keeps_completed_pair_evidence` regression on both Ubuntu and Windows before a merge claim.
+
+### Outstanding qualification
+
+A local `qwen3.5-9b` coding run and fresh Android device/provider/voice observations were **not** executed by these GitHub source edits. The acceptance gap for independent caller-input preservation remains and keeps the coding score unqualified. This report is not a warrant for blanket issue closure or bypassing strict required checks.

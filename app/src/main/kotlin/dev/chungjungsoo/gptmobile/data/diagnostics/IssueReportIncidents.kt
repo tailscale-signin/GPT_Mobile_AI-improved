@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -47,7 +48,9 @@ internal object IssueReportIncidents {
         val invocationId: String?,
         val callId: String?,
         val jobId: String?,
-        val activeJobId: String?
+        val activeJobId: String?,
+        val stage: String?,
+        val exceptionFingerprint: String?
     )
     private val lastFailures = mutableMapOf<FailureKey, Long>()
     private val lastCauses = mutableMapOf<IssueReportIncidentCapsule.CausalIdentity, Long>()
@@ -194,7 +197,9 @@ internal object IssueReportIncidents {
             } else {
                 evidence
             }
-            val toolBudget = toolPrecheck && toolContext?.diagnostics?.values?.get("tool_budget_kind") != null
+            val capturedBudgetKind = toolContext?.diagnostics?.values?.get("tool_budget_kind") != null
+            val sourceBudgetKind = reportSource == "TOOL_RESULT" && evidence["tool_budget_kind"] in setOf("CALLS", "RESULT_BYTES", "BOTH")
+            val toolBudget = toolPrecheck && (capturedBudgetKind || sourceBudgetKind)
             // Exhaustion can accompany the last admitted call's specific failure; it is not its cause.
             val fallbackCode = if (toolBudget) {
                 "TOOL_BUDGET_EXHAUSTED"
@@ -203,7 +208,26 @@ internal object IssueReportIncidents {
             } else {
                 "APP_ERROR"
             }
-            val publicCode = precheck?.code ?: IssueReportCodes.select(code, fallbackCode)
+            // A trusted local dependency admission can reject a tool before
+            // dispatch because no call allowance remains. Generic TOOL_FAILURE
+            // must not hide this distinct, actionable budget condition.
+            val validatedAdmissionReasons = (evidence["dependency_admission_reasons"] as? List<*>)
+                ?.takeIf { reasons ->
+                    reasons.isNotEmpty() &&
+                        reasons.size <= 16 &&
+                        reasons.all { reason ->
+                            reason is String && dev.chungjungsoo.gptmobile.data.agent.ToolDependencyDiagnostics.Admission.entries.any { it.name == reason }
+                        }
+                }
+            val capturedCallAllowance = (toolContext?.diagnostics?.values?.get("dependency_admission_reasons") as? JsonArray)
+                ?.contains(JsonPrimitive("CALL_ALLOWANCE")) == true
+            val trustedSourceCallAllowance = reportSource == "TOOL_RESULT" && validatedAdmissionReasons?.contains("CALL_ALLOWANCE") == true
+            val callAllowanceExhausted = toolPrecheck && (capturedCallAllowance || trustedSourceCallAllowance)
+            val publicCode = if (callAllowanceExhausted && code in setOf(null, "TOOL_FAILURE", "DEPENDENCY_FAILED", "DEPENDENCY_DEFERRED")) {
+                "TOOL_BUDGET_EXHAUSTED"
+            } else {
+                precheck?.code ?: IssueReportCodes.select(code, fallbackCode)
+            }
             failure(feature, publicCode, error, reportEvidence, reportSource)
         } else {
             synchronized(lock) {
@@ -231,11 +255,42 @@ internal object IssueReportIncidents {
             } else {
                 "EXCEPTION"
             }
+            // A trusted TOOL_RESULT failure can carry a dispatched result phase
+            // even when the producer did not supply a broad failed_stage. Only
+            // synthesize the constant execution boundary for source-owned phases:
+            // never turn a precheck refusal or an unknown outcome into a remote failure.
+            val toolDispatchPhase = when (val value = fields["tool_dispatch_phase"]) {
+                is String -> value
+                is JsonPrimitive -> value.contentOrNull
+                else -> null
+            }
+            val reportFields = if (
+                feature == ReportFeature.TOOLS &&
+                reportSource == "TOOL_RESULT" &&
+                toolDispatchPhase in setOf("READ_FAILED", "OBSERVED", "FAILED") &&
+                listOf("failed_stage", "failedStage", "failurePhase", "phase", "stage").none { it in fields }
+            ) {
+                fields + ("failed_stage" to "tool_execution")
+            } else {
+                fields
+            }
+            // Producer-owned exceptions are typed evidence even when the public
+            // error code is generic. Retain only allowlisted cause categories as
+            // hashes; do not copy messages, stack strings or a nearby run's state.
+            val exceptionFields = if (error != null && "cause_types" !in reportFields) {
+                reportFields + ("cause_types" to dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).take(4))
+            } else {
+                reportFields
+            }
             val evidence = IssueReportContext.fromFields(
                 reportSource,
-                IssueReportIncidentCapsule.fields(feature, reportSource, publicCode, if (feature == ReportFeature.APP) fields + appDiagnosticFields(code) else fields)
+                IssueReportIncidentCapsule.fields(feature, reportSource, publicCode, if (feature == ReportFeature.APP) exceptionFields + appDiagnosticFields(code) else exceptionFields)
             )
-            val key = FailureKey(feature, publicCode, evidence.runIdHash, evidence.invocationIdHash, evidence.callIdHash, evidence.jobIdHash, evidence.activeJobIdHash)
+            // Distinct failures may share a public code and run within the debounce window.
+            // Retain observed stage and a sanitized exception fingerprint in the private key;
+            // neither raw exception text nor stack details are stored in this index.
+            val fingerprint = evidence.exceptionFingerprint ?: error?.let(IssueReportContext::exceptionFingerprint)
+            val key = FailureKey(feature, publicCode, evidence.runIdHash, evidence.invocationIdHash, evidence.callIdHash, evidence.jobIdHash, evidence.activeJobIdHash, evidence.stage, fingerprint)
             evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
             addEvent('E', feature, publicCode)
             val cause = IssueReportIncidentCapsule.identity(evidence, publicCode)

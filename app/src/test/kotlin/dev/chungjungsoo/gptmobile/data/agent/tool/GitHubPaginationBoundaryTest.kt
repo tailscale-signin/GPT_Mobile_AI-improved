@@ -21,6 +21,32 @@ import org.junit.Test
 class GitHubPaginationBoundaryTest {
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
 
+    @Test fun nestedCommitChecksRequireRealRowsAndCompleteRemoteCoverage() {
+        val boundary = GitHubPaginationBoundary()
+        val first = boundary.assessPage(
+            "github_context",
+            json("""{"action":"checks","page":1,"per_page":2}"""),
+            json("""{"has_more":true,"check_details":{"total_count":3,"check_runs":[{"id":1},{"id":2}]}}""")
+        )
+        assertEquals(null, first.errorCode)
+        val last = boundary.assessPage(
+            "github_context",
+            json("""{"action":"checks","page":2,"per_page":2}"""),
+            json("""{"has_more":false,"check_details":{"total_count":3,"check_runs":[{"id":3}]}}""")
+        )
+        assertEquals(null, last.errorCode)
+        val progress = last.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(3), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+
+        val missing = GitHubPaginationBoundary().assessPage(
+            "github_context",
+            json("""{"action":"checks","page":1}"""),
+            json("""{"has_more":false,"check_details":{"total_count":1}}""")
+        )
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", missing.errorCode)
+    }
+
     @Test fun repositoryRecoveryUsesTheSameAuthorizedConnectionAlias() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))
@@ -117,6 +143,28 @@ class GitHubPaginationBoundaryTest {
         assertEquals(JsonPrimitive(false), final.data.getValue("pagination_progress").jsonObject["complete"])
     }
 
+    @Test fun missingRemoteCollectionWithReportedRecordsIsNeverAcceptedAsComplete() {
+        val boundary = GitHubPaginationBoundary()
+        val args = json("""{"action":"list_workflow_runs","page":1,"per_page":30}""")
+        val missing = boundary.assessPage("github_ci", args, json("""{"has_more":false,"total_count":1}"""))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", missing.errorCode)
+        assertEquals(JsonPrimitive("MISSING_REMOTE_RECORD_COLLECTION"), missing.data["reason"])
+        assertEquals(JsonPrimitive(1), missing.data.getValue("pagination_progress").jsonObject["reported_total"])
+        assertEquals(JsonPrimitive(0), missing.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+        assertEquals(JsonPrimitive(false), missing.data.getValue("pagination_progress").jsonObject["complete"])
+        assertEquals(JsonPrimitive("NOT_MEASURED"), missing.data.getValue("pagination_progress").jsonObject["acceptance_status"])
+    }
+
+    @Test fun missingRemoteCollectionWhileMorePagesAdvertisedIsIncompleteButEmptyTerminalIsAllowed() {
+        val boundary = GitHubPaginationBoundary()
+        val args = json("""{"action":"list_workflow_runs","page":1}""")
+        val missing = boundary.assessPage("github_ci", args, json("""{"has_more":true}"""))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", missing.errorCode)
+        assertEquals(JsonPrimitive(true), missing.data["upstream_has_more"])
+        val empty = boundary.assessPage("github_ci", args, json("""{"has_more":false,"total_count":0}"""))
+        assertEquals(null, empty.errorCode)
+    }
+
     @Test fun omittedWorkflowDefaultsAndExplicitContinuationShareOneTraversal() = runBlocking {
         val requests = mutableListOf<JsonObject>()
         val backend = object : AgentTool {
@@ -165,6 +213,20 @@ class GitHubPaginationBoundaryTest {
         assertFalse(boundary.repeatsRemotePage("github_ci", json("""{"page":1}"""), json("""{"workflow_runs":[1]}""")))
         assertFalse(boundary.repeatsRemotePage("github_ci", json("""{"page":2}"""), json("""{"workflow_runs":[2]}""")))
         assertFalse(boundary.repeatsRemotePage("github_ci", json("""{"view_cursor":"saved:1"}"""), json("""{"workflow_runs":[2]}""")))
+    }
+
+    @Test fun verifiedSecondPageCannotInheritTheOldFirstPageTraversal() {
+        val boundary = GitHubPaginationBoundary()
+        val first = json("""{"action":"runs","owner":"owner","repo":"repo","page":1,"per_page":2}""")
+        val second = json("""{"action":"runs","owner":"owner","repo":"repo","page":2,"per_page":2,"verify_live":true}""")
+        boundary.assessPage("github_ci", first, json("""{"has_more":true,"total_count":2,"workflow_runs":[{"id":1}]}"""))
+        assertEquals(null, boundary.completedPage("github_ci", second))
+        val fresh = boundary.assessPage("github_ci", second, json("""{"has_more":false,"total_count":2,"workflow_runs":[{"id":2}]}"""))
+        val progress = fresh.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(1), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(false), progress["contiguous_from_first_page"])
+        assertEquals(JsonPrimitive(false), progress["complete"])
+        assertEquals(JsonArray(listOf(JsonPrimitive(2))), progress["remote_pages_observed"])
     }
 
     @Test fun terminalPagePreventsRemoteOverrunButAllowsRefreshAndDifferentScope() {
@@ -216,6 +278,75 @@ class GitHubPaginationBoundaryTest {
         val text = (bounded as ToolResultContent.Json).value.toString()
         assertTrue(text.toByteArray().size <= 65536)
         assertEquals(JsonPrimitive(true), Json.parseToJsonElement(text).jsonObject["observationTruncated"])
+    }
+
+    @Test fun savedViewContextMismatchCorrectsToTheIssuingToolAlias() {
+        val views = GitHubResultViews()
+        val originalArguments = json("""{"action":"list","owner":"owner","repo":"repo"}""")
+        val original = AgentToolResult(
+            "original",
+            ToolResultContent.Json(json("""{"items":[{"id":1}],"has_more":false}""")),
+            false
+        )
+        val presented = views.present("authorized-scope", "github_pr", "github_pr__original", original, originalArguments)
+        val initial = (presented.content as ToolResultContent.Json).value.jsonObject
+        val cursor = initial.getValue("recovery_call").jsonObject.getValue("arguments").jsonObject
+            .getValue("view_cursor") as JsonPrimitive
+
+        val rejected = views.read(
+            "authorized-scope",
+            "github_pr",
+            "github_pr__other",
+            cursor.content,
+            "mismatched-context",
+            json("""{"action":"context","owner":"owner","repo":"repo"}""")
+        )
+        assertFalse(rejected.dispatched)
+        assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+        val body = (rejected.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("SAVED_VIEW_CONTEXT_MISMATCH"), body["reason"])
+        val corrected = body.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive("github_pr__original"), corrected["tool"])
+        assertEquals(cursor, corrected.getValue("arguments").jsonObject["view_cursor"])
+        val identity = body.getValue("recovery_identity").jsonObject
+        assertEquals(JsonPrimitive("github_pr__original"), identity["original_model_tool"])
+        assertEquals(JsonPrimitive("github_pr__other"), identity["requested_model_tool"])
+        assertEquals(JsonPrimitive(false), identity["mutation_replay_allowed"])
+        assertFalse(rejected.executionReceipt.toString().contains(cursor.content))
+    }
+
+    @Test fun inventedSavedViewCursorOffersOnlyFreshAuthorizedReadWithoutSourceLeak() {
+        val views = GitHubResultViews()
+        val original = AgentToolResult(
+            "original",
+            ToolResultContent.Json(json("""{"items":[{"id":1}],"has_more":false}""")),
+            false
+        )
+        val presented = views.present(
+            "scope",
+            "github_pr",
+            "github_pr__original",
+            original,
+            json("""{"action":"list","owner":"owner","repo":"repo"}""")
+        )
+        val page = (presented.content as ToolResultContent.Json).value.jsonObject
+        val issued = page.getValue("recovery_call").jsonObject
+            .getValue("arguments").jsonObject
+            .getValue("view_cursor").let { (it as JsonPrimitive).content }
+        val invented = issued.substringBefore(':') + ":9999:2048"
+
+        val result = views.read("scope", "github_pr", "github_pr__original", invented, "invented")
+        assertTrue(result.isError)
+        assertFalse(result.dispatched)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", result.errorCode)
+        val body = (result.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("UNISSUED_CURSOR"), body["reason"])
+        assertEquals(JsonPrimitive("START_FRESH_SCOPED_READ"), body["recovery_action"])
+        assertEquals(JsonPrimitive(false), body["mutation_replay_allowed"])
+        assertFalse(body.containsKey("correction_call"))
+        assertFalse(body.containsKey("source_recovery_call"))
+        assertFalse(body.toString().contains(issued))
+        assertEquals(JsonPrimitive(false), result.executionReceipt?.get("saved_view_cursor_issued"))
     }
 
     @Test fun savedReadsAcceptMatchingSelectorsAndRejectScopeChanges() {

@@ -66,6 +66,36 @@ class GitHubProgressNarratorTest {
         assertEquals("Identical prose does not create another summary", 1, summaries.size)
     }
 
+    @Test fun rotatingKnownFactsDoNotRepeatNarrationUntilNewEvidenceArrives() = runTest {
+        var clock = 0L
+        var current = state()
+        val summaries = mutableListOf<ApiState.ActivitySummary>()
+        val narrator = GitHubProgressNarrator(
+            snapshot = { current },
+            openSelected = { _, _ -> error("Deterministic summary must not use provider tokens") },
+            validate = {},
+            admit = { _, _ -> error("No token admission is required") },
+            publish = { summaries += it },
+            now = { clock }
+        )
+        clock = 45_000L
+        narrator.beforeRound()
+        assertEquals(1, summaries.size)
+
+        current = current.copy(revision = 2L, recentSteps = current.recentSteps.reversed())
+        clock = 90_000L
+        narrator.beforeRound()
+        assertEquals(1, summaries.size)
+
+        current = current.copy(
+            revision = 3L,
+            recentSteps = current.recentSteps + "Job 7 captured a new diagnostic result."
+        )
+        clock = 135_000L
+        narrator.beforeRound()
+        assertEquals(2, summaries.size)
+    }
+
     @Test fun optionalGenerationFailureNeverRetriesOrBlocksRepositoryWork() = runTest {
         var clock = 0L
         var revision = 1L
@@ -261,6 +291,7 @@ class GitHubProgressNarratorTest {
         assertEquals(null, GitHubProgressNarrator.validSummary("Seven tools were tested. $prose", evidence))
         assertEquals(null, GitHubProgressNarrator.validSummary("7 tools were tested. $prose", evidence))
         assertEquals(null, GitHubProgressNarrator.validSummary("2 authorized tools remain. $prose", evidence))
+        assertEquals(null, GitHubProgressNarrator.validSummary("$prose\n| Check state | Count |\n| --- | ---: |\n| Failed | 9 |", evidence))
     }
 
     @Test fun newerFailureDuringValidationPreventsPublishingAnObsoleteFallback() = runTest {

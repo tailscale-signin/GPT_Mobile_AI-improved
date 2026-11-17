@@ -49,4 +49,13 @@
     <string name="gateway_jobs_instruction_send">Queue instruction</string>
     <string name="gateway_jobs_instruction_retry">Check and retry saved instruction</string>
     <string name="gateway_jobs_instruction_queued">Instruction queued on the gateway. It will be applied at the next safe step.</string>
+    <string name="gateway_jobs_retry_at">Work saved · retry at %1$s</string>
+    <string name="gateway_jobs_retry_countdown">Work saved · retry in %1$s</string>
+    <string name="gateway_jobs_retry_due">Work saved · waiting for the Gateway worker</string>
+    <string name="gateway_jobs_retry_attempt">%1$s · retry attempt %2$d</string>
+    <string name="gateway_jobs_retry_resumed">%1$s · resumed after retry %2$d</string>
+    <string name="gateway_jobs_retry_interrupted">%1$s · stopped after retry %2$d</string>
+    <string name="gateway_jobs_retry_needs_input">%1$s · needs your input after retry %2$d</string>
+    <string name="gateway_jobs_retry_recorded">%1$s · %2$d retries recorded</string>
+    <string name="gateway_jobs_continuous_progress">Session %1$d of %2$d · %3$d milestones verified</string>
 </resources>

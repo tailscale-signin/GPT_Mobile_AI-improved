@@ -239,13 +239,26 @@ internal class GitHubResultViews(
             // never make recovery depend on guessing the old tool route.
             val known = evicted[parts.firstOrNull()]?.takeIf { it.scope == scope && cursor in it.cursors }
             val scopedEntry = entry?.takeIf { it.scope == scope }
+            // A fabricated or rewritten cursor is not a recoverable saved-page
+            // handle. Do not imply that an unavailable source-recovery recipe
+            // exists or publish a route/selector from an unissued handle.
+            val unissued = known == null && scopedEntry != null && cursor !in scopedEntry.issuedCursors
             return AgentToolResult(
                 callId,
                 ToolResultContent.Json(
                     buildJsonObject {
                         put("schema", "github.arguments.v1")
-                        put("reason", known?.reason ?: "UNAVAILABLE_IN_AUTHORIZED_SCOPE")
-                        put("message", "The saved page is unavailable. Execute source_recovery_call from the retained result or recovery_call below to reopen the same immutable source. If neither exists, use scoped recovery context. Never repeat a mutation to recover output.")
+                        put("reason", if (unissued) "UNISSUED_CURSOR" else known?.reason ?: "UNAVAILABLE_IN_AUTHORIZED_SCOPE")
+                        put("recovery_action", if (unissued) "START_FRESH_SCOPED_READ" else "REOPEN_ORIGINAL_SOURCE")
+                        put("mutation_replay_allowed", false)
+                        put(
+                            "message",
+                            if (unissued) {
+                                "This view_cursor was never issued. Do not retry or alter it. Start a fresh authorized source read with observed selectors; do not repeat a mutation."
+                            } else {
+                                "The saved page is unavailable. When source_recovery_call is available, reopen the same immutable source with that exact read-only recipe. Otherwise start a fresh authorized read; never replay a mutation."
+                            }
+                        )
                         known?.let { view ->
                             put(
                                 "recovery_identity",
@@ -301,7 +314,23 @@ internal class GitHubResultViews(
                         put("reason", "SAVED_VIEW_CONTEXT_MISMATCH")
                         put("conflicting_fields", JsonArray(conflictingFields.keys.sorted().map(::JsonPrimitive)))
                         put("message", "Saved-page context differs from the retained request. Use only the exact view_cursor; a saved read cannot change repository, revision, action or read selectors. Nothing was dispatched.")
-                        put("correction_call", savedCall(modelName, cursor))
+                        // The cursor was issued by the retained view, which can use a
+                        // different model-visible connection alias from this request.
+                        // A correction on the requesting alias would repeat the mismatch.
+                        put("correction_call", savedCall(entry.modelName, cursor))
+                        put(
+                            "recovery_identity",
+                            recoveryIdentity(
+                                scope = scope,
+                                cursor = cursor,
+                                originalOperation = entry.operation,
+                                originalModelName = entry.modelName,
+                                requestedOperation = operation,
+                                requestedModelName = modelName,
+                                reason = "SAVED_VIEW_CONTEXT_MISMATCH",
+                                sourceRecoveryAvailable = entry.sourceRecovery != null
+                            )
+                        )
                     }
                 ),
                 true,

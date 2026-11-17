@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.CalculatorTool
 import java.util.concurrent.atomic.AtomicInteger
@@ -20,6 +21,7 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     private val recovery = test.workload == "tool_error_recovery"
     private val permanent = test.workload == "permanent_error_decision"
     private val research = test.workload == "research_fixture"
+    private val githubFixture = GitHubProfileAuditSuite.fixture(test)
     private val parcelArguments = buildJsonObject { put("key", "parcel") }
     private val typedArguments = buildJsonObject {
         put("key", "parcel")
@@ -39,6 +41,15 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     private fun result(id: String, body: String, error: Boolean = false, code: String? = null) = AgentToolResult(id, ToolResultContent.Text(body), error, errorCode = code)
 
     val tools: List<AgentTool> = when {
+        githubFixture != null -> listOf(
+            tool(githubFixture.operation, "Offline GitHub tool-call fixture: no real connection or remote write.", githubFixture.definition.inputSchema) { id, args ->
+                if (args == githubFixture.arguments && ToolArgumentValidator.errors(args, githubFixture.definition.inputSchema).isEmpty()) {
+                    result(id, "FIXTURE_CODE=$code")
+                } else {
+                    result(id, "Arguments did not match the offline GitHub fixture.", true, "BENCHMARK_FIXTURE_ARGUMENTS")
+                }
+            }
+        )
         test.calculatorExpression != null -> listOf(CalculatorTool())
         research -> listOf(
             tool("benchmark_search", "Search the offline parcel records. Returns a fixture URL to read.", schema(mapOf("query" to "string"))) { id, args ->
@@ -76,6 +87,10 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     }
 
     fun valid(call: ProviderEvent.ToolCall): Boolean = when {
+        githubFixture != null ->
+            call.name == githubFixture.operation &&
+                call.arguments == githubFixture.arguments &&
+                ToolArgumentValidator.errors(call.arguments, githubFixture.definition.inputSchema).isEmpty()
         test.calculatorExpression != null -> call.name == "calculate_expression" && call.arguments == buildJsonObject { put("expression", test.calculatorExpression) }
         research && call.name == "benchmark_search" -> call.arguments == buildJsonObject { put("query", "parcel") }
         research && call.name == "benchmark_read" -> call.arguments == buildJsonObject { put("url", "fixture://parcel-record") }
@@ -87,7 +102,9 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
 
     fun assess(calls: List<ProviderEvent.ToolCall>, successful: Set<String>, expectedErrors: Set<String>, answer: String, raw: String, complete: Boolean): BenchmarkToolAssessment {
         val selected = calls.map { it.name }.all { name ->
-            name in if (research) {
+            name in if (githubFixture != null) {
+                setOf(githubFixture.operation)
+            } else if (research) {
                 setOf("benchmark_search", "benchmark_read")
             } else if (test.calculatorExpression != null) {
                 setOf("calculate_expression")
@@ -116,6 +133,7 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     }
 
     fun passed(calls: List<ProviderEvent.ToolCall>, successful: Set<String>, expectedErrors: Set<String>): Boolean = calls.isNotEmpty() &&
+        (githubFixture == null || calls.size == 1) &&
         calls.all(::valid) &&
         successful.size + expectedErrors.size == calls.size &&
         (!recovery || expectedErrors.size == 1 && successful.size == 1) &&

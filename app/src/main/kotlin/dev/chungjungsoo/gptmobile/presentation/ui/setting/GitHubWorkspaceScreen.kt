@@ -91,7 +91,9 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as Drop
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubFadeProfile
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.jsonObject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,10 +117,19 @@ fun GitHubWorkspaceScreen(
         val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("GitHubWorkspace")
         onDispose { release() }
     }
-    val workspaceContext = androidx.compose.ui.platform.LocalContext.current
-    val appearance = remember(workspaceContext) { workspaceContext.getSharedPreferences("github_workspace_appearance", android.content.Context.MODE_PRIVATE) }
-    var fadeProfile by remember(appearance) {
-        mutableStateOf(GitHubFadeProfile.entries.firstOrNull { it.name == appearance.getString("header_fade", null) } ?: GitHubFadeProfile.ADAPTIVE)
+    val workspaceContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    var fadeProfile by remember(workspaceContext) { mutableStateOf(GitHubFadeProfile.ADAPTIVE) }
+    var fadePreferenceTouched by remember(workspaceContext) { mutableStateOf(false) }
+    // SharedPreferences can load its XML on first access; never touch disk from Compose.
+    LaunchedEffect(workspaceContext) {
+        val persisted = withContext(Dispatchers.IO) {
+            workspaceContext.getSharedPreferences("github_workspace_appearance", android.content.Context.MODE_PRIVATE)
+                .getString("header_fade", null)
+        }
+        // The asynchronous load must not overwrite a new selection made while it ran.
+        if (!fadePreferenceTouched) {
+            fadeProfile = GitHubFadeProfile.entries.firstOrNull { it.name == persisted } ?: GitHubFadeProfile.ADAPTIVE
+        }
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val programmerState by programmer.state.collectAsStateWithLifecycle()
@@ -465,7 +476,12 @@ fun GitHubWorkspaceScreen(
                                                 selected = profile == fadeProfile,
                                                 onClick = {
                                                     fadeProfile = profile
-                                                    appearance.edit().putString("header_fade", profile.name).apply()
+                                                    fadePreferenceTouched = true
+                                                    // Persist on IO; a fast settings click must not block the UI thread.
+                                                    scope.launch(Dispatchers.IO) {
+                                                        workspaceContext.getSharedPreferences("github_workspace_appearance", android.content.Context.MODE_PRIVATE)
+                                                            .edit().putString("header_fade", profile.name).apply()
+                                                    }
                                                 },
                                                 label = { Text(profile.label) }
                                             )
@@ -489,6 +505,24 @@ fun GitHubWorkspaceScreen(
                                         },
                                         onDecisionMode = programmer::setDecisionMode
                                     )
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("Continuous engineering", style = MaterialTheme.typography.titleSmall)
+                                            Text(
+                                                "Continue new Gateway jobs across saved sessions for up to 72 hours within the accepted model budget.",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        androidx.compose.material3.Switch(
+                                            checked = engineering.options.durationHours == 0,
+                                            onCheckedChange = engineeringModel::setContinuousEngineering,
+                                            enabled = !engineering.busy && visibleProgrammer.chatId != null
+                                        )
+                                    }
                                     if (state.selection != null) {
                                         OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                         Button(onClick = {

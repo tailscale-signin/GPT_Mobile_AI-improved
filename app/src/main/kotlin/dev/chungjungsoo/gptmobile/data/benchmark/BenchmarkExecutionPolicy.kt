@@ -8,6 +8,10 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class BenchmarkExecutionPolicy(val label: String) { DETERMINISTIC_CAPABILITY_V1("Deterministic capability"), PROFILE_SETTINGS_V1("Saved profile settings") }
 
+/** Saved-profile fidelity is default; strict mode is an explicit benchmark opt-in. */
+internal fun githubAuditExecutionPolicy(strictDeterministic: Boolean): BenchmarkExecutionPolicy =
+    if (strictDeterministic) BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1 else BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1
+
 @Serializable
 enum class BenchmarkStructuredOutputMode { NATIVE_JSON_SAFE_V1, PROMPT_JSON_VERIFIED_V1 }
 

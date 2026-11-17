@@ -525,6 +525,24 @@ class DisplayReadinessTest(unittest.TestCase):
                     self.assertEqual(1, sum(operation in command for command, _ in device.calls))
                     self.assertEqual([], device.mutations())
 
+    def test_api34_emulator_uses_aosp_launcher_without_suppressing_crashes(self):
+        # API34's cold Google Pixel Launcher ANR occurred before any app tests
+        # (acceptance run 43822499387). The AOSP image still exercises API34,
+        # while API36 retains Google APIs coverage. Never hide a new ANR.
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/release-0950-acceptance.yml').read_text()
+        self.assertIn('          - api: 34\n            profile: pixel_2\n', workflow)
+        self.assertRegex(workflow, r'(?m)^            target: default$')
+        self.assertRegex(workflow, r'(?m)^          - api: 36\n            profile: pixel_c\n            target: google_apis$')
+        self.assertIn('          target: ${{ matrix.target }}', workflow)
+        self.assertIn('script: ACCEPTANCE_EMULATOR_API=${{ matrix.api }} ACCEPTANCE_EMULATOR_TARGET=${{ matrix.target }} bash scripts/run_release0950_acceptance.sh', workflow)
+        dump = ('ACTIVITY MANAGER RUNNING PROCESSES (dumpsys activity processes)\n'
+                'ProcessRecord{abc 1035:com.android.systemui/u0a99}\n'
+                '  mCrashing=false mNotResponding=false\n'
+                'ProcessRecord{abc 1194:com.google.android.apps.nexuslauncher/u0a169}\n'
+                '  mCrashing=false mNotResponding=true\n')
+        with self.assertRaisesRegex(ValueError, 'crashing or nonresponding process'):
+            emulator.reject_process_errors(dump)
+
     def test_crashing_or_nonresponding_process_blocks_home_and_display_without_dismissal(self):
         for field in ('mCrashing', 'mNotResponding'):
             for phase in (emulator.prepare, emulator.settle_display):

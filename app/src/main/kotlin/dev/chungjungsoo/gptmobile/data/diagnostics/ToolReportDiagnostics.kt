@@ -108,14 +108,15 @@ internal object ToolReportDiagnostics {
         // Report a missing immutable GitHub path only when the original read's
         // call-bound dispatch receipt proves that no upstream operation ran.
         // Retain the closed reason, never the path or the result preview.
+        val pathReceipt = result.executionReceipt
         val missingPathPrecheck = event.modelToolName.substringBefore("__") == "github_read" &&
             result.isError && !result.dispatched && result.errorCode == "GITHUB_PATH_NOT_FOUND" &&
-            receipt?.get("schema") == JsonPrimitive("github.dispatch.v1") &&
-            receipt["call_id"] == JsonPrimitive(result.callId) &&
-            receipt["error_code"] == JsonPrimitive(result.errorCode) &&
-            receipt["phase"] == JsonPrimitive("PREFLIGHT_REJECTED") &&
-            receipt["dispatched"] == JsonPrimitive(false) &&
-            receipt["requires_reconciliation"] == JsonPrimitive(false)
+            pathReceipt?.get("schema") == JsonPrimitive("github.dispatch.v1") &&
+            pathReceipt["call_id"] == JsonPrimitive(result.callId) &&
+            pathReceipt["error_code"] == JsonPrimitive(result.errorCode) &&
+            pathReceipt["phase"] == JsonPrimitive("PREFLIGHT_REJECTED") &&
+            pathReceipt["dispatched"] == JsonPrimitive(false) &&
+            pathReceipt["requires_reconciliation"] == JsonPrimitive(false)
         if (missingPathPrecheck) put("tool_reason_code", "GITHUB_PATH_NOT_FOUND")
         (result.executionReceipt?.get("phase") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?.takeIf { it in phases }?.let { put("tool_dispatch_phase", it) }

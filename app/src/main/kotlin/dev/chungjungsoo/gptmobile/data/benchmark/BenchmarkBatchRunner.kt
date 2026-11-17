@@ -618,7 +618,10 @@ class BenchmarkBatchRunner @Inject constructor(
             else -> benchmarkSuiteForVersion(batch.suiteVersion, batch.mode, batch.fixtureRotationSeed ?: 0)
         }
         val run = store.history.value.firstOrNull { it.id == item.runId } ?: newRun(
-            batch, item, batch.delegationPrimary ?: item.profile, acceptedPlan.size
+            batch,
+            item,
+            batch.delegationPrimary ?: item.profile,
+            acceptedPlan.size
         ).copy(
             caseManifest = acceptedPlan,
             fixtureManifestHash = benchmarkHash(acceptedPlan.joinToString("\n") { it.id + it.prompt + it.expected })
@@ -628,16 +631,27 @@ class BenchmarkBatchRunner @Inject constructor(
         val retained = run.copy(
             samples = when {
                 skip -> run.samples.map { sample ->
-                    if (sample.outcome == BenchmarkOutcome.CANCELED) sample.copy(
-                        outcome = BenchmarkOutcome.SKIPPED, failure = failure,
-                        failureCategory = "USER_SKIP", error = failure.message
-                    ) else sample
+                    if (sample.outcome == BenchmarkOutcome.CANCELED) {
+                        sample.copy(
+                            outcome = BenchmarkOutcome.SKIPPED,
+                            failure = failure,
+                            failureCategory = "USER_SKIP",
+                            error = failure.message
+                        )
+                    } else {
+                        sample
+                    }
                 }
                 childAborted -> run.samples.map { sample ->
-                    if (sample.outcome == BenchmarkOutcome.CANCELED) sample.copy(
-                        outcome = BenchmarkOutcome.ERROR, failure = failure,
-                        failureCategory = "CHILD_OPERATION_ABORTED"
-                    ) else sample
+                    if (sample.outcome == BenchmarkOutcome.CANCELED) {
+                        sample.copy(
+                            outcome = BenchmarkOutcome.ERROR,
+                            failure = failure,
+                            failureCategory = "CHILD_OPERATION_ABORTED"
+                        )
+                    } else {
+                        sample
+                    }
                 }
                 else -> run.samples
             },

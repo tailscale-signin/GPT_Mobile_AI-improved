@@ -333,9 +333,7 @@ internal class GitHubOperationTool(
             executed.isError &&
             !executed.dispatched &&
             executed.errorCode == "INVALID_ARGUMENTS" &&
-            arguments["action"] == JsonPrimitive("list") &&
-            ((arguments["page"] as? JsonPrimitive)?.intOrNull ?: 1) > 1 &&
-            "after" !in arguments
+            executed.executionReceipt?.get("issue_continuation_rejected") == JsonPrimitive(true)
         ) {
             // The authenticated issue connection requires its bound cursor. Keep
             // a rejected hand-written page local and expose the exact missing rule.
@@ -344,14 +342,9 @@ internal class GitHubOperationTool(
                 definition.name,
                 arguments,
                 definition.inputSchema,
-                listOf("$.after is required for this issue continuation; use the exact continuation_call with its original filters and page size")
+                listOf("Use the exact continuation_call with its original filters, page size and after cursor")
             )
-            executed = rejection.copy(
-                executionReceipt = JsonObject(
-                    executed.executionReceipt.orEmpty() + rejection.executionReceipt.orEmpty() +
-                        ("reason_code" to JsonPrimitive("TOOL_ARGUMENT_CONSTRAINT_REJECTED"))
-                )
-            )
+            executed = rejection.copy(executionReceipt = JsonObject(rejection.executionReceipt.orEmpty() + executed.executionReceipt.orEmpty()))
         }
         val rejectedRead = (executed.content as? ToolResultContent.Json)?.value as? JsonObject
         val initialReceipt = executed.executionReceipt

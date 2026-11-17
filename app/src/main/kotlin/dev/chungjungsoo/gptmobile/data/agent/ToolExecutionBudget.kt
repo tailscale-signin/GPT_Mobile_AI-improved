@@ -207,7 +207,7 @@ class ToolExecutionBudget(
             }
             val sourceAcquisition = limits.githubTask && definition.name.substringBefore("__") in setOf("github_read", "github_search")
             val callCeiling = if (sourceAcquisition && executionLimit != Int.MAX_VALUE) {
-                (executionLimit - dev.chungjungsoo.gptmobile.data.github.GitHubChecklistBudget.VERIFICATION_RESERVE).coerceAtLeast(0)
+                executionLimit - dev.chungjungsoo.gptmobile.data.github.GitHubChecklistBudget.ordinaryVerificationReserve(executionLimit)
             } else {
                 executionLimit
             }
@@ -239,7 +239,7 @@ class ToolExecutionBudget(
                 return { withBudgetState(ToolResultEnvelope.error(callId, "BUDGET_CHECKPOINT_UNAVAILABLE", "The durable tool allowance could not be saved. No action was dispatched; restore its checkpoint before resuming.")) }
             }
             if (!acquired) {
-                if (sourceAcquisition && calls.get() < executionLimit) {
+                if (callCeiling < executionLimit && calls.get() < executionLimit) {
                     return {
                         withBudgetState(ToolResultEnvelope.error(callId, "VERIFICATION_RESERVE_REACHED", "Source acquisition stopped before spending the verification reserve. Retain the task checkpoint and verify completed work; no source request was dispatched."))
                     }

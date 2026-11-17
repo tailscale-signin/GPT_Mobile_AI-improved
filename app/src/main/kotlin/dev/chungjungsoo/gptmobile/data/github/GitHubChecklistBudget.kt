@@ -11,12 +11,16 @@ internal object GitHubChecklistBudget {
     const val FIXTURE_CALLS = 4 // create, restore selected branch, dependencies, verified deletion
     const val VERIFICATION_RESERVE = 2
 
+    // A one- or two-call task can spend its approved allowance on the requested read.
+    fun ordinaryVerificationReserve(callLimit: Int?): Int =
+        if (callLimit != null && callLimit <= VERIFICATION_RESERVE) 0 else VERIFICATION_RESERVE
+
     /** Once a fixture exists, optional reads cannot spend its reconciliation/cleanup allowance. */
     fun cleanupReserve(receipts: Map<String, JsonObject>): Int =
         if (GitHubSelfTestFixtures.checkpoint(receipts).filterIsInstance<JsonObject>().any { it["final_state_verified"] != JsonPrimitive(true) }) FIXTURE_CALLS else 0
 
-    fun acquisitionAllowed(receipts: Map<String, JsonObject>, current: Int? = null): Boolean =
-        remaining(receipts, current)?.let { it > VERIFICATION_RESERVE + cleanupReserve(receipts) } != false
+    fun acquisitionAllowed(receipts: Map<String, JsonObject>, current: Int? = null, verificationReserve: Int = VERIFICATION_RESERVE): Boolean =
+        remaining(receipts, current)?.let { it > verificationReserve + cleanupReserve(receipts) } != false
 
     fun remaining(receipts: Map<String, JsonObject>, current: Int? = null): Int? {
         if (current != null) return current.coerceAtLeast(0)

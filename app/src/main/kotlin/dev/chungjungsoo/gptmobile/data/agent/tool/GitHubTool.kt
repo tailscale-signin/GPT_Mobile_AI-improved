@@ -2038,6 +2038,23 @@ class GitHubTool(
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowDispatch.Invalid) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = throwable.code, dispatched = false)
         }
+        if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubInspection.InvalidIssueContinuation) {
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Text(detail),
+                true,
+                errorCode = "INVALID_ARGUMENTS",
+                dispatched = false,
+                executionReceipt = buildJsonObject {
+                    put("issue_continuation_rejected", true)
+                    put("reason_code", "TOOL_ARGUMENT_CONSTRAINT_REJECTED")
+                    put("missing_field_count", if (throwable.missing) 1 else 0)
+                    put("invalid_field_count", if (throwable.missing) 0 else 1)
+                    put("invalid_field_classes", JsonArray(listOf(JsonPrimitive(if (throwable.missing) "MISSING_REQUIRED" else "COMPOSITE_CONSTRAINT"))))
+                    put("validation_field_names", JsonArray(listOf(JsonPrimitive("page"))))
+                }
+            )
+        }
         if (throwable is IllegalArgumentException) {
             val explanation = detail.takeUnless { it.isBlank() || it == "Failed requirement." }
                 ?: "Invalid or missing arguments for this GitHub operation."

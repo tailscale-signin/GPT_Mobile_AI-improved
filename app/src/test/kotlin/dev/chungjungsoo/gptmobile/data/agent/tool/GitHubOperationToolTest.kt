@@ -99,6 +99,23 @@ class GitHubOperationToolTest {
         }
     }
 
+    @Test fun selectedIssueListAcceptsAndForwardsTheIssuedCursor() = runBlocking {
+        var forwarded: JsonObject? = null
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                forwarded = arguments
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("has_more", false) }), false)
+            }
+        }
+        val tool = GitHubOperationTool("github_issue", backend, "continued-issues", "github_issue__selected")
+        val selected = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(tool.definition, "list"))
+        val request = args("""{"action":"list","state":"open","page":2,"per_page":20,"after":"issued-opaque-cursor"}""")
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = 1))
+        assertFalse(budget.bindPresented(tool, selected).execute("continued", request).isError)
+        assertEquals(JsonObject(request + ("action" to JsonPrimitive("list_issues"))), forwarded)
+    }
+
     @Test fun rejectedHandWrittenIssuePageExposesItsMissingContinuationContract() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
@@ -107,7 +124,11 @@ class GitHubOperationToolTest {
                 ToolResultContent.Text("Follow the exact issue continuation"),
                 true,
                 errorCode = "INVALID_ARGUMENTS",
-                dispatched = false
+                dispatched = false,
+                executionReceipt = buildJsonObject {
+                    put("issue_continuation_rejected", true)
+                    put("missing_field_count", 1)
+                }
             )
         }
         val tool = GitHubOperationTool("github_issue", backend, "build142")
@@ -115,7 +136,8 @@ class GitHubOperationToolTest {
         assertFalse(result.dispatched)
         assertEquals("INVALID_ARGUMENTS", result.errorCode)
         val body = (result.content as ToolResultContent.Json).value.jsonObject
-        assertTrue(body["message"].toString().contains("exact continuation_call"))
+        assertTrue(body.getValue("data").jsonObject.getValue("message").jsonPrimitive.content.contains("exact continuation_call"))
+        assertEquals(JsonPrimitive(1), result.executionReceipt?.get("missing_field_count"))
         assertEquals(JsonPrimitive("TOOL_ARGUMENT_CONSTRAINT_REJECTED"), result.executionReceipt?.get("reason_code"))
     }
 

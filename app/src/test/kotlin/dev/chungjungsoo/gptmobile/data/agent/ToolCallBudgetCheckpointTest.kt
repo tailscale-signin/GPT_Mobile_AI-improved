@@ -29,11 +29,11 @@ class ToolCallBudgetCheckpointTest {
         val limits = AgentRunLimits(githubTask = true, maxToolCalls = 4)
         try {
             val first = checkpoint()
-            val initial = ToolExecutionBudget(limits, initialCalls = first.initialize(2), durableCalls = first)
+            val initial = ToolExecutionBudget(limits, initialCalls = first.initialize(4), durableCalls = first)
             assertFalse(initial.bind(tool).execute("first", buildJsonObject {}).isError)
             val recreated = checkpoint()
-            assertEquals(1, recreated.initialize(2))
-            val continued = ToolExecutionBudget(limits, initialCalls = recreated.initialize(2), durableCalls = recreated)
+            assertEquals(1, recreated.initialize(4))
+            val continued = ToolExecutionBudget(limits, initialCalls = recreated.initialize(4), durableCalls = recreated)
             assertFalse(continued.bind(tool).execute("second", buildJsonObject {}).isError)
             val exhausted = continued.bind(tool).execute("third", buildJsonObject {})
             assertEquals("VERIFICATION_RESERVE_REACHED", exhausted.errorCode)
@@ -45,6 +45,29 @@ class ToolCallBudgetCheckpointTest {
             assertNull(checkpoint().acquire(200))
         } finally {
             ToolCallBudgetCheckpoint.clearInMemoryChat(chatId)
+        }
+    }
+
+    @Test fun oneAndTwoCallSourceAllowancesCanBeSpentAndRemainExhaustedAfterRestore() = runTest {
+        for (limit in 1..2) {
+            var row: JsonObject? = null
+            val checkpoint = ToolCallBudgetCheckpoint("small-$limit", { row }, { row = it })
+            val limits = AgentRunLimits(githubTask = true, maxToolCalls = limit)
+            var dispatches = 0
+            val source = object : AgentTool {
+                override val definition = AgentToolDefinition("github_read", "read", buildJsonObject {})
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    dispatches++
+                    return AgentToolResult(callId, ToolResultContent.Text("receipt"), false)
+                }
+            }
+            repeat(limit) { index ->
+                val budget = ToolExecutionBudget(limits, initialCalls = checkpoint.initialize(limit), durableCalls = checkpoint)
+                assertFalse(budget.bind(source).execute("read-$index", buildJsonObject {}).isError)
+            }
+            val resumed = ToolExecutionBudget(limits, initialCalls = checkpoint.initialize(limit), durableCalls = checkpoint)
+            assertEquals("BUDGET_EXHAUSTED", resumed.bind(source).execute("extra", buildJsonObject {}).errorCode)
+            assertEquals(limit, dispatches)
         }
     }
 
@@ -201,9 +224,9 @@ class ToolCallBudgetCheckpointTest {
             }
         }
         val limits = AgentRunLimits(githubTask = true, maxToolCalls = 4)
-        val first = ToolExecutionBudget(limits, initialCalls = checkpoint.initialize(2), durableCalls = checkpoint)
+        val first = ToolExecutionBudget(limits, initialCalls = checkpoint.initialize(4), durableCalls = checkpoint)
         assertFalse(first.bind(tool("github_read")).execute("first", buildJsonObject {}).isError)
-        val restored = ToolExecutionBudget(limits, initialCalls = checkpoint.initialize(2), durableCalls = checkpoint)
+        val restored = ToolExecutionBudget(limits, initialCalls = checkpoint.initialize(4), durableCalls = checkpoint)
         assertFalse(restored.bind(tool("github_status")).execute("second", buildJsonObject {}).isError)
         val rejected = restored.bind(tool("github_read")).execute("third", buildJsonObject {})
         assertEquals("VERIFICATION_RESERVE_REACHED", rejected.errorCode)

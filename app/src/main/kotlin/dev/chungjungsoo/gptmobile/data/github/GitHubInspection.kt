@@ -14,6 +14,11 @@ import kotlinx.serialization.json.put
 
 /** Bounded, explicit follow-ups. A failed policy read is unknown, never permission. */
 internal class GitHubInspection(private val get: suspend (String) -> JsonElement) {
+    class InvalidIssueContinuation(val missing: Boolean) :
+        IllegalArgumentException(
+            "Follow the exact issue continuation with the original repository, filters and page size."
+        )
+
     companion object {
         val actions = setOf("branch_context", "branch_dependencies", "repository_details", "list_issues", "search_issues", "issue_context", "issue_comments", "issue_events", "search_commits", "tag_context", "pull_request_reviews")
         val issueSearchQualifier = Regex("(?i)(?:^|\\s)(?:is|type):(?:issue|pr)(?:\\s|$)")
@@ -207,7 +212,7 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
         val cursor = args.s("after").takeIf(String::isNotBlank)
         val after = cursor?.split(':', limit = 3)?.takeIf { it.size == 3 && it[0] == scope && it[1].toIntOrNull() == page }
             ?.get(2)?.takeIf { it.length in 1..512 && it.none(Char::isISOControl) }
-        require((page == 1 && cursor == null) || page > 1 && after != null) { "Follow the exact issue continuation with the original repository, filters and page size." }
+        if (!(page == 1 && cursor == null || page > 1 && after != null)) throw InvalidIssueContinuation(missing = cursor == null)
         val response = graphQl(
             "query(\$owner:String!,\$repo:String!,\$first:Int!,\$after:String,\$states:[IssueState!],\$order:IssueOrder!){repository(owner:\$owner,name:\$repo){issues(first:\$first,after:\$after,states:\$states,orderBy:\$order){totalCount pageInfo{hasNextPage endCursor} nodes{id number title state url createdAt updatedAt}}}}",
             buildJsonObject {

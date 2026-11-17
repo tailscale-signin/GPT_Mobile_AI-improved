@@ -44,7 +44,7 @@ internal object GitHubActionSchema {
             else -> null
         }
         "github_pr", "github_issue" -> when (action) {
-            "list" -> "state head base sort direction page per_page"
+            "list" -> if (operation == "github_issue") "state sort direction page per_page after" else "state head base sort direction page per_page"
             "headers", "context" -> "pull_number issue_number expected_head_sha expected_base_sha include_health include_files include_checks include_patches check_page page per_page"
             "comments", "reviews", "history", "threads" -> "pull_number issue_number page per_page after"
             "create" -> "title body head base draft labels assignees"

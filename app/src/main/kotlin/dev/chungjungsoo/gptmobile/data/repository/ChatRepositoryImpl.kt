@@ -2552,6 +2552,7 @@ class ChatRepositoryImpl(
                                 resolvedTools, taskRoutedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
                                 localResearch, processingOwnership, reservedFinalToolCalls, followUps,
                                 remainingToolCalls = toolBudget::remainingCalls,
+                                executionCallLimit = toolBudget.snapshot().callsLimit,
                                 githubProgress = githubProgress,
                                 retryUndispatchedBudgetFailures = taskRecovery?.retryUndispatchedBudgetFailures == true && chatToolConfig?.combined == null,
                                 resumeToolBudget = taskRecovery?.renewsToolBudget == true && preparationInput.githubTask && chatToolConfig?.combined == null,
@@ -5096,6 +5097,7 @@ class ChatRepositoryImpl(
         reservedFinalToolCalls: Int,
         followUps: dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox?,
         remainingToolCalls: () -> Int?,
+        executionCallLimit: Int?,
         githubProgress: dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress? = null,
         retryUndispatchedBudgetFailures: Boolean = false,
         resumeToolBudget: Boolean = false,
@@ -6032,6 +6034,7 @@ class ChatRepositoryImpl(
                     evidence = verifiedEvidence,
                     task = githubEffectiveTask,
                     remainingToolCalls = remainingToolCalls,
+                    executionCallLimit = executionCallLimit,
                     currentRequest = originalUserRequest,
                     openExecutionContinuation = { prompt ->
                         val continuation = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(

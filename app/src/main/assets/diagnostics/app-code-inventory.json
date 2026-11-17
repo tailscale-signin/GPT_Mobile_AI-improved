@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2547e0e9a6b64d866bb364d14666b9cd21f612ef53d854c0122a71c6b7d86880",
+  "source_digest": "4f98b2d89d8eb9d88d5c18e72e4fc8b7d56a40eee0442dc1919e702a35cd57ed",
   "file_count": 2666,
-  "indexed_line_count": 433030,
+  "indexed_line_count": 433271,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 167,
-      "indexed_line_count": 76190
+      "indexed_line_count": 76431
     },
     {
       "id": "authentication_service",
@@ -17454,8 +17454,8 @@
       "path": "gateway/benchmark_selected_model.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "74985610accaf4f5d173bd7a3729b53efdb97977a369622872f0a3e6ffc2e702",
-      "indexed_lines": 255
+      "sha256": "dc189e397e221debe7c07a51ef44630ff5d343f28110cbca56a467b2d72e5549",
+      "indexed_lines": 337
     },
     {
       "path": "gateway/benchmarks/__init__.py",
@@ -17475,15 +17475,15 @@
       "path": "gateway/benchmarks/coding.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "0bb143e638f80eecbf50383186f90202528b0c90e77ca00f0f5b97142f02a67a",
-      "indexed_lines": 240
+      "sha256": "faf3e99f0a5e4e9634c83a840cd25241fee93805a680ab5fdcf3ea0c78adfa2f",
+      "indexed_lines": 282
     },
     {
       "path": "gateway/benchmarks/contracts.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "8461268b80340b2708010cfd06850ee0b4219cf9b10a96294e4ebfebd4526779",
-      "indexed_lines": 143
+      "sha256": "8eeb45b37f64de9f77163c56b2c7522d54fb889b91e0007d6d9e88e1272ef073",
+      "indexed_lines": 145
     },
     {
       "path": "gateway/benchmarks/engineering_qualification.py",
@@ -17496,15 +17496,15 @@
       "path": "gateway/benchmarks/fixtures.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "6d9e4ace76895e267750c1ec8f6b8ca1ae4f62438a416a275cc758bcb869da3c",
-      "indexed_lines": 394
+      "sha256": "989dd7a0d432b71e2e347e77ce5c7b051de8bd3f4fa51f76968f8dce793d2a46",
+      "indexed_lines": 396
     },
     {
       "path": "gateway/benchmarks/runner.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "f751b0410710ab9e1f153880a92f81552621ab03b979eef6a11d10918805c0f4",
-      "indexed_lines": 407
+      "sha256": "eaf8a65b446c400fd06dab753bc1052225f8a39b246871e6481234c297f4e53e",
+      "indexed_lines": 497
     },
     {
       "path": "gateway/benchmarks/sandbox.py",
@@ -17517,8 +17517,8 @@
       "path": "gateway/benchmarks/service.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "35c6e79ef4012a231d8580118de042758783b1fb8fc0bf6b6e7295885990f15b",
-      "indexed_lines": 318
+      "sha256": "bd1b6ee9bff07ddb51caa248d502a93a0cdb7b56f11966f9bf1b4e3ccf6e570e",
+      "indexed_lines": 321
     },
     {
       "path": "gateway/benchmarks/settings.py",
@@ -17531,8 +17531,8 @@
       "path": "gateway/benchmarks/store.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "c9bf3efc9e0c055aaea887c77af7fb21abd7fbbe53725a9d81e9d4ee9fec8ed2",
-      "indexed_lines": 230
+      "sha256": "9dab4ecdcb6def66e2696ac4dd9dfb65e90c6aa63447ad506f6149c4dc986d8c",
+      "indexed_lines": 245
     },
     {
       "path": "gateway/build_v14_package.py",
@@ -17608,8 +17608,8 @@
       "path": "gateway/desktop/benchmark_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "25d2f68cb2b8398ecbbf5ff4e7d947e1005b3d0b0240f0588c098166a37b8ded",
-      "indexed_lines": 577
+      "sha256": "65a4b01b8f33ff80e7c0011f2759e0439664cbe0526f9b714fe67278f323632d",
+      "indexed_lines": 582
     },
     {
       "path": "gateway/desktop/build_windows.py",

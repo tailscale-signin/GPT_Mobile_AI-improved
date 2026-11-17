@@ -5,10 +5,11 @@ import random
 import re
 import threading
 import time
+import traceback
 
 import requests
 
-from benchmark_selected_model import BenchmarkInterrupted, measure
+from benchmark_selected_model import BenchmarkInterrupted, BenchmarkInvocationError, OUTPUT_LIMIT, measure
 from benchmarks import coding, fixtures, sandbox
 from benchmarks.contracts import coding_score, coverage, digest, paired_summary
 from desktop.benchmark import CASES, client_session, get_json, matches, models
@@ -23,7 +24,9 @@ def benchmark_error_receipt(error, stage):
     """
     known = {'SELECTED_EXECUTION_CHANGED', 'GATEWAY_NOT_READY',
              'SELECTED_MODEL_NOT_ADVERTISED', 'GATEWAY_INSTANCE_CHANGED'}
-    if isinstance(error, requests.Timeout):
+    if isinstance(error, BenchmarkInvocationError):
+        code = error.code
+    elif isinstance(error, requests.Timeout):
         code = 'BENCHMARK_TRANSPORT_TIMEOUT'
     elif isinstance(error, requests.ConnectionError):
         code = 'BENCHMARK_CONNECTION_FAILED'
@@ -40,6 +43,27 @@ def benchmark_error_receipt(error, stage):
     else:
         code = 'BENCHMARK_UNCLASSIFIED_ERROR'
     result = {'error': type(error).__name__, 'errorCode': code, 'failureStage': stage}
+    frames = traceback.extract_tb(error.__traceback__, limit=-8)
+    if frames:
+        # Only a digest of code coordinates, never a path, source line or message.
+        result['failureFingerprint'] = digest([(frame.name, frame.lineno) for frame in frames])
+    if isinstance(error, BenchmarkInvocationError):
+        if error.admission_code is not None:
+            result['admissionCode'] = error.admission_code
+        if error.status is not None:
+            result['httpStatus'] = error.status
+        if error.job_id is not None:
+            result.update(gatewayJobId=error.job_id, requestOutcome='OBSERVATION_FAILED')
+        elif error.pre_dispatch or error.status in {400, 401, 403, 404, 409, 413, 422}:
+            result['requestOutcome'] = 'REJECTED'
+        else:
+            result['requestOutcome'] = 'UNKNOWN'
+        if error.settlement is not None:
+            result['jobSettlement'] = error.settlement
+        if error.pre_dispatch and error.job_id is None:
+            result['dispatchState'] = 'NOT_DISPATCHED'
+        if error.retry_after is not None:
+            result['retryAfterSeconds'] = error.retry_after
     if isinstance(error, requests.RequestException):
         # The server may have accepted the request before the client failed.
         result['requestOutcome'] = 'UNKNOWN'
@@ -57,12 +81,12 @@ def best_verified_attempt_index(attempts):
     unexecuted/unknown observation or roll back a terminal integrity violation.
     """
     last = len(attempts) - 1
-    if last < 1 or attempts[last].get('status') != 'FAILED' or any(
+    if last < 1 or attempts[last].get('status') not in {'FAILED', 'BLOCKED'} or any(
             row.get('integrity') == 'VIOLATION' for row in attempts):
         return last
 
     def rank(case):
-        if (case.get('status') != 'FAILED' or case.get('integrity') != 'VERIFIED'
+        if (case.get('status') not in {'FAILED', 'BLOCKED'} or case.get('integrity') != 'VERIFIED'
                 or case.get('executed') is not True or case.get('graded') is not True):
             return None
         checks = case.get('checks')
@@ -76,13 +100,15 @@ def best_verified_attempt_index(attempts):
             return None
         earned = case.get('earned', 0)
         earned = float(earned) if type(earned) in (int, float) else 0.0
-        return (hidden / total, replay / replay_total, earned)
+        detected = checks.get('independentDefectsCaught', 0)
+        return (hidden / total, replay / replay_total, detected if type(detected) is int else 0, earned)
 
+    if attempts[last].get('status') == 'BLOCKED' and rank(attempts[last]) is None:
+        return last
     candidates = [(rank(row), index) for index, row in enumerate(attempts)]
     candidates = [(quality, index) for quality, index in candidates if quality is not None]
-    # Equal-quality proposals retain the most recent candidate rather than
-    # repeatedly picking an older patch without measurable improvement.
-    return max(candidates, default=(None, last), key=lambda item: (item[0] is not None, item[0] or (), item[1]))[1]
+    # Prefer a physical measurement over a reused evaluation at equal quality.
+    return max(candidates, default=(None, last), key=lambda item: (item[0] is not None, item[0] or (), not attempts[item[1]].get('evaluationReused'), item[1]))[1]
 
 
 class BenchmarkRunner:
@@ -127,14 +153,14 @@ class BenchmarkRunner:
         if self.identity() != run['provenance']['executionIdentity']:
             raise ValueError('SELECTED_EXECUTION_CHANGED')
 
-    def measure_case(self, run, name, turns, expected, *, validate=None, output_tokens=512):
+    def measure_case(self, run, name, turns, expected, *, validate=None, output_tokens=512, output_format=None, on_admitted=None):
         self.guard(run)
         try:
             with client_session() as client:
                 measured = measure(client.post, self.origin, run['request']['model'], turns,
                                    output_tokens=output_tokens, validate_output=validate or (lambda text: matches(text, expected)),
                                    gateway_options={'store_conversation': False, 'budget': {'totalDeadlineMs': 120000}},
-                                   cancel_event=self.cancelled, cancel_request=self.cancel_request)
+                                   cancel_event=self.cancelled, cancel_request=self.cancel_request, output_format=output_format, on_admitted=on_admitted)
         except BenchmarkInterrupted as error:
             with self.receipt_lock:
                 self.cancellation_receipts.append(dict(error.cancellation, case=name))
@@ -298,7 +324,10 @@ class BenchmarkRunner:
             self.cancellation_receipts.append(dict(receipt))
         observed = error.observation or {}
         case = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
-        case.update(status='INTERRUPTED', executed=observed.get('executed') if stage == 'CANDIDATE' else False, graded=False, resolved=False,
+        previous = self.store.get(run['id'])
+        checkpoint = next((item for item in previous.get('activeCases', []) if item.get('id') == task['id']), {})
+        case.update(startedAt=checkpoint.get('startedAt'), endedAt=time.time(), phase=stage,
+                    status='INTERRUPTED', executed=observed.get('executed') if stage == 'CANDIDATE' else False, graded=False, resolved=False,
                     score=None, integrity='VERIFIED', error='SANDBOX_CLEANUP_UNCONFIRMED' if receipt['outcome'] == 'unknown' else 'BENCHMARK_STOPPED',
                     dimensions={key: None for key in coding.CODING_WEIGHTS}, cancellation=receipt,
                     sandboxObservation={key: observed[key] for key in ('status', 'executed', 'error', 'exitCode', 'outputDigest', 'durationMs') if key in observed})
@@ -311,13 +340,18 @@ class BenchmarkRunner:
 
     def code(self, run):
         tasks = fixtures.suite(run['request']['preset'], run['request']['seed'])
-        self.store.update(run['id'], planned=len(tasks), progress='Checking isolated evaluator')
+        self.store.update(run['id'], planned=len(tasks), casePlan=[task['id'] for task in tasks],
+                          progress='Checking isolated evaluator')
         settings = self.settings()
         docker = sandbox.preflight(settings)
         cases = []
         for ordinal, task in enumerate(tasks):
             self.guard(run)
             self.store.update(run['id'], progress=f'{ordinal + 1}/{len(tasks)} · {task["title"]}')
+            started_at = time.time()
+            active = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
+            active.update(status='RUNNING', startedAt=started_at, phase='REFERENCE', executed=False, graded=False)
+            self.store.case(run['id'], ordinal, active)
             # Pin a fresh, trusted reference evaluation before trusting this
             # task's environment; its expected answers remain outside Docker.
             try:
@@ -331,26 +365,75 @@ class BenchmarkRunner:
             turns = [{'role': 'user', 'content': fixtures.prompt(task)}]
             attempts = []
             evaluated_attempts = []
+            verified_candidates = {}
             final = None
+            allowance, output_format = 4096, {'type': 'json_object'}
             for attempt in range(settings['repair_attempts'] + 1):
                 answer = []
+                admission_rejections = []
+                retried_transient = False
                 timing = None
                 phase = 'MODEL_INVOCATION'
                 def capture(text):
                     answer.append(text)
                     return True
+                def record_invocation(**fields):
+                    self.store.case(run['id'], ordinal, dict(active, phase='MODEL_INVOCATION', attempt=attempt + 1,
+                                                            attempts=attempts, admissionRejections=admission_rejections, **fields))
                 try:
-                    timing = self.measure_case(run, task['id'], turns, None, validate=capture, output_tokens=4096)
+                    record_invocation()
+                    # Reduce the requested cap only after typed context rejection.
+                    # An admitted Gateway job must first be confirmed settled.
+                    while True:
+                        try:
+                            timing = self.measure_case(run, task['id'], turns, None, validate=capture,
+                                                       output_tokens=allowance, output_format=output_format,
+                                                       on_admitted=lambda job_id: record_invocation(gatewayJobId=job_id))
+                            break
+                        except BenchmarkInvocationError as error:
+                            rejected_before_admission = error.job_id is None and error.status in {400, 409, 413, 422}
+                            settled_context_guard = (error.code == 'BENCHMARK_STREAM_REJECTED' and error.job_id is not None
+                                                     and error.settlement in {'confirmed', 'terminal'}
+                                                     and error.admission_code == 'context_budget_exceeded')
+                            if error.job_id is not None and not settled_context_guard:
+                                raise
+                            next_allowance, next_format, delay = allowance, output_format, 0
+                            context_rejected = error.admission_code in {
+                                'EXECUTION_CONTEXT_EXHAUSTED', 'EXECUTION_OUTPUT_LIMIT', 'CONTEXT_LIMIT_EXCEEDED',
+                                'context_length_exceeded', 'context_budget_exceeded',
+                            }
+                            if allowance > 1024 and (settled_context_guard or rejected_before_admission and context_rejected):
+                                next_allowance = allowance // 2
+                            elif error.status in {400, 422} and error.admission_code == 'unsupported_response_format' and output_format:
+                                next_format = None
+                            elif (error.pre_dispatch and error.status in {429, 503} and not retried_transient and
+                                  (error.retry_after is None or error.retry_after <= 10)):
+                                retried_transient = True
+                                delay = max(1, error.retry_after or 0)
+                            else:
+                                raise
+                            admission_rejections.append(dict(benchmark_error_receipt(error, phase), outputAllowance=allowance))
+                            record_invocation()
+                            allowance, output_format = next_allowance, next_format
+                            if delay and self.cancelled.wait(delay):
+                                raise InterruptedError('Benchmark stopped during retry wait')
                     # A terminated-at-max-tokens response is not an anchor error.
                     # Never pass a truncated JSON proposal into the evaluator.
                     finish = timing.get('finishReason')
                     if finish != 'stop':
                         code = 'PATCH_OUTPUT_TRUNCATED' if finish == 'length' else 'PATCH_GENERATION_INCOMPLETE'
                         final = coding.rejected_submission(task, code)
+                    elif not answer:
+                        code = 'PATCH_OUTPUT_TOO_LARGE' if timing.get('outputBytes', 0) > OUTPUT_LIMIT else 'PATCH_JSON_INVALID'
+                        final = coding.rejected_submission(task, code)
                     else:
                         phase = 'CANDIDATE_EVALUATION'
-                        final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker,
+                        self.store.case(run['id'], ordinal, dict(active, phase=phase, attempt=attempt + 1,
+                                                                attempts=attempts, gatewayJobId=timing.get('gatewayJobId')))
+                        final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker, prior=verified_candidates,
                                              execute=lambda *args, **kwargs: self.execute_sandbox(run, *args, **kwargs))
+                    final = dict(final, outputAllowance=allowance, admissionRejections=admission_rejections,
+                                 outputFormat='JSON_OBJECT' if output_format else 'PROMPT_JSON')
                     final['timing'] = {key: timing.get(key) for key in ('firstMs', 'totalMs', 'inputTokens', 'outputTokens', 'finishReason')}
                     # Case-level evidence is sufficient for later issue triage
                     # without storing unapproved model-generated patch content.
@@ -369,17 +452,22 @@ class BenchmarkRunner:
                     final = {'id': task['id'], 'family': task['family'], 'title': task['title'], 'capstone': task['capstone'],
                              'status': 'ERROR', 'executed': None, 'graded': False, 'resolved': False,
                              'integrity': 'VERIFIED', **benchmark_error_receipt(error, phase),
+                             'admissionRejections': admission_rejections,
                              'dimensions': {key: None for key in coding.CODING_WEIGHTS}}
                 evaluated_attempts.append(final)
                 attempts.append({key: value for key, value in final.items() if key not in {'dimensionDefinitions'}})
-                self.store.case(run['id'], ordinal, dict(final, status='RUNNING', graded=False, attempts=list(attempts), repairBudget=settings['repair_attempts']))
-                # A missing evaluator proof cannot be repaired by another model
-                # proposal. Observed candidate failures remain repairable.
-                if final.get('resolved') or final.get('integrity') == 'VIOLATION' or final['status'] in {'ERROR', 'BLOCKED'}:
+                self.store.case(run['id'], ordinal, dict(final, status='RUNNING', startedAt=started_at, phase='ATTEMPT_RECORDED', graded=False,
+                                                             attempts=list(attempts), repairBudget=settings['repair_attempts']))
+                # A model repair can improve regression vectors, but cannot
+                # manufacture missing grader authority over input preservation.
+                evaluator_only = final['status'] == 'BLOCKED' and not final.get('uncoveredDefectModules')
+                if final.get('resolved') or final.get('integrity') == 'VIOLATION' or final['status'] == 'ERROR' or evaluator_only:
                     break
                 # Do not reintroduce a full, possibly truncated assistant answer:
                 # that wastes scarce local context and can repeat malformed data.
-                feedback = {key: final[key] for key in ('error', 'failureStage', 'repairHint', 'checks') if final.get(key) is not None}
+                feedback = {key: final[key] for key in ('error', 'failureStage', 'repairHint', 'parserLocation', 'checks', 'uncoveredDefectModules') if final.get(key) is not None}
+                if final.get('evaluationReused'):
+                    feedback['next'] = 'The previous proposal was already evaluated. Change the repair or supply a different regression vector.'
                 turns = [{'role': 'user', 'content': fixtures.prompt(task) +
                           '\nPrevious submission failed independent validation: ' +
                           json.dumps(feedback, sort_keys=True, ensure_ascii=True) +
@@ -390,6 +478,8 @@ class BenchmarkRunner:
             final['selectedAttempt'] = selected_index + 1
             final['attemptSelection'] = 'BEST_VERIFIED_MEASURED' if selected_index != len(attempts) - 1 else 'LATEST'
             final['attempts'] = attempts
+            final['startedAt'] = started_at
+            final['endedAt'] = time.time()
             final['firstSubmissionScore'] = attempts[0].get('score')
             final['firstSubmissionResolved'] = attempts[0].get('resolved', False)
             final['repairBudget'] = settings['repair_attempts']

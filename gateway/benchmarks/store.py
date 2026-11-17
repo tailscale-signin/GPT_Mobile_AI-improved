@@ -71,8 +71,20 @@ class BenchmarkStore:
                 return None
             run = json.loads(row[0])
             if cases:
-                run['cases'] = [json.loads(x[0]) for x in db.execute('SELECT payload FROM benchmark_cases WHERE run_id=? ORDER BY ordinal', (ident,)).fetchall()]
+                run['cases'] = self.read_cases(db, ident)
+                if 'casePlan' in run:
+                    observed = {case['id'] for case in run['cases']}
+                    run['pendingCaseIds'] = [case for case in run['casePlan'] if case not in observed]
+                    run['activeCases'] = [case for case in run['cases'] if case.get('status') == 'RUNNING']
+                    run['completed'] = len(run['cases']) - len(run['activeCases'])
+                    if run['state'] not in TERMINAL:
+                        run['summary'] = dict(run.get('summary') or {}, coverage=coverage(run['cases'], run['planned']))
             return run
+
+    @staticmethod
+    def read_cases(db, ident):
+        return [json.loads(row[0]) for row in db.execute(
+            'SELECT payload FROM benchmark_cases WHERE run_id=? ORDER BY ordinal', (ident,)).fetchall()]
 
     def owner(self, ident):
         with self.db() as db:
@@ -103,7 +115,7 @@ class BenchmarkStore:
             return {'runs': [json.loads(x[1]) for x in rows[:limit]], 'next': rows[limit - 1][0] if len(rows) > limit else None}
 
     def update(self, ident, **fields):
-        if set(fields) - {'state', 'progress', 'planned', 'completed', 'startedAt', 'endedAt', 'summary', 'cancellationRequested', 'failure'}:
+        if set(fields) - {'state', 'progress', 'planned', 'completed', 'startedAt', 'endedAt', 'summary', 'cancellationRequested', 'failure', 'casePlan'}:
             raise ValueError('Unsupported benchmark checkpoint')
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -124,25 +136,36 @@ class BenchmarkStore:
                 for ordinal, payload in db.execute('SELECT ordinal,payload FROM benchmark_cases WHERE run_id=?', (ident,)).fetchall():
                     case = json.loads(payload)
                     if case.get('status') == 'RUNNING':
-                        case.update(status=outcome, graded=False, resolved=False, score=None)
+                        case.update(status=outcome, graded=False, resolved=False, score=None, endedAt=run['endedAt'])
+                        if (run.get('failure') or {}).get('code') == 'PROCESS_INTERRUPTED':
+                            case['error'] = 'PROCESS_INTERRUPTED'
                         db.execute('UPDATE benchmark_cases SET payload=? WHERE run_id=? AND ordinal=?',
                                    (json.dumps(case, allow_nan=False), ident, ordinal))
                 # The last case may have been recorded after the last partial
                 # summary. Project terminal coverage from the canonical case
                 # journal, including the interrupted in-flight attempt, instead
                 # of publishing stale counts for an immutable result.
-                retained = [json.loads(payload) for (payload,) in db.execute(
-                    'SELECT payload FROM benchmark_cases WHERE run_id=? ORDER BY ordinal', (ident,)).fetchall()]
+                retained = self.read_cases(db, ident)
                 summary = dict(run.get('summary') or {})
                 summary.update(score=None, qualified=False, speedup=None, firstSubmissionScore=None,
                                passAtOne=None, finalResolvedRate=None, invalidatedBy=run['state'],
                                coverage=coverage(retained, run['planned']))
                 run['summary'] = summary
+            if run['state'] in TERMINAL:
+                cases = self.read_cases(db, ident)
+                run['completionReceipt'] = {'schema': 'gateway.benchmark.completion.v1',
+                                            'state': run['state'], 'casesDigest': digest(cases),
+                                            'summaryDigest': digest(run.get('summary')),
+                                            'digest': digest([ident, run['request'], run['provenance'],
+                                                              run['state'], run['endedAt'], run.get('failure'),
+                                                              run.get('casePlan'), cases, run.get('summary')])}
             db.execute('UPDATE benchmark_runs SET state=?,updated=?,payload=? WHERE id=?',
                        (run['state'], run['updatedAt'], json.dumps(run, allow_nan=False), ident))
             return run
 
     def case(self, ident, ordinal, result):
+        if result.get('status') == 'RUNNING':
+            result = dict(result, checkpointAt=self.now())
         raw = json.dumps(result, allow_nan=False)
         if len(raw.encode()) > 128 * 1024 or type(ordinal) is not int or not 0 <= ordinal < 1000:
             raise ValueError('Benchmark case exceeds its evidence bound')
@@ -197,17 +220,9 @@ class BenchmarkStore:
             rows = db.execute("SELECT id,payload FROM benchmark_runs WHERE state IN ('QUEUED','RUNNING','CANCELLING')").fetchall()
         for ident, raw in rows:
             run = json.loads(raw)
-            with self.db() as db:
-                for ordinal, payload in db.execute('SELECT ordinal,payload FROM benchmark_cases WHERE run_id=?', (ident,)).fetchall():
-                    case = json.loads(payload)
-                    if case.get('status') == 'RUNNING':
-                        case.update(status='INTERRUPTED', graded=False, resolved=False, score=None,
-                                    error='PROCESS_INTERRUPTED')
-                        db.execute('UPDATE benchmark_cases SET payload=? WHERE run_id=? AND ordinal=?',
-                                   (json.dumps(case, allow_nan=False), ident, ordinal))
             self.update(ident, state='INTERRUPTED', endedAt=self.now(),
                         progress='Gateway restarted. Retained evidence is available; start a new run to repeat.',
-                        failure={'code': 'PROCESS_INTERRUPTED', 'dispatched': run['state'] != 'QUEUED'})
+                        failure={'code': 'PROCESS_INTERRUPTED', 'dispatched': False if run['state'] == 'QUEUED' else None})
 
     def remove(self, ident, principal):
         with self.db() as db:

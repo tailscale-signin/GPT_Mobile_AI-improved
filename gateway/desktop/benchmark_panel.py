@@ -382,7 +382,12 @@ class BenchmarkPanel(tk.Frame):
             detail = f'{16 if run["request"]["preset"] == "deep" else 12} distinct fixture problems · {run.get("planned", 0)} trials · {summary.get("resolved", 0)} resolved. '
             detail += 'The 1000-point result covers declared isolated fixture criteria. Live GitHub, GPU and general intelligence are not measured.'
             if score is None:
-                detail += ' Overall score needs complete valid evidence.'
+                detail += ' Overall score unavailable pending complete verification.'
+                provisional = summary.get('provisionalEarned', summary.get('earned'))
+                if type(provisional) in (int, float):
+                    detail += f' Provisional evidence: {provisional:.2f} weighted points.'
+                if summary.get('dimensions', {}).get('safety', {}).get('unknownWeight', 0) > 0:
+                    detail += ' Independent input preservation has not been measured.'
         elif suite == 'batch_comparison':
             values = summary.get('makespanMs', {})
             self.chart.set([(name.title(), values.get(name, {}).get('median'), theme.CYAN if name == 'sequential' else theme.PURPLE) for name in ('sequential', 'concurrent')], ' ms')
@@ -398,7 +403,7 @@ class BenchmarkPanel(tk.Frame):
         for index, case in enumerate(cases):
             timing = case.get('timing', case)
             self.case_table.insert('', 'end', iid=str(index), values=(case.get('title', case.get('name', case['id'])), case.get('status'), pretty(case.get('score'), '', 0), pretty(timing.get('firstMs'), ' ms', 0), pretty(timing.get('totalMs', case.get('validationMs')), ' ms', 0)))
-        self.write_evidence({'request': run['request'], 'provenance': run.get('provenance'), 'summary': summary, 'failure': run.get('failure'), 'detail': 'Select a Breakdown row for case-level receipts.'})
+        self.write_evidence({'request': run['request'], 'provenance': run.get('provenance'), 'summary': summary, 'failure': run.get('failure'), 'completionReceipt': run.get('completionReceipt'), 'pendingCaseIds': run.get('pendingCaseIds'), 'detail': 'Select a Breakdown row for case-level receipts.'})
         self.update_controls()
 
     def write_evidence(self, value):

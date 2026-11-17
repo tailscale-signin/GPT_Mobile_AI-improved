@@ -2,6 +2,7 @@
 import ast
 from copy import deepcopy
 import json
+import math
 
 from benchmarks import fixtures, sandbox
 from benchmarks.contracts import CODING_WEIGHTS, digest
@@ -70,19 +71,39 @@ def rejected_submission(task, code):
         'id': task['id'], 'family': task['family'], 'title': task['title'],
         'capstone': task['capstone'], 'fixtureDigest': task['manifestDigest'],
         'status': 'FAILED', 'executed': False, 'graded': True, 'resolved': False,
-        'qualified': True,
+        'qualified': False,
         'integrity': 'VIOLATION' if safe in {'PATCH_SCOPE_VIOLATION', 'PATCH_PATH_INVALID'} else 'VERIFIED',
         'error': safe,
         'failureStage': 'MODEL_OUTPUT' if safe in {'PATCH_OUTPUT_TRUNCATED', 'PATCH_GENERATION_INCOMPLETE'} else 'PATCH_VALIDATION',
         'repairHint': PATCH_REPAIR_HINTS[safe], 'score': 0,
-        'dimensions': {key: 0.0 for key in CODING_WEIGHTS},
+        'dimensions': {key: None if key == 'safety' else 0.0 for key in CODING_WEIGHTS},
     }
+
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('PATCH_CONTRACT_INVALID')
+        result[key] = value
+    return result
+
+
+def reject_json_constant(_value):
+    raise ValueError('PATCH_CONTRACT_INVALID')
+
+
+def finite_json_float(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError('PATCH_CONTRACT_INVALID')
+    return number
 
 
 def proposal(text, task):
     if len(text.encode()) > 65536:
         raise ValueError('PATCH_OUTPUT_TOO_LARGE')
-    value = json.loads(text)
+    value = json.loads(text, object_pairs_hook=unique_object, parse_constant=reject_json_constant, parse_float=finite_json_float)
     if not isinstance(value, dict) or set(value) - {'changes', 'diagnosis', 'tests', 'evidence'}:
         raise ValueError('PATCH_CONTRACT_INVALID')
     sources = task['sources']
@@ -128,7 +149,7 @@ def source_design(candidate):
     return sum(checks) / len(checks)
 
 
-def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None):
+def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None, prior=None):
     result = {'id': task['id'], 'family': task['family'], 'title': task['title'],
               'capstone': task['capstone'], 'fixtureDigest': task['manifestDigest'],
               'status': 'FAILED', 'executed': False, 'graded': False, 'resolved': False,
@@ -138,7 +159,13 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
         value, candidate, changes = proposal(text, task)
     except (ValueError, KeyError, TypeError, RecursionError, OverflowError) as error:
         # Keep distinct reasons separate; never retain the raw source exception.
-        return rejected_submission(task, classify_patch_rejection(error))
+        rejected = rejected_submission(task, classify_patch_rejection(error))
+        if isinstance(error, json.JSONDecodeError):
+            rejected['parserLocation'] = {'line': error.lineno, 'column': error.colno}
+        return rejected
+    evaluation_key = digest([candidate, value.get('tests', []), value.get('diagnosis'), value.get('evidence')]) if prior is not None else None
+    if prior is not None and evaluation_key in prior:
+        return dict(prior[evaluation_key], evaluationReused=True)
     # Randomized data was frozen before dispatch. The model does not receive
     # these inputs until its candidate runs; expected values never enter Docker.
     vectors = task['vectors']
@@ -164,8 +191,20 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
                 trusted_tests.append((test, expected, killed))
         except (ValueError, TypeError, KeyError, RecursionError, OverflowError):
             continue
-    inputs = vectors + list(reversed(vectors)) + [test['input'] for test, _, _ in trusted_tests]
+    # Each call gets an independent fixture value and the host retains the original
+    # JSON digest. This verifies the transport boundary, not mutation inside Python.
+    inputs = [deepcopy(vector) for vector in (
+        *vectors, *reversed(vectors), *(test['input'] for test, _, _ in trusted_tests))]
+    input_digest = digest(inputs)
     observation = execute(candidate, inputs, settings, cancel, docker=docker)
+    try:
+        host_preserved = digest(inputs) == input_digest
+    except (ValueError, TypeError, RecursionError):
+        host_preserved = False
+    if not host_preserved:
+        result.update(status='ERROR', integrity='VIOLATION', error='HOST_FIXTURE_INPUT_CHANGED',
+                      executed=observation.get('executed'), hostInputBoundary='CHANGED')
+        return result
     if observation.get('executed') is not True or observation.get('status') == 'ERROR':
         result.update(status='ERROR', error=observation.get('error', 'SANDBOX_EXECUTION_NOT_CONFIRMED'),
                       executed=observation.get('executed'), outputDigest=observation.get('outputDigest'))
@@ -216,11 +255,12 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
                           'validRegressionVectors': len(trusted_tests), 'bugRevealingRegressionVectors': sum(tested),
                           'independentDefectsCaught': len(killed_faults), 'independentDefectsTotal': len(task['sources']),
                           'unchangedSourceFiles': len(task['sources']) - len(changes)},
+                  uncoveredDefectModules=sorted(set(task['sources']) - killed_faults),
                   patchDigest=digest(candidate), outputDigest=observation.get('outputDigest'),
                   validationMs=observation.get('durationMs'), sandboxImageDigest=settings['sandbox_image'].split('@')[-1],
                   executionScope='LOCAL_CONTAINER_NO_NETWORK',
                   patchScopeVerification='PASSED',
-                  inputMutationVerification='NOT_VERIFIED',
+                  hostInputBoundary='PRESERVED', inputMutationVerification='NOT_VERIFIED',
                   qualificationBlockers=['INPUT_PRESERVATION_NOT_VERIFIED'],
                   dimensionDefinitions={
                       'functional': 'Hidden contract vectors', 'regression': 'Empty/invalid request boundaries',
@@ -237,4 +277,6 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
     result['earned'] = sum(CODING_WEIGHTS[key] * score for key, score in result['dimensions'].items() if score is not None)
     result['possible'] = sum(CODING_WEIGHTS.values())
     result['unknownWeight'] = sum(CODING_WEIGHTS[key] for key, score in result['dimensions'].items() if score is None)
+    if prior is not None and received and observation.get('status') == 'COMPLETED':
+        prior[evaluation_key] = dict(result)
     return result

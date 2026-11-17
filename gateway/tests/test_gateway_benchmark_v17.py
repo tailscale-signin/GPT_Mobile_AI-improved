@@ -17,9 +17,9 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmark_selected_model import BenchmarkInterrupted, measure
+from benchmark_selected_model import BenchmarkInterrupted, BenchmarkInvocationError, measure
 from benchmarks import coding, fixtures, sandbox
-from benchmarks.contracts import CODING_WEIGHTS, coding_score, coverage, paired_summary, validate_request
+from benchmarks.contracts import CODING_WEIGHTS, coding_score, coverage, digest, paired_summary, validate_request
 from benchmarks.runner import BenchmarkRunner, benchmark_error_receipt, best_verified_attempt_index
 from benchmarks.service import BenchmarkService, install_benchmark_routes
 from benchmarks.store import BenchmarkConflict, BenchmarkStore
@@ -205,6 +205,14 @@ class BenchmarkScoreTest(unittest.TestCase):
         del cases[1]['firstSubmissionResolved']
         self.assertIsNone(coding_score(cases, 12, 'quick')['passAtOne'])
 
+    def test_all_rejected_submissions_do_not_qualify_a_formal_score(self):
+        cases = [coding.rejected_submission(task, 'PATCH_JSON_INVALID') for task in fixtures.suite()]
+        summary = coding_score(cases, len(cases), 'quick')
+        self.assertFalse(summary['qualified'])
+        self.assertIsNone(summary['score'])
+        self.assertEqual(0, summary['coverage']['executed'])
+        self.assertEqual(CODING_WEIGHTS['safety'], summary['dimensions']['safety']['unknownWeight'])
+
     def test_duplicate_identity_or_integrity_violation_cannot_qualify(self):
         cases = full_cases('quick')
         cases[-1] = cases[0]
@@ -275,6 +283,17 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
                 self.assertIsNone(result['dimensions']['safety'])
                 self.assertEqual(950, result['earned'])
                 self.assertEqual(50, result['unknownWeight'])
+
+    def test_host_input_mutation_invalidates_observations_without_changing_original_fixtures(self):
+        task = fixtures.suite()[0]
+        original = deepcopy(task['vectors'])
+        def execute(_candidate, inputs, *_args, **_kwargs):
+            inputs[0]['items'].clear()
+            return {'executed': True, 'status': 'COMPLETED', 'outputs': []}
+        result = coding.grade(task, gold_proposal(task), {}, threading.Event(), execute=execute)
+        self.assertEqual('HOST_FIXTURE_INPUT_CHANGED', result['error'])
+        self.assertEqual('VIOLATION', result['integrity'])
+        self.assertEqual(original, task['vectors'])
 
     def test_container_launch_failure_is_ungraded_and_invalid_answer_is_observed_zero(self):
         task = fixtures.suite()[0]
@@ -421,6 +440,50 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
                 self.assertIsNone(result['score'])
                 self.assertEqual(950, result['earned'])
                 self.assertEqual(50, result['unknownWeight'])
+
+    def test_typed_output_rejection_retries_same_case_and_exports_active_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = BenchmarkStore(Path(directory) / 'benchmarks.sqlite3')
+            run, _ = store.create('owner', request(), {'executionIdentity': 'route'})
+            store.update(run['id'], state='RUNNING')
+            runner = BenchmarkRunner(store, 'http://localhost', threading.Event(), lambda: 'route',
+                                     lambda: {'repair_attempts': 1, 'sandbox_image': 'python@sha256:' + 'a' * 64})
+            task = fixtures.suite()[0]
+            allowances, executions = [], []
+            def measured(*_args, **kwargs):
+                allowance = kwargs['output_tokens']
+                allowances.append(allowance)
+                if allowance == 4096:
+                    raise BenchmarkInvocationError('BENCHMARK_HTTP_REJECTED', status=400,
+                                                   admission_code='EXECUTION_OUTPUT_LIMIT')
+                kwargs['on_admitted']('admitted-job')
+                snapshot = store.get(run['id'])
+                self.assertEqual(task['id'], snapshot['activeCases'][0]['id'])
+                self.assertEqual('admitted-job', snapshot['activeCases'][0]['gatewayJobId'])
+                self.assertEqual(0, snapshot['completed'])
+                self.assertEqual(1, snapshot['summary']['coverage']['outcomes']['RUNNING'])
+                kwargs['validate'](gold_proposal(task))
+                return {'finishReason': 'stop', 'gatewayJobId': 'admitted-job'}
+            def evaluate(sources, inputs, *_args, **_kwargs):
+                executions.append(len(inputs))
+                outputs = [{'output': fixtures.expected(task, vector)} for vector in inputs]
+                if len(executions) > 1:
+                    outputs[0] = {'output': {'wrong': True}}
+                return {'status': 'COMPLETED', 'executed': True, 'outputs': outputs}
+            with patch.object(fixtures, 'suite', return_value=[task]), patch.object(sandbox, 'preflight', return_value='docker'), \
+                    patch.object(sandbox, 'execute', side_effect=evaluate), patch.object(runner, 'measure_case', side_effect=measured):
+                summary = runner.code(run)
+            store.update(run['id'], state='COMPLETED', summary=summary, endedAt=100)
+            saved = store.get(run['id'])
+            case = saved['cases'][0]
+            self.assertEqual([4096, 2048, 2048], allowances)
+            self.assertEqual(2, len(executions))
+            self.assertTrue(case['attempts'][1]['evaluationReused'])
+            self.assertEqual(1, case['selectedAttempt'])
+            self.assertEqual(400, case['attempts'][0]['admissionRejections'][0]['httpStatus'])
+            self.assertEqual([], saved['pendingCaseIds'])
+            self.assertEqual(digest(saved['cases']), saved['completionReceipt']['casesDigest'])
+            self.assertEqual(digest(saved['summary']), saved['completionReceipt']['summaryDigest'])
 
     def test_reference_output_count_must_match_before_dispatching_model(self):
         store = Mock()

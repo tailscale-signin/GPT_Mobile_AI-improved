@@ -35,8 +35,15 @@ class CodingPatchRecoveryTests(unittest.TestCase):
         report = self.grade_invalid('{"changes": [')
         self.assertEqual('PATCH_JSON_INVALID', report['error'])
         self.assertEqual('PATCH_VALIDATION', report['failureStage'])
+        self.assertEqual({'line': 1, 'column': 14}, report['parserLocation'])
         self.assertTrue(report['graded'])
         self.assertFalse(report['executed'])
+
+    def test_duplicate_fields_and_infinite_floats_reject_atomic_proposal(self):
+        payload = json.dumps(self.proposal())
+        for text in (payload[:-1] + ', "changes":[]}', payload[:-1] + ', "diagnosis":1e999}'):
+            with self.subTest(text=text):
+                self.assertEqual('PATCH_CONTRACT_INVALID', self.grade_invalid(text)['error'])
 
     def test_wrong_blob_hash_is_distinct_from_anchor_conflict(self):
         bad_blob = self.proposal(expected_sha='0' * 40)

@@ -390,5 +390,7 @@ def prompt(task_value):
             '"evidence":{"tests_executed":false,"changed_files":["core.py"]}}. '
             'Use short unique anchors and compact replacements; do not repeat whole files. '
             'Only edit displayed files. Supply one to three concise regression input/expected vectors. '
+            'Use regression cases that fail on each original faulty module and pass after repair. '
+            'For top-level boundaries, use exact JSON types and compare the complete service result. '
             'For capstones use the integrated service contract. You have not executed tests; do not claim execution. '
             'The evaluator is separate and expected hidden answers are not available. Preserve function interfaces.')

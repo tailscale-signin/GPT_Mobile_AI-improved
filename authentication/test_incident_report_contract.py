@@ -24,6 +24,24 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_voice_pronunciation_reason_is_closed_and_contains_no_spoken_word(self):
+        values = {
+            "incident_phase": "voice_playback",
+            "causal_provenance": "UNAVAILABLE",
+            "causal_failure_code": "VOICE_PLAYBACK_FAILED",
+            "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+            "voice_pronunciation_failure_kind": "UNKNOWN_WORD",
+            "voice_pronunciation_unknown_words": 1,
+            "voice_pronunciation_audio_queued": True,
+        }
+        valid = self.capture("VOICE", values)
+        self.assertEqual(valid, validate_diagnostics(copy.deepcopy(valid)))
+        for kind in ("private_spoken_word", "UNKNOWN", "", 4, None):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                forged = copy.deepcopy(valid)
+                forged["values"]["voice_pronunciation_failure_kind"] = kind
+                validate_diagnostics(forged)
+
     def test_tool_protocol_frame_kind_is_closed_and_private_input_never_published(self):
         observed = self.capture("PROVIDER", {
             "provider_failure_code": "TOOL_PROTOCOL_INVALID_FRAME",

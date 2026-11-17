@@ -110,7 +110,9 @@ internal object ToolReportDiagnostics {
         // Retain the closed reason, never the path or the result preview.
         val pathReceipt = result.executionReceipt
         val missingPathPrecheck = event.modelToolName.substringBefore("__") == "github_read" &&
-            result.isError && !result.dispatched && result.errorCode == "GITHUB_PATH_NOT_FOUND" &&
+            result.isError &&
+            !result.dispatched &&
+            result.errorCode == "GITHUB_PATH_NOT_FOUND" &&
             pathReceipt?.get("schema") == JsonPrimitive("github.dispatch.v1") &&
             pathReceipt["call_id"] == JsonPrimitive(result.callId) &&
             pathReceipt["error_code"] == JsonPrimitive(result.errorCode) &&

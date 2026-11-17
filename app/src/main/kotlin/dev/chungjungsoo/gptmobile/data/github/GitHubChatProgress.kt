@@ -39,7 +39,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var pendingSummary: ApiState.ActivitySummary? = null
     private var pendingSummaryRevision = -1L
     private var lastSummaryKey = ""
-    private var lastEvidenceKey = ""
+    private val reportedFactKeys = linkedSetOf<String>()
     private var lastSummaryRevision = -1L
     private var modelSummaryRetained = false
     private val terminalCalls = mutableSetOf<Pair<String, String>>()
@@ -77,10 +77,14 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision }
         pendingSummary = null
         val source = summarySnapshot()
-        val evidenceKey = GitHubRichSummaryPresentation.evidenceKey(source)
-        // Revision numbers, identical replayed observations and a changing "Next"
-        // label cannot manufacture a second narrative finding.
-        if (!initial && generated == null && (evidenceKey.isBlank() || evidenceKey == lastEvidenceKey)) {
+        val factKeys = GitHubRichSummaryPresentation.factKeys(source)
+        // A rotated bounded history, event replay, timer or changed "Next" label
+        // cannot manufacture a new insight without a previously unreported fact.
+        if (!initial && (
+                factKeys.isNotEmpty() && factKeys.all(reportedFactKeys::contains) ||
+                    generated == null && factKeys.isEmpty()
+            )
+        ) {
             lastSummaryRevision = revision
             return null
         }
@@ -92,12 +96,17 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         lastSummaryRevision = revision
         val key = GitHubProgressPresentation.lineKey(candidate.text)
         if (key.isBlank() || key == lastSummaryKey) return null
+        val introduction = initial
         summary = candidate.text
         lastSummaryKey = key
-        lastEvidenceKey = evidenceKey
         lastSummaryAt = at
         modelSummaryRetained = candidate.modelAuthored
         initial = false
+        // Introduction is only a promise, not a completed observation.
+        if (!introduction) {
+            factKeys.forEach(reportedFactKeys::add)
+            while (reportedFactKeys.size > 256) reportedFactKeys.remove(reportedFactKeys.first())
+        }
         return candidate
     }
 

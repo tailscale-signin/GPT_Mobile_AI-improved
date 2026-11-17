@@ -270,9 +270,11 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 // A run records one logical result per case. Repeated physical attempts
                 // have their own retained attempt receipts; duplicate case rows must not
                 // inflate coverage, exports or overwrite one canonical attempt in storage.
-                var effectiveRun = run?.copy(samples = run.samples.distinctBy { it.testId }.map { sample ->
-                    sample.copy(attemptId = sample.attemptId ?: "${run.id}:${sample.testId}:0")
-                })
+                var effectiveRun = run?.copy(
+                    samples = run.samples.distinctBy { it.testId }.map { sample ->
+                        sample.copy(attemptId = sample.attemptId ?: "${run.id}:${sample.testId}:0")
+                    }
+                )
                 val existing = dao.attempts(batch.id).map { json.decodeFromString<BenchmarkAttempt>(it.payload) }.associateBy { it.id }.toMutableMap()
                 val changed = attempts.map { it.id }.toMutableSet()
                 attempts.forEach { existing[it.id] = it }

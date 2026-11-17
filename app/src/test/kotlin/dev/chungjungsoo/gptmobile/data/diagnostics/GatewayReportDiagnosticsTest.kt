@@ -220,8 +220,8 @@ class GatewayReportDiagnosticsTest {
                     policyState = "VALIDATED",
                     recoveryActions = listOf("DEFINE_ACCEPTANCE_REQUIREMENTS", "PROVISION_VALIDATION_RUNTIME"),
                     discoveryState = "REVIEW_REQUIRED",
-                    candidateCount = 3,
-                ),
+                    candidateCount = 3
+                )
             )
         assertEquals(JsonPrimitive(2), snapshot.values["gateway_preflight_blocker_count"])
         assertEquals(JsonPrimitive(3), snapshot.values["gateway_preflight_candidate_count"])
@@ -230,19 +230,19 @@ class GatewayReportDiagnosticsTest {
             kotlinx.serialization.json.JsonArray(
                 listOf(
                     JsonPrimitive("ACCEPTANCE_CONTRACT_REQUIRED"),
-                    JsonPrimitive("VALIDATION_RUNTIME_UNAVAILABLE"),
-                ),
+                    JsonPrimitive("VALIDATION_RUNTIME_UNAVAILABLE")
+                )
             ),
-            snapshot.values["gateway_preflight_blocker_codes"],
+            snapshot.values["gateway_preflight_blocker_codes"]
         )
         assertEquals(
             kotlinx.serialization.json.JsonArray(
                 listOf(
                     JsonPrimitive("DEFINE_ACCEPTANCE_REQUIREMENTS"),
-                    JsonPrimitive("PROVISION_VALIDATION_RUNTIME"),
-                ),
+                    JsonPrimitive("PROVISION_VALIDATION_RUNTIME")
+                )
             ),
-            snapshot.values["gateway_preflight_recovery_actions"],
+            snapshot.values["gateway_preflight_recovery_actions"]
         )
         assertTrue(snapshot.isValid())
         assertFalse(snapshot.toString().contains("private-"))
@@ -257,8 +257,8 @@ class GatewayReportDiagnosticsTest {
                     capturedAtMillis = 1_000_000,
                     recoveryActions = listOf("RUN_UNTRUSTED_CODE"),
                     discoveryState = "private",
-                    candidateCount = 1000,
-                ),
+                    candidateCount = 1000
+                )
             )
         assertNull(hostile.values["gateway_preflight_blocker_codes"])
         assertNull(hostile.values["gateway_preflight_recovery_actions"])

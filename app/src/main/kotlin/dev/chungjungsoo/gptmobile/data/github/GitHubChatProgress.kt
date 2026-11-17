@@ -30,6 +30,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var lastPreviewAt = now()
     private var lastSummaryAt = lastPreviewAt
     private var initial = true
+    private var findingsPublished = false
     private var summary = GitHubProgressPresentation.introduction(task)
     private var lastPreviewKey = ""
     private val livePreviews = mutableMapOf<String, String>()
@@ -75,7 +76,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     }
 
     private fun admitSummary(at: Long, allowFallback: Boolean): ApiState.ActivitySummary? {
-        if (!initial && at - lastSummaryAt < SUMMARY_INTERVAL_MS) return null
+        if (!initial && at - lastSummaryAt < summaryInterval(findingsPublished)) return null
         val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision }
         pendingSummary = null
         // A timer or generic application summary cannot displace selected-profile findings.
@@ -106,6 +107,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         selectedAuthoredSummary = candidate.modelAuthored
         // Introduction is only a promise, not a completed observation.
         if (!introduction) {
+            findingsPublished = true
             factKeys.forEach(reportedFactKeys::add)
             while (reportedFactKeys.size > 256) reportedFactKeys.remove(reportedFactKeys.first())
         }
@@ -300,7 +302,11 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
 
     companion object {
         const val PREVIEW_INTERVAL_MS = 3_000L
-        const val SUMMARY_INTERVAL_MS = 45_000L
+        private const val FIRST_SUMMARY_INTERVAL_MS = 45_000L
+        private const val FOLLOW_UP_SUMMARY_INTERVAL_MS = FIRST_SUMMARY_INTERVAL_MS * 3
+
+        internal fun summaryInterval(hasPublishedFindings: Boolean): Long =
+            if (hasPublishedFindings) FOLLOW_UP_SUMMARY_INTERVAL_MS else FIRST_SUMMARY_INTERVAL_MS
         private data class Operation(val preview: String, val subject: String, val next: String, val mutation: Boolean = false)
         private data class ResultObservation(val preview: String, val summary: String, val problem: Boolean = false)
 

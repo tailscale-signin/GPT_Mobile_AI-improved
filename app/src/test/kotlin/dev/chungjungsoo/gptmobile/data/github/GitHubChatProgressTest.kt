@@ -74,6 +74,32 @@ class GitHubChatProgressTest {
         assertTrue(summary.split(Regex("\\s+")).size >= 20)
     }
 
+    @Test fun distinctFollowUpFindingsUseThreeTimesTheInitialInterval() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Inspect source") { clock }
+        progress.tick()
+        fun observeFile(path: String) {
+            progress.observe(
+                ApiState.GatewayProgressChanged(
+                    GatewayProgress(
+                        event = "tool_completed",
+                        toolName = "github_read",
+                        toolCallId = path,
+                        toolArgs = json("""{"ranges":[{"path":"$path"}]}""")
+                    )
+                )
+            )
+        }
+        observeFile("src/Reader.kt")
+        clock = 45_000
+        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("Reader.kt"))
+        observeFile("src/Writer.kt")
+        clock = 179_999
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+        clock = 180_000
+        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("Writer.kt"))
+    }
+
     @Test fun previewBurstsCoalesceButActualActivityCanReactivateAfterAnotherStage() {
         var clock = 0L
         val progress = GitHubChatProgress { clock }

@@ -62,6 +62,9 @@ class GitHubProgressNarratorTest {
         newObservation = true
         revision++
         narrator.beforeRound()
+        assertEquals(1, calls)
+        clock = 180_000
+        narrator.beforeRound()
         assertEquals(2, calls)
         assertEquals("Identical prose does not create another summary", 1, summaries.size)
     }
@@ -91,7 +94,7 @@ class GitHubProgressNarratorTest {
             revision = 3L,
             recentSteps = current.recentSteps + "Job 7 captured a new diagnostic result."
         )
-        clock = 135_000L
+        clock = 180_000L
         narrator.beforeRound()
         assertEquals(2, summaries.size)
     }

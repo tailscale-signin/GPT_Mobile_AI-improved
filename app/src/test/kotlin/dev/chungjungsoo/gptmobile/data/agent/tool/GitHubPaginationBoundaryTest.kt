@@ -25,8 +25,8 @@ class GitHubPaginationBoundaryTest {
         val boundary = GitHubPaginationBoundary()
         val source = json("""{"has_more":true,"pull_request":{"number":1349},"branch":{"name":"main"}}""")
         for ((operation, action) in listOf(
-            "github_pr" to "context",
-            "github_context" to "commit",
+            "github_pr" to "pr_context",
+            "github_context" to "get_commit_detail",
             "github_context" to "branch_dependencies"
         )) {
             val args = json("""{"action":"$action","verify_live":true}""")
@@ -57,7 +57,10 @@ class GitHubPaginationBoundaryTest {
         assertEquals(1, dispatched)
         val data = (result.content as ToolResultContent.Json).value.jsonObject
         assertFalse(data.containsKey("pagination_progress"))
-        assertFalse(data.containsKey("continuation"))
+        assertFalse(data.containsKey("remote_continuations"))
+        val original = data.getValue("data").jsonObject
+        assertEquals(JsonPrimitive(true), original["has_more"])
+        assertFalse(original.containsKey("continuation"))
     }
 
     @Test fun nestedCommitChecksRequireRealRowsAndCompleteRemoteCoverage() {

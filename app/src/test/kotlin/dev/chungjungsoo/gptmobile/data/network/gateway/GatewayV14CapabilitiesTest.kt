@@ -89,7 +89,7 @@ class GatewayV14CapabilitiesTest {
         val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream("gateway-v17-capabilities-full.json"))
             .bufferedReader().use { it.readText() }
         val capabilities = json.decodeFromString<GatewayCapabilities>(fixture)
-        assertEquals("17.0.0", capabilities.gatewayVersion)
+        assertEquals("17.0.1", capabilities.gatewayVersion)
         assertTrue(capabilities.supportsKeyFreeConnection)
         assertTrue(capabilities.supportsCancellation)
         assertTrue(capabilities.supportsResultRecovery)

@@ -55,7 +55,7 @@ internal class GitHubProgressNarrator(
 
     suspend fun beforeRound(workReplayTokens: Long = 0) {
         val at = now()
-        if (unavailableForRun || at - lastAttemptAt < GitHubChatProgress.SUMMARY_INTERVAL_MS || attempts >= 16) return
+        if (unavailableForRun || at - lastAttemptAt < GitHubChatProgress.summaryInterval(lastEvidenceKey.isNotEmpty()) || attempts >= 16) return
         val current = snapshot()
         if (current.revision == lastRevision || current.revision == 0L) return
         val factual = GitHubRichSummaryPresentation.render(current)

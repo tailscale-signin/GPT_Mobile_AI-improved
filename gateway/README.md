@@ -1,4 +1,4 @@
-# Local gateway 17.0.0
+# Local gateway 17.0.1
 
 Gateway 17 preserves the existing state schema, installation identity, accepted job IDs, conversations and explicit execution budgets. It adds native Chat and Saved views, searchable message bookmarks, a graphical durable benchmark workspace, and paired request-scheduling comparisons. See [Gateway 17 desktop and benchmark contracts](V17_DESKTOP.md) for evidence scope and setup. `/gateway/v17` and `/v1/gateway/v17` advertise the current contract; v14/v15/v16 aliases remain available.
 

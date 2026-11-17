@@ -4,7 +4,7 @@ Gateway connects GPT Mobile to your model backend and approved PC tools. The Win
 
 ## Install and connect
 
-1. Run `Gateway-17.0.0-windows-x64-setup.exe` under your normal Windows account. Choose the installation folder and keep Recommended setup for the default local model connection. Advanced setup exposes backend, concurrency and network controls; the same controls are available later in Settings.
+1. Run `Gateway-17.0.1-windows-x64-setup.exe` under your normal Windows account. Choose the installation folder and keep Recommended setup for the default local model connection. Advanced setup exposes backend, concurrency and network controls; the same controls are available later in Settings.
 2. Start your model server. Default backend: `http://127.0.0.1:8080`. Gateway listens only on `127.0.0.1:8090` by default. Backend origins must omit `/v1`; remote backends require HTTPS. MCP commands run with your Windows account permissions: use configuration from sources you trust.
 3. Open **Gateway Settings** from the Start menu to check status, edit settings, restart, stop, check updates or install an available update. Notify is the default; select Auto for unattended updates. Restart applies saved connection/concurrency changes after work finishes.
 4. For phone access, set **Listen address** to the PC interface IP or `0.0.0.0` (all IPv4 interfaces), save and restart. On Android, use a LLAMA connection with `http://<PC-IP-or-hostname>:8090/v1` and leave the API key empty. `0.0.0.0` is a listener setting, not the phone's destination. The PC hostname is admitted automatically; add custom aliases in **Additional hostnames** if needed.
@@ -33,7 +33,7 @@ python gateway/desktop/build_windows.py
 python gateway/desktop/smoke_windows.py
 ```
 
-CI produces the unsigned setup EXE, update ZIP, SHA256SUMS and actual Windows smoke results. It does not publish a production release. Before distributing, review the exact commit, CI and Windows acceptance evidence, sign the EXE/runtime with the publisher's certificate if available, regenerate the runtime manifest/ZIP after signing, and publish both assets under the matching stable `gateway-v17.x.y` GitHub release. Verify GitHub reports the asset digest. A renamed ZIP, missing digest or incompatible schema is intentionally not an update.
+CI produces the unsigned setup EXE, update ZIP, SHA256SUMS and Windows smoke results. To publish the reviewed version, run **Gateway Windows installer** on `main` with **publish** enabled. The workflow requires exact-source release checks and Windows smoke, uploads a draft and confirms GitHub's SHA-256 digests before making it public. A version already published cannot be replaced. If upload or digest confirmation fails, inspect the draft and remove only that incomplete release before rerunning. The setup executable remains unsigned.
 
 The installer cannot guarantee a flawless installation on every PC. Interactive wizard accessibility, corporate policies, antivirus/SmartScreen, code signing, LAN/firewall behavior under corporate policies, and physical Android-device interoperability require separate acceptance testing. Windows CI validates fresh/repair installs, frozen startup, offline-backend behavior, failed-candidate rollback, and data-preserving uninstall. The Android build and its required checks must pass independently.
 

@@ -78,6 +78,21 @@ class VoiceDiagnosticTraceTest {
         assertFalse("voice_focus_last_transition" in trace.incidentFields())
     }
 
+    @Test fun internalPronunciationReasonsRemainTypedAndRejectRetiredPlayback() {
+        val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, {})
+        val retired = trace.advance(1, reset = true)
+        retired.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        retired.pronunciationFailure(0, 1, audioQueued = false, firstAudioObserved = false, failure = KokoroPronunciationFailure.MISSING_LETTER)
+        assertEquals("MISSING_LETTER", trace.incidentFields()["voice_pronunciation_failure_kind"])
+        assertEquals(false, trace.incidentFields()["voice_pronunciation_audio_queued"])
+        val fresh = trace.beginReply(2)
+        fresh.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        retired.pronunciationFailure(1, 0, audioQueued = true, firstAudioObserved = true, failure = KokoroPronunciationFailure.UNSUPPORTED_SCRIPT)
+        assertFalse("voice_pronunciation_failure_kind" in trace.incidentFields())
+        fresh.pronunciationFailure(1, 0, audioQueued = false, firstAudioObserved = false, failure = KokoroPronunciationFailure.UNKNOWN_WORD)
+        assertEquals("UNKNOWN_WORD", trace.incidentFields()["voice_pronunciation_failure_kind"])
+    }
+
     @Test fun staleGenerationsAndOlderSessionsCannotPopulateTheCurrentSnapshot() {
         val retained = mutableListOf<IssueReportDiagnostics>()
         val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, retained::add)

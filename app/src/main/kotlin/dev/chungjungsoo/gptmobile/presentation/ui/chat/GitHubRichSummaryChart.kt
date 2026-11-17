@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,10 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.github.GitHubRichSummaryPresentation
 
@@ -43,6 +41,7 @@ internal fun GitHubRichSummaryChart(markdown: String) {
                     rows.isNotEmpty() -> "Recorded check distribution"
                     else -> "Recorded check table"
                 },
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.labelMedium,
                 color = colors.onSurfaceVariant
             )
@@ -63,25 +62,26 @@ internal fun GitHubRichSummaryChart(markdown: String) {
                         "In progress" -> colors.secondary
                         else -> colors.primary
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().clearAndSetSemantics {
                             contentDescription = "${row.label}: ${row.count} recorded checks"
                         },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        Text(row.label, Modifier.width(95.dp), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(row.label, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                            Text(row.count.toString(), style = MaterialTheme.typography.labelSmall)
+                        }
                         Box(
-                            Modifier.weight(1f).height(10.dp).background(colors.onSurface.copy(alpha = 0.07f), RoundedCornerShape(6.dp))
+                            Modifier.fillMaxWidth().height(8.dp).background(colors.onSurface.copy(alpha = 0.07f), RoundedCornerShape(6.dp))
                         ) {
                             if (row.count > 0) {
                                 Box(
-                                    Modifier.fillMaxWidth(row.count.toFloat() / maximum).height(10.dp)
+                                    Modifier.fillMaxWidth(row.count.toFloat() / maximum).height(8.dp)
                                         .background(barColor, RoundedCornerShape(6.dp))
                                 )
                             }
                         }
-                        Text(row.count.toString(), Modifier.width(32.dp), style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "60d1bd76043ecf32c71a2f4d4f2ff4f655a7b6f7d5bc0cc7f52fe0aeff0db111",
+  "source_digest": "2547e0e9a6b64d866bb364d14666b9cd21f612ef53d854c0122a71c6b7d86880",
   "file_count": 2666,
-  "indexed_line_count": 433001,
+  "indexed_line_count": 433030,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 556,
-      "indexed_line_count": 97378
+      "indexed_line_count": 97386
     },
     {
       "id": "accessibility_and_localization",
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 238,
-      "indexed_line_count": 39532
+      "indexed_line_count": 39551
     },
     {
       "id": "research",
@@ -136,7 +136,7 @@
       "id": "benchmark",
       "label": "Benchmarks and app audit",
       "file_count": 119,
-      "indexed_line_count": 18065
+      "indexed_line_count": 18067
     },
     {
       "id": "auth_and_security",
@@ -7528,8 +7528,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentation.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "a3b5371dbb03a126f1e462e4bf2df71a8a7f0e3ae61ee5a8d9e75e82c0cf93bf",
-      "indexed_lines": 164
+      "sha256": "166b6029604f38a66b9f0a751a362c03e902c58fa07d15b9fb6e72cc72f84460",
+      "indexed_lines": 183
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunAcceptance.kt",
@@ -13464,8 +13464,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubDecisionCard.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "92b83dbe71ca6d70e8e81229e9b2234a0626f116b63c26dbbae481200ea333c8",
-      "indexed_lines": 200
+      "sha256": "d73307ff7ccf3e1395d532624098f971510d0d77c691098f1dacb00e4cdb20c5",
+      "indexed_lines": 201
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubEvidencePanel.kt",
@@ -13534,7 +13534,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryChart.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "ada753dc2218630921ca8a37204f105f23272ac130fa2c43754c8be7e7637b12",
+      "sha256": "1c826e4aacdcc21ce41ecd734fa6d76d14675c0b81558bef7d4fb558cc8dce5c",
       "indexed_lines": 90
     },
     {
@@ -14521,8 +14521,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkQueueCard.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "85cceabbd603c9d8e4feee4d9b2c0a8aa4cf0ad82ed164ad608e102ba0d3cd8f",
-      "indexed_lines": 111
+      "sha256": "bb1efa610da1f361a5126be6ad48c79aedb7fb7149ea1bedace256231568884d",
+      "indexed_lines": 113
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkQueueProgress.kt",
@@ -14724,14 +14724,14 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayJobsPresentation.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "f4ee3dffe1faf1ea1bdfc1319f85ff7c74a2ca4283fc182355e3f99b53591905",
-      "indexed_lines": 90
+      "sha256": "f220e37a4d206f4679df44716d7acf23069c28546b7577c7ed100ce6e3cdfd42",
+      "indexed_lines": 97
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayJobsScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "dac0034ffa111c8454a5f8d375005cdb0facca8ab2d18c3384a8f4f97b3e5947",
+      "sha256": "917cd3ee7a7ee73673a803e8d50e3ee72695df4fb5cfe26e8686277328477690",
       "indexed_lines": 337
     },
     {

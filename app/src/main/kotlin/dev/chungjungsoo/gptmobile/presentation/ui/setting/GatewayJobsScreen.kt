@@ -105,7 +105,7 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
             item("empty") { Text(stringResource(R.string.gateway_jobs_empty), style = MaterialTheme.typography.bodyLarge) }
         }
         for (group in GatewayJobGroup.entries) {
-            val grouped = displayedRows.filter { gatewayJobDisplayGroup(it.summary.schedulingState ?: it.summary.state, it.summary.phase, it.summary.providerRetryAt, it.summary.retry?.outcome) == group }
+            val grouped = displayedRows.filter { gatewayJobDisplayGroup(it.summary.schedulingState ?: it.summary.state, it.summary.phase, it.summary.providerRetryAt, it.summary.retry?.outcome, it.summary.cancellationRequested) == group }
             val rows = if (group == GatewayJobGroup.QUEUED) grouped.sortedBy { it.summary.acceptedAt } else grouped.sortedByDescending { it.summary.acceptedAt }
             if (rows.isEmpty()) continue
             item("section:$group") {
@@ -163,7 +163,7 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                        if (gatewayJobDisplayGroup(job.schedulingState ?: job.state, job.phase, job.providerRetryAt, job.retry?.outcome) == GatewayJobGroup.QUEUED) {
+                        if (gatewayJobDisplayGroup(job.schedulingState ?: job.state, job.phase, job.providerRetryAt, job.retry?.outcome, job.cancellationRequested) == GatewayJobGroup.QUEUED) {
                             val formatter = android.text.format.DateFormat.getTimeFormat(androidx.compose.ui.platform.LocalContext.current)
                             val waitLabel = job.providerRetryAt?.takeIf { it.isFinite() && it > 0 }?.let { retryAt ->
                                 val observedServerNow = job.serverNow ?: state.serverNow

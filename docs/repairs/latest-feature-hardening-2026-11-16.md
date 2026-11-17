@@ -34,3 +34,22 @@
 - Android Gradle unit/Compose execution: not run locally because `services.gradle.org` is unreachable while obtaining Gradle 9.8.0. Added saved-result unit regressions and Compose interaction tests require Android CI. Physical audio playback, visual rendering and live provider/GitHub qualification remain unverified.
 
 No current-build device qualification or repository-wide completion is claimed. The same PR remains the review surface; concurrent branch edits are reconciled before publication.
+
+## Follow-up feature review — November 17
+
+- Repository and working branch unchanged; base `main` remains `4a1d790939ae1ab50bb582bbf8ce7c34000e1d1c`.
+- Starting reviewed head: `701fd73d2`; intent: repair contradictory recovery grouping, retain check-export context, and adapt chart layout and audit actions for small screens and accessibility.
+- Review covers the new rich-summary pipeline and history rendering, selected-profile audit dispatch/results, provider cooldown scope, Gateway retry/checkpoint projection, diagnostic allowlists, and voice focus transitions. This is source review, not live device/provider qualification.
+- Validation plan: regressions for terminal/retry/input precedence and retained CSV evidence; Compose coverage for large-font charts and source attribution; canonical host checks. Preserve concurrent PR edits before publishing.
+
+### Follow-up changes and evidence
+
+- Recovery grouping now prioritizes approval/device/input/cancellation blockers even when a job is still scheduled as queued or running, includes `DEVICE_VALIDATION`, normalizes protocol whitespace, and never treats a retained resumed retry as a new waiting retry. Terminal jobs stay in recent history and show retained retries as recorded history.
+- Check-table CSV now includes source, complete/incomplete captured-list coverage and the recorded-result limitation on every row; source labels are quoted and protected against spreadsheet formula interpretation. Partial tables missing their disclosure are rejected. Markdown escaping is bounded before composing the final table.
+- Redesigned check bars with a full-width track below flexible labels/counts, eliminating fixed count widths. Each chart row has one accessibility announcement, and rich progress cards regain polite live-region semantics. Added Compose regressions for narrow/large-font charts and model-authored tables that must not acquire source-owned chart/export actions.
+- Audit queue actions wrap on narrow screens, and the export action explicitly says it exports all benchmark data, matching its existing implementation.
+- Reconciled concurrent head `900c01558`, including factual-summary fallback and waiting-for-input precedence. Regenerated source inventory from the combined sources rather than retaining either side's generated hashes.
+- Canonical host checks: 526 tests passed, along with metadata, regex, resource, icon and provenance checks. No physical runtime qualification is implied.
+- Focused Gateway checks: 156 cases run, 154 passed, 2 platform-dependent skips (desktop, engineering durability/recovery, acceptance evidence, GitHub governor and benchmark execution). Initial runners lacked dependencies; these results use the existing provisioned Gateway environment.
+- Focused Kotlin host checks: 20 tests passed against production recovery models/presentation and rich-summary formatting/export logic. Host boundaries replace serialization annotations, unused Gateway types, JSON primitive/redaction integration and the unused task classifiers; no Compose/Android/provider execution is claimed.
+- Local Android/Compose test invocation could not start: the Gradle 9.8.0 download failed with `Network is unreachable`. These added UI tests require CI; physical Android rendering and speech remain unverified.

@@ -51,7 +51,10 @@ class GitHubRichSummaryPresentationTest {
         assertEquals(15, series[0].count)
         assertEquals(18, series[1].count)
         assertEquals(2, series[3].count)
-        assertEquals("Check state,Count\r\nSuccessful,15\r\nSkipped,18\r\nIn progress,0\r\nFailed,2\r\n", GitHubRichSummaryPresentation.csv(output))
+        val csv = requireNotNull(GitHubRichSummaryPresentation.csv(output))
+        assertTrue(csv.startsWith("Check state,Count,Source,Captured list,Observation\r\n"))
+        assertTrue(csv.contains("Successful,15,\"Job 7\",Complete,Recorded results; not a new test execution\r\n"))
+        assertEquals(5, csv.trim().lines().size)
     }
 
     @Test fun incompleteRecordedChecksKeepJobScopeCoverageAndNextAction() {
@@ -132,6 +135,39 @@ class GitHubRichSummaryPresentationTest {
         val output = GitHubRichSummaryPresentation.render(duplicated)
         assertEquals(1, Regex("Reader.kt").findAll(output).count())
         assertEquals("", GitHubRichSummaryPresentation.render(sample()))
+    }
+
+    @Test fun copiedPartialTablesKeepTheirSourceCoverageAndSpreadsheetSafety() {
+        val source = "Recorded checks for =SUM(1,2): 12 successful, 1 skipped, 0 in progress, 2 failed (incomplete captured list)."
+        val output = GitHubRichSummaryPresentation.render(sample(source))
+        val csv = requireNotNull(GitHubRichSummaryPresentation.csv(output))
+        assertTrue(csv.contains("\"'=SUM(1,2)\",Incomplete,Recorded results; not a new test execution"))
+        assertTrue(GitHubRichSummaryPresentation.chartData(output).isNotEmpty())
+        val incompleteWithoutDisclosure = output.lines().filterNot { it.startsWith("- **Coverage:**") }.joinToString("\n")
+        assertNull(GitHubRichSummaryPresentation.csv(incompleteWithoutDisclosure))
+        assertTrue(GitHubRichSummaryPresentation.chartData(incompleteWithoutDisclosure).isEmpty())
+    }
+
+    @Test fun csvQuotesSourceLabelsAndRemovesOnlyMarkdownEscaping() {
+        val output = GitHubRichSummaryPresentation.render(
+            sample("Recorded checks for Job \"CI_linux\", run 7: 3 successful, 1 skipped, 0 in progress, 1 failed (complete captured list).")
+        )
+        assertTrue(requireNotNull(GitHubRichSummaryPresentation.csv(output)).contains("\"Job \"\"CI_linux\"\", run 7\",Complete"))
+    }
+
+    @Test fun escapedLongFindingsCannotCutOffTheFinalCountTable() {
+        val special = "[".repeat(220)
+        val output = GitHubRichSummaryPresentation.render(
+            sample(
+                "Source failed $special",
+                "Recorded checks for ${"_".repeat(90)}: 100000 successful, 100000 skipped, 100000 in progress, 100000 failed, 100000 other completed (incomplete captured list)."
+            ).copy(next = special)
+        )
+        assertTrue(output.length <= 1600)
+        assertTrue(output.contains("**Next:**"))
+        assertTrue(output.endsWith("| Other completed | 100000 |"))
+        assertEquals(5, GitHubRichSummaryPresentation.chartData(output).size)
+        assertTrue(requireNotNull(GitHubRichSummaryPresentation.csv(output)).contains("Incomplete"))
     }
 
     @Test fun alternatingRepeatedSourceReadsDoNotCreateRepeatedInsightCards() {

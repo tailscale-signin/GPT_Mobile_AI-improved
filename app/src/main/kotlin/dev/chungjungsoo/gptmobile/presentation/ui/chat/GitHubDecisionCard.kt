@@ -146,6 +146,7 @@ private fun GitHubActivitySummary(text: String, animateEntry: Boolean, lineIdent
             Modifier.fillMaxWidth().padding(vertical = 6.dp)
                 .graphicsLayer { alpha = entry.value }
                 .testTag("github_activity_rich_summary")
+                .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
         ) {
             ChatMarkdown(
                 content = text,

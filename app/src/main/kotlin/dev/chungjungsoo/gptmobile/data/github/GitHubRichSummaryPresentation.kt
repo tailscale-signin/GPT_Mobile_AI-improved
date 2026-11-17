@@ -121,13 +121,29 @@ internal object GitHubRichSummaryPresentation {
 
     fun csv(markdown: String): String? {
         val rows = parseRecordedTable(markdown) ?: return null
-        // Fixed source-owned labels and bounded integers cannot become CSV formulas.
-        return "Check state,Count\r\n" + rows.joinToString("\r\n") { it.label + "," + it.count } + "\r\n"
+        val source = markdown.lineSequence().singleOrNull { it.startsWith("- **Source:** ") }
+            ?.removePrefix("- **Source:** ")?.replace(Regex("""\\(.)"""), "$1") ?: "Not recorded"
+        val coverage = if (markdown.startsWith("### Partial recorded check results")) "Incomplete" else "Complete"
+
+        // A copied table must keep the same scope and limitations as the visible card.
+        // Source labels may contain spreadsheet syntax even when Markdown-escaped.
+        fun cell(value: String): String {
+            val safe = if (value.trimStart().firstOrNull() in setOf('=', '+', '-', '@')) "'$value" else value
+            return "\"" + safe.replace("\"", "\"\"") + "\""
+        }
+        return "Check state,Count,Source,Captured list,Observation\r\n" + rows.joinToString("\r\n") {
+            it.label + "," + it.count + "," + cell(source) + "," + coverage + ",Recorded results; not a new test execution"
+        } + "\r\n"
     }
 
     /** Malformed saved or modified tables must not become chart/export data. */
     private fun parseRecordedTable(markdown: String): List<CheckCount>? {
         if (!sourceCountTable(markdown)) return null
+        if (markdown.startsWith("### Partial recorded check results") &&
+            !markdown.contains("- **Coverage:** The captured check list is incomplete; missing checks are not measured.")
+        ) {
+            return null
+        }
         val lines = markdown.lines().map { it.trim() }.dropLastWhile { it.isBlank() }
         val headerIndex = lines.indexOf("| Check state | Count |")
         if (headerIndex < 0 || lines.getOrNull(headerIndex + 1) != "| --- | ---: |") return null
@@ -156,9 +172,12 @@ internal object GitHubRichSummaryPresentation {
             .distinctBy(GitHubProgressPresentation::lineKey)
 
     private fun escape(text: String): String = buildString {
-        text.trim().take(220).forEach { c ->
-            if (c == '\\' || c.code == 96 || c == '*' || c == '_' || c == '[' || c == ']' || c == '<' || c == '>' || c == '|') append('\\')
+        for (c in text.trim().take(220)) {
+            val escaped = c == '\\' || c.code == 96 || c == '*' || c == '_' || c == '[' || c == ']' || c == '<' || c == '>' || c == '|'
+            // Bound the rendered length too, so escaping cannot truncate the final table.
+            if (length + (if (escaped) 2 else 1) > 220) break
+            if (escaped) append('\\')
             append(c)
         }
-    }
+    }.dropLastWhile(Char::isHighSurrogate)
 }

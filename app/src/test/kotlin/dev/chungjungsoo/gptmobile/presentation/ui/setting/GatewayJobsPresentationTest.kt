@@ -73,6 +73,29 @@ class GatewayJobsPresentationTest {
         assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting", "PROVIDER_COOLDOWN", Double.NaN))
     }
 
+    @Test fun userBlockersTakePrecedenceOverActiveSchedulingAndOldRetryTimestamps() {
+        for (state in listOf("waiting", "queued", "running")) {
+            for (phase in listOf("DEVICE_VALIDATION", "MERGE_READY", "WAITING_FOR_CLIENT_TOOL", "CANCELLING")) {
+                assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup(state, phase, 200.0, "SCHEDULED"))
+            }
+            assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup(state, "CI", 200.0, "NEEDS_INPUT"))
+            assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup(state, "CI", 200.0, "INTERRUPTED"))
+            assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup(state, "READ", 200.0, "SCHEDULED", cancellationRequested = true))
+        }
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting", "READ", 200.0, "RESUMED"))
+        assertEquals(GatewayJobGroup.QUEUED, gatewayJobDisplayGroup(" Waiting ", " provider_cooldown ", 200.0, " scheduled "))
+    }
+
+    @Test fun terminalJobsStayRecentEvenWhenTheyRetainEarlierBlockers() {
+        for (state in listOf("completed", "failed", "cancelled")) {
+            assertEquals(GatewayJobGroup.RECENT, gatewayJobDisplayGroup(state, "MERGE_READY", 200.0, "NEEDS_INPUT", cancellationRequested = true))
+            val job = GatewayJobSummary("job", "engineering", state = state, phase = "CI", acceptedAt = 100.0, providerRetryAt = 200.0, retry = GatewayJobRetry("APP_BACKOFF", 2, "CI", "SCHEDULED"))
+            for (outcome in listOf("SCHEDULED", "NEEDS_INPUT", "RESUMED", "INTERRUPTED")) {
+                assertEquals(GatewayRetryPresentation.RECORDED, gatewayRetryPresentation(job.copy(retry = job.retry?.copy(outcome = outcome))))
+            }
+        }
+    }
+
     @Test fun durationShowsTotalAcceptedTimeAndUnknownMeansUnmeasured() {
         assertEquals("Not recorded", gatewayElapsedLabel(null))
         assertEquals("2h 3m 4s", gatewayElapsedLabel(7_384_000))

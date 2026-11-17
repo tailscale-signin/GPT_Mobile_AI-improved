@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -38,7 +40,7 @@ import dev.chungjungsoo.gptmobile.data.benchmark.retryCondition
 import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun BenchmarkQueueCard(batch: BenchmarkBatch, active: Boolean, onSkip: () -> Unit, onStop: () -> Unit, onResume: () -> Unit, onRetry: () -> Unit, onResults: () -> Unit, onExport: () -> Unit, runs: List<BenchmarkRun> = emptyList(), onRunWithProfileSettings: () -> Unit = {}) {
     var details by remember(batch.id) { mutableStateOf(false) }
@@ -77,7 +79,7 @@ internal fun BenchmarkQueueCard(batch: BenchmarkBatch, active: Boolean, onSkip: 
             }
             batch.storageWarning?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (active) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(onClick = onSkip, enabled = batch.activeOrdinal != null) { Text("Skip profile") }
                     OutlinedButton(onClick = onStop) { Text("Stop all") }
                 }
@@ -87,9 +89,9 @@ internal fun BenchmarkQueueCard(batch: BenchmarkBatch, active: Boolean, onSkip: 
                 if (batch.executionPolicy != BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1 && batch.items.any { it.failure?.code?.startsWith("REASONING_") == true }) {
                     TextButton(onClick = onRunWithProfileSettings) { Text("Run with saved profile settings") }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onResults) { Text("View results") }
-                    TextButton(onClick = onExport) { Text("Export") }
+                    TextButton(onClick = onExport) { Text("Export all benchmark data") }
                 }
             }
             TextButton(onClick = { details = true }) { Text("Details") }

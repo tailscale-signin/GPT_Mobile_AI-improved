@@ -8,25 +8,28 @@ internal fun gatewayJobDisplayGroup(
     state: String,
     phase: String? = null,
     providerRetryAt: Double? = null,
-    retryOutcome: String? = null
+    retryOutcome: String? = null,
+    cancellationRequested: Boolean = false
 ): GatewayJobGroup {
-    val stage = phase?.uppercase(java.util.Locale.ROOT)
-    val attentionPhase = stage in setOf(
-        "MERGE_READY", "APPROVAL", "WAITING_APPROVAL", "AWAITING_APPROVAL",
-        "DEVICE", "WAITING_DEVICE", "WAITING_FOR_DEVICE", "NEEDS_INPUT",
-        "WAITING_FOR_CLIENT_TOOL", "CANCELLING", "BLOCKED", "UNKNOWN_OUTCOME",
-        "RECONCILING", "RECOVERY_BLOCKED"
-    )
-    val attentionOutcome = retryOutcome?.uppercase(java.util.Locale.ROOT) in setOf("NEEDS_INPUT", "INTERRUPTED")
-    val waiting = state.equals("waiting", ignoreCase = true)
-    val ciWait = stage in setOf("CI", "CHECKS", "WAITING_CI", "WAITING_FOR_CI")
-    val retryScheduled = providerRetryAt?.let { it.isFinite() && it > 0.0 } == true
+    val normalizedState = state.trim().uppercase(java.util.Locale.ROOT)
+    val group = gatewayJobGroup(normalizedState)
+    val stage = phase?.trim()?.uppercase(java.util.Locale.ROOT)
+    val requiresUser = cancellationRequested ||
+        stage in setOf(
+            "MERGE_READY", "APPROVAL", "WAITING_APPROVAL", "AWAITING_APPROVAL",
+            "DEVICE", "WAITING_DEVICE", "WAITING_FOR_DEVICE", "DEVICE_VALIDATION", "NEEDS_INPUT",
+            "WAITING_FOR_CLIENT_TOOL", "CANCELLING", "BLOCKED", "UNKNOWN_OUTCOME",
+            "RECONCILING", "RECOVERY_BLOCKED"
+        ) ||
+        retryOutcome?.trim()?.uppercase(java.util.Locale.ROOT) in setOf("NEEDS_INPUT", "INTERRUPTED")
     return when {
-        state.equals("interrupted", ignoreCase = true) -> GatewayJobGroup.NEEDS_ATTENTION
-        waiting && (attentionPhase || attentionOutcome) -> GatewayJobGroup.NEEDS_ATTENTION
-        waiting && ciWait -> GatewayJobGroup.RUNNING
-        waiting && retryScheduled -> GatewayJobGroup.QUEUED
-        else -> gatewayJobGroup(state)
+        group == GatewayJobGroup.RECENT -> group
+        requiresUser || normalizedState == "INTERRUPTED" -> GatewayJobGroup.NEEDS_ATTENTION
+        normalizedState == "WAITING" && stage in setOf("CI", "CHECKS", "WAITING_CI", "WAITING_FOR_CI") -> GatewayJobGroup.RUNNING
+        normalizedState == "WAITING" &&
+            retryOutcome?.trim()?.uppercase(java.util.Locale.ROOT) in setOf(null, "SCHEDULED") &&
+            providerRetryAt?.let { it.isFinite() && it > 0.0 } == true -> GatewayJobGroup.QUEUED
+        else -> group
     }
 }
 
@@ -41,7 +44,7 @@ internal fun gatewaySchedulingLabel(state: String): String = when (state.trim().
     else -> "status unconfirmed"
 }
 
-internal fun gatewayPhaseLabel(phase: String): String = when (phase.uppercase(java.util.Locale.ROOT)) {
+internal fun gatewayPhaseLabel(phase: String): String = when (phase.trim().uppercase(java.util.Locale.ROOT)) {
     "CI", "CHECKS", "WAITING_CI", "WAITING_FOR_CI" -> "Waiting for CI"
     "MERGE_READY", "APPROVAL", "WAITING_APPROVAL", "AWAITING_APPROVAL" -> "Waiting for approval"
     "DEVICE", "WAITING_DEVICE", "WAITING_FOR_DEVICE", "DEVICE_VALIDATION" -> "Waiting for device validation"
@@ -67,16 +70,20 @@ internal fun gatewayElapsedLabel(millis: Long?): String {
 
 internal enum class GatewayRetryPresentation { SCHEDULED, RESUMED, NEEDS_INPUT, INTERRUPTED, RECORDED }
 
-internal fun gatewayRetryPresentation(job: GatewayJobSummary): GatewayRetryPresentation = when (job.retry?.outcome?.uppercase(java.util.Locale.ROOT)) {
-    "NEEDS_INPUT" -> GatewayRetryPresentation.NEEDS_INPUT
-    "INTERRUPTED" -> GatewayRetryPresentation.INTERRUPTED
-    "RESUMED" -> GatewayRetryPresentation.RESUMED
-    else -> {
-        val group = gatewayJobDisplayGroup(job.schedulingState ?: job.state, job.phase, job.providerRetryAt, job.retry?.outcome)
-        if (group in setOf(GatewayJobGroup.RUNNING, GatewayJobGroup.QUEUED) && job.providerRetryAt?.let { it.isFinite() && it > 0.0 } == true) {
-            GatewayRetryPresentation.SCHEDULED
-        } else {
-            GatewayRetryPresentation.RECORDED
+internal fun gatewayRetryPresentation(job: GatewayJobSummary): GatewayRetryPresentation {
+    val group = gatewayJobDisplayGroup(job.schedulingState ?: job.state, job.phase, job.providerRetryAt, job.retry?.outcome, job.cancellationRequested)
+    // Retained retry receipts describe history after a job has ended.
+    if (group == GatewayJobGroup.RECENT) return GatewayRetryPresentation.RECORDED
+    return when (job.retry?.outcome?.trim()?.uppercase(java.util.Locale.ROOT)) {
+        "NEEDS_INPUT" -> GatewayRetryPresentation.NEEDS_INPUT
+        "INTERRUPTED" -> GatewayRetryPresentation.INTERRUPTED
+        "RESUMED" -> GatewayRetryPresentation.RESUMED
+        else -> {
+            if (group in setOf(GatewayJobGroup.RUNNING, GatewayJobGroup.QUEUED) && job.providerRetryAt?.let { it.isFinite() && it > 0.0 } == true) {
+                GatewayRetryPresentation.SCHEDULED
+            } else {
+                GatewayRetryPresentation.RECORDED
+            }
         }
     }
 }

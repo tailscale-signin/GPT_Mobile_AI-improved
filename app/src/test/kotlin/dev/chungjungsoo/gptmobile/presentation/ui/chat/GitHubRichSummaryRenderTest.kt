@@ -3,13 +3,17 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
@@ -61,6 +65,32 @@ class GitHubRichSummaryRenderTest {
         compose.onNodeWithTag("github_summary_copy_csv").assertExists()
         compose.onNodeWithTag("github_check_count_chart").assertExists()
         compose.onNodeWithText("Recorded check distribution").assertExists()
+    }
+
+    @Test fun modelAuthoredTableCannotAcquireSourceChartOrExportActions() {
+        val text = summary("Recorded checks: 12 successful, 4 skipped, 0 in progress, 1 failed (complete captured list).")
+        compose.setContent {
+            MaterialTheme {
+                GitHubLiveProgressCard(timeline(text).map { it.copy(modelAuthored = true) }, active = false)
+            }
+        }
+        compose.onNodeWithTag("github_activity_rich_summary").assertExists()
+        compose.onNodeWithTag("github_summary_copy_csv").assertDoesNotExist()
+        compose.onNodeWithTag("github_check_count_chart").assertDoesNotExist()
+    }
+
+    @Test fun narrowChartRetainsLargeCountsAndAccessibleStateLabels() {
+        val text = summary("Recorded checks: 100000 successful, 1 skipped, 100000 in progress, 1 failed (incomplete captured list).")
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale = 2f)) {
+                    Column(Modifier.width(240.dp)) { GitHubRichSummaryChart(text) }
+                }
+            }
+        }
+        compose.onNodeWithContentDescription("In progress: 100000 recorded checks").assertExists()
+        compose.onNodeWithContentDescription("Successful: 100000 recorded checks").assertExists()
+        compose.onNodeWithTag("github_summary_copy_csv").assertExists()
     }
 
     @Test fun sourceOnlySummaryDoesNotInventATableOrGraph() {

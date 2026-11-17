@@ -299,8 +299,9 @@ class StagedChatDebugExportTest {
         val result = capture()
         assertEquals(JsonPrimitive(true), result.manifest["reducedMemory"])
         val contextSection = archive(result).getValue("capture-context.jsonl")
-        assertTrue(contextSection.contains("\\\"captureMemoryProfile\\\":\\\"REDUCED\\\""))
-        assertTrue(contextSection.contains("\\\"reducedMemorySelectedAutomatically\\\":true"))
+        val contextRecord = kotlinx.serialization.json.Json.parseToJsonElement(contextSection.lineSequence().first()) as JsonObject
+        assertEquals(JsonPrimitive("REDUCED"), contextRecord["captureMemoryProfile"])
+        assertEquals(JsonPrimitive(true), contextRecord["reducedMemorySelectedAutomatically"])
         assertEquals(JsonPrimitive("COMPLETED"), stage(result, "critical_logs")["status"])
     }
 

@@ -37,7 +37,12 @@ internal fun GitHubRichSummaryChart(markdown: String) {
     Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
-                text = if (rows.isNotEmpty()) "Recorded check distribution" else "Recorded check table",
+                text = when {
+                    markdown.startsWith("### Partial recorded check results") && rows.isNotEmpty() -> "Partial check distribution"
+                    markdown.startsWith("### Partial recorded check results") -> "Partial recorded check table"
+                    rows.isNotEmpty() -> "Recorded check distribution"
+                    else -> "Recorded check table"
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = colors.onSurfaceVariant
             )

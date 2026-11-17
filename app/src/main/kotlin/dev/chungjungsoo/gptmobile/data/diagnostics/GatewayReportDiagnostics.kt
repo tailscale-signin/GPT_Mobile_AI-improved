@@ -52,7 +52,7 @@ internal object GatewayReportDiagnostics {
         policyState: String? = null,
         recoveryActions: List<String> = emptyList(),
         discoveryState: String? = null,
-        candidateCount: Int? = null,
+        candidateCount: Int? = null
     ): IssueReportDiagnostics? =
         IssueReportDiagnostics.fromFields(
             "STRUCTURED_EVENT",
@@ -66,7 +66,7 @@ internal object GatewayReportDiagnostics {
                         "VALIDATION_REVISION_UNAVAILABLE",
                         "SOURCE_REVISION_REQUIRED",
                         "ACCEPTANCE_CONTRACT_REQUIRED",
-                        "ACCEPTANCE_PRODUCER_REQUIRED",
+                        "ACCEPTANCE_PRODUCER_REQUIRED"
                     )
                 val allowedActions =
                     setOf(
@@ -76,7 +76,7 @@ internal object GatewayReportDiagnostics {
                         "CONFIGURE_ACCEPTANCE_MAPPING",
                         "REFRESH_SOURCE_REVISION",
                         "PROVISION_PINNED_MIRROR",
-                        "PROVISION_VALIDATION_RUNTIME",
+                        "PROVISION_VALIDATION_RUNTIME"
                     )
                 put("diagnostic_area", "GATEWAY")
                 put("gateway_admission_ready", ready)
@@ -94,7 +94,7 @@ internal object GatewayReportDiagnostics {
                 profileUid?.takeIf { it.isNotBlank() && it.length <= 256 }?.let { put("profile_hash", researchHash(it)) }
                 model?.takeIf { it.isNotBlank() && it.length <= 256 }?.let { put("model_hash", researchHash(it)) }
             },
-            capturedAtMillis,
+            capturedAtMillis
         )
 
     fun queue(blocker: String, active: Int, deliveries: Int, unsettled: Int, legacy: Int, cached: Int, capturedAtMillis: Long = System.currentTimeMillis()): IssueReportDiagnostics? =

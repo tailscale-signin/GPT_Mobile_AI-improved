@@ -1,10 +1,47 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobRetry
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobSummary
+import java.util.Locale
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class GatewayJobsPresentationTest {
+    @Test fun protocolStateClassificationDoesNotDependOnDeviceLocale() {
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+            assertEquals(GatewayJobGroup.RUNNING, gatewayJobDisplayGroup("running"))
+            assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("interrupted"))
+        } finally {
+            Locale.setDefault(previous)
+        }
+    }
+
+    @Test fun retryOutcomesDoNotTurnMissingTimingIntoAClaimOfInterruption() {
+        val job = GatewayJobSummary("job", "engineering", state = "queued", acceptedAt = 100.0, providerRetryAt = 200.0, retry = GatewayJobRetry("APP_BACKOFF", 2, "READ", "SCHEDULED"))
+        assertEquals(GatewayRetryPresentation.SCHEDULED, gatewayRetryPresentation(job))
+        assertEquals(GatewayRetryPresentation.NEEDS_INPUT, gatewayRetryPresentation(job.copy(retry = job.retry?.copy(outcome = "NEEDS_INPUT"))))
+        assertEquals(GatewayRetryPresentation.RESUMED, gatewayRetryPresentation(job.copy(retry = job.retry?.copy(outcome = "RESUMED"))))
+        assertEquals(GatewayRetryPresentation.INTERRUPTED, gatewayRetryPresentation(job.copy(retry = job.retry?.copy(outcome = "INTERRUPTED"))))
+        assertEquals(GatewayRetryPresentation.RECORDED, gatewayRetryPresentation(job.copy(providerRetryAt = null)))
+        assertEquals(GatewayRetryPresentation.RECORDED, gatewayRetryPresentation(job.copy(providerRetryAt = Double.NaN)))
+        assertEquals(GatewayRetryPresentation.RECORDED, gatewayRetryPresentation(job.copy(state = "cancelled")))
+    }
+
+    @Test fun retryCountdownRequiresFreshFiniteServerEvidenceAndMonotonicTime() {
+        assertEquals(9_000L, gatewayRetryRemainingMillis(110.0, 100.0, 500, 1500, true))
+        assertEquals(0L, gatewayRetryRemainingMillis(100.0, 100.0, 500, 1500, true))
+        assertNull(gatewayRetryRemainingMillis(110.0, 100.0, 500, 1500, false))
+        assertNull(gatewayRetryRemainingMillis(110.0, Double.NaN, 500, 1500, true))
+        assertNull(gatewayRetryRemainingMillis(Double.POSITIVE_INFINITY, 100.0, 500, 1500, true))
+        assertNull(gatewayRetryRemainingMillis(110.0, 100.0, 500, 499, true))
+        assertNull(gatewayRetryRemainingMillis(110.0, 100.0, 500, 30_501, true))
+        assertNull(gatewayRetryRemainingMillis(110.0, 100.0, 0, 500, true))
+    }
+
     @Test fun schedulingGroupsKeepWaitingDistinctFromRunningPhases() {
         assertEquals(GatewayJobGroup.RUNNING, gatewayJobDisplayGroup("running"))
         assertEquals(GatewayJobGroup.QUEUED, gatewayJobDisplayGroup("queued"))

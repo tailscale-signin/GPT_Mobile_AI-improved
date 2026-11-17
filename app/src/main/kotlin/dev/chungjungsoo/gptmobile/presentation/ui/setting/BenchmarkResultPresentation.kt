@@ -102,3 +102,14 @@ internal fun benchmarkResultPresentations(
 }
 
 internal fun benchmarkResultDate(at: Long?): String = at?.takeIf { it > 0 }?.let { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(it)) } ?: "Date not recorded"
+
+/** A saved batch is an evidence boundary, even after a newer attempt or profile edit. */
+internal fun benchmarkBatchResults(batch: BenchmarkBatch, runs: List<BenchmarkRun>): List<BenchmarkResultPresentation> {
+    val runIds = batch.items.map { it.runId }.toSet()
+    return benchmarkResultPresentations(
+        batch.items.map { it.profile },
+        runs.filter { it.id in runIds },
+        listOf(batch),
+        emptyList()
+    ).filter { it.mode == batch.mode && it.executionPolicy == batch.executionPolicy }
+}

@@ -202,6 +202,14 @@ fun ProfileBenchmarkScreen(
     var allowAuditNetworkReads by rememberSaveable { mutableStateOf(false) }
     var auditProfileIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var selectedAuditId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedGitHubAuditId by rememberSaveable { mutableStateOf<String?>(null) }
+    selectedGitHubAuditId?.let { batchId ->
+        GitHubAiAuditResults(
+            batch = batches.singleOrNull { it.id == batchId && it.mode == BenchmarkMode.GITHUB_INTEGRATION },
+            runs = history,
+            onDismiss = { selectedGitHubAuditId = null }
+        )
+    }
     var cancellationRequestedFor by rememberSaveable { mutableStateOf<String?>(null) }
     androidx.compose.runtime.LaunchedEffect(session) {
         if (session == null) cancellationRequestedFor = null
@@ -437,8 +445,7 @@ fun ProfileBenchmarkScreen(
                             onRetry = { viewModel.retryFailed(batch.id) },
                             onRunWithProfileSettings = { viewModel.retryFailed(batch.id, BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) },
                             onResults = {
-                                mode = BenchmarkMode.GITHUB_INTEGRATION
-                                tab = 5
+                                selectedGitHubAuditId = batch.id
                             },
                             runs = history,
                             onExport = { requestExport(false, null) }

@@ -167,10 +167,10 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                             val formatter = android.text.format.DateFormat.getTimeFormat(androidx.compose.ui.platform.LocalContext.current)
                             val waitLabel = job.providerRetryAt?.takeIf { it.isFinite() && it > 0 }?.let { retryAt ->
                                 val observedServerNow = job.serverNow ?: state.serverNow
-                                val remainingMs = ((retryAt - observedServerNow) * 1000).toLong() - (elapsedNow - row.observedAtElapsed)
+                                val remainingMs = gatewayRetryRemainingMillis(retryAt, observedServerNow, row.observedAtElapsed, elapsedNow, rowFresh)
                                 when {
-                                    rowFresh && remainingMs > 0 -> stringResource(R.string.gateway_jobs_retry_countdown, gatewayElapsedLabel(remainingMs + 999))
-                                    rowFresh -> stringResource(R.string.gateway_jobs_retry_due)
+                                    remainingMs != null && remainingMs > 0 -> stringResource(R.string.gateway_jobs_retry_countdown, gatewayElapsedLabel(remainingMs + 999))
+                                    remainingMs != null -> stringResource(R.string.gateway_jobs_retry_due)
                                     else -> stringResource(R.string.gateway_jobs_retry_at, formatter.format(java.util.Date((retryAt * 1000).toLong())))
                                 }
                             }
@@ -179,10 +179,12 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                         }
                         job.retry?.let { retry ->
                             val stage = retry.stage?.let(::gatewayPhaseLabel) ?: gatewayPhaseLabel(job.phase ?: job.state)
-                            val label = when {
-                                retry.outcome == "RESUMED" -> R.string.gateway_jobs_retry_resumed
-                                job.providerRetryAt != null -> R.string.gateway_jobs_retry_attempt
-                                else -> R.string.gateway_jobs_retry_interrupted
+                            val label = when (gatewayRetryPresentation(job)) {
+                                GatewayRetryPresentation.RESUMED -> R.string.gateway_jobs_retry_resumed
+                                GatewayRetryPresentation.SCHEDULED -> R.string.gateway_jobs_retry_attempt
+                                GatewayRetryPresentation.NEEDS_INPUT -> R.string.gateway_jobs_retry_needs_input
+                                GatewayRetryPresentation.INTERRUPTED -> R.string.gateway_jobs_retry_interrupted
+                                GatewayRetryPresentation.RECORDED -> R.string.gateway_jobs_retry_recorded
                             }
                             Text(stringResource(label, stage, retry.attempts), style = MaterialTheme.typography.bodySmall)
                         }

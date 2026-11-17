@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "197508b6dac597266345029e9bff49ee72aac4ed5a98d1788f9eb83fc19091ae",
+  "source_digest": "1e74a506e2895b8d2bfb9b6fbf0c4390540a75c8d36efc838166a4b3ce852362",
   "file_count": 2667,
   "indexed_line_count": 433779,
   "line_coverage_available": false,
@@ -2705,7 +2705,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "d566705919d52207067755e0aab1470863cc1e338bef7bab499cbc985c17f65a",
+      "sha256": "607ec8c2d8880def1be121c6342f0cd69e713574a9299ff7b20dd84f190a3681",
       "indexed_lines": 228
     },
     {

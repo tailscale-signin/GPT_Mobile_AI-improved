@@ -332,7 +332,8 @@ data class GatewayEngineeringPreflight(
     val blockers: List<GatewayEngineeringBlocker> = emptyList(),
     @SerialName("objective_sha256") val objectiveSha256: String = "",
     @SerialName("source_sha") val sourceSha: String? = null,
-    @SerialName("validation_policy_state") val validationPolicyState: String? = null
+    @SerialName("validation_policy_state") val validationPolicyState: String? = null,
+    @SerialName("acceptance_preparation") val acceptancePreparation: JsonObject? = null
 )
 
 @Serializable

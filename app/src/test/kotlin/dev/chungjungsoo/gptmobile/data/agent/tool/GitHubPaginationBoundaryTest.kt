@@ -267,6 +267,36 @@ class GitHubPaginationBoundaryTest {
         assertFalse(rejected.executionReceipt.toString().contains(cursor.content))
     }
 
+    @Test fun inventedSavedViewCursorOffersOnlyFreshAuthorizedReadWithoutSourceLeak() {
+        val views = GitHubResultViews()
+        val original = AgentToolResult(
+            "original",
+            ToolResultContent.Json(json("""{"items":[{"id":1}],"has_more":false}""")),
+            false
+        )
+        val presented = views.present(
+            "scope", "github_pr", "github_pr__original", original,
+            json("""{"action":"list","owner":"owner","repo":"repo"}""")
+        )
+        val page = (presented.content as ToolResultContent.Json).value.jsonObject
+        val issued = (page.getValue("recovery_call").jsonObject
+            .getValue("arguments").jsonObject.getValue("view_cursor") as JsonPrimitive).content
+        val invented = issued.substringBefore(':') + ":9999:2048"
+
+        val result = views.read("scope", "github_pr", "github_pr__original", invented, "invented")
+        assertTrue(result.isError)
+        assertFalse(result.dispatched)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", result.errorCode)
+        val body = (result.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("UNISSUED_CURSOR"), body["reason"])
+        assertEquals(JsonPrimitive("START_FRESH_SCOPED_READ"), body["recovery_action"])
+        assertEquals(JsonPrimitive(false), body["mutation_replay_allowed"])
+        assertFalse(body.containsKey("correction_call"))
+        assertFalse(body.containsKey("source_recovery_call"))
+        assertFalse(body.toString().contains(issued))
+        assertEquals(JsonPrimitive(false), result.executionReceipt?.get("saved_view_cursor_issued"))
+    }
+
     @Test fun savedReadsAcceptMatchingSelectorsAndRejectScopeChanges() {
         val views = GitHubResultViews()
         val request = json("""{"action":"runs","owner":"o","repo":"r","workflow_id":"build.yml","page":1,"per_page":20}""")

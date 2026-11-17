@@ -31,6 +31,22 @@ internal object GitHubRichSummaryPresentation {
     fun factKeys(snapshot: GitHubProgressSnapshot): List<String> =
         observations(snapshot).map(GitHubProgressPresentation::lineKey)
 
+    /** Used only for local history presentation; exclude changing next-step prose. */
+    fun publicationKey(markdown: String): String {
+        if (!isRich(markdown)) return GitHubProgressPresentation.lineKey(markdown)
+        val observations = markdown.lineSequence().map(String::trim).filter { line ->
+            line.startsWith("- **Attention:**") ||
+                line.startsWith("- **Observed:**") ||
+                line.startsWith("- **Evidence:**") ||
+                line.startsWith("- **Source:**") ||
+                line.startsWith("- **Coverage:**") ||
+                line.startsWith("- **Verification:**") ||
+                line.startsWith("| ") && !line.startsWith("| ---") && !line.startsWith("| Check state ")
+        }.map(GitHubProgressPresentation::lineKey).toList()
+        return observations.takeIf(List<String>::isNotEmpty)?.joinToString("\u001f")
+            ?: GitHubProgressPresentation.lineKey(markdown)
+    }
+
     fun render(snapshot: GitHubProgressSnapshot): String {
         val seen = observations(snapshot)
         if (seen.isEmpty()) return ""

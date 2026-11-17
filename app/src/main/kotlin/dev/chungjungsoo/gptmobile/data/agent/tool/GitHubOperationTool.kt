@@ -466,7 +466,7 @@ internal class GitHubOperationTool(
                 pagination.observe(operation, resolved, data)
             }
         }
-        val paged = if (!result.isError && data?.get("has_more") == JsonPrimitive(true) && "continuation" !in data && operation != "github_search") {
+        val paged = if (!result.isError && pagination.expectsNumberedRemotePage(operation, resolved) && data?.get("has_more") == JsonPrimitive(true) && "continuation" !in data && operation != "github_search") {
             withPaginationState(result, JsonObject(data + ("continuation" to JsonObject(resolved + ("page" to JsonPrimitive(((effectiveArguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1) + 1))))))
         } else {
             result

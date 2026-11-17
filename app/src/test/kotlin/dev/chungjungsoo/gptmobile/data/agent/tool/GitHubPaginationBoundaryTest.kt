@@ -21,6 +21,45 @@ import org.junit.Test
 class GitHubPaginationBoundaryTest {
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
 
+    @Test fun singletonContextsPreserveNestedExpansionWithoutRemotePagination() {
+        val boundary = GitHubPaginationBoundary()
+        val source = json("""{"has_more":true,"pull_request":{"number":1349},"branch":{"name":"main"}}""")
+        for ((operation, action) in listOf(
+            "github_pr" to "context",
+            "github_context" to "commit",
+            "github_context" to "branch_dependencies"
+        )) {
+            val args = json("""{"action":"$action","verify_live":true}""")
+            assertFalse(boundary.expectsNumberedRemotePage(operation, args))
+            val result = boundary.assessPage(operation, args, source)
+            assertEquals(null, result.errorCode)
+            assertEquals(source, result.data)
+            assertFalse(result.data.containsKey("pagination_progress"))
+            assertEquals(null, boundary.completedPage(operation, json("""{"action":"$action","page":2}""")))
+        }
+        assertTrue(boundary.expectsNumberedRemotePage("github_ci", json("""{"action":"runs"}""")))
+        val invalid = boundary.assessPage("github_ci", json("""{"action":"runs"}"""), json("""{"has_more":true,"total_count":1}"""))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", invalid.errorCode)
+    }
+
+    @Test fun singletonPrContextDoesNotInventASyntheticSecondRemotePage() = runBlocking {
+        var dispatched = 0
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatched++
+                return AgentToolResult(callId, ToolResultContent.Json(json("""{"has_more":true,"pull_request":{"number":1349}}""")), false)
+            }
+        }
+        val tool = GitHubOperationTool("github_pr", backend, "single-pr-context")
+        val result = tool.execute("single", json("""{"action":"context","pull_number":1349}"""))
+        assertFalse(result.toString(), result.isError)
+        assertEquals(1, dispatched)
+        val data = (result.content as ToolResultContent.Json).value.jsonObject
+        assertFalse(data.containsKey("pagination_progress"))
+        assertFalse(data.containsKey("continuation"))
+    }
+
     @Test fun nestedCommitChecksRequireRealRowsAndCompleteRemoteCoverage() {
         val boundary = GitHubPaginationBoundary()
         val first = boundary.assessPage(

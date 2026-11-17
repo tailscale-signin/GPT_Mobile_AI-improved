@@ -21,7 +21,16 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
 
     // The failure digest bounds a search for one failed job. Its continuation
     // advances that search without publishing a page of workflow jobs.
-    private fun numberedRemotePage(args: JsonObject) = "view_cursor" !in args &&
+    private fun numberedRemotePage(operation: String, args: JsonObject): Boolean {
+        val action = (args["action"] as? JsonPrimitive)?.content
+        // A PR context, commit, or branch dependency is one resource, not a
+        // numbered collection. Nested has_more is not a page-2 authorization.
+        if (operation == "github_pr" && action == "context" ||
+            operation == "github_context" && action in setOf("commit", "branch_dependencies")
+        ) {
+            return false
+        }
+        return "view_cursor" !in args &&
         "index_cursor" !in args &&
         args["action"] !in setOf(
             JsonPrimitive("workflow_catalog"),
@@ -29,8 +38,11 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             JsonPrimitive("ci_failure_digest")
         )
 
+    fun expectsNumberedRemotePage(operation: String, args: JsonObject): Boolean =
+        numberedRemotePage(operation, args)
+
     @Synchronized fun completedPage(operation: String, args: JsonObject): Int? {
-        if (!numberedRemotePage(args)) return null
+        if (!numberedRemotePage(operation, args)) return null
         val key = key(operation, args)
         val end = ends[key]
         // An explicit live refresh starts a new observation epoch even when the
@@ -72,7 +84,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
 
     /** Compare stable record identifiers, including earlier nonadjacent pages and reordered rows. */
     @Synchronized fun assessPage(operation: String, args: JsonObject, result: JsonObject): Assessment {
-        if (!numberedRemotePage(args) || "has_more" !in result) return Assessment(result)
+        if (!numberedRemotePage(operation, args) || "has_more" !in result) return Assessment(result)
         val collections = rows(result)
         if (collections.isEmpty()) {
             // A successful envelope with no record collection cannot establish
@@ -207,7 +219,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     @Synchronized fun completionError(operation: String, args: JsonObject): String? = ends[key(operation, args)]?.errorCode
 
     @Synchronized fun observe(operation: String, args: JsonObject, result: JsonObject) {
-        if (!numberedRemotePage(args) || result["has_more"] != JsonPrimitive(false)) return
+        if (!numberedRemotePage(operation, args) || result["has_more"] != JsonPrimitive(false)) return
         ends[key(operation, args)] = End(page(args), now())
         while (ends.size > 128) ends.remove(ends.keys.first())
     }

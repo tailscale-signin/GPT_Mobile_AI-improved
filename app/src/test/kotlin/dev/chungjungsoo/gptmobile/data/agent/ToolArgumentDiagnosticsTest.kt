@@ -89,6 +89,39 @@ class ToolArgumentDiagnosticsTest {
         assertFalse((rejected.executionReceipt ?: JsonObject(emptyMap())).toString().contains("fixture"))
     }
 
+    @Test fun githubReadTopLevelPathSuggestsOneSafeSchemaValidCorrection() {
+        val schema = GitHubOperationTool.definition("github_read").inputSchema
+        val args = buildJsonObject {
+            put("owner", "owner")
+            put("repo", "repo")
+            put("path", "docs/README.md")
+        }
+        assertTrue(ToolArgumentValidator.errors(args, schema).isNotEmpty())
+        val rejected = ToolArgumentValidator.rejection("bad-read", "github_read", args, schema)
+        assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+        assertFalse(rejected.dispatched)
+        val body = (rejected.content as ToolResultContent.Json).value as JsonObject
+        val fixed = (body.getValue("correction_call") as JsonObject).getValue("arguments") as JsonObject
+        assertEquals(JsonPrimitive("ranges"), fixed["action"])
+        assertEquals(JsonArray(listOf(buildJsonObject { put("path", "docs/README.md") })), fixed["ranges"])
+        assertFalse("path" in fixed)
+        assertTrue(ToolArgumentValidator.errors(fixed, schema).isEmpty())
+        assertFalse(rejected.executionReceipt.toString().contains("docs/README.md"))
+    }
+
+    @Test fun unsafeReadPathCannotBecomeACorrection() {
+        val schema = GitHubOperationTool.definition("github_read").inputSchema
+        val rejected = ToolArgumentValidator.rejection(
+            "bad-traversal",
+            "github_read",
+            buildJsonObject { put("path", "../private.txt") },
+            schema
+        )
+        val body = (rejected.content as ToolResultContent.Json).value as JsonObject
+        assertFalse("correction_call" in body)
+        assertFalse(rejected.dispatched)
+    }
+
     @Test
     fun githubSearchInvalidActionDoesNotInventAReplacementAction() {
         val schema = GitHubOperationTool.definition("github_search").inputSchema

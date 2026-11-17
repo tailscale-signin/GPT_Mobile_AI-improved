@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 
-from benchmarks.contracts import SCHEMA, TERMINAL, digest, validate_request
+from benchmarks.contracts import SCHEMA, TERMINAL, coverage, digest, validate_request
 
 
 class BenchmarkConflict(ValueError):
@@ -127,9 +127,17 @@ class BenchmarkStore:
                         case.update(status=outcome, graded=False, resolved=False, score=None)
                         db.execute('UPDATE benchmark_cases SET payload=? WHERE run_id=? AND ordinal=?',
                                    (json.dumps(case, allow_nan=False), ident, ordinal))
-                if isinstance(run.get('summary'), dict):
-                    run['summary'].update(score=None, qualified=False, speedup=None, firstSubmissionScore=None,
-                                          passAtOne=None, finalResolvedRate=None, invalidatedBy=run['state'])
+                # The last case may have been recorded after the last partial
+                # summary. Project terminal coverage from the canonical case
+                # journal, including the interrupted in-flight attempt, instead
+                # of publishing stale counts for an immutable result.
+                retained = [json.loads(payload) for (payload,) in db.execute(
+                    'SELECT payload FROM benchmark_cases WHERE run_id=? ORDER BY ordinal', (ident,)).fetchall()]
+                summary = dict(run.get('summary') or {})
+                summary.update(score=None, qualified=False, speedup=None, firstSubmissionScore=None,
+                               passAtOne=None, finalResolvedRate=None, invalidatedBy=run['state'],
+                               coverage=coverage(retained, run['planned']))
+                run['summary'] = summary
             db.execute('UPDATE benchmark_runs SET state=?,updated=?,payload=? WHERE id=?',
                        (run['state'], run['updatedAt'], json.dumps(run, allow_nan=False), ident))
             return run

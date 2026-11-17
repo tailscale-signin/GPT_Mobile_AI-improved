@@ -11,7 +11,7 @@ import org.junit.Test
 
 class GitHubRecoveryCallsTest {
     private fun tool(name: String) = object : AgentTool {
-        override val definition = GitHubOperationTool.definition(name, name)
+        override val definition = GitHubOperationTool.definition(name.substringBefore("__"), name)
         override suspend fun execute(callId: String, arguments: JsonObject) = error("Routing must not execute tools")
     }
 

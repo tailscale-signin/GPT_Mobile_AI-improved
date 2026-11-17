@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmark_selected_model import BenchmarkInterrupted, measure
 from benchmarks import coding, fixtures, sandbox
 from benchmarks.contracts import CODING_WEIGHTS, coding_score, coverage, paired_summary, validate_request
-from benchmarks.runner import BenchmarkRunner
+from benchmarks.runner import BenchmarkRunner, benchmark_error_receipt
 from benchmarks.service import BenchmarkService, install_benchmark_routes
 from benchmarks.store import BenchmarkConflict, BenchmarkStore
 from desktop import benchmark
@@ -134,6 +134,30 @@ class BenchmarkJournalTest(unittest.TestCase):
         self.assertEqual([attempt], interrupted['attempts'])
         self.assertEqual(completed, saved['cases'][1])
         self.assertEqual([], self.store.pending())
+
+    def test_terminal_coverage_reconciles_provisional_case_after_last_checkpoint(self):
+        run = self.create()
+        self.store.update(run['id'], state='RUNNING', planned=12, completed=1,
+                          summary={'score': None, 'qualified': False,
+                                   'coverage': {'recorded': 0, 'outcomes': {'PENDING': 12}}})
+        self.store.case(run['id'], 0, {'id': 'pagination-1', 'status': 'FAILED',
+                                      'executed': True, 'graded': True})
+        self.store.case(run['id'], 1, {'id': 'idempotency-1', 'status': 'RUNNING',
+                                      'executed': True, 'graded': False,
+                                      'attempts': [{'error': 'ValueError'}]})
+        self.store.update(run['id'], state='INTERRUPTED')
+        saved = self.store.get(run['id'])
+        observed = saved['summary']['coverage']
+        self.assertEqual(2, observed['recorded'])
+        self.assertEqual(1, observed['outcomes']['FAILED'])
+        self.assertEqual(1, observed['outcomes']['INTERRUPTED'])
+        self.assertEqual(10, observed['outcomes']['PENDING'])
+        self.assertEqual(2, observed['executed'])
+        self.assertEqual(1, observed['graded'])
+        self.assertEqual('INTERRUPTED', saved['summary']['invalidatedBy'])
+        self.assertEqual('INTERRUPTED', saved['cases'][1]['status'])
+        self.assertEqual([{'error': 'ValueError'}], saved['cases'][1]['attempts'])
+        self.assertIsNone(saved['summary']['score'])
 
     def test_history_pages_do_not_leak_other_principals(self):
         for index in range(5):
@@ -428,6 +452,53 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
             for key, value in receipt.items():
                 self.assertEqual(value, saved[key])
                 self.assertEqual(value, saved['attempts'][0][key])
+
+
+class BenchmarkErrorReceiptTest(unittest.TestCase):
+    def test_private_model_exception_is_redacted_but_failure_phase_is_retained(self):
+        receipt = benchmark_error_receipt(
+            ValueError('private API key and /home/user/code.py'), 'MODEL_INVOCATION')
+        self.assertEqual('ValueError', receipt['error'])
+        self.assertEqual('BENCHMARK_VALUE_ERROR', receipt['errorCode'])
+        self.assertEqual('MODEL_INVOCATION', receipt['failureStage'])
+        self.assertNotIn('private API key', json.dumps(receipt))
+        self.assertNotIn('/home/user', json.dumps(receipt))
+        self.assertEqual('SELECTED_EXECUTION_CHANGED', benchmark_error_receipt(
+            ValueError('SELECTED_EXECUTION_CHANGED'), 'MODEL_INVOCATION')['errorCode'])
+
+    def test_transport_receipt_retains_status_without_server_body(self):
+        import requests
+        response = requests.Response()
+        response.status_code = 429
+        response._content = b'private token in response'
+        error = requests.HTTPError('secret header', response=response)
+        receipt = benchmark_error_receipt(error, 'MODEL_INVOCATION')
+        self.assertEqual('BENCHMARK_HTTP_ERROR', receipt['errorCode'])
+        self.assertEqual(429, receipt['httpStatus'])
+        self.assertEqual('UNKNOWN', receipt['requestOutcome'])
+        self.assertNotIn('secret', json.dumps(receipt))
+        self.assertNotIn('private', json.dumps(receipt))
+
+    def test_coding_value_error_includes_stage_and_preserves_no_raw_message(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = BenchmarkStore(Path(directory) / 'benchmarks.sqlite3')
+            run, _ = store.create('owner', request(), {'executionIdentity': 'route'})
+            runner = BenchmarkRunner(store, 'http://localhost', threading.Event(),
+                                     lambda: 'route', lambda: {'repair_attempts': 0})
+            task = fixtures.suite()[0]
+            reference_outputs = [{'output': fixtures.expected(task, vector)}
+                                 for vector in task['vectors']]
+            with patch.object(fixtures, 'suite', return_value=[task]), \
+                    patch.object(sandbox, 'preflight', return_value='docker'), \
+                    patch.object(sandbox, 'execute', return_value={'status': 'COMPLETED', 'outputs': reference_outputs}), \
+                    patch.object(runner, 'measure_case', side_effect=ValueError('secret internal input')):
+                runner.code(run)
+            case = store.get(run['id'])['cases'][0]
+            self.assertEqual('ERROR', case['status'])
+            self.assertEqual('BENCHMARK_VALUE_ERROR', case['errorCode'])
+            self.assertEqual('MODEL_INVOCATION', case['failureStage'])
+            self.assertNotIn('secret internal input', json.dumps(case))
+            self.assertEqual('MODEL_INVOCATION', case['attempts'][0]['failureStage'])
 
 
 class BenchmarkLifecycleTest(unittest.TestCase):

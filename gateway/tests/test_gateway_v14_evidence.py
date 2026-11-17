@@ -74,7 +74,7 @@ class EvidenceTests(unittest.TestCase):
             'framework': 'unittest', 'class_name': 'test_reports.ReportTest',
         }
         def probe(args, _cwd, _timeout, maximum=4096):
-            if args[:3] == ['git', '--git-dir=/mirror', 'rev-parse']:
+            if len(args) >= 3 and args[0] == 'git' and args[2] == 'rev-parse':
                 return {'exit_code': 0, 'output_tail': 'true'}
             if args[0] == 'docker':
                 return {'exit_code': 0, 'output_tail': 'sha256:' + 'b' * 64}
@@ -92,7 +92,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(False, result['acceptance_preparation']['executed'])
         self.assertEqual(False, result['acceptance_preparation']['approved_mappings_present'])
         self.assertEqual([], result['acceptance_preparation']['candidates'][0]['requirement_ids'])
-        discovery.assert_called_once_with({'mirror': '/mirror'}, source_sha=source, approved_cases=None,
+        discovery.assert_called_once_with({'mirror': str(Path('/mirror'))}, source_sha=source, approved_cases=None,
                                           max_files=12, max_candidates=48)
 
     def test_acceptance_contract_rejects_unbounded_or_empty_requirements(self):

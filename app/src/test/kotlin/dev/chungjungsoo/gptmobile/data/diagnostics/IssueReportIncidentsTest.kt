@@ -663,6 +663,26 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun busyToolTrafficRetainsDistinctCodedWarningsInTheApprovedReport() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.log("MCP", "W", true, "MCP_AUTHENTICATION_REQUIRED")
+        repeat(48) {
+            IssueReportIncidents.log("Tool", "W", true, "GITHUB_CIRCUIT_OPEN")
+            IssueReportIncidents.log("Tool", "I", true, "private-message")
+        }
+        IssueReportIncidents.failure(ReportFeature.CHAT, "CHAT_FAILED")
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals(IssueReport.EVENT_LIMIT, report.events.size)
+        assertTrue(report.events.first().endsWith("W tools MCP_AUTHENTICATION_REQUIRED"))
+        assertTrue(report.events.any { it.endsWith("W tools GITHUB_CIRCUIT_OPEN") })
+        assertTrue(report.events.last().endsWith("E chat CHAT_FAILED"))
+        assertFalse(report.approvedPayload().contains("private-message"))
+        IssueReportIncidents.privacyChanged(true)
+        IssueReportIncidents.privacyChanged(false)
+        assertTrue(IssueReportIncidents.recentEvents().isEmpty())
+    }
+
+    @Test
     fun structuredFailureNeverInfersACodeFromMessagesOrNonStringFields() {
         LocalDiagnosticsPolicy.setEnabled(true)
         AppLogRecorder.recordEvent(

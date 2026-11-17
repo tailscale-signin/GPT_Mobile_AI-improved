@@ -40,7 +40,9 @@ internal object IssueReportIncidents {
     private const val DUPLICATE_MILLIS = 3_000L
     private const val PENDING_LIMIT = 24
     private val lock = Any()
-    private val events = ArrayDeque<Pair<Long, String>>()
+    private data class RecentEvent(val timeMillis: Long, val line: String, val codedWarning: Boolean)
+
+    private val events = ArrayDeque<RecentEvent>()
     private data class FailureKey(
         val feature: ReportFeature,
         val code: String,
@@ -162,7 +164,7 @@ internal object IssueReportIncidents {
     fun recentEvents(): List<String> = synchronized(lock) {
         if (isPrivate) return emptyList()
         val now = System.nanoTime() / 1_000_000L
-        events.filter { it.first >= now - RECENT_MILLIS }.map { (time, event) -> "-${(now - time).coerceAtLeast(0)}ms $event" }
+        events.filter { it.timeMillis >= now - RECENT_MILLIS }.map { "-${(now - it.timeMillis).coerceAtLeast(0)}ms ${it.line}" }
     }
 
     fun log(tag: String, level: String, tracking: Boolean) = log(tag, level, tracking, null)
@@ -456,8 +458,19 @@ internal object IssueReportIncidents {
 
     private fun addEvent(level: Char, feature: ReportFeature, code: String? = null) {
         val line = "$level ${feature.name.lowercase()}" + (code?.let { " $it" } ?: "")
-        if (events.size == IssueReport.EVENT_LIMIT) events.removeFirst()
-        events.addLast(System.nanoTime() / 1_000_000L to line)
+        val now = System.nanoTime() / 1_000_000L
+        while (events.firstOrNull()?.let { it.timeMillis < now - RECENT_MILLIS } == true) events.removeFirst()
+        if (events.size == IssueReport.EVENT_LIMIT) {
+            // Keep recent activity and one instance of each recent coded warning or error.
+            // A busy tool batch otherwise evicts the entire failure history with info events.
+            val retained = events.indices.reversed().asSequence()
+                .filter { events[it].codedWarning }
+                .distinctBy { events[it].line }
+                .take(IssueReport.EVENT_LIMIT / 2)
+                .toSet()
+            events.removeAt(events.indices.first { it !in retained })
+        }
+        events.addLast(RecentEvent(now, line, code != null && level in "WEF"))
     }
 
     private fun addPending(report: IssueReport) {

@@ -194,7 +194,7 @@ internal data class IssueReportDiagnostics(
         private val composerEvents = setOf("ATTACHED", "DETACHED", "EDITOR_FOCUSED", "EDITOR_UNFOCUSED", "IME_VISIBLE", "IME_HIDDEN", "WINDOW_FOCUSED", "WINDOW_UNFOCUSED", "CHAT_ENABLED", "CHAT_DISABLED", "INPUT_TOUCH", "INPUT_KEYBOARD", "LIFECYCLE_CREATE", "LIFECYCLE_START", "LIFECYCLE_RESUME", "LIFECYCLE_PAUSE", "LIFECYCLE_STOP", "LIFECYCLE_DESTROY", "RELEASE_SEND", "RELEASE_SHORTCUT", "RELEASE_BACKGROUND_TAP", "RELEASE_DISABLED", "RELEASE_LIFECYCLE_STOP", "RELEASE_DISPOSE")
         private val completionEvidenceFields = setOf("empty_completion_observed_attempts", "empty_completion_reasoning_only_attempts")
         private val voicePackStateFields = setOf("voice_install_recognition_status", "voice_install_playback_status")
-        private val voiceCapturePlaybackFields = setOf("voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed")
+        private val voiceCapturePlaybackFields = setOf("voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed")
         private val voiceInstallEvidenceFields = setOf(
             "voice_install_pending_reason",
             "voice_install_elapsed_ms",
@@ -362,6 +362,7 @@ internal data class IssueReportDiagnostics(
             "voice_playback_failure" to setOf("AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "AUDIO_FOCUS_TIMEOUT", "AUDIO_FOCUS_RESUME_FAILED", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED", "PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE"),
             "voice_install_recognition_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),
             "voice_install_playback_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),
+            "voice_pronunciation_failure_kind" to setOf("UNKNOWN_WORD", "UNSUPPORTED_SCRIPT", "MISSING_LETTER"),
             "voice_capture_silenced_stage" to setOf("CAPTURE_START", "CAPTURE_READ"),
             "voice_caption_alignment" to setOf("NO_TIMING", "EXACT_RANGE", "TEXT_UNMAPPED"),
             "voice_focus_result" to setOf("GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"),

@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "89ece0eaeec0c5202cc5a89ee279218e45a3f711a09e69ff78fb41563945e19a"
+    val sourceDigest: String = "160304f7c987f1adec3cb51338947ea4001fa860a93c51ff1d8b9af3d9aadc62"
     val fileCount: Int = 2662
-    val lineCount: Int = 432171
+    val lineCount: Int = 432177
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8632),
@@ -30,14 +30,14 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("research", "Research and source acquisition", 113, 13979),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 44, 4932),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 110, 14700),
-        AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 93, 13626),
+        AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 93, 13628),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 119, 17995),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 20, 1953),
-        AppAuditSourceArea("voice_and_media", "Voice and media", 31, 6169),
+        AppAuditSourceArea("voice_and_media", "Voice and media", 31, 6171),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
         AppAuditSourceArea("gateway_software", "Companion gateway software", 167, 76081),
-        AppAuditSourceArea("authentication_service", "Authentication broker software", 9, 2557),
+        AppAuditSourceArea("authentication_service", "Authentication broker software", 9, 2559),
         AppAuditSourceArea("external_integrations", "External integration servers", 63, 6509),
         AppAuditSourceArea("other_production", "Additional production source", 62, 2839)
     )

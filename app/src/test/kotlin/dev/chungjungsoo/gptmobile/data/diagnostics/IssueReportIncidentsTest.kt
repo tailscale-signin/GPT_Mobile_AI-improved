@@ -663,6 +663,18 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun interruptedRunAndUnavailableContinuationKeepTheirDistinctPublicCodes() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for (code in listOf("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE")) {
+            IssueReportIncidents.chatFailure(code, false)
+            val report = IssueReportIncidents.pending.value.single { it.errorCode == code }
+            assertEquals("chat", report.feature)
+            assertTrue(report.events.last().endsWith("E chat $code"))
+            assertTrue(report.approvedPayload().contains(code))
+        }
+    }
+
+    @Test
     fun busyToolTrafficRetainsDistinctCodedWarningsInTheApprovedReport() {
         LocalDiagnosticsPolicy.setEnabled(true)
         IssueReportIncidents.log("MCP", "W", true, "MCP_AUTHENTICATION_REQUIRED")

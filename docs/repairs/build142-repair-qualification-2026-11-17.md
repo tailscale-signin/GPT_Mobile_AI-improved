@@ -31,3 +31,43 @@ The 55 open reports through #1560 remain evidence, not proof that this candidate
 - Required before merge/issue qualification: final-head CI, singleton and real collection traversal, exact build-142 arguments through normal/native/restored paths, saved-view reopening after restart, provider wait/resume, exact-SHA acceptance and fixture cleanup, installed summary/export UI, Windows installation and release checks.
 
 Keep PR #1534 draft and unmerged until those gates pass. This document does not authorize relaxed acceptance or automatic issue closure.
+
+## November 17 follow-up on the 55 reports
+
+The latest build-142 archive contains one run with 101 tool events, 95 completed
+and six failed, and 18 model invocations. The six failures were four top-level
+source reads, one first-page search and one issue-list request missing the
+issued cursor. The terminal record has zero of one criteria verified. The
+archive records no Gateway job identifier for this run.
+
+| Reports | Observation and candidate response |
+| --- | --- |
+| #1505, #1541 | Saved views. #1505 records a missing persistent body. The store has a regression for rewriting missing bodies. #1541 supplied a local view cursor. Its report does not identify the rejected handle. Keep local-view recovery distinct from remote issue pagination. |
+| #1506, #1510, #1512, #1513, #1518, #1521, #1522, #1525, #1526, #1528 | Single-resource commit, branch-dependency and PR context results were treated as collections. Check singleton responses and real nested collections independently. |
+| #1527 | Context recovery was flagged as an incomplete collection. The operation hash matches recovery. Check its own response shape. |
+| #1529, #1530, #1553–#1556 | Source-read arguments arrived outside the ranges array. Normalize safe paths before admission and preserve corrected arguments on the receipt. |
+| #1516, #1519, #1549 | Argument constraints with insufficient public values to establish an identical rejected request. Keep finite conflicting limits rejected. Normalize the bounded EOF form only where independently validated. |
+| #1531, #1542, #1543, #1557 | First-page searches included unsupported presentation or page-size fields. Repair the first page only, preserving later-page cursor requirements. |
+| #1540, #1558 | Issue discovery rejected a numbered page. The compact list contract now accepts the issued after cursor. The GraphQL validator distinguishes missing and invalid continuations before dispatch. Reports carry the number of missing or invalid fields and constraint class without the cursor value. |
+| #1511, #1546, #1547 | #1511 reached the call allowance. #1546 and #1547 reached the separate result-byte allowance. A one- or two-call ordinary task keeps its usable allowance. Larger source batches retain verification capacity. |
+| #1517, #1520, #1550 | The first two tool calls had a failed dependency. #1550 hit the repeat limit. Keep those guards active and retain earlier coded warnings during high-volume runs so the next report can show the preceding events. |
+| #1507, #1559 | The original error hash matches OUTPUT_CONTINUATION_UNAVAILABLE. Approved reports now name this outcome directly. |
+| #1548, #1551 | The original error hash matches GITHUB_RUN_INTERRUPTED. The reporter now distinguishes a stream ending without a terminal result from an unavailable saved-answer continuation. |
+| #1509, #1535, #1537, #1544, #1552 | Provider rate limits. Scope cooldowns to the observed model/route or confirmed shared upstream quota. A provider can still return 429. |
+| #1532, #1533 | Malformed provider tool frames. Retain the closed frame subtype without the original provider payload. |
+| #1508, #1515, #1536 | Branch policy observation was incomplete. A protected branch and a protection-endpoint 404 can coexist. These reports cannot establish the missing policy. |
+| #1514, #1560 | Acceptance evidence was insufficient. #1560 specifically records mutable evidence expiry or revision change. Verify against the identified revision without treating source reads as test results. |
+| #1523, #1539 | Integration reports record failed or missing prerequisites. A blocked mutation remains unverified until the prerequisite and fixture can be exercised. |
+| #1524, #1545 | Claim extraction timed out or returned an invalid response. Preserve those separate reasons and the preceding bounded event history. |
+| #1538 | Reasoning Off was explicitly requested on a route without a verified control after four probes. Keep the explicit setting and report the admission evidence. |
+
+The incident history uses its existing 60-second window and 16-event limit.
+During heavy traffic it preserves recent distinct coded warnings/errors and
+recent activity in chronological order. These are neighboring observations.
+Causal attribution still uses the invocation, receipt or job evidence.
+
+The previous Android suite reported seven failures. The candidate includes
+regressions for short durable allowances, strict finite range conflicts, bounded
+EOF, the selected issue list, structured cursor rejection, and reporter
+provenance. This record describes the candidate and its intake. Final-head CI,
+hardware and live service observations must be recorded separately.

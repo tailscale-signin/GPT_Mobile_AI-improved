@@ -57,6 +57,16 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_interrupted_run_and_unavailable_continuation_keep_their_codes_in_approved_issues(self):
+        for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE"):
+            with self.subTest(code=code):
+                report = self.report(self.capture())
+                report.pop("context")
+                report.update(feature="chat", errorCode=code, events=["-0ms E chat " + code])
+                _, issue = issue_from_report(report)
+                self.assertIn(code, issue["title"])
+                self.assertIn(code, issue["body"])
+
     def test_voice_pronunciation_reason_is_closed_and_contains_no_spoken_word(self):
         values = {
             "incident_phase": "voice_playback",

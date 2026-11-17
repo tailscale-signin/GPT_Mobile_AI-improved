@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "9228e59e8b733c138400fbb2592a0c1efa46439ea9ccefe4debe2158a69a82c9",
+  "source_digest": "63429f17547252434a71b67ddc7b820ec71a510753fcb8f3d704fc03e709fa0d",
   "file_count": 2667,
-  "indexed_line_count": 433699,
+  "indexed_line_count": 433704,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -58,7 +58,7 @@
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 100,
-      "indexed_line_count": 22448
+      "indexed_line_count": 22453
     },
     {
       "id": "mcp_plugins",
@@ -2698,8 +2698,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "4813d3da7d8a57f6351542a4474559cf87384a22adeb096710cd7b665596feba",
-      "indexed_lines": 1249
+      "sha256": "b874c9dab37ddea729d6a6dcc770bef47aaedafe5006993b00f4c5521bf53883",
+      "indexed_lines": 1254
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",

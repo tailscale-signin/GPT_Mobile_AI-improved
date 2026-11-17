@@ -2720,7 +2720,7 @@ class ChatRepositoryImpl(
     private fun Flow<ApiState>.withFailureBoundaryEvidence(runId: String, platform: PlatformV2): Flow<ApiState> = map { event ->
         if (event !is ApiState.Error) return@map event
         val original = event.failureDetails.orEmpty()
-        val boundary = if ("incident_capture_site" !in original && (event.errorCode.isNullOrBlank() || event.errorCode == "UNKNOWN" || original.isEmpty())) {
+        val boundary = if ("incident_capture_site" !in original && (event.errorCode.isNullOrBlank() || event.errorCode in setOf("UNKNOWN", "CHAT_FAILED", "GITHUB_TASK_INCOMPLETE") || original.isEmpty())) {
             dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.boundaryFields(
                 dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE
             )

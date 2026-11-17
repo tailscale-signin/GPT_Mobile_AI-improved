@@ -40,3 +40,54 @@ synthetic page continuation was issued. Record the account and repository
 references without exporting private source or credentials. The transport probe
 and hosted emulator cover their respective paths. They cannot mark the live
 selected-profile chain verified.
+
+## Reconciled November 17 build-142 reports (43 open issues at intake)
+
+The newer build-142 reports demonstrate that source repairs on this draft branch
+must be qualified at the installed/native tool boundary, not inferred from
+agent-only tests or a prior APK. Review all 43 open reports (#1505-#1548,
+excluding this PR) as a changing historical frontier:
+
+- **Native dispatch and arguments:** #1542-#1543 reproduced unsupported
+  `github_search.per_page` after provider repair attempts; the native boundary
+  now applies the existing *schema-validated, first-page-only, read-only*
+  correction without consuming another model repair. #1540 and #1541 concern
+  `github_issue` list/cursor validation; their exact invalid selector values
+  are not present, so retain them pending a typed recapture. #1519, #1516,
+  #1531 and #1529-#1530 remain independently classified.
+- **Output pressure:** #1546 and #1547 show successful HTTP-200
+  `github_pr:list` / `github_ci:workflows` reads, but the shared tool-result
+  budget reached **24,576/24,576 bytes** after seven dispatched calls.
+  This is neither a provider 429 nor proof of a pagination regression.
+  Measure saved-page continuation and result-byte allocation in the live test.
+  #1511 is a separate earlier call-budget report.
+- **Causal gaps:** #1548 and #1507 report `CHAT_FAILED` without an established
+  cause; #1545 and #1524 report claim-extraction failures. A report-boundary
+  marker now identifies where generic and incomplete error values were observed
+  when no prior capture site is present. This marker is **not** proof of the
+  exception type, model invocation or remote dispatch.
+- **Provider controls:** #1538 is a verified Llama `REASONING_OFF_UNSUPPORTED`
+  admission; #1544, #1537, #1535 and #1509 recorded real OpenRouter HTTP 429
+  responses. Preserve effective reasoning mode, requested mode, template
+  control qualification, retry deadline source and provider/model route before
+  claiming a fixed cause. #1532-#1533 require fresh malformed-frame subtype
+  verification on an installed candidate.
+- **Acceptance and policy evidence:** #1539, #1536, #1523, #1515, #1514 and
+  #1508 lack complete verified acceptance/policy receipts. Candidate test
+  discovery is not automatic host approval. A GitHub branch-protection 404 or
+  integration permission denial must remain an *unavailable* observation.
+- **Prior pagination and retained views:** #1528, #1527, #1526, #1525,
+  #1522, #1521, #1518, #1513, #1512, #1510 and #1506 concern older
+  single-resource and collection pagination observations. #1520/#1517 are
+  dependent precheck tool failures and #1505 is saved-view recovery; each
+  requires the exact current action, cursor owner and source revision before
+  closure.
+
+**Close criteria:** The issue's actual action must pass in a freshly installed
+Android build with a matching source SHA, selected AI profile, Gateway source
+and package revision, and authorized GitHub ref. Confirm that both the saved
+receipt and UI reopening pass. Retain genuine provider 429 incidents until
+the retry/resumption receipt verifies recovery. Do not close unsolved cases
+only because a branch changed; missing cause is a recapture requirement,
+not success. Never include raw prompts, credentials or private paths in
+automatic report payloads.

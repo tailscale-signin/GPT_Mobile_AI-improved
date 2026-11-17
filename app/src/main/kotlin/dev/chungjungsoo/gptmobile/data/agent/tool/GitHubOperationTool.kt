@@ -44,7 +44,18 @@ internal class GitHubOperationTool(
     private val rejectedCalls = linkedMapOf<JsonObject, AgentToolResult>()
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-        val arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(operation, arguments)
+        val canonicalArguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(operation, arguments)
+        // A native batch may bypass AgentRunner's early read correction. At the final
+        // dispatch boundary, normalize only a validated first-page search with one
+        // obsolete per_page field. Cursor, unknown-field and mutation calls stay rejected.
+        val arguments = if (operation == "github_search" && "per_page" in canonicalArguments) {
+            dev.chungjungsoo.gptmobile.data.agent.GitHubRecoveryCalls.repairSourceRead(
+                dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall(callId, definition.name, canonicalArguments),
+                this
+            ).arguments
+        } else {
+            canonicalArguments
+        }
         val started = System.nanoTime()
         val repairScope = currentCoroutineContext()[ToolArgumentRepairScope]
         val previous = synchronized(rejectedCalls) { rejectedCalls[arguments] }

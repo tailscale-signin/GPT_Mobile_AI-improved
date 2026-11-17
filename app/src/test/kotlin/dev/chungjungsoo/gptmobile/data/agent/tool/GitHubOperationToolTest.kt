@@ -77,13 +77,24 @@ class GitHubOperationToolTest {
         val before = observed.size
         assertTrue(search.execute("unsafe", args("""{"action":"delete","query":"checkpoint"}""")).isError)
         assertEquals(before, observed.size)
-        val invalid = search.execute("page-size", args("""{"query":"checkpoint","commit_sha":"$sha","per_page":50}"""))
-        assertFalse(invalid.dispatched)
-        assertEquals(before, observed.size)
-        val correction = (invalid.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject
-        val corrected = correction.getValue("arguments").jsonObject
-        assertEquals(args("""{"query":"checkpoint","commit_sha":"$sha"}"""), corrected)
-        valid("github_search", corrected)
+        // Direct native dispatch also performs the bounded first-page search repair;
+        // agent-level correction alone did not cover the build-142 precheck reports.
+        val repaired = search.execute("page-size", args("""{"query":"checkpoint","commit_sha":"$sha","per_page":50}"""))
+        assertFalse(repaired.isError)
+        assertEquals(before + 1, observed.size)
+        assertEquals(JsonPrimitive("search_repository"), observed.last()["action"])
+        assertFalse("per_page" in observed.last())
+        for (input in listOf(
+            """{"query":"checkpoint","per_page":50,"page":2}""",
+            """{"query":"checkpoint","per_page":50,"view_cursor":"unissued"}""",
+            """{"query":"checkpoint","per_page":50,"index_cursor":2}""",
+            """{"query":"checkpoint","per_page":50,"unknown":"unsafe"}"""
+        )) {
+            val rejected = search.execute("unsafe-page-size", args(input))
+            assertTrue(rejected.isError)
+            assertFalse(rejected.dispatched)
+            assertEquals(before + 1, observed.size)
+        }
     }
 
     @Test fun structuredReadValidationPreservesPinnedCandidatesAndUsesTheActiveToolRoute() = runBlocking {

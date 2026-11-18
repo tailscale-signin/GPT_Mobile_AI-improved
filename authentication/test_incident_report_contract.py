@@ -97,6 +97,38 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_diagnostics(forged)
 
+    def test_copilot_actions_and_tool_precheck_reasons_roundtrip_without_raw_tool_arguments(self):
+        reasons = (
+            "TOOL_ARGUMENT_SCHEMA_REJECTED",
+            "TOOL_ARGUMENT_CONSTRAINT_REJECTED",
+            "SAVED_VIEW_CURSOR_MALFORMED",
+            "SAVED_VIEW_CONTEXT_MISMATCH",
+        )
+        actions = ("agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable")
+        for action in actions:
+            with self.subTest(action=action):
+                capture = self.capture("TOOL", {"native_tool_action": action, "tool_action": action})
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["context"].update(stage="tool_precheck", dispatched=False)
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                _, issue = issue_from_report(report)
+                self.assertIn(action, issue["body"])
+                self.assertNotIn("private-token-value", issue["body"])
+        for reason in reasons:
+            with self.subTest(reason=reason):
+                report = self.report(self.capture("TOOL"))
+                report["context"].update(stage="tool_precheck", dispatched=False, reasonCode=reason)
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                _, issue = issue_from_report(report)
+                self.assertIn(reason, issue["body"])
+                invalid = copy.deepcopy(report)
+                invalid["context"]["dispatched"] = True
+                with self.assertRaises(ReportError):
+                    issue_from_report(invalid)
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"native_tool_action": "private_copilot_command"}))
+
     def test_protocol_recovery_outcome_is_closed_and_area_scoped(self):
         choices = (
             "TEXT_FALLBACK_EXHAUSTED",

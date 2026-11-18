@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "be2b9598df97ecdcf4f6f4363f4c3b8766f57cb4822b080d946e3852efe31972",
+  "source_digest": "146dfb2aca61120c067339594fda476e6f05187dee6e55d56d83bc00129c7ca1",
   "file_count": 2667,
-  "indexed_line_count": 433792,
+  "indexed_line_count": 433867,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 234,
-      "indexed_line_count": 39847
+      "indexed_line_count": 39894
     },
     {
       "id": "agent_tools",
@@ -130,7 +130,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 93,
-      "indexed_line_count": 13747
+      "indexed_line_count": 13775
     },
     {
       "id": "benchmark",
@@ -1655,8 +1655,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryCalls.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "841e14e1c3475391de4d71db76a9bd4d313afcb6a82093cb2c05935867ab4ce4",
-      "indexed_lines": 66
+      "sha256": "3f89369f9631be88ea419ef675370dce21bae472caf85f488f41b320468388eb",
+      "indexed_lines": 97
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
@@ -1774,8 +1774,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "1aea6dc2a826bc43ba73440ad54124ed9e6fd3d892ae84960747af35b6e7b449",
-      "indexed_lines": 730
+      "sha256": "5c4221fb51b69c465595abe301af82e8daabf98590ac2fb62b37c989e2921540",
+      "indexed_lines": 745
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderLimitResumeWorker.kt",
@@ -1984,8 +1984,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "a86b5fd9ce52c7d69e9a7d3a9960b3f1b0f0cf5c560c997f57478d50733237b6",
-      "indexed_lines": 447
+      "sha256": "b16cad2ac42cfc2607208998d00d663270ef47666d329056b6fa3276e63e2830",
+      "indexed_lines": 448
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchCheckpoint.kt",
@@ -5694,8 +5694,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "a8ae0ae1ce383226c8642680b513631f87fd19855ecff2e20a89027fcb2c56bd",
-      "indexed_lines": 532
+      "sha256": "3eea43c66f731cf2e9f5fa51b2338425dbf2a8376fa88cd0db2f5b3faf61e8c0",
+      "indexed_lines": 560
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportManualCapture.kt",

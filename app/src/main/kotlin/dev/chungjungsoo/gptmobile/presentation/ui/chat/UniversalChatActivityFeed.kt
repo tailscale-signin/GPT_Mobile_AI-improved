@@ -32,6 +32,7 @@ internal fun universalChatPublicCheckpoints(timeline: List<AssistantTimelineItem
                 item.delegationProfile == null &&
                 !item.delegatedTool &&
                 item.toolSequence == null &&
+                item.toolMetrics == null &&
                 item.recalledFacts.isEmpty() &&
                 !isContextDiagnostic(item.content)
         }

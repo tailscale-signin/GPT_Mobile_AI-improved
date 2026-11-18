@@ -823,8 +823,8 @@ internal class GitHubOperationTool(
                     setOf("owner", "repo", "action", "ref", "branch", "commit_sha", "page", "per_page", "verify_live", "view_cursor", "response_detail")
                 }
                 val actions = if (canonical == "github_pr") listOf("list", "headers", "context") else listOf("resolve", "status", "branches", "branch", "commits", "commit", "checks", "repository")
-                val properties = (full.inputSchema["properties"] as JsonObject).filterKeys { it in fields }.mapValues { (_, value) ->
-                    JsonObject((value as JsonObject).filterKeys { it != "description" })
+                val properties = (full.inputSchema["properties"] as JsonObject).filterKeys { it in fields }.mapValues { (field, value) ->
+                    JsonObject((value as JsonObject).filterKeys { it != "description" || field == "view_cursor" })
                 }.toMutableMap()
                 properties["action"] = buildJsonObject {
                     put("type", "string")
@@ -875,7 +875,19 @@ internal class GitHubOperationTool(
                 put("type", "string")
                 put("enum", JsonArray(names.map(::JsonPrimitive)))
             }
-            val properties = linkedMapOf("owner" to field("string"), "repo" to field("string"), "commit_sha" to field("string"), "view_cursor" to field("string"))
+            val properties = linkedMapOf(
+                "owner" to field("string"),
+                "repo" to field("string"),
+                "commit_sha" to field("string"),
+                "view_cursor" to buildJsonObject {
+                    put("type", "string")
+                    put(
+                        "description",
+                        "Copy the exact issued continuation_call.arguments.view_cursor as the ONLY field. " +
+                            "Omit action, owner, repo, query, page, ref and other fields. Never invent a cursor."
+                    )
+                }
+            )
             // Snapshot-backed search/read do not qualify remote transport. Keep
             // the cache-bypass control on remote facades without repeated prose.
             if (operation in setOf("github_context", "github_pr", "github_ci", "github_issue", "github_release")) {

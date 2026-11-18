@@ -107,8 +107,8 @@ internal object GitHubActionSchema {
         }
         val required = alternatives.flatMap { (it["required"] as? JsonArray).orEmpty() }.mapNotNull { (it as? JsonPrimitive)?.content }.toSet()
         val keep = names + required + setOf("owner", "repo", "action", "verify_live", "view_cursor", "response_detail")
-        val properties = original.filterKeys { it in keep }.mapValues { (_, value) ->
-            (value as? JsonObject)?.let { JsonObject(it.filterKeys { key -> key != "description" }) } ?: value
+        val properties = original.filterKeys { it in keep }.mapValues { (field, value) ->
+            (value as? JsonObject)?.let { JsonObject(it.filterKeys { key -> key != "description" || field == "view_cursor" }) } ?: value
         }.toMutableMap()
         properties["action"] = JsonObject(selector + ("enum" to JsonArray(listOf(JsonPrimitive(action)))))
         val guidance = when (operation to action) {

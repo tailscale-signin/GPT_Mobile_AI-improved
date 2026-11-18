@@ -195,6 +195,10 @@ class GitHubArgumentAdmissionTest {
             val fresh = args(freshSource)
             for (definition in variants) {
                 val schema = definition.inputSchema
+                val cursorField = ((schema["properties"] as JsonObject)["view_cursor"] as JsonObject)
+                val guidance = (cursorField["description"] as? JsonPrimitive)?.content.orEmpty()
+                assertTrue("${definition.name} documents exact issued cursors", guidance.contains("exact issued"))
+                assertTrue("${definition.name} documents exclusive continuation", guidance.contains("ONLY field"))
                 assertTrue("${definition.name} accepts issued cursor", ToolArgumentValidator.errors(cursor, schema).isEmpty())
                 assertTrue("${definition.name} rejects mixed cursor", ToolArgumentValidator.errors(JsonObject(fresh + cursor), schema).isNotEmpty())
                 assertTrue("${definition.name} rejects cursor with repository", ToolArgumentValidator.errors(args("""{"view_cursor":"saved:1:2048","owner":"team","repo":"project"}"""), schema).isNotEmpty())

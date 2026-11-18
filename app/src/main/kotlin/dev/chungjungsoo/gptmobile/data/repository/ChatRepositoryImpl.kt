@@ -99,6 +99,8 @@ import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
@@ -271,8 +273,15 @@ class ChatRepositoryImpl(
     private val gatewayConversations: dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository? = null,
     private val gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository? = null,
     private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
-    private val gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
+    private val gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
+    private val privacyMode: PrivacyModeStore? = null
 ) : ChatRepository {
+    private fun requirePrivacyAdmission(platform: PlatformV2) {
+        if (privacyMode?.snapshot()?.enabled != true) return
+        val decision = PrivacyProfileEligibility.evaluate(platform, true)
+        check(decision.eligible) { "PRIVACY_PROVIDER_INELIGIBLE: " + decision.explanation }
+    }
+
     override suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
         userMessages: List<MessageV2>,
@@ -751,6 +760,7 @@ class ChatRepositoryImpl(
         onInvocation: (String) -> Unit,
         onPhysicalRequest: (String) -> Unit
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
+        requirePrivacyAdmission(platform)
         val requested = kotlinx.coroutines.currentCoroutineContext()[BenchmarkRequestContext] ?: BenchmarkRequestContext()
         val schema = requested.responseSchemaJson ?: when (benchmarkCategory) {
             dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY -> dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.responseSchemaJson
@@ -852,6 +862,7 @@ class ChatRepositoryImpl(
         parentRunId: String,
         onInvocation: (String) -> Unit
     ): AgentProviderSession {
+        requirePrivacyAdmission(platform)
         require(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.minimum(role) != null)
         require(outputTokens in 256..8192 && prompt.toByteArray().size <= 96 * 1024)
         dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(role, outputTokens.toLong())
@@ -903,6 +914,7 @@ class ChatRepositoryImpl(
         settings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
         frozenProfiles: Map<String, PlatformV2>
     ): dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSample {
+        requirePrivacyAdmission(platform)
         val config = settings.normalized().copy(fallbackToAnotherProfile = false)
         check(config.enabled) { "Enable delegation before benchmarking its settings." }
         // A resumed benchmark must keep the helper and reviewer accepted with its queue.
@@ -1737,6 +1749,18 @@ class ChatRepositoryImpl(
                 )
             )
         }
+        val privacyDecision = PrivacyProfileEligibility.evaluate(platform, privacyMode?.snapshot()?.enabled == true)
+        if (!privacyDecision.eligible) {
+            emit(
+                ApiState.Error(
+                    "PRIVACY_PROVIDER_INELIGIBLE: " + privacyDecision.explanation,
+                    errorCode = "PRIVACY_PROVIDER_INELIGIBLE",
+                    taskOutcome = "BLOCKED"
+                )
+            )
+            emit(ApiState.Done)
+            return@flow
+        }
         retainToolAdmission(runId, platform, userMessages.lastOrNull()?.chatId, dev.chungjungsoo.gptmobile.data.agent.RunToolAdmissionStage.STAGE_NOT_REACHED)
         val auditUser = userMessages.lastOrNull()
         if (stage == null &&
@@ -1823,6 +1847,7 @@ class ChatRepositoryImpl(
     }.withFailureBoundaryEvidence(runId, platform).withSystemOutputLineage(runId).flowOn(Dispatchers.Default)
 
     override suspend fun preflightAnswerPrivacy(platform: PlatformV2) = withContext(Dispatchers.Default) {
+        requirePrivacyAdmission(platform)
         // UI entry points share this preflight with generation. Metadata parsing
         // and policy evaluation must not return to Main after the client's IO.
         if (platform.compatibleType != ClientType.OPENROUTER || privacyPreflight == null) return@withContext
@@ -7612,6 +7637,8 @@ class ChatRepositoryImpl(
         assistantMessage: String,
         platform: PlatformV2
     ): String? {
+        // Title generation is a separate provider request; never bypass Privacy Mode.
+        if (privacyMode?.snapshot()?.enabled == true) return null
         if (settingRepository.getFeatureSettings().spendBudget.enforced) return null
         val authority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, platform)
         return withContext(authority) { titleSummarizer?.summarize(userMessage, assistantMessage, platform) }

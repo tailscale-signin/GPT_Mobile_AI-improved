@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "bcfebbd88798729190525660a1a8ebac5935b56e64253aa312b99fdbd37535fa",
-  "file_count": 2692,
-  "indexed_line_count": 439308,
+  "source_digest": "bbde0fc989e5f70de05c448d3de8dc555762c8576737677b3fc2e5aeef4e26ad",
+  "file_count": 2693,
+  "indexed_line_count": 439459,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -165,8 +165,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 173,
-      "indexed_line_count": 77216
+      "file_count": 174,
+      "indexed_line_count": 77367
     },
     {
       "id": "authentication_service",
@@ -17930,8 +17930,8 @@
       "path": "gateway/desktop/schedule_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "bcf36780100bc6a22f20197f27392627aa8a1af4d9944d18661657d5daafbc2c",
-      "indexed_lines": 117
+      "sha256": "16b6a31f53728f845e2f722308986e03009356dcb62cea946dd3ba80631357d1",
+      "indexed_lines": 133
     },
     {
       "path": "gateway/desktop/smoke_windows.py",
@@ -18693,8 +18693,8 @@
       "path": "gateway/v14/operator_schedule.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "5db5dee58073f659b8b1b4d261eca3261d0b5b2a760ee2313bb87cb1de2a2fd8",
-      "indexed_lines": 122
+      "sha256": "b2dbe0ec375c6794a31c8ab285fafb9d60bcc4e2a41cbd448cfbeb2387925cc0",
+      "indexed_lines": 141
     },
     {
       "path": "gateway/v14/package.py",
@@ -18751,6 +18751,13 @@
       "kind": "source",
       "sha256": "87139a8a51eebbac4a50a1c0b07701ed417f116c9c645c60f8536b2e1d139bfd",
       "indexed_lines": 82
+    },
+    {
+      "path": "gateway/v14/scheduled_validation.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "d4e2f5e4310bbcd0a49f6bd44b6eef9a04fa8802534809c9665987330491247d",
+      "indexed_lines": 116
     },
     {
       "path": "gateway/v14/service.py",

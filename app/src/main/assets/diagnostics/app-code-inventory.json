@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2e4c53259dd69214cc4f71d1ecd14d963a54400aba19fde6066714d39d3da5a3",
+  "source_digest": "851d00e948fb4199f9f03fea1e1c716d28e911949b2fe6f13ff70ff74d1504f2",
   "file_count": 2691,
-  "indexed_line_count": 439186,
+  "indexed_line_count": 439187,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -142,7 +142,7 @@
       "id": "auth_and_security",
       "label": "Permissions, privacy and credentials",
       "file_count": 27,
-      "indexed_line_count": 2823
+      "indexed_line_count": 2824
     },
     {
       "id": "voice_and_media",
@@ -10524,8 +10524,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "610d7707dc854ebaaef54401a41361e161ebae0d061d8ebb2879c6d828646e1d",
-      "indexed_lines": 158
+      "sha256": "a3eca8371bd181b2e21b58df7e15e1b30b6abe20d0f8ee57fd83c15fea65c315",
+      "indexed_lines": 159
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMask.kt",
@@ -17678,7 +17678,7 @@
       "path": "gateway/check_gateway.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "4ff7cd064b97fb2f56a985a07e0ca785f6c6c910be404a994a0ae32bfecb5ff2",
+      "sha256": "4daa1c39fd251c50010c241fa207d6fb34801bb13fcce22521cb7942df0b2165",
       "indexed_lines": 75
     },
     {

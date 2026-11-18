@@ -40,12 +40,6 @@ internal class PrivateInferenceSession(
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
         try {
             check(tools.isEmpty() && exchanges.isEmpty()) { "External tools require separate privacy verification." }
-            val verified = verifier.verify(profile)
-            val route = verified.route
-            if (route == null) {
-                emit(ProviderEvent.Failed(verified.decision.explanation + " " + alternatives(), errorCode = "PRIVACY_PROVIDER_INELIGIBLE", taskOutcome = "BLOCKED"))
-                return@flow
-            }
             val state = store.snapshot()
             check(state.enabled) { "Privacy settings changed. Resend to confirm the new settings." }
             val mask = PrivateTextMask(state.categories, store.privateTerms())
@@ -68,18 +62,22 @@ internal class PrivateInferenceSession(
                 }
             }
             val preferred = constraints.outputLimit(profile.maxTokens) ?: 4096
-            val limit = if (route.kind == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(profile).outputAllowance(preferred) else preferred
-            val body = wireBody(route, profile.model, messages, limit)
+            val limit = if (profile.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(profile).outputAllowance(preferred) else preferred
             // The response map exists only for this invocation. No plaintext mapping is persisted.
             val restore = mask.sealForResponse()
             currentCoroutineContext()[RequestAuthorizationGuard]?.validate?.invoke()
-            val config = dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(
-                apiUrl = route.url, token = null, profileUid = profile.uid, providerType = profile.compatibleType.name,
-                lockedApiUrl = route.url, lockedModel = profile.model, contextCeiling = constraints.contextCeiling,
-                requireKnownCapacity = constraints.requireKnownCapacity, permissionRevision = constraints.permissionRevision,
-                requestRole = constraints.requestRole ?: "primary"
-            )
             suspend fun transmit(): JsonObject {
+                // Verify after acquiring the free-provider permit. Queued work cannot reuse
+                // the eligibility decision made when the conversation was opened.
+                val verified = verifier.verify(profile)
+                val route = verified.route ?: throw RouteUnavailable(verified.decision.explanation)
+                val body = wireBody(route, profile.model, messages, limit)
+                val config = dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(
+                    apiUrl = route.url, token = null, profileUid = profile.uid, providerType = profile.compatibleType.name,
+                    lockedApiUrl = route.url, lockedModel = profile.model, contextCeiling = constraints.contextCeiling,
+                    requireKnownCapacity = constraints.requireKnownCapacity, permissionRevision = constraints.permissionRevision,
+                    requestRole = constraints.requestRole ?: "primary"
+                )
                 val wire = verifier.preparation.prepareQueued(body.toString(), config, profile.model, limit)
                 val request = Request.Builder().url(route.url).apply {
                     if (route.kind == ClientType.ANTHROPIC) {
@@ -101,14 +99,14 @@ internal class PrivateInferenceSession(
                 }.build()
                 return verifier.readJson(client, request)
             }
-            val result = if (route.kind == ClientType.FREE) {
+            val result = if (profile.compatibleType == ClientType.FREE) {
                 val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(profile)
                 check(dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) == null) { "Free provider unavailable." }
                 dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.withRequest(provider, profile.model, "anonymous") { transmit() }
             } else {
                 transmit()
             }
-            val answer = when (route.kind) {
+            val answer = when (profile.compatibleType) {
                 ClientType.LLAMA, ClientType.OLLAMA -> result["text"] as? JsonPrimitive
                 ClientType.ANTHROPIC -> (result["content"] as? JsonArray)?.singleOrNull()?.let { it as? JsonObject }?.takeIf { it["type"] == JsonPrimitive("text") }?.get("text") as? JsonPrimitive
                 else -> ((result["choices"] as? JsonArray)?.singleOrNull() as? JsonObject)?.get("message")?.let { it as? JsonObject }?.get("content") as? JsonPrimitive
@@ -126,9 +124,12 @@ internal class PrivateInferenceSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            emit(ProviderEvent.Failed("Private inference stopped. Your conversation is saved locally. " + alternatives(), errorCode = "PRIVACY_PROVIDER_INELIGIBLE", taskOutcome = "BLOCKED"))
+            val reason = (error as? RouteUnavailable)?.reason ?: "Private inference stopped. Your conversation is saved locally."
+            emit(ProviderEvent.Failed(reason + " " + alternatives(), errorCode = "PRIVACY_PROVIDER_INELIGIBLE", taskOutcome = "BLOCKED"))
         }
     }
+
+    private class RouteUnavailable(val reason: String) : Exception()
 
     companion object {
         internal fun wireBody(route: VerifiedPrivateRoute, model: String, messages: JsonArray, limit: Int): JsonObject = buildJsonObject {

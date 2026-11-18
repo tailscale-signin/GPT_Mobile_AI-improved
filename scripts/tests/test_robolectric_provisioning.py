@@ -107,6 +107,44 @@ class RobolectricProvisioningTest(unittest.TestCase):
         self.assertFalse(self.target.exists())
         self.assertFalse(list(self.target.parent.glob('*.part')))
 
+    def test_google_maven_mirror_recovers_after_both_central_hosts_429(self):
+        calls, delays = [], []
+        canonical = f"{sdk.BASE}/sample/runtime.jar"
+
+        def opener(url, timeout):
+            calls.append(url)
+            if len(calls) <= 2:
+                raise urllib.error.HTTPError(url, 429, 'throttled', {}, None)
+            return io.BytesIO(self.body)
+
+        sdk.download(self.target, canonical, self.digest, 100, opener, delays.append,
+                     lambda: 0, lambda _low, _high: 0, lambda: 0)
+        self.assertEqual([
+            canonical,
+            sdk.MAVEN_CENTRAL_ALTERNATE_BASE + '/sample/runtime.jar',
+            sdk.GOOGLE_MAVEN_CENTRAL_BASE + '/sample/runtime.jar'
+        ], calls)
+        self.assertEqual([15, 30], delays)
+        self.assertEqual(self.body, self.target.read_bytes())
+        self.assertFalse(list(self.target.parent.glob('*.part')))
+
+    def test_google_maven_mirror_still_rejects_unpinned_bytes(self):
+        calls = []
+        canonical = f"{sdk.BASE}/sample/runtime.jar"
+
+        def opener(url, timeout):
+            calls.append(url)
+            if len(calls) <= 2:
+                raise urllib.error.HTTPError(url, 429, 'throttled', {}, None)
+            return io.BytesIO(b'invalid mirror content')
+
+        with self.assertRaisesRegex(ValueError, 'SHA-512'):
+            sdk.download(self.target, canonical, self.digest, 100, opener, lambda _: None,
+                         lambda: 0, lambda _low, _high: 0, lambda: 0)
+        self.assertEqual(3, len(calls))
+        self.assertFalse(self.target.exists())
+        self.assertFalse(list(self.target.parent.glob('*.part')))
+
     def test_mirror_cannot_bypass_publisher_digest_or_unsupported_source(self):
         calls = []
         canonical = f"{sdk.BASE}/sample/runtime.jar"

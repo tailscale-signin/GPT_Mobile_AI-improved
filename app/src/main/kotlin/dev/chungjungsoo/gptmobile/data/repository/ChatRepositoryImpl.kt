@@ -7637,8 +7637,11 @@ class ChatRepositoryImpl(
         assistantMessage: String,
         platform: PlatformV2
     ): String? {
-        // Title generation is a separate provider request; never bypass Privacy Mode.
-        if (privacyMode?.snapshot()?.enabled == true) return null
+        // Title generation uses the selected profile: local/private gateways are exempt,
+        // but an unverified cloud title request is a separate confidentiality leak.
+        if (privacyMode?.snapshot()?.enabled == true &&
+            !PrivacyProfileEligibility.evaluate(platform, true).eligible
+        ) return null
         if (settingRepository.getFeatureSettings().spendBudget.enforced) return null
         val authority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, platform)
         return withContext(authority) { titleSummarizer?.summarize(userMessage, assistantMessage, platform) }

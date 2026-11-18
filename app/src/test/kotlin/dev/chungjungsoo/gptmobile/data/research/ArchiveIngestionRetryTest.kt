@@ -69,6 +69,29 @@ class ArchiveIngestionRetryTest {
         }
     }
 
+    @Test fun bulkArchiveCapturePersistsEveryReceiptAndMembership() = runBlocking {
+        withStore { store, database, settings, context ->
+            val sources = (0 until 76).map { index ->
+                ResearchSource(
+                    "B$" + "index",
+                    "https://example.org/bulk/$" + "index",
+                    "Bulk study $" + "index",
+                    passage = "Methods and results for source $" + "index"
+                )
+            }
+            val journal = store.journal("bulk-run", 8, true, "8:1").scoped("public", true)
+            journal.save(ResearchSnapshot("Bulk capture", sources = sources))
+            val receipts = database.research().saveReceipts(8)
+            assertEquals(76, receipts.size)
+            assertTrue(receipts.all { it.disposition == "ARCHIVED" })
+            assertEquals(76, database.research().count())
+            val reopened = ResearchSessionStore(context, database, settings)
+            assertTrue(reopened.retryPendingDiscovery())
+            assertEquals(76, database.research().count())
+            assertEquals(sources, journal.load()!!.sources)
+        }
+    }
+
     @Test fun conflictingIdentityIsRetainedOnceAcrossProgressSavesAndRestart() = runBlocking {
         withStore { store, database, settings, context ->
             val first = ResearchSource("S1", "https://example.org/a", "A", doi = "10.1234/a")

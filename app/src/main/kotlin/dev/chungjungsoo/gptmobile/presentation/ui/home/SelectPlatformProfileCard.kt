@@ -67,11 +67,13 @@ internal fun SelectPlatformProfileCard(
     onInsights: () -> Unit,
     gatewayAvailability: GatewayAvailability? = null,
     animateGateway: Boolean = false,
-    onFocus: (Boolean) -> Unit = {}
+    onFocus: (Boolean) -> Unit = {},
+    privacyRestriction: String? = null
 ) {
     val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
     val unavailable = androidx.compose.runtime.remember(profile, health, now) { dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) }
+    val privacyBlocked = privacyRestriction != null
     val favoriteLabel = stringResource(if (profile.isFavorite) R.string.picker_remove_favorite else R.string.picker_add_favorite)
     val lines = if (LocalDensity.current.fontScale >= 1.3f) 3 else 1
     val surface = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
@@ -92,8 +94,8 @@ internal fun SelectPlatformProfileCard(
             val metricsWidth = (maxWidth * .45f).coerceAtLeast(48.dp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(
-                    Modifier.weight(1f).heightIn(min = 64.dp).testTag("profile_select_${profile.uid}").alpha(if (unavailable != null && !selected) 0.55f else 1f)
-                        .combinedClickable(enabled = selected || unavailable == null, role = Role.Checkbox, onClick = { onToggle(profile.uid) }, onLongClick = onFavorite)
+                    Modifier.weight(1f).heightIn(min = 64.dp).testTag("profile_select_${profile.uid}").alpha(if ((unavailable != null || privacyBlocked) && !selected) 0.42f else 1f)
+                        .combinedClickable(enabled = selected || (unavailable == null && !privacyBlocked), role = Role.Checkbox, onClick = { onToggle(profile.uid) }, onLongClick = onFavorite)
                         .semantics(mergeDescendants = true) {
                             toggleableState = ToggleableState(selected)
                             customActions = listOf(
@@ -106,7 +108,7 @@ internal fun SelectPlatformProfileCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Checkbox(checked = selected, onCheckedChange = null, enabled = selected || unavailable == null)
+                    Checkbox(checked = selected, onCheckedChange = null, enabled = selected || (unavailable == null && !privacyBlocked))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
@@ -130,6 +132,9 @@ internal fun SelectPlatformProfileCard(
                             val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl)
                             val description = provider?.let { dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(it, profile.model, health[it], now, profile.token) } ?: blocked.message
                             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        privacyRestriction?.let { reason ->
+                            Text("Privacy Mode: $reason", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(profile.model, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.primary, maxLines = lines, overflow = TextOverflow.Ellipsis)
                     }

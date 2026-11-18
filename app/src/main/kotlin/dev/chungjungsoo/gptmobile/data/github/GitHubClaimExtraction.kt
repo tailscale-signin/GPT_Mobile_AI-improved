@@ -171,7 +171,7 @@ internal object GitHubClaimExtraction {
     }
 
     // Only JSON quoted strings, true/false/null, and JSON-number tokens are scalar JSON.
-    private val STRICT_JSON_SCALAR = Regex("""(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)""")
+    private val STRICT_JSON_SCALAR = Regex("""(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:[.][0-9]+)?(?:[eE][+-]?[0-9]+)?)""")
 
     private val JSON_FENCE = Regex("""\A```(?:json)?\r?\n([\s\S]*)\r?\n```\z""", RegexOption.IGNORE_CASE)
 

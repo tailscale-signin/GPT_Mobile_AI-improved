@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 /** Route only exact, retained read recipes through the ordinary authorization/budget path. */
 internal object GitHubRecoveryCalls {
@@ -17,19 +18,37 @@ internal object GitHubRecoveryCalls {
         val corrected = when (operation) {
             "github_read" -> ToolArgumentValidator.boundedReadCorrection(operation, call.arguments)
             "github_search" -> {
-                // Drop only known unsupported presentation/size options on a fresh search.
-                // Cursor-bearing calls and unknown fields still fail full validation.
+                // Repair only schema-bounded options on the first page. An explicit
+                // index_cursor=0 is the beginning of a search, not an issued
+                // continuation. Preserve it; never rewrite an advanced cursor,
+                // opaque search ID or saved-view selector.
                 val query = (call.arguments["query"] as? JsonPrimitive)
                     ?.takeIf { it.isString }?.content
-                if (call.arguments.keys.none { it in setOf("per_page", "response_detail") } ||
-                    query.isNullOrBlank() ||
-                    query.length > 200 ||
-                    call.arguments.keys.any { it in setOf("view_cursor", "index_cursor", "search_id") } ||
-                    call.arguments["page"] !in setOf(null, JsonPrimitive(1))
+                val declared = (schema["properties"] as? JsonObject).orEmpty()
+                val unsupportedPresentation = setOf("per_page", "response_detail")
+                    .filter { it in call.arguments && it !in declared }.toSet()
+                val blobRules = declared["max_new_blobs"] as? JsonObject
+                val requestedBlobs = (call.arguments["max_new_blobs"] as? JsonPrimitive)
+                    ?.takeUnless { it.isString }?.intOrNull
+                val minBlobs = (blobRules?.get("minimum") as? JsonPrimitive)?.intOrNull
+                val maxBlobs = (blobRules?.get("maximum") as? JsonPrimitive)?.intOrNull
+                val correctedBlobs = if (requestedBlobs != null && minBlobs != null &&
+                    maxBlobs != null && minBlobs <= maxBlobs
+                ) requestedBlobs.coerceIn(minBlobs, maxBlobs) else null
+                if (query.isNullOrBlank() || query.length > 200 ||
+                    call.arguments.keys.any { it in setOf("view_cursor", "search_id") } ||
+                    call.arguments["index_cursor"] !in setOf(null, JsonPrimitive(0)) ||
+                    call.arguments["page"] !in setOf(null, JsonPrimitive(1)) ||
+                    (unsupportedPresentation.isEmpty() && (correctedBlobs == null || correctedBlobs == requestedBlobs))
                 ) {
                     null
                 } else {
-                    JsonObject(call.arguments - setOf("per_page", "response_detail"))
+                    val withoutPresentation = call.arguments - unsupportedPresentation
+                    JsonObject(
+                        if (correctedBlobs != null && correctedBlobs != requestedBlobs)
+                            withoutPresentation + ("max_new_blobs" to JsonPrimitive(correctedBlobs))
+                        else withoutPresentation
+                    )
                 }
             }
             else -> null

@@ -119,13 +119,21 @@ class GitHubSavedPageRepairTest {
             missing.reason
         }
         assertEquals("BODY_MISSING", reason())
-        state.write("test-scope", "saved-view-access:$id", buildJsonObject {
-            put("issued_cursors", JsonArray(listOf(JsonPrimitive("$id:0:2048"))))
-        })
+        state.write(
+            "test-scope",
+            "saved-view-access:$id",
+            buildJsonObject {
+                put("issued_cursors", JsonArray(listOf(JsonPrimitive("$id:0:2048"))))
+            }
+        )
         assertEquals("BODY_MISSING_INDEX_PRESENT", reason())
-        state.write("test-scope", "saved-view-body:$id", buildJsonObject {
-            put("schema", "github.saved-view.v1")
-        })
+        state.write(
+            "test-scope",
+            "saved-view-body:$id",
+            buildJsonObject {
+                put("schema", "github.saved-view.v1")
+            }
+        )
         assertEquals(JsonPrimitive("github.saved-view.v1"), store.loadWithDiagnostics(id)["schema"])
         state.remove("test-scope", "saved-view-body:$id")
         assertEquals("BODY_MISSING_INDEX_PRESENT", reason())

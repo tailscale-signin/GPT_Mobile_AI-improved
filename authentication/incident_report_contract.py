@@ -552,7 +552,7 @@ ENUMS = {
     'mcp_connection_state': {'CONNECTED', 'DEGRADED', 'UNREACHABLE', 'AUTHENTICATION_REQUIRED', 'RECOVERING'},
     'mcp_readiness_state': {'NOT_DISCOVERED', 'DISCOVERING', 'READY', 'STALE'},
     'mcp_health_observation': {'RETAINED_SNAPSHOT', 'UNAVAILABLE'},
-    'saved_view_restore_state': {'NOT_FOUND', 'LOAD_FAILED', 'IDENTITY_REJECTED', 'RESTORED', 'BODY_MISSING', 'CURSOR_INDEX_MISSING', 'INVALID_VIEW_ID'},
+    'saved_view_restore_state': {'NOT_FOUND', 'LOAD_FAILED', 'IDENTITY_REJECTED', 'RESTORED', 'BODY_MISSING', 'BODY_MISSING_INDEX_PRESENT', 'BODY_UNREADABLE', 'CURSOR_INDEX_MISSING', 'INVALID_VIEW_ID'},
     'provider_rejection_category': {'BILLING_UNAVAILABLE', 'INVALID_REQUEST', 'AUTHENTICATION', 'PERMISSION', 'RATE_LIMIT', 'NOT_FOUND', 'GONE', 'UNAVAILABLE', 'PAYLOAD_SIZE', 'MODEL_UNAVAILABLE', 'UNKNOWN'},
     'provider_parameter': {'model', 'messages', 'max_tokens', 'max_completion_tokens', 'temperature', 'top_p', 'stop', 'tools', 'tool_choice', 'stream', 'response_format', 'reasoning', 'thinking', 'metadata', 'system'},
     'payload_contract': {'CHAT_COMPLETIONS', 'ANTHROPIC_MESSAGES', 'GOOGLE_CONTENT', 'GATEWAY_GENERATION'},

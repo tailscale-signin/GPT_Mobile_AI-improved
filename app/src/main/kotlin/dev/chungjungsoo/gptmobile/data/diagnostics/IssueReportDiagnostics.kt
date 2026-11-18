@@ -125,7 +125,7 @@ internal data class IssueReportDiagnostics(
             add(IssueReportIncidentCapsule.URL_READER_AVAILABILITY_FEATURE)
         }
         if ((values.keys + omittedFields).any { it in recoveryObservationFields } ||
-            (values["saved_view_restore_state"] as? JsonPrimitive)?.contentOrNull in setOf("BODY_MISSING", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID") ||
+            (values["saved_view_restore_state"] as? JsonPrimitive)?.contentOrNull in setOf("BODY_MISSING", "BODY_MISSING_INDEX_PRESENT", "BODY_UNREADABLE", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID") ||
             "saved_view_restore_state" in omittedFields ||
             values["tool_error_code"] == JsonPrimitive("DNS_RESOLUTION_FAILED")
         ) {

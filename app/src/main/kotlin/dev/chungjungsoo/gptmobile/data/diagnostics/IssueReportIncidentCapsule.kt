@@ -198,7 +198,7 @@ internal object IssueReportIncidentCapsule {
         "voice_focus_last_transition" to setOf("RESTORE", "PAUSE", "DUCK", "STOP"),
         "native_tool_action" to actions,
         "saved_view_owner_operation" to IssueReportContext.operations,
-        "saved_view_restore_state" to setOf("NOT_FOUND", "LOAD_FAILED", "IDENTITY_REJECTED", "RESTORED", "BODY_MISSING", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID"),
+        "saved_view_restore_state" to setOf("NOT_FOUND", "LOAD_FAILED", "IDENTITY_REJECTED", "RESTORED", "BODY_MISSING", "BODY_MISSING_INDEX_PRESENT", "BODY_UNREADABLE", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID"),
         "mcp_failure_phase" to setOf("configuration", "catalog", "discovery", "initialization", "execution", "connection", "dns", "tls", "oauth_refresh", "local_validation"),
         "mcp_failure_category" to mcpHealth - "HEALTHY",
         "mcp_connection_health" to mcpHealth,

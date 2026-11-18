@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "a2205722e6c9eed099cd9c9dba76d137e8e153ff84966bbde75823254b8ea5ea",
+  "source_digest": "669bd4c77445e6967ee8db3c9dabff0553b89c61ad4c8a411f1b4a5032b511ef",
   "file_count": 2668,
-  "indexed_line_count": 434625,
+  "indexed_line_count": 434634,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 239,
-      "indexed_line_count": 39847
+      "indexed_line_count": 39856
     },
     {
       "id": "research",
@@ -5673,7 +5673,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "1df56de31ab47583288dd1bf55118a6b85771f9901ef5b3950bcd71a380e8dfa",
+      "sha256": "987eafcad8006b4d11c37ce049fbda797f530c642b2b1db04c05fe289bfea6f7",
       "indexed_lines": 638
     },
     {
@@ -5687,7 +5687,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "24172e8bb52f2366524412d765943fb5346f2d4f570228b0cc6cf0f38e5a5818",
+      "sha256": "bbb312fbea4427b374fa2adf03d1e6ee65d25d52912fe2ed55088f7700cb84b8",
       "indexed_lines": 574
     },
     {
@@ -7563,8 +7563,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSavedViewStore.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "6489689bde4371e08df5c04647bab16f08db90d34522d868d2a9a77014f06335",
-      "indexed_lines": 51
+      "sha256": "aed0f2b8c3515e4213ba80d4d50effadf20646f53a9ed8f0d073e1939a97bbfa",
+      "indexed_lines": 60
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchContext.kt",

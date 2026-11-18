@@ -1577,7 +1577,7 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_run_failure_evidence_accepts_only_closed_values_and_stays_in_the_capsule(self):
         examples = (
             ("TOOL", {"semantic_read_rules": ["LINE_WINDOW"], "validation_field_names": ["ranges", "end_line"],
-                      "dependency_admission_reasons": ["CALL_ALLOWANCE"], "saved_view_restore_state": "CURSOR_INDEX_MISSING",
+                      "dependency_admission_reasons": ["CALL_ALLOWANCE"], "saved_view_restore_state": "BODY_MISSING_INDEX_PRESENT",
                       "url_reader_dns_state": "RECOVERY_COOLDOWN", "url_reader_availability": "NEGATIVE_CACHE"}),
             ("INCIDENT", {"incident_capture_site": "CHAT_REPOSITORY_PREFLIGHT", "incident_origin": "APPLICATION",
                           "local_readiness_failure": "PENDING_CLEANUP", "pending_tool_count": 2,

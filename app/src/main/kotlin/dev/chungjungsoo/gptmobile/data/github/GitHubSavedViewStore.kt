@@ -40,8 +40,17 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
 
     suspend fun loadWithDiagnostics(id: String): JsonObject {
         if (!validId(id)) throw MissingSavedView("INVALID_VIEW_ID")
-        val body = state.read(scope, "saved-view-body:$id") ?: throw MissingSavedView("BODY_MISSING")
-        val access = state.read(scope, "saved-view-access:$id") ?: throw MissingSavedView("CURSOR_INDEX_MISSING")
+        // Observe separately whether an issued cursor index survived the source body.
+        // Neither state authorizes replaying a remote mutation.
+        val bodyKey = "saved-view-body:$id"
+        val accessKey = "saved-view-access:$id"
+        if (!state.containsRetainedBody(scope, bodyKey)) {
+            throw MissingSavedView(
+                if (state.containsRetainedBody(scope, accessKey)) "BODY_MISSING_INDEX_PRESENT" else "BODY_MISSING"
+            )
+        }
+        val body = state.read(scope, bodyKey) ?: throw MissingSavedView("BODY_UNREADABLE")
+        val access = state.read(scope, accessKey) ?: throw MissingSavedView("CURSOR_INDEX_MISSING")
         return JsonObject(body + access)
     }
 

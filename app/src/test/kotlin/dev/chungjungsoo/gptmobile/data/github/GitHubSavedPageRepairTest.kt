@@ -4,7 +4,10 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
+import java.util.UUID
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -103,6 +106,29 @@ class GitHubSavedPageRepairTest {
         assertEquals(null, GitHubTestChecklist.nextCall(task, emptyList(), records))
         assertEquals(null, GitHubTestChecklist.nextCall(task, tools.map { it.copy(modelVisible = false) }, records))
         assertEquals(null, GitHubTestChecklist.nextCall(task, tools, records, remainingToolCalls = 2))
+    }
+
+    @Test fun orphanedSavedCursorIndexIsDistinguishedFromMissingViewBody() = runBlocking {
+        val state = GitHubRepositoryStateStore()
+        val store = GitHubSavedViewStore(state, "test-scope")
+        val id = UUID.randomUUID().toString()
+        suspend fun reason() = try {
+            store.loadWithDiagnostics(id)
+            "RESTORED"
+        } catch (missing: GitHubSavedViewStore.MissingSavedView) {
+            missing.reason
+        }
+        assertEquals("BODY_MISSING", reason())
+        state.write("test-scope", "saved-view-access:$id", buildJsonObject {
+            put("issued_cursors", JsonArray(listOf(JsonPrimitive("$id:0:2048"))))
+        })
+        assertEquals("BODY_MISSING_INDEX_PRESENT", reason())
+        state.write("test-scope", "saved-view-body:$id", buildJsonObject {
+            put("schema", "github.saved-view.v1")
+        })
+        assertEquals(JsonPrimitive("github.saved-view.v1"), store.loadWithDiagnostics(id)["schema"])
+        state.remove("test-scope", "saved-view-body:$id")
+        assertEquals("BODY_MISSING_INDEX_PRESENT", reason())
     }
 
     private fun assertNoRepair(call: dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall?) {

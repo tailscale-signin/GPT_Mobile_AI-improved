@@ -1416,6 +1416,7 @@ class AgentToolResolver @Inject constructor(
             legacyCredentialIdentities = if (!authorizationFailed && actualConnection != null) gitHubPublicAuth?.legacyCredentialIdentities(actualConnection.connectionUid).orEmpty() else emptyList(),
             credentialProvider = credentialProvider,
             featureSettings = features,
+            copilotSettings = { settingRepository.getFeatureSettings() },
             modelToolName = actualConnection?.let { "github__${it.alias}" } ?: BuiltInAgentTool.GITHUB,
             accountName = actualConnection?.name,
             repositoryContext = selectedRepository,

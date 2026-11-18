@@ -54,7 +54,7 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
 }
 
 @Composable
-internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}) {
+internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}, onCopilotEnabled: (Boolean) -> Unit = {}) {
     var inspection by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     inspection?.let { (profileUid, engineering) ->
         ConnectionDoctorDialog(onDismiss = { inspection = null }, initialProfileUid = profileUid, engineeringGateway = engineering)
@@ -121,6 +121,35 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 GitHubGatewayConnectionCheck(
                     dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)?.uid
                 ) { inspection = it to true }
+            }
+        }
+        OutlinedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("GitHub Copilot · Agent Merge", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    "Let Copilot help with failed CI and merge conflicts for this conversation's pull requests. Works with remote AI profiles; no Windows Gateway required.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Allow Copilot for this chat", Modifier.weight(1f))
+                    Switch(
+                        checked = state.copilotEnabled,
+                        onCheckedChange = onCopilotEnabled,
+                        enabled = state.copilotPluginEnabled && state.chatId?.let { it > 0 } == true,
+                        modifier = Modifier.testTag("github_chat_copilot_toggle")
+                    )
+                }
+                Text(
+                    if (!state.copilotPluginEnabled) {
+                        "Off. Enable Copilot first in GitHub plugin settings."
+                    } else if (state.chatId == null) {
+                        "Start or open a GitHub conversation to configure its consent."
+                    } else {
+                        "Disabled for new chats by default. Enrolling a PR requires an explicit GitHub tool action and authorization; auto-merge stays off."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
         GitHubCreativitySettings(state.profileSettings.sampling, state.profileUid != null) {

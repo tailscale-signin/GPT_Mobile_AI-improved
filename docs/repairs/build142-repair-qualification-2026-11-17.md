@@ -273,3 +273,32 @@ installed-build reproduction, saved-view and provider retry receipts, complete
 issue/CI pagination, and selected-profile Android-to-Gateway live acceptance.
 Closing an issue for added future diagnostics must identify the new recorded
 field without claiming the original runtime defect is repaired.
+
+
+### GitHub Copilot Agent Merge · opt-in native integration (November 18)
+
+GitHub remote AI profiles may delegate failing CI checks and merge conflicts
+using native `github_pr` operations `agent_merge_status`,
+`agent_merge_enable`, `agent_merge_update` and `agent_merge_disable`.
+Their fixed GitHub.com endpoint is
+`/agents/repos/{owner}/{repo}/pulls/{number}/agent-merge`.
+Status performs an authenticated, live GET; enable/update use a GitHub-journaled
+PUT with the closed repair permission subset
+`fix_ci`, `resolve_merge_conflicts`; disable uses a journaled DELETE.
+These are separate from GitHub auto-merge, which is never activated.
+
+The GitHub plugin defaults `githubCopilotEnabled=false` and permits
+choosing which repair categories can be enabled. Existing and new
+conversations default off; opting in saves a conversation-identity,
+repository and profile-bound preference. The app rechecks that consent
+through the SettingRepository before each mutating tool dispatch,
+enforces the selected workspace and exact current PR head and requires
+normal GitHub tool approval. Simply flipping either switch does
+**not** enroll a PR, launch Copilot or incur repair credits.
+The account must independently qualify for user-authenticated
+Copilot subscriptions, repository write permissions and automations.
+
+Affected existing files and new tests belong to this single draft PR;
+no separate PR or automatic merge is requested. Exact-head build,
+Kotlin formatting, permission regressions, GitHub API/mock tests and
+installed Android UI validation are still qualification requirements.

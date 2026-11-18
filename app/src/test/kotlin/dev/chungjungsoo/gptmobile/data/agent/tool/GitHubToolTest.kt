@@ -26,6 +26,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun copilotCannotStartCloudWorkWithoutBothUserToggles() = runTest {
+        var networkCalls = 0
+        HttpClient(
+            MockEngine {
+                networkCalls++
+                error("Copilot must not contact GitHub while disabled")
+            }
+        ).use { http ->
+            val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext(
+                "conn",
+                "owner",
+                "repo",
+                "work",
+                "a".repeat(40),
+                "profile"
+            )
+            val tool = GitHubTool(
+                "token",
+                http,
+                repositoryScope = context,
+                conversationId = "42",
+                featureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+            ).operations().single { it.definition.name == "github_pr" }
+            val denied = tool.execute(
+                "cloud-repair-unauthorized",
+                buildJsonObject {
+                    put("action", "agent_merge_enable")
+                    put("pull_number", 1534)
+                    put("expected_head_sha", "a".repeat(40))
+                }
+            )
+            assertTrue(denied.isError)
+            assertEquals("GITHUB_COPILOT_DISABLED", denied.errorCode)
+            assertFalse(denied.dispatched)
+            assertEquals(0, networkCalls)
+        }
+    }
+
     @Test fun typedRateResponseEvidenceSurvivesTheNativeOperationAndMeasuredReceipt() = runTest {
         var requests = 0
         HttpClient(

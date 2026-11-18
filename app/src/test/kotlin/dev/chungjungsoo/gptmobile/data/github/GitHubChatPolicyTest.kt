@@ -60,6 +60,53 @@ class GitHubChatPolicyTest {
         assertEquals(true, GitHubChatPolicy.tools(explicit, features, "p")?.reasoning)
     }
 
+    @Test fun copilotRequiresPluginAndExactSavedConversationConsent() {
+        val savedChat = features.copy(
+            conversationGitHub = mapOf(42 to context),
+            conversationIdentities = mapOf(42 to "room-42")
+        )
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat, 42, context))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(savedChat, null, context))
+        assertEquals(emptyList<String>(), GitHubCopilotAgentMergePolicy.allowedActions(savedChat))
+
+        val plugin = dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings(githubCopilotEnabled = true)
+        val permitted = savedChat.copy(pluginExecution = mapOf(ToolPluginId.GITHUB to plugin))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(permitted, 42, context))
+        assertEquals(listOf("fix_ci", "resolve_merge_conflicts"), GitHubCopilotAgentMergePolicy.allowedActions(permitted))
+        val opted = permitted.copy(
+            githubCopilotConversations = mapOf(
+                42 to GitHubCopilotConversationPreference(
+                    "room-42",
+                    GitHubChatDecisions.workspaceKey(context),
+                    true
+                )
+            )
+        )
+        assertTrue(GitHubCopilotAgentMergePolicy.enabled(opted, 42, context))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(opted, 43, context))
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(opted.copy(conversationIdentities = mapOf(42 to "new-room")), 42, context))
+        assertFalse(
+            GitHubCopilotAgentMergePolicy.enabled(
+                opted,
+                42,
+                context.copy(owner = "other-owner")
+            )
+        )
+        assertFalse(
+            GitHubCopilotAgentMergePolicy.enabled(
+                opted.copy(pluginExecution = mapOf(ToolPluginId.GITHUB to plugin.copy(githubCopilotEnabled = false))),
+                42,
+                context
+            )
+        )
+        assertEquals(
+            listOf("resolve_merge_conflicts"),
+            GitHubCopilotAgentMergePolicy.allowedActions(
+                permitted.copy(pluginExecution = mapOf(ToolPluginId.GITHUB to plugin.copy(githubCopilotFixCi = false)))
+            )
+        )
+    }
+
     @Test fun ordinaryChatsAndOtherProfilesKeepOriginalSettings() {
         assertSame(profile, GitHubChatPolicy.platform(profile, features, null))
         assertSame(features, GitHubChatPolicy.features(features, "other", context))

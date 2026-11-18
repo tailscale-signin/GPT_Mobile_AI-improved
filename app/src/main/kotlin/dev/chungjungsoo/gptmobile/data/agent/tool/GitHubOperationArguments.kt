@@ -37,7 +37,7 @@ internal object GitHubOperationArguments {
                 listOf("delete_fixture_branch") to listOf("branch", "expected_head_sha", "origin_head_sha"),
                 listOf("commit", "commit_staged_patch") to listOf("stage_id", "branch", "message", "expected_head_sha")
             )
-            "github_pr" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "reviews", "threads") to listOf("pull_number"), listOf("create") to listOf("title", "head", "base"), listOf("update", "merge", "review", "ready", "draft") to listOf("pull_number", "expected_head_sha"), listOf("comment") to listOf("pull_number", "body", "expected_head_sha"), listOf("reply") to listOf("pull_number", "comment_id", "body", "expected_head_sha"), dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toList() to listOf("pull_number", "expected_head_sha"))
+            "github_pr" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "reviews", "threads") to listOf("pull_number"), listOf("create") to listOf("title", "head", "base"), listOf("update", "merge", "review", "ready", "draft", "agent_merge_enable", "agent_merge_update", "agent_merge_disable") to listOf("pull_number", "expected_head_sha"), listOf("agent_merge_status") to listOf("pull_number"), listOf("comment") to listOf("pull_number", "body", "expected_head_sha"), listOf("reply") to listOf("pull_number", "comment_id", "body", "expected_head_sha"), dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toList() to listOf("pull_number", "expected_head_sha"))
             "github_issue" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "history") to listOf("issue_number"), listOf("create") to listOf("title"), listOf("update") to listOf("issue_number", "expected_updated_at"), dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.issueActions.toList() to listOf("issue_number", "expected_updated_at"))
             "github_ci" -> listOf(listOf("failure", "workflows", "definitions", "runs", "status") to emptyList(), listOf("run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "jobs") to listOf("run_id"), listOf("job", "logs", "jobs") to listOf("job_id"), listOf("dispatch") to listOf("workflow_id", "ref", "expected_head_sha"))
             else -> return null
@@ -288,6 +288,30 @@ internal object GitHubOperationArguments {
                         if ("state" in args && text("state") !in setOf("open", "closed")) errors += "state must be open or closed for an update"
                         unused("head", "draft", "comment_id", "event", "comments")
                         if ("draft" in args) errors += "Use action=ready or action=draft for an explicit draft-state transition"
+                    }
+                    "agent_merge_status" -> {
+                        required("pull_number")
+                        unused("title", "body", "head", "base", "state", "draft", "comment_id", "event", "comments", "expected_head_sha", "allowed_actions")
+                    }
+                    "agent_merge_enable", "agent_merge_update", "agent_merge_disable" -> {
+                        required("pull_number", "expected_head_sha")
+                        unused("title", "body", "head", "base", "state", "draft", "comment_id", "event", "comments")
+                        if (text("action") == "agent_merge_disable") {
+                            unused("allowed_actions")
+                        } else {
+                            if (text("action") == "agent_merge_update" && "allowed_actions" !in args) {
+                                errors += "agent_merge_update requires explicit allowed_actions"
+                            }
+                            if ("allowed_actions" in args) {
+                                val allowed = args["allowed_actions"] as? JsonArray
+                                if (allowed == null || allowed.isEmpty() || allowed.size > 2 ||
+                                    allowed.distinct().size != allowed.size ||
+                                    allowed.any { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content !in setOf("fix_ci", "resolve_merge_conflicts") }
+                                ) {
+                                    errors += "allowed_actions must contain 1 or 2 distinct values from fix_ci, resolve_merge_conflicts"
+                                }
+                            }
+                        }
                     }
                     "merge", "ready", "draft" -> {
                         required("pull_number", "expected_head_sha")

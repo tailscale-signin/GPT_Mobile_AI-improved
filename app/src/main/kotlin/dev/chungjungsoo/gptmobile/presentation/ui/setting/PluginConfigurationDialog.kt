@@ -102,6 +102,26 @@ internal fun PluginConfigurationDialog(
                     }
                 }
                 if (id == ToolPluginId.GITHUB) {
+                    SettingsPanel("GitHub Copilot · Agent Merge") {
+                        Text(
+                            "Delegate failing CI checks and merge conflicts to GitHub Copilot in the cloud. Requires a paid Copilot user account, repository write access and enabled repository automations.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        PluginSwitch("Allow Copilot tools", config.githubCopilotEnabled) {
+                            config = config.copy(githubCopilotEnabled = it)
+                        }
+                        PluginSwitch("Fix failing CI checks", config.githubCopilotFixCi) {
+                            config = config.copy(githubCopilotFixCi = it)
+                        }
+                        PluginSwitch("Resolve merge conflicts", config.githubCopilotResolveConflicts) {
+                            config = config.copy(githubCopilotResolveConflicts = it)
+                        }
+                        Text(
+                            "Off by default. Each GitHub conversation also needs its own opt-in. This switch does not enroll a PR, incur Copilot repair usage, or enable automatic merging. PR enrollment requires an approved tool action.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     SettingsPanel("Speed & efficiency") {
                         PluginSwitch("Conditional requests", options.githubConditionalReads) { options = options.copy(githubConditionalReads = it) }
                         PluginSwitch("Cache files by content hash", options.githubBlobCache) { options = options.copy(githubBlobCache = it) }

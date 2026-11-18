@@ -1660,6 +1660,46 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Consent for this saved GitHub chat; toggling never enrolls or merges a PR. */
+    fun setGitHubCopilotEnabled(enabled: Boolean) {
+        val chatId = _chatRoom.value.id
+        val context = _chatToolConfig.value.github ?: return
+        if (chatId <= 0 || _chatRoom.value.isTemporary) return
+        viewModelScope.launch {
+            try {
+                val identity = settingRepository.ensureConversationIdentity(chatId)
+                conversationDelegationMutex.withLock {
+                    settingRepository.mutateFeatureSettings { latest ->
+                        if (latest.conversationGitHub[chatId]?.sameWorkspace(context) != true ||
+                            latest.conversationIdentities[chatId] != identity ||
+                            enabled && latest.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled != true
+                        ) {
+                            latest
+                        } else {
+                            latest.copy(
+                                githubCopilotConversations = if (enabled) {
+                                    latest.githubCopilotConversations + (
+                                        chatId to dev.chungjungsoo.gptmobile.data.github.GitHubCopilotConversationPreference(
+                                            identity,
+                                            dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions.workspaceKey(context),
+                                            true
+                                        )
+                                    )
+                                } else {
+                                    latest.githubCopilotConversations - chatId
+                                }
+                            )
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Could not save GitHub Copilot consent for this conversation."
+            }
+        }
+    }
+
     fun setConversationReasoning(enabled: Boolean) {
         _chatToolConfig.update { it.copy(reasoning = enabled) }
         val chatId = _chatRoom.value.id

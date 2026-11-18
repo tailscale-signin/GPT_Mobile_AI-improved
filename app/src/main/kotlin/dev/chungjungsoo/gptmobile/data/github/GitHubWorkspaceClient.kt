@@ -102,6 +102,7 @@ class GitHubWorkspaceClient(
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
             "repo_status", "repo_map", "repo_docs", "find_symbol", "find_references", "find_tests", "related_files",
             "changed_since", "pr_context", "pr_headers", "issue_headers", "rate_limit_status", "plan_change", "write_capabilities",
+            "agent_merge_status",
             "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status", "get_pull_request_comments", "pull_request_reviews",
             "resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "ci_failure_digest", "efficiency", "recovery_context"
         )
@@ -111,7 +112,8 @@ class GitHubWorkspaceClient(
             "create_release",
             "update_release",
             "publish_release", "update_pull_request", "mark_ready_for_review", "convert_pull_request_to_draft", "submit_pull_request_review", "merge_pull_request",
-            "create_pull_request_review", "reply_pull_request_comment"
+            "create_pull_request_review", "reply_pull_request_comment",
+            "agent_merge_enable", "agent_merge_update", "agent_merge_disable"
         )
         val actions = readActions + writeActions
 
@@ -529,6 +531,8 @@ class GitHubWorkspaceClient(
                     JsonObject(refreshed + ("pr_context_refresh_reason" to JsonPrimitive("HEAD_CHANGED_DURING_FILES")))
                 }
             }
+            "agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable" ->
+                agentMergeConfiguration(root, action, args)
             "ci_failure_digest" -> ciFailureDigest(root, ref, args)
             "get_commit_checks" -> {
                 val result = request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject
@@ -1160,6 +1164,89 @@ class GitHubWorkspaceClient(
                 )
             }
         }
+    }
+
+    /**
+     * Cloud Agent Merge is a user-scoped GitHub service. The caller's app/chat
+     * consent is checked by GitHubTool; this native client revalidates the exact
+     * PR target/head and never opts into GitHub auto-merge.
+     *
+     * Mutations use request(), which persists a single-HTTP publication fence;
+     * a lost response never authorizes an unobserved retry.
+     */
+    private suspend fun agentMergeConfiguration(root: String, action: String, args: JsonObject): JsonElement {
+        require(apiOrigins == GitHubApiOrigins.GITHUB_COM) {
+            "Copilot Agent Merge requires an authorized github.com user connection."
+        }
+        val number = (args["pull_number"] as? JsonPrimitive)?.intOrNull
+            ?.takeIf { it > 0 } ?: error("A discovered positive pull_number is required.")
+        val endpoint = "/agents" + root + "/pulls/$number/agent-merge"
+        if (action == "agent_merge_status") {
+            return try {
+                val enrolled = requestUntracked(endpoint, HttpMethod.Get, null, true, forceLiveRead = true).jsonObject
+                buildJsonObject {
+                    put("schema", "github.agent-merge.v1")
+                    put("state", "ENROLLED")
+                    put("pull_number", number)
+                    enrolled["allowed_actions"]?.let { put("allowed_actions", it) }
+                    enrolled["updated_at"]?.let { put("updated_at", it) }
+                    put("automatic_merge", false)
+                    put("note", "Agent Merge watches CI and conflicts; GitHub auto-merge is a separate setting.")
+                }
+            } catch (failure: GitHubRequestRejected) {
+                if (failure.status != 404) throw failure
+                buildJsonObject {
+                    put("schema", "github.agent-merge.v1")
+                    put("state", "NOT_ENROLLED_OR_INACCESSIBLE")
+                    put("pull_number", number)
+                    put("http_status", 404)
+                    put("note", "GitHub may hide inaccessible enrollments behind 404. No write occurred.")
+                }
+            }
+        }
+
+        // A remote profile never supplies authority to mutate an unrelated PR,
+        // or to reconfigure an enrollment against an out-of-date PR revision.
+        val expected = (args["expected_head_sha"] as? JsonPrimitive)?.content.orEmpty()
+        require(expected.matches(Regex("[a-fA-F0-9]{40}"))) {
+            "Read the current pull request and provide its exact 40-character expected_head_sha."
+        }
+        val pr = requestUntracked("$root/pulls/$number", HttpMethod.Get, null, true, forceLiveRead = true).jsonObject
+        check(pr["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)) {
+            "Pull request head changed. Read the current PR before modifying Agent Merge."
+        }
+        check(pr["state"] == JsonPrimitive("open")) { "Agent Merge requires an open pull request." }
+        val headRepo = pr["head"]?.jsonObject?.get("repo") as? JsonObject
+        val observedName = (headRepo?.get("full_name") as? JsonPrimitive)?.content
+        check(observedName == null || observedName.equals(root.removePrefix("/repos/"), ignoreCase = true)) {
+            "Agent Merge cannot be enabled on a pull request from a fork."
+        }
+
+        val mutation = when (action) {
+            "agent_merge_enable", "agent_merge_update" -> {
+                val selected = (args["allowed_actions"] as? JsonArray)
+                    ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content }
+                    ?: error("Choose explicit permitted Agent Merge actions.")
+                require(selected.isNotEmpty() && selected.distinct().size == selected.size &&
+                    selected.all { it in setOf("fix_ci", "resolve_merge_conflicts") }) {
+                    "Agent Merge can only fix_ci and resolve_merge_conflicts; it never enables auto-merge."
+                }
+                request(
+                    endpoint,
+                    HttpMethod.Put,
+                    buildJsonObject { put("allowed_actions", JsonArray(selected.map(::JsonPrimitive))) }
+                )
+            }
+            "agent_merge_disable" -> request(endpoint, HttpMethod.Delete)
+            else -> error("Unsupported Copilot Agent Merge action.")
+        }
+        return JsonObject(
+            mutation.jsonObject + mapOf(
+                "agent_merge_action" to JsonPrimitive(action),
+                "pull_number" to JsonPrimitive(number),
+                "automatic_merge" to JsonPrimitive(false)
+            )
+        )
     }
 
     private suspend fun pullRequestLifecycle(root: String, action: String, args: JsonObject): JsonElement {

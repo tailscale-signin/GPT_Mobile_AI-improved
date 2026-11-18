@@ -74,7 +74,9 @@ class GitHubTool(
     private val apiOrigins: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM,
     private val taskRequest: String? = null,
     private val engineeringStatus: (suspend (String, String) -> JsonObject?)? = null,
-    private val repositoryGateway: (suspend (JsonObject) -> JsonObject)? = null
+    private val repositoryGateway: (suspend (JsonObject) -> JsonObject)? = null,
+    /** Re-read consent at dispatch: a saved model call cannot bypass a revoked toggle. */
+    private val copilotSettings: (suspend () -> dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings)? = null
 ) : AgentTool {
 
     private val BASE_URL get() = apiOrigins.rest
@@ -686,6 +688,47 @@ class GitHubTool(
             ?: return errorResult(callId, "Missing required parameter: 'action'.")
 
         return try {
+            val copilotMutation = action in setOf("agent_merge_enable", "agent_merge_update", "agent_merge_disable")
+            val dispatchedArguments = if (copilotMutation) {
+                val live = copilotSettings?.invoke() ?: featureSettings
+                val context = repositoryScope
+                if (!dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(
+                        live,
+                        conversationId.toIntOrNull(),
+                        context
+                    )
+                ) {
+                    return AgentToolResult(
+                        callId,
+                        ToolResultContent.Text("GitHub Copilot Agent Merge is off for this conversation. Enable it in the GitHub plugin and this chat's settings before requesting any Copilot mutation. Nothing was sent."),
+                        true,
+                        errorCode = "GITHUB_COPILOT_DISABLED",
+                        dispatched = false
+                    )
+                }
+                val configured = dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.allowedActions(live)
+                if (action in setOf("agent_merge_enable", "agent_merge_update")) {
+                    val requested = (arguments["allowed_actions"] as? JsonArray)
+                        ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content }
+                        ?: configured
+                    if (requested.isEmpty() || requested.distinct().size != requested.size ||
+                        requested.any { it !in configured }
+                    ) {
+                        return AgentToolResult(
+                            callId,
+                            ToolResultContent.Text("The requested Copilot repair permissions exceed the GitHub plugin's configured allowances. Nothing was dispatched."),
+                            true,
+                            errorCode = "GITHUB_COPILOT_DISABLED",
+                            dispatched = false
+                        )
+                    }
+                    JsonObject(arguments + ("allowed_actions" to JsonArray(requested.map(::JsonPrimitive))))
+                } else {
+                    arguments
+                }
+            } else {
+                arguments
+            }
             if (action in GitHubWorkspaceClient.actions) {
                 if (action in setOf("delete_branch", "delete_fixture_branch")) {
                     (selectedRepository())?.let { selected ->
@@ -700,7 +743,7 @@ class GitHubTool(
                 // Source snapshots have their own selected-context key; an upstream read
                 // cannot move the destination branch or replace its staged patch.
                 val client = if (sourceRead) sourceWorkspaceClients.getOrPut(requested.lowercase(java.util.Locale.ROOT)) { createWorkspaceClient(requested.lowercase(java.util.Locale.ROOT)) } else workspaceClient
-                val result = client.execute(action, arguments)
+                val result = client.execute(action, dispatchedArguments)
                 val checkpoint = result as? JsonObject
                 if (action in dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.actions && checkpoint != null && checkpoint["status"] in setOf(JsonPrimitive("BLOCKED"), JsonPrimitive("FAILED"))) {
                     return AgentToolResult(callId, ToolResultContent.Json(checkpoint), true, errorCode = (checkpoint["error_code"] as? JsonPrimitive)?.content, dispatched = checkpoint["dispatched"] == JsonPrimitive(true))

@@ -1481,6 +1481,15 @@ private fun ChatScreenContent(
                 onDelegationChanged = chatViewModel::setConversationDelegation,
                 initialReasoning = chatToolConfig.reasoning ?: appAllPlatforms.firstOrNull { it.uid in activePlatformUids }?.reasoning ?: false,
                 onReasoningChanged = chatViewModel::setConversationReasoning,
+                githubConversation = chatToolConfig.github != null,
+                githubCopilotAvailable = chatToolConfig.github != null && !chatRoom.isTemporary &&
+                    featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true,
+                githubCopilotEnabled = dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(
+                    featureSettings,
+                    chatRoom.id,
+                    chatToolConfig.github
+                ),
+                onGitHubCopilotChanged = chatViewModel::setGitHubCopilotEnabled,
                 localAssist = featureSettings.localAssist,
                 onLocalAssistChanged = chatViewModel::setLocalAssist,
                 initialCreativity = initialCreativity,

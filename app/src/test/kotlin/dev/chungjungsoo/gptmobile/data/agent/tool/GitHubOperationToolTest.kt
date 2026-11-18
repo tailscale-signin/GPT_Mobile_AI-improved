@@ -54,6 +54,47 @@ class GitHubOperationToolTest {
         assertEquals(listOf(JsonPrimitive("list_pull_requests"), JsonPrimitive("pr_context")), observed.map { it["action"] })
     }
 
+    @Test fun copilotAgentMergeActionsAreAdvertisedAndValidatedWithoutAutoMerge() = runBlocking {
+        val actions = mapOf(
+            "agent_merge_status" to "agent_merge_status",
+            "agent_merge_enable" to "agent_merge_enable",
+            "agent_merge_update" to "agent_merge_update",
+            "agent_merge_disable" to "agent_merge_disable"
+        )
+        val checked = "a".repeat(40)
+        for ((name, native) in actions) {
+            val request = buildJsonObject {
+                put("action", name)
+                put("pull_number", 1534)
+                if (name != "agent_merge_status") put("expected_head_sha", checked)
+                if (name == "agent_merge_update") put("allowed_actions", JsonArray(listOf(JsonPrimitive("fix_ci"))))
+            }
+            valid("github_pr", request)
+            assertEquals(JsonPrimitive(native), GitHubOperationTool.nativeArguments("github_pr", request)?.get("action"))
+        }
+        val tool = GitHubOperationTool(
+            "github_pr",
+            object : AgentTool {
+                override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =
+                    AgentToolResult(callId, ToolResultContent.Json(buildJsonObject {}), false)
+            },
+            "copilot-validation"
+        )
+        val unsafe = listOf(
+            """{"action":"agent_merge_enable","pull_number":1534}""",
+            """{"action":"agent_merge_update","pull_number":1534,"expected_head_sha":"$checked"}""",
+            """{"action":"agent_merge_disable","pull_number":1534,"expected_head_sha":"$checked","allowed_actions":["fix_ci"]}""",
+            """{"action":"agent_merge_enable","pull_number":1534,"expected_head_sha":"$checked","allowed_actions":["auto_merge"]}""",
+            """{"action":"agent_merge_status","pull_number":1534,"allowed_actions":["fix_ci"]}"""
+        )
+        for (input in unsafe) {
+            val denied = tool.execute("invalid-copilot", args(input))
+            assertTrue(input, denied.isError)
+            assertFalse(input, denied.dispatched)
+        }
+    }
+
     @Test fun prReviewsDispatchesThroughAnAdvertisedNativeReadWithZeroRows() = runBlocking {
         assertTrue("pull_request_reviews" in dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient.readActions)
         val observed = mutableListOf<JsonObject>()

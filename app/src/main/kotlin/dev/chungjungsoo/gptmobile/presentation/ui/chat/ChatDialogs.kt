@@ -124,6 +124,10 @@ fun ChatModelDialog(
     onSaveResearchDefault: () -> Unit = {},
     initialReasoning: Boolean = false,
     onReasoningChanged: (Boolean) -> Unit = {},
+    githubConversation: Boolean = false,
+    githubCopilotAvailable: Boolean = false,
+    githubCopilotEnabled: Boolean = false,
+    onGitHubCopilotChanged: (Boolean) -> Unit = {},
     localAssist: Boolean = false,
     onLocalAssistChanged: (Boolean) -> Unit = {},
     onDelegationChanged: (ConversationDelegationSettings?) -> Unit = {},
@@ -383,6 +387,33 @@ fun ChatModelDialog(
                     }
                     if (section == "Tools") {
                         Text("Changes on this tab save immediately.", style = MaterialTheme.typography.bodySmall)
+                        if (githubConversation) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().testTag("conversation_github_copilot"),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                        Text("GitHub Copilot · Agent Merge", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                                        Switch(
+                                            checked = githubCopilotEnabled,
+                                            onCheckedChange = onGitHubCopilotChanged,
+                                            enabled = githubCopilotAvailable && !saving,
+                                            modifier = Modifier.testTag("conversation_github_copilot_toggle")
+                                        )
+                                    }
+                                    Text(
+                                        if (githubCopilotAvailable) {
+                                            "Off by default. Copilot may fix CI and merge conflicts after an approved PR enrollment. No automatic merge."
+                                        } else {
+                                            "Enable GitHub Copilot in GitHub plugin settings before opting in here."
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                         if (combinedMode) Text("Tools use saved participants and model choices. Save first-tab changes before configuring new participants here.", style = MaterialTheme.typography.bodySmall)
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Psychology, null, tint = MaterialTheme.colorScheme.primary)

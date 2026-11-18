@@ -3032,6 +3032,9 @@
     "settings.gradle.kts",
     "docs/repairs/build142-repair-qualification-2026-11-17.md",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubCompletionMotion.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubCompletionMotionTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubCompletionMotionTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/PluginExecutionSettings.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PluginConfigurationDialog.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatDialogs.kt"
   ]
 }

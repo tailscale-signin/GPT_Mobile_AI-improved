@@ -277,7 +277,8 @@ internal class GitHubOperationTool(
         if (operation == "github_pr") {
             val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty().ifBlank { "context" }
             val requiredFields = when (action) {
-                "headers", "context", "comments", "reviews", "threads" -> listOf("pull_number")
+                "headers", "context", "comments", "reviews", "threads", "agent_merge_status" -> listOf("pull_number")
+                "agent_merge_enable", "agent_merge_update", "agent_merge_disable" -> listOf("pull_number", "expected_head_sha")
                 "create" -> listOf("title", "head", "base")
                 in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions -> listOf("pull_number", "expected_head_sha")
                 "update", "merge", "ready", "draft" -> listOf("pull_number", "expected_head_sha")
@@ -286,7 +287,8 @@ internal class GitHubOperationTool(
                 "reply" -> listOf("pull_number", "comment_id", "body", "expected_head_sha")
                 else -> emptyList()
             }
-            val shaActions = dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions + setOf("update", "merge", "comment", "reply", "review", "ready", "draft")
+            val shaActions = dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions +
+                setOf("update", "merge", "comment", "reply", "review", "ready", "draft", "agent_merge_enable", "agent_merge_update", "agent_merge_disable")
             if (action in shaActions) {
                 val expected = (arguments["expected_head_sha"] as? JsonPrimitive)?.content.orEmpty()
                 if (!expected.matches(Regex("[a-fA-F0-9]{40}"))) {
@@ -713,6 +715,10 @@ internal class GitHubOperationTool(
                     "list" -> "list_pull_requests"
                     "comments" -> "get_pull_request_comments"
                     "reviews" -> "pull_request_reviews"
+                    "agent_merge_status" -> "agent_merge_status"
+                    "agent_merge_enable" -> "agent_merge_enable"
+                    "agent_merge_update" -> "agent_merge_update"
+                    "agent_merge_disable" -> "agent_merge_disable"
                     "threads" -> "pr_threads"
                     in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions -> "pr_$requested"
                     "create" -> "create_pull_request"
@@ -1074,7 +1080,7 @@ internal class GitHubOperationTool(
                 }
                 "github_pr" -> {
                     properties["action"] = JsonObject(
-                        choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge", "ready", "draft", "threads", *dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toTypedArray()) + mapOf(
+                        choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge", "ready", "draft", "threads", "agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable", *dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toTypedArray()) + mapOf(
                             "description" to JsonPrimitive("Omit action for list when no PR selector is supplied, or for context when an observed pull_number is supplied. Explicit single-PR reads require pull_number.")
                         )
                     )
@@ -1084,6 +1090,14 @@ internal class GitHubOperationTool(
                         put("description", "Required for headers/context/comments/reviews and updates. Discover an existing pull_number with action=list first; never invent one.")
                     }
                     properties["state"] = choice("open", "closed", "all")
+                    properties["allowed_actions"] = buildJsonObject {
+                        put("type", "array")
+                        put("minItems", 1)
+                        put("maxItems", 2)
+                        put("uniqueItems", true)
+                        put("items", choice("fix_ci", "resolve_merge_conflicts"))
+                        put("description", "Explicit Copilot repair permissions; never enables automatic PR merging. Optional on enable (uses locally configured allowances), required on update.")
+                    }
                     listOf("title", "body", "head", "base", "expected_head_sha", "expected_base_sha").forEach { properties[it] = field("string") }
                     properties["comment_id"] = field("integer")
                     properties["event"] = choice("APPROVE", "REQUEST_CHANGES", "COMMENT")
@@ -1226,7 +1240,7 @@ internal class GitHubOperationTool(
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
-                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA. Use ready/draft for explicit draft transitions; update does not change draft state. threads returns observed thread IDs for resolve_thread/reopen_thread; follow its pageInfo using after. edit_comment changes discussion comments; edit_review_comment changes inline comments and both require expected_comment_updated_at. enable_auto_merge queues GitHub auto-merge under repository rules and is not evidence that a merge completed."
+                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Copilot Agent Merge: agent_merge_status reads current enrollment; agent_merge_enable and agent_merge_update require user approval, global plugin opt-in, per-chat opt-in, current expected_head_sha, and permitted allowed_actions; agent_merge_disable stops watching. GitHub Copilot credits are billed separately. No Agent Merge tool automatically merges a PR. Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA. Use ready/draft for explicit draft transitions; update does not change draft state. threads returns observed thread IDs for resolve_thread/reopen_thread; follow its pageInfo using after. edit_comment changes discussion comments; edit_review_comment changes inline comments and both require expected_comment_updated_at. enable_auto_merge queues GitHub auto-merge under repository rules and is not evidence that a merge completed."
                 "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. Runs filters use status; returned runs include conclusion. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations, with positive ordered line bounds spanning at most 2000 lines. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
                 "github_watch_checks" -> "Watch pr_number and/or run_id at its exact head. Omit wait_timeout_seconds for background updates in a saved chat; supply 1..30 for bounded inline reads and polling, returning an observed outcome or pending timeout without creating a subscription. Optional follow_pr=true follows new PR revisions."
                 "github_issue" -> "Discover issues with action=list and optional state=open (PRs excluded). action=headers reads ONE observed issue and requires issue_number; it is not an inventory or listing action. After listing, use headers for title/state/updated_at, or context/comments/history when needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."

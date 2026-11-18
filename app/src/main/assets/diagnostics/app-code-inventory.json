@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "bbde0fc989e5f70de05c448d3de8dc555762c8576737677b3fc2e5aeef4e26ad",
+  "source_digest": "3dc48b407b34ceb24edc2f55e65e8fcc075e1819c9d7aeaa5848f5da0d150996",
   "file_count": 2693,
-  "indexed_line_count": 439459,
+  "indexed_line_count": 439470,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 174,
-      "indexed_line_count": 77367
+      "indexed_line_count": 77378
     },
     {
       "id": "authentication_service",
@@ -18749,8 +18749,8 @@
       "path": "gateway/v14/scheduled_publications.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "87139a8a51eebbac4a50a1c0b07701ed417f116c9c645c60f8536b2e1d139bfd",
-      "indexed_lines": 82
+      "sha256": "5707903108740c6f6ea0e669877507466fa308ddb92c7d52f5f5e6851df7ee4d",
+      "indexed_lines": 93
     },
     {
       "path": "gateway/v14/scheduled_validation.py",

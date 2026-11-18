@@ -3,6 +3,7 @@ from contextlib import closing
 import json
 import os
 import re
+import time
 from urllib.parse import quote
 import uuid
 
@@ -23,13 +24,16 @@ def literature(query):
         session.proxies.update({key: value for key, value in requests.utils.get_environ_proxies(endpoint).items()
                                 if key in ('https', 'http', 'all')})
         session.verify = os.environ.get('REQUESTS_CA_BUNDLE') or os.environ.get('CURL_CA_BUNDLE') or True
-        with session.get(endpoint, params=params, stream=True, timeout=(3, 8),
+        deadline = time.monotonic() + 45
+        with session.get(endpoint, params=params, stream=True, timeout=(12, 18),
                          allow_redirects=False, headers={'User-Agent': 'GPT-Mobile-Gateway/17 public literature watch'}) as reply:
             if reply.status_code != 200:
                 raise ValueError('Crossref unavailable')
             body = bytearray()
             for block in reply.iter_content(4096):
                 body.extend(block)
+                if time.monotonic() > deadline:
+                    raise ValueError('Crossref metadata timed out')
                 if len(body) > 65536:
                     raise ValueError('Crossref metadata exceeded limit')
     value = json.loads(body)

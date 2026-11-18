@@ -30,6 +30,49 @@ def wait_state(root, expected, version=VERSION, timeout=100):
     raise RuntimeError((root/'logs'/'gateway.log').read_text(encoding='utf-8',errors='replace')[-12000:])
 
 
+
+def stop_checked(root, child, phase, output):
+    """Require both a confirmed stop receipt and a clean launcher exit."""
+    acknowledgement = request(root, 'stop')
+    try:
+        exit_code = child.wait(timeout=40)
+    except subprocess.TimeoutExpired:
+        exit_code = None
+    if exit_code == 0:
+        return
+    # The temporary installed root is deleted at the end of this smoke run.
+    # Retain narrowly scoped synthetic CI evidence so a failed stop is actionable.
+    status = {}
+    try:
+        status = json.loads((root/'status.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        pass
+    summary = {
+        'phase': phase,
+        'launcherExitCode': exit_code,
+        'stopAcknowledged': acknowledgement.get('accepted') is True,
+        'supervisorState': status.get('state'),
+        'supervisorVersion': status.get('version'),
+        'supervisorUpdateState': status.get('updateState'),
+        'supervisorRecoveryAttempt': status.get('recoveryAttempt'),
+        'logEvidence': 'smoke-gateway.log',
+    }
+    output.mkdir(parents=True, exist_ok=True)
+    atomic_json(output/'smoke-failure.json', summary)
+    try:
+        log_lines = (root/'logs'/'gateway.log').read_text(encoding='utf-8', errors='replace').splitlines()
+        # This smoke creates an offline local fixture. Keep only a bounded tail
+        # and redact common credential assignments before uploading CI artifacts.
+        import re
+        tail = '\\n'.join(log_lines[-80:])[-12000:]
+        tail = re.sub(r'(?i)(token|password|secret|api[_-]?key|authorization)(\\s*[:=]\\s*)[^\\s,}]+', r'\\1\\2[redacted]', tail)
+        (output/'smoke-gateway.log').write_text(tail, encoding='utf-8')
+    except OSError:
+        summary['logEvidence'] = 'unavailable'
+        atomic_json(output/'smoke-failure.json', summary)
+    raise AssertionError(f'{phase}: stop acknowledged but launcher did not exit cleanly (code={exit_code}, state={status.get("state")})')
+
+
 def main():
     output=ROOT/'dist'/'windows'
     installer=output/f'Gateway-{VERSION}-windows-x64-setup.exe'
@@ -92,7 +135,7 @@ def main():
             tray.close()
             assert not tray.thread.is_alive(), 'Tray thread did not shut down'
             results.append('native Windows notification-area icon registers and shuts down cleanly')
-            request(root,'stop');assert child.wait(timeout=40)==0
+            stop_checked(root, child, 'first loopback stop', output)
             cfg = validate(dict(cfg, bind_host='0.0.0.0'))
             atomic_json(root/'settings.json', cfg)
             assert not (root/'firewall.json').exists()
@@ -105,7 +148,7 @@ def main():
                     response = http.get(f'http://127.0.0.1:{cfg["port"]}/v1/gateway/capabilities', timeout=5)
                     response.raise_for_status()
                     assert response.json()['auth'] == {'mode': 'open_network', 'apiKeyRequired': False, 'legacyBearerEnabled': False}
-                request(root, 'stop'); assert child.wait(timeout=40) == 0
+                stop_checked(root, child, f'all-interface restart {attempt + 1} stop', output)
             results.append('frozen all-interface listener works without API key across restart')
             # Exercise an explicitly requested Private/LocalSubnet rule on CI.
             from desktop.firewall import apply, rule_name
@@ -130,7 +173,7 @@ def main():
             pointer=json.loads((root/'current.json').read_text(encoding='utf-8'))
             assert pointer['version']==VERSION and pointer['failedVersion']==candidate
             results.append('candidate startup failure rolls back through stable launcher')
-            request(root,'stop');assert child.wait(timeout=40)==0
+            stop_checked(root, child, 'post-rollback stop', output)
             subprocess.run(cmd,check=True,timeout=120)
             assert json.loads((root/'settings.json').read_text(encoding='utf-8'))==cfg
             assert (root/'data'/'preserve.txt').read_text()=='user data'

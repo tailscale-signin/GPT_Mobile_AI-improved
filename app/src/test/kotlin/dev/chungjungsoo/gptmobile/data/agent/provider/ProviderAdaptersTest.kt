@@ -113,7 +113,6 @@ class ProviderAdaptersTest {
         assertFalse(requestJson(compatible.chatRequests.single()).toString().contains("oneOf"))
     }
 
-
     @Test fun openAiGitHubToolSchemaKeepsHostChecksButNeverPublishesUnsupportedOneOf() {
         val original = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_read").inputSchema
         val provider = modelCompatibleGitHubToolSchema(original)
@@ -128,7 +127,10 @@ class ProviderAdaptersTest {
         assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(invalid, original).isNotEmpty())
         val serialized = kotlinx.serialization.json.Json.encodeToJsonElement(
             dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionTool(
-                "github_read", "Offline tools", provider, strict = false
+                "github_read",
+                "Offline tools",
+                provider,
+                strict = false
             )
         ).jsonObject
         assertEquals(JsonPrimitive(false), serialized["strict"])

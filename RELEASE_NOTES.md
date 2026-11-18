@@ -399,3 +399,7 @@ Continue PR #1203 on PR #1299 with bounded reader, repeat, search, pagination an
 PR #1299 diagnostic additions require the corresponding hosted reporter capabilities; old approved payloads remain pending and unchanged on incompatible services. The partial 6ead4ca1 archive cannot reconstruct omitted history, and deterministic tests do not establish historical private-service causes, deployed companion updates, physical-device speech or memory performance, or GPU execution.
 
 The detailed findings, execution scope and diagnostic contracts are recorded in [the follow-up plan](docs/repairs/post-merge-report-diagnostics-2026-11-15.md). Final current-source CI and merge receipts are recorded in the PR.
+
+## Post-1534 selected-profile qualification
+
+- Archive-write root cause, live selected-profile context recovery and installed Android-to-Gateway acceptance still require fresh exact-build device evidence.

@@ -70,43 +70,6 @@ class RobolectricProvisioningTest(unittest.TestCase):
         self.assertFalse(list(self.target.parent.glob('*.part')))
 
 
-    def test_google_cloud_mirror_recovers_after_both_central_hosts_return_429(self):
-        calls, delays = [], []
-        canonical = f"{sdk.BASE}/sample/runtime.jar"
-        alternate = sdk.MAVEN_CENTRAL_ALTERNATE_BASE + '/sample/runtime.jar'
-        google_mirror = sdk.GOOGLE_MAVEN_CENTRAL_BASE + '/sample/runtime.jar'
-
-        def opener(url, timeout):
-            calls.append(url)
-            if url != google_mirror:
-                raise urllib.error.HTTPError(url, 429, 'shared Central throttle', {}, None)
-            return io.BytesIO(self.body)
-
-        sdk.download(self.target, canonical, self.digest, 100, opener, delays.append,
-                     lambda: 0, lambda _low, _high: 0, lambda: 0)
-        self.assertEqual([canonical, alternate, google_mirror], calls)
-        self.assertEqual([15, 30], delays)
-        self.assertEqual(self.body, self.target.read_bytes())
-        self.assertFalse(list(self.target.parent.glob('*.part')))
-
-    def test_google_cloud_mirror_cannot_bypass_publisher_digest(self):
-        calls = []
-        canonical = f"{sdk.BASE}/sample/runtime.jar"
-
-        def opener(url, timeout):
-            calls.append(url)
-            if len(calls) < 3:
-                raise urllib.error.HTTPError(url, 429, 'shared Central throttle', {}, None)
-            return io.BytesIO(b'not publisher-verified')
-
-        with self.assertRaisesRegex(ValueError, 'SHA-512'):
-            sdk.download(self.target, canonical, self.digest, 100, opener,
-                         lambda _: None, lambda: 0, lambda _low, _high: 0, lambda: 0)
-        self.assertEqual(3, len(calls))
-        self.assertEqual(sdk.GOOGLE_MAVEN_CENTRAL_BASE + '/sample/runtime.jar', calls[-1])
-        self.assertFalse(self.target.exists())
-        self.assertFalse(list(self.target.parent.glob('*.part')))
-
     def test_google_maven_mirror_recovers_after_both_central_hosts_429(self):
         calls, delays = [], []
         canonical = f"{sdk.BASE}/sample/runtime.jar"

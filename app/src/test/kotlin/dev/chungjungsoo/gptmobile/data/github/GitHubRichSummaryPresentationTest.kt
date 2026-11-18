@@ -178,7 +178,7 @@ class GitHubRichSummaryPresentationTest {
         )
         assertTrue(output.contains("Failure.kt failed"))
         assertTrue(output.contains("Latest.kt"))
-        assertTrue(output.contains("Attention"))
+        assertTrue(output.contains("needs attention"))
         assertFalse(output.contains("successfully fixed"))
     }
 

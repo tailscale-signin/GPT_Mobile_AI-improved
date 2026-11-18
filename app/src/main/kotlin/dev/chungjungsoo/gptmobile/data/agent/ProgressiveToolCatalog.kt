@@ -41,6 +41,18 @@ class ProgressiveToolCatalog(
     private data class ExecutionBinding(val source: AgentToolDefinition, val executable: AgentToolDefinition)
     private val executionBindings = mutableMapOf<String, ExecutionBinding>()
     private val deferredEngineering = setOf("github_write", "github_commit", "github_stage_patch", "github_release", "github_watch_checks")
+    // Explicit engineering tasks need stage/commit schemas without a repeated
+    // discovery round; all executable authorization and wire-context gates remain.
+    // Larger write/release and check-watch contracts stay on-demand.
+    private val upfrontEngineering = if (githubMode && !scopedGitHubStatus && !integrationPreset) {
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
+            .intersect(setOf("github_stage_patch", "github_commit"))
+    } else {
+        emptySet()
+    }
+    private fun deferInitially(operation: String?): Boolean =
+        operation in deferredEngineering && operation !in upfrontEngineering
+
     private val taskRequired = definitions.filter { definition ->
         definition.modelVisible &&
             !conversational &&
@@ -50,7 +62,7 @@ class ProgressiveToolCatalog(
                     (
                         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
                             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task) &&
-                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) !in deferredEngineering
+                            !deferInitially(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name))
                         )
                 )
     }.groupBy { definition ->
@@ -77,19 +89,19 @@ class ProgressiveToolCatalog(
             window(
                 taskRequired + ranked(task).filter {
                     (initialNames == null || it.name in initialNames) &&
-                        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering
+                        !deferInitially(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name))
                 } + if (taskRequired.none(::isGitHubTool)) {
                     candidates.values.filter {
                         isGitHubTool(it) &&
                             (initialNames == null || it.name in initialNames) &&
-                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering
+                            !deferInitially(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name))
                     }
                 } else {
                     emptyList()
                 }
             )
         } else {
-            window(taskRequired + ranked(task).filter { (initialNames == null || it.name in initialNames) && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering })
+            window(taskRequired + ranked(task).filter { (initialNames == null || it.name in initialNames) && !deferInitially(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name)) })
         }
         ).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
@@ -398,7 +410,7 @@ class ProgressiveToolCatalog(
                 active.addAll(
                     window(
                         ranked(taskText).filter {
-                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering
+                            !deferInitially(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name))
                         }
                     ).map { it.name }
                 )
@@ -613,7 +625,9 @@ class ProgressiveToolCatalog(
             put("schema_allowance_is_wire_limit", false)
             put(
                 "required_schema_policy",
-                if (githubUpfront) {
+                if (githubUpfront && upfrontEngineering.isNotEmpty()) {
+                    "GITHUB_ENGINEERING_SCHEMAS_UPFRONT"
+                } else if (githubUpfront) {
                     "GITHUB_OPERATION_SCHEMAS_ON_DEMAND"
                 } else if (scopedGitHubStatus) {
                     "SCOPED_GITHUB_STATUS_WITH_AUTHORIZED_DISCOVERY"

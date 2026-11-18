@@ -10,6 +10,29 @@ import kotlinx.serialization.json.put
 
 /** Action-specific admission after schema validation, before any repository request. */
 internal object GitHubOperationArguments {
+    /**
+     * Model-facing schema guard: an issued local result cursor is a complete call,
+     * never an option mixed into a new GitHub read or write. The executor retains
+     * its defensive validation for older clients and already-queued tool calls.
+     */
+    fun exclusiveSavedViewAlternatives(properties: JsonObject): JsonArray {
+        val cursor = requireNotNull(properties["view_cursor"]) { "Missing saved-view cursor schema" }
+        return JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject { put("view_cursor", cursor) })
+                    put("required", JsonArray(listOf(JsonPrimitive("view_cursor"))))
+                    put("additionalProperties", false)
+                },
+                buildJsonObject {
+                    put("type", "object")
+                    put("properties", JsonObject(properties - "view_cursor"))
+                    put("additionalProperties", false)
+                }
+            )
+        )
+    }
     val watchSelectors = listOf("pr_number", "run_id")
     val readRangeFields = setOf("path", "start_line", "end_line", "max_lines", "start_offset")
 

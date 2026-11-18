@@ -174,6 +174,37 @@ class GitHubArgumentAdmissionTest {
         assertEquals(1, backend.calls.size)
     }
 
+    @Test fun savedViewCursorIsExclusiveInFullProjectedAndInspectSchemas() {
+        val cases = listOf(
+            Triple("github_context", "branches", """{"action":"branches","page":1}"""),
+            Triple("github_pr", "list", """{"action":"list","state":"open"}"""),
+            Triple("github_issue", "list", """{"action":"list","state":"open"}"""),
+            Triple("github_ci", "runs", """{"action":"runs","page":1}"""),
+            Triple("github_read", "ranges", """{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"max_lines":10}]}"""),
+            Triple("github_search", "search", """{"action":"search","query":"README"}""")
+        )
+        for ((operation, action, freshSource) in cases) {
+            val full = GitHubOperationTool.definition(operation, "${operation}__selected")
+            val projected = requireNotNull(GitHubActionSchema.project(full, action))
+            val variants = if (operation in setOf("github_context", "github_pr")) {
+                listOf(full, projected, GitHubOperationTool.definition("${operation}_inspect", "${operation}_inspect__selected"))
+            } else {
+                listOf(full, projected)
+            }
+            val cursor = args("""{"view_cursor":"saved:1:2048"}""")
+            val fresh = args(freshSource)
+            for (definition in variants) {
+                val schema = definition.inputSchema
+                assertTrue("${definition.name} accepts issued cursor", ToolArgumentValidator.errors(cursor, schema).isEmpty())
+                assertTrue("${definition.name} rejects mixed cursor", ToolArgumentValidator.errors(JsonObject(fresh + cursor), schema).isNotEmpty())
+                assertTrue("${definition.name} rejects cursor with repository", ToolArgumentValidator.errors(args("""{"view_cursor":"saved:1:2048","owner":"team","repo":"project"}"""), schema).isNotEmpty())
+                if (!definition.name.contains("_inspect") || action == "branches" || action == "list") {
+                    assertTrue("${definition.name} accepts ordinary action", ToolArgumentValidator.errors(fresh, schema).isEmpty())
+                }
+            }
+        }
+    }
+
     private fun args(value: String) = Json.parseToJsonElement(value) as JsonObject
 
     private class RecordingBackend : AgentTool {

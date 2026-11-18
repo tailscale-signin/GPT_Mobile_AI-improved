@@ -123,6 +123,11 @@ internal object GitHubActionSchema {
                 put("type", "object")
                 put("properties", JsonObject(properties))
                 put("additionalProperties", false)
+                // Cursor-only recovery must be exclusive in the selected model
+                // contract, not just rejected after the model spends another call.
+                if ("view_cursor" in properties) {
+                    put("oneOf", dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.exclusiveSavedViewAlternatives(JsonObject(properties)))
+                }
                 val selected = alternatives.ifEmpty {
                     listOf(buildJsonObject { put("required", JsonArray(((tool.inputSchema["required"] as? JsonArray).orEmpty() + JsonPrimitive("action")).distinct())) })
                 }

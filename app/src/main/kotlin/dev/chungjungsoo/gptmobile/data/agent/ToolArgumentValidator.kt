@@ -50,8 +50,13 @@ internal object ToolArgumentValidator {
             else -> ""
         }
         val declared = (schema["properties"] as? JsonObject).orEmpty().keys.sorted().joinToString(", ").take(1000)
+        val cursorGuidance = if ("view_cursor" in arguments) {
+            "A saved view accepts only the issued view_cursor by itself. Copy the exact continuation_call.arguments; never invent a cursor or combine it with action, owner, repo, page, branch or query. "
+        } else {
+            ""
+        }
         return "Invalid arguments. " + errors.joinToString("; ").take(3000) +
-            ". No action was dispatched. " + guidance + "Submit one corrected proposal with a new call ID. " +
+            ". No action was dispatched. " + cursorGuidance + guidance + "Submit one corrected proposal with a new call ID. " +
             "Declared fields: " + declared
     }
 

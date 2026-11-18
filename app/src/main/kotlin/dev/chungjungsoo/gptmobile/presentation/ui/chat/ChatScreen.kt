@@ -202,7 +202,7 @@ fun ChatScreen(
     onExportHandled: () -> Unit = {},
     bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
-    CompositionLocalProvider(LocalUniversalProgressInHeader provides showTopBar) {
+    CompositionLocalProvider(LocalUniversalProgressInHeader provides showTopBar, LocalChatMediaPreview provides chatMediaPreview(chatViewModel)) {
         ConversationViewport { viewportWidth, viewportHeight ->
             ChatScreenContent(
                 chatViewModel = chatViewModel,

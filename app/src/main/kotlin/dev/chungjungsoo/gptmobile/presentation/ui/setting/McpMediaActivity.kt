@@ -21,6 +21,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class McpMediaActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedActivity() {
+    companion object {
+        internal const val ALLOW_REPLY = "dev.chungjungsoo.gptmobile.media.ATTACH_REPLY"
+    }
+
     private var player: MediaPlayer? = null
     override fun onStop() {
         player?.pause()
@@ -55,6 +59,12 @@ class McpMediaActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.Protect
                                         android.widget.Toast.makeText(this@McpMediaActivity, if (written) "File saved" else "Could not save media", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 }
+                            }
+                            if (image != null && intent.getBooleanExtra(ALLOW_REPLY, false)) {
+                                TextButton(onClick = {
+                                    setResult(RESULT_OK, android.content.Intent().setData(intent.data))
+                                    finish()
+                                }) { Text("Attach to reply") }
                             }
                             TextButton(onClick = { save.launch("chat-media." + file.extension) }) { Text("Save a copy") }
                         }

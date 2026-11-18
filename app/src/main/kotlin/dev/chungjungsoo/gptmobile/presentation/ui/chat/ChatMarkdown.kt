@@ -649,7 +649,8 @@ private fun ChatMarkdownContent(
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     val externalHandler = LocalUriHandler.current
-    val sourceHandler = remember(context, externalHandler, interactionOwner) {
+    val chatMedia = LocalChatMediaPreview.current
+    val sourceHandler = remember(context, externalHandler, interactionOwner, chatMedia) {
         object : androidx.compose.ui.platform.UriHandler {
             override fun openUri(uri: String) {
                 if (!interactionOwner.active) return
@@ -657,7 +658,7 @@ private fun ChatMarkdownContent(
                 if (parsedUri.scheme == "gptmobile" && parsedUri.host == "knowledge") {
                     context.startActivity(android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.setting.KnowledgeSourceActivity::class.java).setData(parsedUri))
                 } else if (parsedUri.scheme == "gptmobile" && parsedUri.host == "media") {
-                    context.startActivity(android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.setting.McpMediaActivity::class.java).setData(parsedUri))
+                    if (chatMedia != null) chatMedia(parsedUri) else context.startActivity(android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.setting.McpMediaActivity::class.java).setData(parsedUri))
                 } else if (parsedUri.scheme in setOf("https", "http", "mailto")) {
                     externalHandler.openUri(uri)
                 }

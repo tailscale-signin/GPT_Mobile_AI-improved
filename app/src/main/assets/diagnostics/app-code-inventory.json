@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "a1c5c299767f07602d905f092460ea9a74b75a020dfc42b60eefb3d70c38aa0b",
+  "source_digest": "f694481be1ae694c5e7ef3e1367224b660ab7ff6d1c6a29d5de3315078e45638",
   "file_count": 2667,
   "indexed_line_count": 433928,
   "line_coverage_available": false,
@@ -7528,7 +7528,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentation.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "02ba273d0457ea47d910978c843ff075d2b57741c518fa579c1fe4ce418599b7",
+      "sha256": "4115793b53735103267028b1b98315f2d4fcd07dc8fa9a136d4b80aeb35e304e",
       "indexed_lines": 223
     },
     {

@@ -362,3 +362,7 @@ This document records **source improvements**, not installed-device acceptance. 
 
 Never close an incident solely because diagnostic fields or tests were added. No permission, budget, provider capacity or remote write outcome is inferred.
 
+
+### Protected saved-view tier — follow-up qualification
+
+The saved-view body and cursor index now have a dedicated encrypted, fsynced, bounded saved-results store (48 MiB / 1,024 records), separate from the ordinary 48 MiB LRU cache and from critical mutation receipts. Ordinary cache pruning cannot silently remove a published saved view. Legacy cache-backed saved views are migrated on their next authorized local read. Exhausting the dedicated tier fails explicitly and does not authorize repeating GitHub mutations. Added a disk-pressure/restart regression that writes more than 48 MiB into ordinary cache after a saved view exists. Installed Android and selected-profile acceptance remain required.

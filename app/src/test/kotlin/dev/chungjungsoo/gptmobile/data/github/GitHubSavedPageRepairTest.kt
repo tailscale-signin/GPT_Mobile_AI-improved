@@ -165,6 +165,39 @@ class GitHubSavedPageRepairTest {
         }
     }
 
+    @Test fun savedBodyAndIndexSurviveOrdinaryCachePruningAndRestart() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("github-saved-result-retention-").toFile()
+        try {
+            val scope = "durable-read"
+            val state = GitHubRepositoryStateStore(directory)
+            val id = UUID.randomUUID().toString()
+            val cursor = "$id:0:2048"
+            GitHubSavedViewStore(state, scope).save(
+                id,
+                buildJsonObject {
+                    put("schema", "github.saved-view.v1")
+                    put("issued_cursors", JsonArray(listOf(JsonPrimitive(cursor))))
+                    put("failed_persistence_cursors", JsonArray(emptyList()))
+                }
+            )
+            val payload = JsonPrimitive("x".repeat(5 * 1024 * 1024))
+            repeat(10) { index ->
+                state.write(scope, "ordinary-cache-$index", buildJsonObject { put("payload", payload) })
+            }
+            assertFalse(state.containsRetainedBody(scope, "ordinary-cache-0"))
+            val reopened = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), scope)
+            val retained = reopened.loadWithDiagnostics(id)
+            assertEquals(JsonArray(listOf(JsonPrimitive(cursor))), retained["issued_cursors"])
+            assertEquals(JsonPrimitive("github.saved-view.v1"), retained["schema"])
+            assertEquals(
+                2,
+                java.io.File(directory, "saved-results").listFiles { file -> file.extension == "record" }?.size
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun legacyBodyWithoutInitialHandlesCannotInventRecoveryWhenIndexIsMissing() = runBlocking {
         val state = GitHubRepositoryStateStore()
         val scope = "legacy-scope"

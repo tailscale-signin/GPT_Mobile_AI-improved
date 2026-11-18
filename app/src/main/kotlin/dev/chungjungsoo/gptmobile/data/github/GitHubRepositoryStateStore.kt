@@ -66,7 +66,11 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
     suspend fun contains(scope: String, key: String): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             val identity = "$scope:$key"
-            protectedValues.containsKey(identity) || protectedFile(identity)?.isFile == true || values.containsKey(identity) || directory?.let { File(it, digest(identity) + ".record") }?.let { it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong() } == true || claimCheckpoint(identity, key) != null
+            protectedValues.containsKey(identity) || protectedFile(identity)?.isFile == true ||
+                savedViewFile(identity, key)?.isFile == true || values.containsKey(identity) ||
+                directory?.let { File(it, digest(identity) + ".record") }?.let {
+                    it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong()
+                } == true || claimCheckpoint(identity, key) != null
         }
     }
 
@@ -78,6 +82,9 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
             if (dir == null) {
                 values.containsKey(identity)
             } else {
+                savedViewFile(identity, key)?.let {
+                    if (it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong()) return@withLock true
+                }
                 File(dir, digest(identity) + ".record").let { it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong() }
             }
         }
@@ -107,12 +114,30 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
             if (protected.length() !in 1..MAX_PROTECTED_RECORD_BYTES.toLong()) return claimCheckpoint(identity, key)
             return runCatching { json.parseToJsonElement(crypt(identity, protected.readBytes(), false).decodeToString()) as? JsonObject }.getOrNull() ?: claimCheckpoint(identity, key)
         }
-        values[identity]?.let { return it }
+        savedViewFile(identity, key)?.takeIf { it.isFile }?.let { file ->
+            if (file.length() !in 1..MAX_RECORD_BYTES.toLong()) return null
+            val restored = runCatching {
+                json.parseToJsonElement(crypt(identity, file.readBytes(), false).decodeToString()) as? JsonObject
+            }.getOrNull() ?: return null
+            remember(identity, restored)
+            return restored
+        }
+        values[identity]?.let { cached ->
+            if (isSavedViewKey(key) && directory != null) {
+                writeSavedViewLocked(identity, key, cached, cached.toString().encodeToByteArray())
+            }
+            return cached
+        }
         val file = directory?.let { File(it, digest(identity) + ".record") } ?: return claimCheckpoint(identity, key)
         if (!file.isFile || file.length() > MAX_RECORD_BYTES) return claimCheckpoint(identity, key)
         val raw = file.readBytes()
         val value = runCatching { json.parseToJsonElement(crypt(identity, raw, false).decodeToString()) as? JsonObject }.getOrNull() ?: return claimCheckpoint(identity, key)
-        remember(identity, value)
+        if (isSavedViewKey(key)) {
+            // Legacy cache-backed saved results are migrated before LRU pruning.
+            writeSavedViewLocked(identity, key, value, value.toString().encodeToByteArray())
+        } else {
+            remember(identity, value)
+        }
         file.setLastModified(System.currentTimeMillis())
         return value
     }
@@ -124,6 +149,10 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
         require(plain.size <= MAX_RECORD_BYTES - 28) { "GitHub state record exceeds its byte budget." }
         if (CLAIM_KEY.matches(key)) {
             writeProtectedLocked(identity, key, value, plain)
+            return
+        }
+        if (isSavedViewKey(key)) {
+            writeSavedViewLocked(identity, key, value, plain)
             return
         }
         retainPublicationClaim(identity, key)
@@ -159,12 +188,55 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
             require(!CLAIM_KEY.matches(key)) { "Execution receipts require explicit app-data erasure; cache cleanup cannot remove them." }
             val identity = "$scope:$key"
             memoryCharacters -= values.remove(identity)?.toString()?.length ?: 0
+            savedViewFile(identity, key)?.delete()
             directory?.let { File(it, digest(identity) + ".record").delete() }
             Unit
         }
     }
 
     private fun protectedFile(identity: String): File? = directory?.let { File(File(it, "execution-receipts"), digest(identity) + ".record") }
+
+    private fun isSavedViewKey(key: String): Boolean =
+        key.startsWith("saved-view-body:") || key.startsWith("saved-view-access:")
+
+    private fun savedViewFile(identity: String, key: String): File? =
+        if (isSavedViewKey(key)) directory?.let { File(File(it, "saved-results"), digest(identity) + ".record") } else null
+
+    /** Durable saved reads have a separate quota; ordinary LRU pruning cannot evict issued handles. */
+    private suspend fun writeSavedViewLocked(identity: String, key: String, value: JsonObject, plain: ByteArray) {
+        val file = savedViewFile(identity, key)
+        if (file == null) {
+            remember(identity, value)
+            return
+        }
+        val dir = requireNotNull(file.parentFile)
+        check(dir.isDirectory || dir.mkdirs()) { "GITHUB_SAVED_RESULT_CAPACITY: saved-view storage unavailable" }
+        val entries = dir.listFiles { candidate -> candidate.extension == "record" }.orEmpty()
+        val previousBytes = file.takeIf { it.isFile }?.length() ?: 0L
+        val storedBytes = entries.sumOf { it.length() }
+        val nextBytes = plain.size.toLong() + 28L
+        check(
+            storedBytes - previousBytes + nextBytes <= MAX_SAVED_VIEW_BYTES &&
+                (previousBytes > 0 || entries.size < MAX_SAVED_VIEW_RECORDS)
+        ) {
+            "GITHUB_SAVED_RESULT_CAPACITY: durable saved result quota reached. " +
+                "Preserve the original read receipt and use a fresh authorized read; never replay a mutation."
+        }
+        val temp = File.createTempFile("saved-result-", ".tmp", dir)
+        try {
+            java.io.FileOutputStream(temp).use { stream ->
+                stream.write(crypt(identity, plain, true))
+                stream.fd.sync()
+            }
+            check(temp.renameTo(file)) { "Could not atomically preserve the GitHub saved result." }
+            java.nio.channels.FileChannel.open(dir.toPath(), java.nio.file.StandardOpenOption.READ).use {
+                it.force(true)
+            }
+        } finally {
+            temp.delete()
+        }
+        remember(identity, value)
+    }
 
     /** Reservations are installed before the publication fence and before any HTTP dispatch. */
     private suspend fun writeProtectedLocked(identity: String, key: String, value: JsonObject, plain: ByteArray) {
@@ -388,6 +460,8 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
     companion object {
         const val MAX_RECORD_BYTES = 7 * 1024 * 1024
         const val MAX_DISK_BYTES = 48L * 1024 * 1024
+        const val MAX_SAVED_VIEW_BYTES = 48L * 1024 * 1024
+        const val MAX_SAVED_VIEW_RECORDS = 1024
         const val MAX_RECORDS = 1536
         const val MAX_PUBLICATION_CLAIMS = 16_384
         const val MAX_PROTECTED_BYTES = 16L * 1024 * 1024

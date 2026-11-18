@@ -2970,7 +2970,7 @@ fun ChatInputBox(
                                             Icon(Icons.Rounded.AttachFile, contentDescription = stringResource(R.string.attach_file))
                                         }
                                         DropdownMenu(expanded = attachmentMenu, onDismissRequest = { attachmentMenu = false }) {
-                                            listOf(R.string.attach_images to "image/*", R.string.attach_documents to "application/pdf", R.string.attach_any_file to "*/*").forEach { (label, mime) ->
+                                            listOf(R.string.attach_images to "image/*", R.string.attach_audio to "audio/*", R.string.attach_documents to "application/pdf", R.string.attach_any_file to "*/*").forEach { (label, mime) ->
                                                 DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = {
                                                     attachmentMenu = false
                                                     filePickerLauncher.launch(mime)

@@ -115,13 +115,14 @@ internal fun UniversalChatActivityFeed(
             showIntroduction = false
         }
     }
-    val lines = remember(checkpoints, currentActivity, taskFocus, showIntroduction, active) {
+    val hasToolActivity = toolEvents.isNotEmpty()
+    val lines = remember(checkpoints, currentActivity, taskFocus, showIntroduction, active, hasToolActivity, expanded) {
         buildList {
-            if (active && showIntroduction && checkpoints.isEmpty() && taskFocus.isNotBlank()) {
+            if (active && showIntroduction && (hasToolActivity || expanded) && checkpoints.isEmpty() && taskFocus.isNotBlank()) {
                 add(universalActivityOpening(taskFocus))
             }
             addAll(checkpoints)
-            if (active && currentActivity.isNotBlank() && lastOrNull() != currentActivity) add(currentActivity)
+            if (active && (hasToolActivity || expanded) && currentActivity.isNotBlank() && lastOrNull() != currentActivity) add(currentActivity)
         }.let(::universalCoalescedActivityLines)
     }
     // This is a source-backed execution visualization, not model-generated facts.
@@ -133,13 +134,14 @@ internal fun UniversalChatActivityFeed(
     val motion = rememberGitHubProgressMotion(active && animate)
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         visible.forEachIndexed { index, line ->
-            key("universal:$line") {
+            val identity = "universal:" + (GitHubProgressPresentation.liveKey(line) ?: GitHubProgressPresentation.semanticActivityKey(line) ?: line)
+            key(identity) {
                 GitHubActivityPreview(
                     raw = line,
                     latest = active && index == visible.lastIndex,
                     motion = motion,
                     animateEntry = animate,
-                    lineIdentity = "universal:$line"
+                    lineIdentity = identity
                 )
             }
         }

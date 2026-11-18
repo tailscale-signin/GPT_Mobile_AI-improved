@@ -142,6 +142,20 @@ class NewChatViewModel @Inject constructor(
         clearError()
     }
 
+    internal fun chooseSuggestedProfile(uid: String, research: Boolean) {
+        val destination = if (research) NewChatType.RESEARCH else NewChatType.SINGLE
+        val profile = profiles.value.firstOrNull { it.uid == uid && it.enabled } ?: return
+        if (!PrivacyProfileEligibility.evaluate(profile, privacyMode?.snapshot()?.enabled == true).eligible ||
+            dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) != null
+        ) {
+            return
+        }
+        if (chooseType(destination)) {
+            savedStateHandle["new_chat_uids"] = listOf(uid)
+            savedStateHandle["new_chat_primary"] = uid
+        }
+    }
+
     fun setPrimary(uid: String) {
         if (uid in selectedUids.value) savedStateHandle["new_chat_primary"] = uid
     }

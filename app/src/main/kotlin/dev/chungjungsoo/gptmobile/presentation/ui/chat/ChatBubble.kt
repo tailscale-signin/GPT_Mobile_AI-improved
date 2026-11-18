@@ -298,6 +298,10 @@ fun OpponentChatBubble(
         if (githubTask != null) gitHubResponsePresentation(text, timeline, holdGitHubAnswer) else null
     }
     val displayedText = githubPresentation?.text ?: text
+    var showedLiveAnswer by remember(contentIdentity) { mutableStateOf(false) }
+    LaunchedEffect(holdGitHubAnswer, displayedText.isNotBlank()) {
+        if (holdGitHubAnswer && displayedText.isNotBlank()) showedLiveAnswer = true
+    }
     val hasFinalGitHubAnswer =
         githubTask != null &&
             !holdGitHubAnswer &&
@@ -313,7 +317,7 @@ fun OpponentChatBubble(
         identity = contentIdentity,
         inProgress = holdGitHubAnswer,
         hasFinalAnswer = hasFinalGitHubAnswer,
-        animate = debugSettings.responseAnimation,
+        animate = debugSettings.responseAnimation && !showedLiveAnswer,
         accent = MaterialTheme.colorScheme.primary,
         settled = finalGitHubColor
     )

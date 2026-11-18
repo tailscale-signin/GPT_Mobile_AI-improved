@@ -296,6 +296,26 @@ internal fun NewChatProfileScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (kind == NewChatType.SINGLE || kind == NewChatType.RESEARCH) {
+                item(key = "profile_recommendations") {
+                    Column {
+                        Text("Choose by task", style = MaterialTheme.typography.labelLarge)
+                        Row(Modifier.horizontalScroll(rememberScrollState())) {
+                            ChatRouteChoice.entries.forEach { choice ->
+                                val target = remember(choice, visible, availableUids, insights, gatewayAvailability, features, researchPolicy) {
+                                    recommendedChatProfile(choice, visible.filter { it.uid in availableUids }, insights, gatewayAvailability) { profile ->
+                                        features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                                            researchStartBlockReason(researchPolicy, features, profile.uid, !profile.disableAllTools && !profile.disableRemoteTools) == null
+                                    }
+                                }
+                                TextButton(onClick = {
+                                    target?.let { viewModel.chooseSuggestedProfile(it.uid, choice == ChatRouteChoice.RESEARCH) }
+                                }, enabled = target != null && !creating) { Text(choice.label) }
+                            }
+                        }
+                    }
+                }
+            }
             if (accessibilityInteracting) {
                 item(key = "gateway_profile_order") {
                     TextButton(

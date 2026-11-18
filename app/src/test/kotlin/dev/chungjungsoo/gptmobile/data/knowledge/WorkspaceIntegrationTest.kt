@@ -30,6 +30,19 @@ class WorkspaceIntegrationTest {
         database.close()
     }
 
+    @Test fun removedDefaultCannotSilentlySelectAnotherProvider() = runBlocking {
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(name = "Other", model = "other")
+        database.platformDao().addPlatform(profile)
+        val repository = ProjectWorkspaceRepository(database)
+        val project = KnowledgeProject("isolated", "Isolated", defaultProfileUid = "removed")
+        repository.save(project)
+        assertTrue(runCatching { repository.createChat(project) }.isFailure)
+        assertTrue(repository.chats().isEmpty())
+        repository.save(project.copy(defaultProfileUid = profile.uid))
+        val id = repository.createChat(project)
+        assertEquals(project.id, database.knowledgeDao().projectForChat(id)?.id)
+    }
+
     @Test fun preparedDocumentReceiptRejectsDeletedOrRevisedSource() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Recall")).toInt()
         val repository = MemoryDocumentRepository(database, MemoryScopeResolver(database))

@@ -28,10 +28,14 @@ class ProjectWorkspaceRepository @Inject constructor(private val database: ChatD
     }
 
     suspend fun createChat(project: KnowledgeProject): Int = database.withTransaction {
-        val profile = project.defaultProfileUid?.let { database.platformDao().getPlatformByUid(it) }
-            ?: database.platformDao().getPlatforms().firstOrNull { it.enabled }
+        val saved = requireNotNull(database.knowledgeDao().project(project.id)) { "This project is no longer available." }
+        val profile = if (saved.defaultProfileUid == null) {
+            database.platformDao().getPlatforms().firstOrNull { it.enabled }
+        } else {
+            database.platformDao().getPlatformByUid(saved.defaultProfileUid)
+        }
         require(profile != null && profile.enabled) { "Select an enabled default profile first." }
-        val id = database.chatRoomDao().addChatRoom(ChatRoomV2(title = project.name, enabledPlatform = listOf(profile.uid))).toInt()
+        val id = database.chatRoomDao().addChatRoom(ChatRoomV2(title = saved.name, enabledPlatform = listOf(profile.uid))).toInt()
         database.chatPlatformModelDao().upsertChatPlatformModel(ChatPlatformModelV2(id, profile.uid, profile.model))
         database.knowledgeDao().attachChat(KnowledgeProjectChat(id, project.id))
         id

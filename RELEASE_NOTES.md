@@ -1,5 +1,11 @@
 # GPT Mobile 0.9.66.8
 
+## Chat, projects and Gateway
+
+New Chat can select an eligible profile for Auto, Fast, Think or Research. Interactive answer blocks support sorting, chart views, maps, source links and CSV export. Google chat accepts supported audio recordings. Research history exposes captured passages and counterevidence. The Windows Gateway Chat page includes local schedules and an analysis workspace that runs Python in the configured offline container.
+
+Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.
+
 ## Privacy Mode — initial strict gate (PR #1741)
 
 Privacy Mode is OFF by default with 11 individually configurable, default-ON sensitivity categories. Settings now includes a Privacy section; New Chat has a top-right Privacy Mode checkbox that greys out remote and free profiles unless the full endpoint and account policy is verified. Private local and self-hosted gateway inference is exempt from third-party ZDR requirements; ordinary cloud routes cannot inherit that exemption. Existing-chat generation, research and benchmark entry points now reject ineligible remote providers while the master switch is on. The free-model catalog is assessed provider by provider, including Kilo automatic routing, volunteer AI Horde, OVHcloud's documented policy and upstream gateways.

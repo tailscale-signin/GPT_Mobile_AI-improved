@@ -10,6 +10,13 @@ import org.junit.Test
 class GitHubActivityLinesTest {
     private fun line(text: String, summary: Boolean = false) = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, text, progressCheckpoint = true, statusSummary = summary)
 
+    @Test fun publishesOnlyMatchingPrimaryTextDuringAnActiveTurn() {
+        val segment = AssistantTimelineItem(AssistantTimelineItemType.TEXT, "A result.", outputLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, "request"))
+        assertEquals(segment.content, gitHubResponsePresentation(segment.content, listOf(segment), true).text)
+        assertEquals("", gitHubResponsePresentation("Uncommitted", listOf(segment), true).text)
+        assertEquals("", gitHubResponsePresentation(segment.content, listOf(segment.copy(delegationInvocationId = "private")), true).text)
+    }
+
     @Test fun repeatedSavedCommitHistoryPairsCollapseIntoOneUpdatedRow() {
         val snapshots = (1..5).flatMap { index ->
             listOf(

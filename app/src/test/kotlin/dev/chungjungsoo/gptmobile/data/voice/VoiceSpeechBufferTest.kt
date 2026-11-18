@@ -127,6 +127,13 @@ class VoiceSpeechBufferTest {
         assertEquals("Code is available in the chat.", requireNotNull(VoiceSpeechBuffer().append("```only code", true, earlyStart = true)).joinToString("").trim())
     }
 
+    @Test fun revisingOnlyUnspokenTextKeepsTheQueuedSentence() {
+        val buffer = VoiceSpeechBuffer()
+        assertEquals(listOf("Ready. "), buffer.append("Ready. First draft", false))
+        assertEquals(listOf("Corrected ending."), buffer.append("Ready. Corrected ending.", true))
+        assertNull(buffer.append("Earlier words changed.", true))
+    }
+
     @Test fun terminalWhitespaceTrimmingDoesNotInvalidateQueuedSpeech() {
         val buffer = VoiceSpeechBuffer()
         assertEquals(listOf("A completed sentence. "), buffer.append("A completed sentence. ", false, earlyStart = true))

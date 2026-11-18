@@ -62,6 +62,7 @@ from v14.engineering_backend import GitHubEngineeringBackend
 from v14.engineering_routes import install_engineering_routes
 from v14.usage import install_usage
 from v14.conversations import admission_context, ConversationConflict, QueueFull, FEATURES
+from v14.operator_schedule import schedule_lifespan
 from v14.job_catalog import install_routes as install_conversation_routes
 from v14.profile_metadata import profile_metadata
 from v14.conversation_policy import conversation_retention, verify_mutation_identity, MUTATION_IDENTITY_HEADERS, ORDINARY_RETENTION_POLICY
@@ -137,7 +138,7 @@ debug_log.configure_identity(gatewayVersion=VERSION, sourceCommit=build_identity
 model_preparation = ModelPreparationService(engineering.capabilities)
 benchmarks = BenchmarkService(runtime, engineering)
 runtime.gateway_benchmarks = benchmarks
-app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=benchmarks.lifecycle(model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))))),
+app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=schedule_lifespan(benchmarks.lifecycle(model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))))), os.getenv("GATEWAY_DESKTOP_ROOT"), runtime.GATEWAY_JOB_DB_PATH),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)

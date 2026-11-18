@@ -857,6 +857,7 @@
     <string name="capability_unknown">Not verified</string>
     <string name="conversation_actions">Conversation actions</string>
     <string name="attach_images">Images</string>
+    <string name="attach_audio">Audio recording</string>
     <string name="attach_documents">PDF documents</string>
     <string name="attach_any_file">Other files</string>
     <string name="attachment_preparing">Preparing</string>

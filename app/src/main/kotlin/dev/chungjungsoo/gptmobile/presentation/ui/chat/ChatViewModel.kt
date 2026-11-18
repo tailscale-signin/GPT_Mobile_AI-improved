@@ -3553,7 +3553,7 @@ class ChatViewModel @Inject constructor(
                     currentAttachments = currentAttachments,
                     updateAttachments = updateAttachments,
                     filePath = filePath,
-                    notice = "Unsupported attachment type. Use images, PDF, Word, Excel, PowerPoint, text, CSV, JSON, XML or Markdown files."
+                    notice = "Unsupported attachment type. Use images, documents or MP3, WAV, FLAC, OGG and AAC audio."
                 )
                 return@launch
             }

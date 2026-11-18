@@ -587,7 +587,12 @@ private fun ChatMarkdownContent(
                     MarkdownCodeFence(it.content, it.node, it.typography.code) { code, language, style ->
                         val cleanLang = language?.trim()?.lowercase()
                         val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
-                        if (isHtmlOrSvg) {
+                        val dataset = remember(cleanLang, code) {
+                            if (cleanLang == "gpt-ui") dev.chungjungsoo.gptmobile.data.model.AnswerDataset.parse(code) else null
+                        }
+                        if (dataset != null) {
+                            AnswerDatasetCard(dataset)
+                        } else if (isHtmlOrSvg) {
                             SandboxedArtifactView(
                                 title = cleanLang.uppercase(),
                                 content = code,
@@ -824,11 +829,12 @@ private fun CodeBlockWithCopy(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    modifier = Modifier.padding(end = 12.dp),
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
                     text = language?.trim()?.takeIf { it.isNotEmpty() } ?: stringResource(R.string.code),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                SaveAnswerText("Save", "code.txt", "text/plain", code)
                 TextButton(
                     modifier = Modifier.heightIn(min = 32.dp),
                     onClick = { onCopyCode(code) },

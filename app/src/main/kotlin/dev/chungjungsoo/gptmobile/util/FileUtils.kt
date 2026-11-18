@@ -239,6 +239,12 @@ object FileUtils {
 
         "svg" -> "image/svg+xml"
 
+        "mp3" -> "audio/mpeg"
+        "wav" -> "audio/wav"
+        "flac" -> "audio/flac"
+        "ogg" -> "audio/ogg"
+        "aac" -> "audio/aac"
+
         // Documents
         "pdf" -> "application/pdf"
 
@@ -323,8 +329,10 @@ object FileUtils {
         maxSizeBytes: Long = MAX_UPLOAD_SIZE_BYTES
     ): Boolean = currentTotalBytes + newFileBytes > maxSizeBytes
 
+    internal fun isAudioUpload(mimeType: String): Boolean = mimeType in setOf("audio/mpeg", "audio/mp3", "audio/wav", "audio/flac", "audio/ogg", "audio/aac")
+
     internal fun isSupportedUploadMimeType(mimeType: String): Boolean {
-        if (isImage(mimeType)) return true
+        if (isImage(mimeType) || isAudioUpload(mimeType)) return true
         return mimeType in setOf(
             "application/pdf",
             "application/msword",

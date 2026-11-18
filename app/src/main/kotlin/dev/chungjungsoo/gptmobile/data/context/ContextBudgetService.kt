@@ -104,7 +104,7 @@ object ContextBudgetService {
             val size = estimate(tool.name + tool.description + tool.inputSchema.toString()) + 16
             (used + size <= promptLimit).also { if (it) used += size }
         }
-        val history = MemoryTokenWindow.select(turns.filterNot { it.isCurrentTurn }, promptLimit - used, ::cost)
+        val history = MemoryTokenWindow.forQuestion(turns.filterNot { it.isCurrentTurn }, promptLimit - used, current.lastOrNull()?.userMessage?.content.orEmpty(), ::cost)
         used += history.sumOf(::cost)
         val omitted = turns.size - current.size - history.size
         return ContextPlan(

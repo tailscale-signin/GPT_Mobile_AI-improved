@@ -46,6 +46,12 @@ class ChatBenchmarkActivity : ComponentActivity() {
                     FiveProfileStreamingFixture()
                     return@MaterialTheme
                 }
+                if (intent.getStringExtra("screen") == "interactive-answer") {
+                    val raw = """{"version":1,"type":"bars","title":"Sample runs","columns":["Run","Seconds"],"rows":[["Cold","12"],["Warm","2"]]}"""
+                    val fence = "`".repeat(3)
+                    dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown(content = "$fence" + "gpt-ui\n$raw\n$fence")
+                    return@MaterialTheme
+                }
                 if (intent.getStringExtra("screen") == "logs") {
                     AppLogBenchmarkFixture()
                     return@MaterialTheme

@@ -254,9 +254,10 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         val handle = json.decodeFromString<dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskHandle>((store.latest(record.id) ?: record).payload)
         check(handle.identity == dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore.identity(config)) { "Connection credentials or endpoint changed. Task recovery requires its original connection." }
         val id = handle.task.getValue("taskId")
-        if (cancel) {
+        if (cancel && !handle.cancellationRequested && handle.task["status"]?.jsonPrimitive?.content !in setOf("completed", "failed", "cancelled")) {
+            val pending = store.save(config, handle.task, null, handle.answered, true)
             rpc(config, "tasks/cancel", buildJsonObject { put("taskId", id) })
-            return@withLock store.save(config, handle.task, null, handle.answered, true)
+            return@withLock pending
         }
         val result = rpc(config, "tasks/get", buildJsonObject { put("taskId", id) })
         check(result["taskId"] == id) { "Mismatched task response." }

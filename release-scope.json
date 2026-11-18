@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Add native interactive answers, evidence-based profile suggestions, scoped context retrieval, progressive GitHub delivery, audio attachments, persisted task recovery, desktop schedules and offline analysis.",
     "Repair build-142 native read/search admission, verification reserves, receipt-linked revision retention, issue cursor rejection diagnostics, generic failure invocation lineage and confirmed provider-pool cooldown scopes. Installed-device qualification remains outstanding.",
     "Add a versioned Windows Gateway publication workflow and GitHub chat summary cadence, selected-profile narration and native check-table workbook export, with a delivery matrix for source, CI, packaging and installation evidence.",
     "Add an explicit saved-AI-profile GitHub tool audit with live model requests, isolated fixture tool execution, full model-facing action inventory, durable case results and negative-write regression coverage.",
@@ -173,6 +174,7 @@
     "Start local Privacy Mode with a master checkbox, default-protected data categories, disabled unverified/free provider routes in New Chat, private local gateway exception and a fail-closed chat-provider admission guard."
   ],
   "limitations": [
+    "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
     "GitHub AI tool audit exercises selected-profile tool calls against isolated offline fixtures, not live GitHub authorization or mutations; bounded live-read probes remain separately qualified.",
     "The separate ten-scenario production engineering benchmark has not been executed. Its scenario list is retained in the engineering follow-up; execution still requires a designated test repository and runtime. A live 9,043-token request replay on the 5,632-token route, installed phone/Windows gateway acceptance, physical installation and smoke qualification remain unverified. Configured container release checks do not establish physical-device coverage.",
     "The new keyboard and completion diagnostics require a hosted reporter advertising COMPOSER_IME_EVIDENCE_V1 and COMPLETION_EVIDENCE_V1. Confirm keyboard behavior on the affected Android device and empty model responses on the original route.",
@@ -3053,6 +3055,25 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyModeStore.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibility.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyModePanel.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibilityTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetService.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/MemoryTokenWindow.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/knowledge/KnowledgeDao.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/knowledge/ProjectWorkspaceRepository.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/AnswerDataset.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/AttachmentUploadCoordinator.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/RemoteTaskStore.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AnswerDatasetCard.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ResearchProgressCard.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/ChatRouteChoice.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/FileUtils.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/ContextBudgetServiceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/knowledge/WorkspaceIntegrationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/model/AnswerDatasetTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/ChatRouteChoiceTest.kt",
+    "gateway/desktop/analysis_panel.py",
+    "gateway/desktop/schedule_panel.py",
+    "gateway/tests/test_gateway_operator_work.py",
+    "gateway/v14/operator_schedule.py"
   ]
 }

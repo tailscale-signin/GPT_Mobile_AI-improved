@@ -4459,8 +4459,9 @@ class ChatRepositoryImpl(
         researchReport: Boolean,
         githubMode: Boolean
     ): String {
+        val datasetInstruction = dev.chungjungsoo.gptmobile.data.model.AnswerDataset.instruction(latestUser?.effectiveContent().orEmpty(), contextTokens)
         if (platform.compatibleType == ClientType.FREE && !synthesisRun && !researchReport && !hasTools) {
-            return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + freeTextSystemPrompt(platform.systemPrompt, dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(latestUser?.createdAt ?: java.time.Instant.now().epochSecond), projectInstructions) + dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
+            return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + freeTextSystemPrompt(platform.systemPrompt, dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(latestUser?.createdAt ?: java.time.Instant.now().epochSecond), projectInstructions) + datasetInstruction + dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
         }
         if (platform.compatibleType == ClientType.LITERT_LM && !synthesisRun && !localResearch && !researchReport && !reviewedPreparationUnavailable) {
             val task = latestUser?.effectiveContent().orEmpty()
@@ -4471,7 +4472,7 @@ class ChatRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.requiredToolNames(task + "\n" + platform.systemPrompt.orEmpty() + "\n" + projectInstructions, definitions)
             )
             return dev.chungjungsoo.gptmobile.data.context.LocalRequestPrompt.build(platform.systemPrompt, projectInstructions, relevant.isNotEmpty(), taskRecovery?.action?.name) +
-                dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
+                datasetInstruction + dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
         }
         val recoveryInstruction = taskRecovery?.let { "\nRecovery action: ${it.action.name}. Resume unfinished stages using saved evidence; preserve prior constraints and verify unknown action outcomes before retrying." }.orEmpty()
         val progressInstruction = if (hasTools) {
@@ -4507,7 +4508,7 @@ class ChatRepositoryImpl(
         val turnContextInstruction = latestUser?.let {
             dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(it.createdAt).instruction()
         }.orEmpty()
-        return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + turnContextInstruction + liveToolSystemPrompt(
+        return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + turnContextInstruction + datasetInstruction + liveToolSystemPrompt(
             platform.systemPrompt,
             tools.map { it.modelToolName },
             compact = platform.compatibleType in setOf(ClientType.LITERT_LM, ClientType.FREE) || localResearch || contextTokens < 4096,
@@ -6732,9 +6733,12 @@ class ChatRepositoryImpl(
     }
 
     private suspend fun withDocumentContext(message: MessageV2, platform: PlatformV2): MessageV2 {
+        require(platform.compatibleType == ClientType.GOOGLE || message.attachments.none { FileUtils.isAudioUpload(it.mimeType) }) {
+            "This conversation includes an audio attachment. Choose an audio-capable Google model to transcribe or analyze it."
+        }
         if (platform.compatibleType == ClientType.FREE) return message
         val nativePdf = platform.compatibleType in setOf(ClientType.OPENAI, ClientType.ANTHROPIC, ClientType.GOOGLE)
-        val documents = message.attachments.filter { !FileUtils.isImage(it.mimeType) }
+        val documents = message.attachments.filterNot { FileUtils.isImage(it.mimeType) || FileUtils.isAudioUpload(it.mimeType) }
         if (documents.isEmpty()) return message
         val textOnlyDocuments = documents.filterNot { nativePdf && it.mimeType == "application/pdf" }
         val excerpts = withContext(Dispatchers.IO) {

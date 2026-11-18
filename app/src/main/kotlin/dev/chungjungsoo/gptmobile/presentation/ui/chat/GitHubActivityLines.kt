@@ -40,7 +40,26 @@ internal data class GitHubResponsePresentation(val text: String, val timeline: L
 
 /** Reuse retained public prose in the normal answer renderer, without certifying it as a final answer. */
 internal fun gitHubResponsePresentation(text: String, timeline: List<AssistantTimelineItem>, awaitingDelivery: Boolean = false): GitHubResponsePresentation {
-    if (awaitingDelivery) return GitHubResponsePresentation("", timeline.filterNot { it.type == AssistantTimelineItemType.TEXT })
+    if (awaitingDelivery) {
+        val segments = timeline.filter { it.type == AssistantTimelineItemType.TEXT && it.content.isNotEmpty() }
+        // Only publish the committed primary stream. Older unbound text and private handoffs wait for delivery.
+        val visible = segments.isNotEmpty() &&
+            segments.all {
+                it.outputLineage?.origin == dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT &&
+                    !it.outputLineage.invocationId.isNullOrBlank() &&
+                    !it.progressCheckpoint &&
+                    !it.statusSummary &&
+                    it.delegationInvocationId == null &&
+                    it.delegationProfile == null &&
+                    !it.delegatedTool &&
+                    it.toolSequence == null &&
+                    it.toolMetrics == null &&
+                    it.recalledFacts.isEmpty()
+            } &&
+            segments.joinToString("") { it.content } == text &&
+            dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(text) == text
+        return if (visible) GitHubResponsePresentation(text, timeline) else GitHubResponsePresentation("", timeline.filterNot { it.type == AssistantTimelineItemType.TEXT })
+    }
     val unchanged = GitHubResponsePresentation(text, timeline)
     val summary = gitHubPublicSummary(timeline) ?: return unchanged
     fun generated(value: String): Boolean {

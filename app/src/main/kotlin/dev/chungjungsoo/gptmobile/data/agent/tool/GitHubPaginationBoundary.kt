@@ -16,7 +16,34 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     private val ends = linkedMapOf<String, End>()
     private val traversals = linkedMapOf<String, Traversal>()
 
-    private fun key(operation: String, args: JsonObject): String = operation + dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(operation, args)
+    private fun key(operation: String, args: JsonObject, result: JsonObject? = null): String {
+        if (operation == "github_context" && args["action"] == JsonPrimitive("changed_since")) {
+            // The first page can use a mutable base ref, while the exact
+            // continuation uses its resolved immutable SHA. Both are one
+            // traversal only when the response proves the same pinned pair.
+            fun sha(value: kotlinx.serialization.json.JsonElement?): String? =
+                (value as? JsonPrimitive)?.content?.takeIf {
+                    it.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))
+                }?.lowercase()
+            val base = sha(result?.get("base_sha") ?: args["base"] ?: args["base_sha"])
+            val head = sha(result?.get("head_sha") ?: args["commit_sha"])
+            if (base != null && head != null) {
+                val pinned = buildJsonObject {
+                    put("action", "changed_since")
+                    for (field in listOf("owner", "repo")) {
+                        (args[field] as? JsonPrimitive)?.takeIf { it.isString }?.let {
+                            put(field, it.content.lowercase())
+                        }
+                    }
+                    put("base_sha", base)
+                    put("head_sha", head)
+                    put("include_patches", args["include_patches"] == JsonPrimitive(true))
+                }
+                return "$operation:$pinned"
+            }
+        }
+        return operation + dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(operation, args)
+    }
     private fun page(args: JsonObject) = (args["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
 
     // The failure digest bounds a search for one failed job. Its continuation
@@ -195,7 +222,13 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             }
             return Assessment(JsonObject(withoutContinuations + failureBody), "GITHUB_PAGINATION_INCOMPLETE")
         }
-        val key = key(operation, args)
+        val key = key(operation, args, result)
+        if (page(args) == 1 && operation == "github_context" && args["action"] == JsonPrimitive("changed_since")) {
+            // A live page-one refresh starts a fresh epoch even when the
+            // resolved base/head are unchanged from the preceding traversal.
+            ends.remove(key)
+            traversals.remove(key)
+        }
         val state = traversals.getOrPut(key) { Traversal() }
         if (state.pages.values.any { now() - it.at !in 0..300_000_000_000L }) {
             state.pages.clear()

@@ -20,6 +20,7 @@ import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
@@ -98,7 +99,8 @@ object ChatRepositoryModule {
         gatewayConversations: dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository,
         gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository,
         reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository,
-        gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore
+        gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore,
+        privacyMode: PrivacyModeStore
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -149,6 +151,7 @@ object ChatRepositoryModule {
         gatewayConversations = gatewayConversations,
         gatewayEngineering = gatewayEngineering,
         reasoningCapabilities = reasoningCapabilities,
-        gitHubApprovalState = gitHubApprovalState
+        gitHubApprovalState = gitHubApprovalState,
+        privacyMode = privacyMode
     )
 }

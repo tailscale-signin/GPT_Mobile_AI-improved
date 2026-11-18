@@ -73,10 +73,10 @@ class ArchiveIngestionRetryTest {
         withStore { store, database, settings, context ->
             val sources = (0 until 76).map { index ->
                 ResearchSource(
-                    "B$" + "index",
-                    "https://example.org/bulk/$" + "index",
-                    "Bulk study $" + "index",
-                    passage = "Methods and results for source $" + "index"
+                    "B" + index,
+                    "https://example.org/bulk/" + index,
+                    "Bulk study " + index,
+                    passage = "Methods and results for source " + index
                 )
             }
             val journal = store.journal("bulk-run", 8, true, "8:1").scoped("public", true)

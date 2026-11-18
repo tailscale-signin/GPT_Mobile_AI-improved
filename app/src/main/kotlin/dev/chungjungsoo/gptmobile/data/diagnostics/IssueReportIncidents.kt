@@ -343,6 +343,16 @@ internal object IssueReportIncidents {
             ?: "GITHUB_TASK_INCOMPLETE".takeIf {
                 code in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED")
             }
+        // A confirmed provider-side 403 is not a transient transport retry.
+        // Keep the provider's observed rejection category and HTTP status, but
+        // publish an actionable public issue code without response-body text.
+        val observedPermissionDenial = !localRecovery && specificCode == null &&
+            input.provider != null &&
+            input.stage in setOf("model_invocation", "provider_generation") &&
+            input.httpStatus == 403 &&
+            input.remoteAcceptance == "NO" &&
+            input.requiresReconciliation != true &&
+            rejection == "PERMISSION"
         val observedRateLimit = if (!localRecovery && specificCode == null && !rateLimited) {
             input.provider != null &&
                 input.stage in setOf("model_invocation", "provider_generation") &&
@@ -354,7 +364,11 @@ internal object IssueReportIncidents {
         }
         // A rejected provider attempt may lack a resumable checkpoint. Retain its
         // observed cause without treating the report as authorization to retry.
-        val publicCode = if (localRecovery) "CHAT_FAILED" else specificCode ?: if (rateLimited || observedRateLimit) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED"
+        val publicCode = if (localRecovery) "CHAT_FAILED" else specificCode ?: when {
+            observedPermissionDenial -> "SOURCE_ACCESS_BLOCKED"
+            rateLimited || observedRateLimit -> "PROVIDER_RATE_LIMITED"
+            else -> "CHAT_FAILED"
+        }
         val diagnosticFields = if (publicCode in dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.codes) {
             fields + mapOf(
                 "diagnostic_area" to "GATEWAY",
@@ -402,7 +416,15 @@ internal object IssueReportIncidents {
         } else {
             fields
         }
-        failure(ReportFeature.CHAT, publicCode, error, diagnosticFields + listOfNotNull(invocationId?.let { "invocation_id" to it }).toMap(), "CHAT_FAILURE")
+        val recoveryFields = if (observedPermissionDenial) {
+            diagnosticFields + mapOf(
+                "retryable" to false,
+                "recovery_action" to "RETRY_AFTER_CONFIGURATION_CHANGE"
+            )
+        } else {
+            diagnosticFields
+        }
+        failure(ReportFeature.CHAT, publicCode, error, recoveryFields + listOfNotNull(invocationId?.let { "invocation_id" to it }).toMap(), "CHAT_FAILURE")
     }
 
     /** Called by the existing uncaught exception handler before it delegates to Android. */

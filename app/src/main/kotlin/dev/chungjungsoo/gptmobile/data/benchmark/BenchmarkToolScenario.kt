@@ -100,6 +100,29 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
 
     fun expectedError(call: ProviderEvent.ToolCall, result: AgentToolResult): Boolean = valid(call) && result.isError && (recovery && result.errorCode == "BENCHMARK_RETRYABLE" || permanent && result.errorCode == "BENCHMARK_PERMANENT")
 
+    /**
+     * A model can choose the correct tool yet send a semantically wrong argument.
+     * Store only closed field identities and mismatch categories, never the values.
+     */
+    private fun githubArgumentEvidence(calls: List<ProviderEvent.ToolCall>): BenchmarkToolArgumentEvidence? {
+        val fixture = githubFixture ?: return null
+        val call = calls.singleOrNull() ?: return null
+        val expected = fixture.arguments
+        val observed = call.arguments
+        fun fields(values: Collection<String>): List<String> = values.map { key ->
+            key.takeIf { it.matches(Regex("[A-Za-z_][A-Za-z_0-9]{0,63}")) } ?: "NONCANONICAL_FIELD"
+        }.distinct().sorted().take(32)
+        return BenchmarkToolArgumentEvidence(
+            expectedToolSelected = call.name == fixture.operation,
+            schemaValid = ToolArgumentValidator.errors(observed, fixture.definition.inputSchema).isEmpty(),
+            exactArguments = expected == observed,
+            observedFieldNames = fields(observed.keys),
+            missingFieldNames = fields(expected.keys - observed.keys),
+            additionalFieldNames = fields(observed.keys - expected.keys),
+            changedFieldNames = fields(expected.keys.intersect(observed.keys).filter { expected[it] != observed[it] })
+        )
+    }
+
     fun assess(calls: List<ProviderEvent.ToolCall>, successful: Set<String>, expectedErrors: Set<String>, answer: String, raw: String, complete: Boolean): BenchmarkToolAssessment {
         val selected = calls.map { it.name }.all { name ->
             name in if (githubFixture != null) {
@@ -128,7 +151,8 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
             } else {
                 null
             },
-            calls.size <= maximum, calls.size, successful.size, expectedErrors.size
+            calls.size <= maximum, calls.size, successful.size, expectedErrors.size,
+            argumentEvidence = githubArgumentEvidence(calls)
         )
     }
 

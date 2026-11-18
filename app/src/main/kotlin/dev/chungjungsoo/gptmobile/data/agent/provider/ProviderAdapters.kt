@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase
 import dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.agent.providerInvocation
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -77,6 +78,24 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
+/**
+ * Model-facing GitHub tools use a provider-portable schema subset. The full schema
+ * remains attached to the host tool and is validated before authorization or dispatch.
+ * oneOf and other composition keywords are not supported in every Responses strict
+ * schema and must never silently broaden local write permissions.
+ */
+internal fun modelCompatibleGitHubToolSchema(schema: JsonObject): JsonObject {
+    fun project(element: JsonElement): JsonElement = when (element) {
+        is JsonObject -> JsonObject(
+            element.filterKeys { it !in setOf("oneOf", "allOf", "not", "if", "then", "else", "dependentRequired", "dependentSchemas") }
+                .mapValues { (_, value) -> project(value) }
+        )
+        is JsonArray -> JsonArray(element.map(::project))
+        else -> element
+    }
+    return project(schema) as JsonObject
+}
+
 /** Preserve only the parser-owned closed subtype, never provider fragments or tool arguments. */
 internal fun retainSafeToolProtocolFrameKind(
     previous: JsonObject?,
@@ -145,7 +164,12 @@ class OpenAIResponsesAdapter @Inject constructor(
                     },
                     previousResponseId = previousResponseId,
                     tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
-                        ResponseFunctionTool(definition.name, definition.description, definition.inputSchema)
+                        ResponseFunctionTool(
+                            definition.name,
+                            definition.description,
+                            if (GitHubOperationTool.operationName(definition.name) != null) modelCompatibleGitHubToolSchema(definition.inputSchema) else definition.inputSchema,
+                            strict = false.takeIf { GitHubOperationTool.operationName(definition.name) != null }
+                        )
                     },
                     parallelToolCalls = false.takeIf { tools.isNotEmpty() }
                 )
@@ -794,7 +818,11 @@ class OpenAICompatibleAdapter @Inject constructor(
                 }
                 if (exchanges.lastOrNull()?.results.orEmpty().any { it.media.isNotEmpty() } && toolImages.isEmpty()) emit(ProviderEvent.Notice("Tool media cannot be delivered to this model. Select a supported vision model or inspect the tool attachment.", persistent = true))
                 val requestTools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
-                    ChatFunctionTool(definition.name, definition.description, definition.inputSchema)
+                    ChatFunctionTool(
+                        definition.name,
+                        definition.description,
+                        if (GitHubOperationTool.operationName(definition.name) != null) modelCompatibleGitHubToolSchema(definition.inputSchema) else definition.inputSchema
+                    )
                 }
 
                 val freshOnce = isOpenRouter && !constraints.freshResponse && dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterFreshRequests.consume(platform.providerConnectionUid ?: platform.uid)

@@ -87,6 +87,28 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+
+    @Test fun openAiGitHubToolSchemaKeepsHostChecksButNeverPublishesUnsupportedOneOf() {
+        val original = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_read").inputSchema
+        val provider = modelCompatibleGitHubToolSchema(original)
+        assertTrue(original.toString().contains("oneOf"))
+        assertFalse(provider.toString().contains("oneOf"))
+        val beforeFields = (original["properties"] as kotlinx.serialization.json.JsonObject).keys
+        val afterFields = (provider["properties"] as kotlinx.serialization.json.JsonObject).keys
+        assertEquals(beforeFields, afterFields)
+        val invalid = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"end_line":20,"max_lines":10}]}"""
+        ) as kotlinx.serialization.json.JsonObject
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(invalid, original).isNotEmpty())
+        val serialized = kotlinx.serialization.json.Json.encodeToJsonElement(
+            dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionTool(
+                "github_read", "Offline tools", provider, strict = false
+            )
+        ).jsonObject
+        assertEquals(JsonPrimitive(false), serialized["strict"])
+        assertFalse(serialized.toString().contains("oneOf"))
+    }
+
     @Test fun typedToolProtocolParserKindSurvivesProviderAdapterFailureProjection() {
         val valid = dev.chungjungsoo.gptmobile.data.agent.provider.toolCall("call", "weather", "{")
             .single() as ProviderEvent.Failed

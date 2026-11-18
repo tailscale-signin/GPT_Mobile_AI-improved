@@ -15,5 +15,20 @@ data class BenchmarkToolAssessment(
     val attemptedCalls: Int,
     val successfulCalls: Int,
     val expectedErrorCalls: Int,
-    val policy: String = "benchmark-tool-dimensions-v1"
+    val policy: String = "benchmark-tool-dimensions-v1",
+    // Optional so persisted benchmark exports from earlier app builds remain readable.
+    val argumentEvidence: BenchmarkToolArgumentEvidence? = null
+)
+
+/** Field identity only. Never persists model-proposed argument values or private strings. */
+@Serializable
+data class BenchmarkToolArgumentEvidence(
+    val expectedToolSelected: Boolean,
+    val schemaValid: Boolean,
+    val exactArguments: Boolean,
+    val observedFieldNames: List<String>,
+    val missingFieldNames: List<String>,
+    val additionalFieldNames: List<String>,
+    val changedFieldNames: List<String>,
+    val policy: String = "benchmark-argument-evidence-v1"
 )

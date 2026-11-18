@@ -66,4 +66,57 @@ class GitHubProfileAuditSuiteTest {
         assertTrue(scenario.passed(listOf(call), setOf(call.callId), emptySet()))
         assertFalse(scenario.valid(call.copy(arguments = kotlinx.serialization.json.buildJsonObject {})))
     }
+    @Test
+    fun failedGitHubFixtureArgumentsKeepOnlySafeFieldIdentities() {
+        val benchmark = GitHubProfileAuditSuite.cases(allActions = false)
+            .single { it.id == "github-ai-v1:github_search:search" }
+        val fixture = requireNotNull(GitHubProfileAuditSuite.fixture(benchmark))
+        val scenario = BenchmarkToolScenario(benchmark, "FIXTURE-OK")
+        val wrong = kotlinx.serialization.json.JsonObject(
+            fixture.arguments + mapOf(
+                "query" to JsonPrimitive("PRIVATE_QUERY_MUST_NOT_LEAK"),
+                "extra_field" to JsonPrimitive("PRIVATE_PAYLOAD_MUST_NOT_LEAK")
+            )
+        )
+        val result = scenario.assess(
+            listOf(ProviderEvent.ToolCall("wrong-1", fixture.operation, wrong)),
+            emptySet(), emptySet(), "invalid", "invalid", true
+        )
+        assertEquals(false, result.argumentsCorrect)
+        val evidence = requireNotNull(result.argumentEvidence)
+        assertEquals(true, evidence.expectedToolSelected)
+        assertEquals(false, evidence.schemaValid)
+        assertEquals(false, evidence.exactArguments)
+        assertEquals(listOf("extra_field"), evidence.additionalFieldNames)
+        assertEquals(listOf("query"), evidence.changedFieldNames)
+        assertTrue(evidence.missingFieldNames.isEmpty())
+        assertFalse(evidence.toString().contains("PRIVATE_QUERY"))
+        assertFalse(evidence.toString().contains("PRIVATE_PAYLOAD"))
+    }
+
+    @Test
+    fun fivePreviouslyFailingGitHubFixturesAcceptTheirExactOfflineCalls() = runBlocking {
+        val failedCases = setOf(
+            "github-ai-v1:github_context:resolve",
+            "github-ai-v1:github_context_inspect:resolve",
+            "github-ai-v1:github_pr_inspect:list",
+            "github-ai-v1:github_search:search",
+            "github-ai-v1:github_stage_patch:default"
+        )
+        val cases = GitHubProfileAuditSuite.cases(allActions = false)
+            .filter { it.id in failedCases }
+        assertEquals(failedCases, cases.map { it.id }.toSet())
+        for (benchmark in cases) {
+            val fixture = requireNotNull(GitHubProfileAuditSuite.fixture(benchmark))
+            val scenario = BenchmarkToolScenario(benchmark, "FIXTURE-OK")
+            val call = ProviderEvent.ToolCall("valid-1", fixture.operation, fixture.arguments)
+            assertTrue(benchmark.id, scenario.valid(call))
+            val result = scenario.tools.single().execute(call.callId, call.arguments)
+            assertFalse(benchmark.id, result.isError)
+            val score = scenario.assess(listOf(call), setOf(call.callId), emptySet(), "FIXTURE-OK", "FIXTURE-OK", true)
+            assertEquals(benchmark.id, true, score.argumentEvidence?.exactArguments)
+            assertEquals(benchmark.id, true, score.argumentEvidence?.schemaValid)
+        }
+    }
+
 }

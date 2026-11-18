@@ -67,6 +67,7 @@ data class ResponsesRequest(
     val parallelToolCalls: Boolean? = null
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class ResponseFunctionTool(
     @SerialName("name")
@@ -79,7 +80,12 @@ data class ResponseFunctionTool(
     val parameters: JsonObject,
 
     @SerialName("type")
-    val type: String = "function"
+    val type: String = "function",
+
+    // Complex host-validated GitHub schemas are deliberately non-strict on the wire.
+    @SerialName("strict")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val strict: Boolean? = null
 )
 
 @OptIn(ExperimentalSerializationApi::class)

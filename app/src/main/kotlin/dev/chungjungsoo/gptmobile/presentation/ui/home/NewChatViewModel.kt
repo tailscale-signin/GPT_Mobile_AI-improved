@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelSelectionController
 import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
 import dev.chungjungsoo.gptmobile.data.model.NewChatType

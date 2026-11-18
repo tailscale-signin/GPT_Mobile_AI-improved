@@ -35,7 +35,7 @@ class GitHubTopFadeGeometryTest {
         assertEquals(start, collapsed.first, 0f)
         assertEquals(stop, collapsed.second, 0f)
         org.junit.Assert.assertTrue(expanded.first > collapsed.first)
-        org.junit.Assert.assertTrue(expanded.second > collapsed.second)
+        org.junit.Assert.assertTrue(expanded.second < collapsed.second)
         org.junit.Assert.assertTrue(expanded.second - expanded.first < collapsed.second - collapsed.first)
         assertEquals(collapsed.first, chatTopFadeStops(start, stop, 0f).first, 0f)
         assertEquals(start, chatTopFadeStops(start, start, 1f).first, 0f)

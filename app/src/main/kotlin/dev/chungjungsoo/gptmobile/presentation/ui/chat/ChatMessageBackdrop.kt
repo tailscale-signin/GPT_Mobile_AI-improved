@@ -17,7 +17,8 @@ internal fun Modifier.chatMessageBackdrop(
     topFade: Dp,
     bottomFadeStartFromBottom: Dp,
     bottomFadeEndFromBottom: Dp,
-    contentVisible: Boolean = true
+    contentVisible: Boolean = true,
+    topFadeConcentration: Float = 0f
 ): Modifier = this
     .graphicsLayer {
         compositingStrategy = if (topFade.value > 0f || bottomFadeStartFromBottom.value > 0f) CompositingStrategy.Offscreen else CompositingStrategy.Auto
@@ -28,6 +29,7 @@ internal fun Modifier.chatMessageBackdrop(
 
         val topStart = (topFadeStart.toPx() / size.height).coerceIn(0f, 1f)
         val topStop = (topFade.toPx() / size.height).coerceIn(topStart, 1f)
+        val topStops = chatTopFadeStops(topStart, topStop, topFadeConcentration)
         val bottomOpaqueStop = (1f - (bottomFadeStartFromBottom.toPx() / size.height))
             .coerceIn(topStop, 1f)
         val bottomTransparentStop = (1f - (bottomFadeEndFromBottom.toPx() / size.height))
@@ -36,6 +38,8 @@ internal fun Modifier.chatMessageBackdrop(
             brush = Brush.verticalGradient(
                 0f to Color.Transparent,
                 topStart to Color.Transparent,
+                topStops.first to Color.Transparent,
+                topStops.second to Color.Black,
                 topStop to Color.Black,
                 bottomOpaqueStop to Color.Black,
                 bottomTransparentStop to Color.Transparent,
@@ -49,3 +53,19 @@ internal fun Modifier.chatMessageBackdrop(
     .glassBackdropSource()
     // Entry visibility belongs inside the source; only viewport edge masks are excluded.
     .graphicsLayer { alpha = if (contentVisible) 1f else 0f }
+
+/**
+ * A collapsed header retains a broad soft gradient. Expanding it delays the
+ * opaque portion and compresses the visible transition, so the top edge is
+ * more transparent without fading a larger fraction of the conversation.
+ * Normalized stops also keep narrow landscape windows safe.
+ */
+internal fun chatTopFadeStops(start: Float, stop: Float, expansion: Float): Pair<Float, Float> {
+    val low = start.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
+    val high = stop.takeIf(Float::isFinite)?.coerceIn(low, 1f) ?: low
+    val progress = expansion.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
+    val eased = progress * progress * (3f - 2f * progress)
+    val range = high - low
+    return (low + range * (0.18f + 0.28f * eased)) to
+        (low + range * (0.82f + 0.12f * eased))
+}

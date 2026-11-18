@@ -35,9 +35,9 @@ internal object GitHubRecoveryCalls {
                 val correctedBlobs =
                     if (
                         requestedBlobs != null &&
-                            minBlobs != null &&
-                            maxBlobs != null &&
-                            minBlobs <= maxBlobs
+                        minBlobs != null &&
+                        maxBlobs != null &&
+                        minBlobs <= maxBlobs
                     ) {
                         requestedBlobs.coerceIn(minBlobs, maxBlobs)
                     } else {
@@ -45,11 +45,11 @@ internal object GitHubRecoveryCalls {
                     }
                 if (
                     query.isNullOrBlank() ||
-                        query.length > 200 ||
-                        call.arguments.keys.any { it in setOf("view_cursor", "search_id") } ||
-                        call.arguments["index_cursor"] !in setOf(null, JsonPrimitive(0)) ||
-                        call.arguments["page"] !in setOf(null, JsonPrimitive(1)) ||
-                        (unsupportedPresentation.isEmpty() && (correctedBlobs == null || correctedBlobs == requestedBlobs))
+                    query.length > 200 ||
+                    call.arguments.keys.any { it in setOf("view_cursor", "search_id") } ||
+                    call.arguments["index_cursor"] !in setOf(null, JsonPrimitive(0)) ||
+                    call.arguments["page"] !in setOf(null, JsonPrimitive(1)) ||
+                    (unsupportedPresentation.isEmpty() && (correctedBlobs == null || correctedBlobs == requestedBlobs))
                 ) {
                     null
                 } else {

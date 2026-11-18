@@ -1,8 +1,15 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -11,10 +18,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 import kotlinx.coroutines.delay
 
@@ -92,7 +103,11 @@ internal fun UniversalChatActivityFeed(
         }.distinctBy { GitHubProgressPresentation.semanticActivityKey(it) ?: GitHubProgressPresentation.lineKey(it) }
             .takeLast(20)
     }
-    if (lines.isEmpty() || !active && !expanded) return
+    // This is a source-backed execution visualization, not model-generated facts.
+    // Show it only in expanded activity to keep everyday chats uncluttered.
+    val receiptSummary = remember(toolEvents) { observedToolReceiptSummary(toolEvents) }
+    if (!active && !expanded) return
+    if (lines.isEmpty() && (!expanded || receiptSummary == null)) return
     val visible = if (expanded) lines else lines.takeLast(2)
     val motion = rememberGitHubProgressMotion(active && animate)
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -107,5 +122,97 @@ internal fun UniversalChatActivityFeed(
                 )
             }
         }
+        if (expanded && receiptSummary != null) {
+            ObservedToolReceiptChart(receiptSummary)
+        }
+    }
+}
+
+/**
+ * A typed source-owned aggregate for the universal activity feed.
+ *
+ * Every count comes from a retained ToolEvent. We do not inspect or display
+ * model-generated prose, tool arguments, result bodies, URLs or credentials.
+ * An execution's COMPLETED state does not establish valid results or task
+ * acceptance. Last known state wins for the same stable run/call identity.
+ */
+internal data class ObservedToolReceiptSummary(
+    val completed: Int,
+    val failed: Int,
+    val canceled: Int,
+    val ongoing: Int,
+    val unknown: Int
+) {
+    val total: Int get() = completed + failed + canceled + ongoing + unknown
+}
+
+internal fun observedToolReceiptSummary(events: List<ToolEvent>): ObservedToolReceiptSummary? {
+    if (events.isEmpty()) return null
+    val unique = events.groupBy { event ->
+        event.runId to event.callId.takeIf(String::isNotBlank).orEmpty().ifBlank { event.eventId }
+    }.values.mapNotNull { group ->
+        group.maxWithOrNull(
+            compareBy<ToolEvent> { it.sequence }
+                .thenBy { it.completedAt ?: it.startedAt ?: Long.MIN_VALUE }
+        )
+    }
+    // A chart is useful for a genuine collection, not one or two tool calls.
+    if (unique.size < 3) return null
+    val completed = unique.count { it.status == ToolEventStatus.COMPLETED && !it.isError }
+    val failed = unique.count { it.status == ToolEventStatus.FAILED || it.status == ToolEventStatus.COMPLETED && it.isError }
+    val canceled = unique.count { it.status == ToolEventStatus.CANCELED }
+    val ongoing = unique.count { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
+    return ObservedToolReceiptSummary(
+        completed = completed,
+        failed = failed,
+        canceled = canceled,
+        ongoing = ongoing,
+        unknown = unique.size - completed - failed - canceled - ongoing
+    )
+}
+
+@Composable
+private fun ObservedToolReceiptChart(summary: ObservedToolReceiptSummary) {
+    val scheme = MaterialTheme.colorScheme
+    val rows = listOf(
+        Triple("Completed", summary.completed, scheme.primary),
+        Triple("Failed", summary.failed, scheme.error),
+        Triple("Canceled", summary.canceled, scheme.tertiary),
+        Triple("Pending or running", summary.ongoing, scheme.secondary),
+        Triple("Unknown state", summary.unknown, scheme.onSurfaceVariant)
+    ).filter { it.second > 0 }
+    Column(
+        Modifier.fillMaxWidth().padding(top = 12.dp).testTag("universal_tool_receipt_chart"),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            "Tool execution overview · ${summary.total} calls",
+            style = MaterialTheme.typography.labelMedium,
+            color = scheme.onSurface
+        )
+        rows.forEach { (label, count, color) ->
+            Column(
+                Modifier.fillMaxWidth().clearAndSetSemantics {
+                    contentDescription = "$label: $count of ${summary.total} observed tool calls"
+                },
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(label, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                    Text(count.toString(), style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                }
+                Box(Modifier.fillMaxWidth().height(6.dp).background(scheme.surfaceVariant)) {
+                    Box(
+                        Modifier.fillMaxWidth(count.toFloat() / summary.total.coerceAtLeast(1))
+                            .height(6.dp).background(color)
+                    )
+                }
+            }
+        }
+        Text(
+            "Observed tool states only; they do not verify answer accuracy or task completion.",
+            style = MaterialTheme.typography.labelSmall,
+            color = scheme.onSurfaceVariant
+        )
     }
 }

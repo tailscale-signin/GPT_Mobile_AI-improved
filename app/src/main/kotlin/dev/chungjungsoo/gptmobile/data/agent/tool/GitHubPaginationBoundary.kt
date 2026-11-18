@@ -78,7 +78,6 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         return collection + ":" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(value.toString())
     }
 
-
     /** A PR context is a singleton, but its explicitly requested file page must be real. */
     private fun assessPrContextFilePage(args: JsonObject, result: JsonObject): Assessment {
         if (result["files_included"] != JsonPrimitive(true)) return Assessment(result)

@@ -42,7 +42,6 @@ class GitHubPaginationBoundaryTest {
         assertEquals("GITHUB_PAGINATION_INCOMPLETE", invalid.errorCode)
     }
 
-
     @Test fun requestedPrFilesCannotReportAnEmptyTerminalPageWith82ChangedFiles() {
         val boundary = GitHubPaginationBoundary()
         for (page in listOf(1, 3)) {

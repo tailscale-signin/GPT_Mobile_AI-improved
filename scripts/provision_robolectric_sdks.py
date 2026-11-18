@@ -28,6 +28,10 @@ BASE = "https://repo.maven.apache.org/maven2/org/robolectric/android-all-instrum
 # A separately routed canonical Maven Central endpoint. Both hosts are trusted
 # only as transports: every jar and POM still requires the pinned SHA-512.
 MAVEN_CENTRAL_ALTERNATE_BASE = "https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented"
+# Google Cloud's documented Maven Central mirror provides an independent
+# transport when both canonical Central hosts share an HTTP 429 throttle.
+# Every jar/POM is still checked against the same publisher-pinned SHA-512.
+GOOGLE_MAVEN_CENTRAL_BASE = "https://maven-central.storage-download.googleapis.com/maven2/org/robolectric/android-all-instrumented"
 TRANSIENT_STATUS = {408, 429, 500, 502, 503, 504}
 TRANSIENT_ATTEMPTS = 3
 THROTTLED_ATTEMPTS = 6
@@ -70,11 +74,17 @@ def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     attempts_allowed = TRANSIENT_ATTEMPTS
-    # Never redirect caller-provided URLs. Rotate only the two known Maven
-    # Central origins for source-owned Robolectric artifacts during retry.
+    # Never forward custom or credential-bearing repository URLs to mirrors.
+    # Only this source-owned Maven Central path can rotate among the two
+    # canonical hosts and Google's separately routed public Central mirror.
     sources = (url,)
     if url.startswith(BASE + "/"):
-        sources = (url, MAVEN_CENTRAL_ALTERNATE_BASE + url[len(BASE):])
+        suffix = url[len(BASE):]
+        sources = (
+            url,
+            MAVEN_CENTRAL_ALTERNATE_BASE + suffix,
+            GOOGLE_MAVEN_CENTRAL_BASE + suffix,
+        )
     for attempt in range(THROTTLED_ATTEMPTS):
         temporary = None
         try:

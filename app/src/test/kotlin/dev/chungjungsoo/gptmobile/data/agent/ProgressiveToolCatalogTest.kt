@@ -143,6 +143,35 @@ class ProgressiveToolCatalogTest {
         }
     }
 
+    @Test fun explicitGithubEngineeringGoalAdmitsStageAndCommitWithoutDiscovery() {
+        val names = listOf(
+            "github_context_inspect__github_api",
+            "github_read__github_api",
+            "github_stage_patch__github_api",
+            "github_commit__github_api",
+            "github_write__github_api"
+        )
+        val authorized = names.map { name ->
+            AgentToolDefinition(name, "Authorized GitHub operation", JsonObject(emptyMap()),
+                capabilities = setOf(AgentToolCapability.GITHUB))
+        }
+        val task = "Inspect the GitHub repository, repair the failure, stage a patch and commit the tested fix."
+        val catalog = ProgressiveToolCatalog(authorized, task, githubMode = true)
+        val initial = catalog.selected(authorized + catalog.definition).map { it.name }.toSet()
+        assertTrue(initial.toString(), "github_context_inspect__github_api" in initial)
+        assertTrue(initial.toString(), "github_stage_patch__github_api" in initial)
+        assertTrue(initial.toString(), "github_commit__github_api" in initial)
+        assertFalse("github_write__github_api" in initial)
+        assertTrue(ProgressiveToolCatalog.NAME in initial)
+        assertTrue(catalog.selected(authorized.filterNot { it.name == "github_commit__github_api" } + catalog.definition)
+            .none { it.name == "github_commit__github_api" })
+
+        val inspection = ProgressiveToolCatalog(authorized, "Inspect GitHub PR checks", githubMode = true)
+        val inspectionNames = inspection.selected(authorized + inspection.definition).map { it.name }
+        assertFalse("github_stage_patch__github_api" in inspectionNames)
+        assertFalse("github_commit__github_api" in inspectionNames)
+    }
+
     @Test fun githubModeRetainsAuthorizedInventoryWithoutMountingEveryOperation() = runTest {
         val operations = GitHubOperationTool.names.map { GitHubOperationTool.definition(it) }
         val catalog = ProgressiveToolCatalog(operations, "List GitHub issues and inspect PR checks", githubMode = true)

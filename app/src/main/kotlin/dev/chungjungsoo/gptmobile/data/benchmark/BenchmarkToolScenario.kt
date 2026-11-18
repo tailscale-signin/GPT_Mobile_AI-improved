@@ -179,11 +179,12 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     fun passed(calls: List<ProviderEvent.ToolCall>, successful: Set<String>, expectedErrors: Set<String>): Boolean {
         engineering?.let { return it.passed(calls, successful, expectedErrors) }
         return calls.isNotEmpty() &&
-        (githubFixture == null || calls.size == 1) &&
-        calls.all(::valid) &&
-        successful.size + expectedErrors.size == calls.size &&
+            (githubFixture == null || calls.size == 1) &&
+            calls.all(::valid) &&
+            successful.size + expectedErrors.size == calls.size &&
         (!recovery || expectedErrors.size == 1 && successful.size == 1) &&
         (!permanent || expectedErrors.size == 1 && calls.size == 1) &&
-        (test.validatorVersion != "benchmark-validator-v5" || calls.size <= if (recovery || research) 2 else 1) &&
-        (!research || calls.map { it.name } == listOf("benchmark_search", "benchmark_read"))
+            (test.validatorVersion != "benchmark-validator-v5" || calls.size <= if (recovery || research) 2 else 1) &&
+            (!research || calls.map { it.name } == listOf("benchmark_search", "benchmark_read"))
+    }
 }

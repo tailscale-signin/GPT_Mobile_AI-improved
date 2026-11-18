@@ -349,6 +349,35 @@ class GitHubPaginationBoundaryTest {
         }
     }
 
+    @Test fun pullRequestCommentsAreCountedAsRealPaginatedRows() {
+        val boundary = GitHubPaginationBoundary()
+        val first = json("""{"action":"get_pull_request_comments","owner":"o","repo":"r","pull_number":1534,"page":1}""")
+        val second = json("""{"action":"get_pull_request_comments","owner":"o","repo":"r","pull_number":1534,"page":2}""")
+        val firstReply = json(
+            """{"has_more":true,"returned":30,"comments":[${(1..30).joinToString(",") { """{"id":$it}""" }}]}"""
+        )
+        val firstAssessment = boundary.assessPage("github_pr", first, firstReply)
+        assertEquals(null, firstAssessment.errorCode)
+        assertEquals(JsonPrimitive(false), firstAssessment.data.getValue("pagination_progress").jsonObject["complete"])
+        val finalReply = json("""{"has_more":false,"returned":2,"comments":[{"id":31},{"id":32}]}""")
+        val final = boundary.assessPage("github_pr", second, finalReply)
+        assertEquals(null, final.errorCode)
+        val progress = final.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(32), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(true), progress["contiguous_from_first_page"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+        assertEquals(JsonArray(listOf(JsonPrimitive(1), JsonPrimitive(2))), progress["remote_pages_observed"])
+    }
+
+    @Test fun emptyFirstPullRequestCommentsPageCompletesWithoutInventingRows() {
+        val boundary = GitHubPaginationBoundary()
+        val args = json("""{"action":"get_pull_request_comments","owner":"o","repo":"r","pull_number":1534}""")
+        val output = boundary.assessPage("github_pr", args, json("""{"has_more":false,"returned":0,"comments":[]}"""))
+        assertEquals(null, output.errorCode)
+        assertEquals(JsonPrimitive(true), output.data.getValue("pagination_progress").jsonObject["complete"])
+        assertEquals(JsonPrimitive(0), output.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+    }
+
     @Test fun laterEmptyTerminalCannotEraseEarlierNonemptyPage() {
         val boundary = GitHubPaginationBoundary()
         val first = json("""{"action":"runs","page":1,"per_page":30,"verify_live":true}""")

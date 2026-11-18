@@ -173,9 +173,13 @@ class NewChatViewModel @Inject constructor(
     internal fun chooseSuggestedProfile(uid: String, research: Boolean) {
         val destination = if (research) NewChatType.RESEARCH else NewChatType.SINGLE
         val profile = profiles.value.firstOrNull { it.uid == uid && it.enabled } ?: return
-        if (!PrivacyProfileEligibility.evaluate(profile, privacyMode?.snapshot()?.enabled == true).eligible ||
-            dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) != null
-        ) {
+        val admission = privacyDecision(profile)
+        if (!admission.eligible) {
+            _error.value = "Privacy Mode: " + admission.explanation
+            return
+        }
+        dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let {
+            _error.value = it.message
             return
         }
         if (chooseType(destination)) {

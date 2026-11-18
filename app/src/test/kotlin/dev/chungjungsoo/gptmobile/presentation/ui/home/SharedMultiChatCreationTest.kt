@@ -7,14 +7,22 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityRepository
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProviderVerifier
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import java.lang.reflect.Proxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -114,6 +122,44 @@ class SharedMultiChatCreationTest {
             runCurrent()
             assertEquals("github_chat/coder", route)
             verify(exactly = 0) { availability.observe(any()) }
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun suggestionsHonorVerifiedPrivacyDecisionsAndDropRevokedProfiles() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+            val settings = mockk<SettingRepository>()
+            every { settings.observePlatformV2s() } returns flowOf(listOf(profile))
+            every { settings.observeFeatureSettings() } returns flowOf(AppFeatureSettings())
+            val state = MutableStateFlow(PrivacyModeState(enabled = true))
+            val verifier = mockk<PrivacyProviderVerifier>()
+            val privacy = mockk<PrivacyModeStore>()
+            every { privacy.state } returns state
+            every { privacy.snapshot() } returns state.value
+            every { privacy.verifier } returns verifier
+            val viewModel = NewChatViewModel(SavedStateHandle(), settings, mockk(), mockk(), privacyMode = privacy)
+            store.put("suggestion", viewModel)
+            val observer = backgroundScope.launch { viewModel.profiles.collect {} }
+            runCurrent()
+            viewModel.chooseSuggestedProfile(profile.uid, false)
+            assertTrue(viewModel.selectedUids.value.isEmpty())
+            coEvery { verifier.verify(profile) } returns PrivacyProviderVerifier.Result(PrivacyProfileEligibility.Decision(true, "Verified"))
+            viewModel.checkPrivacyProfiles(listOf(profile))
+            viewModel.chooseSuggestedProfile(profile.uid, false)
+            assertEquals(listOf(profile.uid), viewModel.selectedUids.value)
+            coEvery { verifier.verify(profile) } returns PrivacyProviderVerifier.Result(PrivacyProfileEligibility.Decision(false, "Approval expired"))
+            viewModel.checkPrivacyProfiles(listOf(profile))
+            viewModel.chooseSuggestedProfile(profile.uid, false)
+            assertTrue(viewModel.selectedUids.value.isEmpty())
+            assertTrue(viewModel.error.value.orEmpty().contains("Approval expired"))
+            observer.cancel()
         } finally {
             store.clear()
             runCurrent()

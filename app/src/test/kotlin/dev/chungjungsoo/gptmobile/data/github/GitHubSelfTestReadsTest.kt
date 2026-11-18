@@ -339,9 +339,9 @@ class GitHubSelfTestReadsTest {
         val releases = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_release","arguments":{"action":"list"},"result":{"items":[{"tag_name":"v1"}]}}""")
         val unlocked = actions(listOf(status, pr, issueList, tags, releases))
         assertTrue(dependencies.all { it in unlocked })
-        assertTrue("github_issue" to "list" !in unlocked)
-        assertTrue("github_release" to "tags" !in unlocked)
-        assertTrue("github_release" to "list" !in unlocked)
+        assertTrue(("github_issue" to "list") !in unlocked)
+        assertTrue(("github_release" to "tags") !in unlocked)
+        assertTrue(("github_release" to "list") !in unlocked)
     }
 
 }

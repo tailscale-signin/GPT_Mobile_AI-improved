@@ -78,7 +78,7 @@ class GitHubWorkspaceClientTest {
                 JsonObject(
                     target + mapOf(
                         "expected_head_sha" to JsonPrimitive(expected),
-                        "allowed_actions" to buildJsonArray { add("fix_ci") }
+                        "allowed_actions" to buildJsonArray { add(JsonPrimitive("fix_ci")) }
                     )
                 )
             ).jsonObject
@@ -90,7 +90,7 @@ class GitHubWorkspaceClientTest {
                 runCatching {
                     client.execute(
                         "agent_merge_update",
-                        JsonObject(target + mapOf("expected_head_sha" to JsonPrimitive(expected), "allowed_actions" to buildJsonArray { add("auto_merge") }))
+                        JsonObject(target + mapOf("expected_head_sha" to JsonPrimitive(expected), "allowed_actions" to buildJsonArray { add(JsonPrimitive("auto_merge")) }))
                     )
                 }.isFailure
             )

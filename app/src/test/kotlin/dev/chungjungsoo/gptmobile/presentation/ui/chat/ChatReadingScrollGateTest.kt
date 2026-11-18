@@ -28,6 +28,15 @@ class ChatReadingScrollGateTest {
         assertFalse(gate.recordFling(80f))
     }
 
+    @Test fun slightlySlowerButDeliberateScrollRevealsWhileReadingDoesNot() {
+        val gate = ChatReadingScrollGate()
+        assertFalse(gate.recordDelta(10f, 0L))
+        assertTrue(gate.recordDelta(6f, 100L)) // 160 dp/s
+        gate.stop()
+        assertFalse(gate.recordDelta(8f, 200L))
+        assertFalse(gate.recordDelta(4f, 300L)) // 120 dp/s
+    }
+
     @Test fun staleGestureSamplesCannotTransferSpeedToLaterScroll() {
         val gate = ChatReadingScrollGate()
         gate.recordDelta(80f, 10L)

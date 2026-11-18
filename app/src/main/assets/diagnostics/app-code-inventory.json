@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "df224773cd9c1e12bebbe321c0a06c077959396ec7ce684fd9decb18fe147a25",
+  "source_digest": "457f6766cf390c408349df5213b9ae09d9e0aaef143437e3c47637b8e1e0e423",
   "file_count": 2668,
-  "indexed_line_count": 435030,
+  "indexed_line_count": 435068,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 239,
-      "indexed_line_count": 39979
+      "indexed_line_count": 40007
     },
     {
       "id": "research",
@@ -130,7 +130,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 93,
-      "indexed_line_count": 13779
+      "indexed_line_count": 13782
     },
     {
       "id": "benchmark",
@@ -172,7 +172,7 @@
       "id": "authentication_service",
       "label": "Authentication broker software",
       "file_count": 9,
-      "indexed_line_count": 2569
+      "indexed_line_count": 2576
     },
     {
       "id": "external_integrations",
@@ -5687,8 +5687,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "bbb312fbea4427b374fa2adf03d1e6ee65d25d52912fe2ed55088f7700cb84b8",
-      "indexed_lines": 574
+      "sha256": "874577179cac99659e9e4cea08c1e0024b1a2449870695872b91dbf17f81c5be",
+      "indexed_lines": 577
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
@@ -6863,8 +6863,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtraction.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "8982ffee720549affbebd9a3c9fb3c1dd37260d6b51bbe9307a692c55254614a",
-      "indexed_lines": 168
+      "sha256": "29cae693d2d5acb52b2449ed12768825e3c8560db470b2e15ee2bfe2c9351839",
+      "indexed_lines": 196
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContext.kt",
@@ -17419,8 +17419,8 @@
       "path": "authentication/incident_report_contract.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "e24456d742891fd4a4706ecb864199886687fce23b4d4101be6228a5ccf7ca52",
-      "indexed_lines": 732
+      "sha256": "82be4f380f2b7d3709ecb8fb5f59b148ff4987ab9a3aa72be2d15ad8febe463d",
+      "indexed_lines": 739
     },
     {
       "path": "authentication/issue_report_app.py",

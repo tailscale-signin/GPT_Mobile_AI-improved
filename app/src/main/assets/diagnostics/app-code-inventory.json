@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b833429f8217a429b0fca8a437788611fe84eef66cbf3ff061e02284633ce203",
+  "source_digest": "41334f77b5d760c5dbf4de0a95683078de72d7b6dd7172fb5f59d20348ca66c3",
   "file_count": 2670,
-  "indexed_line_count": 435651,
+  "indexed_line_count": 435703,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 559,
-      "indexed_line_count": 98269
+      "indexed_line_count": 98276
     },
     {
       "id": "accessibility_and_localization",
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 234,
-      "indexed_line_count": 40059
+      "indexed_line_count": 40063
     },
     {
       "id": "agent_tools",
@@ -112,7 +112,7 @@
       "id": "research",
       "label": "Research and source acquisition",
       "file_count": 113,
-      "indexed_line_count": 13979
+      "indexed_line_count": 14020
     },
     {
       "id": "memory_and_rag",
@@ -4630,8 +4630,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "1c5ec9252460f473898de5611251446233fa55b438da6f573c2e60f09ef00f25",
-      "indexed_lines": 17
+      "sha256": "84beda9c50af9ed296db34b014e345307899ca7f660cf62c3667c7fa20ebdf90",
+      "indexed_lines": 24
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
@@ -10825,8 +10825,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "942b31856b7f8a027ba907253d7b55f5274af5b2437ce354afd896ec44dbc7bd",
-      "indexed_lines": 7934
+      "sha256": "ce28c5257a988fcae6b5273944b22dcf89aefc5a8156dacdebd172e508c2301b",
+      "indexed_lines": 7938
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/CombinedSettingsSaveJournal.kt",
@@ -10979,8 +10979,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ArchiveIngestionRetry.kt",
       "area_id": "research",
       "kind": "source",
-      "sha256": "943fae72c8cbc497e40991136d4e6087d3e1f07d109b2ee4397564595dfe6ad6",
-      "indexed_lines": 39
+      "sha256": "a3ab08f29ceabb1ac8c5c62e5b97ccd22333bbcf8fa7bc18e2fcb020c3bbea08",
+      "indexed_lines": 74
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/CompletionPool.kt",
@@ -11203,15 +11203,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchSessionStore.kt",
       "area_id": "research",
       "kind": "source",
-      "sha256": "49f136df51eb3ec991d728f918bfdc2fc5674e0d5da0598df6f5fc594ed0403b",
+      "sha256": "3dd6695fdb4f5969476e1c08f728d8f989e39d5b6d0379ad77123175749047ea",
       "indexed_lines": 1247
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchSourceIndexer.kt",
       "area_id": "research",
       "kind": "source",
-      "sha256": "19094689e2a2b12d444fcffee3c2e47a623b9b9eab01270a58413efc174616a3",
-      "indexed_lines": 141
+      "sha256": "eeabc91630b8e51735ca134bc5f6c8a89a640bdeaa29134c072fdb03011d9d59",
+      "indexed_lines": 147
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchSourceMetadata.kt",

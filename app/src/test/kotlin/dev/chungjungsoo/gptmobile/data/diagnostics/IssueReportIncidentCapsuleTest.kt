@@ -228,6 +228,55 @@ class IssueReportIncidentCapsuleTest {
         assertTrue("CHAT_DELIVERY_EVIDENCE_V1" in omitted.requiredServiceFeatures())
     }
 
+    @Test fun protocolRecoveryOutcomeIsClosedAndContainsNoPrivateArguments() {
+        val allowed = listOf(
+            "TEXT_FALLBACK_EXHAUSTED",
+            "TOOL_RETRY_EXHAUSTED",
+            "BACKEND_HANDLED_TOOLS",
+            "SINGLE_PASS_NOT_RETRYABLE",
+            "NO_SAFE_REPAIR"
+        )
+        for (outcome in allowed) {
+            val context = capture(
+                ReportFeature.CHAT,
+                "CHAT_FAILURE",
+                "TOOL_PROTOCOL_INVALID_FRAME",
+                mapOf(
+                    "diagnostic_area" to "PROVIDER",
+                    "provider_failure_code" to "TOOL_PROTOCOL_INVALID_FRAME",
+                    "tool_protocol_recovery_outcome" to outcome,
+                    "raw_arguments" to "PRIVATE_TOOL_ARGS"
+                )
+            )
+            val diagnostic = requireNotNull(context.diagnostics)
+            assertEquals(JsonPrimitive(outcome), diagnostic.values["tool_protocol_recovery_outcome"])
+            assertTrue("TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1" in diagnostic.requiredServiceFeatures())
+            assertFalse(report(context).approvedPayload().contains("PRIVATE_TOOL_ARGS"))
+        }
+        val base = requireNotNull(
+            capture(
+                ReportFeature.CHAT,
+                "CHAT_FAILURE",
+                "TOOL_PROTOCOL_INVALID_FRAME",
+                mapOf("diagnostic_area" to "PROVIDER")
+            ).diagnostics
+        )
+        for (invalid in listOf("PRIVATE_TOOL_ARGS", "UNKNOWN", "", "tool_retry_exhausted")) {
+            assertNull(base.copy(values = base.values + ("tool_protocol_recovery_outcome" to JsonPrimitive(invalid))).validated())
+        }
+        for (area in listOf("TOOL", "ACCEPTANCE", "GATEWAY", "INCIDENT", "VOICE", "APP")) {
+            val other = requireNotNull(
+                capture(
+                    ReportFeature.CHAT,
+                    "CHAT_FAILURE",
+                    "TOOL_PROTOCOL_INVALID_FRAME",
+                    mapOf("diagnostic_area" to area)
+                ).diagnostics
+            )
+            assertNull(other.copy(values = other.values + ("tool_protocol_recovery_outcome" to JsonPrimitive(allowed.first()))).validated())
+        }
+    }
+
     @Test fun claimFreshnessPreservesObservedEmptyAndClosedPredicatesWithoutInventingMissingObservations() {
         val key = "acceptance_claim_freshness_predicates"
         val predicates = listOf("OBSERVATION_TIME_UNAVAILABLE", "OBSERVATION_TIME_FUTURE", "MUTABLE_AGE_EXCEEDED", "MUTABLE_EPOCH_MISMATCH")

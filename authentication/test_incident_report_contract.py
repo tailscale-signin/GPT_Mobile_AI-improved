@@ -97,6 +97,28 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_diagnostics(forged)
 
+    def test_protocol_recovery_outcome_is_closed_and_area_scoped(self):
+        choices = (
+            "TEXT_FALLBACK_EXHAUSTED",
+            "TOOL_RETRY_EXHAUSTED",
+            "BACKEND_HANDLED_TOOLS",
+            "SINGLE_PASS_NOT_RETRYABLE",
+            "NO_SAFE_REPAIR",
+        )
+        for value in choices:
+            with self.subTest(value=value):
+                observed = self.capture("PROVIDER", {
+                    "provider_failure_code": "TOOL_PROTOCOL_INVALID_FRAME",
+                    "tool_protocol_recovery_outcome": value,
+                })
+                self.assertEqual(observed, validate_diagnostics(copy.deepcopy(observed)))
+        for invalid in ("PRIVATE_TOOL_ARGS", "", "UNKNOWN", 3, None):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                forged = self.capture("PROVIDER", {"tool_protocol_recovery_outcome": invalid})
+                validate_diagnostics(forged)
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"tool_protocol_recovery_outcome": "NO_SAFE_REPAIR"}))
+
     def test_pending_gateway_tool_results_accept_closed_handoff_diagnostics(self):
         capture = self.capture("PROVIDER", {
             "provider_failure_code": "CLIENT_TOOL_RESULTS_REQUIRED",

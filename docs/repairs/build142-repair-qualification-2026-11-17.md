@@ -218,3 +218,58 @@ authorize merging or issue closure.
 ### Native PR review read wiring
 
 The model-facing `github_pr:reviews` translates to `pull_request_reviews`. The workspace client now advertises this read and retrieves the GitHub REST review collection in 30-record pages, preserving stable review IDs, review metadata and exact native continuations. An explicitly empty `reviews: []` result completes its remote page without recording any acceptance pass; the integration regression protects the dispatch mapping. This is separate from PR file pagination and is not evidence that a human review was submitted.
+
+
+## November 18 archive and open-issue intake (PR #1534 only)
+
+This is a **source intake and diagnostic disposition**, not proof of installed
+Android recovery. At inspection there is one open draft PR and 89 open
+diagnostic issues, associated with **older build-142 commits**, not with the
+current PR head. Do not mark an issue fixed solely because a regression test,
+a diagnostic enhancement, or an earlier PR commit exists.
+
+| Failure family | Open reports | Observed cause / required evidence |
+| --- | ---: | --- |
+| CHAT_FAILED | 17 | Generic error boundaries may lack causal detail; retain invocation and specific prior failure identity |
+| INVALID_ARGUMENTS | 15 | Typed read/schema rejections, including an unissued saved-view cursor; never replay a guessed cursor |
+| SAVED_VIEW_UNAVAILABLE | 12 | Captured `BODY_MISSING` on saved-view restoration for `github_issue`; requires durable body/reopen checks |
+| GITHUB_PAGINATION_INCOMPLETE | 9 | Real incomplete remote traversal; require contiguous evidence for each requested page |
+| BUDGET_RESTRICTED | 7 | Result-byte pressure after dispatch; retain receipts and verification reserve |
+| GITHUB_EVIDENCE_REQUIRED | 6 | Mutable observations aged beyond 120 seconds; refresh exact selected revision |
+| PROVIDER_RATE_LIMITED | 5 | Observed upstream OpenRouter HTTP 429 and provider-shared retry windows |
+| GITHUB_RUN_INTERRUPTED | 4 | Retain task checkpoints; distinguish interruption from execution outcome |
+| TOOL_FAILURE | 4 | Precheck/execution errors require operation-bound causal receipts |
+| TOOL_PROTOCOL_INVALID_FRAME | 3 | Parser may not expose the frame subtype; record a closed recovery-outcome field |
+| TOOL_BUDGET_EXHAUSTED | 3 | Observed 24/24 calls consumed; preserve incomplete acceptance |
+| GITHUB_TASK_INCOMPLETE | 2 | Verification reserve exhausted with required capabilities untested/blocked |
+| NO_VISIBLE_ANSWER | 1 | Terminal delivery yielded no displayable answer; preserve content/state counters |
+| OUTPUT_CONTINUATION_UNAVAILABLE | 1 | Missing continuation is not permission to replay completed mutations |
+
+**89 open issues, not 89 verified code regressions.** Representative reports:
+#1647 (expired mutable evidence), #1646 (incomplete 98-capability audit),
+#1645 (commits pagination), #1644 (provider 429), #1641 (saved body missing),
+#1635 (unissued cursor), #1633 (invalid tool frame), #1619 (empty answer),
+and #1617 (exhausted call allowance). Preserve distinct issue identities.
+
+The latest `app-diagnostics-7802265199620164715.jsonl` contained **3,417
+valid entries** and **59 events flagged for issue reporting**; informational
+events and recovered metadata reads are not new confirmed bugs. The two-part
+diagnostic archive ended its second part at **85%**, with
+`captureCompleted=false`, `continuationAvailable=false`, and
+`recoveryAction=NEW_CAPTURE_REQUIRED`. Missing workspace, conversation and
+recent-log spans prevent complete-coverage assertions. Captured run outcome
+`PARTIAL` / `GITHUB_TASK_INCOMPLETE` /
+`VERIFICATION_RESERVE_REACHED` is not successful repair. The captured
+98-capability scope records 27 verified, 50 blocked, and 20 untested; it does
+not establish full acceptance.
+
+Source inventory after UI changes: 2,668 source files, 434,602
+source-associated lines, SHA-256
+`d911043288f670d2fa5cad157a9ede8a428a541660eb5b8e93aeeab70e425f35`.
+This is *not* executed-line coverage or installed Android qualification.
+
+**Disposition:** keep unresolved issues open until matching exact-head CI,
+installed-build reproduction, saved-view and provider retry receipts, complete
+issue/CI pagination, and selected-profile Android-to-Gateway live acceptance.
+Closing an issue for added future diagnostics must identify the new recorded
+field without claiming the original runtime defect is repaired.

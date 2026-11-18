@@ -892,7 +892,26 @@ class AgentRunner(
                 emit(AgentRunEvent.Notice("The provider could not repair its tool format. Generating a text answer from completed GitHub operations; their actions will not be repeated.", persistent = false))
                 return RoundRecovery(emptyList(), restoreRound = true, finalize = true)
             }
-            val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = round.errorCode ?: "TOOL_PROTOCOL_INVALID_FRAME", failureDetails = round.failureDetails, invocationId = round.invocationId)
+            // Bounded, attempt-owned outcome. Never include the malformed
+            // frame, model output or tool arguments in an approved incident.
+            val recoveryOutcome = when {
+                state.githubProtocolFinalizationAttempted -> "TEXT_FALLBACK_EXHAUSTED"
+                state.protocolRecoveryAttempted -> "TOOL_RETRY_EXHAUSTED"
+                session.handlesToolsInternally -> "BACKEND_HANDLED_TOOLS"
+                limits.combined?.requested?.singlePass == true -> "SINGLE_PASS_NOT_RETRYABLE"
+                else -> "NO_SAFE_REPAIR"
+            }
+            val observedDetails = JsonObject(
+                round.failureDetails.orEmpty() +
+                    ("tool_protocol_recovery_outcome" to JsonPrimitive(recoveryOutcome))
+            )
+            val failure = ProviderEvent.Failed(
+                roundFailure,
+                round.progressDeadline,
+                errorCode = round.errorCode ?: "TOOL_PROTOCOL_INVALID_FRAME",
+                failureDetails = observedDetails,
+                invocationId = round.invocationId
+            )
             if (limits.githubTask && hasToolWork && round.calls.isEmpty()) {
                 session.retainedFailureResponse(failure).collect { event ->
                     if (event is ProviderEvent.Completed) checkpoint?.finish()

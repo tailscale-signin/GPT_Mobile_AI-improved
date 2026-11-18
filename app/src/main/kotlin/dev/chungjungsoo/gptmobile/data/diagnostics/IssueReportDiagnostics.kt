@@ -103,7 +103,7 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in voiceCapturePlaybackFields || it in voicePackStateFields }) add("VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in composerEvidenceFields }) add("COMPOSER_IME_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in completionEvidenceFields } || values["provider_failure_code"] == JsonPrimitive("TOOL_PROTOCOL_INVALID_FRAME")) add("COMPLETION_EVIDENCE_V1")
-        if ("tool_protocol_frame_kind" in values || "tool_protocol_frame_kind" in omittedFields) add("TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1")
+        if ((values.keys + omittedFields).any { it in setOf("tool_protocol_frame_kind", "tool_protocol_recovery_outcome") }) add("TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1")
         if (values["voice_phase"] == JsonPrimitive("PREPARING")) add("VOICE_PLAYBACK_PHASE_V1")
         if ((values.keys + omittedFields).any { it in admissionFields }) add("ADMISSION_DIAGNOSTICS_V1")
         if ((values.keys + omittedFields).any { it in reconciliationFields } || (values["provider_failure_code"] as? JsonPrimitive)?.contentOrNull in reconciliationCodes) {
@@ -345,6 +345,7 @@ internal data class IssueReportDiagnostics(
             "provider_error_code_state" to setOf("ABSENT"),
             "provider_error_origin" to setOf("OPENAI_COMPAT_STREAM_ERROR_VALUE"),
             "tool_protocol_frame_kind" to setOf("MISSING_FUNCTION_NAME", "UNFINISHED_STREAM", "NON_OBJECT_ARGUMENTS", "MALFORMED_JSON"),
+            "tool_protocol_recovery_outcome" to setOf("TEXT_FALLBACK_EXHAUSTED", "TOOL_RETRY_EXHAUSTED", "BACKEND_HANDLED_TOOLS", "SINGLE_PASS_NOT_RETRYABLE", "NO_SAFE_REPAIR"),
             "provider_limit_source" to setOf("upstream_provider_shared_pool", "openrouter_free_tier_per_minute", "openrouter_free_tier_daily"),
 
             "response_format" to setOf("TEXT", "GITHUB_REVIEW_V1", "CLAIM_JSON"),

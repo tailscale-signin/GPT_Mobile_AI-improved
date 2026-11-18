@@ -47,7 +47,7 @@ internal object GitHubRichSummaryPresentation {
                 line.startsWith("- **Source:**") -> true
                 line.startsWith("- **Coverage:**") -> true
                 line.startsWith("- **Verification:**") -> true
-                line.startsWith("- ") && !line.startsWith("- I’ll ") && !line.startsWith("- I\'ll ") -> true
+                line.startsWith("- ") && !line.startsWith("- I’ll ") && !line.startsWith("- I'll ") -> true
                 line.startsWith("| ") -> !line.startsWith("| ---") && !line.startsWith("| Check state ")
                 else -> false
             }
@@ -57,9 +57,14 @@ internal object GitHubRichSummaryPresentation {
     }
 
     /** Plain, evidence-backed updates vary with the actual file, failure or request. */
-    fun render(snapshot: GitHubProgressSnapshot): String {
-        val seen = observations(snapshot)
-        if (seen.isEmpty()) return ""
+    fun render(snapshot: GitHubProgressSnapshot, reported: Set<String> = emptySet()): String {
+        val all = observations(snapshot)
+        val unseen = all.filter { GitHubProgressPresentation.lineKey(it) !in reported }
+        if (unseen.isEmpty()) return ""
+        // Keep an unresolved failure visible when new independent evidence arrives,
+        // without repeating all the already-reported routine reads.
+        val lastProblem = all.lastOrNull { failure.containsMatchIn(it.replace(zeroFailure, "")) }
+        val seen = if (lastProblem != null && lastProblem !in unseen) listOf(lastProblem) + unseen else unseen
         val counts = seen.asReversed().firstNotNullOfOrNull(::parseChecks)
         val specific = seen.filterNot { counts != null && parseChecks(it) != null }
         val problem = specific.lastOrNull { failure.containsMatchIn(it.replace(zeroFailure, "")) }
@@ -89,7 +94,7 @@ internal object GitHubRichSummaryPresentation {
                 }
             }
         }
-        val nextAction = snapshot.next.trim().takeIf { it.isNotBlank() && !GitHubProgressPresentation.isGenericProgress(it) }?.let {
+        val nextAction = snapshot.next.trim().takeIf { (problem != null || counts != null || snapshot.completed == 0) && it.isNotBlank() && !GitHubProgressPresentation.isGenericProgress(it) }?.let {
             "I’ll ${escape(it.replaceFirstChar(Char::lowercase))}"
         }
         val statements = facts.take(4) + listOfNotNull(nextAction)

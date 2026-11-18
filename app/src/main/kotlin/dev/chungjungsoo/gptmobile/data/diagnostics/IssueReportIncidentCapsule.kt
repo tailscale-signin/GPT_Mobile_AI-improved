@@ -356,6 +356,8 @@ internal object IssueReportIncidentCapsule {
             "retry_delay_ms", "privacy_metadata_age_ms", "mcp_health_age_ms" -> 0L..86_400_000L
             "tool_contract_version" -> 1L..1000L
             "argument_repair_attempt" -> 1L..3L
+            "claim_extraction_response_characters" -> 0L..32_768L
+            "claim_extraction_max_claims" -> 1L..8L
             in toolEventSignedSequences -> Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()
             "tool_event_assigned_sequence" -> 0L..Int.MAX_VALUE.toLong()
             in handoffReconciliationCounts -> 0L..1024L

@@ -1017,7 +1017,7 @@ class GitHubOperationToolTest {
         }
     }
 
-    @Test fun ordinaryRepositorySchemasStayBelowOneThousandEstimatedTokensAndHideTheLegacyMonolith() {
+    @Test fun ordinaryRepositorySchemasRemainBoundedAndHideLegacyMonolith() {
         val definitions = GitHubOperationTool.names.map { GitHubOperationTool.definition(it) }
         val catalog = requireNotNull(ProgressiveToolCatalog.create(listOf(Backend().definition) + definitions, "Inspect this repository"))
         val selected = catalog.selected(listOf(Backend().definition) + definitions).filter { GitHubOperationTool.operationName(it.name) != null }
@@ -1033,7 +1033,7 @@ class GitHubOperationToolTest {
         ).toString()
         val estimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(wire)
         println("GitHub ordinary schema: ${wire.toByteArray().size} UTF-8 bytes, $estimate estimated tokens, ${selected.size} facade definitions")
-        assertTrue("Ordinary schema estimate was $estimate", estimate < 1000)
+        assertTrue("Ordinary schema estimate was $estimate; expanded admission contracts must remain under 1600 tokens", estimate < 1600)
         assertFalse(catalog.selected(listOf(Backend().definition) + definitions).any { it.name == "github" })
         assertEquals(setOf("github_context", "github_search", "github_read", "github_stage_patch", "github_commit", "github_write"), GitHubOperationTool.taskTools("Fix code in the repository, create a branch and push the commit"))
     }

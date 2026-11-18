@@ -1172,6 +1172,7 @@ class LiteRtLmAdapter(
             if (tool == null) {
                 dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(call.callId, "UNKNOWN_TOOL", "Tool is absent from the final registered manifest. Do not repeat this unchanged call.")
             } else {
+                dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
                 tool.execute(call.callId, arguments)
             }
         } catch (error: CancellationException) {

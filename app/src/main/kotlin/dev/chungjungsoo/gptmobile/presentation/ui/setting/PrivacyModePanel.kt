@@ -9,7 +9,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -21,12 +26,17 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyCategory
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
 import javax.inject.Inject
+import kotlinx.coroutines.launch
 
 @HiltViewModel
 class PrivacyModeViewModel @Inject constructor(private val store: PrivacyModeStore) : ViewModel() {
     val state = store.state
+    internal val authority get() = store.verifier.authority
 
     fun setEnabled(enabled: Boolean) = store.setEnabled(enabled)
+
+    suspend fun privateTerms() = store.privateTerms().joinToString("\n")
+    suspend fun saveTerms(value: String) = store.savePrivateTerms(value)
 
     fun setCategory(category: PrivacyCategory, enabled: Boolean) = store.setCategory(category, enabled)
 }
@@ -55,10 +65,7 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             )
         }
         Text(
-            "Maximum protection has no strength slider. Unverified cloud and free model routes are locked while enabled. " +
-                "Local inference and a private self-hosted gateway do not require third-party retention checks. " +
-                "Cloud prompt anonymization, account verification and tool-path enforcement are still being integrated; " +
-                "this initial gate does not certify any remote endpoint.",
+            "Privacy Mode checks the selected model before sending text. A private Gateway uses its installed model. Cloud routes require current account and endpoint evidence.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -76,5 +83,41 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
                 )
             }
         }
+        var terms by remember { mutableStateOf("") }
+        var saved by remember { mutableStateOf(false) }
+        var error by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
+        LaunchedEffect(viewModel) { terms = viewModel.privateTerms() }
+        androidx.compose.material3.OutlinedTextField(
+            value = terms,
+            onValueChange = {
+                if (it.length <= 8192) terms = it
+                saved = false
+            },
+            label = { Text("Custom private terms (one per line)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        androidx.compose.material3.TextButton(onClick = {
+            scope.launch {
+                try {
+                    viewModel.saveTerms(terms)
+                    saved = true
+                    error = false
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    error = true
+                }
+            }
+        }) { Text(if (saved) "Terms saved" else "Save private terms") }
+        if (error) Text("Could not save the terms to encrypted storage.")
+        Text("AI Provider Protection", style = MaterialTheme.typography.titleMedium)
+        Text("Required whenever Privacy Mode is on", style = MaterialTheme.typography.labelMedium)
+        Text("• Zero Data Retention for prompt and response content\n• No training or routine safety retention\n• Content logging disabled\n• Exact provider route, with no fallback\n• Separate verification for external tools and voice")
+        Text("Automated masking recognizes common formats and your custom terms. Provider agreements may allow legally required exceptions and non-content usage metadata.", style = MaterialTheme.typography.bodySmall)
+        Text("For cloud access, obtain the provider’s ZDR approval and have your administrator provision the exact account and model. OpenRouter also requires ZDR only for the applicable group and disabled prompt logging, broadcast and default plugins.", style = MaterialTheme.typography.bodySmall)
+        ProviderVerificationSetup(viewModel.authority)
+        val handler = androidx.compose.ui.platform.LocalUriHandler.current
+        androidx.compose.material3.TextButton(onClick = { handler.openUri("https://openrouter.ai/settings/privacy") }) { Text("Configure OpenRouter privacy") }
     }
 }

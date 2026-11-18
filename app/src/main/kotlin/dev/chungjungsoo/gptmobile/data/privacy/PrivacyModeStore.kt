@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.privacy
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,7 +35,42 @@ data class PrivacyModeState(
  * Other parts of the pipeline MUST separately enforce outbound redaction and ZDR admission.
  */
 @Singleton
-class PrivacyModeStore @Inject constructor(@ApplicationContext context: Context) {
+class PrivacyModeStore @Inject constructor(
+    @ApplicationContext context: Context,
+    internal val verifier: PrivacyProviderVerifier,
+    private val vault: SecretVault
+) {
+    internal suspend fun privateTerms(): List<String> = vault.read("privacy_custom_terms")?.let { bytes ->
+        try {
+            bytes.decodeToString().lines().filter(String::isNotBlank)
+        } finally {
+            bytes.fill(0)
+        }
+    }.orEmpty()
+
+    internal suspend fun savePrivateTerms(text: String) {
+        require(text.length <= 8192)
+        val bytes = text.encodeToByteArray()
+        try {
+            vault.put("privacy_custom_terms", bytes)
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    companion object {
+        @Volatile private var application: Context? = null
+        fun initialize(context: Context) {
+            application = context.applicationContext
+        }
+        fun active(): Boolean = application?.getSharedPreferences("device_privacy", Context.MODE_PRIVATE)
+            ?.getBoolean("privacy_mode_enabled", false) == true
+
+        fun requireUnprotectedTransport() {
+            check(!active()) { "PRIVACY_SERVICE_UNVERIFIED: Choose a verified text profile. Your conversation is saved locally." }
+        }
+    }
+
     private val preferences = context.getSharedPreferences("device_privacy", Context.MODE_PRIVATE)
     private val mutable = MutableStateFlow(read())
     val state = mutable.asStateFlow()

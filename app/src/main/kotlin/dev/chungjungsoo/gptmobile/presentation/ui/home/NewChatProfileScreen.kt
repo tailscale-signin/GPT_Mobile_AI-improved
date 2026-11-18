@@ -60,7 +60,6 @@ import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
 import dev.chungjungsoo.gptmobile.data.pricing.decimalRate
-import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelChip
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField
@@ -140,8 +139,17 @@ internal fun NewChatProfileScreen(
     val filter = ProfileFilter.entries.firstOrNull { it.name == filterName } ?: ProfileFilter.ALL
     val sort = ProfileSort.entries.firstOrNull { it.name == sortName } ?: ProfileSort.FAVORITES
     val labels = remember(profiles) { collectReusableProfileLabels(profiles.map { it.labels }) }
-    val availableUids = remember(profiles, privacy.enabled) {
-        profiles.filter { it.enabled && PrivacyProfileEligibility.evaluate(it, privacy.enabled).eligible }
+    val checkedProfiles by viewModel.checkedProfiles.collectAsStateWithLifecycle()
+    LaunchedEffect(profiles, privacy.enabled, windowFocused) {
+        if (windowFocused) {
+            do {
+                viewModel.checkPrivacyProfiles(profiles)
+                if (privacy.enabled) delay(60_000)
+            } while (privacy.enabled)
+        }
+    }
+    val availableUids = remember(profiles, privacy.enabled, checkedProfiles) {
+        profiles.filter { it.enabled && viewModel.privacyDecision(it).eligible }
             .mapTo(mutableSetOf()) { it.uid }
     }
     val currentSelection = remember(selected, availableUids) { selected.filter { it in availableUids } }
@@ -241,6 +249,10 @@ internal fun NewChatProfileScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
+                    if (privacy.enabled) {
+                        Text("Privacy-Verified AI Profiles", style = MaterialTheme.typography.titleSmall)
+                        Text("${availableUids.size} available · ${profiles.count { it.enabled } - availableUids.size} disabled", style = MaterialTheme.typography.bodySmall)
+                    }
                     ProfileSearchField(query, { query = it }, Modifier.testTag("new_chat_search"))
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ProfileFilter.entries.forEach { option ->
@@ -341,7 +353,7 @@ internal fun NewChatProfileScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     SelectPlatformProfileCard(
                         profile = profile,
-                        privacyRestriction = PrivacyProfileEligibility.evaluate(profile, privacy.enabled).takeUnless { it.eligible }?.explanation,
+                        privacyRestriction = viewModel.privacyDecision(profile).takeUnless { it.eligible }?.explanation,
                         selected = profile.uid in currentSelection,
                         insight = insights[profile.uid]?.takeIf { it.matches(profile) },
                         onToggle = viewModel::toggleProfile,
@@ -357,6 +369,14 @@ internal fun NewChatProfileScreen(
                             }
                         }
                     )
+                    if (privacy.enabled) {
+                        val decision = viewModel.privacyDecision(profile)
+                        if (decision.eligible) Text(decision.explanation, style = MaterialTheme.typography.labelSmall)
+                        decision.policyUrl?.let { url ->
+                            val handler = androidx.compose.ui.platform.LocalUriHandler.current
+                            TextButton(onClick = { handler.openUri(url) }) { Text("Provider privacy terms") }
+                        }
+                    }
                     modelPreparation[profile.uid]?.takeIf { profile.uid in currentSelection }?.let { state ->
                         GatewayModelPreparationContent(state) { viewModel.recheckGatewayModel(profile.uid) }
                     }

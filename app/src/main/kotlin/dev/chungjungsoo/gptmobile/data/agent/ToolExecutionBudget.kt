@@ -336,6 +336,7 @@ class ToolExecutionBudget(
                     val observed = withContext(sharedContext + ToolBudgetScope(this@ToolExecutionBudget)) {
                         currentCoroutineContext().ensureActive()
                         physicalToolStarted = true
+                        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
                         if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, attributedProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
                     }
                     // A receipt with another call ID cannot establish this call's outcome,

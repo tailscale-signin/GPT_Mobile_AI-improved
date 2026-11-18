@@ -67,6 +67,16 @@ class NetworkClient @Inject constructor(
             engine {
                 (this as? OkHttpConfig)?.config {
                     addInterceptor(ReadinessHttpTrace.stripHeader)
+                    addNetworkInterceptor { chain ->
+                        val request = chain.request()
+                        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) {
+                            val metadata = request.method == "GET" &&
+                                request.url.query == null &&
+                                request.url.encodedPath in setOf("/props", "/models", "/v1/models", "/api/tags", "/gateway/live", "/gateway/ready", "/gateway/identity", "/gateway/capabilities")
+                            if (!metadata) throw java.io.IOException("PRIVACY_SERVICE_UNVERIFIED: This service has no verified retention policy.")
+                        }
+                        chain.proceed(request)
+                    }
                     eventListenerFactory(ReadinessHttpTrace.listener)
                     retryOnConnectionFailure(false)
                     connectTimeout(60, TimeUnit.SECONDS)

@@ -64,6 +64,7 @@ from v14.usage import install_usage
 from v14.conversations import admission_context, ConversationConflict, QueueFull, FEATURES
 from v14.operator_schedule import schedule_lifespan
 from v14.job_catalog import install_routes as install_conversation_routes
+from v14.private_inference import install_private_inference
 from v14.profile_metadata import profile_metadata
 from v14.conversation_policy import conversation_retention, verify_mutation_identity, MUTATION_IDENTITY_HEADERS, ORDINARY_RETENTION_POLICY
 from v14.execution_binding import ExecutionBindingError, configured_route, fingerprint
@@ -144,6 +145,7 @@ app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)
 app.add_middleware(Admission, config=config)
 app.add_middleware(DebugMiddleware, store=debug_log, instance_id=service.instance_id)
+install_private_inference(app, runtime)
 install_debug_routes(app, debug_log)
 install_engineering_routes(app, engineering)
 install_conversation_routes(app, runtime.gateway_conversations, engineering, service, lambda: runtime.device_store)

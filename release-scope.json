@@ -171,7 +171,8 @@
     "Improve expanded GitHub header fade, user-return bottom anchoring and composer keyboard focus; add single-word voice caption presentation and an opt-in-motion GitHub terminal answer handoff with a scoped edge glow and explicit UI regressions.",
     "Unify the GitHub-style activity preview and collapsible header across chat modes without suppressing normal streamed answers; implement velocity-gated minimal bottom arrow, return-to-bottom indicators and stronger bounded fades with scoped regression coverage.",
     "Preserve content-free research archive failure diagnostics, bounded retry quarantine and conservative unknown-context tool admission, and add selected-profile benchmark argument evidence with release-qualified regression files.",
-    "Start local Privacy Mode with a master checkbox, default-protected data categories, disabled unverified/free provider routes in New Chat, private local gateway exception and a fail-closed chat-provider admission guard."
+    "Start local Privacy Mode with a master checkbox, default-protected data categories, disabled unverified/free provider routes in New Chat, private local gateway exception and a fail-closed chat-provider admission guard.",
+    "Add Privacy-Verified AI Profiles, strict account and endpoint verification, local text masking, and a stateless private Windows Gateway route."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -3074,6 +3075,18 @@
     "gateway/desktop/analysis_panel.py",
     "gateway/desktop/schedule_panel.py",
     "gateway/tests/test_gateway_operator_work.py",
-    "gateway/v14/operator_schedule.py"
+    "gateway/v14/operator_schedule.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/llama/LlamaBatchClient.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterBatchClient.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProviderVerifier.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateInferenceSession.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMask.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/ProviderApprovalSource.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/VerifiedPrivateRoute.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProviderVerificationSetup.kt",
+    "app/src/main/res/xml/provider_privacy_restrictions.xml",
+    "docs/privacy-verified-profiles.md",
+    "gateway/tests/test_private_inference.py",
+    "gateway/v14/private_inference.py"
   ]
 }

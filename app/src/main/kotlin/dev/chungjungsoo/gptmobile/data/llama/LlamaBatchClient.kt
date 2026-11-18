@@ -33,6 +33,7 @@ class LlamaBatchClient(private val serverUrl: String = "http://localhost:8080", 
         val call = Request.Builder().url("${serverUrl.trimEnd('/')}/completion")
             .post(completionPayload(request).toRequestBody("application/json".toMediaType()))
             .apply { apiKey?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") } }.build()
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         val response = client.newCall(call).awaitBoundedText()
         check(response.successful) { "Local batch request failed: HTTP ${response.code}" }
         val json = JSONObject(response.text)

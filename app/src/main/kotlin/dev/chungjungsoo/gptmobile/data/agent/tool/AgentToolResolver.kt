@@ -175,6 +175,7 @@ class AgentToolResolver @Inject constructor(
         cachedCataloguesOnly: Boolean = false,
         requestedModel: String? = null
     ): List<ResolvedAgentTool> {
+        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) return emptyList()
         if (chatToolConfig?.github != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sessionAudit(userMessage?.content.orEmpty())) return emptyList()
         val platforms = settingRepository.fetchPlatformV2s()
         val featureSettings = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)

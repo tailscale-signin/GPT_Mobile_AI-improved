@@ -71,6 +71,7 @@ internal object IssueReportCodes {
         "REMOTE_OUTCOME_UNKNOWN",
         "PARSING_ERROR",
         "TOOL_FAILURE",
+        "TOOL_PRECHECK_FAILED",
         "TOOL_PROTOCOL_INVALID_FRAME",
         "TOOL_BUDGET_EXHAUSTED",
         "OUTPUT_LIMIT",

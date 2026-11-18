@@ -624,6 +624,53 @@ class GitHubPaginationBoundaryTest {
         assertEquals(JsonArray(listOf(JsonPrimitive(1), JsonPrimitive(2))), progress["remote_pages_observed"])
     }
 
+    @Test fun mutableBaseRefAndPinnedContinuationShareOneComparisonTraversal() {
+        val boundary = GitHubPaginationBoundary()
+        val head = "a".repeat(40)
+        val base = "b".repeat(40)
+        fun request(value: String, page: Int, includeRef: Boolean) = buildJsonObject {
+            put("action", "changed_since")
+            put("owner", "Owner")
+            put("repo", "Repo")
+            put("base", value)
+            put("base_sha", value)
+            put("commit_sha", head)
+            put("page", page)
+            put("include_patches", false)
+            if (includeRef) put("ref", "working-branch")
+        }
+        fun response(from: Int, to: Int, hasMore: Boolean) = buildJsonObject {
+            put("base_sha", base)
+            put("head_sha", head)
+            put("files_total", 103)
+            put("has_more", hasMore)
+            put("tree_complete", true)
+            put(
+                "files",
+                JsonArray(
+                    (from..to).map { i ->
+                        buildJsonObject {
+                            put("filename", "src/File$i.kt")
+                            put("sha", "shared-content")
+                        }
+                    }
+                )
+            )
+        }
+        val first = request("main", 1, true)
+        val continuation = request(base, 2, false)
+        val assessedFirst = boundary.assessPage("github_context", first, response(1, 100, true))
+        assertEquals(null, assessedFirst.errorCode)
+        val last = boundary.assessPage("github_context", continuation, response(101, 103, false))
+        assertEquals(null, last.errorCode)
+        assertEquals(JsonPrimitive(true), last.data.getValue("pagination_progress").jsonObject["complete"])
+        assertEquals(JsonPrimitive(103), last.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+        assertEquals(2, boundary.completedPage("github_context", request(base, 3, false)))
+        val fresh = boundary.assessPage("github_context", first, response(1, 100, true))
+        assertEquals(JsonPrimitive(100), fresh.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+        assertEquals(JsonPrimitive(false), fresh.data.getValue("pagination_progress").jsonObject["complete"])
+    }
+
     @Test fun truncatedGitTreeNeverQualifiesACompleteComparison() {
         val boundary = GitHubPaginationBoundary()
         val args = json("""{"action":"changed_since","base":"main","commit_sha":"head","page":1}""")

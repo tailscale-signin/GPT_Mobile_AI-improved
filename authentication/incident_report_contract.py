@@ -665,6 +665,10 @@ def valid_value(key, value):
         return 1 <= value <= 1000
     if key == 'argument_repair_attempt':
         return 1 <= value <= 3
+    if key == 'claim_extraction_response_characters':
+        return 0 <= value <= 32_768
+    if key == 'claim_extraction_max_claims':
+        return 1 <= value <= 8
     if key in HANDOFF_RECONCILIATION_COUNTS:
         return 0 <= value <= 1024
     if key in ACCEPTANCE_PUBLICATION_TOKENS:

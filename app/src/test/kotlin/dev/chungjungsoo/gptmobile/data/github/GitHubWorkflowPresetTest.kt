@@ -16,6 +16,7 @@ class GitHubWorkflowPresetTest {
         assertEquals(256, GitHubWorkflowPreset.fromRequest("[github-workflow-preset:test_integration]")?.toolCalls)
         assertEquals(48, GitHubWorkflowPreset.selected("diagnose_ci").toolCalls)
     }
+
     @Test fun integrationPresetFinishesPendingPagesWithoutExpandingItsBudget() {
         val selected = GitHubWorkflowPreset.selected("test_integration")
         val prompt = selected.prompt()

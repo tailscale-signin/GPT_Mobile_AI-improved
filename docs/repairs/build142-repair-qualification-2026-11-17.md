@@ -366,3 +366,14 @@ Never close an incident solely because diagnostic fields or tests were added. No
 ### Protected saved-view tier — follow-up qualification
 
 The saved-view body and cursor index now have a dedicated encrypted, fsynced, bounded saved-results store (48 MiB / 1,024 records), separate from the ordinary 48 MiB LRU cache and from critical mutation receipts. Ordinary cache pruning cannot silently remove a published saved view. Legacy cache-backed saved views are migrated on their next authorized local read. Exhausting the dedicated tier fails explicitly and does not authorize repeating GitHub mutations. Added a disk-pressure/restart regression that writes more than 48 MiB into ordinary cache after a saved view exists. Installed Android and selected-profile acceptance remain required.
+
+## November 18 continuation: archive capture and unknown-context tool admission (PR #1741)
+
+**Observed in the uploaded old Android build 142:** 76 `ARCHIVE_WRITE_FAILED:IllegalStateException` save receipts, no research-archive membership rows in the captured database, and a terminal `CONTEXT_CAPACITY_EXCEEDED` admission after an estimated 3,802 prompt tokens with unknown context represented by `Int.MAX_VALUE`. These observations are from `ba54824b5e43`, not from a newly installed candidate.
+
+- The archive indexer and durable retry handler now record a *closed* cause code, operation phase, and bounded owned-code location. They never export the raw exception message, arbitrary stack trace, source content, or private URL. Original source rows and receipts remain retained. Owner-deleted and explicitly superseded archive records do not silently replay; other failures back off and require manual review after 16 attempts.
+- The unknown-capacity tool-request planner now uses the existing 4,096-token conservative ceiling **before** history and tool-schema selection, with up to 768 output tokens reserved for the initial step. This does not enlarge any advertised, configured, or verified server capacity. Non-optional context that still cannot fit is rejected before dispatch rather than silently truncated.
+- Added focused Robolectric/host tests for bounded retries, the closed diagnostic contract, and historical context-budget failure. These are committed test changes, not yet evidence of passing exact-head CI or runtime recovery.
+- Required follow-up: inspect actual Room error site on an installed build, test archive membership and restored receipts after process restart, verify context plan with the selected remote profile, exercise GitHub saved-view reopen/cursor fidelity, and qualify Android-to-Windows Gateway resume with live receipts. Keep unresolved issues open until their specific root cause is resolved and independently verified.
+
+Work remains solely on PR #1741, based on main after PR #1534 merged. No other branch or PR was modified by this continuation.

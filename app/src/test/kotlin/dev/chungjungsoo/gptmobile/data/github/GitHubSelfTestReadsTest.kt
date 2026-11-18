@@ -289,6 +289,7 @@ class GitHubSelfTestReadsTest {
             assertEquals(null, GitHubSelfTestReads.next(listOf(tool("github_issue", "history")), listOf(rejected, issues)))
         }
     }
+
     @Test fun readyReadMatrixCoversAllFourteenAndUnlocksObservedResources() {
         val head = "a".repeat(40)
         val status = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$head","branch":"main"}}""")
@@ -343,5 +344,4 @@ class GitHubSelfTestReadsTest {
         assertTrue(("github_release" to "tags") !in unlocked)
         assertTrue(("github_release" to "list") !in unlocked)
     }
-
 }

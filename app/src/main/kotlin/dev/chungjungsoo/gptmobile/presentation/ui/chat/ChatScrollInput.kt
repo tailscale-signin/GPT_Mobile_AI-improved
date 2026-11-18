@@ -109,6 +109,9 @@ internal fun rememberChatScrollInput(
                 if (!input.pointerActive) {
                     // A fling may reach the real footer after the last drag event.
                     currentFollowIfAtBottom()
+                    // Wheel gestures have no pointer-up callback. Release the
+                    // dragging latch before the next explicit follow request.
+                    input.dragging = false
                     // Prevent IME/header geometry changes from restoring follow later.
                     input.finishUserScroll()
                 }

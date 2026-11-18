@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -81,12 +82,20 @@ internal fun ChatBottomIndicator(
         snapshotFlow { listState.isAtGitHubBottom() }.first { it }
         reachedBottom = true
     }
+    // Explicit arrow presses and manual arrivals share this visible entrance.
+    // Keep idle/detached indicators unmounted as before.
+    val dotsAlpha by animateFloatAsState(
+        targetValue = if (reachedBottom && generating) 1f else 0f,
+        animationSpec = tween(if (animate) 650 else 0),
+        label = "Bottom follow generation dots"
+    )
     if (!reachedBottom || !generating) return
     // The shared phase respects app/system motion preferences, lifecycle and frame pressure.
     val phase = rememberGitHubProgressMotion(animate)
     val color = MaterialTheme.colorScheme.primary
     Row(
         Modifier.size(width = 48.dp, height = 48.dp)
+            .graphicsLayer { alpha = dotsAlpha }
             .semantics { contentDescription = "Generating response" }
             .testTag("chat_bottom_generation"),
         horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),

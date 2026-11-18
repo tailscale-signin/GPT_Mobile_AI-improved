@@ -66,6 +66,9 @@ internal fun chatTopFadeStops(start: Float, stop: Float, expansion: Float): Pair
     val progress = expansion.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
     val eased = progress * progress * (3f - 2f * progress)
     val range = high - low
-    return (low + range * (0.18f + 0.28f * eased)) to
-        (low + range * (0.82f + 0.12f * eased))
+    // Exactly preserve the original full-width linear fade when collapsed.
+    // Expansion retains stronger transparency near the top, then reaches
+    // opacity over the final half of the mask for a sharper falloff.
+    return (low + range * (0.46f * eased)) to
+        (low + range * (1f - 0.06f * eased))
 }

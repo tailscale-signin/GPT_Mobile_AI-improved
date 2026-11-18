@@ -17,13 +17,13 @@ class GitHubTopFadeGeometryTest {
             assertEquals(72f, gitHubTopFadeHeight(48f, 800f, true, 0f, profile), .001f)
             assertEquals(48f + profile.expandedExtra * 800f, gitHubTopFadeHeight(48f, 800f, true, 1f, profile), .001f)
         }
-        assertEquals(204f, gitHubTopFadeHeight(48f, 800f, true, .5f), .001f)
+        assertEquals(236f, gitHubTopFadeHeight(48f, 800f, true, .5f), .001f)
     }
 
     @Test fun expandedFadeRestoresTheExactCollapsedDepth() {
         val collapsed = gitHubTopFadeHeight(48f, 800f, true, 0f)
         assertEquals(72f, collapsed, .001f)
-        assertEquals(336f, gitHubTopFadeHeight(48f, 800f, true, 1f), .001f)
+        assertEquals(400f, gitHubTopFadeHeight(48f, 800f, true, 1f), .001f)
         assertEquals(collapsed, gitHubTopFadeHeight(48f, 800f, true, 0f), .001f)
     }
 
@@ -32,6 +32,8 @@ class GitHubTopFadeGeometryTest {
         val stop = 0.50f
         val collapsed = chatTopFadeStops(start, stop, 0f)
         val expanded = chatTopFadeStops(start, stop, 1f)
+        assertEquals(start, collapsed.first, 0f)
+        assertEquals(stop, collapsed.second, 0f)
         org.junit.Assert.assertTrue(expanded.first > collapsed.first)
         org.junit.Assert.assertTrue(expanded.second > collapsed.second)
         org.junit.Assert.assertTrue(expanded.second - expanded.first < collapsed.second - collapsed.first)

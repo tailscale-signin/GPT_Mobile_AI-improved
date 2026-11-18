@@ -152,8 +152,12 @@ class ProgressiveToolCatalogTest {
             "github_write__github_api"
         )
         val authorized = names.map { name ->
-            AgentToolDefinition(name, "Authorized GitHub operation", JsonObject(emptyMap()),
-                capabilities = setOf(AgentToolCapability.GITHUB))
+            AgentToolDefinition(
+                name,
+                "Authorized GitHub operation",
+                JsonObject(emptyMap()),
+                capabilities = setOf(AgentToolCapability.GITHUB)
+            )
         }
         val task = "Inspect the GitHub repository, repair the failure, stage a patch and commit the tested fix."
         val catalog = ProgressiveToolCatalog(authorized, task, githubMode = true)
@@ -163,8 +167,10 @@ class ProgressiveToolCatalogTest {
         assertTrue(initial.toString(), "github_commit__github_api" in initial)
         assertFalse("github_write__github_api" in initial)
         assertTrue(ProgressiveToolCatalog.NAME in initial)
-        assertTrue(catalog.selected(authorized.filterNot { it.name == "github_commit__github_api" } + catalog.definition)
-            .none { it.name == "github_commit__github_api" })
+        assertTrue(
+            catalog.selected(authorized.filterNot { it.name == "github_commit__github_api" } + catalog.definition)
+                .none { it.name == "github_commit__github_api" }
+        )
 
         val inspection = ProgressiveToolCatalog(authorized, "Inspect GitHub PR checks", githubMode = true)
         val inspectionNames = inspection.selected(authorized + inspection.definition).map { it.name }

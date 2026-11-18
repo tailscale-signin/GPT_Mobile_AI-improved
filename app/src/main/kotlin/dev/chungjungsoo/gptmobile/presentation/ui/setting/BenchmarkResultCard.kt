@@ -33,6 +33,16 @@ internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
             Text("${run?.model ?: result.latestQueueItem?.profile?.model ?: "No recorded attempt"} · ${benchmarkResultDate(run?.startedAt ?: result.latestQueueItem?.startedAt)}", style = MaterialTheme.typography.labelMedium)
             Text("${result.mode.label} · ${result.executionPolicy?.label ?: "Unknown request policy (historical)"}", style = MaterialTheme.typography.labelSmall)
             BenchmarkRuntimeSummary(run)
+            if (result.mode == BenchmarkMode.GITHUB_INTEGRATION) {
+                val offlineContract = run?.samples?.count { it.workload == "github_ai_fixture_v1" } ?: 0
+                val simulatedEngineering = run?.samples?.count { it.workload == "github_engineering_fixture_v1" } ?: 0
+                Text(
+                    "Offline GitHub audit: $offlineContract tool-contract cases and $simulatedEngineering " +
+                        "simulated multi-step engineering cases recorded. Real Copilot cloud jobs, " +
+                        "GitHub writes, CI and device recovery are NOT verified by these scores.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             val ranked = result.attemptScore?.takeIf { it.verified && it.overall?.isFinite() == true }
             Text(if (ranked == null) "Provisional · Unranked" else "Verified overall score", style = MaterialTheme.typography.titleSmall)
             Text("Overall: ${ranked?.overall?.let { benchmarkMetricText(it, "/ 100", 1) } ?: "Not available"}", style = MaterialTheme.typography.bodyMedium)
@@ -119,6 +129,13 @@ private fun BenchmarkResultDetails(result: BenchmarkResultPresentation) {
         val last = it.samples.lastOrNull()
         last?.let { sample ->
             Text("Latest recorded case: ${sample.label} · ${sample.outcome.name.lowercase()}", style = MaterialTheme.typography.titleSmall)
+            if (it.mode == BenchmarkMode.GITHUB_INTEGRATION) {
+                Text(
+                    "Evidence class: ${sample.evidenceScope} · " +
+                        "${sample.toolAssessment?.workflowCompleted?.let { finished -> if (finished) "simulator workflow complete" else "simulator workflow incomplete" } ?: "workflow grade not recorded"}",
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
             Text(
                 "HTTP request sent: ${if (sample.physicalRequestIds.isNotEmpty() || sample.providerHttpStatus != null) {
                     "observed"

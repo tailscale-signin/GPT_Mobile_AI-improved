@@ -74,8 +74,29 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
 
     private fun identity(collection: String, row: JsonElement): String {
         val objectRow = row as? JsonObject
-        val value = objectRow?.let { it["id"] ?: it["node_id"] ?: it["sha"] ?: it["number"] ?: it["path"] } ?: row
+        // The same blob SHA can occur at multiple changed filenames. A file
+        // collection is identified by path, not by its shared content digest.
+        val value = objectRow?.let {
+            if (collection == "files") {
+                it["filename"] ?: it["path"] ?: it["sha"] ?: it["id"]
+            } else {
+                it["id"] ?: it["node_id"] ?: it["sha"] ?: it["number"] ?: it["path"]
+            }
+        } ?: row
         return collection + ":" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(value.toString())
+    }
+
+    private fun reportedTotal(operation: String, args: JsonObject, result: JsonObject): Int? {
+        val comparisonFiles = if (
+            operation == "github_context" &&
+            args["action"] == JsonPrimitive("changed_since")
+        ) {
+            result["files_total"]
+        } else {
+            null
+        }
+        val upstream = comparisonFiles ?: result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")
+        return (upstream as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it >= 0 }
     }
 
     /** A PR context is a singleton, but its explicitly requested file page must be real. */
@@ -135,7 +156,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             // A successful envelope with no record collection cannot establish
             // coverage when the provider advertises records or another page.
             // An explicitly empty terminal result remains valid.
-            val reportedTotal = ((result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")) as? JsonPrimitive)?.content?.toIntOrNull()
+            val reportedTotal = reportedTotal(operation, args, result)
             // A zero-result first page is a complete empty collection. A
             // later zero-result page cannot erase previously observed records.
             if (reportedTotal == 0 &&
@@ -186,7 +207,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val earlier = state.pages.filterKeys { it < number }.values.flatMapTo(mutableSetOf()) { it.identities }
         val previous = state.pages[number]
         if (previous != null && previous.identities != identities) state.changed = true
-        val total = ((result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")) as? JsonPrimitive)?.content?.toIntOrNull()
+        val total = reportedTotal(operation, args, result)
         if (state.total != null && total != null && state.total != total) state.changed = true
         if (state.total == null) state.total = total
         state.pages[number] = Page(identities, now())
@@ -203,7 +224,10 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val stalled = repeated || emptyRemotePage
         val contiguous = number > 0 && state.pages.size == number && state.pages.keys.minOrNull() == 1 && state.pages.keys.maxOrNull() == number
         val terminal = result["has_more"] == JsonPrimitive(false)
-        val consistent = !state.changed && result["pagination_inconsistent"] != JsonPrimitive(true) && (total == null || all.size == total)
+        val consistent = !state.changed &&
+            result["pagination_inconsistent"] != JsonPrimitive(true) &&
+            result["tree_complete"] != JsonPrimitive(false) &&
+            (state.total == null || all.size == state.total)
         val error = when {
             stalled -> "GITHUB_PAGINATION_STALLED"
             terminal && (!contiguous || !consistent) -> "GITHUB_PAGINATION_INCOMPLETE"

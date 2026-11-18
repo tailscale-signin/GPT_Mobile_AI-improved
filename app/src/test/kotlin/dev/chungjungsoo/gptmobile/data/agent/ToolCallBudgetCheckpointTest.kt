@@ -48,6 +48,43 @@ class ToolCallBudgetCheckpointTest {
         }
     }
 
+    @Test fun githubPagesKeepIndependentByteAllowancesUnderTheHistorical24576ByteLimit() = runTest {
+        var dispatched = 0
+        val page = object : AgentTool {
+            override val definition = AgentToolDefinition("github_pr", "bounded PR page", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatched++
+                return AgentToolResult(callId, ToolResultContent.Text("x".repeat(8192)), false)
+            }
+        }
+        val githubBudget = ToolExecutionBudget(
+            AgentRunLimits(githubTask = true, maxToolCalls = 24, maxToolOutputBytes = 24_576)
+        )
+        repeat(6) { index ->
+            val result = githubBudget.bind(page).execute("github-page-$index", buildJsonObject {})
+            assertFalse("GitHub page $index was withheld: ${result.errorCode}", result.isError)
+            assertFalse("GitHub page $index exhausted a shared result budget", result.outputBudgetExhausted)
+            assertEquals(24_576, githubBudget.remainingOutputBytes())
+        }
+        assertEquals(6, dispatched)
+        assertEquals(6, githubBudget.usedCalls())
+        assertNull(githubBudget.snapshot().resultBytesLimit)
+
+        // Ordinary non-GitHub work still obeys the original cumulative byte
+        // allowance; this exception is for authorized paged GitHub workflows.
+        val standard = ToolExecutionBudget(
+            AgentRunLimits(maxToolCalls = 24, maxToolOutputBytes = 24_576)
+        )
+        repeat(3) { index ->
+            assertFalse(standard.bind(page).execute("ordinary-page-$index", buildJsonObject {}).isError)
+        }
+        assertEquals(0, standard.remainingOutputBytes())
+        val fourth = standard.bind(page).execute("ordinary-page-4", buildJsonObject {})
+        assertTrue(fourth.isError)
+        assertFalse(fourth.dispatched)
+        assertEquals(9, dispatched)
+    }
+
     @Test fun oneAndTwoCallSourceAllowancesCanBeSpentAndRemainExhaustedAfterRestore() = runTest {
         for (limit in 1..2) {
             var row: JsonObject? = null

@@ -124,7 +124,7 @@ internal object GitHubClaimExtraction {
         var invalidKind = "INVALID_JSON"
         return try {
             withContext(computationDispatcher) {
-                val parsed = Json.parseToJsonElement(response.toString().trim())
+                val parsed = Json.parseToJsonElement(structuredPayload(response.toString()))
                 invalidKind = "NON_OBJECT"
                 val answer = parsed as? JsonObject ?: error("Claim extraction was not structured")
                 invalidKind = "SCHEMA_REJECTED"
@@ -153,6 +153,15 @@ internal object GitHubClaimExtraction {
             throw Failure(code, observed, repairAllowed = true)
         }
     }
+
+    /** Accept only a single whole-response JSON fence; all claim contents still require schema validation. */
+    private fun structuredPayload(raw: String): String {
+        val trimmed = raw.trim()
+        val fenced = JSON_FENCE.matchEntire(trimmed) ?: return trimmed
+        return fenced.groupValues[1].trim()
+    }
+
+    private val JSON_FENCE = Regex("""\A```(?:json)?\r?\n([\s\S]*)\r?\n```\z""", RegexOption.IGNORE_CASE)
 
     private fun incompleteProviderFailure() = ProviderEvent.Failed(
         "Claim extraction ended without a complete response. Saved evidence remains available.",

@@ -23,6 +23,11 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     private val permanent = test.workload == "permanent_error_decision"
     private val research = test.workload == "research_fixture"
     private val githubFixture = GitHubProfileAuditSuite.fixture(test)
+    private val engineering = if (test.workload == GitHubEngineeringBenchmarkSuite.WORKLOAD) {
+        GitHubEngineeringScenario(test, code)
+    } else {
+        null
+    }
     private val parcelArguments = buildJsonObject { put("key", "parcel") }
     private val typedArguments = buildJsonObject {
         put("key", "parcel")
@@ -42,6 +47,7 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     private fun result(id: String, body: String, error: Boolean = false, code: String? = null) = AgentToolResult(id, ToolResultContent.Text(body), error, errorCode = code)
 
     val tools: List<AgentTool> = when {
+        engineering != null -> listOf(engineering.tool)
         githubFixture != null -> listOf(
             tool(
                 githubFixture.operation,
@@ -96,6 +102,7 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     }
 
     fun valid(call: ProviderEvent.ToolCall): Boolean = when {
+        engineering != null -> engineering.valid(call)
         githubFixture != null ->
             call.name == githubFixture.operation &&
                 call.arguments == githubFixture.arguments &&
@@ -107,7 +114,10 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
         else -> call.name == "benchmark_lookup" && call.arguments == if (test.workload == "typed_arguments") typedArguments else parcelArguments
     }
 
-    fun expectedError(call: ProviderEvent.ToolCall, result: AgentToolResult): Boolean = valid(call) && result.isError && (recovery && result.errorCode == "BENCHMARK_RETRYABLE" || permanent && result.errorCode == "BENCHMARK_PERMANENT")
+    fun expectedError(call: ProviderEvent.ToolCall, result: AgentToolResult): Boolean =
+        engineering?.expectedError(call, result) ?: (valid(call) && result.isError &&
+            (recovery && result.errorCode == "BENCHMARK_RETRYABLE" ||
+                permanent && result.errorCode == "BENCHMARK_PERMANENT"))
 
     /**
      * A model can choose the correct tool yet send a semantically wrong argument.
@@ -133,6 +143,7 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     }
 
     fun assess(calls: List<ProviderEvent.ToolCall>, successful: Set<String>, expectedErrors: Set<String>, answer: String, raw: String, complete: Boolean): BenchmarkToolAssessment {
+        engineering?.let { return it.assess(calls, successful, expectedErrors, answer, raw, complete) }
         val selected = calls.map { it.name }.all { name ->
             name in if (githubFixture != null) {
                 setOf(githubFixture.operation)
@@ -165,7 +176,9 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
         )
     }
 
-    fun passed(calls: List<ProviderEvent.ToolCall>, successful: Set<String>, expectedErrors: Set<String>): Boolean = calls.isNotEmpty() &&
+    fun passed(calls: List<ProviderEvent.ToolCall>, successful: Set<String>, expectedErrors: Set<String>): Boolean {
+        engineering?.let { return it.passed(calls, successful, expectedErrors) }
+        return calls.isNotEmpty() &&
         (githubFixture == null || calls.size == 1) &&
         calls.all(::valid) &&
         successful.size + expectedErrors.size == calls.size &&

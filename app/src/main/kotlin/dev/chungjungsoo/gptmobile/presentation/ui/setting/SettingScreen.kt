@@ -233,6 +233,11 @@ fun SettingScreen(
                             }
                         }
                         item {
+                            SettingsCategory("Privacy", "Privacy Mode and sensitive-information protection") {
+                                PrivacyModePanel()
+                            }
+                        }
+                        item {
                             SettingsCategory("Plugins", "Tools, memory, research and connected work") {
                                 SettingsDestination(Icons.Rounded.Build, "Plugins & Tools", onNavigateToToolConnections)
                                 SettingsDestination(Icons.Rounded.Psychology, "Model Delegation", { showDelegation = true })

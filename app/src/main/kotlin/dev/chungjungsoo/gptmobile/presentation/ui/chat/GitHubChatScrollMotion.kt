@@ -132,3 +132,10 @@ internal suspend fun LazyListState.animateToGitHubBottom(animate: Boolean = true
         }
     }
 }
+
+/** All chat types share one bottom-follow mode; only GitHub can pin a prompt. */
+internal fun universalChatScrollMode(
+    isGitHub: Boolean,
+    githubMode: GitHubScrollMode,
+    standardFollowing: Boolean
+): GitHubScrollMode = if (isGitHub) githubMode else if (standardFollowing) GitHubScrollMode.FOLLOW_BOTTOM else GitHubScrollMode.USER_HISTORY

@@ -862,8 +862,8 @@ private fun ChatScreenContent(
 
     GitHubScrollMotion(
         listState = listState,
-        enabled = githubPromptMode && entryPositioned && !isModelTabPositionLocked,
-        mode = githubScrollMode,
+        enabled = entryPositioned && !isModelTabPositionLocked,
+        mode = universalChatScrollMode(githubPromptMode, githubScrollMode, isFollowingBottom),
         dragging = scrollInput.dragging || isUserDragging,
         renderedLines = renderedLines,
         promptKey = anchoredPromptKey ?: newestPromptKey,
@@ -872,19 +872,8 @@ private fun ChatScreenContent(
         fontScale = promptDensity.fontScale,
         animate = featureSettings.responseAnimation
     )
-    ChatBottomAutoScroller(
-        listState = listState,
-        animate = featureSettings.responseAnimation && featureSettings.smoothStreaming,
-        isEnabled = !githubPromptMode &&
-            entryPositioned &&
-            !isModelTabPositionLocked &&
-            shouldAutoScrollToBottom(
-                isFollowing = isFollowingBottom,
-                isUserDragging = scrollInput.dragging || isUserDragging,
-                isScrollInProgress = listState.isScrollInProgress,
-                isScrollingAway = listState.lastScrolledBackward
-            )
-    )
+    // The measured-line follower above now owns scrolling in every chat mode.
+    // Never start a second auto-scroll coroutine against the same LazyListState.
 
     LaunchedEffect(attachmentNotice) {
         attachmentNotice?.let { notice ->
@@ -1036,7 +1025,7 @@ private fun ChatScreenContent(
                     val replyVisible by remember(listState, pairKey) {
                         derivedStateOf { listState.layoutInfo.visibleItemsInfo.any { it.key == pairKey } }
                     }
-                    GitHubLineScope(renderedLines.takeIf { githubPromptMode && index == lastMessageIndex }, pairKey) {
+                    GitHubLineScope(renderedLines.takeIf { index == lastMessageIndex }, pairKey) {
                         ChatMessagePair(
                             awaitingGitHubTurn = index == lastMessageIndex && awaitingGitHubTurn,
                             reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { transcriptViewportHeight.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,

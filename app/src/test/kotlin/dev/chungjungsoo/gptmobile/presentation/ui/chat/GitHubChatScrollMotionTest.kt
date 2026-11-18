@@ -51,6 +51,13 @@ class GitHubChatScrollMotionTest {
     private fun position(state: LazyListState) =
         "item=${state.firstVisibleItemIndex}, offset=${state.firstVisibleItemScrollOffset}, forward=${state.canScrollForward}, scrolling=${state.isScrollInProgress}, clock=${compose.mainClock.currentTime}"
 
+    @Test fun ordinaryCombinedAndGatewayChatsShareMeasuredFollowWithoutPromptPinning() {
+        assertEquals(GitHubScrollMode.FOLLOW_BOTTOM, universalChatScrollMode(false, GitHubScrollMode.PIN_PROMPT, true))
+        assertEquals(GitHubScrollMode.USER_HISTORY, universalChatScrollMode(false, GitHubScrollMode.FOLLOW_BOTTOM, false))
+        assertEquals(GitHubScrollMode.PIN_PROMPT, universalChatScrollMode(true, GitHubScrollMode.PIN_PROMPT, true))
+        assertEquals(GitHubScrollMode.USER_HISTORY, universalChatScrollMode(true, GitHubScrollMode.USER_HISTORY, true))
+    }
+
     @Test fun changedIntentStopsAnActivePromptAnimationAndOnlyANewRequestReanchors() {
         lateinit var state: LazyListState
         var request by mutableIntStateOf(0)

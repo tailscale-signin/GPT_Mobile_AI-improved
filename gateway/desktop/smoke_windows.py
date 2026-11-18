@@ -64,8 +64,8 @@ def stop_checked(root, child, phase, output):
         # This smoke creates an offline local fixture. Keep only a bounded tail
         # and redact common credential assignments before uploading CI artifacts.
         import re
-        tail = '\\n'.join(log_lines[-80:])[-12000:]
-        tail = re.sub(r'(?i)(token|password|secret|api[_-]?key|authorization)(\\s*[:=]\\s*)[^\\s,}]+', r'\\1\\2[redacted]', tail)
+        tail = '\n'.join(log_lines[-80:])[-12000:]
+        tail = re.sub(r'(?i)(token|password|secret|api[_-]?key|authorization)(\s*[:=]\s*)[^\s,}]+', r'\1\2[redacted]', tail)
         (output/'smoke-gateway.log').write_text(tail, encoding='utf-8')
     except OSError:
         summary['logEvidence'] = 'unavailable'

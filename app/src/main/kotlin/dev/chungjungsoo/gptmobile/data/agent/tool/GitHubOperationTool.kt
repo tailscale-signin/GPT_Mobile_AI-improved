@@ -83,7 +83,7 @@ internal class GitHubOperationTool(
             val reason = when {
                 selectorIncomplete -> "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE"
                 operation == "github_search" && query.isNullOrBlank() -> "GITHUB_SEARCH_QUERY_EMPTY"
-                operation == "github_search" && query.length > 200 -> "GITHUB_SEARCH_QUERY_TOO_LONG"
+                operation == "github_search" && (query?.length ?: 0) > 200 -> "GITHUB_SEARCH_QUERY_TOO_LONG"
                 else -> "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED"
             }
             observed.copy(

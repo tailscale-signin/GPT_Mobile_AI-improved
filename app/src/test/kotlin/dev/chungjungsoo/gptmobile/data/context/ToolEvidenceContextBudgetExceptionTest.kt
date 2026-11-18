@@ -8,6 +8,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolEvidenceContextBudgetExceptionTest {
+    @Test fun textOnlyConversationsWithSavedToolSettingsRetainTheirNormalOutputBudget() {
+        val configured = TokenBudgetSettings(contextTokens = Int.MAX_VALUE, outputTokens = 4096)
+        assertFalse(ReplayAllowance.needsConservativeToolReserve(false, true, 0))
+        assertFalse(ReplayAllowance.needsConservativeToolReserve(false, false, 2))
+        assertTrue(ReplayAllowance.needsConservativeToolReserve(false, true, 2))
+        assertTrue(ReplayAllowance.needsConservativeToolReserve(true, false, 0))
+        assertSame(
+            configured,
+            ReplayAllowance.conservativeToolPlanningBudget(
+                configured,
+                ReplayAllowance.needsConservativeToolReserve(false, true, 0)
+            )
+        )
+    }
+
     @Test fun unknownToolRouteIsBudgetedBeforeTheRequestExhaustsOutput() {
         val configured = TokenBudgetSettings(contextTokens = Int.MAX_VALUE, outputTokens = 4096)
         val planned = ReplayAllowance.conservativeToolPlanningBudget(configured, true)

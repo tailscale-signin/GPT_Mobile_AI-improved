@@ -639,6 +639,39 @@ class IssueReportIncidentCapsuleTest {
         assertNull(IssueReportIncidentCapsule.validValue("privacy_blockers", JsonArray(List(5) { JsonPrimitive("PROVIDER_ALLOWLIST") })))
     }
 
+    @Test fun claimExtractionReportRetainsClosedFailureEvidenceWithoutProviderOutput() {
+        val context = capture(
+            ReportFeature.CHAT,
+            "CHAT_FAILURE",
+            "GITHUB_EXTRACTION_INVALID_RESPONSE",
+            mapOf(
+                "diagnostic_area" to "PROVIDER",
+                "failed_stage" to "claim_extraction",
+                "claim_extraction_failure_kind" to "SCHEMA_REJECTED",
+                "claim_extraction_response_characters" to 1024,
+                "claim_extraction_max_claims" to 2,
+                "claim_extraction_completed" to true,
+                "raw_model_response" to "private-response-token"
+            )
+        )
+        val values = requireNotNull(context.diagnostics).values
+        assertEquals(JsonPrimitive("SCHEMA_REJECTED"), values["claim_extraction_failure_kind"])
+        assertEquals(JsonPrimitive(1024), values["claim_extraction_response_characters"])
+        assertEquals(JsonPrimitive(2), values["claim_extraction_max_claims"])
+        assertEquals(JsonPrimitive(true), values["claim_extraction_completed"])
+        assertFalse(report(context).approvedPayload().contains("private-response-token"))
+        assertNull(IssueReportIncidentCapsule.validValue("claim_extraction_failure_kind", JsonPrimitive("private-response-token")))
+        assertNull(IssueReportIncidentCapsule.validValue("claim_extraction_max_claims", JsonPrimitive(-1)))
+        assertNull(
+            capture(
+                ReportFeature.TOOLS,
+                "TOOL_RESULT",
+                "INVALID_ARGUMENTS",
+                mapOf("diagnostic_area" to "TOOL", "claim_extraction_failure_kind" to "SCHEMA_REJECTED")
+            ).diagnostics?.values?.get("claim_extraction_failure_kind")
+        )
+    }
+
     private fun capture(feature: ReportFeature, source: String, code: String, fields: Map<String, Any?>) =
         IssueReportContext.fromFields(source, IssueReportIncidentCapsule.fields(feature, source, code, fields), time)
 

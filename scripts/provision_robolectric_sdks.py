@@ -106,7 +106,17 @@ def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=
             os.replace(temporary, target)
             return
         except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as error:
-            if isinstance(error, urllib.error.HTTPError) and error.code not in TRANSIENT_STATUS:
+            selected = sources[attempt % len(sources)]
+            # The lagging public mirror may not have a recently published
+            # artifact. A mirror-only 404 is not proof the pinned coordinate is
+            # absent from Central. Never retry a 404 from the original origin.
+            stale_mirror = (
+                isinstance(error, urllib.error.HTTPError)
+                and error.code == 404
+                and selected != url
+                and len(sources) > 1
+            )
+            if isinstance(error, urllib.error.HTTPError) and error.code not in TRANSIENT_STATUS and not stale_mirror:
                 raise
             throttled = isinstance(error, urllib.error.HTTPError) and error.code == 429
             if throttled:

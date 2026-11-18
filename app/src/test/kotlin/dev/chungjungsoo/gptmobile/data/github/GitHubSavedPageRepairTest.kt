@@ -139,6 +139,46 @@ class GitHubSavedPageRepairTest {
         assertEquals("BODY_MISSING_INDEX_PRESENT", reason())
     }
 
+    @Test fun durableBootstrapRestoresOnlyInitiallyIssuedHandleAfterIndexLoss() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("github-saved-view-test-").toFile()
+        try {
+            val state = GitHubRepositoryStateStore(directory)
+            val scope = "restart-scope"
+            val id = UUID.randomUUID().toString()
+            val cursor = "$id:0:2048"
+            val store = GitHubSavedViewStore(state, scope)
+            val original = buildJsonObject {
+                put("schema", "github.saved-view.v1")
+                put("issued_cursors", JsonArray(listOf(JsonPrimitive(cursor))))
+                put("failed_persistence_cursors", JsonArray(emptyList()))
+            }
+            store.save(id, original)
+            state.remove(scope, "saved-view-access:$id")
+            val reopened = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), scope)
+            val restored = reopened.loadWithDiagnostics(id)
+            assertEquals(JsonArray(listOf(JsonPrimitive(cursor))), restored["issued_cursors"])
+            assertEquals(JsonArray(emptyList()), restored["failed_persistence_cursors"])
+            assertFalse((restored["issued_cursors"] as JsonArray).contains(JsonPrimitive("$id:1:2048")))
+            assertFalse("bootstrap_issued_cursors" in restored)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun legacyBodyWithoutInitialHandlesCannotInventRecoveryWhenIndexIsMissing() = runBlocking {
+        val state = GitHubRepositoryStateStore()
+        val scope = "legacy-scope"
+        val id = UUID.randomUUID().toString()
+        state.write(scope, "saved-view-body:$id", buildJsonObject { put("schema", "github.saved-view.v1") })
+        val reason = try {
+            GitHubSavedViewStore(state, scope).loadWithDiagnostics(id)
+            "RESTORED"
+        } catch (missing: GitHubSavedViewStore.MissingSavedView) {
+            missing.reason
+        }
+        assertEquals("CURSOR_INDEX_MISSING", reason)
+    }
+
     private fun assertNoRepair(call: dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall?) {
         assertFalse(call?.arguments?.containsKey("view_cursor") == true)
         if (call != null) {

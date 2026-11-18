@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "290a697870bf16cde308d5dc090ff6696877b1ed448d07b463f6bb04d291a35f",
+  "source_digest": "4d2ac5785feb71ea82de4d157ddde8d027d0a0d21284fc41435ea21981653e41",
   "file_count": 2670,
-  "indexed_line_count": 435387,
+  "indexed_line_count": 435459,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,13 +52,13 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 234,
-      "indexed_line_count": 40012
+      "indexed_line_count": 40022
     },
     {
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 100,
-      "indexed_line_count": 22689
+      "indexed_line_count": 22718
     },
     {
       "id": "mcp_plugins",
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 239,
-      "indexed_line_count": 40019
+      "indexed_line_count": 40052
     },
     {
       "id": "research",
@@ -1585,8 +1585,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubActionSchema.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "3c7f78d387863a958421ca1381de7aa40a694f09f0977a03bcba0580d2f88279",
-      "indexed_lines": 133
+      "sha256": "5c924a8041df2765d79c62e6205f93a3fd63e228a12c61ca435d9575d795bd6b",
+      "indexed_lines": 138
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubCiInvestigationRecovery.kt",
@@ -1984,8 +1984,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "b16cad2ac42cfc2607208998d00d663270ef47666d329056b6fa3276e63e2830",
-      "indexed_lines": 448
+      "sha256": "a5fa9f1c3c9d9faaa91dc6e644052c4d7b88df6ff0111ffc3334a92d06f060f8",
+      "indexed_lines": 453
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchCheckpoint.kt",
@@ -2691,15 +2691,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationArguments.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "60020695120dbdde3946d4e603616d6bf05ab36bd7fcfef1e07402becfc44cef",
-      "indexed_lines": 381
+      "sha256": "40dc357149a448911620f8887334af13ce5a1e88d5750c3bc868175be4300c56",
+      "indexed_lines": 404
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "817667f3fe8b59b202d7ed41b71cf2f44f8eff2c5308b91e1f5b67a62dfe346c",
-      "indexed_lines": 1275
+      "sha256": "dd67f9dc693d7503a0deba82053c1ac0247d62e55c4bd412c091016f505d0671",
+      "indexed_lines": 1281
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",
@@ -7563,8 +7563,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSavedViewStore.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "aed0f2b8c3515e4213ba80d4d50effadf20646f53a9ed8f0d073e1939a97bbfa",
-      "indexed_lines": 60
+      "sha256": "8d21176ffbb657388cb8b2b8a2ddc69111d411b02cb3c94cb616c0eae8301c80",
+      "indexed_lines": 93
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchContext.kt",
@@ -7864,7 +7864,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowPreset.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "c2b123ba89c0c127ed06ec492d423e4b703edb81a9f98f4caaa730af7948a86e",
+      "sha256": "193d39752af39004eebfe2080ee6edda7f1a2524c7a8a58be79fe10f22ad9f20",
       "indexed_lines": 22
     },
     {

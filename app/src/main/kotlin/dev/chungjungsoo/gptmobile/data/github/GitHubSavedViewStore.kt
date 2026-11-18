@@ -12,7 +12,24 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
         require(validId(id))
         val bodyKey = "saved-view-body:$id"
         if (!state.containsRetainedBody(scope, bodyKey)) {
-            state.write(scope, bodyKey, JsonObject(snapshot - setOf("issued_cursors", "failed_persistence_cursors")))
+            // The immutable body also retains only the initially issued cursors.
+            // If the mutable index disappears after a crash, old issued handles
+            // remain recoverable without inventing a cursor or replaying GitHub.
+            val issued = snapshot["issued_cursors"] as? JsonArray
+            require(!issued.isNullOrEmpty() && issued.size <= 16_384 && issued.all { item ->
+                (item as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.substringBefore(':') == id
+            }) { "Saved view requires bounded, actually issued initial cursors" }
+            state.write(
+                scope,
+                bodyKey,
+                JsonObject(
+                    snapshot - setOf("issued_cursors", "failed_persistence_cursors") +
+                        ("bootstrap_issued_cursors" to issued)
+                )
+            )
+        }
+        check(state.containsRetainedBody(scope, bodyKey)) {
+            "Saved result body is not durable. Keep the original read receipt; do not publish a continuation."
         }
         // Immutable payloads are written once; only the monotonically growing set
         // of issued handles changes as pages are consumed.
@@ -50,8 +67,24 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
             )
         }
         val body = state.read(scope, bodyKey) ?: throw MissingSavedView("BODY_UNREADABLE")
-        val access = state.read(scope, accessKey) ?: throw MissingSavedView("CURSOR_INDEX_MISSING")
-        return JsonObject(body + access)
+        val access = state.read(scope, accessKey)
+        if (access == null) {
+            val initial = body["bootstrap_issued_cursors"] as? JsonArray
+            if (initial.isNullOrEmpty() || initial.size > 16_384 || initial.any { item ->
+                    (item as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.substringBefore(':') != id
+                }
+            ) {
+                throw MissingSavedView("CURSOR_INDEX_MISSING")
+            }
+            // Initial handle proof is encrypted with the source body. Do not
+            // invent later-issued continuations or retry an accepted mutation.
+            return JsonObject(
+                (body - "bootstrap_issued_cursors") +
+                    ("issued_cursors" to initial) +
+                    ("failed_persistence_cursors" to JsonArray(emptyList()))
+            )
+        }
+        return JsonObject((body - "bootstrap_issued_cursors") + access)
     }
 
     class MissingSavedView(val reason: String) : Exception()

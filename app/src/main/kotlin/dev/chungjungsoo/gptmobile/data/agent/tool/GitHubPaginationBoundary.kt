@@ -45,14 +45,10 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         if (!numberedRemotePage(operation, args)) return null
         val key = key(operation, args)
         val end = ends[key]
-        // An explicit live refresh starts a new observation epoch even when the
-        // caller requests a non-first page. Never join a fresh page to stale page 1.
-        if (args["verify_live"] == JsonPrimitive(true)) {
-            ends.remove(key)
-            traversals.remove(key)
-            return null
-        }
-        if (page(args) == 1 && end != null) {
+        // A first-page request starts a fresh observation epoch. A live
+        // continuation on page 2+ belongs to that same epoch; clearing it
+        // would make a complete remote traversal appear to contain one page.
+        if (page(args) == 1) {
             ends.remove(key)
             traversals.remove(key)
             return null
@@ -91,7 +87,13 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             // coverage when the provider advertises records or another page.
             // An explicitly empty terminal result remains valid.
             val reportedTotal = ((result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")) as? JsonPrimitive)?.content?.toIntOrNull()
-            if (reportedTotal == 0 && result["has_more"] == JsonPrimitive(false)) return Assessment(result)
+            // A zero-result first page is a complete empty collection. A
+            // later zero-result page cannot erase previously observed records.
+            if (reportedTotal == 0 &&
+                result["has_more"] == JsonPrimitive(false) &&
+                page(args) == 1 &&
+                traversals[key(operation, args)]?.pages?.isEmpty() != false
+            ) return Assessment(result)
             val number = page(args)
             val progress = buildJsonObject {
                 put("schema", "github.pagination-progress.v1")

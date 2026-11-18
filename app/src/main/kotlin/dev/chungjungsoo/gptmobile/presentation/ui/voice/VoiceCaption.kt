@@ -2,16 +2,41 @@ package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import java.text.BreakIterator
+import java.util.Locale
 
 /** Retains the complete phrase; a highlight requires an observed range in this exact text. */
 internal data class VoiceCaption(val text: String, val speaker: String, val live: Boolean) {
-    fun highlightRange(observed: IntRange?): IntRange? = observed?.takeIf { range ->
-        speaker == "AI reply" &&
-            !range.isEmpty() &&
-            range.first >= 0 &&
-            range.last < text.length &&
-            isCharacterBoundary(range.first) &&
-            isCharacterBoundary(range.last + 1)
+    /** Speech engines may report a phrase. Never illuminate more than one spoken word. */
+    fun highlightRange(observed: IntRange?): IntRange? {
+        val range = observed?.takeIf {
+            speaker == "AI reply" &&
+                !it.isEmpty() &&
+                it.first >= 0 &&
+                it.last < text.length &&
+                isCharacterBoundary(it.first) &&
+                isCharacterBoundary(it.last + 1)
+        } ?: return null
+        val words = wordRanges()
+        return words.firstOrNull { range.first in it } ?: words.firstOrNull { it.first <= range.last && it.last >= range.first }
+    }
+
+    /** BreakIterator respects punctuation, non-Latin text and surrogate boundaries. */
+    fun wordRanges(): List<IntRange> {
+        val iterator = BreakIterator.getWordInstance(Locale.getDefault())
+        iterator.setText(text)
+        val ranges = mutableListOf<IntRange>()
+        var start = iterator.first()
+        var end = iterator.next()
+        while (end != BreakIterator.DONE) {
+            val firstPoint = text.codePointAt(start)
+            val word = text.substring(start, end).any(Char::isLetterOrDigit) ||
+                Character.getType(firstPoint) == Character.OTHER_SYMBOL.toInt()
+            if (word && isCharacterBoundary(start) && isCharacterBoundary(end)) ranges += start until end
+            start = end
+            end = iterator.next()
+        }
+        return ranges
     }
 
     private fun isCharacterBoundary(index: Int): Boolean =

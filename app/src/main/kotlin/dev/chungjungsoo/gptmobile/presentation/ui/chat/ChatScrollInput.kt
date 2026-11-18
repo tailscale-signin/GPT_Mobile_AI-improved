@@ -4,6 +4,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -17,6 +19,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 internal class ChatScrollInput {
     var dragging by mutableStateOf(false)
@@ -46,6 +49,16 @@ internal fun rememberChatScrollInput(
         }
     }
     val currentFollowIfAtBottom by rememberUpdatedState(::followIfAtBottom)
+    // A user fling can settle at the sentinel after nested-scroll's last callback.
+    // Never reattach for viewport reflow: the gesture's downward return intent
+    // is mandatory, just as it is for the arrow and a completed swipe.
+    LaunchedEffect(listState, gesture, input) {
+        snapshotFlow {
+            listState.isAtGitHubBottom() && !listState.isScrollInProgress && !input.dragging
+        }.distinctUntilChanged().collect { atRestAtBottom ->
+            if (atRestAtBottom) currentFollowIfAtBottom()
+        }
+    }
     val connection = remember(input, gesture, listState) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -82,7 +95,7 @@ internal fun rememberChatScrollInput(
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 input.pointerActive = true
-                gesture.followBottom()
+                gesture.endGesture(cancelled = true)
                 var released = false
                 try {
                     do {

@@ -810,14 +810,7 @@ private fun ChatScreenContent(
     Scaffold(
         snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHost) },
         modifier = Modifier.then(backFade.modifier)
-            .diagnosticFrameTiming("Chat")
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() }
-            ) {
-                composerDiagnostics?.release(ComposerInputDiagnostics.Release.BACKGROUND_TAP)
-                focusManager.clearFocus()
-            },
+            .diagnosticFrameTiming("Chat"),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (showTopBar) {
@@ -862,6 +855,16 @@ private fun ChatScreenContent(
                     .then(transcriptTiming)
                     .fillMaxSize()
                     .then(scrollInput.modifier)
+                    // Only transcript taps dismiss the keyboard. A screen-wide
+                    // clickable can also receive composer/anchor gestures and
+                    // clear focus just after the IME has opened.
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {
+                        composerDiagnostics?.release(ComposerInputDiagnostics.Release.BACKGROUND_TAP)
+                        focusManager.clearFocus()
+                    }
                     .semantics {
                         customActions = listOf(
                             CustomAccessibilityAction("Follow latest messages") {

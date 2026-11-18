@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 @Composable
@@ -55,6 +57,7 @@ internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Mo
             VoiceCaptionText(
                 caption ?: VoiceCaption("Your words will appear here", "", false),
                 state.spokenRange.takeIf { state.phase == VoicePhase.SPEAKING },
+                state.phase == VoicePhase.SPEAKING,
                 compact,
                 Modifier.fillMaxWidth()
             )
@@ -63,7 +66,7 @@ internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Mo
 }
 
 @Composable
-private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, compact: Boolean, modifier: Modifier) {
+private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, speaking: Boolean, compact: Boolean, modifier: Modifier) {
     val scroll = rememberScrollState()
     val lineHeight = with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.lineHeight.toDp() }
     val follow = remember(caption.speaker) { VoiceCaptionFollowing(scroll.value) }
@@ -71,7 +74,31 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, comp
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val fade = with(LocalDensity.current) { 12.dp.toPx() }
     val accent = MaterialTheme.colorScheme.primary
-    val observedRange = caption.highlightRange(spokenRange)
+    val nativeRange = caption.highlightRange(spokenRange)
+    val words = remember(caption.text) { caption.wordRanges() }
+    var lastEstimatedStart by remember(caption.speaker) { mutableIntStateOf(-1) }
+    var estimatedRange by remember(caption.speaker) { mutableStateOf<IntRange?>(null) }
+    // System TTS reports actual word offsets. Kokoro currently has no per-word
+    // timing callbacks: pace one visible word at a time as a marked estimate.
+    LaunchedEffect(caption.speaker, caption.text, speaking, nativeRange) {
+        if (!speaking || caption.speaker != "AI reply") {
+            estimatedRange = null
+            lastEstimatedStart = -1
+            return@LaunchedEffect
+        }
+        if (nativeRange != null) {
+            estimatedRange = null
+            lastEstimatedStart = nativeRange.first
+            return@LaunchedEffect
+        }
+        for (word in words) {
+            if (word.first <= lastEstimatedStart) continue
+            estimatedRange = word
+            lastEstimatedStart = word.first
+            delay(((word.last - word.first + 1) * 45L).coerceIn(180L, 520L))
+        }
+    }
+    val observedRange = if (speaking) nativeRange ?: estimatedRange else null
     val animated = voiceMotionEnabled()
     val text = remember(caption.text, observedRange, accent) {
         buildAnnotatedString {
@@ -147,7 +174,8 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, comp
             textAlign = TextAlign.Center,
             color = when {
                 caption.speaker.isEmpty() -> MaterialTheme.colorScheme.onSurfaceVariant
-                caption.live -> accent
+                // Keep unspoken words neutral; exactly one active word carries
+                // the primary tint and soft highlight.
                 else -> MaterialTheme.colorScheme.onSurface
             },
             onTextLayout = { layout = it }

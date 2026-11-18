@@ -17,7 +17,14 @@ class GitHubTopFadeGeometryTest {
             assertEquals(72f, gitHubTopFadeHeight(48f, 800f, true, 0f, profile), .001f)
             assertEquals(48f + profile.expandedExtra * 800f, gitHubTopFadeHeight(48f, 800f, true, 1f, profile), .001f)
         }
-        assertEquals(100f, gitHubTopFadeHeight(48f, 800f, true, .5f), .001f)
+        assertEquals(148f, gitHubTopFadeHeight(48f, 800f, true, .5f), .001f)
+    }
+
+    @Test fun expandedFadeRestoresTheExactCollapsedDepth() {
+        val collapsed = gitHubTopFadeHeight(48f, 800f, true, 0f)
+        assertEquals(72f, collapsed, .001f)
+        assertEquals(224f, gitHubTopFadeHeight(48f, 800f, true, 1f), .001f)
+        assertEquals(collapsed, gitHubTopFadeHeight(48f, 800f, true, 0f), .001f)
     }
 
     @Test fun keyboardDoesNotEnterTheWindowReferenceAndDisabledFadesStayDisabled() {

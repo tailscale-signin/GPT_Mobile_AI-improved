@@ -119,6 +119,33 @@ class IncidentReportContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("TOOL", {"tool_protocol_recovery_outcome": "NO_SAFE_REPAIR"}))
 
+    def test_claim_extraction_evidence_is_typed_bounded_and_private(self):
+        details = {
+            "incident_phase": "claim_extraction",
+            "causal_provenance": "UNAVAILABLE",
+            "causal_failure_code": "GITHUB_EXTRACTION_INVALID_RESPONSE",
+            "incident_evidence_status": "TYPED_EVIDENCE",
+            "claim_extraction_failure_kind": "SCHEMA_REJECTED",
+            "claim_extraction_response_characters": 1024,
+            "claim_extraction_max_claims": 2,
+            "claim_extraction_completed": True,
+        }
+        capture = self.capture("PROVIDER", details)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for key, invalid in (
+            ("claim_extraction_failure_kind", "private-response"),
+            ("claim_extraction_response_characters", -1),
+            ("claim_extraction_max_claims", "8"),
+            ("claim_extraction_completed", "true"),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                bad = copy.deepcopy(capture)
+                bad["values"][key] = invalid
+                validate_diagnostics(bad)
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"claim_extraction_failure_kind": "SCHEMA_REJECTED"}))
+        self.assertNotIn("private-response", json.dumps(capture))
+
     def test_pending_gateway_tool_results_accept_closed_handoff_diagnostics(self):
         capture = self.capture("PROVIDER", {
             "provider_failure_code": "CLIENT_TOOL_RESULTS_REQUIRED",

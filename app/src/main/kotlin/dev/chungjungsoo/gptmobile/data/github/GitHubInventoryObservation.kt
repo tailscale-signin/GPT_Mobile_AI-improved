@@ -27,6 +27,7 @@ internal object GitHubInventoryObservation {
         return buildJsonObject {
             put("schema", "github.inventory-observation.v1")
             put("field", field)
+            GitHubInventoryQuery.commitSha(value["commit_sha"])?.let { put("commit_sha", it) }
             put("fetched", records.size)
             put("record_keys", JsonArray(identities))
             put("record_keys_complete", identities.size == records.size && identities.distinct().size == records.size)

@@ -1037,10 +1037,13 @@ internal object GitHubTestChecklist {
     fun inventoryCoverage(receipts: Map<String, JsonObject>): JsonArray {
         val pending = pendingPages(receipts)
         val trusted = trusted(receipts)
-        fun filters(receipt: JsonObject): JsonObject {
+        fun filters(receipt: JsonObject, useObservedRevision: Boolean = true): JsonObject {
             val args = receipt["arguments"] as? JsonObject
-            val pageSize = args?.get("per_page") ?: data(receipt)?.get("per_page")
-            val query = GitHubInventoryQuery.arguments(receipt.text("tool"), JsonObject(args.orEmpty() + if (pageSize == null) emptyMap() else mapOf("per_page" to pageSize)))
+            val observation = receipt["inventory_observation"] as? JsonObject
+            val result = data(receipt)
+            val pageSize = args?.get("per_page") ?: observation?.get("per_page") ?: result?.get("per_page")
+            val observedCommit = if (useObservedRevision && receipt["success"] == JsonPrimitive(true)) observation?.get("commit_sha") ?: result?.get("commit_sha") else null
+            val query = GitHubInventoryQuery.arguments(receipt.text("tool"), JsonObject(args.orEmpty() + if (pageSize == null) emptyMap() else mapOf("per_page" to pageSize)), observedCommit)
             return JsonObject(query.filterKeys { it !in setOf("action", "owner", "repo") })
         }
         data class InventoryKey(val first: String, val second: String?, val third: JsonObject, val repository: String, val binding: String)
@@ -1105,7 +1108,10 @@ internal object GitHubTestChecklist {
                     // Failed reads may not reveal the default page size; keep their
                     // blocker for every otherwise matching inventory until recovered.
                     val expected = if ("per_page" in selected) key.third else JsonObject(key.third.filterKeys { it != "per_page" })
-                    return args.text("action") == key.second && selected == expected
+                    if (args.text("action") != key.second) return false
+                    if (selected == expected) return true
+                    // A failed refresh using the original symbolic ref has no observed SHA.
+                    return key.second == "commits" && "commit_sha" !in selected && traversal.any { filters(it, useObservedRevision = false) == selected }
                 }
                 val end = byPage.keys.maxOrNull() ?: 0L
                 val contiguous = end in 1..1000 &&

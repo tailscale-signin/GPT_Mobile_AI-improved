@@ -121,6 +121,24 @@ class ToolArgumentDiagnosticsTest {
         assertFalse((rejected.executionReceipt ?: JsonObject(emptyMap())).toString().contains("fixture"))
     }
 
+    @Test fun initialIndexedSearchReportsBoundedBlobCorrectionWhenNotExecuted() {
+        val schema = GitHubOperationTool.definition("github_search").inputSchema
+        val initial = Json.parseToJsonElement(
+            """{"action":"search","mode":"paths","query":"*","index_cursor":0,"batch_size":1000,"max_new_blobs":0}"""
+        ) as JsonObject
+        val rejected = ToolArgumentValidator.rejection("zero-blobs", "github_search", initial, schema)
+        assertFalse(rejected.dispatched)
+        val response = (rejected.content as ToolResultContent.Json).value as JsonObject
+        val corrected = ((response.getValue("correction_call") as JsonObject).getValue("arguments") as JsonObject)
+        assertEquals(JsonPrimitive(0), corrected["index_cursor"])
+        assertEquals(JsonPrimitive(1), corrected["max_new_blobs"])
+        assertEquals(JsonPrimitive(1000), corrected["batch_size"])
+        assertTrue(ToolArgumentValidator.errors(corrected, schema).isEmpty())
+        val nonInitial = JsonObject(initial + ("index_cursor" to JsonPrimitive(2000)))
+        val unsafe = ToolArgumentValidator.rejection("later-page", "github_search", nonInitial, schema)
+        assertFalse("correction_call" in (unsafe.content as ToolResultContent.Json).value as JsonObject)
+    }
+
     @Test fun githubReadTopLevelPathSuggestsOneSafeSchemaValidCorrection() {
         val schema = GitHubOperationTool.definition("github_read").inputSchema
         val args = buildJsonObject {

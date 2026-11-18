@@ -229,9 +229,10 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         completed++
                         val observed = resultObservations.remove(progress.toolCallId)
                         if (observed != null || sourceFocus(progress.toolArgs).isNotBlank()) selectedAuthoredSummary = false
-                        (observed?.preview ?: previewSequence.offer(
+                        val nextPreview = observed?.preview ?: previewSequence.offer(
                             previewEvent(name, progress.toolArgs, GitHubPreviewPhase.RESULT)
-                        ))?.let { activity = it }
+                        )
+                        nextPreview?.let { activity = it }
                         nextStep = nextFor(operation)
                         if (observed?.problem == true) {
                             pendingSummary = null

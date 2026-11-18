@@ -200,8 +200,11 @@ internal class GitHubPreviewSequence(task: String) {
             "github_pr" to "list" ->
                 if (started) "Locating the relevant pull requests" else "Pull-request inventory retrieved for review"
             "github_commit" to "", "github_write" to "", "github_stage_patch" to "" ->
-                if (started) "Preparing an authorized change request"
-                else "Change request returned; remote outcome needs verification"
+                if (started) {
+                    "Preparing an authorized change request"
+                } else {
+                    "Change request returned; remote outcome needs verification"
+                }
             "web_search" to "" ->
                 if (started) "Searching web sources relevant to the task" else "Web search results retrieved for review"
             else -> return event.fallback

@@ -26,12 +26,20 @@ class GitHubChatProgressTest {
         progress.tick()
         val args = json("""{"action":"commits"}""")
         fun retrieve(index: Int) {
-            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(
-                event = "tool_started", toolName = "github_context", toolCallId = "history-$index", toolArgs = args
-            )))
-            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(
-                event = "tool_completed", toolName = "github_context", toolCallId = "history-$index", toolArgs = args
-            )))
+            val started = GatewayProgress(
+                event = "tool_started",
+                toolName = "github_context",
+                toolCallId = "history-$index",
+                toolArgs = args
+            )
+            val finished = GatewayProgress(
+                event = "tool_completed",
+                toolName = "github_context",
+                toolCallId = "history-$index",
+                toolArgs = args
+            )
+            progress.observe(ApiState.GatewayProgressChanged(started))
+            progress.observe(ApiState.GatewayProgressChanged(finished))
         }
         retrieve(1)
         clock = 3000L

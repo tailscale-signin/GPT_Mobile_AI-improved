@@ -165,7 +165,11 @@ internal class GitHubOperationTool(
                     ),
                     true,
                     errorCode = "INVALID_ARGUMENTS",
-                    dispatched = false
+                    dispatched = false,
+                    executionReceipt = buildJsonObject {
+                        put("reason_code", if (restoreEvidence) "SAVED_VIEW_CONTEXT_MISMATCH" else "SAVED_VIEW_CURSOR_ALTERED")
+                        put("phase", "PREFLIGHT_REJECTED")
+                    }
                 )
             }
             val cursor = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content

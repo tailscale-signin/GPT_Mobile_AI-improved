@@ -28,7 +28,9 @@ class ProgressiveToolCatalogTest {
         val original = GitHubOperationTool.definition("github_pr", "github_pr__native")
         val oversized = original.copy(description = original.description + "oversized contract ".repeat(500))
         val catalog = ProgressiveToolCatalog(
-            listOf(oversized), "Inspect the latest PR and verify CI", githubMode = true,
+            listOf(oversized),
+            "Inspect the latest PR and verify CI",
+            githubMode = true,
             contextCeilingTokens = 4096
         )
         val selected = catalog.selected(listOf(oversized, catalog.definition))
@@ -44,7 +46,9 @@ class ProgressiveToolCatalogTest {
         val original = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__native")
         val defaults = ProgressiveToolCatalog(listOf(original), "Check the repository", githubMode = true)
         val full = ProgressiveToolCatalog(
-            listOf(original), "Check the repository", githubMode = true,
+            listOf(original),
+            "Check the repository",
+            githubMode = true,
             contextCeilingTokens = 1_048_576
         )
         assertEquals(

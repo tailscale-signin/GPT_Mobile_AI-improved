@@ -62,7 +62,7 @@ class GitHubChatProgressTest {
         val progress = GitHubChatProgress("status") { clock }
         val first = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertTrue(first.text.split(Regex("\\s+")).size >= 20)
-        assertTrue(first.text.contains("Next"))
+        assertTrue(first.text.contains("repository status"))
         clock = 44_999
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolArgs = json("""{"path":"src/Reader.kt"}"""))))
@@ -70,8 +70,21 @@ class GitHubChatProgressTest {
         val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
         assertEquals(1, progress.summarySnapshot().completed)
         assertTrue(summary.contains("source read", ignoreCase = true))
-        assertTrue(summary.contains("Next"))
+        assertTrue(summary.contains("Reader.kt"))
         assertTrue(summary.split(Regex("\\s+")).size >= 20)
+    }
+
+    @Test fun openingSummaryUsesTheActualUserRequestWithinTheFirstFewSeconds() {
+        var clock = 0L
+        val progress = GitHubChatProgress(
+            "Exaine repo summaries, they are too repetitive. The first summary should reflect this prompt."
+        ) { clock }
+        val first = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
+        assertTrue(first.contains("repo summaries"))
+        assertTrue(first.contains("short, distinct updates"))
+        assertFalse(first.contains("Next,") || first.contains("Repository findings") || first.contains("**Observed:**"))
+        clock = 3_000
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
     }
 
     @Test fun distinctFollowUpFindingsUseThreeTimesTheInitialInterval() {

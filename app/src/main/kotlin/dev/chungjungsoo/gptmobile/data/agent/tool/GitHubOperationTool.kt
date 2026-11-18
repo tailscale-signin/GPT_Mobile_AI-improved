@@ -74,7 +74,8 @@ internal class GitHubOperationTool(
         // reason. Preserve their existing evidence and add a closed, value-free
         // category so the next app report can distinguish the offending path.
         val result = if (
-            observed.isError && !observed.dispatched &&
+            observed.isError &&
+            !observed.dispatched &&
             observed.errorCode == "INVALID_ARGUMENTS" &&
             observed.executionReceipt?.containsKey("reason_code") != true
         ) {

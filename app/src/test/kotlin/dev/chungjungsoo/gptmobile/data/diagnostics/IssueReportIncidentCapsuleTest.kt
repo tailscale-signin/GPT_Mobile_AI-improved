@@ -643,7 +643,7 @@ class IssueReportIncidentCapsuleTest {
         val context = capture(
             ReportFeature.CHAT,
             "CHAT_FAILURE",
-            "GITHUB_EXTRACTION_INVALID_RESPONSE",
+            "GITHUB_TASK_INCOMPLETE",
             mapOf(
                 "diagnostic_area" to "PROVIDER",
                 "failed_stage" to "claim_extraction",

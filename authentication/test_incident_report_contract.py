@@ -123,7 +123,7 @@ class IncidentReportContractTest(unittest.TestCase):
         details = {
             "incident_phase": "claim_extraction",
             "causal_provenance": "UNAVAILABLE",
-            "causal_failure_code": "GITHUB_EXTRACTION_INVALID_RESPONSE",
+            "causal_failure_code": "GITHUB_TASK_INCOMPLETE",
             "incident_evidence_status": "TYPED_EVIDENCE",
             "claim_extraction_failure_kind": "SCHEMA_REJECTED",
             "claim_extraction_response_characters": 1024,

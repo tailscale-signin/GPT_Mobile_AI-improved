@@ -179,10 +179,10 @@ class GitHubClaimExtractionTest {
 
         val nonObject = failed(flowOf(ProviderEvent.TextDelta("[]"), ProviderEvent.Completed))
         assertEquals(JsonPrimitive("NON_OBJECT"), nonObject.providerFailure?.failureDetails?.get("claim_extraction_failure_kind"))
-        val schema = failed(flowOf(ProviderEvent.TextDelta("{\\"claims\\":[]}"), ProviderEvent.Completed))
+        val schema = failed(flowOf(ProviderEvent.TextDelta("{\"claims\":[]}"), ProviderEvent.Completed))
         assertEquals(JsonPrimitive("SCHEMA_REJECTED"), schema.providerFailure?.failureDetails?.get("claim_extraction_failure_kind"))
 
-        assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", failed(flowOf(ProviderEvent.TextDelta("{\\"claims\\":["), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed)).code)
+        assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", failed(flowOf(ProviderEvent.TextDelta("{\"claims\":["), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed)).code)
         assertEquals("GITHUB_EXTRACTION_FAILED", failed(flowOf(ProviderEvent.TextDelta(response))).code)
     }
 

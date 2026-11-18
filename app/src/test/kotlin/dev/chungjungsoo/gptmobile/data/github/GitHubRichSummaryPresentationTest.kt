@@ -25,13 +25,36 @@ class GitHubRichSummaryPresentationTest {
 
     @Test fun sourceObservationProducesHeadingAndShortBulletsWithoutAnInventedFix() {
         val output = GitHubRichSummaryPresentation.render(sample("The source read for Reader.kt returned a result for inspection."))
-        assertTrue(output.startsWith("### Source inspection"))
-        assertTrue(output.contains("- **Observed:**"))
+        assertTrue(output.startsWith("### Reviewing Reader.kt"))
+        assertFalse(output.contains("**Observed:**"))
         assertTrue(output.contains("Reader.kt"))
-        assertTrue(output.contains("- **Next:**"))
+        assertTrue(output.contains("- I’ll "))
         assertFalse(output.contains("All tests passed"))
         assertFalse(output.contains("| Check state |"))
         assertTrue(GitHubRichSummaryPresentation.isRich(output))
+    }
+
+    @Test fun twoSourceReadsDescribeDifferentFilesInsteadOfRecyclingAHeading() {
+        val first = GitHubRichSummaryPresentation.render(sample("The source read for Renderer.kt returned a result for inspection."))
+        val second = GitHubRichSummaryPresentation.render(sample("The source read for Audio.kt returned a result for inspection."))
+        assertTrue(first.startsWith("### Reviewing Renderer.kt"))
+        assertTrue(second.startsWith("### Reviewing Audio.kt"))
+        listOf(first, second).forEach { text ->
+            assertTrue(text.contains("no repair has been verified"))
+            assertFalse(text.contains("Repository findings") || text.contains("**Next:**") || text.contains("**Observed:**"))
+        }
+    }
+
+    @Test fun failedSourceReadRemainsVisibleAlongsideLaterEvidence() {
+        val output = GitHubRichSummaryPresentation.render(
+            sample(
+                "The source read for Failure.kt failed.",
+                "The source read for Latest.kt returned a result for inspection."
+            )
+        )
+        assertTrue(output.startsWith("### Failure.kt needs attention"))
+        assertTrue(output.contains("Reading Failure.kt failed"))
+        assertTrue(output.contains("Latest.kt"))
     }
 
     @Test fun theSameFactsDoNotChangeWhenOnlyTheClockOrNextStepChanges() {
@@ -96,7 +119,7 @@ class GitHubRichSummaryPresentationTest {
         assertTrue(result.startsWith("### Partial recorded check results"))
         assertTrue(result.contains("**Source:** Job 7"))
         assertTrue(result.contains("**Coverage:** The captured check list is incomplete"))
-        assertTrue(result.contains("**Next:**"))
+        assertTrue(result.contains("- I’ll "))
         assertTrue(result.contains("| Failed | 4 |"))
         assertEquals(4, GitHubRichSummaryPresentation.chartData(result).size)
         assertTrue(GitHubRichSummaryPresentation.csv(result)?.contains("Failed,4") == true)
@@ -112,7 +135,7 @@ class GitHubRichSummaryPresentationTest {
             )
         )
         assertTrue(result.length <= 1600)
-        assertTrue(result.contains("**Next:**"))
+        assertTrue(result.contains("- I’ll "))
         assertTrue(result.endsWith("| Failed | 2 |"))
         assertEquals(4, GitHubRichSummaryPresentation.chartData(result).size)
     }
@@ -197,7 +220,7 @@ class GitHubRichSummaryPresentationTest {
             ).copy(next = special)
         )
         assertTrue(output.length <= 1600)
-        assertTrue(output.contains("**Next:**"))
+        assertTrue(output.contains("- I’ll "))
         assertTrue(output.endsWith("| Other completed | 100000 |"))
         assertEquals(5, GitHubRichSummaryPresentation.chartData(output).size)
         assertTrue(requireNotNull(GitHubRichSummaryPresentation.csv(output)).contains("Incomplete"))
@@ -270,7 +293,7 @@ class GitHubRichSummaryPresentationTest {
         now = 180_000L
         val fallback = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertFalse(fallback.modelAuthored)
-        assertTrue(fallback.text.startsWith("### Source inspection"))
+        assertTrue(fallback.text.startsWith("### Reviewing Reader.kt"))
         assertTrue(fallback.text.contains("Reader.kt"))
     }
 

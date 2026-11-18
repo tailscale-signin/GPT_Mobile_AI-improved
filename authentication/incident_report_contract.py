@@ -228,6 +228,7 @@ POLICY_FIELD_NAMES = {
 POLICY_COUNTS = {'changed_policy_field_count', 'changed_policy_unknown_count', 'changed_policy_malformed_count', 'changed_policy_omitted_count'}
 POLICY_DIAGNOSTICS = POLICY_COUNTS | {'changed_policy_fields', 'changed_policy_observation'}
 
+FAILED_EVENT_FIELDS = {'failed_event_code_present', 'failed_event_invocation_present', 'failed_event_details_present'}
 COMMON = {
     'sqlite_constraint_kind',
     'dispatch_policy_sections',
@@ -248,7 +249,7 @@ COMMON = {
     'recovery_attempt_count',
     'recovery_observation',
     'retry_delay_ms',
-} | POLICY_DIAGNOSTICS
+} | POLICY_DIAGNOSTICS | FAILED_EVENT_FIELDS
 
 TOOL_REPEAT_COUNTS = {'dependency_repeat_prior_admissions', 'dependency_repeat_batch_admissions', 'dependency_repeat_used', 'dependency_repeat_limit'}
 TOOL_REPEAT_FIELDS = TOOL_REPEAT_COUNTS | {'dependency_repeat_scope'}
@@ -367,7 +368,7 @@ HASH_LISTS = {
     'validation_path_hashes',
 }
 
-FLAGS = {
+FLAGS = FAILED_EVENT_FIELDS | {
     'inventory_restart_offered',
     'tool_event_write_attempted',
     'chat_delivery_counts_capped',
@@ -529,7 +530,7 @@ ENUMS = {
     'status_policy_rules_404_kind': {'NOT_FOUND', 'OTHER_404'},
     'provider_wait_terminal_status': {'COMPLETED', 'PARTIAL', 'FAILED', 'BLOCKED', 'INTERRUPTED', 'CANCELED', 'EVIDENCE_MISSING', 'WAITING_FOR_APPROVAL'},
     'changed_policy_observation': {'OBSERVED', 'PARTIAL', 'MALFORMED'},
-    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'CHAT_REPOSITORY_PREFLIGHT', 'OPENAI_ADAPTER_STREAM_CATCH', 'PROVIDER_ADAPTER_STREAM_CATCH', 'CHAT_REPOSITORY_ERROR_VALUE', 'CHAT_FLOW_EMPTY_ANSWER'},
+    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'CHAT_REPOSITORY_PREFLIGHT', 'OPENAI_ADAPTER_STREAM_CATCH', 'PROVIDER_ADAPTER_STREAM_CATCH', 'CHAT_REPOSITORY_ERROR_VALUE', 'CHAT_FLOW_EMPTY_ANSWER', 'AGENT_FAILED_EVENT'},
     'incident_phase_provenance': {'CAPTURE_BOUNDARY_ONLY'},
     'native_dependency_state': {'DEFERRED', 'FAILED'},
     'tool_execution_observation': {'REMOTE_READ_SUCCEEDED'},

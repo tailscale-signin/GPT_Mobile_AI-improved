@@ -1693,6 +1693,24 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertNotIn("exception_type_hashes", capture["values"])
         self.assertTrue({"stage", "httpStatus", "dispatched", "retryable", "remoteAcceptance", "exceptionFingerprint"}.issubset(report["context"]["unavailableFields"]))
 
+    def test_failed_event_presence_flags_roundtrip_without_untrusted_payload(self):
+        values = {
+            "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",
+            "causal_failure_code": "CHAT_FAILED", "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+            "incident_capture_site": "AGENT_FAILED_EVENT", "incident_phase_provenance": "CAPTURE_BOUNDARY_ONLY",
+            "failed_event_code_present": False, "failed_event_invocation_present": False,
+            "failed_event_details_present": False,
+        }
+        report = self.report(self.capture("INCIDENT", values))
+        report.update(feature="chat", errorCode="CHAT_FAILED")
+        _, issue = issue_from_report(report)
+        self.assertIn("AGENT_FAILED_EVENT", issue["body"])
+        for key in capsule.FAILED_EVENT_FIELDS:
+            invalid = copy.deepcopy(report)
+            invalid["context"]["diagnostics"]["values"][key] = "private-value"
+            with self.subTest(key=key), self.assertRaises(ReportError):
+                issue_from_report(invalid)
+
     def test_exception_capture_vocabulary_matches_native_contract(self):
         source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
         sites = re.search(r"enum class ExceptionCaptureSite\s*\{([^}]+)\}", source)

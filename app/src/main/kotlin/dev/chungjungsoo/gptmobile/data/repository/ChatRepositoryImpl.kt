@@ -3901,7 +3901,18 @@ class ChatRepositoryImpl(
         }
     }
 
-    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean, allowOutputReduction: Boolean = false): dev.chungjungsoo.gptmobile.data.context.ContextPlan = dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(turns, prompt, tools, limits, externalTools, githubMode, requestedTask, requireToolExecution, allowOutputReduction)
+    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean, allowOutputReduction: Boolean = false): dev.chungjungsoo.gptmobile.data.context.ContextPlan {
+        // A saved ChatMcpToolConfig may exist for a text-only conversation.
+        // Reserve unknown-route tool headroom only when this request actually
+        // exposes executable tools (or is a GitHub workflow).
+        val planningLimits = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.conservativeToolPlanningBudget(
+            limits,
+            githubMode || requireToolExecution && tools.isNotEmpty()
+        )
+        return dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(
+            turns, prompt, tools, planningLimits, externalTools, githubMode, requestedTask, requireToolExecution, allowOutputReduction
+        )
+    }
 
     private fun withoutExcludedAttachments(messages: List<MessageV2>, excluded: Collection<String>) =
         messages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in excluded }) }
@@ -4151,11 +4162,6 @@ class ChatRepositoryImpl(
             } else {
                 budget
             }
-        }.let { provisional ->
-            dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.conservativeToolPlanningBudget(
-                provisional,
-                input.githubTask || chatToolConfig != null
-            )
         }
         routeReadiness?.verifiedContextTokens?.let { contextTokens ->
             AppLogRecorder.record("Context", "VERIFIED_PLANNING_CAPACITY · profileUid=${platform.uid} · model=${platform.model} · routeContextTokens=$contextTokens · effectiveContextTokens=${profileBudget.contextTokens} · runtimeRevision=${routeReadiness.runtimeRevision} · observedAtMillis=${routeReadiness.observedAtMillis} · finalSerializedAdmissionRequired=true")

@@ -87,6 +87,11 @@ class UniversalChatActivityFeedTest {
             )
         )
         assertEquals(summary, other)
+        val csv = toolReceiptCsv(requireNotNull(summary))
+        org.junit.Assert.assertTrue(csv.startsWith("Execution state,Observed calls\r\n"))
+        org.junit.Assert.assertTrue(csv.endsWith("Total,3\r\n"))
+        org.junit.Assert.assertFalse(csv.contains("private credential"))
+        org.junit.Assert.assertFalse(csv.contains("private tool arguments"))
     }
 
     @Test fun toolExecutionStatesDeduplicateByStableCallIdentityAndKeepUnknownSeparate() {

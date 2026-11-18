@@ -4,7 +4,9 @@ from contextlib import asynccontextmanager, closing
 from pathlib import Path
 import json
 from v14.scheduled_publications import KIND, run_watch
+from v14.scheduled_validation import KIND as TEST_KIND, admission, run_tests
 import sqlite3
+import threading
 import time
 import uuid
 
@@ -26,17 +28,24 @@ class OperatorSchedule:
         db.execute("""CREATE TABLE IF NOT EXISTS publication_watch (
             id TEXT PRIMARY KEY REFERENCES schedule(id) ON DELETE CASCADE, query TEXT NOT NULL,
             token TEXT, lease_until INTEGER NOT NULL DEFAULT 0, results TEXT, seen TEXT NOT NULL DEFAULT '[]')""")
+        db.execute("""CREATE TABLE IF NOT EXISTS repository_test (
+            id TEXT PRIMARY KEY REFERENCES schedule(id) ON DELETE CASCADE, repository TEXT NOT NULL,
+            policy_hash TEXT NOT NULL, token TEXT, expires INTEGER, head TEXT)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS test_receipt (
+            id TEXT NOT NULL REFERENCES schedule(id) ON DELETE CASCADE, due INTEGER NOT NULL,
+            receipt TEXT NOT NULL, PRIMARY KEY(id,due))""")
         return db
 
     def add(self, title, kind, delay_minutes, period_hours, query=None):
         if not isinstance(title, str) or not 1 <= len(title.strip()) <= 160 or any(ord(c) < 32 for c in title):
             raise ValueError('Enter a title of 1–160 characters.')
-        if kind not in ('Reminder', 'Check saved job storage', KIND) or type(delay_minutes) is not int or not 1 <= delay_minutes <= 525600:
+        if kind not in ('Reminder', 'Check saved job storage', KIND, TEST_KIND) or type(delay_minutes) is not int or not 1 <= delay_minutes <= 525600:
             raise ValueError('Choose a supported task and a delay of 1–525600 minutes.')
         if type(period_hours) is not int or not 0 <= period_hours <= 8784:
             raise ValueError('Use 0 for one occurrence or a repeat interval in hours.')
         if kind == KIND and (not isinstance(query, str) or not 2 <= len(query.strip()) <= 200 or any(ord(c) < 32 for c in query)):
             raise ValueError('Enter 2–200 public search characters to send to Crossref.')
+        test = admission(self.directory.parent, query) if kind == TEST_KIND else None
         key = uuid.uuid4().hex
         with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')
@@ -46,6 +55,8 @@ class OperatorSchedule:
                        (key, title.strip(), kind, int(self.now()) + delay_minutes * 60, period_hours * 3600))
             if kind == KIND:
                 db.execute('INSERT INTO publication_watch(id,query) VALUES (?,?)', (key, query.strip()))
+            if test:
+                db.execute('INSERT INTO repository_test(id,repository,policy_hash) VALUES (?,?,?)', (key, *test))
         return key
 
     def rows(self):
@@ -56,6 +67,11 @@ class OperatorSchedule:
         with closing(self.connect()) as db:
             row = db.execute('SELECT results FROM publication_watch WHERE id=?', (key,)).fetchone()
             return json.loads(row['results']) if row and row['results'] else []
+
+    def test_history(self, key):
+        with closing(self.connect()) as db:
+            return [(row['due'], json.loads(row['receipt'])) for row in db.execute(
+                'SELECT due,receipt FROM test_receipt WHERE id=? ORDER BY due DESC LIMIT 10', (key,))]
 
     def remove(self, key):
         with closing(self.connect()) as db, db:
@@ -69,7 +85,7 @@ class OperatorSchedule:
             if not db.execute('SELECT 1 FROM schedule WHERE due<=? LIMIT 1', (now,)).fetchone():
                 return
             db.execute('BEGIN IMMEDIATE')
-            for row in db.execute('SELECT * FROM schedule WHERE due<=? AND kind!=? ORDER BY due LIMIT 8', (now, KIND)).fetchall():
+            for row in db.execute('SELECT * FROM schedule WHERE due<=? AND kind NOT IN (?,?) ORDER BY due LIMIT 8', (now, KIND, TEST_KIND)).fetchall():
                 result = 'Reminder due'
                 if row['kind'] == 'Check saved job storage':
                     result = inspect_jobs(jobs_path)
@@ -101,10 +117,12 @@ def schedule_lifespan(existing, root, jobs_path):
             store = OperatorSchedule(Path(root) / 'data')
             stop = asyncio.Event()
 
-            async def worker():
+            shutdown = threading.Event()
+
+            async def worker(callback, *args):
                 while not stop.is_set():
                     try:
-                        await asyncio.to_thread(store.tick, jobs_path)
+                        await asyncio.to_thread(callback, *args)
                     except (OSError, sqlite3.Error):
                         # An uncommitted occurrence remains due on the next tick.
                         pass
@@ -113,10 +131,11 @@ def schedule_lifespan(existing, root, jobs_path):
                     except asyncio.TimeoutError:
                         pass
 
-            task = asyncio.create_task(worker())
+            tasks = [asyncio.create_task(worker(store.tick, jobs_path)), asyncio.create_task(worker(run_tests, store, shutdown))]
             try:
                 yield
             finally:
                 stop.set()
-                await task
+                shutdown.set()
+                await asyncio.gather(*tasks)
     return lifespan

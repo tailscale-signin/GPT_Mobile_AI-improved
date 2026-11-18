@@ -163,3 +163,52 @@ class OperatorWorkTest(unittest.TestCase):
         self.assertFalse(session.get.call_args.kwargs['allow_redirects'])
         self.assertEqual(session.get.call_args.kwargs['params']['query.bibliographic'], 'Public search')
         self.assertEqual(source_url('10.1234/data?next'), 'https://doi.org/10.1234/data%3Fnext')
+
+    def test_scheduled_suite_binds_existing_mirror_commit_and_approved_policy(self):
+        from threading import Event
+        import subprocess
+        from v14.scheduled_validation import KIND, run_tests
+        from v14.validation_host import executable
+        git = executable('git')
+        source, mirror = self.root / 'source', self.root / 'mirror.git'
+        def cmd(*args):
+            return subprocess.check_output([git, *map(str, args)], stderr=subprocess.PIPE, text=True).strip()
+        cmd('init', '-q', source)
+        cmd('-C', source, '-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '--allow-empty', '-qm', 'fixture')
+        head = cmd('-C', source, 'rev-parse', 'HEAD')
+        cmd('clone', '--bare', source, mirror)
+        cmd('--git-dir=' + str(mirror), 'remote', 'set-url', 'origin', 'https://github.com/test/fixture.git')
+        policy = {'mirror': str(mirror), 'image': 'python@sha256:' + 'b' * 64, 'commands': [['python', '-V']]}
+        snapshot = {'enabled': True, 'error': None, 'repositories': {'test/fixture': policy}}
+        with patch('v14.scheduled_validation.load_policy_snapshot', return_value=snapshot), patch('v14.scheduled_validation.load_policy', return_value=(policy, mirror, None, policy['commands'], [])), patch('v14.scheduled_validation.validate', return_value={'status': 'PASSED', 'source_sha': head, 'complete_validation': True, 'network': 'disabled', 'commands': [{'exit_code': 0, 'elapsed_ms': 2, 'output_sha256': 'b' * 64}]}) as check:
+            key = self.open().add('Fixed suite', KIND, 1, 1, 'test/fixture')
+            self.clock = 160
+            run_tests(self.open(), Event())
+            job, changes, cancel = check.call_args.args
+            self.assertEqual(head, job['data']['head_sha'])
+            self.assertEqual('test/fixture', job['request']['repository'])
+            self.assertEqual([], changes)
+            self.assertEqual('Passed · ' + head[:12], self.open().rows()[0]['result'])
+            self.assertEqual(self.open().test_history(key)[0][1]['commands'][0]['output_sha256'], 'b' * 64)
+            run_tests(self.open(), Event())
+            self.assertEqual(check.call_count, 1)
+            self.clock += 3600
+            policy['commands'] = [['python', '--help']]
+            run_tests(self.open(), Event())
+            self.assertEqual('Blocked · validation policy changed', self.open().rows()[0]['result'])
+            self.assertEqual(check.call_count, 1)
+
+    def test_interrupted_one_off_validation_is_never_dispatched_again(self):
+        from contextlib import closing
+        from threading import Event
+        from v14.scheduled_validation import KIND, run_tests
+        with patch('v14.operator_schedule.admission', return_value=('repo/test', 'hash')):
+            key = self.open().add('Run tests', KIND, 1, 0, 'repo/test')
+        with closing(self.open().connect()) as db, db:
+            db.execute('UPDATE repository_test SET token=?,expires=200 WHERE id=?', ('old', key))
+            db.execute('UPDATE schedule SET due=NULL,last_due=160 WHERE id=?', (key,))
+        self.clock = 3800
+        with patch('v14.scheduled_validation.validate') as check:
+            run_tests(self.open(), Event())
+            check.assert_not_called()
+        self.assertTrue(self.open().rows()[0]['result'].startswith('Interrupted'))

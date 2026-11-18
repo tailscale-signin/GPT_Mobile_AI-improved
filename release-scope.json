@@ -3107,6 +3107,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/google/common/Content.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/google/request/GenerateContentRequest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/McpMediaActivity.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GeminiImageOutputTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GeminiImageOutputTest.kt",
+    "gateway/v14/scheduled_validation.py"
   ]
 }

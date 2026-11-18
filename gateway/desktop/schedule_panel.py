@@ -8,6 +8,7 @@ from tkinter import ttk
 
 from v14.operator_schedule import OperatorSchedule
 from v14.scheduled_publications import KIND, source_url
+from v14.scheduled_validation import KIND as TEST_KIND
 
 
 def show_schedules(parent, root):
@@ -20,14 +21,15 @@ def show_schedules(parent, root):
     query = tk.StringVar(window)
     for index, (label, value) in enumerate((('Task name', title), ('Action', kind), ('Due in minutes', delay), ('Repeat every hours (0 = once)', period))):
         ttk.Label(body, text=label).grid(row=index, column=0, sticky='w')
-        field = ttk.Combobox(body, textvariable=value, state='readonly', values=('Reminder', 'Check saved job storage', KIND)) if value is kind else ttk.Entry(body, textvariable=value)
+        field = ttk.Combobox(body, textvariable=value, state='readonly', values=('Reminder', 'Check saved job storage', KIND, TEST_KIND)) if value is kind else ttk.Entry(body, textvariable=value)
         field.grid(row=index, column=1, sticky='ew')
     query_label = ttk.Label(body, text='Public search words sent to Crossref')
     query_field = ttk.Entry(body, textvariable=query)
     query_label.grid(row=4, column=0, sticky='w')
     query_field.grid(row=4, column=1, sticky='ew')
     def enable_query(*_):
-        if kind.get() == KIND:
+        if kind.get() in (KIND, TEST_KIND):
+            query_label.configure(text='Approved repository (tests run on mirror HEAD)' if kind.get() == TEST_KIND else 'Public search words sent to Crossref')
             query_label.grid()
             query_field.grid()
         else:
@@ -70,7 +72,7 @@ def show_schedules(parent, root):
     def add():
         try:
             store.add(title.get(), kind.get(), int(delay.get()), int(period.get()), query.get())
-        except (ValueError, OSError, sqlite3.Error) as error:
+        except (ValueError, TypeError, KeyError, OSError, sqlite3.Error) as error:
             status.set(str(error))
             return
         title.set('')
@@ -92,11 +94,25 @@ def show_schedules(parent, root):
             return
         try:
             records = store.publications(selected[0])
+            checks = store.test_history(selected[0])
         except (ValueError, sqlite3.Error):
             status.set('Saved results are unavailable.')
             return
+        if checks:
+            dialog = tk.Toplevel(window)
+            dialog.title('Repository test receipts')
+            details = tk.Text(dialog, width=90, height=20, wrap='word')
+            details.pack(fill='both', expand=True)
+            for due, receipt in checks:
+                when = datetime.fromtimestamp(due).strftime('%Y-%m-%d %H:%M')
+                details.insert('end', f"{when} · {receipt['status']}\n{receipt['source_sha']}\n")
+                for index, command in enumerate(receipt['commands'], 1):
+                    details.insert('end', f"Command {index} · exit {command['exit_code']} · {command['elapsed_ms']} ms\nOutput SHA-256  {command['output_sha256']}\n")
+                details.insert('end', '\n')
+            details.configure(state='disabled')
+            return
         if not records:
-            status.set('This schedule has no saved publication results yet.')
+            status.set('This schedule has no saved sources or test receipts yet.')
             return
         dialog = tk.Toplevel(window)
         dialog.title('Latest Crossref metadata')
@@ -111,7 +127,7 @@ def show_schedules(parent, root):
 
     ttk.Button(body, text='Schedule', command=add).grid(row=5, column=0)
     ttk.Button(body, text='Remove selected', command=remove).grid(row=5, column=1)
-    ttk.Button(body, text='View sources…', command=view_results).grid(row=5, column=2)
+    ttk.Button(body, text='View results…', command=view_results).grid(row=5, column=2)
     body.columnconfigure(1, weight=1)
     body.rowconfigure(6, weight=1)
     poll()

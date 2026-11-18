@@ -67,9 +67,37 @@ internal class GitHubOperationTool(
         // the same invalid call. Never execute the suggested correction on its
         // behalf: saved-view selectors are an authorization boundary, and only
         // the caller can submit the exact cursor-only correction.
-        val result = dev.chungjungsoo.gptmobile.data.agent.currentGitHubInvocationReceipt(
+        val observed = dev.chungjungsoo.gptmobile.data.agent.currentGitHubInvocationReceipt(
             previous?.copy(callId = callId, sharedResult = true, searchValidationEvidence = null) ?: executeOperation(callId, arguments)
         )
+        // Some legacy prechecks return plain INVALID_ARGUMENTS without a typed
+        // reason. Preserve their existing evidence and add a closed, value-free
+        // category so the next app report can distinguish the offending path.
+        val result = if (
+            observed.isError && !observed.dispatched &&
+            observed.errorCode == "INVALID_ARGUMENTS" &&
+            observed.executionReceipt?.containsKey("reason_code") != true
+        ) {
+            val query = (arguments["query"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val selectorIncomplete = ("owner" in arguments) != ("repo" in arguments)
+            val reason = when {
+                selectorIncomplete -> "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE"
+                operation == "github_search" && query.isNullOrBlank() -> "GITHUB_SEARCH_QUERY_EMPTY"
+                operation == "github_search" && query.length > 200 -> "GITHUB_SEARCH_QUERY_TOO_LONG"
+                else -> "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED"
+            }
+            observed.copy(
+                executionReceipt = JsonObject(
+                    observed.executionReceipt.orEmpty() + buildJsonObject {
+                        put("reason_code", reason)
+                        put("phase", "PREFLIGHT_REJECTED")
+                        put("diagnostic_contract", "github.argument-rejection.v1")
+                    }
+                )
+            )
+        } else {
+            observed
+        }
         if (result.isError && !result.dispatched && result.errorCode in setOf("INVALID_ARGUMENTS", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")) {
             synchronized(rejectedCalls) {
                 rejectedCalls[arguments] = result

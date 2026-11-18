@@ -127,50 +127,10 @@ internal class GitHubOutputContinuationSession(
             it["state"] in GitHubToolHandoff.states
         }
         if (handoff != null && !handoffResolved(handoff)) {
-            val pending = GitHubToolHandoff.pending(handoff)
-            val pendingReceipts = (handoff["completed_results"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-                .filter { (it["invocation_fingerprint"] as? JsonPrimitive)?.contentOrNull in pending }
-            emit(
-                ProviderEvent.Failed(
-                    "OUTPUT_CONTINUATION_PENDING_TOOLS: ${pending.size} saved invocation(s) still require a matching terminal receipt or outcome reconciliation. Completed actions were retained and were not dispatched again.",
-                    errorCode = "OUTPUT_CONTINUATION_PENDING_TOOLS",
-                    taskOutcome = "BLOCKED",
-                    failureDetails = buildJsonObject {
-                        put("failed_stage", "tool_reconciliation")
-                        put("diagnostic_area", "INCIDENT")
-                        put("pending_invocation_fingerprints", JsonArray(pending.map(::JsonPrimitive)))
-                        put("pending_tool_count", pending.size)
-                        put(
-                            "pending_tool_identity_hashes",
-                            JsonArray(
-                                pending.sorted().take(4).mapNotNull {
-                                    dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("pending-tool-invocation", it)?.let(::JsonPrimitive)
-                                }
-                            )
-                        )
-                        put(
-                            "pending_tool_receipt_state",
-                            when {
-                                pending.isEmpty() -> "CHECKPOINT_STATE_INCONSISTENT"
-                                pendingReceipts.isEmpty() -> "TERMINAL_RECEIPTS_MISSING"
-                                pendingReceipts.size < pending.size -> "SOME_TERMINAL_RECEIPTS_MISSING"
-                                else -> "OUTCOMES_UNRESOLVED"
-                            }
-                        )
-                        put("recovery_observation", "RECONCILIATION_REQUIRED")
-                        put("recovery_action", "RECONCILE_OUTCOME")
-                        put("requires_reconciliation", true)
-                        put("resume_allowed", false)
-                        put("retryable_without_new_input", false)
-                        put("user_input_required", false)
-                        put("next_action", "RECONCILE_TOOL_RECEIPTS")
-                        put("dispatched", false)
-                        loaded.handoffEvidence?.forEach { (key, value) -> put(key, value) }
-                    }
-                )
-            )
+            emit(pendingToolHandoffFailure(handoff, loaded.handoffEvidence))
             return@flow
         }
+
         // A normal first tool round has no answer draft to continue. Its next
         // round must still use the original session with the now-confirmed results.
         // A handoff made by an interrupted continuation can be reasoning-only;
@@ -399,6 +359,54 @@ internal class GitHubOutputContinuationSession(
             emit(ProviderEvent.Completed)
             return@flow
         }
+    }
+
+    /**
+     * Keep the saved-tool reconciliation failure projection outside streamRound's
+     * coroutine state machine. It preserves exact pending-call evidence and avoids
+     * the Android compiler method-size limit without changing dispatch behavior.
+     */
+    private fun pendingToolHandoffFailure(handoff: JsonObject, handoffEvidence: JsonObject?): ProviderEvent.Failed {
+        val pending = GitHubToolHandoff.pending(handoff)
+        val pendingReceipts = (handoff["completed_results"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .filter { (it["invocation_fingerprint"] as? JsonPrimitive)?.contentOrNull in pending }
+        return ProviderEvent.Failed(
+            "OUTPUT_CONTINUATION_PENDING_TOOLS: ${pending.size} saved invocation(s) still require a matching terminal receipt or outcome reconciliation. Completed actions were retained and were not dispatched again.",
+            errorCode = "OUTPUT_CONTINUATION_PENDING_TOOLS",
+            taskOutcome = "BLOCKED",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "tool_reconciliation")
+                put("diagnostic_area", "INCIDENT")
+                put("pending_invocation_fingerprints", JsonArray(pending.map(::JsonPrimitive)))
+                put("pending_tool_count", pending.size)
+                put(
+                    "pending_tool_identity_hashes",
+                    JsonArray(
+                        pending.sorted().take(4).mapNotNull {
+                            dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("pending-tool-invocation", it)?.let(::JsonPrimitive)
+                        }
+                    )
+                )
+                put(
+                    "pending_tool_receipt_state",
+                    when {
+                        pending.isEmpty() -> "CHECKPOINT_STATE_INCONSISTENT"
+                        pendingReceipts.isEmpty() -> "TERMINAL_RECEIPTS_MISSING"
+                        pendingReceipts.size < pending.size -> "SOME_TERMINAL_RECEIPTS_MISSING"
+                        else -> "OUTCOMES_UNRESOLVED"
+                    }
+                )
+                put("recovery_observation", "RECONCILIATION_REQUIRED")
+                put("recovery_action", "RECONCILE_OUTCOME")
+                put("requires_reconciliation", true)
+                put("resume_allowed", false)
+                put("retryable_without_new_input", false)
+                put("user_input_required", false)
+                put("next_action", "RECONCILE_TOOL_RECEIPTS")
+                put("dispatched", false)
+                handoffEvidence?.forEach { (key, value) -> put(key, value) }
+            }
+        )
     }
 
     /**

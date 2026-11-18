@@ -25,12 +25,35 @@ internal object GitHubProgressPresentation {
             .trim().take(120).dropLastWhile(Char::isHighSurrogate).trimEnd().ifBlank { "your repository request" }
     }
 
-    fun introduction(task: String): String = when {
-        GitHubStatusRequest.matches(task) -> "I’ll check the repository status, current branch, pull requests and latest checks. Next, I’ll identify which work is ready, still running or needs attention."
-        GitHubTaskCoverage.matches(task) -> "I’ll identify the authorized GitHub operations and their available test coverage. Next, I’ll exercise the relevant paths and keep observed failures separate from unexecuted checks."
-        Regex("(?i)\\b(?:fix|repair|debug|resolve)\\b").containsMatchIn(task) -> "I’ll trace the reported failure through the affected implementation and its recent changes. Next, I’ll reproduce the relevant behavior and choose a repair supported by that evidence."
-        Regex("(?i)\\b(?:review|examine|investigate|post[- ]?mortem|diagnos[a-z]*)\\b").containsMatchIn(task) -> "I’ll connect the available diagnostics and repository changes to the behavior under review. Next, I’ll inspect the relevant source and distinguish confirmed findings from questions that need validation."
-        else -> "I’ll locate the implementation and repository state relevant to your request. Next, I’ll identify the required change and the evidence needed to check its behavior."
+    /** Keep the opening anchored to the user's actual request, not a stock GitHub-status script. */
+    fun taskFocus(task: String): String {
+        val request = taskLabel(task)
+            .replace(Regex("""(?i)^(?:(?:please|can you|could you|would you)\\s+)*"""), "")
+            .replace(Regex("""(?i)^(?:fix|repair|debug|resolve|review|examine|exaine|inspect|investigate|analyze|audit|improve|enhance|redesign|design|change|update|make|implement|add|check|look at|merge)\\s+"""), "")
+            .substringBefore(',').substringBefore(';').trim().trimEnd('.', '?', '!', ':')
+        val clipped = request.take(78).trim()
+        return (if (request.length > 78) clipped.substringBeforeLast(' ', clipped) else clipped)
+            .ifBlank { "your repository request" }
+    }
+
+    fun introduction(task: String): String {
+        val focus = taskFocus(task)
+        return when {
+            GitHubStatusRequest.matches(task) ->
+                "I’ll check the repository status for $focus, including pull requests and current checks, and separate confirmed results from pending work."
+            Regex("""(?i)\\bsummar""").containsMatchIn(task) ->
+                "I’ll refine $focus around your request and concrete results, replacing repeated labels with short, distinct updates. I’ll check the opening message too."
+            GitHubTaskCoverage.matches(task) ->
+                "I’ll map $focus to available GitHub operations and their test evidence without treating unexecuted checks as successes."
+            Regex("""(?i)\\b(?:fix|repair|debug|resolve|crash|failure)\\b""").containsMatchIn(task) ->
+                "I’ll trace $focus through the current branch and verify the affected behavior before calling any repair complete."
+            Regex("""(?i)\\b(?:merge|release|publish)\\b""").containsMatchIn(task) ->
+                "I’ll check $focus against the latest PR, required checks and review state before treating it as ready to ship."
+            Regex("""(?i)\\b(?:review|examine|exaine|investigate|audit|diagnos|analy[sz]e)""").containsMatchIn(task) ->
+                "I’ll examine $focus in the current branch, distinguish confirmed evidence from assumptions, and report the meaningful gaps."
+            else ->
+                "I’ll work through $focus in the current branch and check the result against what you requested."
+        }
     }
 
     /** Obsolete application templates carry no new finding and must not replace public model prose. */

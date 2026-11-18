@@ -32,6 +32,26 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 import kotlinx.coroutines.delay
 
+/** Deduplicate old counter ticks without discarding distinct public findings. */
+internal fun universalCoalescedActivityLines(lines: List<String>): List<String> {
+    val current = linkedMapOf<String, String>()
+    lines.forEach { line ->
+        val counter = GitHubProgressPresentation.liveKey(line)
+        val identity = counter?.let { "counter:$it" }
+            ?: GitHubProgressPresentation.semanticActivityKey(line)?.let { "story:$it" }
+            ?: "text:${GitHubProgressPresentation.lineKey(line)}"
+        if (counter != null) {
+            // Move the latest measured count into its actual activation order.
+            current.remove(identity)
+            current[identity] = line
+        } else {
+            // Repeated prose is not new evidence; retain the original wording.
+            current.putIfAbsent(identity, line)
+        }
+    }
+    return current.values.toList().takeLast(20)
+}
+
 /** A public, mode-independent view of saved activity. Never renders tool arguments,
  * private thoughts, delegated content or diagnostic payloads.
  */
@@ -54,9 +74,8 @@ internal fun universalChatPublicCheckpoints(timeline: List<AssistantTimelineItem
             item.content.lineSequence().map { it.trim().trimStart('#', '*', '-', ' ') }
                 .firstOrNull(String::isNotBlank)?.take(280)
         }
-        .distinctBy(GitHubProgressPresentation::lineKey)
         .toList()
-        .takeLast(20)
+        .let(::universalCoalescedActivityLines)
 
 /** A request-specific opening without pretending a tool or source has been executed. */
 internal fun universalActivityOpening(task: String): String {
@@ -103,8 +122,7 @@ internal fun UniversalChatActivityFeed(
             }
             addAll(checkpoints)
             if (active && currentActivity.isNotBlank() && lastOrNull() != currentActivity) add(currentActivity)
-        }.distinctBy { GitHubProgressPresentation.semanticActivityKey(it) ?: GitHubProgressPresentation.lineKey(it) }
-            .takeLast(20)
+        }.let(::universalCoalescedActivityLines)
     }
     // This is a source-backed execution visualization, not model-generated facts.
     // Show it only in expanded activity to keep everyday chats uncluttered.

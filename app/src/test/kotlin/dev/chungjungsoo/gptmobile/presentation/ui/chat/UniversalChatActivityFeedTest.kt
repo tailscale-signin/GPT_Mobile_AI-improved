@@ -16,6 +16,30 @@ class UniversalChatActivityFeedTest {
         org.junit.Assert.assertTrue(universalActivityOpening("Compare two alternatives").startsWith("Organizing the comparison"))
     }
 
+    @Test fun counterTicksCoalesceWithoutRewritingDistinctMilestones() {
+        fun step(text: String) = AssistantTimelineItem(
+            AssistantTimelineItemType.NOTICE,
+            text,
+            progressCheckpoint = true,
+            statusSummary = true
+        )
+        val timeline = listOf(
+            step("Checks: 1 / 9"),
+            step("Reading relevant files"),
+            step("Checks: 3 / 9"),
+            step("Files: 1 / 3"),
+            step("Files: 2 / 3")
+        )
+        assertEquals(
+            listOf("Reading relevant files", "Checks: 3 / 9", "Files: 2 / 3"),
+            universalChatPublicCheckpoints(timeline)
+        )
+        assertEquals(
+            listOf("Reading relevant files", "Checks: 4 / 9"),
+            universalCoalescedActivityLines(listOf("Checks: 3 / 9", "Reading relevant files", "Checks: 4 / 9"))
+        )
+    }
+
     @Test fun publicProgressOnlyNeverProjectsPrivateDelegationOrDiagnostics() {
         fun notice(text: String) = AssistantTimelineItem(
             AssistantTimelineItemType.NOTICE,

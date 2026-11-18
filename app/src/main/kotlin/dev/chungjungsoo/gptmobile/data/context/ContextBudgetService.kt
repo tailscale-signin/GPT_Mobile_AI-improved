@@ -108,8 +108,13 @@ object ContextBudgetService {
         }
         if (output > headroom) {
             throw RequestCapacityException(
-                "CONTEXT_CAPACITY_EXCEEDED", "The current message, system instructions and reserved output exceed the planning context.",
-                currentTokens, safety.toLong(), output.toLong(), config.contextTokens.toLong(), TokenMeasurementKind.UTF8_ESTIMATE,
+                "CONTEXT_CAPACITY_EXCEEDED",
+                "The current message, system instructions and reserved output exceed the planning context.",
+                currentTokens,
+                safety.toLong(),
+                output.toLong(),
+                config.contextTokens.toLong(),
+                TokenMeasurementKind.UTF8_ESTIMATE,
                 planningToolResultReserveTokens = resultReserve
             )
         }

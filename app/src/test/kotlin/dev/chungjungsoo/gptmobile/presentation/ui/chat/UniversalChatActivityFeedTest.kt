@@ -123,12 +123,10 @@ class UniversalChatActivityFeedTest {
         connectionNameSnapshot = null,
         toolName = "private_tool",
         modelToolName = "private_tool",
-        arguments = "{\\\"secret\\\":\\\"not for display\\\"}",
+        arguments = "private tool arguments",
         result = result,
         resultType = "TEXT",
         status = status,
         isError = error
     )
-
-
 }

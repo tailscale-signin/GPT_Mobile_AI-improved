@@ -76,6 +76,44 @@ class GitHubRecoveryCallsTest {
         assertEquals(repaired, GitHubRecoveryCalls.repairSourceRead(repaired, registered))
     }
 
+    @Test fun build142InitialSearchZeroBlobsIsBoundedWithoutChangingRequestIdentity() {
+        val tool = tool("github_search__selected")
+        for ((raw, expected) in listOf(
+            """{"action":"search","mode":"paths","query":"*","index_cursor":0,"batch_size":1000,"max_new_blobs":0}""" to
+                """{"action":"search","mode":"paths","query":"*","index_cursor":0,"batch_size":1000,"max_new_blobs":1}""",
+            """{"action":"search","mode":"paths","query":"*","batch_size":1000,"max_new_blobs":0}""" to
+                """{"action":"search","mode":"paths","query":"*","batch_size":1000,"max_new_blobs":1}""",
+            """{"action":"search","mode":"paths","query":"*","max_new_blobs":1000}""" to
+                """{"action":"search","mode":"paths","query":"*","max_new_blobs":100}"""
+        )) {
+            val original = ProviderEvent.ToolCall("same-call-id", tool.definition.name, Json.parseToJsonElement(raw).jsonObject)
+                .captureProviderInvocation()
+            val repaired = GitHubRecoveryCalls.repairSourceRead(original, tool)
+            assertEquals(Json.parseToJsonElement(expected).jsonObject, repaired.arguments)
+            assertEquals(original.callId, repaired.callId)
+            assertEquals(original.name, repaired.name)
+            assertEquals(original.providerInvocation(), repaired.providerInvocation())
+            assertEquals(emptyList<String>(), ToolArgumentValidator.errors(repaired.arguments, tool.definition.inputSchema))
+            assertEquals(repaired, GitHubRecoveryCalls.repairSourceRead(repaired, tool))
+        }
+    }
+
+    @Test fun searchRepairNeverChangesAdvancedCursorsOrMalformedBlobTypes() {
+        val tool = tool("github_search")
+        for (raw in listOf(
+            """{"query":"*","index_cursor":2000,"max_new_blobs":0}""",
+            """{"query":"*","search_id":"unissued","max_new_blobs":0}""",
+            """{"query":"*","view_cursor":"unissued","max_new_blobs":0}""",
+            """{"query":"*","page":2,"max_new_blobs":0}""",
+            """{"query":"*","index_cursor":"0","max_new_blobs":0}""",
+            """{"query":"*","max_new_blobs":"0"}""",
+            """{"query":"*","max_new_blobs":0,"unknown":"not-allowed"}"""
+        )) {
+            val call = ProviderEvent.ToolCall("reject", tool.definition.name, Json.parseToJsonElement(raw).jsonObject)
+            assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool))
+        }
+    }
+
     @Test fun unsafeOrAmbiguousSearchCorrectionsRemainRejectedWithoutDispatch() {
         val name = "github_search"
         for (value in listOf(

@@ -31,7 +31,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectPressure
 
 internal const val GITHUB_PROGRESS_PAN_MILLIS = 1800
-internal const val GITHUB_ACTIVITY_FADE_MILLIS = 1500
+internal const val GITHUB_ACTIVITY_FADE_MILLIS = 1000
+internal const val GITHUB_ACTIVITY_REFRESH_FADE_MILLIS = 500
 internal const val GITHUB_ACTIVE_PREVIEW_ENTRY_FADE_MILLIS = 1000
 internal const val GITHUB_ACTIVE_PREVIEW_REFRESH_FADE_MILLIS = 500
 
@@ -93,7 +94,7 @@ internal fun GitHubActivityCrossfade(text: String, modifier: Modifier = Modifier
     if (!animateChanges || !animationsEnabled) {
         Box(modifier) { content(text, true) }
     } else {
-        Crossfade(text, modifier, tween(GITHUB_ACTIVITY_FADE_MILLIS, easing = LinearEasing), label = "github_activity_replacement") { displayed ->
+        Crossfade(text, modifier, tween(GITHUB_ACTIVITY_REFRESH_FADE_MILLIS, easing = LinearEasing), label = "github_activity_replacement") { displayed ->
             val current = displayed == text
             Box(if (current) Modifier else Modifier.clearAndSetSemantics { }) { content(displayed, current) }
         }

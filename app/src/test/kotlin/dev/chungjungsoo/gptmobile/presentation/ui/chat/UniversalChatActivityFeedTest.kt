@@ -6,6 +6,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class UniversalChatActivityFeedTest {
+    @Test fun equivalentPublicCheckpointsDoNotRepeat() {
+        fun step(text: String) = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, text, progressCheckpoint = true, statusSummary = true)
+        assertEquals(
+            listOf("Reading source files."),
+            universalChatPublicCheckpoints(listOf(step("Reading source files."), step("READING   SOURCE FILES...")))
+        )
+        org.junit.Assert.assertTrue(universalActivityOpening("Compare two alternatives").startsWith("Organizing the comparison"))
+    }
+
     @Test fun publicProgressOnlyNeverProjectsPrivateDelegationOrDiagnostics() {
         fun notice(text: String) = AssistantTimelineItem(
             AssistantTimelineItemType.NOTICE,

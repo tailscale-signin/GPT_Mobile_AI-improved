@@ -65,6 +65,7 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
     val previews = mutableSetOf<String>()
     val summaryPositions = mutableMapOf<String, Int>()
     val counterPositions = mutableMapOf<String, Int>()
+    val semanticPositions = mutableMapOf<String, Int>()
     val activationOrder = mutableMapOf<String, Long>()
     val coalesced = mutableListOf<AssistantTimelineItem>()
     val publicSummaryAvailable = gitHubPublicSummary(timeline) != null
@@ -121,8 +122,23 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
             }
             else -> {
                 val previewKey = GitHubProgressPresentation.lineKey(item.content)
-                val id = item.progressId ?: "legacy-preview:${item.progressSequence ?: sourceIndex}:$previewKey"
-                if (previews.add(id)) {
+                val semanticKey = GitHubProgressPresentation.semanticActivityKey(item.content)
+                val id = semanticKey?.let { "story:$it" }
+                    ?: item.progressId ?: "legacy-preview:${item.progressSequence ?: sourceIndex}:$previewKey"
+                if (semanticKey != null) {
+                    val current = item.copy(content = GitHubProgressPresentation.legacyNarrative(item.content), progressId = id)
+                    val position = semanticPositions[semanticKey]
+                    val earlier = position?.let { coalesced[it].progressSequence }
+                    val sequence = current.progressSequence
+                    if (earlier != null && sequence != null && sequence <= earlier) return@forEachIndexed
+                    activationOrder[id] = sequence ?: sourceIndex.toLong()
+                    if (position == null) {
+                        semanticPositions[semanticKey] = coalesced.size
+                        coalesced.add(current)
+                    } else {
+                        coalesced[position] = current
+                    }
+                } else if (previews.add(id)) {
                     activationOrder[id] = item.progressSequence ?: sourceIndex.toLong()
                     coalesced.add(item.copy(progressId = id))
                 }

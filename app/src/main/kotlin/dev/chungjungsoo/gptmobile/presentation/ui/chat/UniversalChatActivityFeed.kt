@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 import kotlinx.coroutines.delay
 
 /** A public, mode-independent view of saved activity. Never renders tool arguments,
@@ -38,9 +39,20 @@ internal fun universalChatPublicCheckpoints(timeline: List<AssistantTimelineItem
             item.content.lineSequence().map { it.trim().trimStart('#', '*', '-', ' ') }
                 .firstOrNull(String::isNotBlank)?.take(280)
         }
-        .distinct()
+        .distinctBy(GitHubProgressPresentation::lineKey)
         .toList()
         .takeLast(20)
+
+/** A request-specific opening without pretending a tool or source has been executed. */
+internal fun universalActivityOpening(task: String): String {
+    val focus = GitHubProgressPresentation.taskLabel(task).take(74)
+    return when {
+        Regex("""(?i)\b(compare|versus|difference)\b""").containsMatchIn(task) -> "Organizing the comparison: $focus"
+        Regex("""(?i)\b(design|draft|write|create)\b""").containsMatchIn(task) -> "Preparing the requested work: $focus"
+        Regex("""(?i)\b(find|search|research|investigate|analy[sz]e|examine)\b""").containsMatchIn(task) -> "Examining the request: $focus"
+        else -> "Preparing an answer to: $focus"
+    }
+}
 
 /** Reuses the GitHub line transitions for every chat without enabling GitHub's
  * completion gate, which would hold back normal streamed answer tokens.
@@ -72,11 +84,12 @@ internal fun UniversalChatActivityFeed(
     val lines = remember(checkpoints, currentActivity, taskFocus, showIntroduction, active) {
         buildList {
             if (active && showIntroduction && checkpoints.isEmpty() && taskFocus.isNotBlank()) {
-                add("Responding to: $taskFocus")
+                add(universalActivityOpening(taskFocus))
             }
             addAll(checkpoints)
             if (active && currentActivity.isNotBlank() && lastOrNull() != currentActivity) add(currentActivity)
-        }.distinct().takeLast(20)
+        }.distinctBy { GitHubProgressPresentation.semanticActivityKey(it) ?: GitHubProgressPresentation.lineKey(it) }
+            .takeLast(20)
     }
     if (lines.isEmpty() || !active && !expanded) return
     val visible = if (expanded) lines else lines.takeLast(2)

@@ -262,6 +262,7 @@
   ],
   "allowedPaths": [
     ".github/pull_request_template.md",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AgentRunStatusBlockTest.kt",
     "scripts/publish_gateway_windows.sh",
     ".gitattributes",
     ".github/workflows/README.md",

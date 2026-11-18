@@ -66,11 +66,14 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
     suspend fun contains(scope: String, key: String): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             val identity = "$scope:$key"
-            protectedValues.containsKey(identity) || protectedFile(identity)?.isFile == true ||
-                savedViewFile(identity, key)?.isFile == true || values.containsKey(identity) ||
+            protectedValues.containsKey(identity) ||
+                protectedFile(identity)?.isFile == true ||
+                savedViewFile(identity, key)?.isFile == true ||
+                values.containsKey(identity) ||
                 directory?.let { File(it, digest(identity) + ".record") }?.let {
                     it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong()
-                } == true || claimCheckpoint(identity, key) != null
+                } == true ||
+                claimCheckpoint(identity, key) != null
         }
     }
 

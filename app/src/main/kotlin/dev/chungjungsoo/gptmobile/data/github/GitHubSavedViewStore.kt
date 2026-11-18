@@ -39,9 +39,20 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
             "Saved result body is not durable. Keep the original read receipt; do not publish a continuation."
         }
         // Immutable payloads are written once; only the monotonically growing set
-        // of issued handles changes as pages are consumed.
+        // of issued handles changes as pages are consumed. If the mutable index
+        // disappears after a restart, restore the actually issued bootstrap
+        // handles before adding a later page; never invent a cursor.
+        val persistedBody = requireNotNull(state.read(scope, bodyKey)) {
+            "GITHUB_SAVED_RESULT_BODY_UNREADABLE: preserve the read receipt; do not publish a continuation."
+        }
+        val bootstrap = (persistedBody["bootstrap_issued_cursors"] as? JsonArray).orEmpty()
+        check(
+            bootstrap.all { item ->
+                (item as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.substringBefore(':') == id
+            }
+        ) { "GITHUB_SAVED_RESULT_CURSOR_IDENTITY_MISMATCH: saved handle identity differs." }
         state.update(scope, "saved-view-access:$id") { previous ->
-            val cursors = ((previous?.get("issued_cursors") as? JsonArray).orEmpty() + (snapshot["issued_cursors"] as? JsonArray).orEmpty()).distinct()
+            val cursors = (bootstrap + (previous?.get("issued_cursors") as? JsonArray).orEmpty() + (snapshot["issued_cursors"] as? JsonArray).orEmpty()).distinct()
             val failed = ((previous?.get("failed_persistence_cursors") as? JsonArray).orEmpty() + (snapshot["failed_persistence_cursors"] as? JsonArray).orEmpty()).distinct()
             require(cursors.size <= 16_384) { "Saved view handle allowance reached" }
             val authorized = cursors.toSet()

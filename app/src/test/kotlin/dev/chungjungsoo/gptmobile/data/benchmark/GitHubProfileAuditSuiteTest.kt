@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonElement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -139,5 +140,184 @@ class GitHubProfileAuditSuiteTest {
             assertEquals(benchmark.id, true, score.argumentEvidence?.exactArguments)
             assertEquals(benchmark.id, true, score.argumentEvidence?.schemaValid)
         }
+    }
+
+
+    private fun engineeringArgs(action: String, vararg fields: Pair<String, JsonElement>): JsonObject =
+        JsonObject(mapOf("action" to JsonPrimitive(action)) + fields.toMap())
+
+    private fun field(name: String, value: String): Pair<String, JsonElement> =
+        name to JsonPrimitive(value)
+
+    @Test
+    fun engineeringWorkflowFixturesEnforceRealEvidenceOrdering() = runBlocking {
+        val challenges = GitHubEngineeringBenchmarkSuite.cases()
+        assertEquals(7, challenges.size)
+        assertEquals(7, challenges.map { it.id }.distinct().size)
+        assertTrue(challenges.all { it.workload == GitHubEngineeringBenchmarkSuite.WORKLOAD })
+
+        val before = "a".repeat(40)
+        val after = "b".repeat(40)
+        val code = "PKG-ENGINEERING"
+        val cursor = "ISSUED-PAGE-"
+        for (benchmark in challenges) {
+            val kind = benchmark.id.substringAfterLast(':')
+            val calls = when (kind) {
+                "release-gate", "security-review" -> {
+                    val patch = if (kind == "release-gate") {
+                        "ciGreen && approved"
+                    } else {
+                        "role == \"admin\" && tokenValid"
+                    }
+                    listOf(
+                        engineeringArgs("read"),
+                        engineeringArgs(
+                            "patch",
+                            field("path", "src/main/kotlin/AccessGate.kt"),
+                            field("patch", patch),
+                            field("expected_head_sha", before)
+                        ),
+                        engineeringArgs("test", field("sha", after)),
+                        engineeringArgs("verify", field("sha", after))
+                    )
+                }
+                "pagination" -> listOf(
+                    engineeringArgs("list"),
+                    engineeringArgs("list", field("cursor", cursor + "2-" + code)),
+                    engineeringArgs("list", field("cursor", cursor + "3-" + code)),
+                    engineeringArgs("verify")
+                )
+                "copilot-handshake" -> listOf(
+                    engineeringArgs("create"),
+                    engineeringArgs("status", field("session_id", "SESSION-" + code)),
+                    engineeringArgs("status", field("session_id", "SESSION-" + code)),
+                    engineeringArgs(
+                        "send",
+                        field("session_id", "SESSION-" + code),
+                        field("task", "Repair the fixture failing CI")
+                    ),
+                    engineeringArgs("result", field("session_id", "SESSION-" + code))
+                )
+                "unknown-dispatch" -> listOf(
+                    engineeringArgs("dispatch"),
+                    engineeringArgs("reconcile", field("job_id", "JOB-" + code)),
+                    engineeringArgs("verify")
+                )
+                "agent-merge" -> listOf(
+                    engineeringArgs("agent_merge_status"),
+                    engineeringArgs(
+                        "agent_merge_enable",
+                        field("expected_head_sha", before),
+                        "allowed_actions" to JsonArray(listOf(JsonPrimitive("fix_ci")))
+                    ),
+                    engineeringArgs("agent_merge_verify")
+                )
+                else -> listOf(engineeringArgs("status"))
+            }
+            val scenario = GitHubEngineeringScenario(benchmark, code)
+            val successful = mutableSetOf<String>()
+            val expectedErrors = mutableSetOf<String>()
+            val proposals = calls.mapIndexed { index, args ->
+                val call = ProviderEvent.ToolCall("fixture-" + index, scenario.tool.definition.name, args)
+                assertTrue(benchmark.id + ":" + index, scenario.valid(call))
+                val result = scenario.tool.execute(call.callId, call.arguments)
+                if (scenario.expectedError(call, result)) {
+                    expectedErrors.add(call.callId)
+                } else {
+                    assertFalse(benchmark.id + ":" + index, result.isError)
+                    successful.add(call.callId)
+                }
+                call
+            }
+            assertTrue(benchmark.id, scenario.passed(proposals, successful, expectedErrors))
+            assertEquals(
+                "OFFLINE_ENGINEERING_SIMULATION",
+                scenario.assess(proposals, successful, expectedErrors, code, code, true).evidenceClass
+            )
+        }
+        assertEquals(
+            GitHubProfileAuditSuite.actionCount(),
+            benchmarkSuiteForVersion(10, BenchmarkMode.GITHUB_INTEGRATION).size
+        )
+        assertEquals(
+            GitHubProfileAuditSuite.actionCount() + challenges.size,
+            benchmarkSuiteForVersion(11, BenchmarkMode.GITHUB_INTEGRATION).size
+        )
+    }
+
+    @Test
+    fun copilotEarlySendAndUnauthorizedMergeRemainRejected() = runBlocking {
+        val challenges = GitHubEngineeringBenchmarkSuite.cases()
+        val code = "PKG-GUARDED"
+        val handshake = GitHubEngineeringScenario(
+            challenges.single { it.id.endsWith(":copilot-handshake") },
+            code
+        )
+        val create = engineeringArgs("create")
+        assertFalse(handshake.tool.execute("init", create).isError)
+        val early = handshake.tool.execute(
+            "too-early",
+            engineeringArgs(
+                "send",
+                field("session_id", "SESSION-" + code),
+                field("task", "Do not send before copilot-agent readiness")
+            )
+        )
+        assertTrue(early.isError)
+        val wrongStatus = handshake.tool.execute(
+            "unrecoverable",
+            engineeringArgs("status", field("session_id", "SESSION-" + code))
+        )
+        assertTrue(wrongStatus.isError)
+
+        val agentMerge = GitHubEngineeringScenario(
+            challenges.single { it.id.endsWith(":agent-merge") },
+            code
+        )
+        assertFalse(agentMerge.tool.execute("observe", engineeringArgs("agent_merge_status")).isError)
+        val prohibited = agentMerge.tool.execute(
+            "prohibited",
+            engineeringArgs(
+                "agent_merge_enable",
+                field("expected_head_sha", "a".repeat(40)),
+                "allowed_actions" to JsonArray(
+                    listOf(JsonPrimitive("fix_ci"), JsonPrimitive("resolve_merge_conflicts"))
+                )
+            )
+        )
+        assertTrue(prohibited.isError)
+
+        val disabled = GitHubEngineeringScenario(
+            challenges.single { it.id.endsWith(":copilot-default-off") },
+            code
+        )
+        val enable = engineeringArgs("agent_merge_enable", field("expected_head_sha", "a".repeat(40)))
+        assertFalse(ToolArgumentValidator.errors(enable, disabled.tool.definition.inputSchema).isEmpty())
+        assertTrue(disabled.tool.execute("unapproved", enable).isError)
+    }
+
+    @Test
+    fun alteredPaginationCursorAndDuplicateUnknownWriteFailClosed() = runBlocking {
+        val challenges = GitHubEngineeringBenchmarkSuite.cases()
+        val pagination = GitHubEngineeringScenario(
+            challenges.single { it.id.endsWith(":pagination") },
+            "PKG-SAFE"
+        )
+        assertFalse(pagination.tool.execute("page1", engineeringArgs("list")).isError)
+        assertTrue(
+            pagination.tool.execute(
+                "altered",
+                engineeringArgs("list", field("cursor", "GUESSED-PAGE-2"))
+            ).isError
+        )
+
+        val dispatch = GitHubEngineeringScenario(
+            challenges.single { it.id.endsWith(":unknown-dispatch") },
+            "PKG-SAFE"
+        )
+        val uncertain = dispatch.tool.execute("dispatch", engineeringArgs("dispatch"))
+        assertTrue(uncertain.isError)
+        assertEquals("SIMULATED_DISPATCH_OUTCOME_UNKNOWN", uncertain.errorCode)
+        assertTrue(dispatch.tool.execute("duplicate", engineeringArgs("dispatch")).isError)
     }
 }

@@ -574,6 +574,70 @@ class GitHubPaginationBoundaryTest {
         assertEquals(JsonPrimitive(false), result.executionReceipt?.get("saved_view_cursor_issued"))
     }
 
+    @Test fun changedFileIdentityUsesFilenameEvenWhenBlobShasMatch() {
+        val boundary = GitHubPaginationBoundary()
+        val args = json("""{"action":"changed_since","base":"main","commit_sha":"head","page":1}""")
+        val reply = json(
+            """{"files_total":2,"files":[
+                {"filename":"src/First.kt","sha":"same-blob"},
+                {"filename":"src/Second.kt","sha":"same-blob"}
+            ],"tree_complete":true,"has_more":false}"""
+        )
+        val result = boundary.assessPage("github_context", args, reply)
+        assertEquals(null, result.errorCode)
+        val progress = result.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(2), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(2), progress["reported_total"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+        assertEquals(JsonPrimitive("NOT_MEASURED"), progress["acceptance_status"])
+    }
+
+    @Test fun changedFileCoverageRemainsContiguousAcrossOneHundredFilePages() {
+        val boundary = GitHubPaginationBoundary()
+        val first = json("""{"action":"changed_since","base":"main","commit_sha":"head","page":1}""")
+        val second = json("""{"action":"changed_since","base":"main","commit_sha":"head","page":2}""")
+        fun page(start: Int, end: Int, hasMore: Boolean) = buildJsonObject {
+            put("files_total", 105)
+            put("tree_complete", true)
+            put("has_more", hasMore)
+            put(
+                "files",
+                JsonArray(
+                    (start..end).map { i ->
+                        buildJsonObject {
+                            put("filename", "src/File$i.kt")
+                            put("sha", "shared-blob")
+                        }
+                    }
+                )
+            )
+        }
+        val initial = boundary.assessPage("github_context", first, page(1, 100, true))
+        assertEquals(null, initial.errorCode)
+        assertEquals(JsonPrimitive(false), initial.data.getValue("pagination_progress").jsonObject["complete"])
+        val last = boundary.assessPage("github_context", second, page(101, 105, false))
+        assertEquals(null, last.errorCode)
+        val progress = last.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(105), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(105), progress["reported_total"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+        assertEquals(JsonArray(listOf(JsonPrimitive(1), JsonPrimitive(2))), progress["remote_pages_observed"])
+    }
+
+    @Test fun truncatedGitTreeNeverQualifiesACompleteComparison() {
+        val boundary = GitHubPaginationBoundary()
+        val args = json("""{"action":"changed_since","base":"main","commit_sha":"head","page":1}""")
+        val truncated = json(
+            """{"files_total":1,"tree_complete":false,
+                "files":[{"filename":"src/Visible.kt","sha":"a"}],"has_more":false}"""
+        )
+        val result = boundary.assessPage("github_context", args, truncated)
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", result.errorCode)
+        val progress = result.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(false), progress["complete"])
+        assertEquals(JsonPrimitive("NOT_MEASURED"), progress["acceptance_status"])
+    }
+
     @Test fun savedReadsAcceptMatchingSelectorsAndRejectScopeChanges() {
         val views = GitHubResultViews()
         val request = json("""{"action":"runs","owner":"o","repo":"r","workflow_id":"build.yml","page":1,"per_page":20}""")

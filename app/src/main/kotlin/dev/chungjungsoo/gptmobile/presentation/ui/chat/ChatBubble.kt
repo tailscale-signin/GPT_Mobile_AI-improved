@@ -295,10 +295,12 @@ fun OpponentChatBubble(
         if (githubTask != null) gitHubResponsePresentation(text, timeline, holdGitHubAnswer) else null
     }
     val displayedText = githubPresentation?.text ?: text
-    val hasFinalGitHubAnswer = githubTask != null && !holdGitHubAnswer &&
-        githubPresentation?.progressOnly != true &&
-        (agentRun == null || agentRun.status == AgentRunStatus.COMPLETED) &&
-        dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(displayedText)
+    val hasFinalGitHubAnswer =
+        githubTask != null &&
+            !holdGitHubAnswer &&
+            githubPresentation?.progressOnly != true &&
+            (agentRun == null || agentRun.status == AgentRunStatus.COMPLETED) &&
+            dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(displayedText)
     val finalGitHubColor = if (MaterialTheme.colorScheme.background.luminance() < .5f) {
         Color.White
     } else {
@@ -477,7 +479,7 @@ fun OpponentChatBubble(
                     if (completionReveal.showAnswer) {
                         Box(Modifier.alpha(completionReveal.answerAlpha)) {
                             AssistantChronologicalContent(
-                                        outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
+                                outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
                                 animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
                                 proseColor = if (hasFinalGitHubAnswer) {
                                     completionReveal.answerColor

@@ -1,14 +1,23 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,27 +49,45 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
-import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Modifier = Modifier) {
     val caption = remember(state.phase, state.transcript, state.reply, state.hasDraft) { VoiceCaption.from(state) }
-    Column(modifier.testTag("voice_live_captions"), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            caption?.speaker ?: "Live captions",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
-        key(caption?.speaker) {
-            VoiceCaptionText(
-                caption ?: VoiceCaption("Your words will appear here", "", false),
-                state.spokenRange.takeIf { state.phase == VoicePhase.SPEAKING },
-                state.phase == VoicePhase.SPEAKING,
-                compact,
-                Modifier.fillMaxWidth()
-            )
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier.testTag("voice_live_captions"),
+        shape = RoundedCornerShape(24.dp),
+        color = colors.surfaceContainerLow.copy(alpha = .92f),
+        border = BorderStroke(1.dp, colors.primary.copy(alpha = if (caption?.live == true) .46f else .18f))
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (caption?.live == true) {
+                    Box(Modifier.size(7.dp).background(colors.primary, CircleShape))
+                }
+                Text(
+                    caption?.speaker?.let { if (caption.live) "$it · live" else it } ?: "Live captions",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.primary
+                )
+            }
+            key(caption?.speaker) {
+                VoiceCaptionText(
+                    caption ?: VoiceCaption("Your words will appear here", "", false),
+                    state.spokenRange.takeIf { state.phase == VoicePhase.SPEAKING },
+                    state.phase == VoicePhase.SPEAKING,
+                    compact,
+                    Modifier.fillMaxWidth().padding(top = 4.dp)
+                )
+            }
         }
     }
 }
@@ -74,8 +101,8 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val fade = with(LocalDensity.current) { 12.dp.toPx() }
     val accent = MaterialTheme.colorScheme.primary
-    val nativeRange = caption.highlightRange(spokenRange)
     val words = remember(caption.text) { caption.wordRanges() }
+    val nativeRange = caption.highlightRange(spokenRange, words)
     var lastEstimatedStart by remember(caption.speaker) { mutableIntStateOf(-1) }
     var estimatedRange by remember(caption.speaker) { mutableStateOf<IntRange?>(null) }
     // System TTS reports actual word offsets. Kokoro currently has no per-word
@@ -98,7 +125,13 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
             delay(((word.last - word.first + 1) * 45L).coerceIn(180L, 520L))
         }
     }
-    val observedRange = if (speaking) nativeRange ?: estimatedRange else null
+    // Speech recognition exposes text updates rather than audio word offsets;
+    // on microphone input, emphasize the latest recognized word only.
+    val observedRange = when {
+        speaking -> nativeRange ?: estimatedRange
+        caption.live && caption.speaker == "You" -> words.lastOrNull()
+        else -> null
+    }
     val animated = voiceMotionEnabled()
     val text = remember(caption.text, observedRange, accent) {
         buildAnnotatedString {

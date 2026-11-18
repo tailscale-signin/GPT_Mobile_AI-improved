@@ -8,7 +8,7 @@ import java.util.Locale
 /** Retains the complete phrase; a highlight requires an observed range in this exact text. */
 internal data class VoiceCaption(val text: String, val speaker: String, val live: Boolean) {
     /** Speech engines may report a phrase. Never illuminate more than one spoken word. */
-    fun highlightRange(observed: IntRange?): IntRange? {
+    fun highlightRange(observed: IntRange?, words: List<IntRange> = wordRanges()): IntRange? {
         val range = observed?.takeIf {
             speaker == "AI reply" &&
                 !it.isEmpty() &&
@@ -17,7 +17,6 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
                 isCharacterBoundary(it.first) &&
                 isCharacterBoundary(it.last + 1)
         } ?: return null
-        val words = wordRanges()
         return words.firstOrNull { range.first in it } ?: words.firstOrNull { it.first <= range.last && it.last >= range.first }
     }
 

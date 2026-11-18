@@ -168,8 +168,21 @@ class GitHubClaimExtractionTest {
     }
 
     @Test fun completeMalformedJsonAndTruncatedLengthRemainDifferentFailures() = runBlocking {
-        assertEquals("GITHUB_EXTRACTION_INVALID_RESPONSE", failed(flowOf(ProviderEvent.TextDelta("not JSON"), ProviderEvent.Completed)).code)
-        assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", failed(flowOf(ProviderEvent.TextDelta("{\"claims\":["), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed)).code)
+        val malformed = failed(flowOf(ProviderEvent.TextDelta("private-provider-payload"), ProviderEvent.Completed))
+        assertEquals("GITHUB_EXTRACTION_INVALID_RESPONSE", malformed.code)
+        assertEquals(JsonPrimitive("INVALID_JSON"), malformed.providerFailure?.failureDetails?.get("claim_extraction_failure_kind"))
+        assertEquals(JsonPrimitive(24), malformed.providerFailure?.failureDetails?.get("claim_extraction_response_characters"))
+        assertEquals(JsonPrimitive(8), malformed.providerFailure?.failureDetails?.get("claim_extraction_max_claims"))
+        assertEquals(JsonPrimitive(true), malformed.providerFailure?.failureDetails?.get("claim_extraction_completed"))
+        assertEquals(JsonPrimitive("PROVIDER"), malformed.providerFailure?.failureDetails?.get("diagnostic_area"))
+        assertFalse(malformed.providerFailure?.failureDetails.toString().contains("private-provider-payload"))
+
+        val nonObject = failed(flowOf(ProviderEvent.TextDelta("[]"), ProviderEvent.Completed))
+        assertEquals(JsonPrimitive("NON_OBJECT"), nonObject.providerFailure?.failureDetails?.get("claim_extraction_failure_kind"))
+        val schema = failed(flowOf(ProviderEvent.TextDelta("{\\"claims\\":[]}"), ProviderEvent.Completed))
+        assertEquals(JsonPrimitive("SCHEMA_REJECTED"), schema.providerFailure?.failureDetails?.get("claim_extraction_failure_kind"))
+
+        assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", failed(flowOf(ProviderEvent.TextDelta("{\\"claims\\":["), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed)).code)
         assertEquals("GITHUB_EXTRACTION_FAILED", failed(flowOf(ProviderEvent.TextDelta(response))).code)
     }
 

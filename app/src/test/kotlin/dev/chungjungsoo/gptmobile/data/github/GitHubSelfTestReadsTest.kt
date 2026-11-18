@@ -289,4 +289,59 @@ class GitHubSelfTestReadsTest {
             assertEquals(null, GitHubSelfTestReads.next(listOf(tool("github_issue", "history")), listOf(rejected, issues)))
         }
     }
+    @Test fun readyReadMatrixCoversAllFourteenAndUnlocksObservedResources() {
+        val head = "a".repeat(40)
+        val status = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$head","branch":"main"}}""")
+        val pr = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_pr","arguments":{"action":"list"},"result":{"pull_requests":[{"number":1534}]}}""")
+        val requested = listOf(
+            "github_context" to "index",
+            "github_context" to "changes",
+            "github_context" to "efficiency",
+            "github_context" to "capabilities",
+            "github_context" to "branch_dependencies",
+            "github_context" to "commit_search",
+            "github_context" to "recovery",
+            "github_pr" to "comments",
+            "github_pr" to "reviews",
+            "github_pr" to "threads",
+            "github_issue" to "list",
+            "github_release" to "list",
+            "github_release" to "tags",
+            "github_repository" to "capabilities"
+        )
+        val dependencies = listOf(
+            "github_issue" to "headers",
+            "github_issue" to "context",
+            "github_issue" to "comments",
+            "github_issue" to "history",
+            "github_release" to "status",
+            "github_release" to "tag",
+            "github_release" to "detail"
+        )
+        val definitions = (requested + dependencies).map { (name, action) -> tool(name, action) }
+        fun actions(receipts: List<JsonObject>) = GitHubSelfTestReads.available(definitions, receipts).map { call ->
+            call.name to (call.arguments["action"] as JsonPrimitive).content
+        }.toSet()
+
+        val ready = actions(listOf(status, pr))
+        assertEquals(requested.toSet(), ready)
+        val changes = GitHubSelfTestReads.available(definitions, listOf(status, pr))
+            .single { it.name == "github_context" && it.arguments["action"] == JsonPrimitive("changes") }
+        assertEquals(JsonPrimitive(head), changes.arguments["base_sha"])
+        assertEquals(JsonPrimitive(head), changes.arguments["commit_sha"])
+        val prReads = GitHubSelfTestReads.available(definitions, listOf(status, pr))
+            .filter { it.name == "github_pr" }
+        assertEquals(3, prReads.size)
+        assertTrue(prReads.all { it.arguments["pull_number"] == JsonPrimitive(1534) })
+
+        val issueList = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_issue","arguments":{"action":"list","state":"all"},"result":{"issues":[{"number":1584}]}}""")
+        val tags = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_release","arguments":{"action":"tags"},"result":{"items":[{"name":"v1"}]}}""")
+        val releases = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_release","arguments":{"action":"list"},"result":{"items":[{"tag_name":"v1"}]}}""")
+        val unlocked = actions(listOf(status, pr, issueList, tags, releases))
+        assertTrue(dependencies.all { it in unlocked })
+        assertTrue("github_issue" to "list" !in unlocked)
+        assertTrue("github_release" to "tags" !in unlocked)
+        assertTrue("github_release" to "list" !in unlocked)
+    }
+
 }

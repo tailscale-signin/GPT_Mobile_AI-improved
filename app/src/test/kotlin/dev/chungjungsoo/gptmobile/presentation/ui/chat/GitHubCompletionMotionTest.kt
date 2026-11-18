@@ -15,6 +15,13 @@ class GitHubCompletionMotionTest {
         assertFalse(shouldBeginGitHubFinalReveal(false, true, false, true, false))
     }
 
+    @Test fun completedAnswerNeverStealsBottomFollowingOrReadingHistory() {
+        assertFalse(mayRepositionCompletedPrompt(GitHubScrollMode.FOLLOW_BOTTOM, false))
+        assertFalse(mayRepositionCompletedPrompt(GitHubScrollMode.USER_HISTORY, false))
+        assertFalse(mayRepositionCompletedPrompt(GitHubScrollMode.PIN_PROMPT, true))
+        assertTrue(mayRepositionCompletedPrompt(GitHubScrollMode.PIN_PROMPT, false))
+    }
+
     @Test fun finalRevealAndEdgeGlowUseSeparatePreciseDurations() {
         assertEquals(1000, GITHUB_COMPLETION_PROGRESS_FADE_MILLIS)
         assertEquals(2000, GITHUB_COMPLETION_ANSWER_FADE_MILLIS)

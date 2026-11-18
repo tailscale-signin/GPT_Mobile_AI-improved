@@ -30,6 +30,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import kotlinx.coroutines.delay
 
 internal val LocalChatProgressInHeader = staticCompositionLocalOf { false }
+/** Generic header progress does not activate GitHub-only answer withholding. */
+internal val LocalUniversalProgressInHeader = staticCompositionLocalOf { false }
 internal val LocalGitHubApprovalPending = staticCompositionLocalOf { false }
 
 /** One presentation and activity resolver for chat bubbles and the pinned GitHub header. */

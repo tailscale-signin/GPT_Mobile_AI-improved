@@ -134,3 +134,7 @@ internal fun Modifier.githubCompletionEdgeGlow(amount: Float, accent: Color): Mo
         size = Size(size.width, reach)
     )
 }
+
+/** User reading position and active bottom following outrank cinematic completion. */
+internal fun mayRepositionCompletedPrompt(mode: GitHubScrollMode, dragging: Boolean): Boolean =
+    mode == GitHubScrollMode.PIN_PROMPT && !dragging

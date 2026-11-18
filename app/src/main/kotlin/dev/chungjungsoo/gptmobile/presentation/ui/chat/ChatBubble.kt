@@ -50,6 +50,8 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
@@ -241,6 +243,7 @@ fun OpponentChatBubble(
     showExecutionTrace: Boolean = true,
     responseIcon: (@Composable () -> Unit)? = null,
     githubTask: String? = null,
+    conversationTask: String? = null,
     awaitingGitHubDelivery: Boolean = false,
     profileColorIdentity: dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity? = null,
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
@@ -505,10 +508,30 @@ fun OpponentChatBubble(
                                             responseIcon?.invoke()
                                         }
                                     }
+                                } else if (isLoading || timeline.any { it.progressCheckpoint } || toolEvents.isNotEmpty()) {
+                                    {
+                                        IconButton(onClick = { activityExpanded = !activityExpanded }, modifier = Modifier.testTag("chat_activity_history")) {
+                                            Icon(
+                                                if (activityExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                                if (activityExpanded) "Hide activity history" else "Show activity history",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
                                 } else {
                                     responseIcon
                                 },
                                 beforeAnswer = {
+                                    if (githubTask == null && (isLoading || activityExpanded)) {
+                                        UniversalChatActivityFeed(
+                                            task = conversationTask,
+                                            timeline = timeline,
+                                            toolEvents = toolEvents,
+                                            active = isLoading,
+                                            animate = debugSettings.responseAnimation,
+                                            expanded = activityExpanded
+                                        )
+                                    }
                                     if (githubTask != null && (activityExpanded || holdGitHubAnswer)) {
                                         GitHubLiveProgressCard(timeline, githubTask, toolEvents, expanded = activityExpanded, active = isLoading)
                                     }

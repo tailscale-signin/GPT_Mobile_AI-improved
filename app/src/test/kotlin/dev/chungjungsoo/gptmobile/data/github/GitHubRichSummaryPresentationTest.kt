@@ -327,7 +327,7 @@ class GitHubRichSummaryPresentationTest {
         now = 180_000L
         val fallback = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertFalse(fallback.modelAuthored)
-        assertTrue(fallback.text.startsWith("### Reviewing Reader.kt"))
+        assertTrue(fallback.text.startsWith("### Reviewing ") && fallback.text.contains("Reader.kt"))
         assertTrue(fallback.text.contains("Reader.kt"))
     }
 

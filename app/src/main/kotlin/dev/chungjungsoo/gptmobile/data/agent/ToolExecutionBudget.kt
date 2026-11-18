@@ -224,7 +224,27 @@ class ToolExecutionBudget(
                 return { bounded(ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty())) }
             } catch (error: Exception) {
                 authorityPrecheck(callId, definition.name, error)?.let { return { bounded(it) } }
-                throw error
+                // An unexpected admission exception is not a failed tool
+                // dispatch or proof of invalid model arguments. Fail locally,
+                // preserve a content-free exception fingerprint, and retain
+                // all tool-call allowance for an explicitly authorized retry.
+                val typeHash = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(error.javaClass.name)
+                val rejected = ToolResultEnvelope.error(
+                    callId,
+                    "TOOL_PRECHECK_FAILED",
+                    "The tool's authorization precheck could not complete. No tool was dispatched; inspect the selected connection and retry only after the precheck is available."
+                ).copy(
+                    executionReceipt = buildJsonObject {
+                        put("failed_stage", "tool_precheck")
+                        put("reason_code", "TOOL_PRECHECK_FAILED")
+                        put("precheck_origin", "AUTHORIZATION_CALLBACK")
+                        put("exception_type_hashes", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(typeHash))))
+                        put("dispatched", false)
+                        put("retryable", false)
+                        put("requires_reconciliation", false)
+                    }
+                )
+                return { withBudgetState(rejected) }
             }
             if (!authorized) {
                 terminalToolFailures[tool.definition.name] = "AUTH_REQUIRED"

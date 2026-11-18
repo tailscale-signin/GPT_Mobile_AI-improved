@@ -3293,15 +3293,20 @@ class ChatRepositoryImpl(
         // starts. Local research must not consume the last tool allowance needed to
         // produce a grounded response.
         val reservedFinalToolCalls = if (localResearch) 1 else 0
+        val detectedGitHubTask = toolPreparation.resolvedTools.any { it.isGitHubTool() } &&
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(
+                input.taskRecovery?.originalRequest.orEmpty() + "\n" + input.effectiveUserMessages.lastOrNull()?.content.orEmpty()
+            ).isNotEmpty()
+        val resultBudgetGitHubTask = input.githubTask || detectedGitHubTask
         val toolBudgetLimits = customRunner.limits.copy(
-            maxObservedToolCalls = if (input.githubTask) 4096 else customRunner.limits.maxObservedToolCalls,
+            maxObservedToolCalls = if (resultBudgetGitHubTask) 4096 else customRunner.limits.maxObservedToolCalls,
             githubMode = chatToolConfig?.github != null,
-            githubTask = input.githubTask || toolPreparation.resolvedTools.any { it.isGitHubTool() } && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(input.taskRecovery?.originalRequest.orEmpty() + "\n" + input.effectiveUserMessages.lastOrNull()?.content.orEmpty()).isNotEmpty(),
-            maxToolCalls = if (chatToolConfig?.combined != null || input.githubTask) effectiveMaxTools else minOf(effectiveMaxTools, 64),
+            githubTask = resultBudgetGitHubTask,
+            maxToolCalls = if (chatToolConfig?.combined != null || resultBudgetGitHubTask) effectiveMaxTools else minOf(effectiveMaxTools, 64),
             combined = chatToolConfig?.combined,
             maxReplayTokens = minOf(customRunner.limits.maxReplayTokens, 4096),
             maxReplayResultTokens = minOf(customRunner.limits.maxReplayResultTokens, 1024),
-            maxToolOutputBytes = if (input.githubTask) {
+            maxToolOutputBytes = if (resultBudgetGitHubTask) {
                 maxOf(contextPlan.toolResultBytes, 16 * 1024 * 1024)
             } else if (localResearch) {
                 maxOf(contextPlan.toolResultBytes, 256 * 1024)

@@ -4,6 +4,22 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubProgressPresentationTest {
+    @Test fun repeatedHistoryHasOneStableMeaningAndNoUnverifiedSuccessClaim() {
+        val a = GitHubProgressPresentation.semanticActivityKey("Reading recent changes")
+        val b = GitHubProgressPresentation.semanticActivityKey("Commit history result received")
+        assertEquals(a, b)
+        assertEquals(a, GitHubProgressPresentation.semanticActivityKey("Commit-history data retrieved for inspection"))
+        val story = GitHubPreviewSequence("Test the GitHub integration")
+        val start = GitHubPreviewEvent("github_context", "commits", "", GitHubPreviewPhase.STARTED, "Reading recent changes")
+        val result = start.copy(phase = GitHubPreviewPhase.RESULT)
+        org.junit.Assert.assertTrue(story.offer(start)!!.contains("integration audit"))
+        assertEquals("Commit-history data retrieved for inspection", story.offer(result))
+        assertEquals("Rechecking recent commits for new evidence", story.offer(start))
+        assertEquals(null, story.offer(result))
+        assertEquals(null, story.offer(start))
+        assertEquals(null, story.offer(result))
+    }
+
     @Test fun previewComparisonUsesDisplayedTextAndNormalizedWhitespace() {
         assertEquals(GitHubProgressPresentation.lineKey("Reading the source files."), GitHubProgressPresentation.lineKey("  READING   the source files... "))
         org.junit.Assert.assertNotEquals(GitHubProgressPresentation.lineKey("Reviewing schema receipt"), GitHubProgressPresentation.lineKey("Reviewing dispatch checkpoint"))

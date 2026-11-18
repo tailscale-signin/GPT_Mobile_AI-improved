@@ -5,13 +5,13 @@ internal object GitHubProgressPresentation {
     enum class PreviewKind { WEB, INSPECT, EDIT, CHECKS, BRANCH, WAIT, ATTENTION, REVIEW, ACTIVITY }
 
     private val previewKinds = listOf(
-        PreviewKind.WAIT to "waiting|awaiting|queued|paused|approval",
-        PreviewKind.ATTENTION to "failed|failure|problem|error|attention|recovering",
+        PreviewKind.WAIT to "waiting|awaiting|queued|paused|approval|rate.limit|retry.after",
+        PreviewKind.ATTENTION to "failed|failure|problem|error|attention|recovering|blocked",
         PreviewKind.WEB to "internet|web|webpages?|websites?|online|browsing",
         PreviewKind.EDIT to "editing|writing|patch(?:ing)?|implementing|change request|requested change|response together",
         PreviewKind.CHECKS to "builds?|tests?|testing|checks?|validation|verifying",
         PreviewKind.BRANCH to "branches|branch|commits?|pull requests?|merging",
-        PreviewKind.INSPECT to "search(?:ing)?|files?|source|code|reading|examining|inspecting",
+        PreviewKind.INSPECT to "search(?:ing)?|files?|source|code|reading|examining|inspecting|tracing|retriev(?:ed|ing)|rechecking",
         PreviewKind.REVIEW to "review(?:ing)?|results?|comparing"
     ).map { (kind, words) -> kind to Regex("\\b(?:$words)\\b", RegexOption.IGNORE_CASE) }
 
@@ -76,6 +76,25 @@ internal object GitHubProgressPresentation {
         return "github-$kind-counts"
     }
 
+    /** A stable identity for known generic commit-history heartbeats, including saved chats. */
+    fun semanticActivityKey(raw: String): String? {
+        val normalized = lineKey(raw)
+        val history = normalized == "reading recent changes" ||
+            normalized == "commit history result received" ||
+            normalized.startsWith("tracing recent repository commits") ||
+            normalized.startsWith("tracing recent commits relevant to") ||
+            normalized.startsWith("commit-history data retrieved for inspection") ||
+            normalized.startsWith("rechecking recent commits for new evidence")
+        if (!history) return null
+        return "github-commit-history:" + normalized.substringAfter(" · ", "")
+    }
+
+    fun legacyNarrative(raw: String): String = when (lineKey(raw)) {
+        "reading recent changes" -> "Tracing recent repository commits"
+        "commit history result received" -> "Commit-history data retrieved for inspection"
+        else -> raw
+    }
+
     /** Compare displayed lines, including whitespace and formatting differences. */
     fun lineKey(text: String): String = preview(text).replace(Regex("\\s+"), " ").trim().trimEnd('.', '…').lowercase(java.util.Locale.ROOT)
 
@@ -112,5 +131,81 @@ internal object GitHubProgressPresentation {
             .replace(Regex("""\s+"""), " ")
             .trim(' ', '·', '|', '—', '-', ':', '.')
             .ifBlank { "Preparing the requested repository checks" }
+    }
+}
+
+/** A typed, token-free representation of real public tool progress. */
+internal enum class GitHubPreviewPhase { STARTED, RESULT }
+
+internal data class GitHubPreviewEvent(
+    val family: String,
+    val action: String,
+    val target: String,
+    val phase: GitHubPreviewPhase,
+    val fallback: String
+)
+
+/** Never infer a successful fix, test, approval or merge from an ordinary API reply. */
+internal class GitHubPreviewSequence(task: String) {
+    private val focus = when {
+        task.contains("integration", ignoreCase = true) -> "the integration audit"
+        task.contains("pagination", ignoreCase = true) -> "the pagination investigation"
+        task.contains("preview", ignoreCase = true) -> "the preview redesign"
+        task.contains("test", ignoreCase = true) -> "the requested tests"
+        else -> "the repository task"
+    }
+    private val observed = linkedMapOf<String, Int>()
+
+    fun offer(event: GitHubPreviewEvent): String? {
+        val identity = listOf(event.family, event.action, event.target, event.phase.name)
+            .joinToString("|").lowercase(java.util.Locale.ROOT)
+        val occurrences = observed[identity] ?: 0
+        observed[identity] = occurrences + 1
+        while (observed.size > 256) observed.remove(observed.keys.first())
+        val suffix = event.target.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
+        if (occurrences > 0) {
+            // Only the second observed start is narrated as a recheck. Repeated
+            // result receipts stay in the detailed execution trace.
+            return if (occurrences == 1 && event.phase == GitHubPreviewPhase.STARTED) {
+                when (event.family to event.action) {
+                    "github_context" to "commits" -> "Rechecking recent commits for new evidence$suffix"
+                    "github_read" to "" -> "Rechecking the requested source$suffix"
+                    "github_search" to "" -> "Refining the repository source search$suffix"
+                    else -> null
+                }
+            } else {
+                null
+            }
+        }
+        val started = event.phase == GitHubPreviewPhase.STARTED
+        val description = when (event.family to event.action) {
+            "github_context" to "commits" ->
+                if (started) "Tracing recent commits relevant to $focus" else "Commit-history data retrieved for inspection"
+            "github_context" to "checks" ->
+                if (started) "Examining recorded CI checks" else "Recorded CI check statuses retrieved for review"
+            "github_context" to "changes" ->
+                if (started) "Comparing the selected revisions" else "Revision comparison retrieved for inspection"
+            "github_context" to "capabilities" ->
+                if (started) "Mapping authorized GitHub operations" else "Authorized tool inventory retrieved for review"
+            "github_read" to "" ->
+                if (started) "Examining the requested source" else "Source content retrieved for inspection"
+            "github_search" to "" ->
+                if (started) "Locating relevant implementation files" else "Repository matches retrieved for inspection"
+            "github_ci" to "logs", "github_watch_checks" to "logs" ->
+                if (started) "Inspecting the CI job log" else "CI job log retrieved for inspection"
+            "github_ci" to "jobs", "github_watch_checks" to "jobs" ->
+                if (started) "Examining the workflow jobs" else "Workflow job statuses retrieved for review"
+            "github_pr" to "reviews" ->
+                if (started) "Reviewing pull-request feedback" else "Pull-request feedback retrieved for inspection"
+            "github_pr" to "list" ->
+                if (started) "Locating the relevant pull requests" else "Pull-request inventory retrieved for review"
+            "github_commit" to "", "github_write" to "", "github_stage_patch" to "" ->
+                if (started) "Preparing an authorized change request"
+                else "Change request returned; remote outcome needs verification"
+            "web_search" to "" ->
+                if (started) "Searching web sources relevant to the task" else "Web search results retrieved for review"
+            else -> return event.fallback
+        }
+        return description + suffix
     }
 }

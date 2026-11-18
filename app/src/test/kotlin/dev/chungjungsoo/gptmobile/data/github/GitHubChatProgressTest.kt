@@ -20,6 +20,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatProgressTest {
+    @Test fun repeatedHistoryRetrievalDoesNotFloodThePreview() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Test the authorized GitHub integration") { clock }
+        progress.tick()
+        val args = json("""{"action":"commits"}""")
+        fun retrieve(index: Int) {
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(
+                event = "tool_started", toolName = "github_context", toolCallId = "history-$index", toolArgs = args
+            )))
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(
+                event = "tool_completed", toolName = "github_context", toolCallId = "history-$index", toolArgs = args
+            )))
+        }
+        retrieve(1)
+        clock = 3000L
+        assertEquals("Commit-history data retrieved for inspection", progress.tick().filterIsInstance<ApiState.ProgressCheckpoint>().single().text)
+        retrieve(2)
+        clock = 6000L
+        assertEquals("Rechecking recent commits for new evidence", progress.tick().filterIsInstance<ApiState.ProgressCheckpoint>().single().text)
+        repeat(3) { retrieve(it + 3) }
+        clock = 9000L
+        assertTrue(progress.tick().filterIsInstance<ApiState.ProgressCheckpoint>().isEmpty())
+        assertEquals(5, progress.summarySnapshot().completed)
+        assertEquals(0, progress.summarySnapshot().failed)
+    }
+
     @Test fun readingAJobLogDoesNotInventAFailingStep() {
         var clock = 0L
         val progress = GitHubChatProgress { clock }

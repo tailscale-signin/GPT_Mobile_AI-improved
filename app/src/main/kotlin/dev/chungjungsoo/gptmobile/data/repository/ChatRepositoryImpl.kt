@@ -4153,7 +4153,8 @@ class ChatRepositoryImpl(
             }
         }.let { provisional ->
             dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.conservativeToolPlanningBudget(
-                provisional, input.githubTask || chatToolConfig != null
+                provisional,
+                input.githubTask || chatToolConfig != null
             )
         }
         routeReadiness?.verifiedContextTokens?.let { contextTokens ->
@@ -5758,8 +5759,14 @@ class ChatRepositoryImpl(
         }
 
         val catalog = primaryToolCatalog(
-            effectiveTools, runnerTools, groundedSession, budgetSettings, latestUser,
-            contextPlan, chatToolConfig?.github != null, limits.contextTokens
+            effectiveTools,
+            runnerTools,
+            groundedSession,
+            budgetSettings,
+            latestUser,
+            contextPlan,
+            chatToolConfig?.github != null,
+            limits.contextTokens
         )
         // Exhausted execution budgets and writer-only stages must not erase the
         // still-authorized identity/contracts used to restore durable evidence.

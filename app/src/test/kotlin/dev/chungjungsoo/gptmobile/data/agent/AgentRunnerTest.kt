@@ -1029,8 +1029,8 @@ class AgentRunnerTest {
             assertEquals(listOf("java.lang.IllegalStateException", "java.lang.IllegalArgumentException"), retained.causeTypes)
             assertFalse(retained.retryAllowed)
             assertEquals(RemoteRequestAcceptance.UNKNOWN, retained.remoteAcceptance)
-            // Older hosted reporters already accept this public category and stage.
-            assertEquals("CHAT_FAILED", dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.select(failure.errorCode, "CHAT_FAILED"))
+            // The reporter retains the typed category rather than downgrading it to CHAT_FAILED.
+            assertEquals("PROVIDER_INVOCATION_FAILED", dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.select(failure.errorCode, "CHAT_FAILED"))
             assertEquals("TOOL_FAILURE", ToolFailureMetadata.classify(cause))
         }
     }

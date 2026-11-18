@@ -165,6 +165,35 @@ class GitHubSavedPageRepairTest {
         }
     }
 
+    @Test fun laterPageSavePreservesInitialHandleWhenMutableIndexWasLost() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("github-saved-bootstrap-recovery-").toFile()
+        try {
+            val scope = "bootstrap-recovery"
+            val id = UUID.randomUUID().toString()
+            val first = "$id:0:2048"
+            val later = "$id:1:2048"
+            val state = GitHubRepositoryStateStore(directory)
+            val store = GitHubSavedViewStore(state, scope)
+            fun snapshot(cursor: String) = buildJsonObject {
+                put("schema", "github.saved-view.v1")
+                put("issued_cursors", JsonArray(listOf(JsonPrimitive(cursor))))
+                put("failed_persistence_cursors", JsonArray(emptyList()))
+            }
+            store.save(id, snapshot(first))
+            state.remove(scope, "saved-view-access:$id")
+            store.save(id, snapshot(later))
+            val reopened = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), scope)
+            val restored = reopened.loadWithDiagnostics(id)
+            assertEquals(
+                JsonArray(listOf(JsonPrimitive(first), JsonPrimitive(later))),
+                restored["issued_cursors"]
+            )
+            assertEquals(JsonArray(emptyList()), restored["failed_persistence_cursors"])
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun savedBodyAndIndexSurviveOrdinaryCachePruningAndRestart() = runBlocking {
         val directory = java.nio.file.Files.createTempDirectory("github-saved-result-retention-").toFile()
         try {

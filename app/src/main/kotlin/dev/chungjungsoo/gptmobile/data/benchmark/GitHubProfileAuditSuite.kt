@@ -193,6 +193,9 @@ internal object GitHubProfileAuditSuite {
                         str("expected_head_sha", sha)
                         when (action) {
                             "update" -> str("title", "Fixture update")
+                            "agent_merge_update" -> if ("allowed_actions" in fields) {
+                                put("allowed_actions", buildJsonArray { add(JsonPrimitive("fix_ci")) })
+                            }
                             "comment", "reply" -> {
                                 str("body", "Fixture comment")
                                 if (action == "reply") num("comment_id", 1)

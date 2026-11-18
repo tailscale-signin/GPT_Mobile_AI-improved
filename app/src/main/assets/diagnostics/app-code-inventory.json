@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "a5b7ab782e1fda74fea1d71e99d0155e99bb5a7df56f899c76e27ebd4bea44f9",
+  "source_digest": "290a697870bf16cde308d5dc090ff6696877b1ed448d07b463f6bb04d291a35f",
   "file_count": 2670,
-  "indexed_line_count": 435382,
+  "indexed_line_count": 435387,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -58,7 +58,7 @@
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 100,
-      "indexed_line_count": 22687
+      "indexed_line_count": 22689
     },
     {
       "id": "mcp_plugins",
@@ -136,7 +136,7 @@
       "id": "benchmark",
       "label": "Benchmarks and app audit",
       "file_count": 119,
-      "indexed_line_count": 18067
+      "indexed_line_count": 18070
     },
     {
       "id": "auth_and_security",
@@ -2698,8 +2698,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "3e93567426a09e25abdacfe7ae85ccc68a48fa5825a40e50636a57cc30594761",
-      "indexed_lines": 1273
+      "sha256": "817667f3fe8b59b202d7ed41b71cf2f44f8eff2c5308b91e1f5b67a62dfe346c",
+      "indexed_lines": 1275
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",
@@ -4196,8 +4196,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubProfileAuditSuite.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "8d0485988b7e9add2d395e4886724849c752b54477ba0f2e4f2e2215177398a8",
-      "indexed_lines": 264
+      "sha256": "b074dd5a3d82fee493c70f5e940b254c61d9c2f50a23a78403c095154f6bdfc5",
+      "indexed_lines": 267
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/IntelligenceBenchmark.kt",

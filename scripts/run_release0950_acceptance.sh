@@ -39,6 +39,10 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.d
 performance_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.memory.MemoryDurabilityInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/memory-durability-instrumentation.txt"
 memory_status=${PIPESTATUS[0]}
+# Exercise the packaged tokenizer and vector-index JNI on both emulator matrices.
+# A separate minified native-smoke workflow is not acceptance for this device receipt.
+timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemoryInstrumentedTest#nativeIndexSurvivesReopenAndHonorsScopeAndDeletion dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/native-memory-instrumentation.txt"
+native_memory_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.agent.ToolCallBudgetFenceInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/tool-budget-fence-instrumentation.txt"
 tool_budget_fence_status=${PIPESTATUS[0]}
 timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/picker-instrumentation.txt"
@@ -187,6 +191,7 @@ if [ "$gateway_profile_card_status" -ne 0 ]; then exit "$gateway_profile_card_st
 if [ "$editor_status" -ne 0 ]; then exit "$editor_status"; fi
 if [ "$performance_status" -ne 0 ]; then exit "$performance_status"; fi
 if [ "$memory_status" -ne 0 ]; then exit "$memory_status"; fi
+if [ "$native_memory_status" -ne 0 ]; then exit "$native_memory_status"; fi
 if [ "$tool_budget_fence_status" -ne 0 ]; then exit "$tool_budget_fence_status"; fi
 python3 - <<'CHECK'
 import json
@@ -199,6 +204,7 @@ from pathlib import Path
 sys.path.insert(0, 'scripts')
 from check_native_memory_smoke import check_instrumentation
 folder = Path('app/build/acceptance-0950')
+check_instrumentation(folder / 'native-memory-instrumentation.txt')
 for test in (
     'longCaptionsAndLargeTextKeepTheMicrophoneVisibleAndFixed',
     'theProfilePickerChangesProfileOnlyBetweenTurns',

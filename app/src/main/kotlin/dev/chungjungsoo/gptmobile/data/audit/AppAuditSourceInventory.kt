@@ -9,16 +9,16 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "a5b7ab782e1fda74fea1d71e99d0155e99bb5a7df56f899c76e27ebd4bea44f9"
+    val sourceDigest: String = "290a697870bf16cde308d5dc090ff6696877b1ed448d07b463f6bb04d291a35f"
     val fileCount: Int = 2670
-    val lineCount: Int = 435382
+    val lineCount: Int = 435387
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8632),
         AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 559, 98269),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 199, 9279),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 234, 40012),
-        AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 22687),
+        AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 22689),
         AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 31, 4675),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
         AppAuditSourceArea("model_providers", "Model providers and adapters", 63, 9247),
@@ -31,7 +31,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 44, 4932),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 110, 14700),
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 93, 13783),
-        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 119, 18067),
+        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 119, 18070),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 20, 1953),
         AppAuditSourceArea("voice_and_media", "Voice and media", 31, 6195),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),

@@ -4,6 +4,8 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -39,6 +41,15 @@ class GitHubProfileAuditSuiteTest {
                 GitHubOperationArguments.errors(accepted.operation.removeSuffix("_inspect"), accepted.arguments).isEmpty()
             )
         }
+    }
+
+    @Test
+    fun copilotUpdateFixtureKeepsExplicitMinimalRepairPermission() {
+        val test = GitHubProfileAuditSuite.cases(allActions = true)
+            .single { it.id == "github-ai-v1:github_pr:agent_merge_update" }
+        val fixture = requireNotNull(GitHubProfileAuditSuite.fixture(test))
+        assertEquals(JsonArray(listOf(JsonPrimitive("fix_ci"))), fixture.arguments["allowed_actions"])
+        assertTrue(GitHubOperationArguments.errors("github_pr", fixture.arguments).isEmpty())
     }
 
     @Test

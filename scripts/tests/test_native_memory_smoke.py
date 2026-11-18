@@ -145,6 +145,14 @@ INSTRUMENTATION_STATUS_CODE: 0
             self.check_output(started + skipped + self.FINISH, optional_assumption_reasons=approved)
 
 
+    def test_release_acceptance_executes_and_checks_real_native_memory_on_each_emulator(self):
+        acceptance = (Path(__file__).resolve().parents[2] / 'scripts/run_release0950_acceptance.sh').read_text()
+        self.assertIn(smoke.TEST_CLASS + '#' + smoke.TEST_METHOD, acceptance)
+        self.assertIn('native_memory_status=${PIPESTATUS[0]}', acceptance)
+        self.assertIn('if [ "$native_memory_status" -ne 0 ]; then exit "$native_memory_status"; fi', acceptance)
+        self.assertIn("check_instrumentation(folder / 'native-memory-instrumentation.txt')", acceptance)
+        self.assertIn('native-memory-instrumentation.txt', acceptance)
+
     def test_aosp_tts_prerequisite_scope_is_bound_to_ci_emulator_matrix(self):
         root = Path(__file__).resolve().parents[2]
         workflow = (root / '.github/workflows/release-0950-acceptance.yml').read_text()

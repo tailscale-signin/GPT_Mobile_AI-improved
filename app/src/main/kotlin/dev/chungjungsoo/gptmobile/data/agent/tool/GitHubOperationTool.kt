@@ -831,7 +831,7 @@ internal class GitHubOperationTool(
                     put("enum", JsonArray(actions.map(::JsonPrimitive)))
                 }
                 return full.copy(
-                    description = if (canonical == "github_pr") "Read PRs: list discovers pull_number; headers/context require it. include_health checks readiness. Discover github_pr for other actions. Follow exact continuation_call." else "Read repository status and pinned context. Discover github_context for other actions. Follow exact continuation_call.",
+                    description = if (canonical == "github_pr") "Read PRs: list discovers pull_number; headers/context require it. include_health checks readiness. Discover github_pr for other actions. Follow exact continuation_call." else "Read pinned repository context; follow continuation_call.",
                     inputSchema = buildJsonObject {
                         put("type", "object")
                         put("properties", JsonObject(properties))
@@ -935,7 +935,7 @@ internal class GitHubOperationTool(
                     }
                     listOf("min_lines", "max_lines").forEach { properties[it] = field("integer") }
                     properties["context_lines"] = integer(0, 100)
-                    properties["max_new_blobs"] = integer(1, 100, "Fetch 1–100 new blobs; omit for the bounded default. Zero is invalid.", default = 4)
+                    properties["max_new_blobs"] = integer(1, 100, default = 4)
                     properties["batch_size"] = integer(1, 1000, default = 1000)
                     properties["page"] = field("integer")
                 }
@@ -1239,8 +1239,8 @@ internal class GitHubOperationTool(
             val description = when (operation) {
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
-                "github_search" -> "Pinned glob search using exact continuation_call."
-                "github_read" -> "Choose end_line or max_lines, never both. Omit both for a bounded default read. end_line=-1 means bounded EOF. Use source_coverage.next_action."
+                "github_search" -> "Search pinned repository; follow continuation_call."
+                "github_read" -> "Read bounded ranges: end_line or max_lines. Use source_coverage.next_action."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
@@ -1250,7 +1250,9 @@ internal class GitHubOperationTool(
                 "github_issue" -> "Discover issues with action=list and optional state=open (PRs excluded). action=headers reads ONE observed issue and requires issue_number; it is not an inventory or listing action. After listing, use headers for title/state/updated_at, or context/comments/history when needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + when (operation) {
-                "github_read", "github_context", "github_search", "github_ci", "github_pr", "github_issue" ->
+                "github_read", "github_search" ->
+                    " Saved view: only view_cursor; new read: owner and repo together or omit both."
+                "github_context", "github_ci", "github_pr", "github_issue" ->
                     " Saved-view continuation: copy the returned continuation_call with only view_cursor; do not carry over action, owner, repo, branch, ref, page, per_page, search_id or other fields. For a new remote read, owner and repo must be supplied together or both omitted."
                 else -> " Follow the exact continuation_call. For new calls, supply owner and repo together."
             }

@@ -60,6 +60,53 @@ class GitHubPolicyResponseObservationTest {
         assertEquals(JsonPrimitive(false), policy.getValue("policy").jsonObject["required_checks_complete"])
     }
 
+    @Test fun exactAdminRefCorroboratesClassicAbsenceWhileRulesetsStillSupplyRequirements() = runTest {
+        val proof = """{"data":{"repository":{"nameWithOwner":"owner/repo","viewerPermission":"ADMIN","ref":{"name":"main","prefix":"refs/heads/","target":{"oid":"$head"},"branchProtectionRule":null}}}}"""
+        val rule = """[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"android"}]}}]"""
+        val missingClassic = """{"message":"Branch not protected"}"""
+        val verified = fetchPolicy(missingClassic, rulesBody = rule, graphResponse = proof)
+        val policy = verified.getValue("policy").jsonObject
+        assertEquals(JsonPrimitive(true), policy["classic_absence_verified_at_branch_head"])
+        assertEquals(JsonPrimitive(true), policy["required_checks_complete"])
+        assertEquals(jsonArray("android"), policy["observed_required_checks"])
+        assertTrue(coverage(records(verified)).single { it.item == "Required-check policy" }.available)
+        for (unverified in listOf(
+            proof.replace("ADMIN", "READ"),
+            proof.replace(head, "c".repeat(40)),
+            proof.replace("owner/repo", "owner/other"),
+            proof.replace("refs/heads/", "refs/tags/"),
+            proof.replace("main", "elsewhere"),
+            proof.replace(":null", """: {"id":"rule"}"""),
+            proof.replace(""","branchProtectionRule":null""", ""),
+            proof.replaceFirst("{", """{"errors":[{"message":"unavailable"}],""")
+        )) {
+            val incomplete = fetchPolicy(missingClassic, rulesBody = rule, graphResponse = unverified).getValue("policy").jsonObject
+            assertEquals(JsonPrimitive(false), incomplete["required_checks_complete"])
+        }
+        val malformed = fetchPolicy(missingClassic, rulesBody = """[{"type":"required_status_checks"}]""")
+        assertEquals(JsonPrimitive(false), malformed.getValue("policy").jsonObject["required_checks_complete"])
+    }
+
+    @Test fun allRulePagesContributeAndRepeatedFullPagesRemainIncomplete() = runTest {
+        val page = JsonArray(List(30) { json("""{"type":"deletion","ruleset_id":$it}""") })
+        val last = json("""{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"late-check"}]}}""")
+        suspend fun inspect(second: JsonArray): JsonObject {
+            val source = GitHubInspection { path ->
+                when {
+                    path.endsWith("/protection") -> json("{}")
+                    path.endsWith("?per_page=30&page=2") -> second
+                    path.contains("/rules/branches/") -> page
+                    else -> branch("main")
+                }
+            }
+            return source.execute("branch_context", "/repos/owner/repo", json("""{"branch":"main"}"""), 1).getValue("policy").jsonObject
+        }
+        val complete = inspect(JsonArray(listOf(last)))
+        assertEquals(JsonPrimitive("VERIFIED_PRESENT"), complete["required_checks_state"])
+        assertEquals(jsonArray("late-check"), complete["observed_required_checks"])
+        assertEquals(JsonPrimitive(false), inspect(page)["required_checks_complete"])
+    }
+
     @Test fun exactBoundedTopLevelMessageDeterminesOnlyTheDiagnosticKind() = runTest {
         for ((body, expected) in listOf(
             """{"message":"Branch not protected"}""" to "EXPLICIT_BRANCH_NOT_PROTECTED",
@@ -186,11 +233,15 @@ class GitHubPolicyResponseObservationTest {
         assertNull(complete["status_policy_recovery_hint"])
     }
 
-    private suspend fun fetchPolicy(body: String, headers: Headers = Headers.Empty, protectionStatus: HttpStatusCode = HttpStatusCode.NotFound, rulesStatus: HttpStatusCode = HttpStatusCode.OK, rulesBody: String = "[]", apiOrigins: GitHubApiOrigins = GitHubApiOrigins.GITHUB_COM): JsonObject {
+    private suspend fun fetchPolicy(body: String, headers: Headers = Headers.Empty, protectionStatus: HttpStatusCode = HttpStatusCode.NotFound, rulesStatus: HttpStatusCode = HttpStatusCode.OK, rulesBody: String = "[]", apiOrigins: GitHubApiOrigins = GitHubApiOrigins.GITHUB_COM, graphResponse: String? = null): JsonObject {
         var requests = 0
         val http = HttpClient(
             MockEngine { request ->
                 requests++
+                if (request.method == HttpMethod.Post) {
+                    assertTrue(request.url.encodedPath.endsWith("/graphql"))
+                    return@MockEngine respond(graphResponse ?: """{"errors":[{"message":"unavailable"}]}""")
+                }
                 assertEquals(HttpMethod.Get, request.method)
                 when (request.url.encodedPath.removePrefix("/api/v3")) {
                     "/repos/owner/repo/branches/main" -> respond(branch("main").toString())
@@ -203,7 +254,9 @@ class GitHubPolicyResponseObservationTest {
         try {
             val result = GitHubWorkspaceClient("fixture-token", http, persistentState = false, apiOrigins = apiOrigins)
                 .execute("branch_context", json("""{"owner":"owner","repo":"repo","branch":"main"}""")) as JsonObject
-            assertEquals(3, requests)
+            val classic404 = result.getValue("protection").jsonObject["policy_response_observation"]?.jsonObject?.get("kind") == JsonPrimitive("EXPLICIT_BRANCH_NOT_PROTECTED")
+            val rulesComplete = GitHubStatusPolicyEvidence.completeRuleRows(result.getValue("rules").jsonObject)
+            assertEquals(if (classic404 && rulesComplete) 4 else 3, requests)
             return result
         } finally {
             http.close()

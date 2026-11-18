@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b829c13dbc4f68f4859cb77ac8f6c42a545482422b8ec3a1a4dd4a5fb8907ac6",
+  "source_digest": "25ce05ae1377b5d64d22b012c4d36aa67609e1bf7d376e6424c72aa97a23b0ef",
   "file_count": 2693,
-  "indexed_line_count": 439541,
+  "indexed_line_count": 439616,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 239,
-      "indexed_line_count": 40323
+      "indexed_line_count": 40398
     },
     {
       "id": "research",
@@ -7122,8 +7122,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInspection.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "d7dea4a34a0ae096d8c4ba3c704c68acdac8f2046bf695b963a92cad2589cb6b",
-      "indexed_lines": 328
+      "sha256": "63bfcc99feb926ae2952e5e09df31d0e15c736aecc3c3de8b2ba1d8355b33301",
+      "indexed_lines": 389
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptance.kt",
@@ -7696,8 +7696,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusPolicyEvidence.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "b0d163635b854b4a6cf2169fb20d7104e0d146473fc5fd93905a8fd97b7c1a62",
-      "indexed_lines": 71
+      "sha256": "f44c033e4ec92004598414f0a359cbf8dfe6db64e0b0526a98567baf15eaa82b",
+      "indexed_lines": 85
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusRequest.kt",
@@ -7885,7 +7885,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "3face7ae12b673f746cb7dceb238939905dda9b6a6c455298bd3ebaa05bab432",
+      "sha256": "9873dfaebaae70d876390613bca046de1dc24bc9331012f9b397845ec38af6ed",
       "indexed_lines": 2919
     },
     {

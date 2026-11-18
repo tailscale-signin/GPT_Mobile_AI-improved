@@ -385,8 +385,8 @@ class GitHubWorkspaceClient(
             return repositorySession.execute(action, owner, repo, args)
         }
         if (action in GitHubInspection.actions) {
-            val issueQuery: (suspend (String, JsonObject) -> JsonObject)? = if (action == "list_issues" && requestCredential().token.isNotBlank()) ::graphQlIssuePage else null
-            return GitHubInspection { request(it) }.execute(action, root, args, page, issueQuery)
+            val inspectionQuery: (suspend (String, JsonObject) -> JsonObject)? = if (action in setOf("list_issues", "branch_context") && requestCredential().token.isNotBlank()) ::graphQlInspection else null
+            return GitHubInspection { request(it) }.execute(action, root, args, page, inspectionQuery)
         }
         val refQuery = ref.takeIf { it.isNotBlank() }?.let { "?ref=${segment(it)}" }.orEmpty()
 
@@ -2258,7 +2258,7 @@ class GitHubWorkspaceClient(
         if (items.size == perPage) put("next_page", page + 1)
     }
 
-    private suspend fun graphQlIssuePage(query: String, variables: JsonObject): JsonObject = graphQl(query, variables)
+    private suspend fun graphQlInspection(query: String, variables: JsonObject): JsonObject = graphQl(query, variables)
 
     private suspend fun graphQl(query: String, variables: JsonObject, reconcile: (suspend () -> JsonElement?)? = null): JsonObject {
         if (query == gitHubPullRequestHealthQuery && "cursor" !in variables) {

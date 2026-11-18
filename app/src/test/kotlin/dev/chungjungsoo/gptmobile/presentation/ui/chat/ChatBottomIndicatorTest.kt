@@ -153,6 +153,40 @@ class ChatBottomIndicatorTest {
         }
     }
 
+    @Test fun fastScrollArrowRemainsAvailableAfterReleaseThenFadesAway() {
+        following = false
+        generating = false
+        val input = ChatScrollInput()
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            MaterialTheme {
+                state = rememberLazyListState()
+                Column(Modifier.background(Color.White)) {
+                    LazyColumn(Modifier.width(240.dp).height(140.dp), state = state) {
+                        items(12) { Text("Message $it", Modifier.height(40.dp)) }
+                    }
+                    ChatBottomIndicator(state, following, generating, animate = false, scrollInput = input, onFollow = { following = true })
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
+
+        compose.runOnIdle { input.recordFling(230f) }
+        compose.mainClock.advanceTimeBy(1_100)
+        compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
+        compose.runOnIdle { input.stopScroll() }
+        compose.mainClock.advanceTimeBy(4_000)
+        compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
+        compose.mainClock.advanceTimeBy(2_100)
+        compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
+
+        // Slow reading motion never resurrects the arrow after its timeout.
+        compose.runOnIdle { input.recordFling(70f) }
+        compose.mainClock.advanceTimeBy(1_100)
+        compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
+    }
+
     private fun dotsBitmap(): Bitmap = requireNotNull(
         compose.onNodeWithTag("chat_bottom_generation").assertIsDisplayed().captureToImage().asAndroidBitmap().copy(Bitmap.Config.ARGB_8888, false)
     )

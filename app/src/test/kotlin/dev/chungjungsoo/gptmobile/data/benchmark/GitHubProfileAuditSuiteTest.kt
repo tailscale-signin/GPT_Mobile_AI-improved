@@ -6,9 +6,9 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.JsonElement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull

@@ -114,10 +114,15 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
         else -> call.name == "benchmark_lookup" && call.arguments == if (test.workload == "typed_arguments") typedArguments else parcelArguments
     }
 
-    fun expectedError(call: ProviderEvent.ToolCall, result: AgentToolResult): Boolean =
-        engineering?.expectedError(call, result) ?: (valid(call) && result.isError &&
-            (recovery && result.errorCode == "BENCHMARK_RETRYABLE" ||
-                permanent && result.errorCode == "BENCHMARK_PERMANENT"))
+    fun expectedError(call: ProviderEvent.ToolCall, result: AgentToolResult): Boolean {
+        engineering?.let { return it.expectedError(call, result) }
+        if (!valid(call) || !result.isError) return false
+        return when {
+            recovery -> result.errorCode == "BENCHMARK_RETRYABLE"
+            permanent -> result.errorCode == "BENCHMARK_PERMANENT"
+            else -> false
+        }
+    }
 
     /**
      * A model can choose the correct tool yet send a semantically wrong argument.
@@ -182,8 +187,8 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
             (githubFixture == null || calls.size == 1) &&
             calls.all(::valid) &&
             successful.size + expectedErrors.size == calls.size &&
-        (!recovery || expectedErrors.size == 1 && successful.size == 1) &&
-        (!permanent || expectedErrors.size == 1 && calls.size == 1) &&
+            (!recovery || expectedErrors.size == 1 && successful.size == 1) &&
+            (!permanent || expectedErrors.size == 1 && calls.size == 1) &&
             (test.validatorVersion != "benchmark-validator-v5" || calls.size <= if (recovery || research) 2 else 1) &&
             (!research || calls.map { it.name } == listOf("benchmark_search", "benchmark_read"))
     }

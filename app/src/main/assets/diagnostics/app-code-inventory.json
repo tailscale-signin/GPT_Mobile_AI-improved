@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "075c347586f929cb618aa0b22340686eaedb289236c0df2b8cbde8d9850a61be",
+  "source_digest": "b87d6f0813a41e682b067acbdc098eba590954fef259ead19a7754d738aa7681",
   "file_count": 2673,
-  "indexed_line_count": 436921,
+  "indexed_line_count": 436926,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -136,7 +136,7 @@
       "id": "benchmark",
       "label": "Benchmarks and app audit",
       "file_count": 119,
-      "indexed_line_count": 18457
+      "indexed_line_count": 18462
     },
     {
       "id": "auth_and_security",
@@ -4154,8 +4154,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkToolScenario.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "8e3db0b4c921915c865afc3e2c5a355138e5183cd9aecfe652667ac4e07168d7",
-      "indexed_lines": 190
+      "sha256": "71d11dad75752b1c4949338b60b26d79166334ee982c608d4a6ba404f8270651",
+      "indexed_lines": 195
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkValidation.kt",

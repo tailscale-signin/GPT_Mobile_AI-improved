@@ -411,6 +411,46 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun observedProvider403KeepsPermissionCauseAndDisablesAutomaticRetry() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.chatFailure(
+            "HTTP_ERROR",
+            false,
+            null,
+            mapOf(
+                "run_id" to "private-permission-run",
+                "provider" to "OPENROUTER",
+                "failed_stage" to "model_invocation",
+                "http_status" to 403,
+                "dispatched" to true,
+                "remote_acceptance" to "NO",
+                "provider_rejection_category" to "PERMISSION",
+                "diagnostic_area" to "PROVIDER",
+                "message" to "private provider response body"
+            )
+        )
+        val report = IssueReportIncidents.pending.value.single()
+        val context = requireNotNull(report.context)
+        assertEquals("SOURCE_ACCESS_BLOCKED", report.errorCode)
+        assertEquals(403, context.httpStatus)
+        assertEquals("OPENROUTER", context.provider)
+        assertEquals(true, context.dispatched)
+        assertEquals(false, context.retryable)
+        assertEquals("RETRY_AFTER_CONFIGURATION_CHANGE", context.recoveryAction)
+        assertEquals(JsonPrimitive("PERMISSION"), context.diagnostics?.values?.get("provider_rejection_category"))
+        assertFalse(report.approvedPayload().contains("private provider response body"))
+        assertFalse(report.approvedPayload().contains("private-permission-run"))
+
+        IssueReportIncidents.chatFailure(
+            "HTTP_ERROR", false, null,
+            mapOf("provider" to "OPENROUTER", "failed_stage" to "model_invocation", "http_status" to 403,
+                "remote_acceptance" to "UNKNOWN", "provider_rejection_category" to "PERMISSION",
+                "run_id" to "unverified-permission")
+        )
+        assertEquals("CHAT_FAILED", IssueReportIncidents.pending.value.last().errorCode)
+    }
+
+    @Test
     fun rejectedProviderRateLimitKeepsItsCauseWithoutAResumableWait() {
         LocalDiagnosticsPolicy.setEnabled(true)
         IssueReportIncidents.chatFailure(

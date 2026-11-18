@@ -59,7 +59,7 @@ def create_app(public_url, reporter, rate_key):
                 "REPORT_TEXT_ATTACHMENT_V1",
                 "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1",
                 "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1",
-                "TERMINAL_DELIVERY_CODES_V1",
+                "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1",
             ])
         return response
 

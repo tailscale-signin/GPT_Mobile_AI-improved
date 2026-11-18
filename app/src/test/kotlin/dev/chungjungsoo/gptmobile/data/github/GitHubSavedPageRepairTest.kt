@@ -224,6 +224,30 @@ class GitHubSavedPageRepairTest {
         }
     }
 
+    @Test fun savingALaterPageAfterFileLossPreservesTheOriginalBootstrapProof() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("github-saved-bootstrap-").toFile()
+        try {
+            val scope = "scope"
+            val id = UUID.randomUUID().toString()
+            val first = JsonPrimitive("$id:0:2048")
+            val later = JsonPrimitive("$id:1:2048")
+            val state = GitHubRepositoryStateStore(directory)
+            val store = GitHubSavedViewStore(state, scope)
+            fun page(cursor: JsonPrimitive) = buildJsonObject { put("issued_cursors", JsonArray(listOf(cursor))) }
+            store.save(id, page(first))
+            val path = java.io.File(directory, "saved-results/" + GitHubRepositoryStateStore.digest("$scope:saved-view-body:$id") + ".record")
+            assertTrue(path.delete())
+            store.save(id, page(later))
+            assertEquals(JsonArray(listOf(first, later)), store.loadWithDiagnostics(id)["issued_cursors"])
+            assertTrue(runCatching { store.save(id, page(JsonPrimitive("foreign:1:2048"))) }.isFailure)
+            state.remove(scope, "saved-view-access:$id")
+            val reopened = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), scope)
+            assertEquals(JsonArray(listOf(first)), reopened.loadWithDiagnostics(id)["issued_cursors"])
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun savedBodyAndIndexSurviveOrdinaryCachePruningAndRestart() = runBlocking {
         val directory = java.nio.file.Files.createTempDirectory("github-saved-result-retention-").toFile()
         try {

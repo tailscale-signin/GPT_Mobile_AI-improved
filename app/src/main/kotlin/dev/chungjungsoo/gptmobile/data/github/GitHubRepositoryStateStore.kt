@@ -100,6 +100,20 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
         mutex.withLock { writeLocked(scope, key, value) }
     }
 
+    internal suspend fun retainSavedViewBody(scope: String, id: String, create: () -> JsonObject): JsonObject = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val key = "saved-view-body:$id"
+            val identity = "$scope:$key"
+            readLocked(scope, key) ?: run {
+                val legacy = directory?.let { File(it, digest(identity) + ".record") }
+                check(savedViewFile(identity, key)?.exists() != true && legacy?.exists() != true) {
+                    "GITHUB_SAVED_RESULT_BODY_UNREADABLE: preserve the original read receipt."
+                }
+                create().also { writeLocked(scope, key, it) }
+            }
+        }
+    }
+
     /** Update metadata without losing another session's selected revision or evidence handles. */
     suspend fun update(scope: String, key: String, transform: (JsonObject?) -> JsonObject): JsonObject = withContext(Dispatchers.IO) {
         mutex.withLock {

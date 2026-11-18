@@ -58,7 +58,7 @@ class IncidentReportContractTest(unittest.TestCase):
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
     def test_interrupted_run_and_unavailable_continuation_keep_their_codes_in_approved_issues(self):
-        for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE"):
+        for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED"):
             with self.subTest(code=code):
                 report = self.report(self.capture())
                 report.pop("context")
@@ -66,6 +66,14 @@ class IncidentReportContractTest(unittest.TestCase):
                 _, issue = issue_from_report(report)
                 self.assertIn(code, issue["title"])
                 self.assertIn(code, issue["body"])
+
+    def test_new_provider_terminal_causes_are_accepted_as_closed_diagnostic_values(self):
+        for code in ("BUDGET_RESTRICTED", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED"):
+            with self.subTest(code=code):
+                capture = self.capture("PROVIDER", {"provider_failure_code": code})
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("PROVIDER", {"provider_failure_code": code + " private text"}))
 
     def test_voice_pronunciation_reason_is_closed_and_contains_no_spoken_word(self):
         values = {

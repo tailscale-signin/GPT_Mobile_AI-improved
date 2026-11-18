@@ -738,7 +738,7 @@ class IssueReportIncidentsTest {
     @Test
     fun interruptedRunAndUnavailableContinuationKeepTheirDistinctPublicCodes() {
         LocalDiagnosticsPolicy.setEnabled(true)
-        for (code in listOf("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE")) {
+        for (code in listOf("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED")) {
             IssueReportIncidents.chatFailure(code, false)
             val report = IssueReportIncidents.pending.value.single { it.errorCode == code }
             assertEquals("chat", report.feature)

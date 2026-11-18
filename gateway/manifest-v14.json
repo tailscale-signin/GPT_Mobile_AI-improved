@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.1",
   "schemaVersion": 1,
-  "sourceCommit": "4c99203f46354c5e131e1d7b4337ec449e203efa",
+  "sourceCommit": "8a004e0d02d7a294247d728d106ea64745eb19af",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -151,7 +151,7 @@
     "requirements.txt": "21799061f4bc4a313ae9b9c72c35ba5d8e17773de6ee1501cabd2c73ade17ea7",
     "tests/fixture_mcp_server.py": "be56bde9eb747397ca31df9dcb85e0a1e8b1b7be0d9a6da6831958a695532a83",
     "tests/gateway_capability_fixture.py": "f609f039e40274d2e500050f91b2f9967fc8bfbb4c875b84fb7272740db38790",
-    "tests/repository_validation_smoke.py": "e88ce9dbf7ff2d4bb8c4e8857fb542c31e89f94ea54e33c058f34df3f130e8de",
+    "tests/repository_validation_smoke.py": "1281cda5eda664e726ecedadef5e2cc59d103fbfa8bfaa1a7b9bb28f298572a5",
     "tests/test_academic.py": "1ba3e6d83289f788c790f846a186d87afac4c122ba9aede91c75282c7e0555a4",
     "tests/test_deep_research_overhaul.py": "75db5e20ef7d740240e709e85edba4400c7ed3290fdafe4230eace5992117104",
     "tests/test_gateway_acceptance_discovery.py": "c6d0ac396f60f0884f791a1f2b615446fc661e7598e798036543a634e5e717d2",

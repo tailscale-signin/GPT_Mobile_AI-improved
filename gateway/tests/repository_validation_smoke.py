@@ -1,17 +1,54 @@
 """Opt-in CI integration: real Docker and recommended source commands, not mocked tests."""
 import argparse
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from threading import Event
+import xml.etree.ElementTree as ET
+import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from benchmarks.settings import load_settings, save_settings
 from desktop import repository_validation as setup
+from desktop.analysis_export import NS, export_result
+from desktop.analysis_panel import analyze
+from v14.operator_schedule import OperatorSchedule
+from v14.scheduled_validation import KIND, run_tests
 from desktop.configuration import environment, validate as validate_configuration
 from desktop.validation_policy import SETTING
 from v14.engineering_validation import validate
+
+
+def verify_operator_work(root, pinned_image, head):
+    initial = load_settings(root)
+    save_settings(root, dict(initial, sandbox_image=pinned_image), expected=initial)
+    first = analyze(root, 'def handle(data):\n    return [[name, value * 2] for name, value in data]', '[["Review",3]]', Event())
+    revised = analyze(root, 'def handle(data):\n    return [[name, value + 1] for name, value in data]', first, Event())
+    if json.loads(revised) != [['Review', 7]]:
+        raise ValueError('Revising the container result changed the wrong value')
+    sheet = export_result(revised, '.ods')
+    with zipfile.ZipFile(io.BytesIO(sheet)) as archive:
+        rows = ET.fromstring(archive.read('content.xml')).findall('.//table:table-cell', NS)
+        if len(rows) != 2 or rows[1].get('{%s}value' % NS['office']) != '7':
+            raise ValueError('Spreadsheet export did not preserve the calculated number')
+    clock = [100]
+    store = OperatorSchedule(root / 'data', lambda: clock[0])
+    key = store.add('Managed repository qualification', KIND, 1, 0, setup.DEFAULT_REPOSITORY)
+    clock[0] = 160
+    run_tests(store, Event())
+    # Reopen the actual schedule store and exercise a second service tick.
+    reopened = OperatorSchedule(root / 'data', lambda: clock[0])
+    run_tests(reopened, Event())
+    history = reopened.test_history(key)
+    if len(history) != 1 or history[0][1]['status'] != 'PASSED' or history[0][1]['source_sha'] != head:
+        raise ValueError('Scheduled validation did not save one passing exact-revision receipt')
+    return {'status': 'PASSED', 'image': pinned_image, 'scheduled_validation': history[0][1],
+            'analysis_revisions': 2, 'spreadsheet_sha256': hashlib.sha256(sheet).hexdigest()}
 
 
 def main():
@@ -46,6 +83,9 @@ def main():
             os.environ[SETTING] = first[SETTING]
             try:
                 result = validate({'request': {'repository': setup.DEFAULT_REPOSITORY}, 'data': {'head_sha': head}}, [])
+                receipt.update(readiness=readiness, validation=result)
+                if result['status'] == 'PASSED':
+                    receipt['operator_work'] = verify_operator_work(root, options['image'], head)
             finally:
                 if previous is None:
                     os.environ.pop(SETTING, None)

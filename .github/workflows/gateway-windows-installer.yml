@@ -47,7 +47,9 @@ jobs:
         if: failure()
         with:
           name: Gateway-Windows-diagnostics
-          path: dist/windows/*.log
+          path: |
+            dist/windows/*.log
+            dist/windows/smoke-failure.json
           if-no-files-found: ignore
 
   publish:

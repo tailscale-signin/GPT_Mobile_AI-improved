@@ -67,11 +67,15 @@ internal class ResearchSourceIndexer(
             )
             dao.outbox(outbox)
             dao.saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(receiptId, runId, source.id, chatId, disposition = "SAVE_PENDING", updatedAt = System.currentTimeMillis()))
+            var phase = "BODY_READ"
             try {
                 val body = readBody(source)
+                phase = "ARCHIVE_CAPTURE"
                 val captured = dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveIngestor.capture(database, source, authority, publicEvidence || source.publicCapture && source.retrievalReceipt.isNotBlank(), chatId, turnId, eligible, epoch, researchHash(body), body.toByteArray().size.toLong(), automaticOrganization = settings?.researchFeature?.automaticOrganization == true, unexaminedLimit = settings?.researchFeature?.unexaminedStudyLimit ?: 1000)
+                phase = "MEMBERSHIP_VERIFICATION"
                 val saved = dao.membership(captured.workId) != null
                 val identityReviewRequired = dao.identityResolutions(captured.workId).any { it.disposition == "IDENTITY_REVIEW_REQUIRED" }
+                phase = "RECEIPT_COMMIT"
                 dao.saveReceipt(
                     dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(
                         receiptId,
@@ -92,7 +96,9 @@ internal class ResearchSourceIndexer(
                         updatedAt = System.currentTimeMillis()
                     )
                 )
+                phase = "OUTBOX_ACKNOWLEDGEMENT"
                 dao.acknowledge(outbox.id, outbox.createdAt)
+                phase = "EXAMINATION_QUEUE"
                 if (!identityReviewRequired && eligible && acceptedTools != null && (source.paperId.isNotBlank() || source.doi.isNotBlank() || source.pmid.isNotBlank() || source.pmcid.isNotBlank())) {
                     val selection = settings?.conversationResearch?.get(chatId) ?: acceptedTools.research
                     val research = selection?.academicEligibleByUi == true
@@ -122,8 +128,8 @@ internal class ResearchSourceIndexer(
                 val reason = archiveIngestionFailure(error)
                 val now = System.currentTimeMillis()
                 dao.outbox(outbox.failedIngestion(now, reason))
-                dao.saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(receiptId, runId, source.id, chatId, disposition = if (reason == "IDENTITY_CONFLICT_REQUIRES_REVIEW") "IDENTITY_REVIEW_REQUIRED" else "SAVE_FAILED", reason = "$reason:${error.javaClass.simpleName}", updatedAt = now))
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchArchive", "SAVE_FAILED · receiptId=$receiptId · runId=$runId · sourceId=${source.id} · reason=$reason · exception=${error.javaClass.simpleName} · retry=durable_backoff", "W")
+                dao.saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(receiptId, runId, source.id, chatId, disposition = if (reason == "IDENTITY_CONFLICT_REQUIRES_REVIEW") "IDENTITY_REVIEW_REQUIRED" else "SAVE_FAILED", reason = archiveIngestionReceiptReason(error, phase), updatedAt = now))
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchArchive", "SAVE_FAILED · receiptId=$receiptId · runId=$runId · sourceId=${source.id} · reason=$reason · phase=$phase · cause=${archiveIngestionCauseCode(error)} · site=${archiveIngestionFailureSite(error)} · retry=bounded_durable", "W")
             }
         }
         return scheduledAny

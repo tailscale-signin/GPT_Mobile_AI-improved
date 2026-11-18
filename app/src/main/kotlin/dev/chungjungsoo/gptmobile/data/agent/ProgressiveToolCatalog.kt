@@ -680,9 +680,11 @@ class ProgressiveToolCatalog(
             // An individual authorized GitHub schema may exceed the soft discovery
             // window. Hard provider context admission still precedes all dispatch.
             val cost = schemaTokens(presented(tool))
-            val singleGitHubContract = contextCeilingTokens == null &&
-                (githubMode || integrationPreset) && isGitHubTool(tool) &&
-                selected.all { it.name == "read_recovery_context" }
+            val singleGitHubContract =
+                contextCeilingTokens == null &&
+                    (githubMode || integrationPreset) &&
+                    isGitHubTool(tool) &&
+                    selected.all { it.name == "read_recovery_context" }
             val reason = when {
                 cost + 256 > schemaAllowance && !singleGitHubContract -> "SCHEMA_TOO_LARGE"
                 selected.size >= toolAllowance -> "TOOL_COUNT_WINDOW"
@@ -732,6 +734,7 @@ class ProgressiveToolCatalog(
         // Leaves room for the discovery schema and source content in the parent request planner.
         const val SCHEMA_TOKEN_ALLOWANCE = 2_000
         const val MAX_SCHEMA_TOKEN_ALLOWANCE = 6_000
+
         // Do not spend an unknown/small provider's entire budget advertising tools.
         // The remaining capacity funds system instructions, prompt, completion and receipts.
         private fun contextSchemaAllowance(ceiling: Int?): Int =

@@ -386,18 +386,43 @@ internal class GitHubRepositorySession(
         }
     }
 
+    /** Index coverage excludes binary and unsupported blobs that preparation never fetches. */
+    private fun indexableSourceEntries(entries: List<JsonObject>): List<JsonObject> {
+        val extensions = setOf("kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "json", "yaml", "yml", "xml", "toml", "md", "c", "cpp", "h", "hpp", "rs", "go", "cs", "swift", "sh", "properties", "gradle", "txt")
+        val extensionless = setOf("README", "LICENSE", "DOCKERFILE", "MAKEFILE")
+        return entries.filter { entry ->
+            val path = entry.s("path")
+            path.substringAfterLast('.').lowercase() in extensions ||
+                path.substringAfterLast('/').uppercase() in extensionless
+        }
+    }
+
     private suspend fun indexStatus(context: GitHubTaskSnapshot): JsonObject {
         val tree = tree(context)
         val candidates = tree["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }
-        var loaded = 0
-        for (entry in candidates) if (store.contains(blobScope(context), "blob:${entry.s("sha")}")) loaded++
+        val eligible = indexableSourceEntries(candidates)
+        val sourceScope = blobScope(context)
+        var cachedAll = 0
+        var cachedEligible = 0
+        val eligibleShas = eligible.mapTo(mutableSetOf()) { it.s("sha") }
+        for (entry in candidates) {
+            if (store.contains(sourceScope, "blob:${entry.s("sha")}")) {
+                cachedAll++
+                if (entry.s("sha") in eligibleShas) cachedEligible++
+            }
+        }
+        val treeComplete = tree["truncated"]?.jsonPrimitive?.booleanOrNull != true
         return buildJsonObject {
             put("commit_sha", context.commitSha)
             put("tree_sha", context.treeSha)
             put("total_paths", candidates.size)
-            put("indexed_blobs", loaded)
-            put("complete", loaded == candidates.size && tree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
-            put("tree_complete", tree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
+            put("indexed_blobs", cachedAll)
+            put("eligible_paths", eligible.size)
+            put("indexed_eligible_blobs", cachedEligible)
+            put("excluded_nonindexable_paths", candidates.size - eligible.size)
+            put("index_coverage_scope", "ELIGIBLE_TEXT_SOURCE_ONLY")
+            put("complete", cachedEligible == eligible.size && treeComplete)
+            put("tree_complete", treeComplete)
             put("kind", "lexical")
             put("compiler_resolution", false)
         }
@@ -406,8 +431,7 @@ internal class GitHubRepositorySession(
     /** Explicit foreground preparation. Every batch is bounded and pinned to one SHA. */
     private suspend fun buildIndex(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
         val entries = tree(context)["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
-        val sourceExtensions = setOf("kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "json", "yaml", "yml", "xml", "toml", "md", "c", "cpp", "h", "hpp", "rs", "go", "cs", "swift", "sh", "properties", "gradle", "txt")
-        val eligible = entries.filter { item -> item.s("path").substringAfterLast('.').lowercase() in sourceExtensions || item.s("path").substringAfterLast('/').uppercase() in setOf("README", "LICENSE", "DOCKERFILE", "MAKEFILE") }
+        val eligible = indexableSourceEntries(entries)
         val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..eligible.size) }
         var next = cursor
         var bytes = 0L

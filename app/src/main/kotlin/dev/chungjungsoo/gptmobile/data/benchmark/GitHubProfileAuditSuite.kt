@@ -188,6 +188,14 @@ internal object GitHubProfileAuditSuite {
             "github_pr" -> {
                 when (action) {
                     "list" -> Unit
+                    "copilot_create_task" -> {
+                        str("request_id", "offline-copilot-fixture-1")
+                        str("prompt", "Inspect and repair the isolated in-memory fixture only.")
+                        str("base_ref", "main")
+                        str("expected_base_sha", sha)
+                    }
+                    "copilot_task_status" -> str("task_id", "offline-copilot-fixture-1")
+                    "copilot_tasks" -> Unit
                     "create" -> {
                         str("title", "Fixture")
                         str("head", "feature")

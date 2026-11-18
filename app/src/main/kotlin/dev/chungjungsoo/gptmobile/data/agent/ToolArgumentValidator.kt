@@ -45,7 +45,7 @@ internal object ToolArgumentValidator {
                     "For a fresh page use per_page=1..100. Do not copy an action from a different request. "
             "github_search" ->
                 "Use action=search, search_repository or search_code with query. Do not send per_page: " +
-                    "github_search does not accept it. max_new_blobs bounds source fetches, not remote pagination. " +
+                    "github_search does not accept it. max_new_blobs must be 1..100 (omit for the default); it is not a remote page size. " +
                     "For another page, use the last result's exact continuation_call. "
             else -> ""
         }
@@ -208,7 +208,8 @@ internal object ToolArgumentValidator {
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
         val operation = toolName.githubOperationFamily()
         if (operation == "github_search" &&
-            arguments.keys.none { it in setOf("view_cursor", "index_cursor", "search_id") } &&
+            arguments.keys.none { it in setOf("view_cursor", "search_id") } &&
+            arguments["index_cursor"] in setOf(null, JsonPrimitive(0)) &&
             (integer(arguments["page"]) ?: 1) == 1
         ) {
             val declared = schema["properties"] as? JsonObject

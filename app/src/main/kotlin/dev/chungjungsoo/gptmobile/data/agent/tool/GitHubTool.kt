@@ -711,9 +711,9 @@ class GitHubTool(
                     val requested = (arguments["allowed_actions"] as? JsonArray)
                         ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content }
                         ?: configured
-                    if (requested.isEmpty() || requested.distinct().size != requested.size ||
-                        requested.any { it !in configured }
-                    ) {
+                    val invalidSelection = requested.isEmpty() || requested.distinct().size != requested.size
+                    val unauthorizedAction = requested.any { it !in configured }
+                    if (invalidSelection || unauthorizedAction) {
                         return AgentToolResult(
                             callId,
                             ToolResultContent.Text("The requested Copilot repair permissions exceed the GitHub plugin's configured allowances. Nothing was dispatched."),

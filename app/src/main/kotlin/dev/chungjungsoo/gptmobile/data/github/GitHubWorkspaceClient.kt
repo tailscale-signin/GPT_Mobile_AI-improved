@@ -1227,8 +1227,9 @@ class GitHubWorkspaceClient(
                 val selected = (args["allowed_actions"] as? JsonArray)
                     ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content }
                     ?: error("Choose explicit permitted Agent Merge actions.")
-                require(selected.isNotEmpty() && selected.distinct().size == selected.size &&
-                    selected.all { it in setOf("fix_ci", "resolve_merge_conflicts") }) {
+                val wrongSelection = selected.isEmpty() || selected.distinct().size != selected.size
+                val unauthorizedAction = selected.any { it !in setOf("fix_ci", "resolve_merge_conflicts") }
+                require(!wrongSelection && !unauthorizedAction) {
                     "Agent Merge can only fix_ci and resolve_merge_conflicts; it never enables auto-merge."
                 }
                 request(

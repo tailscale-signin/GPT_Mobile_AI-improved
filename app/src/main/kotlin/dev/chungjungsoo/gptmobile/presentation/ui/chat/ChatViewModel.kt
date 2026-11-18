@@ -1670,25 +1670,25 @@ class ChatViewModel @Inject constructor(
                 val identity = settingRepository.ensureConversationIdentity(chatId)
                 conversationDelegationMutex.withLock {
                     settingRepository.mutateFeatureSettings { latest ->
-                        if (latest.conversationGitHub[chatId]?.sameWorkspace(context) != true ||
-                            latest.conversationIdentities[chatId] != identity ||
-                            enabled && latest.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled != true
-                        ) {
+                        val bound = latest.conversationGitHub[chatId]?.sameWorkspace(context) == true &&
+                            latest.conversationIdentities[chatId] == identity
+                        val pluginEnabled =
+                            latest.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true
+                        if (!bound || (enabled && !pluginEnabled)) {
                             latest
                         } else {
-                            latest.copy(
-                                githubCopilotConversations = if (enabled) {
-                                    latest.githubCopilotConversations + (
-                                        chatId to dev.chungjungsoo.gptmobile.data.github.GitHubCopilotConversationPreference(
-                                            identity,
-                                            dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions.workspaceKey(context),
-                                            true
-                                        )
+                            val updated = if (enabled) {
+                                latest.githubCopilotConversations + mapOf(
+                                    chatId to dev.chungjungsoo.gptmobile.data.github.GitHubCopilotConversationPreference(
+                                        identity,
+                                        dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions.workspaceKey(context),
+                                        true
                                     )
-                                } else {
-                                    latest.githubCopilotConversations - chatId
-                                }
-                            )
+                                )
+                            } else {
+                                latest.githubCopilotConversations - chatId
+                            }
+                            latest.copy(githubCopilotConversations = updated)
                         }
                     }
                 }

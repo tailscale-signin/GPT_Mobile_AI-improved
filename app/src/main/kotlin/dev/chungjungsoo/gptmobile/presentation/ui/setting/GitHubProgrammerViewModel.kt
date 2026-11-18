@@ -10,9 +10,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotConversationPreference
-import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionPreference
 import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
@@ -356,25 +356,25 @@ class GitHubProgrammerViewModel @Inject constructor(
             try {
                 val identity = settings.ensureConversationIdentity(chatId)
                 settings.mutateFeatureSettings { current ->
-                    if (current.conversationGitHub[chatId]?.sameWorkspace(context) != true ||
-                        current.conversationIdentities[chatId] != identity ||
-                        enabled && current.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled != true
-                    ) {
+                    val bound = current.conversationGitHub[chatId]?.sameWorkspace(context) == true &&
+                        current.conversationIdentities[chatId] == identity
+                    val pluginEnabled =
+                        current.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true
+                    if (!bound || (enabled && !pluginEnabled)) {
                         current
                     } else {
-                        current.copy(
-                            githubCopilotConversations = if (enabled) {
-                                current.githubCopilotConversations + (
-                                    chatId to GitHubCopilotConversationPreference(
-                                        identity,
-                                        GitHubChatDecisions.workspaceKey(context),
-                                        true
-                                    )
+                        val updated = if (enabled) {
+                            current.githubCopilotConversations + mapOf(
+                                chatId to GitHubCopilotConversationPreference(
+                                    identity,
+                                    GitHubChatDecisions.workspaceKey(context),
+                                    true
                                 )
-                            } else {
-                                current.githubCopilotConversations - chatId
-                            }
-                        )
+                            )
+                        } else {
+                            current.githubCopilotConversations - chatId
+                        }
+                        current.copy(githubCopilotConversations = updated)
                     }
                 }
             } catch (cancelled: CancellationException) {

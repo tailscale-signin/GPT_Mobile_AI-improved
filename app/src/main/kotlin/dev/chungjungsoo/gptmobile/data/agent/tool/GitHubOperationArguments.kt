@@ -304,10 +304,14 @@ internal object GitHubOperationArguments {
                             }
                             if ("allowed_actions" in args) {
                                 val allowed = args["allowed_actions"] as? JsonArray
-                                if (allowed == null || allowed.isEmpty() || allowed.size > 2 ||
-                                    allowed.distinct().size != allowed.size ||
-                                    allowed.any { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content !in setOf("fix_ci", "resolve_merge_conflicts") }
-                                ) {
+                                val selected = allowed
+                                    ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content }
+                                    .orEmpty()
+                                val wrongCount = selected.size !in 1..2
+                                val wrongTypes = selected.size != allowed?.size
+                                val duplicates = selected.distinct().size != selected.size
+                                val invalidValues = selected.any { it !in setOf("fix_ci", "resolve_merge_conflicts") }
+                                if (wrongCount || wrongTypes || duplicates || invalidValues) {
                                     errors += "allowed_actions must contain 1 or 2 distinct values from fix_ci, resolve_merge_conflicts"
                                 }
                             }

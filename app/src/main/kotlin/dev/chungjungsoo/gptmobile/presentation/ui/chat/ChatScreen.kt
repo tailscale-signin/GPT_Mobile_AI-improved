@@ -1448,6 +1448,8 @@ private fun ChatScreenContent(
             var currentProfileUid by remember(initialProfileUid) { mutableStateOf(initialProfileUid) }
             val combinedSaveState by chatViewModel.combinedSettingsSaveState.collectAsStateWithLifecycle()
             val combinedConversationIdentity by chatViewModel.combinedConversationIdentity.collectAsStateWithLifecycle()
+            val githubCopilotPluginOn =
+                featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true
             ChatModelDialog(
                 conversationMode = chatRoom.conversationMode,
                 conversationIdentity = combinedConversationIdentity,
@@ -1482,8 +1484,7 @@ private fun ChatScreenContent(
                 initialReasoning = chatToolConfig.reasoning ?: appAllPlatforms.firstOrNull { it.uid in activePlatformUids }?.reasoning ?: false,
                 onReasoningChanged = chatViewModel::setConversationReasoning,
                 githubConversation = chatToolConfig.github != null,
-                githubCopilotAvailable = chatToolConfig.github != null && !chatRoom.isTemporary &&
-                    featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true,
+                githubCopilotAvailable = chatToolConfig.github != null && !chatRoom.isTemporary && githubCopilotPluginOn,
                 githubCopilotEnabled = dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(
                     featureSettings,
                     chatRoom.id,

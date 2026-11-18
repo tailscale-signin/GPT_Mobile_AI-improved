@@ -51,7 +51,7 @@ class ProgressiveToolCatalog(
         emptySet()
     }
     private fun deferInitially(operation: String?): Boolean =
-        operation in deferredEngineering && operation !in upfrontEngineering
+        operation != null && operation in deferredEngineering && operation !in upfrontEngineering
 
     private val taskRequired = definitions.filter { definition ->
         definition.modelVisible &&

@@ -10,6 +10,7 @@ from tkinter import filedialog, ttk
 
 from benchmarks.sandbox import execute
 from benchmarks.settings import load_settings
+from desktop.analysis_export import FILE_TYPES, export_result
 
 
 def analyze(root, code, source, cancel):
@@ -71,11 +72,14 @@ def show_analysis(parent, root, initial_code, append_result):
             except (ValueError, OSError, csv.Error, RecursionError) as error:
                 show_status(error)
     def save():
-        path = filedialog.asksaveasfilename(parent=window, defaultextension='.json', filetypes=[('JSON', '*.json')])
+        path = filedialog.asksaveasfilename(parent=window, defaultextension='.json', filetypes=FILE_TYPES)
         if path:
             try:
-                Path(path).write_text(output.get('1.0', 'end-1c'), encoding='utf-8')
-            except OSError as error:
+                target = Path(path)
+                data = export_result(output.get('1.0', 'end-1c'), target.suffix.lower())
+                target.write_bytes(data)
+                status.set('Saved ' + target.name)
+            except (OSError, ValueError, RecursionError) as error:
                 show_status(error)
     def poll():
         try:
@@ -109,7 +113,7 @@ def show_analysis(parent, root, initial_code, append_result):
     ttk.Button(toolbar, text='Open data…', command=load).pack(side='left')
     run_button = ttk.Button(toolbar, text='Run analysis', command=run)
     run_button.pack(side='left')
-    save_button = ttk.Button(toolbar, text='Save JSON…', command=save, state='disabled')
+    save_button = ttk.Button(toolbar, text='Export result…', command=save, state='disabled')
     save_button.pack(side='left')
     def use_result():
         value = output.get('1.0', 'end-1c')

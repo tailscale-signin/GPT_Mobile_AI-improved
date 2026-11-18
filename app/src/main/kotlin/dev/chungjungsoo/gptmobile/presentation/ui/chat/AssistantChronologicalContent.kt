@@ -161,6 +161,9 @@ internal fun AssistantChronologicalContent(
             if (hasGatewaySource) {
                 Text("Gateway", style = MaterialTheme.typography.labelMedium, color = ResponseSourceAppearance.gatewayForeground(MaterialTheme.colorScheme.primary, responseSurface), modifier = Modifier.padding(bottom = 4.dp))
             }
+            documentSource?.modelId?.takeIf { it.isNotBlank() }?.let { model ->
+                Text(model, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
+            }
             beforeAnswer()
             key(answerIdentity) {
                 CompositionLocalProvider(LocalAnswerSource provides documentSource) {

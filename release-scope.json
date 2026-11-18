@@ -3087,6 +3087,10 @@
     "app/src/main/res/xml/provider_privacy_restrictions.xml",
     "docs/privacy-verified-profiles.md",
     "gateway/tests/test_private_inference.py",
-    "gateway/v14/private_inference.py"
+    "gateway/v14/private_inference.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ModelContextDiscovery.kt",
+    "gateway/desktop/analysis_export.py",
+    "scripts/qualify_connected_chat.py",
+    "scripts/tests/test_connected_chat.py"
   ]
 }

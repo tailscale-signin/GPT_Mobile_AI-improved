@@ -58,6 +58,10 @@ class ContextBudgetServiceTest {
         val body = """{"data":[{"id":"large","context_length":128000},{"id":"small","context_length":4096}]}"""
         assertEquals(4096, discoverContextCeiling(body, "small"))
         assertNull(discoverContextCeiling(body, "unknown"))
+        assertNull(discoverContextCeiling("""{"context_length":128000,"models":[{"name":"other"}]}""", "small"))
+        assertNull(discoverContextCeiling("""{"id":"other","context_length":128000}""", "small"))
+        assertEquals(4096, discoverContextCeiling("""{"model":"small","meta":{"n_ctx":4096}}""", "small"))
+        assertEquals(2048, discoverContextCeiling("""{"data":[{"id":"small","n_ctx":8192},{"id":"small","n_ctx":2048}]}""", "small"))
         assertNull(discoverContextCeiling("""{"context_length":-1}""", "model"))
     }
 

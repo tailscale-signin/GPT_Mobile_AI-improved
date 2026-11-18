@@ -1,4 +1,5 @@
 """Exercise the durable timer with real journal files and analysis handoff contracts."""
+import io
 import json
 from pathlib import Path
 import sqlite3
@@ -6,6 +7,11 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
+import xml.etree.ElementTree as ET
+import zipfile
+
+from desktop.analysis_export import NS, export_result
+from v14.job_catalog import engineering_summary
 
 from desktop.analysis_panel import analyze, import_data
 from v14.operator_schedule import OperatorSchedule
@@ -58,3 +64,40 @@ class OperatorWorkTest(unittest.TestCase):
             self.assertEqual(({'service.py': code}, [[['Name', 'Value'], ['A,B', '3']]]), runner.call_args.args[:2])
         with self.assertRaises(ValueError):
             analyze(self.root, code, 'x' * 131073, None)
+
+    def test_waiting_provider_is_never_reported_running_due_to_a_lease(self):
+        job = {'id': 'job1', 'state': 'PLAN', 'request': {'repository': 'org/r', 'base': 'main', 'branch': 'work'},
+               'revision': 2, 'created_at': 1, 'updated_at': 2, 'provider_wait': {'retry_at': 101}}
+        summary = engineering_summary(job, True, 100)
+        self.assertEqual(('queued', 'automatic_retry'), (summary['state'], summary['queue_reason']))
+        self.assertEqual('running', engineering_summary(job, True, 101)['state'])
+        for phase, expected in [('NEEDS_INPUT', 'needs_attention'), ('COMPLETED', 'completed'), ('CANCELLED', 'cancelled')]:
+            self.assertEqual(expected, engineering_summary(dict(job, state=phase), True, 100)['state'])
+
+    def test_open_document_exports_preserve_values_without_executable_markup(self):
+        cases = [('.odt', 'Example <script>'), ('.ods', [{'Measure': '=2+2', 'Total': 3, 'Flag': True}]),
+                 ('.odp', [{'title': 'Review', 'bullets': ['One & two']}])]
+        for suffix, data in cases:
+            with self.subTest(suffix=suffix), zipfile.ZipFile(io.BytesIO(export_result(json.dumps(data), suffix))) as archive:
+                self.assertEqual(archive.namelist()[0], 'mimetype')
+                self.assertEqual(archive.getinfo('mimetype').compress_type, zipfile.ZIP_STORED)
+                content = ET.fromstring(archive.read('content.xml'))
+                paragraphs = [p.text for p in content.findall('.//text:p', NS)]
+                if suffix == '.ods':
+                    cells = content.findall('.//table:table-cell', NS)[-3:]
+                    self.assertEqual([cell.get('{%s}value-type' % NS['office']) for cell in cells], ['string', 'float', 'boolean'])
+                    self.assertFalse(any(any('formula' in key for key in cell.attrib) for cell in cells))
+                elif suffix == '.odt':
+                    self.assertEqual(paragraphs, [data])
+                else:
+                    self.assertEqual(paragraphs, ['Review', '• One & two'])
+
+    def test_chart_supports_negative_values_and_rejects_non_numeric_series(self):
+        root = ET.fromstring(export_result('[["Name","Value"],["<a>",-2],["B",1]]', '.svg'))
+        rects = root.findall('{http://www.w3.org/2000/svg}rect')
+        self.assertEqual([float(rect.get('width')) for rect in rects], [240, 120])
+        self.assertIn('<a>', list(root.itertext()))
+        for raw, ext in [('[["A","12"]]', '.svg'), ('{"slides":[{}]}', '.odp'),
+                         ('["a"]', '.ods'), ('"a\\u0000"', '.odt'), ('[1e400]', '.ods')]:
+            with self.assertRaises(ValueError):
+                export_result(raw, ext)

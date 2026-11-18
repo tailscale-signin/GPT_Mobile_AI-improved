@@ -27,6 +27,7 @@ import org.junit.Test
 class GitHubWorkspaceClientTest {
     @Test fun copilotAgentMergeUsesSelectedPrAndNeverCallsAutoMerge() = runTest {
         val expected = "a".repeat(40)
+        var prState = "open"
         val methods = mutableListOf<HttpMethod>()
         val targets = mutableListOf<String>()
         val http = HttpClient(
@@ -35,7 +36,7 @@ class GitHubWorkspaceClientTest {
                 targets += req.url.encodedPath
                 when (req.url.encodedPath) {
                     "/repos/o/r/pulls/7" ->
-                        respond("""{"state":"open","head":{"sha":"$expected","repo":{"full_name":"o/r"}}}""")
+                        respond("""{"state":"$prState","head":{"sha":"$expected","repo":{"full_name":"o/r"}}}""")
                     "/agents/repos/o/r/pulls/7/agent-merge" -> when (req.method) {
                         HttpMethod.Get -> respond("""{"allowed_actions":["fix_ci"],"updated_at":"2026-11-18T00:00:00Z"}""")
                         HttpMethod.Put -> respond("""{"allowed_actions":["fix_ci"]}""")
@@ -64,7 +65,7 @@ class GitHubWorkspaceClientTest {
             }
             val read = client.execute("agent_merge_status", target).jsonObject
             assertEquals(JsonPrimitive("ENROLLED"), read["state"])
-            assertEquals(JsonPrimitive(false), read["automatic_merge"])
+            assertEquals(JsonPrimitive(false), read["agent_merge_controls_auto_merge"])
             assertFalse(targets.any { "auto-merge" in it })
             val oldRequests = methods.size
             val wrong = runCatching {
@@ -82,7 +83,7 @@ class GitHubWorkspaceClientTest {
                 )
             ).jsonObject
             assertTrue(methods.contains(HttpMethod.Put))
-            assertEquals(JsonPrimitive(false), enabled["automatic_merge"])
+            assertEquals(JsonPrimitive(false), enabled["agent_merge_controls_auto_merge"])
             assertFalse(targets.any { "auto-merge" in it })
             val rejectedCount = methods.count { it == HttpMethod.Put }
             assertTrue(
@@ -94,11 +95,13 @@ class GitHubWorkspaceClientTest {
                 }.isFailure
             )
             assertEquals(rejectedCount, methods.count { it == HttpMethod.Put })
+            // GitHub allows cleanup even if eligibility changes after setup.
+            prState = "closed"
             val disabled = client.execute(
                 "agent_merge_disable",
                 JsonObject(target + ("expected_head_sha" to JsonPrimitive(expected)))
             ).jsonObject
-            assertEquals(JsonPrimitive(false), disabled["automatic_merge"])
+            assertEquals(JsonPrimitive(false), disabled["agent_merge_controls_auto_merge"])
             assertTrue(methods.contains(HttpMethod.Delete))
         } finally {
             http.close()

@@ -117,7 +117,7 @@ internal fun PluginConfigurationDialog(
                             config = config.copy(githubCopilotResolveConflicts = it)
                         }
                         Text(
-                            "Off by default. Each GitHub conversation also needs its own opt-in. This switch does not enroll a PR, incur Copilot repair usage, or enable automatic merging. PR enrollment requires an approved tool action.",
+                            "Off by default. Each conversation also needs opt-in. This switch never enrolls a PR or enables auto-merge. Turning it off blocks new repairs, but does not end an existing enrollment: use agent_merge_disable on that PR to stop Copilot watching it.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

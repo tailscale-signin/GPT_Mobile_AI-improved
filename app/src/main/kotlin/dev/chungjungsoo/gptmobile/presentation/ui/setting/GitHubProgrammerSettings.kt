@@ -145,7 +145,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     } else if (state.chatId == null) {
                         "Start or open a GitHub conversation to configure its consent."
                     } else {
-                        "Disabled for new chats by default. Enrolling a PR requires an explicit GitHub tool action and authorization; auto-merge stays off."
+                        "Off for new chats. The toggle controls new calls, not existing PR enrollments; use agent_merge_disable to stop a watched PR. Automatic merging stays off."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

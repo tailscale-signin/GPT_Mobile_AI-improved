@@ -302,3 +302,9 @@ Affected existing files and new tests belong to this single draft PR;
 no separate PR or automatic merge is requested. Exact-head build,
 Kotlin formatting, permission regressions, GitHub API/mock tests and
 installed Android UI validation are still qualification requirements.
+
+Agent Merge cleanup may explicitly call `agent_merge_disable` even after the local
+opt-in is revoked or the PR is closed. Switching a conversation off alone does
+not remotely unenroll a PR. `agent_merge_controls_auto_merge=false` describes
+the scope of these tools, not the repository's observed separate auto-merge
+configuration.

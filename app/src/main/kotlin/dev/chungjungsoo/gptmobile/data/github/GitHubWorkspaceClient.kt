@@ -1190,7 +1190,7 @@ class GitHubWorkspaceClient(
                     put("pull_number", number)
                     enrolled["allowed_actions"]?.let { put("allowed_actions", it) }
                     enrolled["updated_at"]?.let { put("updated_at", it) }
-                    put("automatic_merge", false)
+                    put("agent_merge_controls_auto_merge", false)
                     put("note", "Agent Merge watches CI and conflicts; GitHub auto-merge is a separate setting.")
                 }
             } catch (failure: GitHubRequestRejected) {
@@ -1215,11 +1215,15 @@ class GitHubWorkspaceClient(
         check(pr["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)) {
             "Pull request head changed. Read the current PR before modifying Agent Merge."
         }
-        check(pr["state"] == JsonPrimitive("open")) { "Agent Merge requires an open pull request." }
-        val headRepo = pr["head"]?.jsonObject?.get("repo") as? JsonObject
-        val observedName = (headRepo?.get("full_name") as? JsonPrimitive)?.content
-        check(observedName == null || observedName.equals(root.removePrefix("/repos/"), ignoreCase = true)) {
-            "Agent Merge cannot be enabled on a pull request from a fork."
+        // Cleanup remains permitted even if this pull request is no longer
+        // eligible for enrollment. GitHub still checks repository authority.
+        if (action != "agent_merge_disable") {
+            check(pr["state"] == JsonPrimitive("open")) { "Agent Merge requires an open pull request." }
+            val headRepo = pr["head"]?.jsonObject?.get("repo") as? JsonObject
+            val observedName = (headRepo?.get("full_name") as? JsonPrimitive)?.content
+            check(observedName == null || observedName.equals(root.removePrefix("/repos/"), ignoreCase = true)) {
+                "Agent Merge cannot be enabled on a pull request from a fork."
+            }
         }
 
         val mutation = when (action) {
@@ -1245,7 +1249,7 @@ class GitHubWorkspaceClient(
             mutation.jsonObject + mapOf(
                 "agent_merge_action" to JsonPrimitive(action),
                 "pull_number" to JsonPrimitive(number),
-                "automatic_merge" to JsonPrimitive(false)
+                "agent_merge_controls_auto_merge" to JsonPrimitive(false)
             )
         )
     }

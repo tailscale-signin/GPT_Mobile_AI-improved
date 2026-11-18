@@ -692,7 +692,11 @@ class GitHubTool(
             val dispatchedArguments = if (copilotMutation) {
                 val live = copilotSettings?.invoke() ?: featureSettings
                 val context = repositoryScope
-                if (!dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(
+                // Allow an explicitly approved disable as emergency cleanup even
+                // when the opt-in was revoked after the PR was enrolled.
+                val consentRequired = action != "agent_merge_disable"
+                if (consentRequired &&
+                    !dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(
                         live,
                         conversationId.toIntOrNull(),
                         context

@@ -404,7 +404,7 @@ fun ChatModelDialog(
                                     }
                                     Text(
                                         if (githubCopilotAvailable) {
-                                            "Off by default. Copilot may fix CI and merge conflicts after an approved PR enrollment. No automatic merge."
+                                            "Off by default. Turn this off to block new Copilot calls. To stop an already watched PR, use the approved agent_merge_disable action. Auto-merge stays off."
                                         } else {
                                             "Enable GitHub Copilot in GitHub plugin settings before opting in here."
                                         },

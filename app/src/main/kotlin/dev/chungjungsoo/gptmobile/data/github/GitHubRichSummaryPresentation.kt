@@ -114,7 +114,7 @@ internal object GitHubRichSummaryPresentation {
     private fun describe(step: String, currentHeadlineFocus: String? = null): String {
         val read = Regex("""(?i)^The source read for (.+?) returned a result for inspection$""").matchEntire(step)
         if (read != null) return if (observationFocus(step) == currentHeadlineFocus) {
-            "The source is available for inspection; no repair has been verified."
+            "Source read is available for inspection; no repair has been verified."
         } else {
             "Source read for ${escape(read.groupValues[1])} is available to inspect; no repair has been verified."
         }

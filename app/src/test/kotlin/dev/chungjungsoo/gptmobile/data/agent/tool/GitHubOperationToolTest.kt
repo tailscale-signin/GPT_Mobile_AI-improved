@@ -99,6 +99,43 @@ class GitHubOperationToolTest {
         }
     }
 
+    @Test fun exactBuild142ZeroBlobSearchReachesNativeBackendWithSafeBound() = runBlocking {
+        val observed = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                observed += arguments
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("ok", true) }), false)
+            }
+        }
+        val search = GitHubOperationTool("github_search", backend, "build142-zero-blobs")
+        val original = listOf(
+            """{"action":"search","mode":"paths","query":"*","index_cursor":0,"batch_size":1000,"max_new_blobs":0}""",
+            """{"action":"search","mode":"paths","query":"*","batch_size":1000,"max_new_blobs":0}"""
+        )
+        original.forEachIndexed { index, json ->
+            val result = search.execute("original-call-$index", args(json))
+            assertFalse(result.toString(), result.isError)
+            assertEquals(JsonPrimitive(1), observed.last()["max_new_blobs"])
+            assertEquals(JsonPrimitive(1000), observed.last()["batch_size"])
+            assertEquals(JsonPrimitive("search_repository"), observed.last()["action"])
+        }
+        assertEquals(JsonPrimitive(0), observed.first()["index_cursor"])
+        assertFalse("index_cursor" in observed.last())
+
+        val before = observed.size
+        for (json in listOf(
+            """{"action":"search","mode":"paths","query":"*","index_cursor":2000,"max_new_blobs":0}""",
+            """{"action":"search","mode":"paths","query":"*","view_cursor":"unissued","max_new_blobs":0}""",
+            """{"action":"search","mode":"paths","query":"*","max_new_blobs":0,"unknown":"unsafe"}"""
+        )) {
+            val rejected = search.execute("no-unsafe-fix", args(json))
+            assertTrue(rejected.isError)
+            assertFalse(rejected.dispatched)
+            assertEquals(before, observed.size)
+        }
+    }
+
     @Test fun selectedIssueListAcceptsAndForwardsTheIssuedCursor() = runBlocking {
         var forwarded: JsonObject? = null
         val backend = object : AgentTool {

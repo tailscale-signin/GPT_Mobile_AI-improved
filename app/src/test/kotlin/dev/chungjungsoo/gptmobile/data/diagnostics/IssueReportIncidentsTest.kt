@@ -442,10 +442,17 @@ class IssueReportIncidentsTest {
         assertFalse(report.approvedPayload().contains("private-permission-run"))
 
         IssueReportIncidents.chatFailure(
-            "HTTP_ERROR", false, null,
-            mapOf("provider" to "OPENROUTER", "failed_stage" to "model_invocation", "http_status" to 403,
-                "remote_acceptance" to "UNKNOWN", "provider_rejection_category" to "PERMISSION",
-                "run_id" to "unverified-permission")
+            "HTTP_ERROR",
+            false,
+            null,
+            mapOf(
+                "provider" to "OPENROUTER",
+                "failed_stage" to "model_invocation",
+                "http_status" to 403,
+                "remote_acceptance" to "UNKNOWN",
+                "provider_rejection_category" to "PERMISSION",
+                "run_id" to "unverified-permission"
+            )
         )
         assertEquals("CHAT_FAILED", IssueReportIncidents.pending.value.last().errorCode)
     }

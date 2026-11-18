@@ -38,6 +38,28 @@ class IssueReportIncidentCapsuleTest {
         assertEquals(boundary, IssueReportIncidentCapsule.invocationFields(null, boundary))
     }
 
+    @Test fun opaqueFailedEventRetainsOnlyProducerPresenceFlagsAndItsCaptureBoundary() {
+        val boundary = IssueReportIncidentCapsule.boundaryFields(
+            IssueReportIncidentCapsule.ExceptionCaptureSite.AGENT_FAILED_EVENT
+        )
+        val evidence = boundary + mapOf(
+            "failed_event_code_present" to JsonPrimitive(false),
+            "failed_event_invocation_present" to JsonPrimitive(false),
+            "failed_event_details_present" to JsonPrimitive(false),
+            "run_id" to JsonPrimitive("private-run")
+        )
+        val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", evidence)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive("AGENT_FAILED_EVENT"), diagnostic.values["incident_capture_site"])
+        assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), diagnostic.values["incident_phase_provenance"])
+        for (key in IssueReportIncidentCapsule.failedEventFields) {
+            assertEquals(JsonPrimitive(false), diagnostic.values[key])
+            assertNull(diagnostic.copy(values = diagnostic.values + (key to JsonPrimitive("private-value"))).validated())
+        }
+        assertEquals(JsonPrimitive("UNAVAILABLE"), diagnostic.values["causal_provenance"])
+        assertFalse(report(context).approvedPayload().contains("private-run"))
+    }
+
     @Test fun sqliteConstraintReportsOnlyAClosedConstraintCategory() {
         val error = IllegalStateException(
             "private run details",

@@ -284,6 +284,66 @@ class ChatRepositoryImplTest {
         assertEquals(0, api.streamChatCompletionCalls)
     }
 
+    @Test fun thinkingAndToolProgressCannotCompleteWithoutAnAnswer() = runBlocking {
+        val repository = createRepository()
+        val trace = mockk<ToolTraceSession>(relaxed = true)
+        coEvery { trace.finish(any(), any()) } returns null
+        val read = ProviderEvent.ToolCall("saved-read", "github_read", buildJsonObject { put("action", "read") })
+        val events = flowOf(
+            AgentRunEvent.Provider(ProviderEvent.ThinkingDelta("Thinking through the source.")),
+            AgentRunEvent.ToolStarted(read),
+            AgentRunEvent.ToolFinished(read, AgentToolResult(read.callId, ToolResultContent.Text("Observed result"), false)),
+            AgentRunEvent.Provider(ProviderEvent.Completed)
+        )
+        for (githubChat in listOf(false, true)) {
+            val states = repository.streamAgentEvents(
+                events,
+                customPlatform(),
+                "no-visible-answer-$githubChat",
+                1,
+                trace,
+                dispatchAuthority = RequestAuthorizationGuard("selected", null) {},
+                githubChat = githubChat
+            ).toList()
+            val error = states.filterIsInstance<ApiState.Error>().single()
+            assertEquals("NO_VISIBLE_ANSWER", error.errorCode)
+            assertEquals(JsonPrimitive("delivery"), error.failureDetails?.get("failed_stage"))
+            assertFalse(states.any { it is ApiState.Success || it is ApiState.CombinedAnswer })
+            assertTrue(states.any { it is ApiState.Thinking })
+        }
+    }
+
+    @Test fun aVisibleAnswerOrPriorFailureDoesNotCreateAnEmptyAnswerError() = runBlocking {
+        val repository = createRepository()
+        val trace = mockk<ToolTraceSession>(relaxed = true)
+        val success = repository.streamAgentEvents(
+            flowOf(
+                AgentRunEvent.Provider(ProviderEvent.TextDelta("Here is the verified answer.")),
+                AgentRunEvent.Provider(ProviderEvent.Completed)
+            ),
+            customPlatform(),
+            "visible-answer",
+            0,
+            trace,
+            dispatchAuthority = RequestAuthorizationGuard("selected", null) {}
+        ).toList()
+        assertTrue(success.any { it is ApiState.Success && it.text.isNotBlank() })
+        assertFalse(success.any { it is ApiState.Error })
+
+        val failed = repository.streamAgentEvents(
+            flowOf(
+                AgentRunEvent.Provider(ProviderEvent.Failed("Provider offline", errorCode = "LOCAL_SERVICE_UNREACHABLE")),
+                AgentRunEvent.Provider(ProviderEvent.Completed)
+            ),
+            customPlatform(),
+            "failed-before-completion",
+            0,
+            trace,
+            dispatchAuthority = RequestAuthorizationGuard("selected", null) {}
+        ).toList()
+        assertEquals(listOf("LOCAL_SERVICE_UNREACHABLE"), failed.filterIsInstance<ApiState.Error>().map { it.errorCode })
+    }
+
     @Test fun nativeToolProgressAfterGatewayTelemetryReplacesStalePreflightSummary() = runBlocking {
         val repository = createRepository()
         val trace = mockk<ToolTraceSession>()

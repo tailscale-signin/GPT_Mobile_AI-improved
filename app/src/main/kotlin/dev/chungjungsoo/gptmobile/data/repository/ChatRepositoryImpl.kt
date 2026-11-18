@@ -6377,7 +6377,18 @@ class ChatRepositoryImpl(
                     is ProviderEvent.Failed -> {
                         val recovery = if (runId.startsWith("combined-synthesis:")) dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.from(providerEvent) else null
                         recovery?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordFailure(observationKey, it.category) }
-                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority), errorCode = providerEvent.errorCode, taskOutcome = providerEvent.taskOutcome, failureDetails = kotlinx.serialization.json.JsonObject(providerEvent.failureDetails.orEmpty() + mapOf("run_id" to kotlinx.serialization.json.JsonPrimitive(runId), "provider_kind" to kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name))), invocationId = providerEvent.invocationId))
+                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority), errorCode = providerEvent.errorCode, taskOutcome = providerEvent.taskOutcome, failureDetails = kotlinx.serialization.json.JsonObject(
+                            dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.boundaryFields(
+                                dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.AGENT_FAILED_EVENT
+                            ) + mapOf(
+                                "failed_event_code_present" to kotlinx.serialization.json.JsonPrimitive(providerEvent.errorCode != null),
+                                "failed_event_invocation_present" to kotlinx.serialization.json.JsonPrimitive(providerEvent.invocationId != null),
+                                "failed_event_details_present" to kotlinx.serialization.json.JsonPrimitive(!providerEvent.failureDetails.isNullOrEmpty())
+                            ) + providerEvent.failureDetails.orEmpty() + mapOf(
+                                "run_id" to kotlinx.serialization.json.JsonPrimitive(runId),
+                                "provider_kind" to kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name)
+                            )
+                        ), invocationId = providerEvent.invocationId))
                     }
                     is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent, providerEvent.researchDelivery))
                     is ProviderEvent.PhaseChanged -> {

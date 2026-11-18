@@ -138,4 +138,8 @@ internal fun universalChatScrollMode(
     isGitHub: Boolean,
     githubMode: GitHubScrollMode,
     standardFollowing: Boolean
-): GitHubScrollMode = if (isGitHub) githubMode else if (standardFollowing) GitHubScrollMode.FOLLOW_BOTTOM else GitHubScrollMode.USER_HISTORY
+): GitHubScrollMode = when {
+    isGitHub -> githubMode
+    standardFollowing -> GitHubScrollMode.FOLLOW_BOTTOM
+    else -> GitHubScrollMode.USER_HISTORY
+}

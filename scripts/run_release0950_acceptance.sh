@@ -265,7 +265,13 @@ for test in ('dialogBlurSwitchActuallyFiltersTheBackground', 'stackedDialogSampl
     check_instrumentation(folder / 'glass-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest', test)
 for test in ('typingFollowUpKeepsStopAndSendIndependent', 'glassComposerKeepsSendStopAndLatestActionsIndependent', 'backgroundRunStartingDoesNotTakeFocusFromADraft'):
     check_instrumentation(folder / 'composer-controls-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ComposerControlsInstrumentedTest', test)
-for test in ('conversationGlassKeepsRequestedOpacityOverFadedMessages', 'conversationGlassFiltersDetailInBothControls', 'conversationGlassDoesNotRevealMessagesBeforeEntryRestores'):
+for test in (
+    'conversationGlassKeepsRequestedOpacityOverFadedMessages',
+    'conversationGlassFiltersDetailInComposerWithoutArrowSurface',
+    'conversationGlassDoesNotRevealMessagesBeforeEntryRestores',
+    'criticalPressureFallsBackAndIdleRecoveryRestoresForcedConversationGlass',
+    'jumpToBottomKeepsTheArrowWithoutItsFormerGlassCircle',
+):
     check_instrumentation(folder / 'conversation-glass-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ConversationGlassInstrumentedTest', test)
 for test in ('combinedTabStagesBothAxesAndRemovesDelegationCard', 'cancelKeepsCommittedMembershipAndPreventsEmptySave', 'membershipRowStagesChangesWithoutSavingImmediately', 'saveableDraftRestoresTheTwoAxesTogether', 'unsupportedFutureControlsStayVisibleButCannotBeEdited'):
     check_instrumentation(folder / 'combined-settings-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedSettingsInstrumentedTest', test)

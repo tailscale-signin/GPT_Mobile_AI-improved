@@ -188,7 +188,7 @@ class GitHubSavedViewRecoveryTest {
             val tool = GitHubOperationTool("github_commit", backend, "scope", views = GitHubResultViews(pageBytes = 2048), loadSavedView = store::load, saveSavedView = store::save)
             val first = tool.execute("commit", json("""{"stage_id":"stage","branch":"work","expected_head_sha":"$sha","message":"Commit"}"""))
             val id = first.executionReceipt!!.getValue("saved_view_id").jsonPrimitive.content
-            val bodyFile = java.io.File(directory, GitHubRepositoryStateStore.digest("account:saved-view-body:$id") + ".record")
+            val bodyFile = java.io.File(directory, "saved-results/" + GitHubRepositoryStateStore.digest("account:saved-view-body:$id") + ".record")
             assertTrue(bodyFile.delete())
             val next = tool.execute("persist-again", continuation(first))
             assertEquals(JsonPrimitive("RETAINED"), next.executionReceipt?.get("saved_view_persistence"))

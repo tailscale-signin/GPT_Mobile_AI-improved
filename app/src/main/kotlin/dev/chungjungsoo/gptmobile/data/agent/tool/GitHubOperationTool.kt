@@ -47,10 +47,18 @@ internal class GitHubOperationTool(
         val canonicalArguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(operation, arguments)
         // Direct callbacks and restored batches share the same schema-safe read
         // normalization. Authorization, operation rules and budgets still run below.
-        val arguments = dev.chungjungsoo.gptmobile.data.agent.GitHubRecoveryCalls.repairSourceRead(
-            dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall(callId, definition.name, canonicalArguments),
-            this
-        ).arguments
+        // A native search must first record schema-invalid arguments at their exact
+        // call identity. Silent correction would erase the original rejection and
+        // prevent diagnostic evidence from being tied to the persisted model call.
+        // Explicit bounded repair remains available through GitHubRecoveryCalls.
+        val arguments = if (operation == "github_search" && backend is GitHubTool) {
+            canonicalArguments
+        } else {
+            dev.chungjungsoo.gptmobile.data.agent.GitHubRecoveryCalls.repairSourceRead(
+                dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall(callId, definition.name, canonicalArguments),
+                this
+            ).arguments
+        }
         val started = System.nanoTime()
         val repairScope = currentCoroutineContext()[ToolArgumentRepairScope]
         val previous = synchronized(rejectedCalls) { rejectedCalls[arguments] }

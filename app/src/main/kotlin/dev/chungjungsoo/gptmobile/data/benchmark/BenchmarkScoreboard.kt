@@ -98,7 +98,7 @@ object BenchmarkScoreboard {
     fun fromRun(run: BenchmarkRun): ScoreboardSubmission? {
         if (!run.finished || run.canceled || run.stoppedReason != null || benchmarkScoreboardIneligibility(run) != null) return null
         val delegation = run.mode == BenchmarkMode.DELEGATION
-        if (!delegation && run.suiteVersion !in setOf(8, 9, BenchmarkSuiteRegistry.VERSION)) return null
+        if (!delegation && run.suiteVersion !in setOf(8, 9, 10, BenchmarkSuiteRegistry.VERSION)) return null
         val worker = run.samples.mapNotNull { it.delegation }.firstOrNull()
         if ((!delegation && run.local) || (delegation && worker == null)) return null
         val plan = if (delegation) run.delegationPlan ?: return null else run.mode
@@ -155,7 +155,7 @@ object BenchmarkScoreboard {
         val delegation = data.kind == ScoreboardKind.DELEGATION
         if (data.schemaVersion >= 2 && (data.effectiveConfigHash?.matches(Regex("[a-f0-9]{64}")) != true || data.comparisonContextHash?.matches(Regex("[a-f0-9]{64}")) != true || (data.measurementVersion ?: 0) !in 1..100 || (data.scoringVersion ?: 0) !in 1..100)) return null
         if (listOfNotNull(data.backend, data.accelerator, data.loadRegime, data.cacheRegime).any { !it.matches(Regex("[A-Za-z0-9 _./-]{1,80}")) } || data.capabilityManifest.any { it !in setOf("text", "structured", "reasoning", "tools", "images") }) return null
-        if (if (delegation) data.suiteVersion != 1 else data.suiteVersion !in setOf(6, 7, 8, 9, BenchmarkSuiteRegistry.VERSION)) return null
+        if (if (delegation) data.suiteVersion != 1 else data.suiteVersion !in setOf(6, 7, 8, 9, 10, BenchmarkSuiteRegistry.VERSION)) return null
         if (delegation && (data.primaryProvider !in providers + "LITERT_LM" || data.reviewerProvider !in providers + "LITERT_LM" || !validModel(data.primaryModel) || !validModel(data.reviewerModel))) return null
         if (!delegation && listOf(data.primaryProvider, data.primaryModel, data.reviewerProvider, data.reviewerModel).any { it != null }) return null
         if (delegation && data.model.equals(data.reviewerModel, ignoreCase = true)) return null

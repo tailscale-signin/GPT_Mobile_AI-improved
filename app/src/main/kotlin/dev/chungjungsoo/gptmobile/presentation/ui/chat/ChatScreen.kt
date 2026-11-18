@@ -994,7 +994,8 @@ private fun ChatScreenContent(
                         // of the input surface to transparent halfway through the bar.
                         bottomFadeStartFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight else 0.dp,
                         bottomFadeEndFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight * 0.5f else 0.dp,
-                        contentVisible = entryPositioned || groupedMessages.userMessages.isEmpty()
+                        contentVisible = entryPositioned || groupedMessages.userMessages.isEmpty(),
+                        topFadeConcentration = if (embeddedHeaderHeight > 0.dp) embeddedHeaderExpansion else chatHeaderExpansion
                     ),
                 state = listState,
                 contentPadding = PaddingValues(top = innerPadding.calculateTopPadding() + embeddedHeaderHeight, bottom = composerHeight + 16.dp)

@@ -239,9 +239,11 @@ internal class NativeSearchValidationFixture(val name: String = "github_search__
     override fun close() = client.close()
 }
 
+/** A continuation is intentionally not eligible for first-page option clamping. */
 internal fun searchValidationArguments() = buildJsonObject {
     put("action", "search")
     put("query", "bounded-private-query")
+    put("index_cursor", 1)
     put("max_new_blobs", 0)
 }
 

@@ -77,6 +77,7 @@ class ChatBottomIndicatorTest {
         for (smooth in listOf(false, true)) {
             compose.runOnIdle { smoothStreaming = smooth }
             compose.onNodeWithTag("conversation").performTouchInput { swipeDown() }
+            compose.mainClock.advanceTimeBy(1_100)
             compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
             compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
             compose.runOnIdle { assertFalse(following) }
@@ -181,9 +182,7 @@ class ChatBottomIndicatorTest {
         compose.mainClock.advanceTimeBy(1_100)
         compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
         compose.runOnIdle { input.stopScroll() }
-        compose.mainClock.advanceTimeBy(4_000)
-        compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
-        compose.mainClock.advanceTimeBy(2_100)
+        compose.mainClock.advanceTimeBy(1_100)
         compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
 
         // Slow reading motion never resurrects the arrow after its timeout.

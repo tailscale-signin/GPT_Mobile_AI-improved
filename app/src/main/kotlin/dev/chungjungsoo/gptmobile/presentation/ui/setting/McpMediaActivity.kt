@@ -3,16 +3,22 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class McpMediaActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedActivity() {
     private var player: MediaPlayer? = null
@@ -30,6 +36,29 @@ class McpMediaActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.Protect
             GPTMobileTheme(themeMode = dev.chungjungsoo.gptmobile.data.model.ThemeMode.SYSTEM) {
                 Column(Modifier.padding(20.dp)) {
                     TextButton(onClick = ::finish) { Text("Back") }
+                    if (safe && file.isFile) {
+                        val scope = rememberCoroutineScope()
+                        val mime = dev.chungjungsoo.gptmobile.data.agent.tool.McpMediaStore.TYPES.entries.firstOrNull { it.value == file.extension }?.key
+                        if (mime != null) {
+                            val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(mime)) { destination ->
+                                if (destination != null) {
+                                    scope.launch {
+                                        val written = withContext(Dispatchers.IO) {
+                                            try {
+                                                file.inputStream().use { input -> contentResolver.openOutputStream(destination, "wt")?.use { output -> input.copyTo(output) } } != null
+                                            } catch (_: java.io.IOException) {
+                                                false
+                                            } catch (_: SecurityException) {
+                                                false
+                                            }
+                                        }
+                                        android.widget.Toast.makeText(this@McpMediaActivity, if (written) "File saved" else "Could not save media", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                            TextButton(onClick = { save.launch("chat-media." + file.extension) }) { Text("Save a copy") }
+                        }
+                    }
                     when {
                         !safe || !file.exists() -> Text("This temporary media result has expired.")
                         image != null -> ZoomableMediaImage(image)

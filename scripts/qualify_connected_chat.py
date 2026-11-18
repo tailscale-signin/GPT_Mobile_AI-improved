@@ -26,7 +26,7 @@ def digest(text):
 def bound_answer(command, history, conversation_id, command_id, model):
     snapshot = history['conversation']
     if (command.get('command_id') != command_id or command.get('conversation_id') != conversation_id
-            or not command.get('job_id') or snapshot.get('conversation_id') != conversation_id
+            or not command.get('job_id') or command.get('model', model) != model or snapshot.get('conversation_id') != conversation_id
             or snapshot.get('history_complete') is not True or snapshot.get('model') != model):
         raise ValueError('COMMAND_OR_MODEL_MISMATCH')
     answers = [item for item in history['messages'] if item.get('role') == 'assistant' and item.get('command_id') == command_id]
@@ -56,6 +56,18 @@ def screen_contains(raw, package, expected):
     return any(n.get('package') == package and expected in (n.get('text', '').strip(), n.get('content-desc', '').strip())
                and n.get('password') != 'true' and n.get('class') != 'android.widget.EditText'
                for n in root.iter('node'))
+
+
+def unplugged_charge(raw):
+    values = dict(re.findall(r'^\s*([^:\r\n]+?)\s*:\s*([^\r\n]+?)\s*$', raw, re.MULTILINE))
+    if 'UPDATES STOPPED' in raw.upper() or values.get('status') != '3':
+        return None
+    if any(values.get(source) != 'false' for source in ('AC powered', 'USB powered', 'Wireless powered')):
+        return None
+    if any(value != 'false' for source, value in values.items() if source.endswith(' powered')):
+        return None
+    counter = values.get('Charge counter', '')
+    return int(counter) if re.fullmatch(r'[1-9]\d{0,8}', counter) else None
 
 
 def observe(args, report):
@@ -93,6 +105,13 @@ def observe(args, report):
                 return round((time.monotonic() - start) * 1000)
             time.sleep(.5)
         raise ValueError('SAVED_ANSWER_NOT_VISIBLE')
+    def charge_counter():
+        try:
+            return unplugged_charge(adb('shell', 'dumpsys', 'battery'))
+        except (OSError, subprocess.SubprocessError):
+            return None
+    start_charge = charge_counter()
+    started = time.monotonic()
     report['phase'] = 'Observe original answer'
     report['firstVisibleMs'] = open_and_observe()
     report['phase'] = 'Restart and reconcile'
@@ -101,6 +120,10 @@ def observe(args, report):
     if not processes or 'PID' not in processes[0].split() or any(line.split()[-1:] == [args.package] for line in processes[1:]):
         raise ValueError('PROCESS_STOP_NOT_OBSERVED')
     report['reopenedVisibleMs'] = open_and_observe()
+    end_charge = charge_counter()
+    report['reopenObservationMs'] = round((time.monotonic() - started) * 1000)
+    if start_charge is not None and end_charge is not None and end_charge <= start_charge:
+        report['wholeDeviceChargeChangeUah'] = start_charge - end_charge
     if read() != (expected, before) or installed_apks(adb, args.package) != artifact:
         raise ValueError('REOPEN_CHANGED_RECEIPT_OR_INSTALL')
     report['receipt'] = before

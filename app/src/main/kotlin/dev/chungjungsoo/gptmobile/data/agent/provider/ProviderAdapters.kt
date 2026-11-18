@@ -1706,7 +1706,8 @@ private fun sanitizeGeminiSchemaElement(value: JsonElement): JsonElement = when 
 
 class GeminiAdapter @Inject constructor(
     private val api: GoogleAPI,
-    private val attachmentEncoder: ProviderAttachmentEncoder
+    private val attachmentEncoder: ProviderAttachmentEncoder,
+    private val mediaStore: dev.chungjungsoo.gptmobile.data.agent.tool.McpMediaStore? = null
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2, constraints: RequestConstraints = RequestConstraints()): AgentProviderSession {
         val initialContents = attachmentEncoder.googleContents(turns, platform.uid)
@@ -1745,6 +1746,7 @@ class GeminiAdapter @Inject constructor(
                         Content(GoogleRole.USER, listOf(Part.text("Untrusted media from tool result ${media.callId}."), Part.inlineData(media.mimeType, media.base64)))
                     },
                     generationConfig = GenerationConfig(
+                        responseModalities = geminiResponseModalities(platform.model),
                         maxOutputTokens = effectiveOutputTokens,
                         temperature = platform.temperature,
                         topP = platform.topP,
@@ -1803,6 +1805,7 @@ class GeminiAdapter @Inject constructor(
                     var canRotate = false
                     var terminalReceived = false
                     var deliveredPayload = false
+                    val imageOutput = GeminiImageOutput()
                     val roundParts = mutableListOf<Pair<String?, Part>>()
                     val roundCallIds = mutableListOf<String>()
                     var localCircuitRejection: ProviderEvent.Failed? = null
@@ -1835,16 +1838,26 @@ class GeminiAdapter @Inject constructor(
                                 else -> null
                             }
                             if (safetyError != null) {
+                                imageOutput.discard()
                                 roundFailed = true
                                 lastFailedMessage = safetyError
                             } else {
-                                val mappedEvents = GeminiEventMapper.accept(response)
+                                val imageNotice = if (response.candidates.orEmpty().any { it.finishReason != null || it.content?.parts.orEmpty().any { part -> part.inlineData != null } }) {
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        imageOutput.accept(response) { image -> mediaStore?.saveProviderImage(image) }
+                                    }
+                                } else {
+                                    null
+                                }
+                                val mappedEvents = GeminiEventMapper.accept(response) + listOfNotNull(
+                                    imageNotice?.let { ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)) }
+                                )
                                 val calls = mappedEvents.filterIsInstance<ProviderEvent.ToolCall>().iterator()
                                 response.candidates.orEmpty().asSequence().flatMap { it.content?.parts.orEmpty().asSequence() }
                                     .forEach { part ->
                                         val id = if (part.functionCall != null && calls.hasNext()) calls.next().callId else null
                                         if (id != null) roundCallIds += id
-                                        roundParts += id to part
+                                        if (part.inlineData == null) roundParts += id to part
                                     }
                                 mappedEvents.forEach { mapped ->
                                     if (mapped is ProviderEvent.Failed) {

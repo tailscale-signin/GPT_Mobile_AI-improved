@@ -16,6 +16,15 @@ import javax.inject.Singleton
 
 @Singleton
 class McpMediaStore @Inject constructor(@param:ApplicationContext private val context: Context) {
+    fun saveProviderImage(image: dev.chungjungsoo.gptmobile.data.dto.google.common.InlineData): String? {
+        val imageBlock = ImageContent(data = image.data, mimeType = image.mimeType)
+        return try {
+            (materialize(CallToolResult(content = listOf(imageBlock))).content.singleOrNull() as? ResourceLink)?.uri
+        } catch (_: java.io.IOException) {
+            null
+        }
+    }
+
     @Synchronized fun materialize(result: CallToolResult): CallToolResult {
         val directory = File(context.cacheDir, "mcp-media").apply { mkdirs() }
         var remaining = 8 * 1024 * 1024

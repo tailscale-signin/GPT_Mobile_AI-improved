@@ -3101,6 +3101,12 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/PrivateExternalServiceGate.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/AcademicNativeClient.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AnswerRelationshipDiagram.kt",
-    "gateway/v14/scheduled_publications.py"
+    "gateway/v14/scheduled_publications.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GeminiImageOutput.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpMediaStore.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/google/common/Content.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/google/request/GenerateContentRequest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/McpMediaActivity.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GeminiImageOutputTest.kt"
   ]
 }

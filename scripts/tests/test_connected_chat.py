@@ -6,7 +6,7 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from qualify_connected_chat import bound_answer, observe, screen_contains
+from qualify_connected_chat import bound_answer, observe, screen_contains, unplugged_charge
 
 
 class ConnectedChatTest(unittest.TestCase):
@@ -53,6 +53,14 @@ class ConnectedChatTest(unittest.TestCase):
         self.assertFalse(screen_contains(self.node(css='android.widget.EditText'), self.package, self.answer))
         self.assertFalse(screen_contains(self.node(), self.package, self.answer[1:]))
         self.assertFalse(screen_contains('<!DOCTYPE foo>' + self.node(), self.package, self.answer))
+
+    def test_charge_receipt_requires_an_unplugged_discharging_physical_gauge(self):
+        raw = 'AC powered: false\nUSB powered: false\nWireless powered: false\nstatus: 3\nCharge counter: 3781000'
+        self.assertEqual(3781000, unplugged_charge(raw))
+        self.assertIsNone(unplugged_charge(raw.replace('false', 'true', 1)))
+        self.assertIsNone(unplugged_charge(raw.replace('status: 3', 'status: 4')))
+        self.assertIsNone(unplugged_charge(raw.replace('3781000', '0')))
+        self.assertIsNone(unplugged_charge('UPDATES STOPPED\n' + raw))
 
     def test_restart_never_reissues_a_gateway_command(self):
         def adb(cmd, **kwargs):

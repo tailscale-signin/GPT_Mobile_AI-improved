@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package dev.chungjungsoo.gptmobile.data.dto.google.common
 
 import kotlinx.serialization.SerialName
@@ -24,6 +26,7 @@ data class Part(
     @SerialName("text")
     val text: String? = null,
 
+    @kotlinx.serialization.json.JsonNames("inlineData")
     @SerialName("inline_data")
     val inlineData: InlineData? = null,
 
@@ -71,6 +74,7 @@ data class FunctionResponse(
 
 @Serializable
 data class InlineData(
+    @kotlinx.serialization.json.JsonNames("mimeType")
     @SerialName("mime_type")
     val mimeType: String,
 
@@ -81,6 +85,7 @@ data class InlineData(
 
 @Serializable
 data class FileData(
+    @kotlinx.serialization.json.JsonNames("mimeType")
     @SerialName("mime_type")
     val mimeType: String,
     @SerialName("file_uri")

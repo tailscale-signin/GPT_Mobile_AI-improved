@@ -17,7 +17,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readLine
+import io.ktor.utils.io.readUTF8Line
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -181,7 +181,8 @@ class GoogleAPIImpl @Inject constructor(
                             ProviderCooldown.observeQuota(config) { response.headers[it] }
                             val channel = response.bodyAsChannel()
                             while (!channel.isClosedForRead) {
-                                val line = channel.readLine() ?: break
+                                @Suppress("DEPRECATION")
+                                val line = channel.readUTF8Line(6_000_000) ?: break
                                 val data = SseUtils.extractSseData(line) ?: continue
 
                                 val chunk = try {

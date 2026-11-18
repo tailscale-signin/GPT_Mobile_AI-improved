@@ -28,7 +28,8 @@ class GitHubRichSummaryPresentationTest {
         assertTrue(output.startsWith("### Reviewing Reader.kt"))
         assertFalse(output.contains("**Observed:**"))
         assertTrue(output.contains("Reader.kt"))
-        assertTrue(output.contains("- I’ll "))
+        assertFalse(output.contains("**Next:**") || output.contains("- I’ll "))
+        assertTrue(output.contains("no repair has been verified"))
         assertFalse(output.contains("All tests passed"))
         assertFalse(output.contains("| Check state |"))
         assertTrue(GitHubRichSummaryPresentation.isRich(output))
@@ -55,6 +56,39 @@ class GitHubRichSummaryPresentationTest {
         assertTrue(output.startsWith("### Failure.kt needs attention"))
         assertTrue(output.contains("Reading Failure.kt failed"))
         assertTrue(output.contains("Latest.kt"))
+    }
+
+    @Test fun previouslyShownRoutineReadsAreNotRepeatedWhenNewEvidenceArrives() {
+        val earlier = sample("The source read for Earlier.kt returned a result for inspection.")
+        val later = earlier.copy(
+            revision = 2,
+            recentSteps = earlier.recentSteps + "The source read for Newer.kt returned a result for inspection."
+        )
+        val report = GitHubRichSummaryPresentation.render(
+            later,
+            GitHubRichSummaryPresentation.factKeys(earlier).toSet()
+        )
+        assertFalse(report.contains("Earlier.kt"))
+        assertTrue(report.contains("Newer.kt"))
+        assertFalse(report.contains("**Next:**"))
+    }
+
+    @Test fun earlierUnresolvedFailureSurvivesNewSourceWithoutRepeatingOtherReads() {
+        val prior = sample(
+            "The source read for Failure.kt failed.",
+            "The source read for Old.kt returned a result for inspection."
+        )
+        val updated = prior.copy(
+            revision = 2,
+            recentSteps = prior.recentSteps + "The source read for Latest.kt returned a result for inspection."
+        )
+        val report = GitHubRichSummaryPresentation.render(
+            updated,
+            GitHubRichSummaryPresentation.factKeys(prior).toSet()
+        )
+        assertTrue(report.contains("Failure.kt failed"))
+        assertTrue(report.contains("Latest.kt"))
+        assertFalse(report.contains("Old.kt"))
     }
 
     @Test fun theSameFactsDoNotChangeWhenOnlyTheClockOrNextStepChanges() {

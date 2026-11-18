@@ -2,6 +2,8 @@
 import asyncio
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
+import json
+from v14.scheduled_publications import KIND, run_watch
 import sqlite3
 import time
 import uuid
@@ -20,15 +22,21 @@ class OperatorSchedule:
         db.execute("""CREATE TABLE IF NOT EXISTS schedule (
             id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, due INTEGER,
             period INTEGER NOT NULL, last_due INTEGER, result TEXT)""")
+        db.execute('PRAGMA foreign_keys=ON')
+        db.execute("""CREATE TABLE IF NOT EXISTS publication_watch (
+            id TEXT PRIMARY KEY REFERENCES schedule(id) ON DELETE CASCADE, query TEXT NOT NULL,
+            token TEXT, lease_until INTEGER NOT NULL DEFAULT 0, results TEXT, seen TEXT NOT NULL DEFAULT '[]')""")
         return db
 
-    def add(self, title, kind, delay_minutes, period_hours):
+    def add(self, title, kind, delay_minutes, period_hours, query=None):
         if not isinstance(title, str) or not 1 <= len(title.strip()) <= 160 or any(ord(c) < 32 for c in title):
             raise ValueError('Enter a title of 1–160 characters.')
-        if kind not in ('Reminder', 'Check saved job storage') or type(delay_minutes) is not int or not 1 <= delay_minutes <= 525600:
+        if kind not in ('Reminder', 'Check saved job storage', KIND) or type(delay_minutes) is not int or not 1 <= delay_minutes <= 525600:
             raise ValueError('Choose a supported task and a delay of 1–525600 minutes.')
         if type(period_hours) is not int or not 0 <= period_hours <= 8784:
             raise ValueError('Use 0 for one occurrence or a repeat interval in hours.')
+        if kind == KIND and (not isinstance(query, str) or not 2 <= len(query.strip()) <= 200 or any(ord(c) < 32 for c in query)):
+            raise ValueError('Enter 2–200 public search characters to send to Crossref.')
         key = uuid.uuid4().hex
         with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')
@@ -36,11 +44,18 @@ class OperatorSchedule:
                 raise ValueError('Remove an old schedule before adding another.')
             db.execute('INSERT INTO schedule VALUES (?,?,?,?,?,NULL,NULL)',
                        (key, title.strip(), kind, int(self.now()) + delay_minutes * 60, period_hours * 3600))
+            if kind == KIND:
+                db.execute('INSERT INTO publication_watch(id,query) VALUES (?,?)', (key, query.strip()))
         return key
 
     def rows(self):
         with closing(self.connect()) as db:
             return [dict(row) for row in db.execute('SELECT * FROM schedule ORDER BY due IS NULL, due, id')]
+
+    def publications(self, key):
+        with closing(self.connect()) as db:
+            row = db.execute('SELECT results FROM publication_watch WHERE id=?', (key,)).fetchone()
+            return json.loads(row['results']) if row and row['results'] else []
 
     def remove(self, key):
         with closing(self.connect()) as db, db:
@@ -54,7 +69,7 @@ class OperatorSchedule:
             if not db.execute('SELECT 1 FROM schedule WHERE due<=? LIMIT 1', (now,)).fetchone():
                 return
             db.execute('BEGIN IMMEDIATE')
-            for row in db.execute('SELECT * FROM schedule WHERE due<=? ORDER BY due LIMIT 8', (now,)).fetchall():
+            for row in db.execute('SELECT * FROM schedule WHERE due<=? AND kind!=? ORDER BY due LIMIT 8', (now, KIND)).fetchall():
                 result = 'Reminder due'
                 if row['kind'] == 'Check saved job storage':
                     result = inspect_jobs(jobs_path)
@@ -63,6 +78,7 @@ class OperatorSchedule:
                 next_due = due + ((now - due) // period + 1) * period if period else None
                 db.execute('UPDATE schedule SET last_due=?, result=?, due=? WHERE id=?',
                            (due, result, next_due, row['id']))
+        run_watch(self, now)
 
 
 def inspect_jobs(path):

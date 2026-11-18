@@ -3,9 +3,11 @@ from datetime import datetime
 from pathlib import Path
 import sqlite3
 import tkinter as tk
+import webbrowser
 from tkinter import ttk
 
 from v14.operator_schedule import OperatorSchedule
+from v14.scheduled_publications import KIND, source_url
 
 
 def show_schedules(parent, root):
@@ -15,17 +17,33 @@ def show_schedules(parent, root):
     body = ttk.Frame(window, padding=12)
     body.pack(fill='both', expand=True)
     title, kind, delay, period = (tk.StringVar(window, value=value) for value in ('', 'Reminder', '5', '0'))
+    query = tk.StringVar(window)
     for index, (label, value) in enumerate((('Task name', title), ('Action', kind), ('Due in minutes', delay), ('Repeat every hours (0 = once)', period))):
         ttk.Label(body, text=label).grid(row=index, column=0, sticky='w')
-        field = ttk.Combobox(body, textvariable=value, state='readonly', values=('Reminder', 'Check saved job storage')) if value is kind else ttk.Entry(body, textvariable=value)
+        field = ttk.Combobox(body, textvariable=value, state='readonly', values=('Reminder', 'Check saved job storage', KIND)) if value is kind else ttk.Entry(body, textvariable=value)
         field.grid(row=index, column=1, sticky='ew')
+    query_label = ttk.Label(body, text='Public search words sent to Crossref')
+    query_field = ttk.Entry(body, textvariable=query)
+    query_label.grid(row=4, column=0, sticky='w')
+    query_field.grid(row=4, column=1, sticky='ew')
+    def enable_query(*_):
+        if kind.get() == KIND:
+            query_label.grid()
+            query_field.grid()
+        else:
+            query_label.grid_remove()
+            query_field.grid_remove()
+    kind.trace_add('write', enable_query)
+    enable_query()
     table = ttk.Treeview(body, columns=('name', 'due', 'last', 'result'), show='headings', height=8)
     for col, label in zip(table['columns'], ('Task', 'Next occurrence', 'Last occurrence', 'Result')):
         table.heading(col, text=label)
         table.column(col, width=155)
-    table.grid(row=5, column=0, columnspan=3, sticky='nsew')
+    table.grid(row=6, column=0, columnspan=3, sticky='nsew')
     status = tk.StringVar(window)
-    ttk.Label(body, textvariable=status).grid(row=6, column=0, columnspan=3, sticky='w')
+    ttk.Label(body, textvariable=status).grid(row=7, column=0, columnspan=3, sticky='w')
+
+    received = {}
 
     def refresh():
         selected = table.selection()
@@ -38,18 +56,25 @@ def show_schedules(parent, root):
             table.delete(item)
         def stamp(value):
             return datetime.fromtimestamp(value).strftime('%Y-%m-%d %H:%M') if value else '—'
+        current = {row['id']: (row['last_due'], row['result']) for row in rows}
         for row in rows:
+            previous = received.get(row['id'])
+            if previous and previous != current[row['id']] and (row['result'] == 'Reminder due' or (row['result'] or '').endswith((' new publication', ' new publications'))):
+                window.bell()
             table.insert('', 'end', iid=row['id'], values=(row['title'], stamp(row['due']), stamp(row['last_due']), row['result'] or 'Scheduled'))
+        received.clear()
+        received.update(current)
         if selected and table.exists(selected[0]):
             table.selection_set(selected[0])
 
     def add():
         try:
-            store.add(title.get(), kind.get(), int(delay.get()), int(period.get()))
+            store.add(title.get(), kind.get(), int(delay.get()), int(period.get()), query.get())
         except (ValueError, OSError, sqlite3.Error) as error:
             status.set(str(error))
             return
         title.set('')
+        query.set('')
         status.set('Scheduled on this Gateway.')
         refresh()
 
@@ -61,12 +86,32 @@ def show_schedules(parent, root):
                 status.set('Could not remove schedule.')
             refresh()
 
+    def view_results():
+        selected = table.selection()
+        if not selected:
+            return
+        try:
+            records = store.publications(selected[0])
+        except (ValueError, sqlite3.Error):
+            status.set('Saved results are unavailable.')
+            return
+        if not records:
+            status.set('This schedule has no saved publication results yet.')
+            return
+        dialog = tk.Toplevel(window)
+        dialog.title('Latest Crossref metadata')
+        for item in records:
+            url = source_url(item['doi'])
+            if url:
+                ttk.Button(dialog, text=item['title'] + '\n' + item['doi'], command=lambda link=url: webbrowser.open(link)).pack(anchor='w', fill='x')
+
     def poll():
         refresh()
         window.after(15000, poll)
 
-    ttk.Button(body, text='Schedule', command=add).grid(row=4, column=0)
-    ttk.Button(body, text='Remove selected', command=remove).grid(row=4, column=1)
+    ttk.Button(body, text='Schedule', command=add).grid(row=5, column=0)
+    ttk.Button(body, text='Remove selected', command=remove).grid(row=5, column=1)
+    ttk.Button(body, text='View sources…', command=view_results).grid(row=5, column=2)
     body.columnconfigure(1, weight=1)
-    body.rowconfigure(5, weight=1)
+    body.rowconfigure(6, weight=1)
     poll()

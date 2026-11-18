@@ -101,3 +101,65 @@ class OperatorWorkTest(unittest.TestCase):
                          ('["a"]', '.ods'), ('"a\\u0000"', '.odt'), ('[1e400]', '.ods')]:
             with self.assertRaises(ValueError):
                 export_result(raw, ext)
+
+    def test_publication_watch_deduplicates_after_restart_and_keeps_previous_results_on_failure(self):
+        from v14.scheduled_publications import KIND, run_watch
+        key = self.open().add('Training papers', KIND, 1, 1, 'virtual training')
+        works = [{'title': 'First work', 'doi': '10.1234/abc'}]
+        self.clock = 160
+        run_watch(self.open(), self.clock, lambda query: list(works))
+        self.assertEqual(self.open().publications(key), works)
+        self.assertIn('Baseline', self.open().rows()[0]['result'])
+        self.clock += 3600
+        works.insert(0, {'title': 'Second work', 'doi': '10.1234/def'})
+        run_watch(self.open(), self.clock, lambda _: list(works))
+        self.assertEqual(self.open().rows()[0]['result'], '1 new publication')
+        self.clock += 3600
+        run_watch(self.open(), self.clock, lambda _: list(works))
+        self.assertIn('No new', self.open().rows()[0]['result'])
+        self.clock += 3600
+        def offline(_):
+            raise OSError('offline')
+        run_watch(self.open(), self.clock, offline)
+        self.assertTrue(self.open().rows()[0]['result'].startswith('Blocked'))
+        self.assertEqual(self.open().publications(key), works)
+        self.open().remove(key)
+        self.assertEqual([], self.open().publications(key))
+
+    def test_only_one_worker_reads_a_claimed_occurrence_and_removal_wins(self):
+        from threading import Event
+        from v14.scheduled_publications import KIND, run_watch
+        key = self.open().add('Watch', KIND, 1, 0, 'public topic')
+        self.clock = 160
+        entered, resume = Event(), Event()
+        def read(_):
+            entered.set()
+            self.assertTrue(resume.wait(3))
+            return []
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            worker = pool.submit(run_watch, self.open(), 160, read)
+            self.assertTrue(entered.wait(3))
+            try:
+                run_watch(self.open(), 160, lambda _: self.fail('duplicate read'))
+                self.open().remove(key)
+            finally:
+                resume.set()
+            worker.result(3)
+        self.assertEqual([], self.open().rows())
+
+    def test_publication_parser_keeps_doi_targets_and_uses_only_public_search_words(self):
+        from unittest.mock import MagicMock
+        from v14.scheduled_publications import literature, source_url
+        session, response = MagicMock(), MagicMock()
+        session.get.return_value.__enter__.return_value = response
+        response.status_code = 200
+        response.iter_content.return_value = [json.dumps({'status': 'ok', 'message': {'items': [
+            {'title': ['One & two'], 'DOI': '10.1234/HELLO'}, {'title': ['Duplicate'], 'DOI': '10.1234/hello'},
+            {'title': ['Ignored'], 'DOI': 'https://other.example/path'}]}}).encode()]
+        with patch('v14.scheduled_publications.requests.Session') as factory:
+            factory.return_value.__enter__.return_value = session
+            self.assertEqual([{'title': 'One & two', 'doi': '10.1234/hello'}], literature('Public search'))
+        self.assertEqual(session.get.call_args.args, ('https://api.crossref.org/works',))
+        self.assertFalse(session.get.call_args.kwargs['allow_redirects'])
+        self.assertEqual(session.get.call_args.kwargs['params']['query.bibliographic'], 'Public search')
+        self.assertEqual(source_url('10.1234/data?next'), 'https://doi.org/10.1234/data%3Fnext')

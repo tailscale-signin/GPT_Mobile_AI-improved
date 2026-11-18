@@ -42,7 +42,7 @@ internal fun AnswerDatasetCard(data: AnswerDataset) {
     var column by rememberSaveable(data) { mutableIntStateOf(-1) }
     var descending by rememberSaveable(data) { mutableStateOf(false) }
     var limit by rememberSaveable(data) { mutableIntStateOf(8) }
-    var chart by rememberSaveable(data) { mutableStateOf(data.type == "bars") }
+    var visual by rememberSaveable(data) { mutableStateOf(data.type == "bars" || data.type == "diagram") }
     val ordered = remember(data, column, descending) { data.ordered(column, descending) }
     if (data.type == "places") {
         val map = remember(data) {
@@ -65,7 +65,9 @@ internal fun AnswerDatasetCard(data: AnswerDataset) {
                     }
                 }
                 if (openFailed) Text("Could not open this source.", color = MaterialTheme.colorScheme.error)
-            } else if (chart) {
+            } else if (visual && data.type == "diagram") {
+                AnswerRelationshipDiagram(data)
+            } else if (visual) {
                 val maximum = remember(data) { data.rows.maxOf { it[1].toDouble() }.takeIf { it > 0 } ?: 1.0 }
                 ordered.take(limit).forEach { row ->
                     Text("${row[0]} · ${row[1]} ${data.columns[1]}")
@@ -97,9 +99,21 @@ internal fun AnswerDatasetCard(data: AnswerDataset) {
                     }
                 }
             }
-            if (limit < ordered.size) TextButton(onClick = { limit += 8 }) { Text("Show more rows (${ordered.size - limit} remaining)") }
+            if (limit < ordered.size && !(visual && data.type == "diagram")) TextButton(onClick = { limit += 8 }) { Text("Show more rows (${ordered.size - limit} remaining)") }
             Row(Modifier.horizontalScroll(rememberScrollState())) {
-                if (data.type == "bars") TextButton(onClick = { chart = !chart }) { Text(if (chart) "View table" else "View chart") }
+                if (data.type == "bars" || data.type == "diagram") {
+                    TextButton(onClick = { visual = !visual }) {
+                        Text(
+                            if (visual) {
+                                "View table"
+                            } else if (data.type == "diagram") {
+                                "View diagram"
+                            } else {
+                                "View chart"
+                            }
+                        )
+                    }
+                }
                 val csv = remember(data, ordered) { data.csv(ordered) }
                 SaveAnswerText("Save CSV", "answer.csv", "text/csv", csv)
             }

@@ -3099,6 +3099,8 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/amazon/AmazonProductImageProvider.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/amazon/AmazonPublicHistoryProvider.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/PrivateExternalServiceGate.kt",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/AcademicNativeClient.kt"
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/AcademicNativeClient.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AnswerRelationshipDiagram.kt",
+    "gateway/v14/scheduled_publications.py"
   ]
 }

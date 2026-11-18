@@ -33,6 +33,14 @@ class AnswerDatasetTest {
         assertNotNull(AnswerDataset.parse(Json.encodeToString(table.copy(type = "bars"))))
     }
 
+    @Test fun boundsInteractiveDiagramsAndKeepsCycles() {
+        val edges = table.copy(type = "diagram", rows = listOf(listOf("Draft", "Review"), listOf("Review", "Draft")))
+        assertEquals(edges, AnswerDataset.parse(Json.encodeToString(edges)))
+        listOf(edges.rows + listOf(edges.rows.first()), List(17) { listOf("Draft", it.toString()) }, listOf(listOf("", "Draft"))).forEach {
+            assertNull(AnswerDataset.parse(Json.encodeToString(edges.copy(rows = it))))
+        }
+    }
+
     @Test fun exportQuotesTextAndNeutralizesSpreadsheetFormulas() {
         val csv = table.csv(listOf(listOf(" =SUM(1)", "-2"), listOf("A,\"B\"", "3")))
         assertTrue(csv.contains("\"' =SUM(1)\",\"-2\"\r\n"))

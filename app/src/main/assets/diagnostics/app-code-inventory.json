@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "1143ea60623665c8e11fb81f52651404b384483dd995f366603a52770cebad0b",
-  "file_count": 2689,
-  "indexed_line_count": 438949,
+  "source_digest": "2e4c53259dd69214cc4f71d1ecd14d963a54400aba19fde6066714d39d3da5a3",
+  "file_count": 2691,
+  "indexed_line_count": 439186,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -39,8 +39,8 @@
     {
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
-      "file_count": 563,
-      "indexed_line_count": 99205
+      "file_count": 564,
+      "indexed_line_count": 99288
     },
     {
       "id": "accessibility_and_localization",
@@ -82,7 +82,7 @@
       "id": "models_and_profiles",
       "label": "Model profiles and settings",
       "file_count": 41,
-      "indexed_line_count": 4052
+      "indexed_line_count": 4063
     },
     {
       "id": "local_inference",
@@ -165,8 +165,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 172,
-      "indexed_line_count": 77073
+      "file_count": 173,
+      "indexed_line_count": 77216
     },
     {
       "id": "authentication_service",
@@ -9145,8 +9145,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/AnswerDataset.kt",
       "area_id": "models_and_profiles",
       "kind": "source",
-      "sha256": "3cc125aa713873f590c61c554483f6ccca2636dd781ee98f53e6bade85aff9bf",
-      "indexed_lines": 74
+      "sha256": "091770a29fa2e1cfadfa82913aa5b9b4443fd7d47c0b49ebf6661141477c2ded",
+      "indexed_lines": 85
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/ApiType.kt",
@@ -12918,8 +12918,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AnswerDatasetCard.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "afd9be6082b46a65bcef9d995501c44a712f2669f466f413981501441e5a03e4",
-      "indexed_lines": 140
+      "sha256": "70bc3d7122ba26b91a962fdc94ed9ac90cb57eb8f33b0e68fbd7b541228e7298",
+      "indexed_lines": 154
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AnswerFontPolicy.kt",
@@ -12927,6 +12927,13 @@
       "kind": "source",
       "sha256": "b7781e741ef23acc6034e782725a1ca5618f492872b751e5df192cacbe3b8d46",
       "indexed_lines": 15
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AnswerRelationshipDiagram.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "7a9f03a6955be42400a14a37c8ab94f0732f13e476076acf696d4bd1341156d5",
+      "indexed_lines": 69
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AnswerSourcePresentation.kt",
@@ -17916,8 +17923,8 @@
       "path": "gateway/desktop/schedule_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "5d359e2e2d1ecf3884474dab94fd06b1aa19f879faa62a678c52ae2e5998a839",
-      "indexed_lines": 72
+      "sha256": "bcf36780100bc6a22f20197f27392627aa8a1af4d9944d18661657d5daafbc2c",
+      "indexed_lines": 117
     },
     {
       "path": "gateway/desktop/smoke_windows.py",
@@ -18679,8 +18686,8 @@
       "path": "gateway/v14/operator_schedule.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "52d386eaa05b56c0cb1048486503e630933caa668af8c622206f0f1a8237fa05",
-      "indexed_lines": 106
+      "sha256": "5db5dee58073f659b8b1b4d261eca3261d0b5b2a760ee2313bb87cb1de2a2fd8",
+      "indexed_lines": 122
     },
     {
       "path": "gateway/v14/package.py",
@@ -18730,6 +18737,13 @@
       "kind": "source",
       "sha256": "2a7c79fd6f8e038e902d6eba979905d072befc87ab8b18a72904e44728685cca",
       "indexed_lines": 51
+    },
+    {
+      "path": "gateway/v14/scheduled_publications.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "87139a8a51eebbac4a50a1c0b07701ed417f116c9c645c60f8536b2e1d139bfd",
+      "indexed_lines": 82
     },
     {
       "path": "gateway/v14/service.py",

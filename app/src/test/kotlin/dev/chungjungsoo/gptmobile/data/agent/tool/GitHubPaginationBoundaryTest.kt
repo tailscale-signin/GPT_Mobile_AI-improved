@@ -314,18 +314,50 @@ class GitHubPaginationBoundaryTest {
         assertFalse(boundary.repeatsRemotePage("github_ci", json("""{"view_cursor":"saved:1"}"""), json("""{"workflow_runs":[2]}""")))
     }
 
-    @Test fun verifiedSecondPageCannotInheritTheOldFirstPageTraversal() {
+    @Test fun verifiedSecondPageRetainsTheFirstPageOfTheSameRemoteTraversal() {
         val boundary = GitHubPaginationBoundary()
-        val first = json("""{"action":"runs","owner":"owner","repo":"repo","page":1,"per_page":2}""")
+        val first = json("""{"action":"runs","owner":"owner","repo":"repo","page":1,"per_page":2,"verify_live":true}""")
         val second = json("""{"action":"runs","owner":"owner","repo":"repo","page":2,"per_page":2,"verify_live":true}""")
+        assertEquals(null, boundary.completedPage("github_ci", first))
         boundary.assessPage("github_ci", first, json("""{"has_more":true,"total_count":2,"workflow_runs":[{"id":1}]}"""))
         assertEquals(null, boundary.completedPage("github_ci", second))
-        val fresh = boundary.assessPage("github_ci", second, json("""{"has_more":false,"total_count":2,"workflow_runs":[{"id":2}]}"""))
-        val progress = fresh.data.getValue("pagination_progress").jsonObject
-        assertEquals(JsonPrimitive(1), progress["unique_records_observed"])
-        assertEquals(JsonPrimitive(false), progress["contiguous_from_first_page"])
-        assertEquals(JsonPrimitive(false), progress["complete"])
-        assertEquals(JsonArray(listOf(JsonPrimitive(2))), progress["remote_pages_observed"])
+        val result = boundary.assessPage("github_ci", second, json("""{"has_more":false,"total_count":2,"workflow_runs":[{"id":2}]}"""))
+        assertEquals(null, result.errorCode)
+        val progress = result.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(2), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(true), progress["contiguous_from_first_page"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+        assertEquals(JsonArray(listOf(JsonPrimitive(1), JsonPrimitive(2))), progress["remote_pages_observed"])
+    }
+
+    @Test fun sixLiveWorkflowPagesCompleteOne170RunTraversal() {
+        val boundary = GitHubPaginationBoundary()
+        val action = "github_ci"
+        for (page in 1..6) {
+            val args = json("""{"action":"runs","owner":"owner","repo":"repo","page":$page,"per_page":30,"verify_live":true}""")
+            assertEquals(null, boundary.completedPage(action, args))
+            val first = (page - 1) * 30 + 1
+            val last = minOf(page * 30, 170)
+            val rows = (first..last).joinToString(",") { """{"id":$it}""" }
+            val reply = json("""{"has_more":${page < 6},"total_count":170,"workflow_runs":[$rows]}""")
+            val result = boundary.assessPage(action, args, reply)
+            assertEquals("page $page: ${result.errorCode}", null, result.errorCode)
+            val progress = result.data.getValue("pagination_progress").jsonObject
+            assertEquals(JsonPrimitive(page == 6), progress["complete"])
+            assertEquals(JsonPrimitive(last), progress["unique_records_observed"])
+            assertEquals(JsonArray((1..page).map(::JsonPrimitive)), progress["remote_pages_observed"])
+        }
+    }
+
+    @Test fun laterEmptyTerminalCannotEraseEarlierNonemptyPage() {
+        val boundary = GitHubPaginationBoundary()
+        val first = json("""{"action":"runs","page":1,"per_page":30,"verify_live":true}""")
+        val next = json("""{"action":"runs","page":2,"per_page":30,"verify_live":true}""")
+        assertEquals(null, boundary.completedPage("github_ci", first))
+        boundary.assessPage("github_ci", first, json("""{"has_more":true,"total_count":1,"workflow_runs":[{"id":7}]}"""))
+        val result = boundary.assessPage("github_ci", next, json("""{"has_more":false,"total_count":0}"""))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", result.errorCode)
+        assertEquals(JsonPrimitive(false), result.data.getValue("complete"))
     }
 
     @Test fun terminalPagePreventsRemoteOverrunButAllowsRefreshAndDifferentScope() {

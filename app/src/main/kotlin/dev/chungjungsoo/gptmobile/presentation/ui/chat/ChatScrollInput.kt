@@ -23,20 +23,44 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.flow.distinctUntilChanged
 
+/** Explicit downward user motion, not viewport reflow, authorizes returning to bottom. */
+internal class ChatBottomReturnIntent {
+    private var returning = false
+
+    fun recordMotion(delta: Float) {
+        if (delta.isFinite() && delta != 0f) returning = delta < 0f
+    }
+
+    fun shouldFollow(atBottom: Boolean): Boolean = returning && atBottom
+
+    fun finish() {
+        returning = false
+    }
+}
+
 internal class ChatScrollInput {
     var dragging by mutableStateOf(false)
     var pointerActive = false
     var modifier: Modifier = Modifier
     private val readingGate = ChatReadingScrollGate()
+    private val bottomIntent = ChatBottomReturnIntent()
     var scrollingFasterThanReading by mutableStateOf(false)
         private set
 
     fun recordUserDelta(deltaDp: Float) {
+        bottomIntent.recordMotion(deltaDp)
         scrollingFasterThanReading = readingGate.recordDelta(deltaDp, SystemClock.uptimeMillis())
     }
 
     fun recordFling(velocityDpPerSecond: Float) {
+        bottomIntent.recordMotion(velocityDpPerSecond)
         scrollingFasterThanReading = readingGate.recordFling(velocityDpPerSecond)
+    }
+
+    fun shouldFollowAtBottom(atBottom: Boolean): Boolean = bottomIntent.shouldFollow(atBottom)
+
+    fun finishUserScroll() {
+        bottomIntent.finish()
     }
 
     fun stopScroll() {
@@ -61,9 +85,10 @@ internal fun rememberChatScrollInput(
     val detach by rememberUpdatedState(onDetach)
     val follow by rememberUpdatedState(onFollow)
     fun followIfAtBottom() {
-        if (gesture.shouldFollowAtBottom(listState.layoutInfo.totalItemsCount > 0 && listState.gitHubDistanceToBottom() <= bottomTolerancePx)) {
+        if (input.shouldFollowAtBottom(listState.layoutInfo.totalItemsCount > 0 && listState.gitHubDistanceToBottom() <= bottomTolerancePx)) {
             gesture.followBottom()
             input.dragging = false
+            input.finishUserScroll()
             follow()
         }
     }
@@ -80,17 +105,26 @@ internal fun rememberChatScrollInput(
     }
     LaunchedEffect(listState, input) {
         snapshotFlow { listState.isScrollInProgress }.distinctUntilChanged().collect { moving ->
-            if (!moving) input.stopScroll()
+            if (!moving) {
+                if (!input.pointerActive) {
+                    // A fling may reach the real footer after the last drag event.
+                    currentFollowIfAtBottom()
+                    // Prevent IME/header geometry changes from restoring follow later.
+                    input.finishUserScroll()
+                }
+                input.stopScroll()
+            }
         }
     }
     val connection = remember(input, gesture, listState, density) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (source == NestedScrollSource.UserInput && available.y != 0f) {
+                    val wasFollowing = gesture.mode != GitHubScrollMode.USER_HISTORY
                     gesture.move(available.y)
                     input.recordUserDelta(available.y / density)
                     input.dragging = true
-                    if (gesture.mode == GitHubScrollMode.USER_HISTORY) detach()
+                    if (wasFollowing && gesture.mode == GitHubScrollMode.USER_HISTORY) detach()
                 }
                 return Offset.Zero
             }
@@ -112,6 +146,7 @@ internal fun rememberChatScrollInput(
                 currentFollowIfAtBottom()
                 gesture.finishScroll()
                 input.dragging = false
+                input.finishUserScroll()
                 input.stopScroll()
                 return Velocity.Zero
             }
@@ -134,6 +169,7 @@ internal fun rememberChatScrollInput(
                     gesture.endGesture(cancelled = !released)
                     input.dragging = false
                     if (released) currentFollowIfAtBottom()
+                    if (!listState.isScrollInProgress) input.finishUserScroll()
                 }
             }
         }

@@ -120,6 +120,7 @@ class GitHubIndexPreparationTest {
         assertFalse(result.getValue("complete").jsonPrimitive.content.toBoolean())
         assertTrue("A failed file is not cached as evidence", result.getValue("indexed_blobs").jsonPrimitive.int == 0)
     }
+
     @Test fun unsupportedBinaryAssetsDoNotPermanentlyBlockLexicalIndexCompletion() = runTest {
         val sourceSha = "1".repeat(40)
         val assetSha = "2".repeat(40)
@@ -166,5 +167,4 @@ class GitHubIndexPreparationTest {
         assertTrue(prepared.getValue("preparation_finished").jsonPrimitive.content.toBoolean())
         assertFalse(prepared.getValue("compiler_resolution").jsonPrimitive.content.toBoolean())
     }
-
 }

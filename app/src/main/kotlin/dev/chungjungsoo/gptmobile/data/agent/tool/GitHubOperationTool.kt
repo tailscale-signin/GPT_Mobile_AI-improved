@@ -984,7 +984,10 @@ internal class GitHubOperationTool(
                 }
                 "github_read" -> {
                     properties["action"] = choice("ranges")
-                    properties["evidence_id"] = field("string")
+                    properties["evidence_id"] = buildJsonObject {
+                        put("type", "string")
+                        put("pattern", "\\S")
+                    }
                     properties["ranges"] = buildJsonObject {
                         put("type", "array")
                         put("minItems", 1)

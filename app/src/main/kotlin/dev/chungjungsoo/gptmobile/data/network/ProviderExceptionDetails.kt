@@ -135,6 +135,7 @@ internal fun providerExceptionDetails(
                 error.outputTokens?.let { put("admission_output_tokens", it) }
                 error.capacityTokens?.let { put("admission_capacity_tokens", it) }
                 put("admission_measurement", error.measurement.name)
+                error.planningToolResultReserveTokens?.let { put("admission_tool_result_reserve_tokens", it) }
                 capacityAdmissionEvidence(error, monotonicMillis).forEach { (key, value) -> put(key, value) }
                 error.budget?.let { budget ->
                     put("admission_tool_result_reserve_tokens", budget.toolResultReserveTokens)

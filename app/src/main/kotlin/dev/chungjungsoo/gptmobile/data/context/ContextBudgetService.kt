@@ -91,18 +91,33 @@ object ContextBudgetService {
                 promptTokens = breakdown(turns, system, tools).total
             )
         }
-        val output = outputLimit ?: minOf(4096, config.contextTokens / 4)
-        require(output < config.contextTokens) { "The requested output allowance exceeds the context budget. Choose a larger context or explicitly lower the output limit; the task was not truncated." }
+        val requestedOutput = outputLimit ?: minOf(4096, config.contextTokens / 4)
         val resultReserve = if (tools.isEmpty()) 0 else (config.contextTokens / 8).coerceAtMost(8192)
-        val promptLimit = config.contextTokens - output - resultReserve - minOf(256, config.contextTokens / 16)
-        fun cost(turn: ConversationTurn): Int = estimate(turn.userMessage.content) + estimate(turn.assistantMessage?.content.orEmpty()) +
-            (turn.userMessage.attachments.size + (turn.assistantMessage?.attachments?.size ?: 0)) * 2048 + 16
+        val safety = minOf(256, config.contextTokens / 16)
+        fun cost(turn: ConversationTurn): Int {
+            val attachments = turn.userMessage.attachments.size.toLong() + (turn.assistantMessage?.attachments?.size ?: 0)
+            return (estimate(turn.userMessage.content).toLong() + estimate(turn.assistantMessage?.content.orEmpty()) + attachments * 2048 + 16).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        }
         val current = turns.filter { it.isCurrentTurn }
-        var used = estimate(system) + current.sumOf(::cost)
-        require(used <= promptLimit) { "The current message and system context exceed the estimated context budget. Shorten the message or increase the context limit in Tool connections." }
+        val currentTokens = estimate(system).toLong() + current.sumOf { cost(it).toLong() }
+        val headroom = config.contextTokens.toLong() - currentTokens - resultReserve - safety
+        val output = if (outputLimit == null && headroom >= minOf(requestedOutput, 512)) {
+            minOf(requestedOutput.toLong(), headroom).toInt()
+        } else {
+            requestedOutput
+        }
+        if (output > headroom) {
+            throw RequestCapacityException(
+                "CONTEXT_CAPACITY_EXCEEDED", "The current message, system instructions and reserved output exceed the planning context.",
+                currentTokens, safety.toLong(), output.toLong(), config.contextTokens.toLong(), TokenMeasurementKind.UTF8_ESTIMATE,
+                planningToolResultReserveTokens = resultReserve
+            )
+        }
+        val promptLimit = config.contextTokens - output - resultReserve - safety
+        var used = currentTokens.toInt()
         val selectedTools = tools.filter { tool ->
             val size = estimate(tool.name + tool.description + tool.inputSchema.toString()) + 16
-            (used + size <= promptLimit).also { if (it) used += size }
+            (size <= promptLimit - used).also { if (it) used += size }
         }
         val history = MemoryTokenWindow.forQuestion(turns.filterNot { it.isCurrentTurn }, promptLimit - used, current.lastOrNull()?.userMessage?.content.orEmpty(), ::cost)
         used += history.sumOf(::cost)
@@ -112,7 +127,7 @@ object ContextBudgetService {
             system,
             selectedTools,
             resultReserve * 3,
-            outputLimit,
+            outputLimit ?: output.takeIf { it < requestedOutput },
             "Context estimate: $used prompt tokens, $output output reserved, $resultReserve tool-result tokens reserved. $omitted earlier turns and ${tools.size - selectedTools.size} tools omitted. Attachment costs are estimates; server limits may differ.",
             promptTokens = used,
             toolOmissions = tools.filterNot { it in selectedTools }.associate { it.name to ToolOmissionReason.CONTEXT_BUDGET }

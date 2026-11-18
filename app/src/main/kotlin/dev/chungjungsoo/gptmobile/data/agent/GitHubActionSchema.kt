@@ -128,6 +128,10 @@ internal object GitHubActionSchema {
                 if ("view_cursor" in properties) {
                     put("oneOf", dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.exclusiveSavedViewAlternatives(JsonObject(properties)))
                 }
+                if (operation == "github_read") {
+                    tool.inputSchema["anyOf"]?.let { put("anyOf", it) }
+                    return@buildJsonObject
+                }
                 val selected = alternatives.ifEmpty {
                     listOf(buildJsonObject { put("required", JsonArray(((tool.inputSchema["required"] as? JsonArray).orEmpty() + JsonPrimitive("action")).distinct())) })
                 }

@@ -75,6 +75,32 @@ class ContextBudgetServiceTest {
         assertEquals(256 * 3, plan.toolResultBytes)
     }
 
+    @Test fun `implicit output can use remaining headroom while explicit output preserves its allowance`() {
+        val current = ConversationTurn(MessageV2(content = "x".repeat(9300), platformType = null), null, true)
+        val settings = TokenBudgetSettings(contextTokens = 4096)
+        val plan = ContextBudgetService.plan(listOf(current), "", emptyList(), settings)
+        assertEquals(listOf(current), plan.turns)
+        assertEquals(724, plan.outputTokens)
+        val blocked = runCatching {
+            ContextBudgetService.plan(listOf(current), "", emptyList(), settings.copy(outputTokens = 1024))
+        }.exceptionOrNull() as RequestCapacityException
+        assertEquals("CONTEXT_CAPACITY_EXCEEDED", blocked.code)
+        assertEquals(3116L, blocked.promptTokens)
+        assertEquals(256L, blocked.safetyTokens)
+        assertEquals(1024L, blocked.outputTokens)
+        assertEquals(4096L, blocked.capacityTokens)
+    }
+
+    @Test fun `tool result reservation remains visible when the current input cannot fit`() {
+        val tool = AgentToolDefinition("read", "Read", buildJsonObject {})
+        val blocked = runCatching {
+            ContextBudgetService.plan(emptyList(), "x".repeat(12000), listOf(tool), TokenBudgetSettings(contextTokens = 4096))
+        }.exceptionOrNull() as RequestCapacityException
+        assertEquals(4000L, blocked.promptTokens)
+        assertEquals(512, blocked.planningToolResultReserveTokens)
+        assertTrue(blocked.message.orEmpty().contains("No output headroom remains"))
+    }
+
     @Test fun `oversize current message fails visibly rather than dropping the user request`() {
         assertTrue(
             runCatching {

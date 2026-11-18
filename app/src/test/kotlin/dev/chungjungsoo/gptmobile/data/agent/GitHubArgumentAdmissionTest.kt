@@ -200,6 +200,11 @@ class GitHubArgumentAdmissionTest {
                     assertTrue("Branch only needs field names", declared.values.all { it == buildJsonObject {} })
                 }
                 assertTrue(ToolArgumentValidator.errors(args("""{"view_cursor":42}"""), schema).isNotEmpty())
+                if (operation == "github_read") {
+                    assertTrue(ToolArgumentValidator.errors(args("""{"action":"ranges"}"""), schema).isNotEmpty())
+                    assertTrue(ToolArgumentValidator.errors(args("""{"evidence_id":" "}"""), schema).isNotEmpty())
+                    assertTrue(ToolArgumentValidator.errors(args("""{"evidence_id":"saved-source"}"""), schema).isEmpty())
+                }
                 if (definition.name.startsWith("github_pr_inspect")) {
                     assertTrue(ToolArgumentValidator.errors(args("""{"action":"headers"}"""), schema).isNotEmpty())
                     assertTrue(ToolArgumentValidator.errors(args("""{"action":"context","pull_number":2}"""), schema).isEmpty())

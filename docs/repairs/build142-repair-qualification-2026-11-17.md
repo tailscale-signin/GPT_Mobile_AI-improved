@@ -396,3 +396,7 @@ The intake contained 101 incident reports and tracker #1746. The table records t
 | Tool failures and source validation | #1621, #1623, #1648, #1649, #1656, #1706 | Use the affected source and authorized binding to verify read, search and validation. The original reports alone cannot establish source availability. |
 | Dispatch and reconciliation | #1669, #1690, #1694, #1695, #1742 | Reconcile the original operation against its receipts and current policy before any permitted retry. |
 | Connection, service limits and gateway | #1702, #1743, #1761 | Verification requires the affected connection, provider quota or running gateway with the requested capability. |
+
+Issue #1760 includes a stack frame at the current-input check in `ContextBudgetService.plan`. The planner now preserves the complete current turn, uses remaining headroom for an automatically selected output reserve when viable, and reports a typed capacity failure with the prompt, safety, output, tool-result reserve and context limit when it cannot fit. Explicit output reservations retain their requested value.
+
+The full and action-specific GitHub source-read schemas now require ranges, a nonblank evidence handle, or an issued saved-view cursor. The cursor remains exclusive. Follow-up report #1765 arrived after the intake. Its status receipt showed eight calls within a 32-call limit, observed branch rules, and a 404 from the classic protection endpoint. The missing required-check policy is a distinct verification prerequisite.

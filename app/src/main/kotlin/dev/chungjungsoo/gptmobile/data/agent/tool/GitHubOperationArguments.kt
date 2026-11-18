@@ -40,9 +40,14 @@ internal object GitHubOperationArguments {
 
     /** Advertise the same conditional prerequisites enforced before dispatch. */
     fun schemaAlternatives(operation: String, allowedActions: List<String>? = null): JsonArray? {
-        if (operation == "github_watch_checks") {
+        val selectors = when (operation) {
+            "github_watch_checks" -> watchSelectors
+            "github_read" -> listOf("ranges", "evidence_id")
+            else -> null
+        }
+        if (selectors != null) {
             return JsonArray(
-                (watchSelectors + "view_cursor").map { field ->
+                (selectors + "view_cursor").map { field ->
                     buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive(field)))) }
                 }
             )

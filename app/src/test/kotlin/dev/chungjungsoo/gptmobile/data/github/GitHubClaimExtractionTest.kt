@@ -167,6 +167,15 @@ class GitHubClaimExtractionTest {
         assertTrue(result.providerFailure!!.failureDetails.toString().contains("java.lang.IllegalStateException"))
     }
 
+    @Test fun wholeResponseJsonFenceStillRequiresValidClaimSchema() = runBlocking {
+        val fenced = "```json\n$response\n```"
+        val result = collect(flowOf(ProviderEvent.TextDelta(fenced), ProviderEvent.Completed))
+        assertEquals((Json.parseToJsonElement(response) as JsonObject)["claims"], result["claims"])
+        val prose = failed(flowOf(ProviderEvent.TextDelta("Here is JSON:\n" + fenced), ProviderEvent.Completed))
+        assertEquals("GITHUB_EXTRACTION_INVALID_RESPONSE", prose.code)
+        assertEquals(JsonPrimitive("INVALID_JSON"), prose.providerFailure?.failureDetails?.get("claim_extraction_failure_kind"))
+    }
+
     @Test fun completeMalformedJsonAndTruncatedLengthRemainDifferentFailures() = runBlocking {
         val malformed = failed(flowOf(ProviderEvent.TextDelta("private-provider-payload"), ProviderEvent.Completed))
         assertEquals("GITHUB_EXTRACTION_INVALID_RESPONSE", malformed.code)

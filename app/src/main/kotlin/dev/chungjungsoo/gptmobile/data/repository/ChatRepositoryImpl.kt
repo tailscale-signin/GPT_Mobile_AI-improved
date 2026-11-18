@@ -7641,7 +7641,9 @@ class ChatRepositoryImpl(
         // but an unverified cloud title request is a separate confidentiality leak.
         if (privacyMode?.snapshot()?.enabled == true &&
             !PrivacyProfileEligibility.evaluate(platform, true).eligible
-        ) return null
+        ) {
+            return null
+        }
         if (settingRepository.getFeatureSettings().spendBudget.enforced) return null
         val authority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, platform)
         return withContext(authority) { titleSummarizer?.summarize(userMessage, assistantMessage, platform) }

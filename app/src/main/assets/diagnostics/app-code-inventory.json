@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b568974d7d29c249d2725e52eddb4006c1ad1fe4e3a242e674abb0cd9a921f2c",
+  "source_digest": "2dfadcab35d918fc57f00e8b6ee238ee86f56c79222b63873833508be16a0490",
   "file_count": 2667,
-  "indexed_line_count": 434021,
+  "indexed_line_count": 434105,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -58,7 +58,7 @@
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 100,
-      "indexed_line_count": 22487
+      "indexed_line_count": 22536
     },
     {
       "id": "mcp_plugins",
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 239,
-      "indexed_line_count": 39787
+      "indexed_line_count": 39822
     },
     {
       "id": "research",
@@ -2705,8 +2705,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "b9a1eeca11e773fbc3ef6722df5e0440ba8bf852937eb9eb146798c263fb11c1",
-      "indexed_lines": 234
+      "sha256": "33b958d6d67248ee096c2e1ec241c913c157b6aa60e4438b0c46e585606ce4f5",
+      "indexed_lines": 283
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubProviderPolicy.kt",
@@ -7878,8 +7878,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "e48e9f2130689db585229ec95e9a0615e218252502403247037d2fcd14c2f220",
-      "indexed_lines": 2791
+      "sha256": "3916d01770ec1509a95dd6b53d966e448096d3512f55209b79f91899584e8858",
+      "indexed_lines": 2826
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStore.kt",

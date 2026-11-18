@@ -83,13 +83,13 @@ internal fun UniversalChatActivityFeed(
     val motion = rememberGitHubProgressMotion(active && animate)
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         visible.forEachIndexed { index, line ->
-            key("universal:${visible.size}:$index") {
+            key("universal:$line") {
                 GitHubActivityPreview(
                     raw = line,
                     latest = active && index == visible.lastIndex,
                     motion = motion,
                     animateEntry = animate,
-                    lineIdentity = "universal:$index"
+                    lineIdentity = "universal:$line"
                 )
             }
         }

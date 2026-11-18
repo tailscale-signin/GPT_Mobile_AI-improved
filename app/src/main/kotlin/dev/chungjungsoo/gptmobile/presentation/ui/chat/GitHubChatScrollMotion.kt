@@ -75,7 +75,8 @@ internal suspend fun LazyListState.animateToGitHubPrompt(
     isUserDragging: () -> Boolean = { false },
     shouldAnchor: () -> Boolean = { true },
     currentTargetItem: () -> Int = { targetItem },
-    animate: Boolean = true
+    animate: Boolean = true,
+    durationMillis: Int = GitHubPromptAnchor.PROMPT_ANIMATION_MILLIS
 ) {
     snapshotFlow { !shouldAnchor() || layoutInfo.totalItemsCount > currentTargetItem() && layoutInfo.viewportSize.height > 0 }.first { it }
     if (!shouldAnchor()) return
@@ -90,7 +91,7 @@ internal suspend fun LazyListState.animateToGitHubPrompt(
     scroll {
         val layout = LazyLayoutScrollScope(this@animateToGitHubPrompt, this)
         var previous = 0f
-        androidx.compose.animation.core.animate(0f, 1f, animationSpec = tween(GitHubPromptAnchor.PROMPT_ANIMATION_MILLIS, easing = FastOutSlowInEasing)) { fraction, _ ->
+        androidx.compose.animation.core.animate(0f, 1f, animationSpec = tween(durationMillis, easing = FastOutSlowInEasing)) { fraction, _ ->
             if (!shouldAnchor() || isUserDragging()) throw CancellationException("GitHub prompt positioning superseded by user intent")
             val remainingFraction = (1f - previous).coerceAtLeast(0.000001f)
             val share = ((fraction - previous) / remainingFraction).coerceIn(0f, 1f)

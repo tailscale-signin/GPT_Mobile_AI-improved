@@ -8,6 +8,8 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -158,6 +160,8 @@ import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -765,6 +769,70 @@ private fun ChatScreenContent(
         onFollow = ::followChatBottom
     )
 
+    // Only a final, delivered answer from a turn observed live on this screen
+    // may run the cinematic handoff. Reopening history leaves its scroll intact.
+    val completedGitHubAnswer = githubPromptMode &&
+        groupedMessages.assistantMessages.getOrNull(lastMessageIndex).orEmpty().any { reply ->
+            val status = reply.currentRunId?.let(agentRunsById::get)?.status
+            status == AgentRunStatus.COMPLETED &&
+                dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(reply.effectiveContent()) &&
+                !gitHubResponsePresentation(reply.effectiveContent(), reply.effectiveTimeline()).progressOnly
+        }
+    var sawLiveGitHubTurn by remember(chatRoom.id, newestPromptKey) { mutableStateOf(false) }
+    var celebratedGitHubTurn by remember(chatRoom.id, newestPromptKey) { mutableStateOf(false) }
+    var completionCue by remember(chatRoom.id, newestPromptKey) { mutableIntStateOf(0) }
+    val completionGlow = remember(chatRoom.id, newestPromptKey) { Animatable(0f) }
+    LaunchedEffect(newestPromptKey, githubPromptMode, awaitingGitHubTurn, completedGitHubAnswer) {
+        if (!githubPromptMode || newestPromptKey == null) return@LaunchedEffect
+        if (awaitingGitHubTurn) sawLiveGitHubTurn = true
+        if (
+            shouldBeginGitHubFinalReveal(
+                githubPromptMode,
+                sawLiveGitHubTurn,
+                awaitingGitHubTurn,
+                completedGitHubAnswer,
+                celebratedGitHubTurn
+            )
+        ) {
+            celebratedGitHubTurn = true
+            completionCue++
+        }
+    }
+    LaunchedEffect(completionCue) {
+        if (completionCue == 0) return@LaunchedEffect
+        promptAnchor.detach()
+        githubScrollMode = promptAnchor.mode
+        isFollowingBottom = false
+        isHoldingEntryCenter = false
+        isModelTabPositionLocked = false
+        coroutineScope {
+            launch {
+                try {
+                    listState.animateToGitHubPrompt(
+                        latestTurnItem,
+                        isUserDragging = { scrollInput.dragging },
+                        shouldAnchor = { !scrollInput.dragging },
+                        animate = featureSettings.responseAnimation,
+                        durationMillis = GITHUB_COMPLETION_PROMPT_SCROLL_MILLIS
+                    )
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    // A direct user gesture wins; never restart an automated
+                    // anchor over their scroll or dismiss their keyboard.
+                    if (!scrollInput.dragging) throw cancelled
+                }
+            }
+            launch {
+                if (featureSettings.responseAnimation) {
+                    completionGlow.snapTo(1f)
+                    delay(GITHUB_COMPLETION_GLOW_HOLD_MILLIS.toLong())
+                    completionGlow.animateTo(0f, tween(GITHUB_COMPLETION_GLOW_FADE_MILLIS))
+                } else {
+                    completionGlow.snapTo(0f)
+                }
+            }
+        }
+    }
+
     GitHubScrollMotion(
         listState = listState,
         enabled = githubPromptMode && entryPositioned && !isModelTabPositionLocked,
@@ -810,7 +878,8 @@ private fun ChatScreenContent(
     Scaffold(
         snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHost) },
         modifier = Modifier.then(backFade.modifier)
-            .diagnosticFrameTiming("Chat"),
+            .diagnosticFrameTiming("Chat")
+            .githubCompletionEdgeGlow(completionGlow.value, MaterialTheme.colorScheme.primary),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (showTopBar) {

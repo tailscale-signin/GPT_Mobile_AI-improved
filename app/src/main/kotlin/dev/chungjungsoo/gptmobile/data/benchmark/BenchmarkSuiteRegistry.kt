@@ -1,8 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
-/** Version ten records execution policy and rotates a complete, expanded fixture set. */
+/** Version eleven adds a separate evidence-labeled multi-round GitHub engineering lane. */
 internal object BenchmarkSuiteRegistry {
-    const val VERSION = 10
+    const val VERSION = 11
     const val MIN_TIMING_REFERENCE_UNITS = 128
     val quick: List<BenchmarkCase> by lazy { cases(BenchmarkMode.QUICK, 0) }
     val full: List<BenchmarkCase> by lazy { cases(BenchmarkMode.FULL, 0) }
@@ -11,7 +11,7 @@ internal object BenchmarkSuiteRegistry {
 
     fun cases(mode: BenchmarkMode, rotationSeed: Long): List<BenchmarkCase> {
         if (mode == BenchmarkMode.APP_AUDIT) return emptyList()
-        if (mode == BenchmarkMode.GITHUB_INTEGRATION) return GitHubProfileAuditSuite.cases(allActions = true)
+        if (mode == BenchmarkMode.GITHUB_INTEGRATION) return GitHubProfileAuditSuite.cases(allActions = true) + GitHubEngineeringBenchmarkSuite.cases()
         if (mode == BenchmarkMode.PERFORMANCE) return BenchmarkPerformanceSuite.cases()
         if (mode == BenchmarkMode.CPU_EXPERIMENT) return BenchmarkCpuExperiment.cases()
         if (mode == BenchmarkMode.DELEGATION) return delegationBenchmarkSuite()
@@ -26,9 +26,13 @@ internal object BenchmarkSuiteRegistry {
 
 internal fun benchmarkSuiteForVersion(version: Int, mode: BenchmarkMode, rotationSeed: Long = 0): List<BenchmarkCase> = when {
     mode == BenchmarkMode.APP_AUDIT -> emptyList()
-    mode == BenchmarkMode.GITHUB_INTEGRATION -> GitHubProfileAuditSuite.cases(allActions = true)
+    mode == BenchmarkMode.GITHUB_INTEGRATION -> if (version <= 10) {
+        GitHubProfileAuditSuite.cases(allActions = true)
+    } else {
+        GitHubProfileAuditSuite.cases(allActions = true) + GitHubEngineeringBenchmarkSuite.cases()
+    }
     mode == BenchmarkMode.CPU_EXPERIMENT && version >= 9 -> BenchmarkCpuExperiment.cases()
-    version == 10 -> BenchmarkSuiteRegistry.cases(mode, rotationSeed)
+    version == 11 || version == 10 -> BenchmarkSuiteRegistry.cases(mode, rotationSeed)
     version == 9 -> when (mode) {
         BenchmarkMode.QUICK -> BenchmarkSuite9.quick
         BenchmarkMode.DIAGNOSTIC -> BenchmarkCapabilitySuite.cases

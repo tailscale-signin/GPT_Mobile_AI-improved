@@ -266,7 +266,12 @@ class GitHubStatusCorrectnessTest {
                     "rules",
                     buildJsonObject {
                         put("available", true)
-                        put("data", JsonArray(listOf(buildJsonObject { put("type", "required_status_checks") })))
+                        put("data", JsonArray(listOf(buildJsonObject {
+                            put("type", "required_status_checks")
+                            put("parameters", buildJsonObject {
+                                put("required_status_checks", JsonArray(listOf(buildJsonObject { put("context", "Required verification") })))
+                            })
+                        })))
                     }
                 )
                 put(

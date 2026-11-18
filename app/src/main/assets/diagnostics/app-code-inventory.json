@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "146dfb2aca61120c067339594fda476e6f05187dee6e55d56d83bc00129c7ca1",
+  "source_digest": "1e71914bedfd3336057dafc45c19418b5ef9ab9a25169aabec1cdcab9d2c4428",
   "file_count": 2667,
-  "indexed_line_count": 433867,
+  "indexed_line_count": 433920,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 239,
-      "indexed_line_count": 39717
+      "indexed_line_count": 39770
     },
     {
       "id": "research",
@@ -6786,7 +6786,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "d8d5bbca86b28a3a06f3277ec19a5bf4d8610d1c166220abbf88c1fbcf3b6ddb",
+      "sha256": "5ee3d591a21874d5decf9eb1b02df15a2edbed3ebd2caa2eff3298b0c3731b59",
       "indexed_lines": 459
     },
     {
@@ -7311,15 +7311,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressNarrator.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "54a5109cfcbc090f4715c8c6cef4d64ab877963a1b7d48f6a8cc1a309f584e5b",
-      "indexed_lines": 186
+      "sha256": "4c3367e2374b5e6f55998bee6d52bd08c8759a34c747c0fe4317941d072088f6",
+      "indexed_lines": 187
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressPresentation.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "871d25e5026dbca46ef13f2c8690f52b352ffdd821776b0120031d107b843a5b",
-      "indexed_lines": 93
+      "sha256": "b7bd67e94e17bf5bf7fcdb07473421facd4b0e19e8cb41082c9aa5fbd3b35059",
+      "indexed_lines": 116
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPublicAuthClient.kt",
@@ -7528,8 +7528,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentation.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "b70db6c4021326a34cd3be64221c6f46e79ef1e7e5550fdad36151eb5a580bd4",
-      "indexed_lines": 194
+      "sha256": "02ba273d0457ea47d910978c843ff075d2b57741c518fa579c1fe4ce418599b7",
+      "indexed_lines": 223
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunAcceptance.kt",

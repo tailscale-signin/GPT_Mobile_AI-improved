@@ -172,7 +172,7 @@ close as not planned only where justified, and retain the separate acceptance ga
 Do not merge PR #1534 while any required CI or Windows release gate is failing or
 device/Gateway acceptance remains unverified.
 
-## Review lanes for PR #1534 (83-file snapshot, November 18)
+## Review lanes for PR #1534 (84-file snapshot, November 18)
 
 The requested repairs remain on **one existing branch**. Scope can be reviewed in
 independent modules rather than splitting source changes across competing PRs.
@@ -180,14 +180,14 @@ independent modules rather than splitting source changes across competing PRs.
 | Review lane | Changed files | Focused evidence |
 | --- | ---: | --- |
 | Android production and UI | 35 | GitHub operation dispatch, pagination, output budgets, source receipts, diagnostics and presentation |
-| Android regression tests | 27 | Exact-argument admission, PR-context coverage, provider retry, acceptance, privacy and UI behavior |
+| Android regression tests | 28 | Exact-argument admission, PR-context coverage, provider retry, acceptance, privacy and UI behavior |
 | Reporting server | 5 | Issue-contract validation, typed incident fields and privacy-safe submission |
 | Windows Gateway | 8 | Installer smoke, release package integrity, gateway contracts and runtime qualification |
 | Documentation | 3 | Acceptance evidence, expected-head qualification and architectural change map |
 | CI and PR review | 2 | Installer workflow and PR review rules |
 | Release metadata | 2 | Version/scope evidence, not runtime proof |
 | Release tooling | 1 | Windows package publication safeguards |
-| **Total** | **83** | **One PR, independent review and verification gates** |
+| **Total** | **84** | **One PR, independent review and verification gates** |
 
 ### PR file-list and empty-review coverage
 

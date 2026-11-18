@@ -17,7 +17,10 @@ data class BenchmarkToolAssessment(
     val expectedErrorCalls: Int,
     val policy: String = "benchmark-tool-dimensions-v1",
     // Optional so persisted benchmark exports from earlier app builds remain readable.
-    val argumentEvidence: BenchmarkToolArgumentEvidence? = null
+    val argumentEvidence: BenchmarkToolArgumentEvidence? = null,
+    /** Never conflate a fixture pass with a live repository or Copilot run. */
+    val evidenceClass: String = "OFFLINE_TOOL_CONTRACT",
+    val workflowCompleted: Boolean? = null
 )
 
 /** Field identity only. Never persists model-proposed argument values or private strings. */

@@ -27,6 +27,19 @@ class GitHubTopFadeGeometryTest {
         assertEquals(collapsed, gitHubTopFadeHeight(48f, 800f, true, 0f), .001f)
     }
 
+    @Test fun expandedTranscriptFadeIsStrongerAtTopWithSharperFalloff() {
+        val start = 0.10f
+        val stop = 0.50f
+        val collapsed = chatTopFadeStops(start, stop, 0f)
+        val expanded = chatTopFadeStops(start, stop, 1f)
+        org.junit.Assert.assertTrue(expanded.first > collapsed.first)
+        org.junit.Assert.assertTrue(expanded.second > collapsed.second)
+        org.junit.Assert.assertTrue(expanded.second - expanded.first < collapsed.second - collapsed.first)
+        assertEquals(collapsed.first, chatTopFadeStops(start, stop, 0f).first, 0f)
+        assertEquals(start, chatTopFadeStops(start, start, 1f).first, 0f)
+        assertEquals(stop, chatTopFadeStops(stop, stop, Float.NaN).second, 0f)
+    }
+
     @Test fun keyboardDoesNotEnterTheWindowReferenceAndDisabledFadesStayDisabled() {
         // The same stable pre-IME window is used throughout keyboard animation.
         listOf(800f, 600f, 400f).forEach { viewport ->

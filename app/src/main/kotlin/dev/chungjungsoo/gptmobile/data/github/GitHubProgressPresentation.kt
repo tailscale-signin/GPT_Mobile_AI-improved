@@ -28,8 +28,8 @@ internal object GitHubProgressPresentation {
     /** Keep the opening anchored to the user's actual request, not a stock GitHub-status script. */
     fun taskFocus(task: String): String {
         val request = taskLabel(task)
-            .replace(Regex("""(?i)^(?:(?:please|can you|could you|would you)\\s+)*"""), "")
-            .replace(Regex("""(?i)^(?:fix|repair|debug|resolve|review|examine|exaine|inspect|investigate|analyze|audit|improve|enhance|redesign|design|change|update|make|implement|add|check|look at|merge)\\s+"""), "")
+            .replace(Regex("""(?i)^(?:(?:please|can you|could you|would you)\s+)*"""), "")
+            .replace(Regex("""(?i)^(?:fix|repair|debug|resolve|review|examine|exaine|inspect|investigate|analyze|audit|improve|enhance|redesign|design|change|update|make|implement|add|check|look at|merge)\s+"""), "")
             .substringBefore(',').substringBefore(';').trim().trimEnd('.', '?', '!', ':')
         val clipped = request.take(78).trim()
         return (if (request.length > 78) clipped.substringBeforeLast(' ', clipped) else clipped)
@@ -41,15 +41,15 @@ internal object GitHubProgressPresentation {
         return when {
             GitHubStatusRequest.matches(task) ->
                 "I’ll check the repository status for $focus, including pull requests and current checks, and separate confirmed results from pending work."
-            Regex("""(?i)\\bsummar""").containsMatchIn(task) ->
+            Regex("""(?i)\bsummar""").containsMatchIn(task) ->
                 "I’ll refine $focus around your request and concrete results, replacing repeated labels with short, distinct updates. I’ll check the opening message too."
             GitHubTaskCoverage.matches(task) ->
                 "I’ll map $focus to available GitHub operations and their test evidence without treating unexecuted checks as successes."
-            Regex("""(?i)\\b(?:fix|repair|debug|resolve|crash|failure)\\b""").containsMatchIn(task) ->
+            Regex("""(?i)\b(?:fix|repair|debug|resolve|crash|failure)\b""").containsMatchIn(task) ->
                 "I’ll trace $focus through the current branch and verify the affected behavior before calling any repair complete."
-            Regex("""(?i)\\b(?:merge|release|publish)\\b""").containsMatchIn(task) ->
+            Regex("""(?i)\b(?:merge|release|publish)\b""").containsMatchIn(task) ->
                 "I’ll check $focus against the latest PR, required checks and review state before treating it as ready to ship."
-            Regex("""(?i)\\b(?:review|examine|exaine|investigate|audit|diagnos|analy[sz]e)""").containsMatchIn(task) ->
+            Regex("""(?i)\b(?:review|examine|exaine|investigate|audit|diagnos|analy[sz]e)""").containsMatchIn(task) ->
                 "I’ll examine $focus in the current branch, distinguish confirmed evidence from assumptions, and report the meaningful gaps."
             else ->
                 "I’ll work through $focus in the current branch and check the result against what you requested."

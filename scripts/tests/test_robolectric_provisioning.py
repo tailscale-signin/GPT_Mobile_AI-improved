@@ -21,6 +21,22 @@ class RobolectricProvisioningTest(unittest.TestCase):
         sdk.download(self.target, 'https://repo.maven.apache.org/runtime.jar', self.digest, deadline,
                      opener, wait, clock, jitter, wall_clock)
 
+
+    def test_ci_cache_restores_before_verified_provisioning_and_saves_after_success(self):
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/pr-validation.yml').read_text(encoding='utf-8')
+        restored = workflow.index('- name: Restore verified Robolectric runtime cache')
+        provisioned = workflow.index('- name: Provision verified Robolectric runtimes')
+        saved = workflow.index('- name: Save verified Robolectric runtime cache')
+        self.assertLess(restored, provisioned)
+        self.assertLess(provisioned, saved)
+        pin = '55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
+        self.assertIn(f'uses: actions/cache/restore@{pin}', workflow)
+        self.assertIn(f'uses: actions/cache/save@{pin}', workflow)
+        self.assertIn("if: success() && steps.robolectric-cache.outputs.cache-hit != 'true'", workflow)
+        self.assertEqual(2, workflow.count("key: robolectric-sha512-linux-${{ hashFiles('scripts/provision_robolectric_sdks.py') }}"))
+        self.assertEqual(2, workflow.count('path: ~/.m2/repository/org/robolectric/android-all-instrumented'))
+        self.assertIn('run: python3 scripts/provision_robolectric_sdks.py', workflow)
+
     def test_throttling_recovers_before_tests_and_installs_verified_bytes(self):
         calls, delays = [], []
 

@@ -16,7 +16,10 @@ class ProgressiveToolCatalog(
     initialNames: Set<String>? = null,
     private val acquireCold: (suspend (String, List<String>) -> List<AgentToolDefinition>)? = null,
     private val acquisitionState: (() -> ToolCatalogAcquisition)? = null,
-    val githubMode: Boolean = false
+    val githubMode: Boolean = false,
+    // The selected provider's admitted context, not the user's preferred maximum.
+    // Null retains the existing window for callers without route-capacity evidence.
+    private val contextCeilingTokens: Int? = null
 ) : AgentTool {
     // Local schema selection is not an external evidence operation. Cold acquisitions
     // retain their own wrapped child admission rather than charging this facade too.
@@ -27,7 +30,10 @@ class ProgressiveToolCatalog(
     private val githubUpfront = githubMode && !scopedGitHubStatus || integrationPreset
     private val conversational = !githubUpfront && CurrentRequestContract.from(task).conversational
     private val toolAllowance get() = if (advanced) 16 else INITIAL_TOOLS
-    private val schemaAllowance get() = if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE
+    private val schemaAllowance get() = minOf(
+        if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE,
+        contextSchemaAllowance(contextCeilingTokens)
+    )
     private val taskText = task
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
     private val actionSelections = mutableMapOf<String, Pair<String, String>>()
@@ -674,7 +680,9 @@ class ProgressiveToolCatalog(
             // An individual authorized GitHub schema may exceed the soft discovery
             // window. Hard provider context admission still precedes all dispatch.
             val cost = schemaTokens(presented(tool))
-            val singleGitHubContract = (githubMode || integrationPreset) && isGitHubTool(tool) && selected.all { it.name == "read_recovery_context" }
+            val singleGitHubContract = contextCeilingTokens == null &&
+                (githubMode || integrationPreset) && isGitHubTool(tool) &&
+                selected.all { it.name == "read_recovery_context" }
             val reason = when {
                 cost + 256 > schemaAllowance && !singleGitHubContract -> "SCHEMA_TOO_LARGE"
                 selected.size >= toolAllowance -> "TOOL_COUNT_WINDOW"
@@ -724,12 +732,31 @@ class ProgressiveToolCatalog(
         // Leaves room for the discovery schema and source content in the parent request planner.
         const val SCHEMA_TOKEN_ALLOWANCE = 2_000
         const val MAX_SCHEMA_TOKEN_ALLOWANCE = 6_000
+        // Do not spend an unknown/small provider's entire budget advertising tools.
+        // The remaining capacity funds system instructions, prompt, completion and receipts.
+        private fun contextSchemaAllowance(ceiling: Int?): Int =
+            ceiling?.takeIf { it > 0 }?.let { (it / 3).coerceAtLeast(128) } ?: Int.MAX_VALUE
         private fun advancedTask(task: String): Boolean =
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task).isNotEmpty() || Regex("(?iu)\\b(research|study|studies|papers)\\b").containsMatchIn(task)
         internal fun schemaTokens(tool: AgentToolDefinition): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(tool.name + tool.description + tool.inputSchema.toString())
         internal fun isGitHubTool(tool: AgentToolDefinition): Boolean = AgentToolCapability.GITHUB in tool.capabilities || tool.name.split("__").any { it == "github" || it.startsWith("github_") || it == "repository_graph" || it == "gitmcp" }
-        fun create(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null, githubMode: Boolean = false): ProgressiveToolCatalog? =
-            if (definitions.any { it.name == NAME } || definitions.none { !it.modelVisible || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null } && definitions.size <= INITIAL_TOOLS && definitions.sumOf { schemaTokens(it).toLong() } <= SCHEMA_TOKEN_ALLOWANCE) null else ProgressiveToolCatalog(definitions, task, initialNames, githubMode = githubMode)
+        fun create(
+            definitions: List<AgentToolDefinition>,
+            task: String,
+            initialNames: Set<String>? = null,
+            githubMode: Boolean = false,
+            contextCeilingTokens: Int? = null
+        ): ProgressiveToolCatalog? =
+            if (
+                definitions.any { it.name == NAME } ||
+                definitions.none { !it.modelVisible || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null } &&
+                definitions.size <= INITIAL_TOOLS &&
+                definitions.sumOf { schemaTokens(it).toLong() } <= minOf(SCHEMA_TOKEN_ALLOWANCE, contextSchemaAllowance(contextCeilingTokens))
+            ) {
+                null
+            } else {
+                ProgressiveToolCatalog(definitions, task, initialNames, githubMode = githubMode, contextCeilingTokens = contextCeilingTokens)
+            }
     }
 }
 

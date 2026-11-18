@@ -4990,11 +4990,18 @@ class ChatRepositoryImpl(
         settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
         latestUser: MessageV2?,
         contextPlan: dev.chungjungsoo.gptmobile.data.context.ContextPlan,
-        githubMode: Boolean
+        githubMode: Boolean,
+        contextCeilingTokens: Int
     ): dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? =
         (
             effectiveTools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (settings.adaptiveToolCatalog && !session.handlesToolsInternally) {
-                dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(runnerTools.map { it.definition }, latestUser?.content.orEmpty(), contextPlan.tools.mapTo(HashSet()) { it.name }, githubMode = githubMode)
+                dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(
+                    runnerTools.map { it.definition },
+                    latestUser?.content.orEmpty(),
+                    contextPlan.tools.mapTo(HashSet()) { it.name },
+                    githubMode = githubMode,
+                    contextCeilingTokens = contextCeilingTokens
+                )
             } else {
                 null
             }
@@ -5746,7 +5753,10 @@ class ChatRepositoryImpl(
             effectiveTools.map(::bindGitHubTarget)
         }
 
-        val catalog = primaryToolCatalog(effectiveTools, runnerTools, groundedSession, budgetSettings, latestUser, contextPlan, chatToolConfig?.github != null)
+        val catalog = primaryToolCatalog(
+            effectiveTools, runnerTools, groundedSession, budgetSettings, latestUser,
+            contextPlan, chatToolConfig?.github != null, limits.contextTokens
+        )
         // Exhausted execution budgets and writer-only stages must not erase the
         // still-authorized identity/contracts used to restore durable evidence.
         // Only runnerTools are executable; this catalog is a read-validation scope.

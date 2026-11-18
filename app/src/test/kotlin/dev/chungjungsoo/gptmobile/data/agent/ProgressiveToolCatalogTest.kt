@@ -23,6 +23,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressiveToolCatalogTest {
+
+    @Test fun smallObservedProviderContextNeverAdmitsOversizedSingleGitHubSchema() {
+        val original = GitHubOperationTool.definition("github_pr", "github_pr__native")
+        val oversized = original.copy(description = original.description + "oversized contract ".repeat(500))
+        val catalog = ProgressiveToolCatalog(
+            listOf(oversized), "Inspect the latest PR and verify CI", githubMode = true,
+            contextCeilingTokens = 4096
+        )
+        val selected = catalog.selected(listOf(oversized, catalog.definition))
+        val advertised = selected.filter { it.name != ProgressiveToolCatalog.NAME }
+        assertTrue(advertised.sumOf { ProgressiveToolCatalog.schemaTokens(it) } <= 4096 / 3)
+        assertFalse(advertised.any { it.name == oversized.name })
+        assertTrue(selected.any { it.name == ProgressiveToolCatalog.NAME })
+        val inventory = catalog.selectionOmissions(selected)
+        assertTrue(inventory[oversized.name] in setOf("SCHEMA_TOO_LARGE", "SCHEMA_WINDOW_BUDGET"))
+    }
+
+    @Test fun routeCapacityIsOptInAndLargeVerifiedModelsRetainNormalSchemaWindow() {
+        val original = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__native")
+        val defaults = ProgressiveToolCatalog(listOf(original), "Check the repository", githubMode = true)
+        val full = ProgressiveToolCatalog(
+            listOf(original), "Check the repository", githubMode = true,
+            contextCeilingTokens = 1_048_576
+        )
+        assertEquals(
+            defaults.selected(listOf(original, defaults.definition)).map { it.name },
+            full.selected(listOf(original, full.definition)).map { it.name }
+        )
+    }
+
     @Test fun fullFirstGitHubDefinitionsPreferCompactInitialContracts() {
         val requests = mapOf(
             "check repo status" to setOf("github_context_inspect", "github_pr_inspect"),

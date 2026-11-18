@@ -42,6 +42,73 @@ class GitHubPaginationBoundaryTest {
         assertEquals("GITHUB_PAGINATION_INCOMPLETE", invalid.errorCode)
     }
 
+
+    @Test fun requestedPrFilesCannotReportAnEmptyTerminalPageWith82ChangedFiles() {
+        val boundary = GitHubPaginationBoundary()
+        for (page in listOf(1, 3)) {
+            val arguments = json("""{"action":"pr_context","pull_number":1534,"page":$page,"verify_live":true}""")
+            val output = json(
+                """{"files_total":82,"files_included":true,"files_returned":0,"files":[],"page":$page,"has_more":false,"files_continuation":{"page":4}}"""
+            )
+            val assessed = boundary.assessPage("github_pr", arguments, output)
+            assertEquals("GITHUB_PAGINATION_INCOMPLETE", assessed.errorCode)
+            assertEquals(JsonPrimitive("MISSING_REMOTE_RECORD_COLLECTION"), assessed.data["reason"])
+            assertEquals(JsonPrimitive(false), assessed.data["complete"])
+            assertFalse(assessed.data.containsKey("files_continuation"))
+            assertEquals(
+                JsonPrimitive("NOT_MEASURED"),
+                assessed.data.getValue("pagination_progress").jsonObject["acceptance_status"]
+            )
+        }
+    }
+
+    @Test fun skippedPrFilesAndActuallyEmptyReviewsStayDistinctFromMissingRequestedFiles() {
+        val boundary = GitHubPaginationBoundary()
+        val pr = json("""{"action":"pr_context","pull_number":1534,"page":1}""")
+        val omitted = json("""{"files_total":82,"files_included":false,"files":[],"has_more":false}""")
+        val omittedResult = boundary.assessPage("github_pr", pr, omitted)
+        assertEquals(null, omittedResult.errorCode)
+        assertEquals(omitted, omittedResult.data)
+        assertFalse(omittedResult.data.containsKey("pagination_progress"))
+
+        val genuinelyEmpty = json(
+            """{"files_total":0,"files_included":true,"files_returned":0,"files":[],"page":1,"has_more":false}"""
+        )
+        assertEquals(null, boundary.assessPage("github_pr", pr, genuinelyEmpty).errorCode)
+
+        val reviewArgs = json("""{"action":"pull_request_reviews","pull_number":1534,"page":1}""")
+        val emptyReviews = boundary.assessPage(
+            "github_pr",
+            reviewArgs,
+            json("""{"reviews":[],"returned":0,"has_more":false}""")
+        )
+        assertEquals(null, emptyReviews.errorCode)
+        val progress = emptyReviews.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(0), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+        assertEquals(JsonPrimitive("NOT_MEASURED"), progress["acceptance_status"])
+
+        val missingReviews = GitHubPaginationBoundary().assessPage(
+            "github_pr",
+            reviewArgs,
+            json("""{"has_more":false,"total_count":1}""")
+        )
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", missingReviews.errorCode)
+        assertEquals(JsonPrimitive("MISSING_REMOTE_RECORD_COLLECTION"), missingReviews.data["reason"])
+    }
+
+    @Test fun populatedLastPrFilePageIsAcceptedWithoutClaimingAllPagesOrTestsPassed() {
+        val args = json("""{"action":"pr_context","pull_number":1534,"page":3,"verify_live":true}""")
+        val rows = (61..82).joinToString(",") { """{"filename":"file$it"}""" }
+        val result = json(
+            """{"files_total":82,"files_included":true,"files_returned":22,"files":[$rows],"page":3,"has_more":false}"""
+        )
+        val assessment = GitHubPaginationBoundary().assessPage("github_pr", args, result)
+        assertEquals(null, assessment.errorCode)
+        assertEquals(result, assessment.data)
+        assertFalse(assessment.data.containsKey("pagination_progress"))
+    }
+
     @Test fun recoveryEvidenceIsCountedByRetainedHandleAcrossPages() {
         val boundary = GitHubPaginationBoundary()
         val first = json("""{"action":"recovery_context","page":1}""")

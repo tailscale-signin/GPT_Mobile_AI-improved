@@ -171,3 +171,46 @@ condition is intentionally not fixed, record the diagnostic enhancement explicit
 close as not planned only where justified, and retain the separate acceptance gate.
 Do not merge PR #1534 while any required CI or Windows release gate is failing or
 device/Gateway acceptance remains unverified.
+
+## Review lanes for PR #1534 (82-file snapshot, November 18)
+
+The requested repairs remain on **one existing branch**. Scope can be reviewed in
+independent modules rather than splitting source changes across competing PRs.
+
+| Review lane | Changed files | Focused evidence |
+| --- | ---: | --- |
+| Android production and UI | 34 | GitHub operation dispatch, pagination, output budgets, source receipts, diagnostics and presentation |
+| Android regression tests | 27 | Exact-argument admission, PR-context coverage, provider retry, acceptance, privacy and UI behavior |
+| Reporting server | 5 | Issue-contract validation, typed incident fields and privacy-safe submission |
+| Windows Gateway | 8 | Installer smoke, release package integrity, gateway contracts and runtime qualification |
+| Documentation | 3 | Acceptance evidence, expected-head qualification and architectural change map |
+| CI and PR review | 2 | Installer workflow and PR review rules |
+| Release metadata | 2 | Version/scope evidence, not runtime proof |
+| Release tooling | 1 | Windows package publication safeguards |
+| **Total** | **82** | **One PR, independent review and verification gates** |
+
+### PR file-list and empty-review coverage
+
+- A PR context is one selected resource. Its optional `files` field is a
+  **30-file page**: for 82 changed files, pages 1, 2, and 3 should carry 30,
+  30, and 22 file records. Validate `files_returned`, `files_total`, and
+  `has_more` against the requested page before accepting the result. If
+  requested files are absent or fewer than expected, report
+  `GITHUB_PAGINATION_INCOMPLETE` with
+  `MISSING_REMOTE_RECORD_COLLECTION` or `INCOMPLETE_REMOTE_COVERAGE` and
+  offer a deliberate first-page `verify_live=true` refresh at the observed head.
+  Do not auto-repeat a mutable read against a silently changed revision.
+- `files_included=false` intentionally omits the file collection. A successful
+  checks-only PR context must not be called an incomplete file traversal.
+- `github_pr:reviews` may return an explicitly empty `reviews: []` collection.
+  This can establish complete **page coverage** with zero records; it does not
+  establish successful tool acceptance. `acceptance_status=NOT_MEASURED`
+  is deliberate until matching tests and retained receipts are verified.
+- The GitHub connector can independently retrieve all 82 changed filenames.
+  The old app's 24,576-byte budget and lost file observations therefore do
+  not prove that PR files are absent from GitHub. Validate fresh Android
+  behavior with saved-view pagination after the candidate is installed.
+
+Keep PR #1534 draft until exact-head CI, Android/Gateway/installer checks, and
+live runtime acceptance are verified. Review modules do not independently
+authorize merging or issue closure.

@@ -78,8 +78,58 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         return collection + ":" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(value.toString())
     }
 
+
+    /** A PR context is a singleton, but its explicitly requested file page must be real. */
+    private fun assessPrContextFilePage(args: JsonObject, result: JsonObject): Assessment {
+        if (result["files_included"] != JsonPrimitive(true)) return Assessment(result)
+        val pageNumber = page(args)
+        val total = (result["files_total"] as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it >= 0 }
+        val files = result["files"] as? JsonArray
+        val expectedRows = total?.let { (it.toLong() - (pageNumber.toLong() - 1L) * 30L).coerceIn(0L, 30L).toInt() }
+        val claimedRows = (result["files_returned"] as? JsonPrimitive)?.content?.toIntOrNull()
+        val expectedMore = total?.let { pageNumber.toLong() * 30L < it }
+        if (pageNumber > 0 &&
+            expectedRows != null &&
+            files?.size == expectedRows &&
+            claimedRows == expectedRows &&
+            result["has_more"] == JsonPrimitive(expectedMore == true)
+        ) {
+            return Assessment(result)
+        }
+
+        val progress = buildJsonObject {
+            put("schema", "github.pagination-progress.v1")
+            put("remote_page", pageNumber)
+            put("remote_pages_observed", JsonArray(listOf(JsonPrimitive(pageNumber))))
+            put("upstream_rows_returned", files?.size ?: 0)
+            put("unique_records_observed", files?.size ?: 0)
+            total?.let { put("reported_total", it) }
+            put("contiguous_from_first_page", pageNumber == 1)
+            put("complete", false)
+            put("acceptance_status", "NOT_MEASURED")
+        }
+        val missing = files == null || files.isEmpty() && (expectedRows ?: 0) > 0
+        return Assessment(
+            JsonObject(
+                result.filterKeys { it != "files_continuation" } + buildJsonObject {
+                    put("reason", if (missing) "MISSING_REMOTE_RECORD_COLLECTION" else "INCOMPLETE_REMOTE_COVERAGE")
+                    put("has_more", false)
+                    put("upstream_has_more", result["has_more"] ?: JsonPrimitive(false))
+                    put("complete", false)
+                    put("traversal_state", "INCOMPLETE")
+                    put("pagination_progress", progress)
+                    put("message", "Requested PR files did not match files_total for this page. Refresh page 1 with verify_live=true and include_files=true at the observed PR head; do not accept incomplete file coverage.")
+                }
+            ),
+            "GITHUB_PAGINATION_INCOMPLETE"
+        )
+    }
+
     /** Compare stable record identifiers, including earlier nonadjacent pages and reordered rows. */
     @Synchronized fun assessPage(operation: String, args: JsonObject, result: JsonObject): Assessment {
+        if (operation == "github_pr" && args["action"] == JsonPrimitive("pr_context")) {
+            return assessPrContextFilePage(args, result)
+        }
         if (!numberedRemotePage(operation, args) || "has_more" !in result) return Assessment(result)
         val collections = rows(result)
         if (collections.isEmpty()) {

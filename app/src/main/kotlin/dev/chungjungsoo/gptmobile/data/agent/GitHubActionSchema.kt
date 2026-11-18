@@ -118,7 +118,7 @@ internal object GitHubActionSchema {
             else -> ""
         }
         return tool.copy(
-            description = "$operation action=$action. Use only this selected action, or discover another action. Current revision guards and approvals still apply. Follow exact continuation_call.$guidance",
+            description = "$operation action=$action. Use only this selected action, or discover another action. Current revision guards and approvals still apply. Follow exact continuation_call. For a saved-view continuation containing view_cursor, send that field alone and do not carry over action, owner, repo, page, ref, branch or search_id.$guidance",
             inputSchema = buildJsonObject {
                 put("type", "object")
                 put("properties", JsonObject(properties))

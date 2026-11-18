@@ -15,10 +15,17 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
             // The immutable body also retains only the initially issued cursors.
             // If the mutable index disappears after a crash, old issued handles
             // remain recoverable without inventing a cursor or replaying GitHub.
-            val issued = snapshot["issued_cursors"] as? JsonArray
-            require(!issued.isNullOrEmpty() && issued.size <= 16_384 && issued.all { item ->
-                (item as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.substringBefore(':') == id
-            }) { "Saved view requires bounded, actually issued initial cursors" }
+            val issued = requireNotNull(snapshot["issued_cursors"] as? JsonArray) {
+                "Saved view requires an issued cursor array"
+            }
+            require(issued.isNotEmpty() && issued.size <= 16_384) {
+                "Saved view requires bounded initial cursors"
+            }
+            require(
+                issued.all { item ->
+                    (item as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.substringBefore(':') == id
+                }
+            ) { "Saved view contains a cursor not issued for this identity" }
             state.write(
                 scope,
                 bodyKey,
@@ -70,12 +77,13 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
         val access = state.read(scope, accessKey)
         if (access == null) {
             val initial = body["bootstrap_issued_cursors"] as? JsonArray
-            if (initial.isNullOrEmpty() || initial.size > 16_384 || initial.any { item ->
-                    (item as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.substringBefore(':') != id
-                }
-            ) {
+            if (initial.isNullOrEmpty() || initial.size > 16_384) {
                 throw MissingSavedView("CURSOR_INDEX_MISSING")
             }
+            val altered = initial.any { item ->
+                (item as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.substringBefore(':') != id
+            }
+            if (altered) throw MissingSavedView("CURSOR_INDEX_MISSING")
             // Initial handle proof is encrypted with the source body. Do not
             // invent later-issued continuations or retry an accepted mutation.
             return JsonObject(

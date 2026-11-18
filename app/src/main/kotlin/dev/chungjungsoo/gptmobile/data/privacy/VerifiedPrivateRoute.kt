@@ -30,8 +30,21 @@ internal data class ProviderApproval(
     val safetyRetentionExcluded: Boolean,
     val guardrailId: String? = null,
     val providerKeyHash: String? = null,
-    val allowGuardrailTightening: Boolean = false
+    val allowGuardrailTightening: Boolean = false,
+    val policySha256: String = "",
+    val policyDocument: String = policyUrl
 ) {
+    fun permitsDocument(url: String): Boolean = runCatching {
+        val uri = java.net.URI(url)
+        val terms = java.net.URI(policyUrl)
+        val trusted = when (terms.host) {
+            "ai.google.dev", "docs.cloud.google.com" -> setOf("ai.google.dev", "aistudio.google.com", "docs.cloud.google.com", "cloud.google.com")
+            "docs.ovhcloud.com" -> setOf("docs.ovhcloud.com", "help.ovhcloud.com")
+            else -> setOf(terms.host)
+        }
+        uri.scheme == "https" && uri.host in trusted && uri.port in setOf(-1, 443) && uri.userInfo == null && uri.fragment == null
+    }.getOrDefault(false)
+
     fun covers(profile: PlatformV2, url: String, terms: String, now: Long): Boolean =
         feature == "stateless-text-v1" &&
             retentionTier == "zdr" &&
@@ -45,6 +58,8 @@ internal data class ProviderApproval(
             endpoint == url &&
             model == profile.model &&
             policyUrl == terms &&
+            policySha256.matches(Regex("[0-9a-f]{64}")) &&
+            permitsDocument(policyDocument) &&
             upstream.matches(Regex("[a-z0-9][a-z0-9._/-]{0,127}")) &&
             credentialSha256 == OpenRouterIdentity.digest(profile.token.orEmpty())
 }
@@ -55,6 +70,7 @@ internal data class VerifiedPrivateRoute(
     val approval: ProviderApproval? = null
 ) {
     companion object {
+        const val VERTEX_TERMS = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/vertex-ai-zero-data-retention"
         const val GATEWAY_PATH = "/gateway/privacy/inference"
 
         fun gateway(profile: PlatformV2): String? {
@@ -70,6 +86,8 @@ internal data class VerifiedPrivateRoute(
                 !profile.openRouterRouting.isNullOrBlank() ||
                 !profile.model.matches(Regex("[A-Za-z0-9][A-Za-z0-9_.:/-]{0,190}")) ||
                 profile.model.startsWith("openrouter/") ||
+                profile.model.endsWith("-latest", true) ||
+                profile.model.endsWith(":latest", true) ||
                 profile.model.endsWith(":online") ||
                 profile.token.orEmpty().any { it.isWhitespace() || it == ',' || it == ';' }
             ) {

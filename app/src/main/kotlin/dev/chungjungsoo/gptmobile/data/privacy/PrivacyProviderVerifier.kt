@@ -43,6 +43,24 @@ class PrivacyProviderVerifier @Inject constructor(
 
     private val metadataHttp = http.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
 
+    internal suspend fun alternatives(profiles: List<PlatformV2>, excludedUid: String): String {
+        val available = profiles.filter { it.enabled && it.uid != excludedUid }
+        val names = available.filter { it.compatibleType == ClientType.LITERT_LM }.take(3).map { it.name }.toMutableList()
+        if (names.isEmpty()) {
+            val recent = context.getSharedPreferences("privacy_route_checks", Context.MODE_PRIVATE)
+            val now = System.currentTimeMillis()
+            for (profile in available.filter { profile ->
+                val record = recent.getString(identity(profile), null)?.split('|')
+                record?.getOrNull(1) == "true" && record.firstOrNull()?.toLongOrNull()?.let { it in (now - 60000)..now } == true
+            }.take(3)) {
+                if (verify(profile).decision.eligible) names += profile.name
+            }
+        }
+        return if (names.isEmpty()) "Open New Chat to recheck available profiles." else "Available profiles: " + names.joinToString() + "."
+    }
+
+    private fun identity(profile: PlatformV2) = OpenRouterIdentity.digest(listOf(profile.uid, profile.compatibleType.name, profile.apiUrl, profile.model, OpenRouterIdentity.digest(profile.token.orEmpty())).joinToString("\u0000"))
+
     internal fun approval(profile: PlatformV2, url: String, terms: String): ProviderApproval? = runCatching {
         authority.records().singleOrNull { it.covers(profile, url, terms, System.currentTimeMillis()) }
     }.getOrNull()
@@ -73,7 +91,9 @@ class PrivacyProviderVerifier @Inject constructor(
                     if (proof == null) {
                         Result(base)
                     } else {
-                        val live = if (profile.compatibleType == ClientType.OPENROUTER) {
+                        val live = if (!matchesPublishedPolicy(proof)) {
+                            false
+                        } else if (profile.compatibleType == ClientType.OPENROUTER) {
                             val api = profile.apiUrl.trimEnd('/')
                             val key = profile.token.orEmpty()
                             val account = router.key(api, key)
@@ -86,7 +106,7 @@ class PrivacyProviderVerifier @Inject constructor(
                         if (live) {
                             Result(PrivacyProfileEligibility.Decision(true, "Verified for stateless text · " + proof.upstream, base.policyUrl), VerifiedPrivateRoute(remote, profile.compatibleType, proof))
                         } else {
-                            Result(PrivacyProfileEligibility.Decision(false, "The approved inference endpoint is unavailable under strict ZDR.", base.policyUrl))
+                            Result(PrivacyProfileEligibility.Decision(false, "The published policy or provider route no longer matches the approval.", base.policyUrl))
                         }
                     }
                 }
@@ -98,9 +118,8 @@ class PrivacyProviderVerifier @Inject constructor(
             Result(PrivacyProfileEligibility.Decision(false, "Could not verify this route. Choose an on-device profile or recheck the connection.", base.policyUrl))
         }
         // Audit only. A previous receipt is never consulted to authorize a request.
-        val identity = OpenRouterIdentity.digest(listOf(profile.uid, profile.compatibleType.name, profile.apiUrl, profile.model, OpenRouterIdentity.digest(profile.token.orEmpty())).joinToString("\u0000"))
         context.getSharedPreferences("privacy_route_checks", Context.MODE_PRIVATE).edit()
-            .putString(identity, listOf(System.currentTimeMillis(), result.decision.eligible, result.decision.policyUrl.orEmpty()).joinToString("|")).apply()
+            .putString(identity(profile), listOf(System.currentTimeMillis(), result.decision.eligible, result.decision.policyUrl.orEmpty()).joinToString("|")).apply()
         result
     }
 
@@ -152,7 +171,36 @@ class PrivacyProviderVerifier @Inject constructor(
         return (get(base)["data"] as? JsonObject)?.let(::strict) == true
     }
 
-    internal suspend fun readJson(client: OkHttpClient, request: Request): JsonObject = suspendCancellableCoroutine { waiting ->
+    private suspend fun matchesPublishedPolicy(proof: ProviderApproval): Boolean {
+        var url = proof.policyDocument
+        repeat(4) {
+            if (!proof.permitsDocument(url)) return false
+            val request = Request.Builder().url(url).header("Accept", "text/markdown, text/plain, text/html")
+                .header("Cache-Control", "no-cache").build()
+            val observed = fetch(metadataHttp, request) { response ->
+                if (response.isRedirect) {
+                    val location = response.header("Location") ?: return@fetch null
+                    response.request.url.resolve(location)?.toString()
+                } else {
+                    if (!response.isSuccessful) return@fetch null
+                    val body = response.body ?: return@fetch null
+                    val text = body.byteStream().use { BoundedResponseText.read(it, 4 * 1024 * 1024) }
+                    OpenRouterIdentity.digest(text)
+                }
+            } ?: return false
+            if (!observed.startsWith("https://")) return observed == proof.policySha256
+            url = observed
+        }
+        return false
+    }
+
+    internal suspend fun readJson(client: OkHttpClient, request: Request): JsonObject = fetch(client, request) { response ->
+        check(response.isSuccessful) { "The verified endpoint rejected this request (HTTP " + response.code + ")." }
+        val body = requireNotNull(response.body)
+        Json.parseToJsonElement(body.byteStream().use { BoundedResponseText.read(it, 2 * 1024 * 1024) }) as JsonObject
+    }
+
+    private suspend fun <T> fetch(client: OkHttpClient, request: Request, read: (Response) -> T): T = suspendCancellableCoroutine { waiting ->
         val call = client.newCall(request)
         waiting.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
@@ -161,15 +209,7 @@ class PrivacyProviderVerifier @Inject constructor(
             }
 
             override fun onResponse(call: Call, response: Response) {
-                waiting.resumeWith(
-                    runCatching {
-                        response.use {
-                            check(it.isSuccessful) { "The verified endpoint rejected this request (HTTP " + it.code + ")." }
-                            val body = requireNotNull(it.body)
-                            Json.parseToJsonElement(body.byteStream().use { stream -> BoundedResponseText.read(stream, 2 * 1024 * 1024) }) as JsonObject
-                        }
-                    }
-                )
+                waiting.resumeWith(runCatching { response.use(read) })
             }
         })
     }

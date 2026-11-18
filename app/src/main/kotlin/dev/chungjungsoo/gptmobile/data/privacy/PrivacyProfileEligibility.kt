@@ -28,6 +28,9 @@ object PrivacyProfileEligibility {
         val free = FreeAiProvider.fromApiUrl(profile.apiUrl)
         if (free != null || profile.compatibleType == ClientType.FREE) return freeDecision(free, profile.model)
         if (profile.compatibleType == ClientType.GOOGLE) {
+            if (VerifiedPrivateRoute.providerEndpoint(profile) != null) {
+                return Decision(false, "Vertex requires verified project-specific ZDR, disabled content logging and eligible inference features.", VerifiedPrivateRoute.VERTEX_TERMS)
+            }
             return Decision(false, "Gemini free usage can be used for product improvement; a verified ZDR account and endpoint are required", "https://ai.google.dev/gemini-api/docs/zdr")
         }
         if (profile.compatibleType == ClientType.GROQ) {

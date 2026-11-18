@@ -492,6 +492,7 @@ class McpClientManager internal constructor(
         callId: String? = null,
         metadata: JsonObject? = null
     ): CallToolResult {
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         val key = config.validatedKey()
         providerCooldowns[config.connectionUid]?.let { (blockedKey, until) ->
             if (blockedKey == key && until == Long.MAX_VALUE) throw McpAuthenticationRequiredException()
@@ -518,8 +519,10 @@ class McpClientManager internal constructor(
         var outcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
         return try {
             val result = withContext(dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt(0, observation.operationId)) {
+                dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
                 modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId, metadata) }
                     ?: withSession(config, retryStale = false, recordFailures = false, observation = observation) {
+                        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
                         it.client.callTool(
                             kotlinx.serialization.json.Json.decodeFromJsonElement(
                                 io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest.serializer(),

@@ -26,6 +26,7 @@ class AmazonProductImageProvider internal constructor(private val client: HttpCl
     @Inject constructor() : this(
         HttpClient(OkHttp) {
             install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+            install(dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate)
             expectSuccess = false
             followRedirects = false
             install(HttpTimeout)

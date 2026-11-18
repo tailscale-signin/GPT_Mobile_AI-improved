@@ -3091,6 +3091,14 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ModelContextDiscovery.kt",
     "gateway/desktop/analysis_export.py",
     "scripts/qualify_connected_chat.py",
-    "scripts/tests/test_connected_chat.py"
+    "scripts/tests/test_connected_chat.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/PublicAirbnbClient.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/PublicNewsClient.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/airbnb/AirbnbMediaRepository.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/amazon/AmazonHtmlProvider.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/amazon/AmazonProductImageProvider.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/amazon/AmazonPublicHistoryProvider.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/PrivateExternalServiceGate.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/academic/AcademicNativeClient.kt"
   ]
 }

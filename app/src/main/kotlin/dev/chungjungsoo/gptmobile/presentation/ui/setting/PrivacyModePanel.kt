@@ -87,7 +87,15 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
         var saved by remember { mutableStateOf(false) }
         var error by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
-        LaunchedEffect(viewModel) { terms = viewModel.privateTerms() }
+        LaunchedEffect(viewModel) {
+            try {
+                terms = viewModel.privateTerms()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                error = true
+            }
+        }
         androidx.compose.material3.OutlinedTextField(
             value = terms,
             onValueChange = {
@@ -110,7 +118,7 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
                 }
             }
         }) { Text(if (saved) "Terms saved" else "Save private terms") }
-        if (error) Text("Could not save the terms to encrypted storage.")
+        if (error) Text("Could not access the encrypted private terms.")
         Text("AI Provider Protection", style = MaterialTheme.typography.titleMedium)
         Text("Required whenever Privacy Mode is on", style = MaterialTheme.typography.labelMedium)
         Text("• Zero Data Retention for prompt and response content\n• No training or routine safety retention\n• Content logging disabled\n• Exact provider route, with no fallback\n• Separate verification for external tools and voice")

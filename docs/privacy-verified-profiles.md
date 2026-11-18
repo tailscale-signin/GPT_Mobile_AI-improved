@@ -15,6 +15,8 @@ Provide the JSON array below through the Android managed configuration key `veri
   "credentialSha256": "<SHA-256 of the exact UTF-8 inference key, without a newline>",
   "upstream": "<exact catalog endpoint tag>",
   "policyUrl": "https://openrouter.ai/docs/guides/features/zdr",
+  "policyDocument": "https://openrouter.ai/docs/guides/features/zdr.md",
+  "policySha256": "<SHA-256 of the approved first-party UTF-8 policy document>",
   "verifiedAtMillis": 0,
   "expiresAtMillis": 0,
   "feature": "stateless-text-v1",
@@ -29,6 +31,8 @@ Provide the JSON array below through the Android managed configuration key `veri
   "allowGuardrailTightening": false
 }]
 ```
+
+Pin the content of the provider’s current policy document. Prefer a stable first-party plain text or Markdown edition. The verifier performs a credential-free GET with `Accept: text/markdown, text/plain, text/html`, follows redirects only within the provider documentation hosts, and hashes the UTF-8 response including trailing newlines. Hash the same representation when issuing the record. A changed document, unreachable policy host or mismatched digest disables the route.
 
 Replace the placeholders, including both epoch-millisecond timestamps. The example is expired. For anonymous OVHcloud use the SHA-256 of the empty string. The three guardrail fields apply only to OpenRouter. Do not put API keys in the document. The policy URL for each route is the provider terms link shown on its profile card.
 

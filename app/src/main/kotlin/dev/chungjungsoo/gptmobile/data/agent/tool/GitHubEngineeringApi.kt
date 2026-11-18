@@ -140,6 +140,10 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
         // A lost response is an uncertain remote outcome, never permission to
         // replay an engineering mutation inside the HTTP transport.
         private val transport = OkHttpClient.Builder()
+            .addNetworkInterceptor { chain ->
+                if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) throw IOException("PRIVACY_SERVICE_UNVERIFIED")
+                chain.proceed(chain.request())
+            }
             .retryOnConnectionFailure(false)
             .followRedirects(false)
             .followSslRedirects(false)

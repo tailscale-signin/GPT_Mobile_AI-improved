@@ -2,13 +2,13 @@ package dev.chungjungsoo.gptmobile.data.privacy
 
 import android.content.Context
 import android.content.RestrictionsManager
-import android.util.Base64
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.security.KeyFactory
 import java.security.Signature
 import java.security.interfaces.ECPublicKey
 import java.security.spec.X509EncodedKeySpec
+import java.util.Base64
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
@@ -83,22 +83,24 @@ class ProviderApprovalSource @Inject constructor(@ApplicationContext private val
         }
     }
 
-    private fun publicKey(encoded: String): ECPublicKey {
-        val key = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(Base64.decode(encoded, Base64.DEFAULT))) as ECPublicKey
-        require(key.params.curve.field.fieldSize == 256)
-        return key
-    }
+    companion object {
+        private fun publicKey(encoded: String): ECPublicKey {
+            val key = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(Base64.getMimeDecoder().decode(encoded))) as ECPublicKey
+            require(key.params.curve.field.fieldSize == 256)
+            return key
+        }
 
-    private fun verify(issuer: String, signed: String): List<ProviderApproval> {
-        val envelope = Json.decodeFromString<SignedApprovals>(signed)
-        val bytes = Base64.decode(envelope.payload, Base64.DEFAULT)
-        require(
-            Signature.getInstance("SHA256withECDSA").run {
-                initVerify(publicKey(issuer))
-                update(bytes)
-                verify(Base64.decode(envelope.signature, Base64.DEFAULT))
-            }
-        )
-        return Json.decodeFromString(bytes.decodeToString())
+        internal fun verify(issuer: String, signed: String): List<ProviderApproval> {
+            val envelope = Json.decodeFromString<SignedApprovals>(signed)
+            val bytes = Base64.getDecoder().decode(envelope.payload)
+            require(
+                Signature.getInstance("SHA256withECDSA").run {
+                    initVerify(publicKey(issuer))
+                    update(bytes)
+                    verify(Base64.getDecoder().decode(envelope.signature))
+                }
+            )
+            return Json.decodeFromString(bytes.decodeToString())
+        }
     }
 }

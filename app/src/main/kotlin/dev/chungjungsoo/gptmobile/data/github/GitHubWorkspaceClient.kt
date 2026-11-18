@@ -86,6 +86,7 @@ class GitHubWorkspaceClient(
         private val sharedClient by lazy {
             HttpClient(OkHttp) {
                 install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+                install(dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate)
                 followRedirects = false
                 engine { config { retryOnConnectionFailure(false) } }
                 install(HttpTimeout) {

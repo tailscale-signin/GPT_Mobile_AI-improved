@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.withPermit
 class AirbnbMediaRepository @Inject constructor(private val tools: AgentToolResolver) {
     private val client = HttpClient(OkHttp) {
         install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+        install(dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate)
         followRedirects = false
         install(HttpTimeout)
     }

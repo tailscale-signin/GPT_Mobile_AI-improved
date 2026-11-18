@@ -279,8 +279,11 @@ class ChatRepositoryImpl(
     private suspend fun requirePrivacyAdmission(platform: PlatformV2) {
         if (privacyMode?.snapshot()?.enabled != true) return
         val decision = requireNotNull(privacyMode).verifier.verify(platform).decision
-        check(decision.eligible) { "PRIVACY_PROVIDER_INELIGIBLE: " + decision.explanation }
+        if (!decision.eligible) error("PRIVACY_PROVIDER_INELIGIBLE: " + decision.explanation + " " + privacyAlternatives(platform))
     }
+
+    private suspend fun privacyAlternatives(profile: PlatformV2): String =
+        privacyMode?.verifier?.alternatives(settingRepository.fetchPlatformV2s(), profile.uid).orEmpty()
 
     override suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
@@ -1757,7 +1760,7 @@ class ChatRepositoryImpl(
         if (!privacyDecision.eligible) {
             emit(
                 ApiState.Error(
-                    "PRIVACY_PROVIDER_INELIGIBLE: " + privacyDecision.explanation,
+                    "PRIVACY_PROVIDER_INELIGIBLE: " + privacyDecision.explanation + " " + privacyAlternatives(platform),
                     errorCode = "PRIVACY_PROVIDER_INELIGIBLE",
                     taskOutcome = "BLOCKED"
                 )
@@ -5296,7 +5299,7 @@ class ChatRepositoryImpl(
             AppLogRecorder.record("Context", "REQUEST_BUDGET · runId=$runId · requestKind=$kind · phase=initial_advertisement · authorizedTools=${if (textOnly) 0 else contextPlan.authorizedTools.size} · advertisedSchema=see_WIRE_SCHEMA · ${costs.diagnostic()}", if (costs.total > 131_072) "W" else "I")
             val routedSession = if (privateTurn && platform.compatibleType != ClientType.LITERT_LM) {
                 val store = requireNotNull(privacyMode)
-                dev.chungjungsoo.gptmobile.data.privacy.PrivateInferenceSession(store.verifier, store, invocationPlatform, turns, constraints)
+                dev.chungjungsoo.gptmobile.data.privacy.PrivateInferenceSession(store.verifier, store, invocationPlatform, turns, constraints) { privacyAlternatives(platform) }
             } else {
                 when (platform.compatibleType) {
                     ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, invocationPlatform, constraints)

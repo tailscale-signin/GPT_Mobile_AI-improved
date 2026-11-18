@@ -93,11 +93,15 @@ class PrivacyProfileEligibilityTest {
     private val remote = profile(ClientType.OPENROUTER, "https://openrouter.ai/api/v1", "example/my-model").copy(token = "test-credential")
     private val url = "https://openrouter.ai/api/v1/chat/completions"
     private val terms = "https://openrouter.ai/docs/guides/features/zdr"
-    private val proof = ProviderApproval(url, remote.model, OpenRouterIdentity.digest(remote.token.orEmpty()), "upstream", terms, 100, 1000, "stateless-text-v1", "zdr", true, true, true, true, true)
+    private val proof = ProviderApproval(url, remote.model, OpenRouterIdentity.digest(remote.token.orEmpty()), "upstream", terms, 100, 1000, "stateless-text-v1", "zdr", true, true, true, true, true, policySha256 = "a".repeat(64))
 
     @Test
     fun evidenceIsBoundToTheRequestAndHasAnExpiry() {
         assertTrue(proof.covers(remote, url, terms, 999))
+        assertFalse(proof.copy(policySha256 = "").covers(remote, url, terms, 999))
+        assertFalse(proof.permitsDocument("https://openrouter.ai.unverified.example/policy"))
+        assertFalse(proof.permitsDocument("http://openrouter.ai/docs"))
+        assertFalse(proof.permitsDocument("https://user@openrouter.ai/docs"))
         assertFalse(proof.covers(remote, url, terms, 1000))
         assertFalse(proof.covers(remote.copy(token = "rotated"), url, terms, 500))
         assertFalse(proof.covers(remote.copy(model = "other"), url, terms, 500))
@@ -105,6 +109,23 @@ class PrivacyProfileEligibilityTest {
         assertFalse(proof.copy(feature = "batch").covers(remote, url, terms, 500))
         assertFalse(proof.copy(safetyRetentionExcluded = false).covers(remote, url, terms, 500))
         assertFalse(proof.copy(loggingDisabled = false).covers(remote, url, terms, 500))
+    }
+
+    @Test
+    fun onlyTheEnrolledIssuerCanApproveAccountEvidence() {
+        val pair = java.security.KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        val encoder = java.util.Base64.getEncoder()
+        val issuer = encoder.encodeToString(pair.public.encoded)
+        val payload = Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ProviderApproval.serializer()), listOf(proof)).encodeToByteArray()
+        val signer = java.security.Signature.getInstance("SHA256withECDSA")
+        signer.initSign(pair.private)
+        signer.update(payload)
+        val signature = encoder.encodeToString(signer.sign())
+        fun envelope(data: ByteArray) = """{"payload":"${encoder.encodeToString(data)}","signature":"$signature"}"""
+        assertEquals(listOf(proof), ProviderApprovalSource.verify(issuer, envelope(payload)))
+        assertTrue(runCatching { ProviderApprovalSource.verify(issuer, envelope("[]".encodeToByteArray())) }.isFailure)
+        val other = java.security.KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
+        assertTrue(runCatching { ProviderApprovalSource.verify(encoder.encodeToString(other.public.encoded), envelope(payload)) }.isFailure)
     }
 
     @Test

@@ -34,13 +34,18 @@ internal class PrivateInferenceSession(
     private val store: PrivacyModeStore,
     private val profile: PlatformV2,
     private val turns: List<ConversationTurn>,
-    private val constraints: dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints
+    private val constraints: dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints,
+    private val alternatives: suspend () -> String
 ) : AgentProviderSession {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
         try {
             check(tools.isEmpty() && exchanges.isEmpty()) { "External tools require separate privacy verification." }
             val verified = verifier.verify(profile)
-            val route = checkNotNull(verified.route) { verified.decision.explanation }
+            val route = verified.route
+            if (route == null) {
+                emit(ProviderEvent.Failed(verified.decision.explanation + " " + alternatives(), errorCode = "PRIVACY_PROVIDER_INELIGIBLE", taskOutcome = "BLOCKED"))
+                return@flow
+            }
             val state = store.snapshot()
             check(state.enabled) { "Privacy settings changed. Resend to confirm the new settings." }
             val mask = PrivateTextMask(state.categories, store.privateTerms())
@@ -121,7 +126,7 @@ internal class PrivateInferenceSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            emit(ProviderEvent.Failed("Private inference stopped. Choose a verified profile in New Chat. Your conversation is saved locally.", errorCode = "PRIVACY_PROVIDER_INELIGIBLE", taskOutcome = "BLOCKED"))
+            emit(ProviderEvent.Failed("Private inference stopped. Your conversation is saved locally. " + alternatives(), errorCode = "PRIVACY_PROVIDER_INELIGIBLE", taskOutcome = "BLOCKED"))
         }
     }
 

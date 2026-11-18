@@ -201,6 +201,7 @@ class GitHubTool(
         private val defaultHttpClient: HttpClient by lazy {
             HttpClient(OkHttp) {
                 install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+                install(dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate)
                 followRedirects = false
                 install(io.ktor.client.plugins.HttpTimeout) {
                     requestTimeoutMillis = 60_000

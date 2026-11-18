@@ -48,6 +48,7 @@ class AmazonPublicHistoryProvider internal constructor(private val client: HttpC
     @Inject constructor() : this(
         HttpClient(OkHttp) {
             install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+            install(dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate)
             expectSuccess = false
             followRedirects = false
             install(HttpTimeout)

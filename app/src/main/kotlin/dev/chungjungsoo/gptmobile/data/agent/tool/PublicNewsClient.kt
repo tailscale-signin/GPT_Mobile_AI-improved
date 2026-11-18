@@ -47,6 +47,7 @@ class PublicNewsClient internal constructor(private val http: HttpClient) {
     @Inject constructor() : this(
         HttpClient(OkHttp) {
             install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+            install(dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate)
             followRedirects = false
             install(HttpTimeout)
         }

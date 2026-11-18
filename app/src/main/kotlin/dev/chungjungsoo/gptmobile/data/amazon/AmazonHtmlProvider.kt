@@ -153,6 +153,7 @@ class AmazonHtmlProvider internal constructor(
 
         internal fun createClient(engine: HttpClientEngineFactory<*>) = HttpClient(engine) {
             install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+            install(dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate)
             expectSuccess = false
             followRedirects = false
             if (engine == OkHttp) {

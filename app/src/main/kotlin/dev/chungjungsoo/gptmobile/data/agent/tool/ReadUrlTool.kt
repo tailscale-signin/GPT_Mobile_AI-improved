@@ -416,6 +416,7 @@ class ReadUrlTool(
             // ponytail: per-call client isolates DNS pins; pool per agent run only if profiling shows setup cost matters.
             val client = HttpClient(OkHttp) {
                 install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+                install(dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate)
                 followRedirects = false
                 install(io.ktor.client.plugins.HttpTimeout) {
                     connectTimeoutMillis = 8_000

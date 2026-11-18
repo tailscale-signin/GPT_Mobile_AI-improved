@@ -112,10 +112,10 @@ internal object GitHubRichSummaryPresentation {
 
     /** Shorten receipt boilerplate without upgrading a source read to a verified repair. */
     private fun describe(step: String, currentHeadlineFocus: String? = null): String {
-        val read = Regex("""(?i)^The source read for (.+?) returned a result for inspection$""").matchEntire(step)
+        val read = Regex("""(?i)^The source read for (.+?) returned a result(?: for inspection)?$""").matchEntire(step)
         if (read != null) {
             return if (observationFocus(step) == currentHeadlineFocus) {
-                "The source is available for inspection; no repair has been verified."
+                "The source read is available for inspection; no repair has been verified."
             } else {
                 "Source read for ${escape(read.groupValues[1])} is available to inspect; no repair has been verified."
             }

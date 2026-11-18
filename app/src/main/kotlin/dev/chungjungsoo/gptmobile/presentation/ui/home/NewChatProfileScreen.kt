@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -58,6 +59,7 @@ import dev.chungjungsoo.gptmobile.data.model.ResearchContentScope
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
 import dev.chungjungsoo.gptmobile.data.pricing.decimalRate
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelChip
@@ -99,6 +101,7 @@ internal fun NewChatProfileScreen(
 ) {
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val features by viewModel.features.collectAsStateWithLifecycle()
+    val privacy by viewModel.privacyState.collectAsStateWithLifecycle()
     val selected by viewModel.selectedUids.collectAsStateWithLifecycle()
     val modelPreparation by viewModel.gatewayModelPreparation.collectAsStateWithLifecycle()
     val primary by viewModel.primaryUid.collectAsStateWithLifecycle()
@@ -137,7 +140,10 @@ internal fun NewChatProfileScreen(
     val filter = ProfileFilter.entries.firstOrNull { it.name == filterName } ?: ProfileFilter.ALL
     val sort = ProfileSort.entries.firstOrNull { it.name == sortName } ?: ProfileSort.FAVORITES
     val labels = remember(profiles) { collectReusableProfileLabels(profiles.map { it.labels }) }
-    val availableUids = remember(profiles) { profiles.filter { it.enabled }.mapTo(mutableSetOf()) { it.uid } }
+    val availableUids = remember(profiles, privacy.enabled) {
+        profiles.filter { it.enabled && PrivacyProfileEligibility.evaluate(it, privacy.enabled).eligible }
+            .mapTo(mutableSetOf()) { it.uid }
+    }
     val currentSelection = remember(selected, availableUids) { selected.filter { it in availableUids } }
     val researchPolicy = remember(researchDepth) {
         MultiSearchResearchSelection(researchToggle = true, depth = researchDepth, scope = ResearchContentScope.WEB_ONLY)
@@ -218,6 +224,16 @@ internal fun NewChatProfileScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                    },
+                    actions = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Privacy Mode", style = MaterialTheme.typography.labelSmall)
+                            Checkbox(
+                                checked = privacy.enabled,
+                                onCheckedChange = viewModel::setPrivacyMode,
+                                modifier = Modifier.testTag("new_chat_privacy_mode")
+                            )
+                        }
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
                 )
@@ -305,6 +321,7 @@ internal fun NewChatProfileScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     SelectPlatformProfileCard(
                         profile = profile,
+                        privacyRestriction = PrivacyProfileEligibility.evaluate(profile, privacy.enabled).takeUnless { it.eligible }?.explanation,
                         selected = profile.uid in currentSelection,
                         insight = insights[profile.uid]?.takeIf { it.matches(profile) },
                         onToggle = viewModel::toggleProfile,

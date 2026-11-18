@@ -57,7 +57,7 @@ class GitHubChatProgressTest {
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
     }
 
-    @Test fun summaryIsImmediateThenAtFortyFiveSecondsWithTwentyWords() {
+    @Test fun summaryIsImmediateThenAtFortyFiveSecondsWithoutPadding() {
         var clock = 0L
         val progress = GitHubChatProgress("status") { clock }
         val first = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
@@ -71,7 +71,7 @@ class GitHubChatProgressTest {
         assertEquals(1, progress.summarySnapshot().completed)
         assertTrue(summary.contains("source read", ignoreCase = true))
         assertTrue(summary.contains("Reader.kt"))
-        assertTrue(summary.split(Regex("\\s+")).size >= 20)
+        assertTrue(summary.split(Regex("\\s+")).size in 8..80)
     }
 
     @Test fun openingSummaryUsesTheActualUserRequestWithinTheFirstFewSeconds() {

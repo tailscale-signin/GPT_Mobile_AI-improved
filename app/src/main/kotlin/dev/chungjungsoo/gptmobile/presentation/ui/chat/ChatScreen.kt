@@ -202,7 +202,8 @@ fun ChatScreen(
     onExportHandled: () -> Unit = {},
     bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
-    CompositionLocalProvider(LocalUniversalProgressInHeader provides showTopBar, LocalChatMediaPreview provides chatMediaPreview(chatViewModel)) {
+    val mediaPreview = rememberChatMediaPreview(chatViewModel.chatRoom, chatViewModel::addSelectedFile, chatViewModel::notifyAttachmentCopyFailed)
+    CompositionLocalProvider(LocalUniversalProgressInHeader provides showTopBar, LocalChatMediaPreview provides mediaPreview) {
         ConversationViewport { viewportWidth, viewportHeight ->
             ChatScreenContent(
                 chatViewModel = chatViewModel,

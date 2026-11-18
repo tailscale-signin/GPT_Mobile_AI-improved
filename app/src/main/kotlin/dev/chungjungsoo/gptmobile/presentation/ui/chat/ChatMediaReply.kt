@@ -13,9 +13,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
+import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.McpMediaActivity
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -23,7 +25,11 @@ import kotlinx.coroutines.withContext
 internal val LocalChatMediaPreview = staticCompositionLocalOf<((Uri) -> Unit)?> { null }
 
 @Composable
-internal fun chatMediaPreview(viewModel: ChatViewModel): (Uri) -> Unit {
+internal fun rememberChatMediaPreview(
+    chatRoom: StateFlow<ChatRoomV2>,
+    onAttach: (String) -> Unit,
+    onCopyFailed: () -> Unit
+): (Uri) -> Unit {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var pendingUri by rememberSaveable { mutableStateOf<String?>(null) }
@@ -37,18 +43,18 @@ internal fun chatMediaPreview(viewModel: ChatViewModel): (Uri) -> Unit {
         if (result.resultCode == Activity.RESULT_OK && returned != null && returned.toString() == expected && room > 0) {
             val name = returned.lastPathSegment.orEmpty()
             scope.launch {
-                if (viewModel.chatRoom.first { it.id > 0 }.id != room) return@launch
+                if (chatRoom.first { it.id > 0 }.id != room) return@launch
                 var staged: File? = null
                 try {
                     withContext(Dispatchers.IO) {
                         staged = copyReplyImage(File(context.cacheDir, "mcp-media"), File(context.filesDir, "attachments"), name)
                     }
-                    if (viewModel.chatRoom.value.id == room) {
+                    if (chatRoom.value.id == room) {
                         val file = staged
                         if (file == null) {
-                            viewModel.notifyAttachmentCopyFailed()
+                            onCopyFailed()
                         } else {
-                            viewModel.addSelectedFile(file.absolutePath)
+                            onAttach(file.absolutePath)
                             staged = null
                         }
                     }
@@ -59,7 +65,7 @@ internal fun chatMediaPreview(viewModel: ChatViewModel): (Uri) -> Unit {
         }
     }
     return { uri ->
-        val room = viewModel.chatRoom.value.id
+        val room = chatRoom.value.id
         val preview = Intent(context, McpMediaActivity::class.java).setData(uri)
         if (room > 0 && pendingUri == null) {
             pendingUri = uri.toString()

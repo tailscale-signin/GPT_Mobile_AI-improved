@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "d0509c1719ae44f7eeb49871a5da6e3d76106e35d31fcecdda1cc07c0ad57eae",
+  "source_digest": "b9480a1acf2ff054e4ecd84b919ae17ecf2c4233eb48f8f7534b783e7040f8aa",
   "file_count": 2699,
-  "indexed_line_count": 441194,
+  "indexed_line_count": 441201,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 566,
-      "indexed_line_count": 99488
+      "indexed_line_count": 99495
     },
     {
       "id": "accessibility_and_localization",
@@ -13114,8 +13114,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMediaReply.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "973b2af7769659a11a85678db837647f0bc654c4cd42b1f876dfd5464afe8351",
-      "indexed_lines": 72
+      "sha256": "eb9e0f397d82c42a7a9480fc17a8968a3ba34b179353c1c6d7e59bb13d7d1413",
+      "indexed_lines": 78
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMemoryStatus.kt",
@@ -13177,8 +13177,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "f1941d43bf5c5f71d98b3899c87b0d73cef619620d2029b1a22da65cab1cd244",
-      "indexed_lines": 3268
+      "sha256": "2d65cb18f553ee08c3b217ccb7843b16e10bdd276138698f9903ae9a66ce3c95",
+      "indexed_lines": 3269
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScrollInput.kt",

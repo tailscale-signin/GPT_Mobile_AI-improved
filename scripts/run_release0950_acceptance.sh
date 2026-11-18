@@ -263,7 +263,7 @@ for test in ('onlineStatusRemainsReadableAndDoesNotChangeSelectionAtLargeText', 
     check_instrumentation(folder / 'gateway-profile-card-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.GatewayProfileCardInstrumentedTest', test)
 for test in ('dialogBlurSwitchActuallyFiltersTheBackground', 'stackedDialogSamplesItsVisibleParentInsteadOfOnlyTheActivity', 'settingsBackdropAndTypographyChangesKeepNavigationContentComposed', 'openingSettingsWhileHomeBlurStillDrawsDoesNotReplayLiveHomeLayers'):
     check_instrumentation(folder / 'glass-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest', test)
-for test in ('typingFollowUpKeepsStopAndSendIndependent', 'glassComposerKeepsSendStopAndLatestActionsIndependent', 'backgroundRunStartingDoesNotTakeFocusFromADraft'):
+for test in ('previewedImageReturnsToItsOriginalComposer', 'typingFollowUpKeepsStopAndSendIndependent', 'glassComposerKeepsSendStopAndLatestActionsIndependent', 'backgroundRunStartingDoesNotTakeFocusFromADraft'):
     check_instrumentation(folder / 'composer-controls-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ComposerControlsInstrumentedTest', test)
 for test in (
     'conversationGlassKeepsRequestedOpacityOverFadedMessages',

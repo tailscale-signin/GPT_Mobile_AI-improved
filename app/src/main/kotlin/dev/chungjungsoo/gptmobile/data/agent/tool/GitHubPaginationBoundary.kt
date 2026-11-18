@@ -93,7 +93,9 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                 result["has_more"] == JsonPrimitive(false) &&
                 page(args) == 1 &&
                 traversals[key(operation, args)]?.pages?.isEmpty() != false
-            ) return Assessment(result)
+            ) {
+                return Assessment(result)
+            }
             val number = page(args)
             val progress = buildJsonObject {
                 put("schema", "github.pagination-progress.v1")

@@ -865,6 +865,7 @@ internal class GitHubOperationTool(
                         put("type", "object")
                         put("properties", JsonObject(properties))
                         put("additionalProperties", false)
+                        GitHubOperationArguments.schemaAlternatives(canonical, actions)?.let { put("anyOf", it) }
                         put("oneOf", GitHubOperationArguments.exclusiveSavedViewAlternatives(JsonObject(properties)))
                     }
                 )

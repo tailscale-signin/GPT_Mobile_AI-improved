@@ -195,6 +195,16 @@ class GitHubArgumentAdmissionTest {
             val fresh = args(freshSource)
             for (definition in variants) {
                 val schema = definition.inputSchema
+                for (branch in schema.getValue("oneOf") as kotlinx.serialization.json.JsonArray) {
+                    val declared = (branch as JsonObject).getValue("properties") as JsonObject
+                    assertTrue("Branch only needs field names", declared.values.all { it == buildJsonObject {} })
+                }
+                assertTrue(ToolArgumentValidator.errors(args("""{"view_cursor":42}"""), schema).isNotEmpty())
+                if (definition.name.startsWith("github_pr_inspect")) {
+                    assertTrue(ToolArgumentValidator.errors(args("""{"action":"headers"}"""), schema).isNotEmpty())
+                    assertTrue(ToolArgumentValidator.errors(args("""{"action":"context","pull_number":2}"""), schema).isEmpty())
+                    assertTrue(ToolArgumentValidator.errors(args("""{"state":"open","page":1}"""), schema).isEmpty())
+                }
                 val cursorField = ((schema["properties"] as JsonObject)["view_cursor"] as JsonObject)
                 val guidance = (cursorField["description"] as? JsonPrimitive)?.content.orEmpty()
                 assertTrue("${definition.name} documents exact issued cursors", guidance.contains("exact issued"))

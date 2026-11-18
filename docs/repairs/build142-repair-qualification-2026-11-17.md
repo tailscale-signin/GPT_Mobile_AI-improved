@@ -377,3 +377,22 @@ The saved-view body and cursor index now have a dedicated encrypted, fsynced, bo
 - Required follow-up: inspect actual Room error site on an installed build, test archive membership and restored receipts after process restart, verify context plan with the selected remote profile, exercise GitHub saved-view reopen/cursor fidelity, and qualify Android-to-Windows Gateway resume with live receipts. Keep unresolved issues open until their specific root cause is resolved and independently verified.
 
 Work remains solely on PR #1741, based on main after PR #1534 merged. No other branch or PR was modified by this continuation.
+
+## November 18 review of 102 open issues on PR #1741
+
+The intake contained 101 incident reports and tracker #1746. The table records the implementation or the evidence needed to resolve each report. Counts reflect this intake. A fix in the branch still needs verification on a build containing it.
+
+| Issue family | Open reports at intake | Repair or verification needed |
+| --- | --- | --- |
+| GitHub argument validation | #1563, #1571, #1572, #1631, #1635, #1653, #1658, #1664, #1668, #1671, #1676, #1705, #1729, #1731, #1732, #1736, #1737, #1752, #1763 | The compact PR tool now advertises the pull number required for headers and context. Recheck the other reported selectors with their owning tools. |
+| Required tool definitions | #1757, #1764 | The exclusivity rule now transmits each field’s value constraints once. A profile still needs enough capacity for its required tools and output. |
+| Saved results | #1608, #1614, #1628, #1636, #1641, #1651, #1657 | The app can restore a missing body file from the same session’s retained copy. Saved pages also enforce the originating tool alias. A cold start needs a durable copy or an authorized source read. |
+| Pagination | #1584, #1602, #1618, #1747, #1748, #1749 | The branch includes terminal-page and saved-page repairs. Verify a multipage inventory and its final coverage on the installed build. |
+| Provider failures | #1579, #1580, #1625, #1632, #1683, #1686, #1688, #1730, #1753, #1754, #1759, #1760 | Successful HTTP responses keep their status separately from a logical failure. Confirmed rejected requests retain their HTTP cause. Several reports omit the response or producer identity. |
+| Execution budgets | #1591, #1594, #1596, #1599, #1600, #1604, #1605, #1606, #1617, #1755 | Local Combined admission now owns its failure receipt. Tool-call limits and model capacity still apply. Repeat the task within its configured limits to qualify completion. |
+| Prompt capacity | #1681, #1716, #1717, #1734, #1740, #1750, #1758 | The branch has bounded request planning. Measure the request, selected model capacity and output reserve on the affected profile. |
+| Evidence and acceptance | #1560, #1565, #1585, #1589, #1646, #1647, #1650, #1661, #1674, #1678, #1689, #1707, #1708, #1715, #1718, #1726, #1738, #1739, #1744, #1745, #1756 | Acceptance requires the task’s missing evidence. Run its verification steps using an authorized repository and the selected profile. |
+| Continuation and output | #1586, #1619, #1633 | Confirm the saved handoff, stream frame and final visible answer with the originating provider. |
+| Tool failures and source validation | #1621, #1623, #1648, #1649, #1656, #1706 | Use the affected source and authorized binding to verify read, search and validation. The original reports alone cannot establish source availability. |
+| Dispatch and reconciliation | #1669, #1690, #1694, #1695, #1742 | Reconcile the original operation against its receipts and current policy before any permitted retry. |
+| Connection, service limits and gateway | #1702, #1743, #1761 | Verification requires the affected connection, provider quota or running gateway with the requested capability. |

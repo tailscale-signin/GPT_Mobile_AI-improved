@@ -35,6 +35,9 @@ enum class ProviderFinishCategory { STOP, TOOL_CALLS, LENGTH, CONTENT_FILTER, OT
 @Serializable
 enum class FailureDomain { PROVIDER, APPROVAL, APPLICATION_VERIFICATION, TOOL_EXECUTION, UNKNOWN }
 
+private val ProviderEvent.Failed.localBudgetRefusal: Boolean
+    get() = errorCode == "BUDGET_RESTRICTED" && failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)
+
 /** Fixed fields only: no prompt, endpoint, token, raw model/profile name or exception text. */
 @Serializable
 data class ProviderFailureReceipt(
@@ -92,7 +95,7 @@ data class ProviderFailureReceipt(
         // Provider error strings are untrusted content, even when they look like an enum.
         private val ERROR_CODES = setOf(
             "MODEL_PREPARATION_INCOMPLETE", "MODEL_PREPARATION_REJECTED", "MODEL_PREPARATION_STORAGE_UNAVAILABLE", "MODEL_PREPARATION_CONNECTION_FAILED",
-            "UNCLASSIFIED_PROVIDER_FAILURE", "HTTP_ERROR", "TRANSPORT_ERROR", "OUTPUT_LIMIT", "CONTEXT_CAPACITY_EXCEEDED",
+            "UNCLASSIFIED_PROVIDER_FAILURE", "BUDGET_RESTRICTED", "HTTP_ERROR", "TRANSPORT_ERROR", "OUTPUT_LIMIT", "CONTEXT_CAPACITY_EXCEEDED",
             "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED",
             "DISPATCH_POLICY_CHANGED", "SAVED_EVIDENCE_REVOKED", "REPLAY_EVIDENCE_REQUIRED", "NOT_DISPATCHED",
             "GITHUB_REVIEW_INCOMPATIBLE", "GITHUB_REVIEW_INVALID_VERDICT", "GITHUB_REVIEW_INDETERMINATE",
@@ -113,12 +116,12 @@ data class ProviderFailureReceipt(
 
         fun from(profile: PlatformV2, role: String, failure: ProviderEvent.Failed, usage: ProviderEvent.Usage? = null): ProviderFailureReceipt {
             val status = ((failure.failureDetails?.get("http_status") as? JsonPrimitive)?.intOrNull ?: failure.errorCode?.toIntOrNull())?.takeIf { it in 100..599 }
-            val code = failure.errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf { it in ERROR_CODES } ?: if (status != null) "HTTP_ERROR" else "UNCLASSIFIED_PROVIDER_FAILURE"
+            val code = failure.errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf { it in ERROR_CODES } ?: if (status != null && status >= 400) "HTTP_ERROR" else "UNCLASSIFIED_PROVIDER_FAILURE"
             val failedStage = (failure.failureDetails?.get("failed_stage") as? JsonPrimitive)?.content
             val reviewStage = (failure.failureDetails?.get("review_stage") as? JsonPrimitive)?.content
             val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             val invocationId = failure.invocationId ?: classified.invocationId
-            val matchingUsage = usage?.takeIf {
+            val matchingUsage = usage?.takeUnless { failure.localBudgetRefusal }?.takeIf {
                 if (invocationId != null || it.invocationId != null) invocationId != null && invocationId == it.invocationId else role != "github-delivery"
             }
             val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)
@@ -148,7 +151,7 @@ data class ProviderFailureReceipt(
             val stage = when {
                 // The failed preparation stage does not establish whether prior
                 // work in this run was dispatched or has an uncertain outcome.
-                profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected -> ProviderFailureStage.ADMISSION
+                profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected || failure.localBudgetRefusal -> ProviderFailureStage.ADMISSION
                 classified.isUserInputRequired || classified.isEngineeringSetup || code.startsWith("MODEL_PREPARATION_") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" && failedStage in setOf("request_validation", "provider_admission", "binding_admission", "message_admission", "conversation_admission", "execution_admission") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProviderFailureStage.ENGINEERING_GUARD
@@ -194,7 +197,7 @@ data class ProviderFailureReceipt(
                 generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
                 causeTypes = classified.causeTypes,
                 failureDomain = when {
-                    profileSelectionRejected || githubCooldownActive -> FailureDomain.APPLICATION_VERIFICATION
+                    profileSelectionRejected || githubCooldownActive || failure.localBudgetRefusal -> FailureDomain.APPLICATION_VERIFICATION
                     githubRateResponse -> FailureDomain.TOOL_EXECUTION
                     classified.isUserInputRequired || classified.isEngineeringSetup || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
@@ -254,7 +257,7 @@ internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: 
                     val retainedInvocationId = (event.failureDetails?.get("invocation_id") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
                         ?.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) }
                     val identifiedFailure = event.copy(invocationId = event.invocationId ?: retainedInvocationId ?: invocationId.takeUnless { role == "github-delivery" })
-                    val ownsStream = role != "github-delivery" && invocationId != null && identifiedFailure.invocationId == invocationId
+                    val ownsStream = role != "github-delivery" && invocationId != null && identifiedFailure.invocationId == invocationId && !identifiedFailure.localBudgetRefusal
                     val ownedFailure = if (ownsStream) observedFailure(identifiedFailure, usage, metadata) else identifiedFailure
                     val receipt = ProviderFailureReceipt.from(profile, role, ownedFailure, usage)
                     RunDiagnostics.journal?.record(runId, RunDiagnosticKind.FAILURE_RECEIPT, invocationId = receipt.invocationId, successful = false, providerFailure = receipt)
@@ -266,7 +269,7 @@ internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: 
                             ownedFailure,
                             receipt,
                             configured = configured.takeIf { ownsStream },
-                            usage = usage,
+                            usage = usage.takeUnless { identifiedFailure.localBudgetRefusal },
                             visibleBytes = visibleBytes.takeIf { ownsStream },
                             reasoningBytes = reasoningBytes.takeIf { ownsStream },
                             metadata = metadata.takeIf { ownsStream }

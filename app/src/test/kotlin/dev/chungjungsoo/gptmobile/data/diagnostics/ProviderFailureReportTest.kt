@@ -549,6 +549,37 @@ class ProviderFailureReportTest {
         assertEquals(1, source.calls)
     }
 
+    @Test fun localBudgetRefusalKeepsEarlierHttpAndUsageOffItsReceipt() = runBlocking {
+        val timing = dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming(httpStatus = 502, serverRequestId = "previous-request")
+        val local = ProviderEvent.Failed(
+            "Stopped at local budget",
+            errorCode = "BUDGET_RESTRICTED",
+            failureDetails = buildJsonObject {
+                put("provider_local_budget_block", true)
+                put("failed_stage", "provider_admission")
+                put("request_replay_allowed", false)
+            }
+        )
+        val source = Session(listOf(ProviderEvent.Usage(providerResponseTiming = timing, outputTokens = 32), local))
+        val events = withContext(RequestDispatchContext(emptySet(), "run", "same-invocation")) {
+            withProviderFailureReceipts(source, "run", profile, "primary").streamRound(emptyList(), emptyList()).toList()
+        }
+        assertEquals(32, events.filterIsInstance<ProviderEvent.Usage>().single().outputTokens)
+        val fields = requireNotNull(events.filterIsInstance<ProviderEvent.Failed>().single().failureDetails)
+        assertEquals(JsonPrimitive("BUDGET_RESTRICTED"), fields["provider_failure_code"])
+        assertEquals(JsonPrimitive("ADMISSION"), fields["provider_failure_stage"])
+        assertEquals(JsonPrimitive("APPLICATION_VERIFICATION"), fields["provider_failure_domain"])
+        assertEquals(JsonPrimitive(false), fields["request_replay_allowed"])
+        for (key in listOf("http_status", "server_request_id", "generation_id", "output_tokens")) assertNull(key, fields[key])
+    }
+
+    @Test fun successfulHttpResponseDoesNotClassifyAnUnknownLogicalFailureAsHttpError() {
+        val failure = ProviderEvent.Failed("incomplete answer", failureDetails = buildJsonObject { put("http_status", 200) })
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+        assertEquals(200, receipt.httpStatus)
+        assertEquals("UNCLASSIFIED_PROVIDER_FAILURE", receipt.errorCode)
+    }
+
     @Test fun eachRoundAndMissingOwnerKeepUnknownMeasurementsUnknown() = runBlocking {
         val source = Session(listOf(ProviderEvent.Failed("no usage", errorCode = "PROVIDER_INVOCATION_FAILED")))
         val wrapped = withProviderFailureReceipts(source, "run", profile, "primary")

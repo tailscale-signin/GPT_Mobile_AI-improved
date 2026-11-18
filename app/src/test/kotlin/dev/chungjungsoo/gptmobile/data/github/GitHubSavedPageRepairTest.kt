@@ -35,6 +35,10 @@ class GitHubSavedPageRepairTest {
         val page = result(source)
         val args = (page.getValue("continuation_call") as JsonObject).getValue("arguments") as JsonObject
         val cursor = (args.getValue("view_cursor") as JsonPrimitive).content
+        val wrongAlias = views.read("selected-scope", "github_context", "github_context__other_api", cursor, "wrong-alias")
+        assertEquals("SAVED_VIEW_WRONG_OPERATION", wrongAlias.errorCode)
+        assertEquals(JsonPrimitive(modelName), (result(wrongAlias)["correction_call"] as JsonObject)["tool"])
+        assertFalse(wrongAlias.dispatched)
         val rejectedArgs = JsonObject(args + json("""{"action":"resolve","commit_sha":"${"b".repeat(40)}"}"""))
         val rejected = views.read("selected-scope", "github_context", modelName, cursor, "rejected", JsonObject(rejectedArgs - "view_cursor"))
         assertTrue(rejected.isError)
@@ -137,6 +141,32 @@ class GitHubSavedPageRepairTest {
         assertEquals(JsonPrimitive("github.saved-view.v1"), store.loadWithDiagnostics(id)["schema"])
         state.remove("test-scope", "saved-view-body:$id")
         assertEquals("BODY_MISSING_INDEX_PRESENT", reason())
+    }
+
+    @Test fun liveScopedBodyRecoversMissingFileAndSurvivesRestart() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("github-saved-view-body-").toFile()
+        try {
+            val scope = "selected-scope"
+            val id = UUID.randomUUID().toString()
+            val store = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), scope)
+            val snapshot = buildJsonObject {
+                put("body", "captured read")
+                put("issued_cursors", JsonArray(listOf(JsonPrimitive("$id:0:2048"))))
+                put("failed_persistence_cursors", JsonArray(emptyList()))
+            }
+            store.save(id, snapshot)
+            val record = java.io.File(directory, "saved-results/" + GitHubRepositoryStateStore.digest("$scope:saved-view-body:$id") + ".record")
+            assertTrue(record.delete())
+            assertEquals(snapshot, store.loadWithDiagnostics(id))
+            assertTrue(record.isFile)
+            val restarted = GitHubRepositoryStateStore(directory)
+            assertEquals(snapshot, GitHubSavedViewStore(restarted, scope).loadWithDiagnostics(id))
+            assertEquals(null, GitHubSavedViewStore(restarted, "other-scope").load(id))
+            record.writeText("corrupt")
+            assertEquals("BODY_UNREADABLE", (runCatching { store.loadWithDiagnostics(id) }.exceptionOrNull() as GitHubSavedViewStore.MissingSavedView).reason)
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 
     @Test fun durableBootstrapRestoresOnlyInitiallyIssuedHandleAfterIndexLoss() = runBlocking {

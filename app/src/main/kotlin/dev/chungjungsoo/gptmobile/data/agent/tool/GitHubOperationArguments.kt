@@ -16,18 +16,20 @@ internal object GitHubOperationArguments {
      * its defensive validation for older clients and already-queued tool calls.
      */
     fun exclusiveSavedViewAlternatives(properties: JsonObject): JsonArray {
-        val cursor = requireNotNull(properties["view_cursor"]) { "Missing saved-view cursor schema" }
+        require("view_cursor" in properties) { "Missing saved-view cursor schema" }
+        // Root properties already validate the values. These branches constrain field presence only.
+        val presence = buildJsonObject {}
         return JsonArray(
             listOf(
                 buildJsonObject {
                     put("type", "object")
-                    put("properties", buildJsonObject { put("view_cursor", cursor) })
+                    put("properties", buildJsonObject { put("view_cursor", presence) })
                     put("required", JsonArray(listOf(JsonPrimitive("view_cursor"))))
                     put("additionalProperties", false)
                 },
                 buildJsonObject {
                     put("type", "object")
-                    put("properties", JsonObject(properties - "view_cursor"))
+                    put("properties", JsonObject((properties - "view_cursor").mapValues { presence }))
                     put("additionalProperties", false)
                 }
             )
@@ -37,7 +39,7 @@ internal object GitHubOperationArguments {
     val readRangeFields = setOf("path", "start_line", "end_line", "max_lines", "start_offset")
 
     /** Advertise the same conditional prerequisites enforced before dispatch. */
-    fun schemaAlternatives(operation: String): JsonArray? {
+    fun schemaAlternatives(operation: String, allowedActions: List<String>? = null): JsonArray? {
         if (operation == "github_watch_checks") {
             return JsonArray(
                 (watchSelectors + "view_cursor").map { field ->
@@ -74,7 +76,9 @@ internal object GitHubOperationArguments {
         }
         return JsonArray(
             listOf(buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive("view_cursor")))) }) +
-                listOfNotNull(prListAlternative(operation)) + alternatives.map { (actions, required) ->
+                listOfNotNull(prListAlternative(operation)) + alternatives.mapNotNull { (allActions, required) ->
+                    val actions = allowedActions?.let { allActions.filter(it::contains) } ?: allActions
+                    if (actions.isEmpty()) return@mapNotNull null
                     buildJsonObject {
                         put("properties", buildJsonObject { put("action", buildJsonObject { put("enum", JsonArray(actions.map(::JsonPrimitive))) }) })
                         put("required", JsonArray((required + if (default in actions) emptyList() else listOf("action")).map(::JsonPrimitive)))

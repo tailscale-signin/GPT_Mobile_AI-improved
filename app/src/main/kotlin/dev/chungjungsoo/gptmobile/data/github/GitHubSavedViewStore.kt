@@ -79,12 +79,13 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
         // Neither state authorizes replaying a remote mutation.
         val bodyKey = "saved-view-body:$id"
         val accessKey = "saved-view-access:$id"
-        if (!state.containsRetainedBody(scope, bodyKey)) {
-            throw MissingSavedView(
-                if (state.containsRetainedBody(scope, accessKey)) "BODY_MISSING_INDEX_PRESENT" else "BODY_MISSING"
-            )
-        }
-        val body = state.read(scope, bodyKey) ?: throw MissingSavedView("BODY_UNREADABLE")
+        val body = state.read(scope, bodyKey) ?: throw MissingSavedView(
+            when {
+                state.containsRetainedBody(scope, bodyKey) -> "BODY_UNREADABLE"
+                state.containsRetainedBody(scope, accessKey) -> "BODY_MISSING_INDEX_PRESENT"
+                else -> "BODY_MISSING"
+            }
+        )
         val access = state.read(scope, accessKey)
         if (access == null) {
             val initial = body["bootstrap_issued_cursors"] as? JsonArray

@@ -458,6 +458,32 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun rejectedProviderResponsesWithoutLegacyStageKeepOnlyTheObservedCause() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf<String, Any?>(
+            "provider" to "OPENROUTER",
+            "diagnostic_area" to "PROVIDER",
+            "provider_failure_domain" to "PROVIDER",
+            "provider_failure_stage" to "GENERATION",
+            "provider_failure_code" to "HTTP_ERROR",
+            "dispatched" to true,
+            "remote_acceptance" to "NO"
+        )
+        val cases = listOf(
+            mapOf("http_status" to 401) to "AUTHENTICATION_FAILED",
+            mapOf("http_status" to 400) to "SOURCE_HTTP_ERROR",
+            mapOf("http_status" to 422, "provider_rejection_category" to "INVALID_REQUEST") to "PROVIDER_PAYLOAD_ERROR",
+            mapOf("http_status" to 401, "remote_acceptance" to "UNKNOWN", "requires_reconciliation" to true) to "CHAT_FAILED"
+        )
+        for ((index, case) in cases.withIndex()) {
+            IssueReportIncidents.chatFailure("HTTP_ERROR", false, null, fields + case.first + ("run_id" to "rejection-$index"))
+            val incident = IssueReportIncidents.pending.value.last()
+            assertEquals(case.second, incident.errorCode)
+            if (case.second == "AUTHENTICATION_FAILED") assertEquals(false, incident.context?.retryable)
+        }
+    }
+
+    @Test
     fun rejectedProviderRateLimitKeepsItsCauseWithoutAResumableWait() {
         LocalDiagnosticsPolicy.setEnabled(true)
         IssueReportIncidents.chatFailure(

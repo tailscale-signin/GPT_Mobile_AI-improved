@@ -355,6 +355,27 @@ internal object IssueReportIncidents {
                 input.remoteAcceptance == "NO" &&
                 input.requiresReconciliation != true &&
                 rejection == "PERMISSION"
+        val providerReceipt = input.diagnostics?.values
+        val rejectedProviderAttempt = !localRecovery &&
+            specificCode == null &&
+            input.provider != null &&
+            input.dispatched == true &&
+            input.remoteAcceptance == "NO" &&
+            input.requiresReconciliation != true &&
+            (
+                input.stage in setOf("model_invocation", "provider_generation") ||
+                    providerReceipt?.get("provider_failure_domain") == kotlinx.serialization.json.JsonPrimitive("PROVIDER") &&
+                    providerReceipt["provider_failure_stage"] in setOf(kotlinx.serialization.json.JsonPrimitive("GENERATION"), kotlinx.serialization.json.JsonPrimitive("CONTINUATION"))
+                )
+        val rejectedHttpCode = if (rejectedProviderAttempt) {
+            when (input.httpStatus) {
+                401 -> "AUTHENTICATION_FAILED"
+                400, 422 -> if (rejection in setOf("INVALID_REQUEST", "PAYLOAD_SIZE")) "PROVIDER_PAYLOAD_ERROR" else "SOURCE_HTTP_ERROR"
+                else -> null
+            }
+        } else {
+            null
+        }
         val observedRateLimit = if (!localRecovery && specificCode == null && !rateLimited) {
             input.provider != null &&
                 input.stage in setOf("model_invocation", "provider_generation") &&
@@ -371,6 +392,7 @@ internal object IssueReportIncidents {
         } else {
             specificCode ?: when {
                 observedPermissionDenial -> "SOURCE_ACCESS_BLOCKED"
+                rejectedHttpCode != null -> rejectedHttpCode
                 rateLimited || observedRateLimit -> "PROVIDER_RATE_LIMITED"
                 else -> "CHAT_FAILED"
             }
@@ -422,7 +444,7 @@ internal object IssueReportIncidents {
         } else {
             fields
         }
-        val recoveryFields = if (observedPermissionDenial) {
+        val recoveryFields = if (observedPermissionDenial || rejectedHttpCode == "AUTHENTICATION_FAILED") {
             diagnosticFields + mapOf(
                 "retryable" to false,
                 "recovery_action" to "RETRY_AFTER_CONFIGURATION_CHANGE"

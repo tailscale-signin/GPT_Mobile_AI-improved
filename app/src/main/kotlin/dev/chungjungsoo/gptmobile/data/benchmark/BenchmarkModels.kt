@@ -9,7 +9,7 @@ import kotlin.math.sqrt
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DIAGNOSTIC("Capability diagnostics"), CPU_EXPERIMENT("CPU thread comparison"), PERFORMANCE("Performance diagnostics"), DELEGATION("Delegation"), AGENT("Legacy Agent"), APP_AUDIT("App audit"), GITHUB_INTEGRATION("GitHub AI tool audit") }
+enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DIAGNOSTIC("Capability diagnostics"), CPU_EXPERIMENT("CPU thread comparison"), PERFORMANCE("Performance diagnostics"), DELEGATION("Delegation"), AGENT("Legacy Agent"), APP_AUDIT("App audit"), GITHUB_INTEGRATION("GitHub tools & engineering audit") }
 
 @Serializable
 enum class BenchmarkOutcome { PASSED, FAILED, ERROR, TIMED_OUT, CANCELED, UNSUPPORTED, QUOTA_BLOCKED, POLICY_BLOCKED, PARTIAL, SKIPPED }
@@ -198,7 +198,9 @@ data class BenchmarkSample(
     val inspectionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeInspectionReceipt? = null,
     val inspectionAttribution: BenchmarkInspectionAttribution? = null,
     val deadlineReceipt: BenchmarkDeadlineReceipt? = null,
-    val auditModelConfiguration: dev.chungjungsoo.gptmobile.data.audit.AppAuditModelConfigurationReceipt? = null
+    val auditModelConfiguration: dev.chungjungsoo.gptmobile.data.audit.AppAuditModelConfigurationReceipt? = null,
+    /** Synthetic, simulated and live evidence are never interchangeable. */
+    val evidenceScope: String = "LEGACY_UNCLASSIFIED"
 ) {
     val runtimeExecution: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? get() = runtimeExecutions.lastOrNull()
     val rawReferenceSpeed: Double? get() = firstTextMs?.let { first ->

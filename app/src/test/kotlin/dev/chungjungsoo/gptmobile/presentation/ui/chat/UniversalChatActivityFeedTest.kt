@@ -27,7 +27,7 @@ class UniversalChatActivityFeedTest {
     @Test fun richSummaryKeepsOnlyItsFirstPublicHeadline() {
         val summary = AssistantTimelineItem(
             AssistantTimelineItemType.NOTICE,
-            "### Research findings\\n- Three sources were checked",
+            "### Research findings\n- Three sources were checked",
             progressCheckpoint = true,
             statusSummary = true
         )

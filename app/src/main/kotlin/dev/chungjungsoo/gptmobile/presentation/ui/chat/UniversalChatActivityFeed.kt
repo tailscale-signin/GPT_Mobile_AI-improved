@@ -39,8 +39,8 @@ internal fun universalChatPublicCheckpoints(timeline: List<AssistantTimelineItem
                 .firstOrNull(String::isNotBlank)?.take(280)
         }
         .distinct()
-        .takeLast(20)
         .toList()
+        .takeLast(20)
 
 /** Reuses the GitHub line transitions for every chat without enabling GitHub's
  * completion gate, which would hold back normal streamed answer tokens.

@@ -167,7 +167,8 @@
     "Redesign GitHub AI audit controls, bind saved result views to exact attempts, clarify Gateway retry states and harden transient voice focus recovery.",
     "Repair pre-dispatch tool budget classification, saved-view immutable recovery, Windows acceptance fixture, and call-bound missing-path diagnostics with aligned reporter allowlists and regression evidence; reconcile new uploaded diagnostics in the issue frontier.",
     "Add evidence-bound GitHub Chat headings, meaningful progress bullets, observed check tables, optional recorded-count bar charts, CSV copying, semantic repeat suppression, and UI/unit regression coverage without treating narration as verification.",
-    "Improve expanded GitHub header fade, user-return bottom anchoring and composer keyboard focus; add single-word voice caption presentation and an opt-in-motion GitHub terminal answer handoff with a scoped edge glow and explicit UI regressions."
+    "Improve expanded GitHub header fade, user-return bottom anchoring and composer keyboard focus; add single-word voice caption presentation and an opt-in-motion GitHub terminal answer handoff with a scoped edge glow and explicit UI regressions.",
+    "Unify the GitHub-style activity preview and collapsible header across chat modes without suppressing normal streamed answers; implement velocity-gated minimal bottom arrow, return-to-bottom indicators and stronger bounded fades with scoped regression coverage."
   ],
   "limitations": [
     "GitHub AI tool audit exercises selected-profile tool calls against isolated offline fixtures, not live GitHub authorization or mutations; bounded live-read probes remain separately qualified.",
@@ -3035,6 +3036,10 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubCompletionMotionTest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/PluginExecutionSettings.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PluginConfigurationDialog.kt",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatDialogs.kt"
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatDialogs.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatReadingScrollGate.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/UniversalChatActivityFeed.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatReadingScrollGateTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/UniversalChatActivityFeedTest.kt"
   ]
 }

@@ -9,13 +9,13 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -123,6 +123,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -204,22 +205,22 @@ fun ChatScreen(
     CompositionLocalProvider(LocalUniversalProgressInHeader provides showTopBar) {
         ConversationViewport { viewportWidth, viewportHeight ->
             ChatScreenContent(
-            chatViewModel = chatViewModel,
-            onBackAction = onBackAction,
-            onNavigateToLocalModels = onNavigateToLocalModels,
-            onReviewEvidenceAccess = onReviewEvidenceAccess,
-            onProfileSettings = onProfileSettings,
-            onOpenConversation = onOpenConversation,
-            onInspectContext = onInspectContext,
-            showTopBar = showTopBar,
-            embeddedHeaderHeight = embeddedHeaderHeight,
-            embeddedHeaderExpansion = embeddedHeaderExpansion,
-            allowResearchPanels = allowResearchPanels,
-            exportRequestedForChatId = exportRequestedForChatId,
-            onExportHandled = onExportHandled,
-            bottomInteractionContent = bottomInteractionContent,
-            viewportWidth = viewportWidth,
-            viewportHeight = viewportHeight
+                chatViewModel = chatViewModel,
+                onBackAction = onBackAction,
+                onNavigateToLocalModels = onNavigateToLocalModels,
+                onReviewEvidenceAccess = onReviewEvidenceAccess,
+                onProfileSettings = onProfileSettings,
+                onOpenConversation = onOpenConversation,
+                onInspectContext = onInspectContext,
+                showTopBar = showTopBar,
+                embeddedHeaderHeight = embeddedHeaderHeight,
+                embeddedHeaderExpansion = embeddedHeaderExpansion,
+                allowResearchPanels = allowResearchPanels,
+                exportRequestedForChatId = exportRequestedForChatId,
+                onExportHandled = onExportHandled,
+                bottomInteractionContent = bottomInteractionContent,
+                viewportWidth = viewportWidth,
+                viewportHeight = viewportHeight
             )
         }
     }
@@ -830,19 +831,21 @@ private fun ChatScreenContent(
             isModelTabPositionLocked = false
         }
         coroutineScope {
-            if (repositionPrompt) launch {
-                try {
-                    listState.animateToGitHubPrompt(
-                        latestTurnItem,
-                        isUserDragging = { scrollInput.dragging },
-                        shouldAnchor = { !scrollInput.dragging },
-                        animate = featureSettings.responseAnimation,
-                        durationMillis = GITHUB_COMPLETION_PROMPT_SCROLL_MILLIS
-                    )
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    // A direct user gesture wins; never restart an automated
-                    // anchor over their scroll or dismiss their keyboard.
-                    if (!scrollInput.dragging) throw cancelled
+            if (repositionPrompt) {
+                launch {
+                    try {
+                        listState.animateToGitHubPrompt(
+                            latestTurnItem,
+                            isUserDragging = { scrollInput.dragging },
+                            shouldAnchor = { !scrollInput.dragging },
+                            animate = featureSettings.responseAnimation,
+                            durationMillis = GITHUB_COMPLETION_PROMPT_SCROLL_MILLIS
+                        )
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        // A direct user gesture wins; never restart an automated
+                        // anchor over their scroll or dismiss their keyboard.
+                        if (!scrollInput.dragging) throw cancelled
+                    }
                 }
             }
             launch {

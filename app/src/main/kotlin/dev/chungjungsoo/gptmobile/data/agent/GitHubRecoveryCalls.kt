@@ -32,22 +32,34 @@ internal object GitHubRecoveryCalls {
                     ?.takeUnless { it.isString }?.intOrNull
                 val minBlobs = (blobRules?.get("minimum") as? JsonPrimitive)?.intOrNull
                 val maxBlobs = (blobRules?.get("maximum") as? JsonPrimitive)?.intOrNull
-                val correctedBlobs = if (requestedBlobs != null && minBlobs != null &&
-                    maxBlobs != null && minBlobs <= maxBlobs
-                ) requestedBlobs.coerceIn(minBlobs, maxBlobs) else null
-                if (query.isNullOrBlank() || query.length > 200 ||
-                    call.arguments.keys.any { it in setOf("view_cursor", "search_id") } ||
-                    call.arguments["index_cursor"] !in setOf(null, JsonPrimitive(0)) ||
-                    call.arguments["page"] !in setOf(null, JsonPrimitive(1)) ||
-                    (unsupportedPresentation.isEmpty() && (correctedBlobs == null || correctedBlobs == requestedBlobs))
+                val correctedBlobs =
+                    if (
+                        requestedBlobs != null &&
+                            minBlobs != null &&
+                            maxBlobs != null &&
+                            minBlobs <= maxBlobs
+                    ) {
+                        requestedBlobs.coerceIn(minBlobs, maxBlobs)
+                    } else {
+                        null
+                    }
+                if (
+                    query.isNullOrBlank() ||
+                        query.length > 200 ||
+                        call.arguments.keys.any { it in setOf("view_cursor", "search_id") } ||
+                        call.arguments["index_cursor"] !in setOf(null, JsonPrimitive(0)) ||
+                        call.arguments["page"] !in setOf(null, JsonPrimitive(1)) ||
+                        (unsupportedPresentation.isEmpty() && (correctedBlobs == null || correctedBlobs == requestedBlobs))
                 ) {
                     null
                 } else {
                     val withoutPresentation = call.arguments - unsupportedPresentation
                     JsonObject(
-                        if (correctedBlobs != null && correctedBlobs != requestedBlobs)
+                        if (correctedBlobs != null && correctedBlobs != requestedBlobs) {
                             withoutPresentation + ("max_new_blobs" to JsonPrimitive(correctedBlobs))
-                        else withoutPresentation
+                        } else {
+                            withoutPresentation
+                        }
                     )
                 }
             }

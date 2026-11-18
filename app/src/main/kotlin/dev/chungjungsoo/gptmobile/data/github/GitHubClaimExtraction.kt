@@ -124,7 +124,16 @@ internal object GitHubClaimExtraction {
         var invalidKind = "INVALID_JSON"
         return try {
             withContext(computationDispatcher) {
-                val parsed = Json.parseToJsonElement(structuredPayload(response.toString()))
+                val payload = structuredPayload(response.toString())
+                val parsed = Json.parseToJsonElement(payload)
+                // Some providers/parsers admit bare unquoted tokens as JSON primitives.
+                // Do not misclassify private arbitrary text as a valid non-object JSON value.
+                if (parsed is JsonPrimitive) {
+                    val token = payload.trim()
+                    if (!token.startsWith('"') && !STRICT_JSON_SCALAR.matches(token)) {
+                        error("Claim extraction received a non-JSON scalar")
+                    }
+                }
                 invalidKind = "NON_OBJECT"
                 val answer = parsed as? JsonObject ?: error("Claim extraction was not structured")
                 invalidKind = "SCHEMA_REJECTED"
@@ -160,6 +169,9 @@ internal object GitHubClaimExtraction {
         val fenced = JSON_FENCE.matchEntire(trimmed) ?: return trimmed
         return fenced.groupValues[1].trim()
     }
+
+    // Only JSON quoted strings, true/false/null, and JSON-number tokens are scalar JSON.
+    private val STRICT_JSON_SCALAR = Regex("""(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)""")
 
     private val JSON_FENCE = Regex("""\A```(?:json)?\r?\n([\s\S]*)\r?\n```\z""", RegexOption.IGNORE_CASE)
 

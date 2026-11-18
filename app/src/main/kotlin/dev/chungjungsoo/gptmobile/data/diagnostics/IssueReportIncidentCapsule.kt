@@ -22,6 +22,7 @@ internal object IssueReportIncidentCapsule {
         "comments", "history", "reviews", "threads", "checks", "status", "run", "runs", "jobs", "logs", "artifacts", "workflows",
         "create", "update", "close", "reopen", "comment", "create_pull_request", "create_issue", "update_issue", "update_pull_request",
         "merge", "review", "submit_review", "resolve_thread", "rerun", "cancel", "dispatch", "download", "definitions", "capabilities",
+        "agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable",
         "continue", "task_status", "verify", "checkpoint", "snapshot", "selection", "catalog", "releases", "tags", "labels", "milestones"
     )
     val fieldNames = setOf(

@@ -229,6 +229,6 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     }
 
     companion object {
-        private val COLLECTIONS = setOf("items", "workflow_runs", "workflows", "jobs", "artifacts", "check_runs", "pull_requests", "commits")
+        private val COLLECTIONS = setOf("items", "workflow_runs", "workflows", "jobs", "artifacts", "check_runs", "pull_requests", "commits", "comments", "reviews", "threads", "files", "releases", "tags")
     }
 }

@@ -5,7 +5,7 @@ import queue
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from desktop.configuration import atomic_json, load, public_repository_maps, save_public_repository_maps, validate
+from desktop.configuration import atomic_json, load, public_repository_maps, save_public_repository_maps, copilot_enabled, save_copilot_enabled, validate
 from v14.engineering_batch_policy import load_policy as load_execution_policy, save_policy as save_execution_policy
 from desktop.manager import request, startup_registration
 from desktop.addons import load_addons, save_addons
@@ -317,7 +317,9 @@ def build_window(root, parent=None, section='General'):
     github_tabs.add(validation_frame, text='Repository Validation')
     public_maps_saved = public_repository_maps(root)
     public_maps = tk.BooleanVar(value=public_maps_saved)
-    refresh_github = build_github_settings(connection, root, cfg, public_maps, values['engineering'])
+    copilot_saved = copilot_enabled(root)
+    copilot_jobs = tk.BooleanVar(value=copilot_saved)
+    refresh_github = build_github_settings(connection, root, cfg, public_maps, values['engineering'], copilot_jobs)
     validation_panel = RepositoryValidationPanel(validation_frame, root, cfg)
     window.repository_validation_panel = validation_panel
 
@@ -327,7 +329,7 @@ def build_window(root, parent=None, section='General'):
     busy = False
 
     def save():
-        nonlocal public_maps_saved
+        nonlocal public_maps_saved, copilot_saved
         try:
             updated = dict(cfg)
             for name, variable in values.items():
@@ -349,6 +351,9 @@ def build_window(root, parent=None, section='General'):
             if public_maps.get() != public_maps_saved:
                 save_public_repository_maps(root, public_maps.get())
                 public_maps_saved = public_maps.get()
+            if copilot_jobs.get() != copilot_saved:
+                save_copilot_enabled(root, copilot_jobs.get())
+                copilot_saved = copilot_jobs.get()
             notice.set('General settings saved. Repository validation uses its own Save policy / Prepare & save actions. Restart when idle.')
         except Exception as error:
             messagebox.showerror('Check settings', str(error))

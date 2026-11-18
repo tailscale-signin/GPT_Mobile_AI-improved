@@ -80,7 +80,7 @@ def test_connection(token, repository):
     return f'{account} can read {repository}.' if account else f'Public access to {repository} confirmed.'
 
 
-def build_github_settings(frame, root, config, public_maps, network_engineering):
+def build_github_settings(frame, root, config, public_maps, network_engineering, copilot_jobs=None):
     ttk.Checkbutton(frame, text='Enable public repository maps', variable=public_maps).grid(row=2, column=0, columnspan=3, sticky='w')
     ttk.Label(frame, text='Public maps work without a token. Save settings and restart to apply this option.',
               style='Muted.TLabel', wraplength=570).grid(row=3, column=0, columnspan=3, sticky='w', pady=(3, 18))
@@ -104,6 +104,11 @@ def build_github_settings(frame, root, config, public_maps, network_engineering)
     actions.grid(row=10, column=0, columnspan=3, sticky='w')
     result_text = tk.StringVar()
     ttk.Label(frame, textvariable=result_text, style='Muted.TLabel', wraplength=570).grid(row=11, column=0, columnspan=3, sticky='w', pady=(9, 0))
+    if copilot_jobs is not None:
+        ttk.Checkbutton(frame, text='Allow Gateway to supervise Copilot cloud tasks',
+                        variable=copilot_jobs).grid(row=12, column=0, columnspan=3, sticky='w', pady=(18, 3))
+        ttk.Label(frame, text='Off by default. Accepted tasks continue while your phone is disconnected. Each conversation must also enable Copilot and select Gateway. Requires a Copilot Business or Enterprise account and a fine-grained token or GitHub App user token with Agent tasks read/write access. Save settings and restart to apply.',
+                  style='Muted.TLabel', wraplength=570).grid(row=13, column=0, columnspan=3, sticky='w', pady=(3, 12))
     results = queue.Queue()
     pending_token = None
     busy = False

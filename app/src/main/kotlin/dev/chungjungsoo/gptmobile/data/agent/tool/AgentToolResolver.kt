@@ -63,7 +63,9 @@ data class ResolvedAgentTool(
     val nativeGitHubAuthenticated: Boolean = false,
     val nativeMarketplace: Boolean = false,
     val authorizationIdentity: String? = null,
-    val gitHubPlanningContext: dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext? = null
+    val gitHubPlanningContext: dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext? = null,
+    val canExecuteArguments: (suspend (JsonObject) -> Boolean)? = null,
+    val requiresPrivateServiceConsent: Boolean = false
 )
 
 class AgentToolResolver @Inject constructor(
@@ -103,7 +105,8 @@ class AgentToolResolver @Inject constructor(
     private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
     private val repositoryGraphs: dev.chungjungsoo.gptmobile.data.github.GatewayGraphRepository? = null,
     private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
-    private val repositoryTransfers: dev.chungjungsoo.gptmobile.data.github.GatewayRepositoryOperations? = null
+    private val repositoryTransfers: dev.chungjungsoo.gptmobile.data.github.GatewayRepositoryOperations? = null,
+    private val copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -799,6 +802,7 @@ class AgentToolResolver @Inject constructor(
         personalContext: dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext? = null
     ): List<ResolvedAgentTool> {
         fun implicitlyPublic(tool: ResolvedAgentTool): Boolean {
+            if (tool.requiresPrivateServiceConsent) return false
             if (tool.nativeGitHub) return !tool.nativeGitHubAuthenticated
             if (tool.connectionUid == null) return !dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(tool.realToolName)
             // A remote schema or a tool named "web_search" is not a public-data grant.
@@ -892,8 +896,7 @@ class AgentToolResolver @Inject constructor(
                 if (resolved.nativeMarketplace) return@map resolved
                 if (resolved.isWebSearchEngine()) {
                     val snapshot = bindings.filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName }
-                    val previousCheck = resolved.canReuseResult
-                    return@map resolved.copy(canReuseResult = {
+                    return@map resolved.withAdmissionGate {
                         val features = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
                         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, chatToolConfig?.github) }
                         current != null &&
@@ -902,7 +905,6 @@ class AgentToolResolver @Inject constructor(
                             current.enabled &&
                             !current.disableAllTools &&
                             !current.disableRemoteTools &&
-                            previousCheck?.invoke() != false &&
                             (
                                 resolved.connectionUid == null &&
                                     features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH) ||
@@ -913,11 +915,11 @@ class AgentToolResolver @Inject constructor(
                                             snapshot.all { it.connection?.type != ToolConnectionType.MCP || resolved.realToolName in it.connection?.approvedReadTools.orEmpty().lines().map(String::trim) }
                                         )
                                 )
-                    })
+                    }
                 }
                 if (!resolved.isAmazonProductTool()) return@map resolved
                 val plugin = if (resolved.modelToolName in AmazonNativeTool.names) ToolPluginId.AMAZON_FREE else ToolPluginId.AMAZON_SEARCH
-                resolved.copy(canReuseResult = {
+                resolved.withAdmissionGate {
                     val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, settingRepository.getFeatureSettings(), chatToolConfig?.github) }
                     val features = settingRepository.getFeatureSettings()
                     current?.enabled == true &&
@@ -925,15 +927,14 @@ class AgentToolResolver @Inject constructor(
                         !current.disableRemoteTools &&
                         features.isToolPluginEnabledForProfile(profileUid, plugin) &&
                         (resolved.connectionUid == null || features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(resolved.connectionUid)))
-                })
+                }
             }
             .map { resolved ->
                 val connection = resolved.connectionUid ?: return@map resolved
                 if (connection == "optional-universal-marketplace" || resolved.nativeGitHub || resolved.nativeMarketplace) return@map resolved
                 val admittedBindings = bindings.filter { it.binding.connectionUid == connection }.let { rows -> rows.filter { it.binding.toolName in setOf(resolved.realToolName, "*") }.ifEmpty { rows } }
                 val admittedNames = admittedBindings.map { it.binding.toolName }.toSet()
-                val previousCheck = resolved.canReuseResult
-                resolved.copy(canReuseResult = {
+                resolved.withAdmissionGate {
                     val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, settingRepository.getFeatureSettings(), chatToolConfig?.github) }
                     current != null &&
                         platform != null &&
@@ -941,9 +942,8 @@ class AgentToolResolver @Inject constructor(
                         current?.enabled == true &&
                         admittedBindings.isNotEmpty() &&
                         recoveryBindingGrants(toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == connection && it.binding.toolName in admittedNames }) == recoveryBindingGrants(admittedBindings) &&
-                        settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection)) &&
-                        previousCheck?.invoke() != false
-                })
+                        settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection))
+                }
             }
             .map { resolved ->
                 if (!freeProfile ||
@@ -954,7 +954,6 @@ class AgentToolResolver @Inject constructor(
                     return@map resolved
                 }
                 val id = resolved.connectionUid?.let { "$it:${resolved.realToolName}" } ?: resolved.realToolName
-                val previous = resolved.canReuseResult
                 val permitted: suspend () -> Boolean = {
                     val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, settingRepository.getFeatureSettings(), chatToolConfig?.github) }
                     current != null &&
@@ -962,9 +961,8 @@ class AgentToolResolver @Inject constructor(
                         dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
                         freeModelToolConsentStore?.isGranted(current.copy(model = consentPlatform.model), id, chatId) == true
                 }
-                resolved.copy(
-                    tool = dev.chungjungsoo.gptmobile.data.permissions.PersonalDataGuardedTool(resolved.tool, permitted, grantLookup = { freeModelToolConsentStore?.grantFor(consentPlatform, id, chatId) }),
-                    canReuseResult = { permitted() && previous?.invoke() != false }
+                resolved.withAdmissionGate(permitted).copy(
+                    tool = dev.chungjungsoo.gptmobile.data.permissions.PersonalDataGuardedTool(resolved.tool, permitted, grantLookup = { freeModelToolConsentStore?.grantFor(consentPlatform, id, chatId) })
                 )
             }
             .mapNotNull { resolved ->
@@ -980,10 +978,8 @@ class AgentToolResolver @Inject constructor(
                     if (chatToolConfig?.github != null && (resolved.nativeGitHub || resolved.connectionUid == chatToolConfig.github.connectionUid)) throw rejection
                     return@mapNotNull null
                 }
-                val previous = resolved.canReuseResult
-                resolved.copy(
-                    tool = dev.chungjungsoo.gptmobile.data.permissions.ProvenanceGuardedTool(resolved.tool, consentPlatform, id, personal, external) { freeModelToolConsentStore?.grantFor(consentPlatform, id, chatId) },
-                    canReuseResult = { (!external || personalContext?.externalToolRejection(consentPlatform, id) == null) && previous?.invoke() != false }
+                resolved.withAdmissionGate { !external || personalContext?.externalToolRejection(consentPlatform, id) == null }.copy(
+                    tool = dev.chungjungsoo.gptmobile.data.permissions.ProvenanceGuardedTool(resolved.tool, consentPlatform, id, personal, external) { freeModelToolConsentStore?.grantFor(consentPlatform, id, chatId) }
                 )
             }
             .map { resolved -> if (statistics == null) resolved else resolved.copy(tool = observedChild(resolved.tool, resolved.realToolName, resolved.connectionUid)) }
@@ -1276,10 +1272,10 @@ class AgentToolResolver @Inject constructor(
             val operations = github.operations()
             val nativeName = operations.first { it.operation == "github_context" }.definition.name
             listOf(base) + operations.map { operation ->
-                base.copy(tool = operation, realToolName = operation.operation, modelToolName = operation.definition.name, shareableReadOnly = operation.operation in setOf("github_read", "github_search"))
+                base.copy(tool = operation, realToolName = operation.operation, modelToolName = operation.definition.name, shareableReadOnly = operation.operation in setOf("github_read", "github_search"), canExecuteArguments = base.canExecuteArguments.takeIf { operation.operation == "github_pr" && operation.definition.name.substringBefore("__") == "github_pr" })
             } + listOfNotNull(
                 github.graphTool { callId -> nativeStatus(base, nativeName, callId) }?.let { graph ->
-                    base.copy(tool = graph, realToolName = "repository_graph", modelToolName = graph.definition.name, shareableReadOnly = false, nativeGitHub = true)
+                    base.copy(tool = graph, realToolName = "repository_graph", modelToolName = graph.definition.name, shareableReadOnly = false, nativeGitHub = true, canExecuteArguments = null)
                 }
             )
         }
@@ -1410,6 +1406,15 @@ class AgentToolResolver @Inject constructor(
             null
         }
         val selectedRepository = workspaceContext?.repository ?: actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) }
+        val copilotOwner = features.githubProfileOverrides[profileUid]?.copilotExecutionOwner ?: dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.ANDROID_DIRECT
+        val copilotGatewayUid = features.githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid
+        val copilotRoutingValid: suspend () -> Boolean = {
+            val live = settingRepository.getFeatureSettings()
+            val selected = live.githubProfileOverrides[profileUid]
+            (selected?.copilotExecutionOwner ?: dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.ANDROID_DIRECT) == copilotOwner &&
+                (copilotOwner != dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.GATEWAY || selected?.engineeringGatewayProfileUid == copilotGatewayUid) &&
+                (userMessage == null || live.conversationIdentities[userMessage.chatId] == features.conversationIdentities[userMessage.chatId])
+        }
         val tool = GitHubTool(
             apiToken = token,
             apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(actualConnection?.endpointUrl),
@@ -1418,6 +1423,24 @@ class AgentToolResolver @Inject constructor(
             credentialProvider = credentialProvider,
             featureSettings = features,
             copilotSettings = { settingRepository.getFeatureSettings() },
+            copilotOrchestrationOwner = copilotOwner.name,
+            copilotRouteIdentity = if (copilotOwner == dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.GATEWAY) copilotGatewayUid.orEmpty() else actualConnection?.connectionUid.orEmpty(),
+            copilotRoutingValid = copilotRoutingValid,
+            copilotBackend = if (copilotOwner == dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.GATEWAY) {
+                { action, args ->
+                    check(actualConnection != null) { "Restore the selected GitHub workspace connection before submitting Gateway cloud work." }
+                    check(!copilotGatewayUid.isNullOrBlank() && copilotGateway != null) { "Select and configure a standalone Gateway in GitHub settings before submitting cloud work." }
+                    check(userMessage != null && userMessage.chatId > 0 && factVault?.scopeForChat(userMessage.chatId)?.isTemporary != true) { "Use a saved GitHub conversation for recoverable Gateway cloud tasks." }
+                    val conversationIdentity = features.conversationIdentities[userMessage.chatId]
+                    check(!conversationIdentity.isNullOrBlank()) { "Restore the saved conversation identity before reconnecting to Gateway cloud work." }
+                    val scope = "${actualConnection.connectionUid}:$conversationIdentity"
+                    copilotGateway.execute(profileUid, copilotGatewayUid, scope, action, args) {
+                        dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(settingRepository.getFeatureSettings(), userMessage.chatId, workspaceContext)
+                    }
+                }
+            } else {
+                null
+            },
             modelToolName = actualConnection?.let { "github__${it.alias}" } ?: BuiltInAgentTool.GITHUB,
             accountName = actualConnection?.name,
             repositoryContext = selectedRepository,
@@ -1491,7 +1514,7 @@ class AgentToolResolver @Inject constructor(
         val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, workspaceContext) }
         // resolved() normally wraps telemetry immediately; this backend must stay
         // concrete until its compact operations have been expanded above.
-        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, authorizationIdentity = durableIdentity, gitHubPlanningContext = planningContext, canReuseResult = {
+        val nativeAdmission: suspend () -> Boolean = {
             val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, workspaceContext) }
             val currentConnection = actualConnection?.let { toolConnectionRepository.getConnection(it.connectionUid) }
@@ -1531,7 +1554,56 @@ class AgentToolResolver @Inject constructor(
                 !current.disableRemoteTools &&
                 live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
                 (actualConnection == null || (currentConnection != null && live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(actualConnection.connectionUid))))
-        })
+        }
+        val gatewayAdmission: (suspend (JsonObject) -> Boolean)? = if (copilotOwner == dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.GATEWAY) {
+            { arguments ->
+                if ("view_cursor" in arguments || (arguments["action"] as? kotlinx.serialization.json.JsonPrimitive)?.content !in dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.actions) {
+                    nativeAdmission()
+                } else {
+                    // Host credentials replace only the phone credential check. All
+                    // selected workspace/profile/connection permissions stay live.
+                    val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, workspaceContext) }
+                    val currentConnection = actualConnection?.let { toolConnectionRepository.getConnection(it.connectionUid) }
+                    actualConnection != null &&
+                        currentConnection != null &&
+                        currentConnection.type == actualConnection.type &&
+                        currentConnection.authType == actualConnection.authType &&
+                        currentConnection.endpointUrl == actualConnection.endpointUrl &&
+                        currentConnection.toolPolicy == actualConnection.toolPolicy &&
+                        currentConnection.approvedReadTools == actualConnection.approvedReadTools &&
+                        workspaceContext != null &&
+                        workspaceContext.connectionUid == actualConnection.connectionUid &&
+                        userMessage != null &&
+                        userMessage.chatId > 0 &&
+                        !features.conversationIdentities[userMessage.chatId].isNullOrBlank() &&
+                        live.conversationGitHub[userMessage.chatId]?.sameWorkspace(workspaceContext) == true &&
+                        current != null &&
+                        admittedProfile != null &&
+                        dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(admittedProfile, current) &&
+                        current.enabled &&
+                        !current.disableAllTools &&
+                        !current.disableRemoteTools &&
+                        live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
+                        live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(actualConnection.connectionUid)) &&
+                        !copilotGatewayUid.isNullOrBlank() &&
+                        copilotGateway != null &&
+                        copilotRoutingValid()
+                }
+            }
+        } else {
+            null
+        }
+        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(
+            tool = tool,
+            nativeGitHub = true,
+            nativeGitHubAuthenticated = tool.hasCredential,
+            authorizationIdentity = durableIdentity,
+            gitHubPlanningContext = planningContext,
+            canReuseResult = nativeAdmission,
+            canExecuteArguments = gatewayAdmission,
+            requiresPrivateServiceConsent = gatewayAdmission != null
+        )
     }
 
     private fun hasSelectedGitHubRepository(tools: List<ResolvedAgentTool>): Boolean =
@@ -1692,6 +1764,12 @@ class AgentToolResolver @Inject constructor(
         return remoteTools
             .filter { it.name in selectedNames }
             .map { remoteTool ->
+                val officialGitHub = GitHubProviderPolicy.isOfficialGitHub(connection)
+                val approvedReadOnly = if (officialGitHub) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubMcpRepositoryTool.isReadOnlyOperation(remoteTool.name, remoteTool.name in connection.approvedReadTools.lines().map(String::trim))
+                } else {
+                    remoteTool.name in connection.approvedReadTools.lines().map(String::trim)
+                }
                 val tool = McpAgentTool(
                     definition = GitHubProviderPolicy.definition(connection, mcpToolDefinition(connection.alias, remoteTool)),
                     authType = connection.authType,
@@ -1716,7 +1794,23 @@ class AgentToolResolver @Inject constructor(
                     },
                     remoteToolName = remoteTool.name,
                     outputSchema = remoteTool.outputSchema,
-                    approvedReadOnly = remoteTool.name in connection.approvedReadTools.lines().map(String::trim),
+                    approvedReadOnly = approvedReadOnly,
+                    argumentAdmission = if (officialGitHub) {
+                        { arguments ->
+                            if (dev.chungjungsoo.gptmobile.data.github.GitHubMcpRepositoryTool.requiresCopilotConsent(remoteTool.name, arguments)) {
+                                val allowed = try {
+                                    dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(settingRepository.getFeatureSettings(), userMessage?.chatId, workspaceContext)
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    false
+                                }
+                                if (!allowed) throw McpLocalToolRejection("GITHUB_COPILOT_DISABLED", "Copilot is off for this conversation. Enable it in GitHub plugin settings and in this saved chat before starting cloud work or requesting review.", "arguments")
+                            }
+                        }
+                    } else {
+                        null
+                    },
                     firecrawlRead = ToolServiceCatalog.forConnection(connection).id == "service:firecrawl" &&
                         remoteTool.name in setOf("firecrawl_search", "firecrawl_scrape", "firecrawl_map"),
                     clientManager = mcpClientManager,
@@ -1744,8 +1838,8 @@ class AgentToolResolver @Inject constructor(
                     connectionName = connection.name,
                     realToolName = remoteTool.name,
                     modelToolName = tool.definition.name,
-                    shareableReadOnly = remoteTool.name in connection.approvedReadTools.lines().map(String::trim),
-                    canReuseResult = if (remoteTool.name in connection.approvedReadTools.lines().map(String::trim)) {
+                    shareableReadOnly = approvedReadOnly,
+                    canReuseResult = if (approvedReadOnly) {
                         (
                             {
                                 val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
@@ -1865,7 +1959,8 @@ internal class McpAgentTool(
     override val approvedReadOnly: Boolean = false,
     private val firecrawlRead: Boolean = false,
     private val metadata: (suspend () -> JsonObject)? = null,
-    private val connectionUid: String? = null
+    private val connectionUid: String? = null,
+    private val argumentAdmission: (suspend (JsonObject) -> Unit)? = null
 ) : AgentTool,
     dev.chungjungsoo.gptmobile.data.agent.ApprovedReadOnlyAgentTool {
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
@@ -1887,6 +1982,13 @@ internal class McpAgentTool(
             arguments
         }
 
+        val beforeDispatch: (suspend () -> Unit)? = argumentAdmission?.let { admission -> { admission(remoteArguments) } }
+        try {
+            beforeDispatch?.invoke()
+        } catch (rejected: McpLocalToolRejection) {
+            return localRejection(callId, rejected, connectionUid)
+        }
+
         val initialConfig = try {
             config(false, null)
         } catch (cancelled: CancellationException) {
@@ -1898,22 +2000,17 @@ internal class McpAgentTool(
         val trustedMetadata = metadata?.invoke()
         val result = try {
             try {
-                clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId, trustedMetadata)
+                clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId, trustedMetadata, beforeDispatch)
             } catch (error: Exception) {
                 if (error is CancellationException || authType != ToolConnectionAuthType.OAUTH || !error.isUnauthorized()) throw error
-                clientManager.callTool(config(true, initialConfig.authorizationHeader), remoteToolName, remoteArguments, callId, trustedMetadata)
+                clientManager.callTool(config(true, initialConfig.authorizationHeader), remoteToolName, remoteArguments, callId, trustedMetadata, beforeDispatch)
             }
         } catch (rejected: McpLocalToolRejection) {
-            return dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(
-                dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty()).copy(
-                    executionReceipt = buildJsonObject {
-                        put("schema", "gptmobile.mcp-operation.v1")
-                        put("dispatch_evidence", "LOCAL_CATALOGUE_PRECHECK")
-                        clientManager.failureReportFields(initialConfig.connectionUid, rejected, "catalog").forEach { (key, value) -> put(key, value) }
-                    }
-                ),
-                definition.name,
-                replaySafe = approvedReadOnly
+            return localRejection(callId, rejected, initialConfig.connectionUid)
+        } catch (rejected: McpContinuationAdmissionRejected) {
+            return dispatchedFailure(
+                dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty()),
+                rejected.code
             )
         }
         val mapped = mapMcpToolResult(callId, result, startLine, endLine)
@@ -1941,6 +2038,19 @@ internal class McpAgentTool(
         }
         return mapped
     }
+
+    private fun localRejection(callId: String, rejected: McpLocalToolRejection, connection: String?): AgentToolResult =
+        dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(
+            dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty()).copy(
+                executionReceipt = buildJsonObject {
+                    put("schema", "gptmobile.mcp-operation.v1")
+                    put("dispatch_evidence", if (rejected.phase == "arguments") "LOCAL_ARGUMENT_PRECHECK" else "LOCAL_CATALOGUE_PRECHECK")
+                    clientManager.failureReportFields(connection, rejected, rejected.phase).forEach { (key, value) -> put(key, value) }
+                }
+            ),
+            definition.name,
+            replaySafe = approvedReadOnly
+        )
 
     private fun dispatchedFailure(result: AgentToolResult, cause: String): AgentToolResult = dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(
         result.copy(isError = true, dispatched = true, errorCode = if (approvedReadOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"),

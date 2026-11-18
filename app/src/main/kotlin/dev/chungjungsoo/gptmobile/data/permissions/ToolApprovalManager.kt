@@ -232,7 +232,9 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
             GitHubAuthorizationBoundary.isLocalPatchStaging(tool, arguments)
         val replayableRead = connection.type == "GITHUB" && GitHubAuthorizationBoundary.isReplayableRead(tool, arguments)
         val branchSelection = github && GitHubAuthorizationBoundary.isBranchSelection(tool, arguments)
-        val readOnly = !lifecycle && githubRead && tool in connection.approvedReadTools.lines().map(String::trim)
+        // A stale or mistaken read grant must not silently authorize paid cloud work.
+        val copilotWrite = github && connection.type == "MCP" && dev.chungjungsoo.gptmobile.data.github.GitHubMcpRepositoryTool.requiresCopilotConsent(tool, arguments)
+        val readOnly = !lifecycle && !copilotWrite && githubRead && tool in connection.approvedReadTools.lines().map(String::trim)
         if (!workspaceApproved && policy == ToolPolicy.READ_ONLY && !readOnly) return false
         if (readOnly && !branchSelection) return true
         val exactApproval = lifecycle || collaborationWrite || github && !workspaceApproved && (branchSelection || !(if (tool == "github") githubRead else readOnly))

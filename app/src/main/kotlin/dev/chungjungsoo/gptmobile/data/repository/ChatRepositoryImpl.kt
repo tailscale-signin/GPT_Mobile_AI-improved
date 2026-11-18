@@ -37,6 +37,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.LocalDelegationCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.SharedToolCallBroker
+import dev.chungjungsoo.gptmobile.data.agent.tool.executionAdmission
 import dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
@@ -1208,11 +1209,12 @@ class ChatRepositoryImpl(
                 budget.bind(resolved.tool.withRunContext(parentRunId), onFinished = { callId, success ->
                     toolApprovals?.finish(parentRunId, "$invocation:$callId", success)
                 }) { callId, arguments ->
-                    if (resolved.canReuseResult?.invoke() == false) {
+                    val executionAllowed = resolved.executionAdmission(arguments)
+                    if (!executionAllowed()) {
                         false
                     } else {
                         resolved.connectionUid?.let { uid ->
-                            toolApprovals?.authorizeOrThrow(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema, nativeGitHub = resolved.nativeGitHub, executionAllowed = resolved.canReuseResult) ?: true
+                            toolApprovals?.authorizeOrThrow(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema, nativeGitHub = resolved.nativeGitHub, executionAllowed = executionAllowed) ?: true
                         } ?: true
                     }
                 }
@@ -1257,7 +1259,7 @@ class ChatRepositoryImpl(
                         val features = settingRepository.getFeatureSettings()
                         check(live != null && live.enabled && live == registeredTarget && features.toolPluginStates == helperFeatures.toolPluginStates && features.profileBehavior[target.uid]?.toolPluginStates == helperFeatures.profileBehavior[target.uid]?.toolPluginStates) { "Helper permissions changed; dispatch stopped." }
                         val helperPermission = helperCatalog.firstOrNull { it.connectionUid == inherited.connectionUid && it.realToolName == inherited.realToolName }
-                        check(helperPermission != null && helperPermission.canReuseResult?.invoke() != false && inherited.canReuseResult?.invoke() != false) { "Helper connection authorization changed; dispatch stopped." }
+                        check(helperPermission != null && helperPermission.executionAdmission(arguments)() && inherited.executionAdmission(arguments)()) { "Helper connection authorization changed; dispatch stopped." }
                         return inherited.tool.execute(callId, arguments)
                     }
                 }
@@ -2882,11 +2884,12 @@ class ChatRepositoryImpl(
             tool = boundBudget.bind(resolved.tool.withRunContext(runId), statisticsIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(resolved.realToolName, resolved.connectionUid), onFinished = { callId, success ->
                 toolApprovals?.finish(runId, callId, success)
             }) { callId, arguments ->
-                if (resolved.canReuseResult?.invoke() == false) {
+                val executionAllowed = resolved.executionAdmission(arguments)
+                if (!executionAllowed()) {
                     false
                 } else {
                     resolved.connectionUid?.let { uid ->
-                        toolApprovals?.authorizeOrThrow(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema, nativeGitHub = resolved.nativeGitHub, executionAllowed = resolved.canReuseResult) ?: true
+                        toolApprovals?.authorizeOrThrow(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema, nativeGitHub = resolved.nativeGitHub, executionAllowed = executionAllowed) ?: true
                     } ?: true
                 }
             }
@@ -5220,7 +5223,10 @@ class ChatRepositoryImpl(
                     boundGitHubRepository,
                     resolved.realToolName,
                     resolved.shareableReadOnly,
-                    dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(acceptanceRequest)
+                    dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(acceptanceRequest),
+                    copilotAllowed = {
+                        dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(settingRepository.getFeatureSettings(), latestUser?.chatId, chatToolConfig?.github)
+                    }
                 )
             } else {
                 resolved.tool

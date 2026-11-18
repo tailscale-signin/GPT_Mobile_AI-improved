@@ -6,19 +6,21 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.PreparableAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** Official MCP schemas keep their identity and approval flow while honoring this task's destination. */
+/** Preserve official MCP schemas and approval flow while enforcing destination and live Copilot consent. */
 internal class GitHubMcpRepositoryTool(
     private val delegate: AgentTool,
     private val repository: GitHubRepositoryContext,
     private val operation: String,
     private val approvedReadOnly: Boolean = false,
-    private val readSources: Set<String> = emptySet()
+    private val readSources: Set<String> = emptySet(),
+    private val copilotAllowed: suspend () -> Boolean = { false }
 ) : PreparableAgentTool,
     OwnedAgentTool {
     override val definition get() = delegate.definition
@@ -27,15 +29,17 @@ internal class GitHubMcpRepositoryTool(
     override val executionOwner get() = (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 
     override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = GitHubMcpRepositoryTool(
-        delegate.withChildBudget { child -> bind(GitHubMcpRepositoryTool(child, repository, operation, approvedReadOnly, readSources)) },
+        delegate.withChildBudget { child -> bind(GitHubMcpRepositoryTool(child, repository, operation, approvedReadOnly, readSources, copilotAllowed)) },
         repository,
         operation,
         approvedReadOnly,
-        readSources
+        readSources,
+        copilotAllowed
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = try {
         val bounded = bound(arguments)
+        requireCopilotConsent(bounded)
         receipt(delegate.execute(callId, bounded), arguments, bounded)
     } catch (rejected: Rejected) {
         rejected.result(callId)
@@ -43,12 +47,37 @@ internal class GitHubMcpRepositoryTool(
 
     override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
         val bounded = try {
-            bound(arguments)
+            bound(arguments).also { requireCopilotConsent(it) }
         } catch (rejected: Rejected) {
             return { rejected.result(callId) }
         }
         val prepared = (delegate as? PreparableAgentTool)?.prepareExecution(callId, bounded) ?: { delegate.execute(callId, bounded) }
-        return { receipt(prepared(), arguments, bounded) }
+        return {
+            try {
+                // Consent can be revoked while the existing exact approval is open.
+                requireCopilotConsent(bounded)
+                receipt(prepared(), arguments, bounded)
+            } catch (rejected: Rejected) {
+                rejected.result(callId)
+            }
+        }
+    }
+
+    private suspend fun requireCopilotConsent(arguments: JsonObject) {
+        if (!requiresCopilotConsent(operation, arguments)) return
+        val allowed = try {
+            copilotAllowed()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+        if (!allowed) {
+            throw Rejected(
+                "GITHUB_COPILOT_DISABLED",
+                "GitHub Copilot is off for this conversation. Enable it in the GitHub plugin and this chat's settings before starting cloud work or requesting a review. Nothing was sent."
+            )
+        }
     }
 
     private fun bound(arguments: JsonObject): JsonObject {
@@ -72,7 +101,7 @@ internal class GitHubMcpRepositoryTool(
         val explicitSource = requested.first != null &&
             requested.second != null &&
             "$owner/$repo".lowercase(java.util.Locale.ROOT) in readSources
-        val readOnly = operation in READS || approvedReadOnly && operation !in WRITES
+        val readOnly = isReadOnlyOperation(operation, approvedReadOnly)
         if (!selected && !(readOnly && explicitSource)) {
             throw Rejected(
                 "GITHUB_REPOSITORY_TARGET_MISMATCH",
@@ -111,16 +140,40 @@ internal class GitHubMcpRepositoryTool(
         )
     }
 
-    private companion object {
-        val READS = setOf(
+    companion object {
+        /** These published tools start paid cloud work; observing an existing job remains available. */
+        fun requiresCopilotConsent(operation: String): Boolean = operation in COPILOT_WRITES
+
+        /** Official issue_write exposes method and assignees as top-level schema properties. */
+        fun requiresCopilotConsent(operation: String, arguments: JsonObject): Boolean =
+            requiresCopilotConsent(operation) ||
+                when (operation) {
+                    "create_issue", "update_issue" -> GitHubCopilotAgentMergePolicy.requiresConsent(operation, arguments)
+                    "issue_write" -> (arguments["method"] as? JsonPrimitive)?.content in setOf("create", "update") &&
+                        GitHubCopilotAgentMergePolicy.requiresConsent("update_issue", arguments)
+                    else -> false
+                }
+
+        /** A saved read grant cannot make a known remote mutation replayable or source-only. */
+        fun isReadOnlyOperation(operation: String, approvedReadOnly: Boolean = false): Boolean =
+            operation in READS || approvedReadOnly && operation !in WRITES && operation !in COPILOT_WRITES
+
+        private val COPILOT_WRITES = setOf(
+            "assign_copilot_to_issue",
+            "assign_copilot_to_issue_with_intent",
+            "create_pull_request_with_copilot",
+            "request_copilot_review"
+        )
+        private val READS = setOf(
             "get_file_contents", "read_code", "read_ranges", "search_code", "search_repository", "find_symbol", "find_references", "find_tests",
             "resolve_context", "repo_status", "get_repository", "index_status", "get_pull_request", "pull_request_read", "list_pull_requests", "get_pull_request_comments",
             "get_issue", "issue_read", "list_issues", "workflow_catalog", "list_workflows", "list_workflow_runs", "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts",
-            "get_job_logs", "ci_failure_digest", "get_latest_release", "list_releases", "get_commit", "list_commits", "get_tag", "list_tags", "list_branches", "get_branch"
+            "get_job_logs", "ci_failure_digest", "get_latest_release", "list_releases", "get_commit", "list_commits", "get_tag", "list_tags", "list_branches", "get_branch",
+            "get_copilot_job_status"
         )
-        val WRITES = setOf(
+        private val WRITES = setOf(
             "create_branch", "push_files", "commit_files", "commit_staged_patch", "create_or_update_file", "delete_file", "create_pull_request", "update_pull_request",
-            "create_pull_request_review", "reply_pull_request_comment", "merge_pull_request", "create_issue", "update_issue", "add_issue_comment", "dispatch_workflow",
+            "create_pull_request_review", "reply_pull_request_comment", "merge_pull_request", "create_issue", "update_issue", "issue_write", "add_issue_comment", "dispatch_workflow",
             "rerun_workflow", "rerun_failed_jobs", "cancel_workflow", "publish_release", "delete_repository", "update_repository"
         )
     }

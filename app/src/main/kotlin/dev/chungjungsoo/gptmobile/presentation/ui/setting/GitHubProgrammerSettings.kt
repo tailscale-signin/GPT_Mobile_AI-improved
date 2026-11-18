@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import kotlinx.serialization.json.intOrNull
@@ -125,9 +126,9 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         }
         OutlinedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("GitHub Copilot · Agent Merge", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                Text("GitHub Copilot · Cloud work", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                 Text(
-                    "Let Copilot help with failed CI and merge conflicts for this conversation's pull requests. Works with remote AI profiles; no Windows Gateway required.",
+                    "Run cloud tasks, request reviews, and let Agent Merge help with failed CI or conflicts. Works with your selected local or remote AI profile.",
                     style = MaterialTheme.typography.bodySmall
                 )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -145,8 +146,41 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     } else if (state.chatId == null) {
                         "Start or open a GitHub conversation to configure its consent."
                     } else {
-                        "Off for new chats. The toggle controls new calls, not existing PR enrollments; use agent_merge_disable to stop a watched PR. Automatic merging stays off."
+                        "Off for new chats. Turning this off blocks new Copilot calls; accepted cloud tasks continue on GitHub. Use agent_merge_disable to stop a watched PR. Automatic merging stays off."
                     },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text("Cloud task controller", style = MaterialTheme.typography.titleSmall)
+                var copilotOwnerMenu by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    onClick = { copilotOwnerMenu = true },
+                    enabled = state.profileUid != null,
+                    modifier = Modifier.testTag("github_copilot_execution_owner")
+                ) {
+                    Text(if (state.profileSettings.copilotExecutionOwner == GitHubCopilotExecutionOwner.GATEWAY) "Standalone Gateway" else "Direct from this app")
+                }
+                DropdownMenu(copilotOwnerMenu, { copilotOwnerMenu = false }) {
+                    GitHubCopilotExecutionOwner.entries.forEach { owner ->
+                        DropdownMenuItem(
+                            text = { Text(if (owner == GitHubCopilotExecutionOwner.GATEWAY) "Standalone Gateway" else "Direct from this app") },
+                            onClick = {
+                                copilotOwnerMenu = false
+                                onSettings(state.profileSettings.copy(copilotExecutionOwner = owner))
+                            }
+                        )
+                    }
+                }
+                Text(
+                    if (state.profileSettings.copilotExecutionOwner == GitHubCopilotExecutionOwner.GATEWAY) {
+                        "The selected engineering gateway saves and monitors cloud tasks while this app is closed. Enable Copilot in the Gateway's GitHub settings and connect its own GitHub account. An unavailable Gateway pauses this route."
+                    } else {
+                        "No Gateway is required. The app submits directly to GitHub and saves the task ID. GitHub continues accepted tasks while the app is closed; reopen this chat to check progress."
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "This choice applies to native cloud tasks. Existing tasks retain their original controller and account. The task API preview requires Copilot Business or Enterprise and Agent tasks permission; separately configured GitHub MCP cloud tools support paid Copilot plans. Agent Merge and review permissions remain separate.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

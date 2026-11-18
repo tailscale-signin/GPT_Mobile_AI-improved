@@ -117,6 +117,29 @@ class McpAgentToolRecoveryTest {
         }
     }
 
+    @Test fun argumentConsentRevokedDuringLegacyCataloguePreparationStopsActualToolDispatch() = runBlocking {
+        McpClientManagerTest.McpFixtureServer(toolsResponse = catalogue("issue_write")).use { server ->
+            val network = NetworkClient(CIO)
+            val manager = McpClientManager(network())
+            try {
+                val remote = tool(manager, server.url, "issue_write", argumentAdmission = {
+                    // The initial check passes; discovery then observes a revoked grant.
+                    if ("tools/list" in server.methods) throw McpLocalToolRejection("GITHUB_COPILOT_DISABLED", "Consent revoked.", "arguments")
+                })
+                val result = remote.execute("revoked", JsonObject(emptyMap()))
+                assertEquals("GITHUB_COPILOT_DISABLED", result.errorCode)
+                assertFalse(result.dispatched)
+                assertEquals(JsonPrimitive("LOCAL_ARGUMENT_PRECHECK"), result.executionReceipt?.get("dispatch_evidence"))
+                assertEquals(1, server.methods.count { it == "tools/list" })
+                assertEquals(0, server.toolParams.size)
+                assertTrue(ToolResultCheckpoint.confirmsNoEffect(saved(result, remote.definition.name)))
+            } finally {
+                manager.closeAll()
+                network().close()
+            }
+        }
+    }
+
     @Test fun validStructuredOutputRemainsSuccessful() = runBlocking {
         McpClientManagerTest.McpFixtureServer(
             toolsResponse = catalogue("create_ticket", RESULT_SCHEMA),
@@ -177,14 +200,15 @@ class McpAgentToolRecoveryTest {
         }
     }
 
-    private fun tool(manager: McpClientManager, url: String, name: String, approvedReadOnly: Boolean = false, outputSchema: String? = null) = McpAgentTool(
+    private fun tool(manager: McpClientManager, url: String, name: String, approvedReadOnly: Boolean = false, outputSchema: String? = null, argumentAdmission: (suspend (JsonObject) -> Unit)? = null) = McpAgentTool(
         definition = AgentToolDefinition("mcp__fixture__$name", "Fixture remote operation", Json.parseToJsonElement("""{"type":"object"}""") as JsonObject),
         authType = ToolConnectionAuthType.NONE,
         config = { _, _ -> McpConnectionConfig("connection", url, true) },
         remoteToolName = name,
         clientManager = manager,
         outputSchema = outputSchema?.let { Json.decodeFromString<ToolSchema>(it) },
-        approvedReadOnly = approvedReadOnly
+        approvedReadOnly = approvedReadOnly,
+        argumentAdmission = argumentAdmission
     )
 
     private fun provider(definition: AgentToolDefinition): AgentProviderSession = object : AgentProviderSession {

@@ -215,8 +215,28 @@ def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None):
                                 'detail': text(job.get('message')), 'branch': text(request.get('branch')), 'pr': job.get('pr'),
                                 'execution_mode': request.get('execution_mode', 'standard'),
                                 'batch_progress': batch_summary(job.get('data', {}).get('integration_batch'))})
+                    copilot_table = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_copilot_tasks'").fetchone()
+                    open_copilot = 0
+                    if copilot_table:
+                        from v14.copilot_tasks import TERMINAL as COPILOT_TERMINAL
+                        query = 'SELECT COUNT(*) FROM engineering_copilot_tasks WHERE state NOT IN (' + ','.join('?' for _ in COPILOT_TERMINAL) + ')'
+                        parameters = list(sorted(COPILOT_TERMINAL))
+                        if principal is not None:
+                            query += ' AND principal=?'
+                            parameters.append(principal)
+                        open_copilot = db.execute(query, parameters).fetchone()[0]
+                        for row in db.execute('SELECT data FROM engineering_copilot_tasks ORDER BY next_at DESC,id LIMIT 100'):
+                            task = json.loads(row[0])
+                            if principal is not None and task['principal'] != principal:
+                                continue
+                            request = task['request']
+                            result['engineering'].append({'id': task['id'], 'kind': 'github',
+                                'title': 'Copilot · ' + text(request['repository']), 'status': text(task['state'], 40),
+                                'started': task['accepted_at'], 'updated': task['updated_at'],
+                                'detail': 'GitHub cloud task; Gateway supervises. ' + text(task.get('error_code') or task['state'].replace('_', ' ').lower()),
+                                'branch': text(request.get('head_ref', request['base_ref'])), 'execution_mode': 'copilot'})
                     if open_chats is not None and open_engineering is not None:
-                        result['openJobs'] = open_chats + open_engineering
+                        result['openJobs'] = open_chats + open_engineering + open_copilot
                 finally:
                     db.close()
         except Exception:

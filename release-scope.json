@@ -172,7 +172,8 @@
     "Unify the GitHub-style activity preview and collapsible header across chat modes without suppressing normal streamed answers; implement velocity-gated minimal bottom arrow, return-to-bottom indicators and stronger bounded fades with scoped regression coverage.",
     "Preserve content-free research archive failure diagnostics, bounded retry quarantine and conservative unknown-context tool admission, and add selected-profile benchmark argument evidence with release-qualified regression files.",
     "Start local Privacy Mode with a master checkbox, default-protected data categories, disabled unverified/free provider routes in New Chat, private local gateway exception and a fail-closed chat-provider admission guard.",
-    "Add Privacy-Verified AI Profiles, strict account and endpoint verification, local text masking, and a stateless private Windows Gateway route."
+    "Add Privacy-Verified AI Profiles, strict account and endpoint verification, local text masking, and a stateless private Windows Gateway route.",
+    "Add opt-in Copilot cloud tasks directly from Android or through an explicitly selected standalone Gateway, with durable task receipts, original-account recovery, live consent and exact MCP mutation approval."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -254,7 +255,8 @@
     "Autonomous engineering production qualification is not established by host tests: installed Android/Windows interaction, selected-model live repository tasks, restart/disconnect recovery and the ten production scenarios require observed runtime evidence.",
     "The new GitHub AI-profile audit uses in-memory fixture tools only; it does not exercise a live GitHub account, authorized mutations, connected-provider completeness, or affected-device performance.",
     "Archive-write root cause, live selected-profile context recovery and installed Android-to-Gateway acceptance still require fresh exact-build device evidence.",
-    "Privacy Mode is an initial local settings and fail-closed provider-selection/dispatch gate, not yet full privacy protection: on-device prompt pseudonymization, encrypted restoration, live account-level ZDR verification, tool egress, voice and gateway cloud-relay enforcement remain unverified or unimplemented. No remote AI endpoint is currently certified eligible."
+    "Privacy Mode is an initial local settings and fail-closed provider-selection/dispatch gate, not yet full privacy protection: on-device prompt pseudonymization, encrypted restoration, live account-level ZDR verification, tool egress, voice and gateway cloud-relay enforcement remain unverified or unimplemented. No remote AI endpoint is currently certified eligible.",
+    "Native Copilot cloud tasks use the public-preview Agent tasks API, currently requiring Copilot Business or Enterprise and a user token with Agent tasks permission. Live entitlement, installed Android-to-Gateway execution, and exact-PR CI/merge acceptance remain unqualified; remote task completion never supplies merge authorization."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -3108,6 +3110,16 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/google/request/GenerateContentRequest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/McpMediaActivity.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GeminiImageOutputTest.kt",
-    "gateway/v14/scheduled_validation.py"
+    "gateway/v14/scheduled_validation.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayCopilotOperations.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotTasks.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubCopilotToolTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayCopilotOperationsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCopilotTasksTest.kt",
+    "docs/repairs/copilot-dual-execution-2026-11-18-task.json",
+    "gateway/tests/test_gateway_copilot_tasks.py",
+    "gateway/v14/copilot_tasks.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ResolvedToolAdmission.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ResolvedToolAdmissionTest.kt"
   ]
 }

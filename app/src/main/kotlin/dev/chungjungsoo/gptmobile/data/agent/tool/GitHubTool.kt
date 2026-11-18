@@ -76,7 +76,11 @@ class GitHubTool(
     private val engineeringStatus: (suspend (String, String) -> JsonObject?)? = null,
     private val repositoryGateway: (suspend (JsonObject) -> JsonObject)? = null,
     /** Re-read consent at dispatch: a saved model call cannot bypass a revoked toggle. */
-    private val copilotSettings: (suspend () -> dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings)? = null
+    private val copilotSettings: (suspend () -> dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings)? = null,
+    private val copilotBackend: (suspend (String, JsonObject) -> JsonObject)? = null,
+    private val copilotOrchestrationOwner: String = "ANDROID_DIRECT",
+    private val copilotRouteIdentity: String = "",
+    private val copilotRoutingValid: suspend () -> Boolean = { true }
 ) : AgentTool {
 
     private val BASE_URL get() = apiOrigins.rest
@@ -89,6 +93,13 @@ class GitHubTool(
     private val workflowPages = dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPageCapture()
     private val operationBlocks by lazy { if (persistentState && stateStore != null) stateStore else dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore() }
     private val operationBlockScope by lazy { "github-operation-blocks:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("$durableIdentity|$connectionUid|$conversationId") }
+
+    // Routing fences carry no task contents or account receipts. Their workspace
+    // identity survives phone-token expiry while the Gateway retains its own actor.
+    private val copilotRouteScope by lazy {
+        val chatIdentity = conversationId.toIntOrNull()?.let { featureSettings.conversationIdentities[it] }.orEmpty()
+        "github-copilot-routes:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("$connectionUid|$conversationId|$chatIdentity")
+    }
     internal val hasCredential get() = apiToken.isNotBlank()
     internal val hasRepositoryContext get() = planningTarget != null
     private var planningTarget = repositoryScope?.repository ?: repositoryContext
@@ -128,7 +139,9 @@ class GitHubTool(
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
             connectionUid = connectionUid, conversationId = if (source == null) conversationId else "$conversationId:read-source:$source", taskId = if (source == null) taskId else "$taskId:read-source:$source", persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare, engineeringStatus = engineeringStatus,
             durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider, apiOrigins = apiOrigins, refAvailability = credential.refAvailability,
-            repositoryGateway = repositoryGateway, sharedCredentialAdmission = httpClient === defaultHttpClient
+            repositoryGateway = repositoryGateway, sharedCredentialAdmission = httpClient === defaultHttpClient,
+            copilotWriteAdmission = { requireCopilotWriteAdmission() },
+            copilotConsentAdmission = { requireCopilotConsent() }
         )
     }
     internal suspend fun normalizeOperationRepository(arguments: JsonObject): JsonObject {
@@ -556,7 +569,7 @@ class GitHubTool(
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-        refreshCredential()
+        if (!usesGatewayCopilot(arguments)) refreshCredential()
         val accounting = GitHubDispatchAccounting(forceLiveReads = arguments["verify_live"] == JsonPrimitive(true))
         return kotlinx.coroutines.withContext(accounting) {
             try {
@@ -633,7 +646,7 @@ class GitHubTool(
     }
 
     private suspend fun executeTracked(callId: String, arguments: JsonObject): AgentToolResult {
-        if (credentialAdmissionFailed) return AgentToolResult(callId, ToolResultContent.Text("GitHub authorization could not be verified. Check the internet connection and reconnect GitHub if authorization expired. No remote request was dispatched; reconcile any previous uncertain write before retrying."), true, errorCode = "GITHUB_AUTHORIZATION_UNVERIFIED", dispatched = false)
+        if (credentialAdmissionFailed && !usesGatewayCopilot(arguments)) return AgentToolResult(callId, ToolResultContent.Text("GitHub authorization could not be verified. Check the internet connection and reconnect GitHub if authorization expired. No remote request was dispatched; reconcile any previous uncertain write before retrying."), true, errorCode = "GITHUB_AUTHORIZATION_UNVERIFIED", dispatched = false)
         if ((arguments["action"] as? JsonPrimitive)?.content in dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.actions) {
             if (listOf("owner", "repo", "ref").any { it in arguments }) return AgentToolResult(callId, ToolResultContent.Text("Repository creation and transfer use explicit destination_owner/destination_repo and source_owner/source_repo/source_ref. Remove workspace owner/repo/ref fields; no operation was dispatched."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
             return executeEffective(callId, arguments)
@@ -689,7 +702,7 @@ class GitHubTool(
             ?: return errorResult(callId, "Missing required parameter: 'action'.")
 
         return try {
-            val copilotMutation = action in setOf("agent_merge_enable", "agent_merge_update", "agent_merge_disable")
+            val copilotMutation = action == "agent_merge_disable" || dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.requiresConsent(action, arguments)
             val dispatchedArguments = if (copilotMutation) {
                 val live = copilotSettings?.invoke() ?: featureSettings
                 val context = repositoryScope
@@ -705,7 +718,7 @@ class GitHubTool(
                 ) {
                     return AgentToolResult(
                         callId,
-                        ToolResultContent.Text("GitHub Copilot Agent Merge is off for this conversation. Enable it in the GitHub plugin and this chat's settings before requesting any Copilot mutation. Nothing was sent."),
+                        ToolResultContent.Text("GitHub Copilot is off for this conversation. Enable it in the GitHub plugin and this chat's settings before requesting any Copilot mutation. Nothing was sent."),
                         true,
                         errorCode = "GITHUB_COPILOT_DISABLED",
                         dispatched = false
@@ -733,6 +746,23 @@ class GitHubTool(
                 }
             } else {
                 arguments
+            }
+            if (action in dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.actions) {
+                copilotRouteRejection(action, dispatchedArguments)?.let { message ->
+                    return AgentToolResult(callId, ToolResultContent.Text(message), true, errorCode = "GITHUB_COPILOT_ROUTE_MISMATCH", dispatched = false)
+                }
+                copilotBackend?.let { backend ->
+                    if (action == "copilot_create_task") requireCopilotWriteAdmission()
+                    val result = backend(action, dispatchedArguments)
+                    if (result["status"] in setOf(JsonPrimitive("RECONCILE_REQUIRED"), JsonPrimitive("EXECUTION_IN_PROGRESS"))) return executionResult(callId, result)
+                    if (result["status"] in setOf(JsonPrimitive("BLOCKED"), JsonPrimitive("FAILED"))) {
+                        return AgentToolResult(callId, ToolResultContent.Json(result), true, errorCode = (result["code"] as? JsonPrimitive)?.content ?: "GITHUB_COPILOT_BLOCKED", dispatched = result["dispatched"] == JsonPrimitive(true))
+                    }
+                    require(result["execution_owner"] == JsonPrimitive("GITHUB_CLOUD") && result["orchestration_owner"] == JsonPrimitive(copilotOrchestrationOwner)) {
+                        "The Copilot backend did not confirm the selected execution owner. Preserve its receipt and reconcile; never switch backends to retry."
+                    }
+                    return successResult(callId, result.toString())
+                }
             }
             if (action in GitHubWorkspaceClient.actions) {
                 if (action in setOf("delete_branch", "delete_fixture_branch")) {
@@ -806,6 +836,59 @@ class GitHubTool(
             throw cancellation
         } catch (throwable: Throwable) {
             classifyGitHubFailure(callId, action, arguments, throwable)
+        }
+    }
+
+    /** A persisted payload cannot move between Android and a different Gateway during recovery. */
+    private fun usesGatewayCopilot(arguments: JsonObject) = copilotOrchestrationOwner == "GATEWAY" &&
+        copilotBackend != null &&
+        (arguments["action"] as? JsonPrimitive)?.content in dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.actions
+
+    private suspend fun copilotRouteRejection(action: String, arguments: JsonObject): String? {
+        if (!copilotRoutingValid()) return "The selected Copilot execution owner changed after this call was prepared. Restore the original route to resume its receipt or start a newly reviewed request; no request was dispatched."
+        if (copilotOrchestrationOwner !in setOf("ANDROID_DIRECT", "GATEWAY") ||
+            (copilotOrchestrationOwner == "GATEWAY") != (copilotBackend != null) ||
+            copilotOrchestrationOwner == "GATEWAY" &&
+            copilotRouteIdentity.isBlank()
+        ) {
+            return "The selected Copilot execution owner is unavailable. Restore that route before continuing; no automatic backend fallback is allowed."
+        }
+        val route = if (copilotOrchestrationOwner == "ANDROID_DIRECT") apiOrigins.hostIdentity else copilotRouteIdentity
+        val requestId = (arguments["request_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+        val requestKey = "execution:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("copilot-route.request|$requestId")
+        fun matches(row: JsonObject) = row["orchestration_owner"] == JsonPrimitive(copilotOrchestrationOwner) && row["route_identity"] == JsonPrimitive(route)
+        val mismatch = "This Copilot request is retained under another execution owner or Gateway route. Resume it through the original route and reconcile its remote receipt; changing a request ID does not authorize another cloud creation."
+        if (action != "copilot_create_task") {
+            if (requestId.isNotBlank()) operationBlocks.read(copilotRouteScope, requestKey)?.let { if (!matches(it)) return mismatch }
+            return null
+        }
+        require(connectionUid.isNotBlank() && conversationId.isNotBlank() && durableIdentity.isNotBlank()) { "Copilot creation requires a selected GitHub connection and saved conversation." }
+        require(requestId.matches(Regex("[A-Za-z0-9_.:-]{1,80}"))) { "Supply a stable request_id for Copilot creation and recovery." }
+        val payload = dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.creationIdentity(arguments)
+        val payloadHash = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(dev.chungjungsoo.gptmobile.data.github.GitHubExecutionJournal.canonical(payload).toString())
+        val claim = buildJsonObject {
+            put("status", "PROTECTED_GUARD")
+            put("orchestration_owner", copilotOrchestrationOwner)
+            put("route_identity", route)
+            put("payload_hash", payloadHash)
+        }
+        val request = operationBlocks.update(copilotRouteScope, requestKey) { it ?: claim }
+        if (!matches(request) || request["payload_hash"] != JsonPrimitive(payloadHash)) return mismatch
+        val payloadKey = "execution:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("copilot-route.payload|$payloadHash")
+        val retained = operationBlocks.update(copilotRouteScope, payloadKey) { it ?: claim }
+        return mismatch.takeUnless { matches(retained) }
+    }
+
+    /** Recheck after ref reads and queue admission, immediately before native POST dispatch. */
+    private suspend fun requireCopilotWriteAdmission() {
+        if (!copilotRoutingValid()) throw dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.AdmissionRejected("GITHUB_COPILOT_ROUTE_MISMATCH", "The selected Copilot execution owner changed. No cloud creation was dispatched; restore the original route before resuming.")
+        requireCopilotConsent()
+    }
+
+    private suspend fun requireCopilotConsent() {
+        val live = copilotSettings?.invoke() ?: featureSettings
+        if (!dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(live, conversationId.toIntOrNull(), repositoryScope)) {
+            throw dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.AdmissionRejected("GITHUB_COPILOT_DISABLED", "Copilot consent was revoked while this request was being prepared. No Copilot mutation was dispatched.")
         }
     }
 
@@ -1989,6 +2072,7 @@ class GitHubTool(
         throwable: Throwable
     ): AgentToolResult {
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubExecutionBlocked) return executionResult(callId, throwable.checkpoint)
+        if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.AdmissionRejected) return AgentToolResult(callId, ToolResultContent.Text(throwable.message.orEmpty()), true, errorCode = throwable.code, dispatched = false)
         val cooldown = when (throwable) {
             is dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive -> throwable
             is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected -> if (throwable.status == 0) throwable.cause as? dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive else null

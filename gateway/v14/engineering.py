@@ -952,6 +952,8 @@ class EngineeringService:
         self.wake = threading.Event()
         self.thread = None
         self.authorized = lambda job: True
+        from v14.copilot_tasks import CopilotTasks
+        self.copilot = CopilotTasks(self)
         backend.model_executor = self.execute_model
         backend.save_specialists = self.store.save_specialists
         backend.save_adaptive_planning = self.store.save_adaptive_planning
@@ -1538,6 +1540,7 @@ class EngineeringService:
             return
         self.store.recover()
         self.stop.clear()
+        self.copilot.start()
         for graph in (self.graph, self.public_graph):
             if graph is not None:
                 graph.start_jobs()
@@ -1596,6 +1599,7 @@ class EngineeringService:
                     self.stop.set()
                     self.wake.set()
                     self.backend.cancel()
+                    await asyncio.to_thread(self.copilot.close)
                     if self.thread:
                         await asyncio.to_thread(self.thread.join, 15)
                     for graph in (self.graph, self.public_graph):

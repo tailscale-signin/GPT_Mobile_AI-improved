@@ -338,9 +338,11 @@ def capabilities(model=""):
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True,
                                     selectedModelLimits=True, model_preparation_v1=True, mutation_identity_preconditions_v1=True,
+                                    copilot_cloud_tasks_v1=gateway_id is not None,
                                     ordinary_conversation_retention_v1=True, durable_benchmarks_v1=gateway_id is not None, **{key: gateway_id is not None for key in FEATURES})})
     result['accepted_request_headers'].extend(['X-Gateway-Profile-ID', 'X-Gateway-Profile-Name-Base64', 'X-Gateway-Conversation-Retention', *MUTATION_IDENTITY_HEADERS])
     result['endpoints'].update(identity='/gateway/identity', job_catalog='/gateway/job-catalog', conversations='/gateway/conversations', conversation_messages='/gateway/conversations/{conversation_id}/messages', command='/gateway/commands/{command_id}', model_prepare='/gateway/models/prepare', conversation_metadata='/gateway/conversations/{conversation_id}/metadata', saved_messages='/gateway/saved-messages', message_bookmark='/gateway/conversations/{conversation_id}/bookmarks/{message_id}', benchmarks='/gateway/benchmarks')
+    result['endpoints'].update(copilot_capabilities='/gateway/engineering/copilot/capabilities', copilot_tasks='/gateway/engineering/copilot/tasks', copilot_task='/gateway/engineering/copilot/tasks/{task_id}')
     result['headers'].update(gateway_id='X-Gateway-ID', principal_id='X-Gateway-Principal-ID', conversation_id='X-Gateway-Conversation-ID', command_id='X-Gateway-Command-ID', detach_safe='X-Gateway-Detach-Safe')
     result['contracts'].update(gatewayJobCatalog=['gptmobile.gateway.job-catalog.v1'], gatewayConversations=['gptmobile.gateway.conversations.v1'])
     result['contracts']['modelPreparation'] = ['gptmobile.gateway.model-preparation.v1']

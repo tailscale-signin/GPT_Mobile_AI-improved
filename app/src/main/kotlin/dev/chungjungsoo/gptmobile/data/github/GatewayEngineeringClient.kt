@@ -421,6 +421,27 @@ class GatewayEngineeringClient internal constructor(
             ?: error("The gateway returned an invalid repository operation status.")
     }
 
+    internal suspend fun copilotCapabilities(config: ProviderRequestConfig): JsonObject =
+        json.parseToJsonElement(request(config, "copilot/capabilities")) as? JsonObject
+            ?: error("The gateway returned invalid Copilot capabilities.")
+
+    internal suspend fun copilotCreate(config: ProviderRequestConfig, payload: JsonObject): JsonObject =
+        json.parseToJsonElement(request(config, "copilot/tasks", payload.toString(), operationId = payload["request_id"]?.jsonPrimitive?.content)) as? JsonObject
+            ?: error("The gateway returned an invalid Copilot receipt. Reconcile the saved request before continuing.")
+
+    internal suspend fun copilotTasks(config: ProviderRequestConfig, repository: String, requestId: String? = null, page: Int = 1, perPage: Int = 30): JsonObject {
+        require(page in 1..1000 && perPage in 1..100) { "Choose a bounded Copilot task page." }
+        val query = "repository=${repository.encodeURLParameter()}&page=$page&per_page=$perPage" + requestId?.let { "&request_id=${it.encodeURLParameter()}" }.orEmpty()
+        return json.parseToJsonElement(request(config, "copilot/tasks?$query")) as? JsonObject
+            ?: error("The gateway returned an invalid Copilot task list.")
+    }
+
+    internal suspend fun copilotTask(config: ProviderRequestConfig, jobId: String): JsonObject {
+        require(jobId.matches(Regex("cp_[a-f0-9]{32}"))) { "Choose the saved Gateway Copilot job identity." }
+        return json.parseToJsonElement(request(config, "copilot/tasks/$jobId")) as? JsonObject
+            ?: error("The gateway returned an invalid Copilot task status.")
+    }
+
     suspend fun get(config: ProviderRequestConfig, id: String, afterRevision: Int): GatewayEngineeringJob {
         require(id.matches(Regex("eng_[a-f0-9]{32}")))
         return json.decodeFromString(request(config, "jobs/$id?after_revision=${afterRevision.coerceAtLeast(-1)}"))

@@ -394,7 +394,7 @@ fun ChatModelDialog(
                             ) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        Text("GitHub Copilot · Agent Merge", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                                        Text("GitHub Copilot · Cloud work", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                                         Switch(
                                             checked = githubCopilotEnabled,
                                             onCheckedChange = onGitHubCopilotChanged,
@@ -404,7 +404,7 @@ fun ChatModelDialog(
                                     }
                                     Text(
                                         if (githubCopilotAvailable) {
-                                            "Off by default. Turn this off to block new Copilot calls. To stop an already watched PR, use the approved agent_merge_disable action. Auto-merge stays off."
+                                            "Off by default. Turning this off blocks new Copilot calls; accepted cloud tasks continue on GitHub. To stop an already watched PR, use the approved agent_merge_disable action. Auto-merge stays off."
                                         } else {
                                             "Enable GitHub Copilot in GitHub plugin settings before opting in here."
                                         },

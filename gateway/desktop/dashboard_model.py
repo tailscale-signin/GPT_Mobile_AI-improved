@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import time
 
-TERMINAL = {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'}
+TERMINAL = {'completed', 'failed', 'cancelled', 'canceled', 'interrupted', 'timed_out', 'rejected', 'reconcile_required'}
 
 
 def read_snapshot(root, now=None):

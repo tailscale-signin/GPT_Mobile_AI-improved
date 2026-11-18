@@ -21,6 +21,7 @@ class RepositoryLifecycleHTTPTests(unittest.TestCase):
         fixtures.RepositoryLifecycleTests.setUp(self)
         self.service.authorized = lambda job: job['principal'] in {'tailnet:owner', 'tailnet:other'}
         self.service.readiness = lambda: {'ready': True, 'graph_ready': False, 'checks': {}}
+        self.service.copilot = SimpleNamespace(enabled=lambda: False)
         self.service.repository_lifecycle = self.lifecycle
         self.runtime.gateway_service = SimpleNamespace(instance_id='a' * 32)
         self.starts = []
@@ -45,6 +46,7 @@ class RepositoryLifecycleHTTPTests(unittest.TestCase):
         self.assertEqual(200, response.status_code, response.text)
         value = response.json()
         self.assertTrue(value['features']['repository_lifecycle_v1'])
+        self.assertFalse(value['copilot_tasks']['enabled'])
         self.assertEqual(['clone_repository', 'import_repository'], value['repository_operations']['operations'])
         self.assertEqual(['history'], value['repository_operations']['copy_modes'])
         self.assertFalse(value['repository_operations']['remote_authorization_verified'])

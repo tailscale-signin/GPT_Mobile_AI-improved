@@ -5,6 +5,13 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -15,6 +22,19 @@ class GitHubChatPolicyTest {
     private val profile = PlatformV2(uid = "p", name = "AI", disableAllTools = true, disableRemoteTools = true, disableLocalTools = true, maxToolCalls = 4, maxTokens = 512)
     private val context = GitHubConversationContext("c", "owner", "repo", "main", "a".repeat(40), "p")
     private val features = AppFeatureSettings()
+
+    @Test fun savedProfilesDefaultToDirectCopilotAndKeepGatewaySeparateFromInference() {
+        val decoded = kotlinx.serialization.json.Json.decodeFromString<GitHubChatProfileOverride>("{}")
+        assertEquals(GitHubCopilotExecutionOwner.ANDROID_DIRECT, decoded.copilotExecutionOwner)
+        assertEquals(null, decoded.engineeringGatewayProfileUid)
+        val selected = decoded.copy(copilotExecutionOwner = GitHubCopilotExecutionOwner.GATEWAY, engineeringGatewayProfileUid = "host")
+        val configured = features.copy(githubProfileOverrides = mapOf("p" to selected))
+        val unchanged = GitHubChatPolicy.platform(profile, configured, context)
+        assertEquals(profile.uid, unchanged.uid)
+        assertEquals(profile.model, unchanged.model)
+        assertEquals(profile.apiUrl, unchanged.apiUrl)
+        assertFalse(GitHubCopilotAgentMergePolicy.enabled(configured, 42, context))
+    }
 
     @Test fun newlyPairedProfileUsesUltraNativeCeilingWhileSavedExplicitCapsRemainAuthoritative() {
         val fresh = dev.chungjungsoo.gptmobile.data.pairing.PairedServer(1, "Computer", "LLAMA", "http://192.168.1.4:8080/v1", "selected", 1200).profile(1000).copy(uid = "p")
@@ -105,6 +125,52 @@ class GitHubChatPolicyTest {
                 permitted.copy(pluginExecution = mapOf(ToolPluginId.GITHUB to plugin.copy(githubCopilotFixCi = false)))
             )
         )
+    }
+
+    @Test fun copilotCreationAndEnrollmentRequireConsentButReadAndDisableDoNot() {
+        val arguments = JsonObject(emptyMap())
+        listOf("agent_merge_enable", "agent_merge_update", "copilot_create_task").forEach { action ->
+            assertTrue(action, GitHubCopilotAgentMergePolicy.requiresConsent(action, arguments))
+        }
+        listOf("agent_merge_disable", "agent_merge_status", "copilot_task_status", "copilot_tasks").forEach { action ->
+            assertFalse(action, GitHubCopilotAgentMergePolicy.requiresConsent(action, arguments))
+        }
+    }
+
+    @Test fun genericCollaborationCannotBypassConsentByNamingTheOfficialCopilotBots() {
+        val review = buildJsonObject {
+            put("reviewers", JsonArray(listOf("human", "COPILOT-PULL-REQUEST-REVIEWER[bot]").map(::JsonPrimitive)))
+        }
+        assertTrue(GitHubCopilotAgentMergePolicy.requiresConsent("pr_request_reviewers", review))
+        for (login in listOf("copilot-swe-agent[bot]", "Copilot-Swe-Agent")) {
+            val assigned = buildJsonObject { put("assignees", JsonArray(listOf("human", login).map(::JsonPrimitive))) }
+            for (action in listOf("issue_add_assignees", "pr_add_assignees", "create_issue", "update_issue")) {
+                assertTrue("$action: $login", GitHubCopilotAgentMergePolicy.requiresConsent(action, assigned))
+            }
+        }
+    }
+
+    @Test fun removingBotsAndOrdinaryCollaborationRemainAvailableWithoutCopilotConsent() {
+        val bots = buildJsonObject {
+            put("reviewers", JsonArray(listOf(JsonPrimitive("copilot-pull-request-reviewer[bot]"))))
+            put("assignees", JsonArray(listOf(JsonPrimitive("copilot-swe-agent[bot]"))))
+        }
+        listOf("pr_remove_reviewers", "issue_remove_assignees", "pr_remove_assignees", "pr_threads", "issue_context").forEach { action ->
+            assertFalse(action, GitHubCopilotAgentMergePolicy.requiresConsent(action, bots))
+        }
+        listOf("copilot", "my-copilot", "copilot-swe-agent-helper", "copilot-pull-request-reviewer-helper").forEach { login ->
+            val humans = buildJsonObject {
+                put("reviewers", JsonArray(listOf(JsonPrimitive(login))))
+                put("assignees", JsonArray(listOf(JsonPrimitive(login))))
+                put("body", "Discuss Copilot settings")
+            }
+            assertFalse(GitHubCopilotAgentMergePolicy.requiresConsent("pr_request_reviewers", humans))
+            assertFalse(GitHubCopilotAgentMergePolicy.requiresConsent("issue_add_assignees", humans))
+        }
+        val team = buildJsonObject { put("team_reviewers", bots.getValue("reviewers")) }
+        assertFalse(GitHubCopilotAgentMergePolicy.requiresConsent("pr_request_reviewers", team))
+        assertFalse(GitHubCopilotAgentMergePolicy.requiresConsent("update_issue", Json.parseToJsonElement("""{"assignees":[]} """).jsonObject))
+        assertFalse(GitHubCopilotAgentMergePolicy.requiresConsent("issue_add_assignees", Json.parseToJsonElement("""{"assignees":[null,123,{"login":"copilot-swe-agent[bot]"}]}""").jsonObject))
     }
 
     @Test fun ordinaryChatsAndOtherProfilesKeepOriginalSettings() {

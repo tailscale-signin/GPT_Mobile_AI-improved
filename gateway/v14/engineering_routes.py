@@ -24,6 +24,7 @@ from v14.execution_binding import ExecutionBindingError
 from v14.conversations import FEATURES, QueueFull, ConversationConflict, CommandIdentityConflict
 from v14.conversation_policy import verify_mutation_identity, MUTATION_IDENTITY_HEADERS
 from v14.repository_lifecycle import RepositoryLifecycle, RepositoryLifecycleError
+from v14.copilot_tasks import CopilotTaskError
 from v14.code_graph.public_github import PublicGitHubRateLimited, PublicRepositoryUnavailable
 from v14.github_api_governor import GitHubApiGovernor, GitHubApiRateWait
 
@@ -76,6 +77,8 @@ def install_engineering_routes(app, service):
         except ExecutionBindingError as error:
             return JSONResponse({'error': error.error_payload(stage=stage)}, status_code=error.status)
         except RepositoryLifecycleError as error:
+            return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
+        except CopilotTaskError as error:
             return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
         except QueueFull:
             return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)
@@ -162,12 +165,48 @@ def install_engineering_routes(app, service):
                     'instance_id': getattr(getattr(service.store.runtime, 'gateway_service', None), 'instance_id', None),
                     'task_scope_protocol': 1, 'task_scopes': ['read', 'plan', 'implement'], 'features': dict({key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES}, mutation_identity_preconditions_v1=True, repository_lifecycle_v1=repository_operations['enabled']), **{key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES},
                     'repository_operations': repository_operations,
+                    'copilot_tasks': {'schema': 'github.copilot-tasks.v1', 'supported': True,
+                                      'enabled': bool(service.store.runtime.GATEWAY_DURABLE_JOBS and service.copilot.enabled()),
+                                      'requires_explicit_consent': True, 'orchestration_owner': 'GATEWAY',
+                                      'execution_owner': 'GITHUB_CLOUD', 'automatic_merge': False},
                     'mutationIdentityPreconditions': MUTATION_IDENTITY_HEADERS,
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
                     'execution_batch': batch_capability(durable=service.store.runtime.GATEWAY_DURABLE_JOBS),
                     'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',
                     'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1, 'sampling_policy_protocol': 1}
+        return await execute(run)
+
+    @app.get('/gateway/engineering/copilot/capabilities')
+    @app.get('/v1/gateway/engineering/copilot/capabilities')
+    async def copilot_capabilities(request: Request):
+        async def run():
+            return await asyncio.to_thread(service.copilot.capabilities, principal(request))
+        return await execute(run)
+
+    @app.post('/gateway/engineering/copilot/tasks')
+    @app.post('/v1/gateway/engineering/copilot/tasks')
+    async def copilot_create(request: Request):
+        async def run():
+            owner = principal(request)
+            if any(request.headers.get(name) is None for name in MUTATION_IDENTITY_HEADERS):
+                raise ExecutionBindingError('CONTINUITY_IDENTITY_REQUIRED', 'Refresh the gateway identity and supply both installation and account preconditions.', 400)
+            result = await asyncio.to_thread(service.copilot.submit, owner, await body(request))
+            return JSONResponse(result, status_code=202 if result['state'] == 'ACCEPTED' else 200)
+        return await execute(run)
+
+    @app.get('/gateway/engineering/copilot/tasks')
+    @app.get('/v1/gateway/engineering/copilot/tasks')
+    async def copilot_list(request: Request, request_id: str | None = None, repository: str | None = None, page: int = 1, per_page: int = 30):
+        async def run():
+            return await asyncio.to_thread(service.copilot.list, principal(request), request_id, repository, page, per_page)
+        return await execute(run)
+
+    @app.get('/gateway/engineering/copilot/tasks/{task_id}')
+    @app.get('/v1/gateway/engineering/copilot/tasks/{task_id}')
+    async def copilot_status(task_id: str, request: Request):
+        async def run():
+            return await asyncio.to_thread(service.copilot.status, principal(request), task_id)
         return await execute(run)
 
     @app.post('/gateway/engineering/repository-operations')

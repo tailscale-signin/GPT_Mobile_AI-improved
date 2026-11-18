@@ -29,6 +29,13 @@ class GitHubAuthorizationBoundaryTest {
     private val connections = mockk<ToolConnectionRepository> { coEvery { getConnection("github") } returns connection }
     private val manager = ToolApprovalManager(database, connections)
 
+    @Test fun copilotTaskDiscoveryAndResumeAreReadsButCreationAlwaysNeedsWriteAuthority() {
+        for (action in listOf("copilot_tasks", "copilot_task_status")) {
+            assertTrue(GitHubAuthorizationBoundary.isReplayableRead("github_pr", buildJsonObject { put("action", action) }))
+        }
+        assertFalse(GitHubAuthorizationBoundary.isReplayableRead("github_pr", buildJsonObject { put("action", "copilot_create_task") }))
+    }
+
     @Test fun trustedNativeReadCanRetryAfterPreviousUnknownOutcome() = runTest {
         coEvery { dao.previousMatchingAction(any(), any(), any(), any(), any()) } returns "OUTCOME_UNKNOWN"
         val state = MutableStateFlow<ToolApproval?>(null)

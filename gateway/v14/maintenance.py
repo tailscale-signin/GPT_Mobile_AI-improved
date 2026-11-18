@@ -16,6 +16,15 @@ def pending_index_jobs(db):
     return db.execute("SELECT COUNT(*) FROM code_graph_index_jobs WHERE state IN ('QUEUED','RUNNING','INTERRUPTED','PAUSED')").fetchone()[0]
 
 
+def pending_copilot_tasks(db):
+    exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_copilot_tasks'").fetchone()
+    if not exists:
+        return 0
+    from v14.copilot_tasks import TERMINAL
+    return db.execute('SELECT COUNT(*) FROM engineering_copilot_tasks WHERE state NOT IN (' +
+                      ','.join('?' for _ in TERMINAL) + ')', tuple(sorted(TERMINAL))).fetchone()[0]
+
+
 def indexing_snapshot(engineering):
     active = 0
     for name in ('graph', 'public_graph'):
@@ -32,7 +41,7 @@ def pending_work(runtime, engineering):
     def count(db):
         chats = db.execute("SELECT COUNT(*) FROM gateway_jobs WHERE status IS NULL OR status NOT IN ('completed','failed','cancelled','canceled','interrupted')").fetchone()[0]
         jobs = db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED')").fetchone()[0]
-        return chats + jobs + pending_index_jobs(db)
+        return chats + jobs + pending_index_jobs(db) + pending_copilot_tasks(db)
     return engineering.store.tx(count)
 
 

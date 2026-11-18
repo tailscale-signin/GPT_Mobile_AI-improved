@@ -490,7 +490,8 @@ class McpClientManager internal constructor(
         toolName: String,
         arguments: JsonObject,
         callId: String? = null,
-        metadata: JsonObject? = null
+        metadata: JsonObject? = null,
+        beforeDispatch: (suspend () -> Unit)? = null
     ): CallToolResult {
         dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         val key = config.validatedKey()
@@ -520,9 +521,10 @@ class McpClientManager internal constructor(
         return try {
             val result = withContext(dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt(0, observation.operationId)) {
                 dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
-                modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId, metadata) }
+                modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId, metadata, beforeDispatch) }
                     ?: withSession(config, retryStale = false, recordFailures = false, observation = observation) {
                         dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                        beforeDispatch?.invoke()
                         it.client.callTool(
                             kotlinx.serialization.json.Json.decodeFromJsonElement(
                                 io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest.serializer(),
@@ -563,7 +565,7 @@ class McpClientManager internal constructor(
             throw cancelled
         } catch (error: Exception) {
             outcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
-            if (error is McpBackoffException) throw error
+            if (error is McpBackoffException || error is McpLocalToolRejection || error is McpContinuationAdmissionRejected) throw error
             if (error.isMcpUnauthorized()) {
                 val message = "MCP authentication or access failed. Open Manage connection for this provider and update its credentials."
                 providerCooldowns[config.connectionUid] = key to Long.MAX_VALUE

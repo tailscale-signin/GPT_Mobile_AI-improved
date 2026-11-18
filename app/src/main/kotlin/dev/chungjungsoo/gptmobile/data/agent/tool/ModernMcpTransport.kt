@@ -217,7 +217,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         return tools
     }
 
-    suspend fun callTool(config: McpConnectionConfig, name: String, arguments: JsonObject, callId: String? = null, metadata: JsonObject? = null): CallToolResult {
+    suspend fun callTool(config: McpConnectionConfig, name: String, arguments: JsonObject, callId: String? = null, metadata: JsonObject? = null, beforeDispatch: (suspend () -> Unit)? = null): CallToolResult {
         if (schemas[config.connectionUid]?.containsKey(name) != true) listTools(config)
         val schema = requireNotNull(schemas[config.connectionUid]?.get(name)) { "Tool was removed or has an invalid HTTP header schema. Refresh the connection." }
         val result = request(
@@ -228,7 +228,8 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 put("arguments", arguments)
                 metadata?.let { put("_meta", it) }
             },
-            mirroredHeaders(schema, arguments)
+            mirroredHeaders(schema, arguments),
+            beforeDispatch
         )
         if ((result["resultType"] as? JsonPrimitive)?.content == "task") {
             check(tasks != null && supportsTasks(config.connectionUid)) { "Server returned an unadvertised task." }
@@ -336,9 +337,15 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         throw McpProtocolConfigurationException("MCP_CATALOG_LIMIT_EXCEEDED", "The MCP catalogue exceeds 40 pages. Reduce the server catalogue or split it between connections.")
     }
 
-    private suspend fun request(config: McpConnectionConfig, method: String, original: JsonObject, headers: Map<String, String> = emptyMap()): JsonObject {
+    private suspend fun request(config: McpConnectionConfig, method: String, original: JsonObject, headers: Map<String, String> = emptyMap(), beforeDispatch: (suspend () -> Unit)? = null): JsonObject {
         var parameters = original
-        repeat(8) {
+        repeat(8) { round ->
+            try {
+                beforeDispatch?.invoke()
+            } catch (rejected: McpLocalToolRejection) {
+                if (round == 0) throw rejected
+                throw McpContinuationAdmissionRejected(rejected.code, "Permission was revoked after the server received the original request. No continuation was sent. Reconcile the existing operation before any new submission.")
+            }
             val result = rpc(config, method, parameters, headers)
             if ((result["resultType"] as? JsonPrimitive)?.content != "input_required") return result
             val inputs = (result["inputRequests"] as? JsonObject).orEmpty()

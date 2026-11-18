@@ -118,6 +118,62 @@ class GitHubRepositoryApprovalTest {
         assertEquals(0, fixture.claims)
     }
 
+    @Test fun copilotMcpWritesRequireExactDecisionDespiteSavedReadAndProviderGrants() = runTest {
+        for (operation in listOf("create_pull_request_with_copilot", "assign_copilot_to_issue", "assign_copilot_to_issue_with_intent", "request_copilot_review", "create_issue", "update_issue", "issue_write")) {
+            val fixture = Fixture(type = "MCP", approvedReadTools = operation)
+            fixture.trust.allowProvider(fixture.connection)
+            fixture.trust.allow(fixture.connection, operation)
+            val args = buildJsonObject {
+                put("owner", "selected-owner")
+                put("repo", "selected-repository")
+                if (operation in setOf("create_issue", "update_issue", "issue_write")) {
+                    put("assignees", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("copilot-swe-agent[bot]"))))
+                    if (operation == "issue_write") put("method", "update")
+                }
+            }
+            val waiting = async {
+                val authorized = fixture.manager.authorizeOrThrow(fixture.connection.connectionUid, "run", "call", operation, args)
+                if (authorized) fixture.executions++
+                authorized
+            }
+            runCurrent()
+            val pending = requireNotNull(fixture.state().value)
+            assertEquals(operation, pending.tool)
+            assertEquals("PENDING", pending.state)
+            assertTrue(pending.requiresExactConfirmation)
+            assertFalse(pending.isReplayableGitHubRead)
+            assertFalse(waiting.isCompleted)
+            assertEquals(0, fixture.executions)
+            fixture.manager.alwaysAllowProvider(pending.id)
+            assertEquals("PENDING", fixture.state().value?.state)
+            fixture.manager.decide(pending.id, true)
+            assertTrue(waiting.await())
+            assertEquals(1, fixture.claims)
+            assertEquals(1, fixture.executions)
+        }
+    }
+
+    @Test fun copilotMcpWritesCannotRunUnderReadOnlyPolicyButExistingJobStatusCan() = runTest {
+        val write = "create_pull_request_with_copilot"
+        val fixture = Fixture(type = "MCP", policy = "READ_ONLY", approvedReadTools = "$write\nget_copilot_job_status")
+        fixture.trust.allowProvider(fixture.connection)
+        val args = buildJsonObject {
+            put("owner", "selected-owner")
+            put("repo", "selected-repository")
+        }
+        assertFalse(fixture.manager.authorize(fixture.connection.connectionUid, "run", "write", write, args))
+        assertTrue(fixture.manager.authorize(fixture.connection.connectionUid, "run", "status", "get_copilot_job_status", args))
+        assertTrue(fixture.pending.value.isEmpty())
+        assertEquals(0, fixture.claims)
+        assertEquals(0, fixture.executions)
+
+        val generic = Fixture(type = "MCP", policy = "READ_ONLY", approvedReadTools = "issue_write")
+        generic.trust.allowProvider(generic.connection)
+        val assignment = JsonObject(args + mapOf("method" to JsonPrimitive("create"), "assignees" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("copilot-swe-agent[bot]")))))
+        assertFalse(generic.manager.authorize(generic.connection.connectionUid, "run", "assignment", "issue_write", assignment))
+        assertEquals(0, generic.claims)
+    }
+
     @Test fun nativeProvenanceDoesNotOpenOtherAdministrativeActions() = runTest {
         val fixture = Fixture()
         for (action in listOf("delete_repository", "transfer_repository", "update_repository", "create_repository_secret", "update_repository_ruleset")) {

@@ -6,6 +6,12 @@ New Chat can select an eligible profile for Auto, Fast, Think or Research. Inter
 
 Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.
 
+## Copilot with or without a Gateway
+
+GitHub settings now default cloud tasks to direct Android submission and offer an explicit standalone Gateway controller. GitHub runs an accepted cloud task even when Android closes. The Gateway adds durable host supervision and read-only task reconciliation across disconnects and restarts, using its own GitHub credentials. Selected AI inference profiles remain independent. Both global and per-chat Copilot consent remain off by default; known MCP Copilot writes retain exact approval even if a saved read grant is incorrect.
+
+Native Copilot cloud tasks use the public-preview Agent tasks API, currently requiring Copilot Business or Enterprise and a user token with Agent tasks permission. Live entitlement, installed Android-to-Gateway execution, and exact-PR CI/merge acceptance remain unqualified; remote task completion never supplies merge authorization.
+
 ## Privacy Mode — initial strict gate (PR #1741)
 
 Privacy Mode is OFF by default with 11 individually configurable, default-ON sensitivity categories. Settings now includes a Privacy section; New Chat has a top-right Privacy Mode checkbox that greys out remote and free profiles unless the full endpoint and account policy is verified. Private local and self-hosted gateway inference is exempt from third-party ZDR requirements; ordinary cloud routes cannot inherit that exemption. Existing-chat generation, research and benchmark entry points now reject ineligible remote providers while the master switch is on. The free-model catalog is assessed provider by provider, including Kilo automatic routing, volunteer AI Horde, OVHcloud's documented policy and upstream gateways.

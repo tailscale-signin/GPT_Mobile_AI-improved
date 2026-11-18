@@ -30,7 +30,7 @@ class McpResolverDiscoveryTest {
         assertTrue(setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true).isEmpty())
         assertEquals(2, calls)
         coVerify(exactly = 1) { setup.oauth.authorizationHeader(connection, true, "Bearer expired") }
-        coVerify(exactly = 0) { setup.manager.callTool(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { setup.manager.callTool(any(), any(), any(), any(), any(), any()) }
     }
 
     @Test fun secondUnauthorizedResponseAndForbiddenResponseNeverLoopCredentialRefresh() = runBlocking {
@@ -42,7 +42,7 @@ class McpResolverDiscoveryTest {
             assertTrue(runCatching { setup.resolver.discoverMcpTools(connection, awaitCompletion = true) }.exceptionOrNull() is ModernMcpError)
             coVerify(exactly = if (status == 401) 1 else 0) { setup.oauth.authorizationHeader(connection, true, any()) }
             coVerify(exactly = if (status == 401) 2 else 1) { setup.manager.listToolsWithReceipt(any(), any(), true, false) }
-            coVerify(exactly = 0) { setup.manager.callTool(any(), any(), any(), any(), any()) }
+            coVerify(exactly = 0) { setup.manager.callTool(any(), any(), any(), any(), any(), any()) }
         }
     }
 

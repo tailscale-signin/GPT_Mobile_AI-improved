@@ -187,7 +187,7 @@ internal object GitHubProfileAuditSuite {
                         str("head", "feature")
                         str("base", "main")
                     }
-                    "headers", "context", "comments", "reviews", "threads" -> num("pull_number", 1)
+                    "headers", "context", "comments", "reviews", "threads", "agent_merge_status" -> num("pull_number", 1)
                     else -> {
                         num("pull_number", 1)
                         str("expected_head_sha", sha)

@@ -34,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import kotlin.math.abs
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
 /** Follow intent has the same presentation after a button press or a deliberate bottom arrival. */
@@ -47,9 +48,25 @@ internal fun ChatBottomIndicator(
     onFollow: () -> Unit
 ) {
     if (!following) {
-        // Only a deliberate fast user scroll reveals the arrow. The optional
-        // input is omitted by legacy/test callers; production always supplies it.
-        val reveal = scrollInput == null || (scrollInput.scrollingFasterThanReading && listState.isScrollInProgress && listState.canScrollForward)
+        // Do not infer reading speed from programmatic list movement. The shared
+        // input only reports real user gestures and already applies a speed gate.
+        // Once a deliberate scroll reveals the arrow, keep it available for five
+        // seconds after scrolling settles instead of blinking away on release.
+        var heldVisible by remember(scrollInput, listState) { mutableStateOf(false) }
+        val fastUserScroll = scrollInput?.scrollingFasterThanReading == true
+        val scrolling = listState.isScrollInProgress
+        val hasOlderContent = listState.canScrollForward
+        LaunchedEffect(scrollInput, fastUserScroll, scrolling, hasOlderContent) {
+            when {
+                !hasOlderContent -> heldVisible = false
+                fastUserScroll -> heldVisible = true
+                !scrolling -> {
+                    delay(5_000L)
+                    heldVisible = false
+                }
+            }
+        }
+        val reveal = if (scrollInput == null) true else heldVisible && hasOlderContent
         AnimatedVisibility(visible = reveal, enter = fadeIn(tween(1000)), exit = fadeOut(tween(1000))) {
             ScrollToBottomButton(isGenerating = generating, onClick = onFollow)
         }

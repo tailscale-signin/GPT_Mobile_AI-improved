@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,17 +17,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -32,13 +30,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens
-import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
-import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import kotlin.math.abs
-import kotlinx.coroutines.flow.first
-
-internal const val CHAT_LATEST_OPACITY = 0.50f
 
 /** Follow intent has the same presentation after a button press or a deliberate bottom arrival. */
 @Composable
@@ -47,17 +39,21 @@ internal fun ChatBottomIndicator(
     following: Boolean,
     generating: Boolean,
     animate: Boolean,
+    scrollInput: ChatScrollInput? = null,
     onFollow: () -> Unit
 ) {
     if (!following) {
-        ScrollToBottomButton(isGenerating = generating, onClick = onFollow)
+        // Only a deliberate fast user scroll reveals the arrow. The optional
+        // input is omitted by legacy/test callers; production always supplies it.
+        val reveal = scrollInput == null || (scrollInput.scrollingFasterThanReading && listState.isScrollInProgress && listState.canScrollForward)
+        AnimatedVisibility(visible = reveal, enter = fadeIn(tween(1000)), exit = fadeOut(tween(1000))) {
+            ScrollToBottomButton(isGenerating = generating, onClick = onFollow)
+        }
         return
     }
-    var reachedBottom by remember(listState) { mutableStateOf(false) }
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isAtGitHubBottom() }.first { it }
-        reachedBottom = true
-    }
+    // Do not latch a previous bottom arrival: dots must wait for the actual
+    // sentinel on every return to bottom and disappear again when it leaves.
+    val reachedBottom by remember(listState) { derivedStateOf { listState.isAtGitHubBottom() } }
     if (!reachedBottom || !generating) return
     // The shared phase respects app/system motion preferences, lifecycle and frame pressure.
     val phase = rememberGitHubProgressMotion(animate)
@@ -84,25 +80,13 @@ internal fun ChatBottomIndicator(
 
 @Composable
 fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
-    val tokens = appOverlayTokens(opacity = CHAT_LATEST_OPACITY)
-    // Keep the glass at exactly 50%; animate neither the backdrop nor the icon's alpha.
-    // Generation remains distinguishable through the themed outline.
+    // Preserve a generous touch target, but draw *only* the arrow glyph.
     Box(Modifier.size(48.dp).testTag("chat_jump_to_bottom").clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Surface(
-            modifier = Modifier.size(26.dp).glassBackdrop(CircleShape, opacity = CHAT_LATEST_OPACITY, force = true).testTag("chat_latest_glass"),
-            shape = CircleShape,
-            color = if (hasGlassBackdrop(force = true)) Color.Transparent else tokens.background,
-            contentColor = tokens.foreground,
-            border = BorderStroke(
-                if (isGenerating) 2.dp else 1.dp,
-                MaterialTheme.colorScheme.primary.copy(alpha = if (isGenerating) 0.8f else 0.3f)
-            ),
-            // A shadow inside this translucent plate would darken its 50% tint.
-            shadowElevation = 0.dp
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon), modifier = Modifier.size(18.dp))
-            }
-        }
+        Icon(
+            Icons.Rounded.KeyboardArrowDown,
+            stringResource(R.string.scroll_to_bottom_icon),
+            modifier = Modifier.size(26.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
     }
 }

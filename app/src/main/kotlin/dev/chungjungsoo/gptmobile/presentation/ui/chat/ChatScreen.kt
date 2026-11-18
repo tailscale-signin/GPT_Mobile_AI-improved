@@ -1211,6 +1211,7 @@ private fun ChatScreenContent(
                             !isIdle
                         },
                     animate = featureSettings.responseAnimation,
+                    scrollInput = scrollInput,
                     onFollow = ::followChatBottom
                 )
             }

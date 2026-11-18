@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.lazy.LazyListState
@@ -12,6 +13,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -25,6 +27,22 @@ internal class ChatScrollInput {
     var dragging by mutableStateOf(false)
     var pointerActive = false
     var modifier: Modifier = Modifier
+    private val readingGate = ChatReadingScrollGate()
+    var scrollingFasterThanReading by mutableStateOf(false)
+        private set
+
+    fun recordUserDelta(deltaDp: Float) {
+        scrollingFasterThanReading = readingGate.recordDelta(deltaDp, SystemClock.uptimeMillis())
+    }
+
+    fun recordFling(velocityDpPerSecond: Float) {
+        scrollingFasterThanReading = readingGate.recordFling(velocityDpPerSecond)
+    }
+
+    fun stopScroll() {
+        readingGate.stop()
+        scrollingFasterThanReading = false
+    }
 }
 
 /** The same deliberate bottom arrival is used by normal, Combined, Gateway and GitHub chat. */
@@ -38,6 +56,7 @@ internal fun rememberChatScrollInput(
     onFollow: () -> Unit
 ): ChatScrollInput {
     val input = remember(listState, touchSlop, roomId) { ChatScrollInput() }
+    val density = LocalDensity.current.density.coerceAtLeast(0.01f)
     val gesture = remember(listState, touchSlop, roomId) { GitHubPromptAnchor(touchSlop, GitHubScrollMode.FOLLOW_BOTTOM) }
     val detach by rememberUpdatedState(onDetach)
     val follow by rememberUpdatedState(onFollow)
@@ -59,11 +78,17 @@ internal fun rememberChatScrollInput(
             if (atRestAtBottom) currentFollowIfAtBottom()
         }
     }
-    val connection = remember(input, gesture, listState) {
+    LaunchedEffect(listState, input) {
+        snapshotFlow { listState.isScrollInProgress }.distinctUntilChanged().collect { moving ->
+            if (!moving) input.stopScroll()
+        }
+    }
+    val connection = remember(input, gesture, listState, density) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (source == NestedScrollSource.UserInput && available.y != 0f) {
                     gesture.move(available.y)
+                    input.recordUserDelta(available.y / density)
                     input.dragging = true
                     if (gesture.mode == GitHubScrollMode.USER_HISTORY) detach()
                 }
@@ -78,6 +103,7 @@ internal fun rememberChatScrollInput(
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
+                input.recordFling(available.y / density)
                 gesture.endGesture()
                 return Velocity.Zero
             }
@@ -86,6 +112,7 @@ internal fun rememberChatScrollInput(
                 currentFollowIfAtBottom()
                 gesture.finishScroll()
                 input.dragging = false
+                input.stopScroll()
                 return Velocity.Zero
             }
         }

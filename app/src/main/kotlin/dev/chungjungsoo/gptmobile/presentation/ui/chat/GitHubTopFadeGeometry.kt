@@ -1,9 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 internal enum class GitHubFadeProfile(val label: String, val expandedExtra: Float) {
-    SUBTLE("Subtle", .12f),
-    ADAPTIVE("Adaptive", .22f),
-    CINEMATIC("Cinematic", .30f)
+    SUBTLE("Subtle", .20f),
+    ADAPTIVE("Adaptive", .36f),
+    CINEMATIC("Cinematic", .45f)
 }
 
 internal fun gitHubTopFadeHeight(
@@ -16,5 +16,11 @@ internal fun gitHubTopFadeHeight(
     if (!enabled) return 0f
     val progress = expansionProgress.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
     val eased = progress * progress * (3f - 2f * progress)
-    return headerHeight.coerceAtLeast(0f) + stableWindowHeight.coerceAtLeast(0f) * (.03f + (profile.expandedExtra - .03f) * eased)
+    val window = stableWindowHeight.coerceAtLeast(0f)
+    val header = headerHeight.coerceAtLeast(0f)
+    val collapsedExtra = window * .03f
+    // Keep at least half the available viewport readable on short/landscape displays.
+    val maximumExtra = ((window - header).coerceAtLeast(0f) * .5f).coerceAtLeast(collapsedExtra)
+    val expandedExtra = (window * profile.expandedExtra).coerceAtMost(maximumExtra)
+    return header + collapsedExtra + (expandedExtra - collapsedExtra) * eased
 }

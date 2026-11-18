@@ -403,14 +403,15 @@ internal class GitHubRepositorySession(
         val eligible = indexableSourceEntries(candidates)
         val sourceScope = blobScope(context)
         var cachedAll = 0
-        var cachedEligible = 0
-        val eligibleShas = eligible.mapTo(mutableSetOf()) { it.s("sha") }
+        val availableShas = mutableSetOf<String>()
         for (entry in candidates) {
-            if (store.contains(sourceScope, "blob:${entry.s("sha")}")) {
+            val sha = entry.s("sha")
+            if (store.contains(sourceScope, "blob:$sha")) {
                 cachedAll++
-                if (entry.s("sha") in eligibleShas) cachedEligible++
+                availableShas += sha
             }
         }
+        val cachedEligible = eligible.count { it.s("sha") in availableShas }
         val treeComplete = tree["truncated"]?.jsonPrimitive?.booleanOrNull != true
         return buildJsonObject {
             put("commit_sha", context.commitSha)

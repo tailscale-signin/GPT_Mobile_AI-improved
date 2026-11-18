@@ -7,6 +7,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -269,6 +270,30 @@ class ToolCallBudgetCheckpointTest {
         assertEquals("VERIFICATION_RESERVE_REACHED", rejected.errorCode)
         assertFalse(rejected.dispatched)
         assertEquals(2, dispatched)
+    }
+
+    @Test fun unexpectedAuthorizationPrecheckErrorIsTypedAndConsumesNoToolCall() = runTest {
+        var toolDispatched = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "read", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                toolDispatched++
+                return AgentToolResult(callId, ToolResultContent.Text("This must not execute"), false)
+            }
+        }
+        val budget = ToolExecutionBudget(AgentRunLimits(githubTask = true, maxToolCalls = 8))
+        val error = budget.bind(tool, authorize = { _, _ ->
+            throw IllegalStateException("PRIVATE_KEY_SHOULD_NOT_APPEAR_IN_A_RESULT")
+        }).execute("precheck-failed", buildJsonObject {})
+        assertTrue(error.isError)
+        assertEquals("TOOL_PRECHECK_FAILED", error.errorCode)
+        assertFalse(error.dispatched)
+        assertEquals(0, toolDispatched)
+        assertEquals(0, budget.usedCalls())
+        assertEquals(JsonPrimitive("tool_precheck"), error.executionReceipt?.get("failed_stage"))
+        assertEquals(JsonPrimitive("AUTHORIZATION_CALLBACK"), error.executionReceipt?.get("precheck_origin"))
+        assertTrue(error.executionReceipt.toString().contains("exception_type_hashes"))
+        assertFalse(error.toString().contains("PRIVATE_KEY_SHOULD_NOT_APPEAR_IN_A_RESULT"))
     }
 
     @Test fun unavailableBudgetStorageFailsClosedAndAuthorizationConsumesNoSlot() = runTest {

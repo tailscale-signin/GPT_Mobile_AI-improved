@@ -86,6 +86,7 @@ internal fun AssistantChronologicalContent(
     loadCombinedBlocks: suspend (dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, Int, Int) -> List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> = { _, _, _ -> emptyList() }
 ) {
     val effectiveExecutionTrace = debugMode && showExecutionTrace
+    val progressLivesInHeader = LocalChatProgressInHeader.current || LocalUniversalProgressInHeader.current
     val events = remember(toolEvents) { toolEvents.associateBy { it.sequence } }
     val recalledSources = remember(timeline, toolEvents, debugMemorySources, debugMode, debugSettings.debugShowMemoryRecall) {
         if (debugMode && debugSettings.debugShowMemoryRecall) {
@@ -140,11 +141,11 @@ internal fun AssistantChronologicalContent(
         }
     CompositionLocalProvider(LocalAnswerSurface provides responseSurface) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            if (responseIcon != null || effectiveExecutionTrace || isLoading && !LocalChatProgressInHeader.current) {
+            if (responseIcon != null || effectiveExecutionTrace || isLoading && !progressLivesInHeader) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     responseIcon?.invoke()
                     Column(Modifier.weight(1f)) {
-                        if (isLoading && !LocalChatProgressInHeader.current) {
+                        if (isLoading && !progressLivesInHeader) {
                             ChatGenerationProgress(toolEvents, items)
                         } else {
                             androidx.compose.foundation.layout.Spacer(Modifier.fillMaxWidth())

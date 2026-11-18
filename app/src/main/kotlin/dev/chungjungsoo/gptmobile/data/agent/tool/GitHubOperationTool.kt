@@ -44,7 +44,21 @@ internal class GitHubOperationTool(
     private val rejectedCalls = linkedMapOf<JsonObject, AgentToolResult>()
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-        val arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(operation, arguments)
+        val canonicalArguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(operation, arguments)
+        // Direct callbacks and restored batches share the same schema-safe read
+        // normalization. Authorization, operation rules and budgets still run below.
+        // A native search must first record schema-invalid arguments at their exact
+        // call identity. Silent correction would erase the original rejection and
+        // prevent diagnostic evidence from being tied to the persisted model call.
+        // Explicit bounded repair remains available through GitHubRecoveryCalls.
+        val arguments = if (operation == "github_search" && backend is GitHubTool) {
+            canonicalArguments
+        } else {
+            dev.chungjungsoo.gptmobile.data.agent.GitHubRecoveryCalls.repairSourceRead(
+                dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall(callId, definition.name, canonicalArguments),
+                this
+            ).arguments
+        }
         val started = System.nanoTime()
         val repairScope = currentCoroutineContext()[ToolArgumentRepairScope]
         val previous = synchronized(rejectedCalls) { rejectedCalls[arguments] }
@@ -151,7 +165,11 @@ internal class GitHubOperationTool(
                     ),
                     true,
                     errorCode = "INVALID_ARGUMENTS",
-                    dispatched = false
+                    dispatched = false,
+                    executionReceipt = buildJsonObject {
+                        put("reason_code", if (restoreEvidence) "SAVED_VIEW_CONTEXT_MISMATCH" else "SAVED_VIEW_CURSOR_ALTERED")
+                        put("phase", "PREFLIGHT_REJECTED")
+                    }
                 )
             }
             val cursor = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -263,7 +281,8 @@ internal class GitHubOperationTool(
         if (operation == "github_pr") {
             val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty().ifBlank { "context" }
             val requiredFields = when (action) {
-                "headers", "context", "comments", "reviews", "threads" -> listOf("pull_number")
+                "headers", "context", "comments", "reviews", "threads", "agent_merge_status" -> listOf("pull_number")
+                "agent_merge_enable", "agent_merge_update", "agent_merge_disable" -> listOf("pull_number", "expected_head_sha")
                 "create" -> listOf("title", "head", "base")
                 in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions -> listOf("pull_number", "expected_head_sha")
                 "update", "merge", "ready", "draft" -> listOf("pull_number", "expected_head_sha")
@@ -272,7 +291,8 @@ internal class GitHubOperationTool(
                 "reply" -> listOf("pull_number", "comment_id", "body", "expected_head_sha")
                 else -> emptyList()
             }
-            val shaActions = dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions + setOf("update", "merge", "comment", "reply", "review", "ready", "draft")
+            val shaActions = dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions +
+                setOf("update", "merge", "comment", "reply", "review", "ready", "draft", "agent_merge_enable", "agent_merge_update", "agent_merge_disable")
             if (action in shaActions) {
                 val expected = (arguments["expected_head_sha"] as? JsonPrimitive)?.content.orEmpty()
                 if (!expected.matches(Regex("[a-fA-F0-9]{40}"))) {
@@ -323,6 +343,23 @@ internal class GitHubOperationTool(
         var resolved = native
         var effectiveArguments = arguments
         var executed = backend.execute(callId, native)
+        if (operation == "github_issue" &&
+            executed.isError &&
+            !executed.dispatched &&
+            executed.errorCode == "INVALID_ARGUMENTS" &&
+            executed.executionReceipt?.get("issue_continuation_rejected") == JsonPrimitive(true)
+        ) {
+            // The authenticated issue connection requires its bound cursor. Keep
+            // a rejected hand-written page local and expose the exact missing rule.
+            val rejection = ToolArgumentValidator.rejection(
+                callId,
+                definition.name,
+                arguments,
+                definition.inputSchema,
+                listOf("Use the exact continuation_call with its original filters, page size and after cursor")
+            )
+            executed = rejection.copy(executionReceipt = JsonObject(rejection.executionReceipt.orEmpty() + executed.executionReceipt.orEmpty()))
+        }
         val rejectedRead = (executed.content as? ToolResultContent.Json)?.value as? JsonObject
         val initialReceipt = executed.executionReceipt
         if (backend is GitHubTool &&
@@ -466,7 +503,7 @@ internal class GitHubOperationTool(
                 pagination.observe(operation, resolved, data)
             }
         }
-        val paged = if (!result.isError && data?.get("has_more") == JsonPrimitive(true) && "continuation" !in data && operation != "github_search") {
+        val paged = if (!result.isError && pagination.expectsNumberedRemotePage(operation, resolved) && data?.get("has_more") == JsonPrimitive(true) && "continuation" !in data && operation != "github_search") {
             withPaginationState(result, JsonObject(data + ("continuation" to JsonObject(resolved + ("page" to JsonPrimitive(((effectiveArguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1) + 1))))))
         } else {
             result
@@ -682,6 +719,10 @@ internal class GitHubOperationTool(
                     "list" -> "list_pull_requests"
                     "comments" -> "get_pull_request_comments"
                     "reviews" -> "pull_request_reviews"
+                    "agent_merge_status" -> "agent_merge_status"
+                    "agent_merge_enable" -> "agent_merge_enable"
+                    "agent_merge_update" -> "agent_merge_update"
+                    "agent_merge_disable" -> "agent_merge_disable"
                     "threads" -> "pr_threads"
                     in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions -> "pr_$requested"
                     "create" -> "create_pull_request"
@@ -790,7 +831,7 @@ internal class GitHubOperationTool(
                     put("enum", JsonArray(actions.map(::JsonPrimitive)))
                 }
                 return full.copy(
-                    description = if (canonical == "github_pr") "Read PRs: list discovers pull_number; headers/context require it. include_health checks readiness. Discover github_pr for other actions. Follow exact continuation_call." else "Read repository status and pinned context. Discover github_context for other actions. Follow exact continuation_call.",
+                    description = if (canonical == "github_pr") "Read PRs: list discovers pull_number; headers/context require it. include_health checks readiness. Discover github_pr for other actions. Follow exact continuation_call." else "Read pinned repository context; follow continuation_call.",
                     inputSchema = buildJsonObject {
                         put("type", "object")
                         put("properties", JsonObject(properties))
@@ -894,7 +935,7 @@ internal class GitHubOperationTool(
                     }
                     listOf("min_lines", "max_lines").forEach { properties[it] = field("integer") }
                     properties["context_lines"] = integer(0, 100)
-                    properties["max_new_blobs"] = integer(1, 100, "Fetch 1–100 new blobs; omit for the bounded default. Zero is invalid.", default = 4)
+                    properties["max_new_blobs"] = integer(1, 100, default = 4)
                     properties["batch_size"] = integer(1, 1000, default = 1000)
                     properties["page"] = field("integer")
                 }
@@ -1043,7 +1084,7 @@ internal class GitHubOperationTool(
                 }
                 "github_pr" -> {
                     properties["action"] = JsonObject(
-                        choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge", "ready", "draft", "threads", *dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toTypedArray()) + mapOf(
+                        choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge", "ready", "draft", "threads", "agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable", *dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toTypedArray()) + mapOf(
                             "description" to JsonPrimitive("Omit action for list when no PR selector is supplied, or for context when an observed pull_number is supplied. Explicit single-PR reads require pull_number.")
                         )
                     )
@@ -1053,6 +1094,14 @@ internal class GitHubOperationTool(
                         put("description", "Required for headers/context/comments/reviews and updates. Discover an existing pull_number with action=list first; never invent one.")
                     }
                     properties["state"] = choice("open", "closed", "all")
+                    properties["allowed_actions"] = buildJsonObject {
+                        put("type", "array")
+                        put("minItems", 1)
+                        put("maxItems", 2)
+                        put("uniqueItems", true)
+                        put("items", choice("fix_ci", "resolve_merge_conflicts"))
+                        put("description", "Explicit Copilot repair permissions; never enables automatic PR merging. Optional on enable (uses locally configured allowances), required on update.")
+                    }
                     listOf("title", "body", "head", "base", "expected_head_sha", "expected_base_sha").forEach { properties[it] = field("string") }
                     properties["comment_id"] = field("integer")
                     properties["event"] = choice("APPROVE", "REQUEST_CHANGES", "COMMENT")
@@ -1190,20 +1239,22 @@ internal class GitHubOperationTool(
             val description = when (operation) {
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
-                "github_search" -> "Pinned glob search using exact continuation_call."
-                "github_read" -> "Choose end_line or max_lines, never both. Omit both for a bounded default read. end_line=-1 means bounded EOF. Use source_coverage.next_action."
+                "github_search" -> "Search pinned repository; follow continuation_call."
+                "github_read" -> "Read bounded ranges: end_line or max_lines. Use source_coverage.next_action."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
-                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA. Use ready/draft for explicit draft transitions; update does not change draft state. threads returns observed thread IDs for resolve_thread/reopen_thread; follow its pageInfo using after. edit_comment changes discussion comments; edit_review_comment changes inline comments and both require expected_comment_updated_at. enable_auto_merge queues GitHub auto-merge under repository rules and is not evidence that a merge completed."
+                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Copilot Agent Merge: agent_merge_status reads current enrollment; agent_merge_enable and agent_merge_update require user approval, global plugin opt-in, per-chat opt-in, current expected_head_sha, and permitted allowed_actions; agent_merge_disable stops watching. GitHub Copilot credits are billed separately. No Agent Merge tool automatically merges a PR. Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA. Use ready/draft for explicit draft transitions; update does not change draft state. threads returns observed thread IDs for resolve_thread/reopen_thread; follow its pageInfo using after. edit_comment changes discussion comments; edit_review_comment changes inline comments and both require expected_comment_updated_at. enable_auto_merge queues GitHub auto-merge under repository rules and is not evidence that a merge completed."
                 "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. Runs filters use status; returned runs include conclusion. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations, with positive ordered line bounds spanning at most 2000 lines. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
                 "github_watch_checks" -> "Watch pr_number and/or run_id at its exact head. Omit wait_timeout_seconds for background updates in a saved chat; supply 1..30 for bounded inline reads and polling, returning an observed outcome or pending timeout without creating a subscription. Optional follow_pr=true follows new PR revisions."
                 "github_issue" -> "Discover issues with action=list and optional state=open (PRs excluded). action=headers reads ONE observed issue and requires issue_number; it is not an inventory or listing action. After listing, use headers for title/state/updated_at, or context/comments/history when needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + when (operation) {
-                // The shared GitHub tool instruction already requires verbatim continuation_call.
-                "github_read", "github_context", "github_search" -> ""
-                else -> " Exact continuation_call; owner+repo."
+                "github_read", "github_search" ->
+                    " Saved view: only view_cursor; new read: owner and repo together or omit both."
+                "github_context", "github_ci", "github_pr", "github_issue" ->
+                    " Saved-view continuation: copy the returned continuation_call with only view_cursor; do not carry over action, owner, repo, branch, ref, page, per_page, search_id or other fields. For a new remote read, owner and repo must be supplied together or both omitted."
+                else -> " Follow the exact continuation_call. For new calls, supply owner and repo together."
             }
             return AgentToolDefinition(
                 modelName,

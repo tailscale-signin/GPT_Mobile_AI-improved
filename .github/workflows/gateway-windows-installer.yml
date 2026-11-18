@@ -3,11 +3,16 @@ on:
   pull_request:
     paths: ['gateway/**', '.github/workflows/gateway-windows-installer.yml']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the verified Windows installer and update ZIP from main
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
   group: gateway-installer-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   windows-installer:
     runs-on: windows-latest
@@ -42,5 +47,29 @@ jobs:
         if: failure()
         with:
           name: Gateway-Windows-diagnostics
-          path: dist/windows/*.log
+          path: |
+            dist/windows/*.log
+            dist/windows/smoke-failure.json
           if-no-files-found: ignore
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: windows-installer
+    runs-on: ubuntu-latest
+    timeout-minutes: 125
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require exact-source release checks
+        run: python3 scripts/await_release_checks.py --sha "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" --timeout 6900
+      - name: Retrieve Windows packages from this run
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name Gateway-Windows-x64 --dir dist/windows
+      - name: Verify packages and publish stable Gateway release
+        run: bash scripts/publish_gateway_windows.sh

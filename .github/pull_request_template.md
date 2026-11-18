@@ -19,3 +19,11 @@ OAuth and gateway changes need token expiry, denial and no-replay coverage.
 - [ ] Relevant emulator/device/security checks were reviewed.
 - [ ] GitHub merge eligibility, branch currency and approvals were refreshed.
 - [ ] No unknown, cancelled, missing or skipped required check is treated as success.
+
+## Feature delivery matrix
+
+For each requested behavior, identify the entry point, runtime path, qualifying test and target build. Link evidence for each completed stage.
+
+| Requested behavior | Entry point and runtime path | Test and result | Packaged version and digest | Installed versions | Live verification |
+| --- | --- | --- | --- | --- | --- |
+| | | Pending | Pending | Pending | Pending |

@@ -17,14 +17,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubArgumentAdmissionTest {
-    @Test fun fullAndProjectedRangeContractsRejectConflictingLimitsBeforeSpendingACall() = runBlocking {
+    @Test fun fullAndProjectedRangesRejectConflictingFiniteLimitsAndNormalizeBoundedEof() = runBlocking {
         for (projected in listOf(false, true)) {
             val backend = RecordingBackend()
             val native = GitHubOperationTool("github_read", backend, "range-contract", "github_read__selected")
             val definition = if (projected) requireNotNull(GitHubActionSchema.project(native.definition, "ranges")) else native.definition
             val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 1))
             val tool = budget.bindPresented(native, definition)
-            for (end in listOf(-1, 20)) {
+            for (end in listOf(-2, 10, 20)) {
                 val invalid = args("""{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"end_line":$end,"max_lines":20}]}""")
                 assertTrue(ToolArgumentValidator.errors(invalid, definition.inputSchema).isNotEmpty())
                 val result = tool.execute("invalid-$end", invalid)
@@ -35,7 +35,9 @@ class GitHubArgumentAdmissionTest {
                 assertTrue(backend.calls.isEmpty())
             }
             val corrected = args("""{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"max_lines":20}]}""")
-            val result = tool.execute("corrected", corrected)
+            val boundedEof = args("""{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"end_line":-1,"max_lines":20}]}""")
+            assertTrue(ToolArgumentValidator.errors(boundedEof, definition.inputSchema).isNotEmpty())
+            val result = tool.execute("bounded-eof", boundedEof)
             assertFalse(result.isError)
             assertTrue(result.dispatched)
             assertEquals(1, budget.usedCalls())

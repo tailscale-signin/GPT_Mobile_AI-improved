@@ -1,15 +1,17 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubRecoveryCallsTest {
     private fun tool(name: String) = object : AgentTool {
-        override val definition = GitHubOperationTool.definition(name, name)
+        override val definition = GitHubOperationTool.definition(name.substringBefore("__"), name)
         override suspend fun execute(callId: String, arguments: JsonObject) = error("Routing must not execute tools")
     }
 
@@ -37,6 +39,137 @@ class GitHubRecoveryCallsTest {
         assertEquals("next", routed.callId)
         assertEquals(call, GitHubRecoveryCalls.resolve(call, emptyList(), mapOf("github_search" to tool("github_search"))))
         assertEquals(call, GitHubRecoveryCalls.resolve(call, exchanges, emptyMap()))
+    }
+
+    @Test fun exactMalformedSourceReadBecomesAnAdmittedToolProposalWithOriginalReplayIdentity() {
+        val name = "github_read__selected"
+        val original = Json.parseToJsonElement("""{"owner":"owner","repo":"repo","path":"src/Reader.kt","start_line":2,"max_lines":12}""").jsonObject
+        val call = ProviderEvent.ToolCall("read", name, original).captureProviderInvocation()
+        val repaired = GitHubRecoveryCalls.repairSourceRead(call, tool(name))
+        assertEquals(call.callId, repaired.callId)
+        assertEquals(call.name, repaired.name)
+        assertEquals(call.providerInvocation(), repaired.providerInvocation())
+        assertEquals(
+            Json.parseToJsonElement("""{"owner":"owner","repo":"repo","action":"ranges","ranges":[{"path":"src/Reader.kt","start_line":2,"max_lines":12}]}""").jsonObject,
+            repaired.arguments
+        )
+        assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, null))
+        assertEquals(repaired, GitHubRecoveryCalls.repairSourceRead(repaired, tool(name)))
+    }
+
+    @Test fun unsupportedFirstPageSearchSizeIsDroppedWithoutChangingOriginalInvocation() {
+        val name = "github_search__selected"
+        val original = Json.parseToJsonElement(
+            """{"action":"search","query":"important class","per_page":50}"""
+        ).jsonObject
+        val call = ProviderEvent.ToolCall("search", name, original).captureProviderInvocation()
+        val registered = tool(name)
+        val repaired = GitHubRecoveryCalls.repairSourceRead(call, registered)
+        assertEquals(
+            Json.parseToJsonElement("""{"action":"search","query":"important class"}""").jsonObject,
+            repaired.arguments
+        )
+        assertEquals(call.callId, repaired.callId)
+        assertEquals(call.name, repaired.name)
+        assertEquals(call.providerInvocation(), repaired.providerInvocation())
+        assertEquals(emptyList<String>(), ToolArgumentValidator.errors(repaired.arguments, registered.definition.inputSchema))
+        assertEquals(repaired, GitHubRecoveryCalls.repairSourceRead(repaired, registered))
+    }
+
+    @Test fun build142InitialSearchZeroBlobsIsBoundedWithoutChangingRequestIdentity() {
+        val tool = tool("github_search__selected")
+        for ((raw, expected) in listOf(
+            """{"action":"search","mode":"paths","query":"*","index_cursor":0,"batch_size":1000,"max_new_blobs":0}""" to
+                """{"action":"search","mode":"paths","query":"*","index_cursor":0,"batch_size":1000,"max_new_blobs":1}""",
+            """{"action":"search","mode":"paths","query":"*","batch_size":1000,"max_new_blobs":0}""" to
+                """{"action":"search","mode":"paths","query":"*","batch_size":1000,"max_new_blobs":1}""",
+            """{"action":"search","mode":"paths","query":"*","max_new_blobs":1000}""" to
+                """{"action":"search","mode":"paths","query":"*","max_new_blobs":100}"""
+        )) {
+            val original = ProviderEvent.ToolCall("same-call-id", tool.definition.name, Json.parseToJsonElement(raw).jsonObject)
+                .captureProviderInvocation()
+            val repaired = GitHubRecoveryCalls.repairSourceRead(original, tool)
+            assertEquals(Json.parseToJsonElement(expected).jsonObject, repaired.arguments)
+            assertEquals(original.callId, repaired.callId)
+            assertEquals(original.name, repaired.name)
+            assertEquals(original.providerInvocation(), repaired.providerInvocation())
+            assertEquals(emptyList<String>(), ToolArgumentValidator.errors(repaired.arguments, tool.definition.inputSchema))
+            assertEquals(repaired, GitHubRecoveryCalls.repairSourceRead(repaired, tool))
+        }
+    }
+
+    @Test fun searchRepairNeverChangesAdvancedCursorsOrMalformedBlobTypes() {
+        val tool = tool("github_search")
+        for (raw in listOf(
+            """{"query":"*","index_cursor":2000,"max_new_blobs":0}""",
+            """{"query":"*","search_id":"unissued","max_new_blobs":0}""",
+            """{"query":"*","view_cursor":"unissued","max_new_blobs":0}""",
+            """{"query":"*","page":2,"max_new_blobs":0}""",
+            """{"query":"*","index_cursor":"0","max_new_blobs":0}""",
+            """{"query":"*","max_new_blobs":"0"}""",
+            """{"query":"*","max_new_blobs":0,"unknown":"not-allowed"}"""
+        )) {
+            val call = ProviderEvent.ToolCall("reject", tool.definition.name, Json.parseToJsonElement(raw).jsonObject)
+            assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool))
+        }
+    }
+
+    @Test fun unsafeOrAmbiguousSearchCorrectionsRemainRejectedWithoutDispatch() {
+        val name = "github_search"
+        for (value in listOf(
+            """{"action":"search","query":"class","per_page":50,"view_cursor":"unissued"}""",
+            """{"action":"search","query":"class","per_page":50,"index_cursor":4}""",
+            """{"action":"search","query":"class","per_page":50,"search_id":"previous"}""",
+            """{"action":"search","query":"class","per_page":50,"page":2}""",
+            """{"action":"search","query":"class","per_page":50,"unknown":"unsafe"}""",
+            """{"action":"search","per_page":50}""",
+            """{"action":"search","query":" ","per_page":50}""",
+            """{"action":"search","query":123,"per_page":50}"""
+        )) {
+            val call = ProviderEvent.ToolCall("search", name, Json.parseToJsonElement(value).jsonObject)
+            assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool(name)))
+        }
+    }
+
+    @Test fun malformedRecoveryLeavesUnsafePathsAndMixedSelectorsForRejection() {
+        val name = "github_read"
+        for (text in listOf(
+            """{"path":"../secret.txt"}""",
+            """{"path":"src/App.kt","view_cursor":"untrusted"}""",
+            """{"path":"src/App.kt","start_line":0}""",
+            """{"path":"src/App.kt","ranges":[{"path":"src/Other.kt"}]}"""
+        )) {
+            val call = ProviderEvent.ToolCall("read", name, Json.parseToJsonElement(text).jsonObject)
+            assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool(name)))
+            val mutation = call.copy(name = "github_write")
+            assertEquals(mutation, GitHubRecoveryCalls.repairSourceRead(mutation, tool("github_write")))
+        }
+    }
+
+    @Test fun build142ReadAndSearchShapesKeepTheirOriginalIdentity() {
+        for ((name, raw, expected) in listOf(
+            Triple(
+                "github_read",
+                """{"path":"AGENTS.md","start_line":1,"end_line":250,"response_detail":"full"}""",
+                """{"action":"ranges","ranges":[{"path":"AGENTS.md","start_line":1,"end_line":250}],"response_detail":"full"}"""
+            ),
+            Triple(
+                "github_read",
+                """{"action":"ranges","ranges":[{"path":"AGENTS.md","end_line":-1,"max_lines":250}],"response_detail":"full"}""",
+                """{"action":"ranges","ranges":[{"path":"AGENTS.md","max_lines":250}],"response_detail":"full"}"""
+            ),
+            Triple(
+                "github_search",
+                """{"query":"checkpoint","per_page":50,"response_detail":"full"}""",
+                """{"query":"checkpoint"}"""
+            )
+        )) {
+            val call = ProviderEvent.ToolCall("original", name, Json.parseToJsonElement(raw).jsonObject).captureProviderInvocation()
+            val repaired = GitHubRecoveryCalls.repairSourceRead(call, tool(name))
+            assertEquals(Json.parseToJsonElement(expected).jsonObject, repaired.arguments)
+            assertEquals(call.providerInvocation(), repaired.providerInvocation())
+            assertEquals(call.callId, repaired.callId)
+        }
     }
 
     @Test fun retainedMutationRecipeIsNeverAutomaticallyExecutedOrUnwrapped() {

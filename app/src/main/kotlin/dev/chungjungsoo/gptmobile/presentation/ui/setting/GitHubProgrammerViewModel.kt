@@ -11,6 +11,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy
+import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotConversationPreference
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionPreference
 import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
@@ -54,6 +56,8 @@ data class GitHubProgrammerState(
     val submitting: Boolean = false,
     val prepareIndex: Boolean = false,
     val decisionMode: GitHubDecisionMode = GitHubDecisionMode.ASK,
+    val copilotPluginEnabled: Boolean = false,
+    val copilotEnabled: Boolean = false,
     val draft: String = "",
     val draftLoaded: Boolean = false,
     val error: String? = null
@@ -231,7 +235,13 @@ class GitHubProgrammerViewModel @Inject constructor(
                 if (room != null && context != null) migrateComposerDraft(room, context)
                 if (context != null) bootstrapper?.rememberConversation(context, room?.id, mutable.value.draft.isNotBlank() || !room?.draftText.isNullOrBlank())
                 observeConversation(room?.id)
-                mutable.update { it.copy(decisionMode = if (room != null && context != null) features.githubDecisionMode(room.id, context) else GitHubDecisionMode.ASK) }
+                mutable.update {
+                    it.copy(
+                        decisionMode = if (room != null && context != null) features.githubDecisionMode(room.id, context) else GitHubDecisionMode.ASK,
+                        copilotPluginEnabled = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true,
+                        copilotEnabled = GitHubCopilotAgentMergePolicy.enabled(features, room?.id, context)
+                    )
+                }
             }
         }
     }
@@ -335,6 +345,42 @@ class GitHubProgrammerViewModel @Inject constructor(
                 settings.mutateFeatureSettings { it.copy(githubPrepareIndex = if (value) it.githubPrepareIndex + uid else it.githubPrepareIndex - uid) }
             } catch (_: Exception) {
                 mutable.update { it.copy(error = "Could not save the repository indexing option.") }
+            }
+        }
+    }
+
+    /** Saves consent for this exact persisted chat/repository; never enrolls a PR. */
+    fun setCopilotEnabled(enabled: Boolean) {
+        val (chatId, context) = mutable.value.let { (it.chatId ?: return) to (it.context ?: return) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val identity = settings.ensureConversationIdentity(chatId)
+                settings.mutateFeatureSettings { current ->
+                    val bound = current.conversationGitHub[chatId]?.sameWorkspace(context) == true &&
+                        current.conversationIdentities[chatId] == identity
+                    val pluginEnabled =
+                        current.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true
+                    if (!bound || (enabled && !pluginEnabled)) {
+                        current
+                    } else {
+                        val updated = if (enabled) {
+                            current.githubCopilotConversations + mapOf(
+                                chatId to GitHubCopilotConversationPreference(
+                                    identity,
+                                    GitHubChatDecisions.workspaceKey(context),
+                                    true
+                                )
+                            )
+                        } else {
+                            current.githubCopilotConversations - chatId
+                        }
+                        current.copy(githubCopilotConversations = updated)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                mutable.update { it.copy(error = "Could not save GitHub Copilot consent for this conversation.") }
             }
         }
     }

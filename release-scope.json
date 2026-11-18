@@ -1,9 +1,11 @@
 {
-  "version": "0.9.66.7",
-  "versionCode": 141,
+  "version": "0.9.66.8",
+  "versionCode": 142,
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Repair build-142 native read/search admission, verification reserves, receipt-linked revision retention, issue cursor rejection diagnostics, generic failure invocation lineage and confirmed provider-pool cooldown scopes. Installed-device qualification remains outstanding.",
+    "Add a versioned Windows Gateway publication workflow and GitHub chat summary cadence, selected-profile narration and native check-table workbook export, with a delivery matrix for source, CI, packaging and installation evidence.",
     "Add an explicit saved-AI-profile GitHub tool audit with live model requests, isolated fixture tool execution, full model-facing action inventory, durable case results and negative-write regression coverage.",
     "Repair final request budgeting, local tool projection, workspace evidence and logs, recovery and completion receipts, and explicit client recovery review. Classify terminal Android CI blockers and keep the validation form scrollable.",
     "Add shared Android admission/replay allocation and action-specific GitHub schema selection; approved workspace check selection and bounded logs; static behavior-test discovery; bounded selected-model investigators; exact-revision artifact and isolated release checks; and idempotent main-build recovery with fresh approval, remaining budgets and cancellation propagation.",
@@ -164,7 +166,9 @@
     "Scope the dedicated Gateway continuous-session/retry helper under existing bounded runtime verification and explicit recovery limits.",
     "Redesign GitHub AI audit controls, bind saved result views to exact attempts, clarify Gateway retry states and harden transient voice focus recovery.",
     "Repair pre-dispatch tool budget classification, saved-view immutable recovery, Windows acceptance fixture, and call-bound missing-path diagnostics with aligned reporter allowlists and regression evidence; reconcile new uploaded diagnostics in the issue frontier.",
-    "Add evidence-bound GitHub Chat headings, meaningful progress bullets, observed check tables, optional recorded-count bar charts, CSV copying, semantic repeat suppression, and UI/unit regression coverage without treating narration as verification."
+    "Add evidence-bound GitHub Chat headings, meaningful progress bullets, observed check tables, optional recorded-count bar charts, CSV copying, semantic repeat suppression, and UI/unit regression coverage without treating narration as verification.",
+    "Improve expanded GitHub header fade, user-return bottom anchoring and composer keyboard focus; add single-word voice caption presentation and an opt-in-motion GitHub terminal answer handoff with a scoped edge glow and explicit UI regressions.",
+    "Unify the GitHub-style activity preview and collapsible header across chat modes without suppressing normal streamed answers; implement velocity-gated minimal bottom arrow, return-to-bottom indicators and stronger bounded fades with scoped regression coverage."
   ],
   "limitations": [
     "GitHub AI tool audit exercises selected-profile tool calls against isolated offline fixtures, not live GitHub authorization or mutations; bounded live-read probes remain separately qualified.",
@@ -255,6 +259,8 @@
     "Gateway Windows installer"
   ],
   "allowedPaths": [
+    ".github/pull_request_template.md",
+    "scripts/publish_gateway_windows.sh",
     ".gitattributes",
     ".github/workflows/README.md",
     ".github/workflows/apply-ui-pipeline.yml",
@@ -358,6 +364,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubProviderToolCheckpoint.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubPublicProgress.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryCalls.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidence.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSearchValidationEvidence.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubTaskAcceptanceScope.kt",
@@ -833,6 +840,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewSchema.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewedSession.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSummaryWorkbook.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunAcceptance.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunPolicySnapshot.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRuntimeIdentity.kt",
@@ -1365,6 +1373,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRemoteContinuationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayPlanningTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecoveryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryCallsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRetryTrancheTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSavedCursorContinuationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidenceTest.kt",
@@ -1721,6 +1730,8 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchConcurrencyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckWatchTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistPaginationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFixtureApprovalPreflightTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIndexPreparationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistReliabilityTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckpointCompactionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiCompletionGuardsTest.kt",
@@ -2058,9 +2069,9 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLiveProgressTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptAnchorTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubReducedMotionTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryRenderTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRenderedLineLedgerTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRenderedLinesLayoutTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryRenderTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTopFadeGeometryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTurnPresentationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/LatestResponseBoundaryTest.kt",
@@ -2582,6 +2593,7 @@
     "docs/repairs/open-reports-followup-2026-11-12-task.json",
     "docs/repairs/open-reports-followup-2026-11-12.md",
     "docs/repairs/partial-diagnostics-35ac528c-2026-11-15.md",
+    "docs/repairs/post-1349-github-read-recovery-2026-11-17.md",
     "docs/repairs/post-merge-report-diagnostics-2026-11-15-task.json",
     "docs/repairs/post-merge-report-diagnostics-2026-11-15.md",
     "docs/repairs/pr-branches-ci-2026-11-13-task.json",
@@ -3018,6 +3030,16 @@
     "scripts/validate-local.sh",
     "scripts/verify_published_release.py",
     "scripts/verify_release_identity.py",
-    "settings.gradle.kts"
+    "settings.gradle.kts",
+    "docs/repairs/build142-repair-qualification-2026-11-17.md",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubCompletionMotion.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubCompletionMotionTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/PluginExecutionSettings.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PluginConfigurationDialog.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatDialogs.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatReadingScrollGate.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/UniversalChatActivityFeed.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatReadingScrollGateTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/UniversalChatActivityFeedTest.kt"
   ]
 }

@@ -121,19 +121,59 @@ internal object GitHubClaimExtraction {
         }
         val outputLimited = oversized || completedLimit || finishReason?.lowercase() in setOf("length", "max_tokens", "max_output_tokens", "token_limit")
         if (oversized) throw Failure("GITHUB_EXTRACTION_OUTPUT_LIMIT", terminalFailure, repairAllowed = true)
+        var invalidKind = "INVALID_JSON"
         return try {
             withContext(computationDispatcher) {
-                val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
+                val payload = structuredPayload(response.toString())
+                val parsed = Json.parseToJsonElement(payload)
+                // Some providers/parsers admit bare unquoted tokens as JSON primitives.
+                // Do not misclassify private arbitrary text as a valid non-object JSON value.
+                if (parsed is JsonPrimitive) {
+                    val token = payload.trim()
+                    if (!token.startsWith('"') && !STRICT_JSON_SCALAR.matches(token)) {
+                        error("Claim extraction received a non-JSON scalar")
+                    }
+                }
+                invalidKind = "NON_OBJECT"
+                val answer = parsed as? JsonObject ?: error("Claim extraction was not structured")
+                invalidKind = "SCHEMA_REJECTED"
                 GitHubClaimBatches.validate(answer, request)
             }.also { attempt.terminalFailure = null }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (invalid: Exception) {
-            // A length flag alone does not invalidate a complete, schema-valid
-            // response. Truncated output still needs a smaller claim batch.
-            throw Failure(if (outputLimited) "GITHUB_EXTRACTION_OUTPUT_LIMIT" else "GITHUB_EXTRACTION_INVALID_RESPONSE", terminalFailure, repairAllowed = true)
+            // Only closed classifications and bounded counts leave the verifier.
+            // Never include the model's raw output or a parser's exception text.
+            // A length flag alone cannot invalidate schema-valid completed output.
+            val code = if (outputLimited) "GITHUB_EXTRACTION_OUTPUT_LIMIT" else "GITHUB_EXTRACTION_INVALID_RESPONSE"
+            val observed = terminalFailure ?: ProviderEvent.Failed(
+                "Claim extraction completed but did not pass local structured-response validation.",
+                errorCode = code,
+                transportComplete = true,
+                failureDetails = buildJsonObject {
+                    put("failed_stage", "claim_extraction")
+                    put("diagnostic_area", "PROVIDER")
+                    put("claim_extraction_failure_kind", invalidKind)
+                    put("claim_extraction_response_characters", response.length.coerceAtMost(MAX_OUTPUT_CHARACTERS))
+                    put("claim_extraction_max_claims", request.maxClaims)
+                    put("claim_extraction_completed", complete)
+                }
+            )
+            throw Failure(code, observed, repairAllowed = true)
         }
     }
+
+    /** Accept only a single whole-response JSON fence; all claim contents still require schema validation. */
+    private fun structuredPayload(raw: String): String {
+        val trimmed = raw.trim()
+        val fenced = JSON_FENCE.matchEntire(trimmed) ?: return trimmed
+        return fenced.groupValues[1].trim()
+    }
+
+    // Only JSON quoted strings, true/false/null, and JSON-number tokens are scalar JSON.
+    private val STRICT_JSON_SCALAR = Regex("""(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:[.][0-9]+)?(?:[eE][+-]?[0-9]+)?)""")
+
+    private val JSON_FENCE = Regex("""\A```(?:json)?\r?\n([\s\S]*)\r?\n```\z""", RegexOption.IGNORE_CASE)
 
     private fun incompleteProviderFailure() = ProviderEvent.Failed(
         "Claim extraction ended without a complete response. Saved evidence remains available.",

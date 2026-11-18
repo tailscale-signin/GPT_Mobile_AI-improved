@@ -27,7 +27,7 @@ internal object GitHubActionSchema {
             "branch_dependencies" -> "branch fixture_plan engineering_task_id"
             "commit", "checks" -> "commit_sha ref include_patches page per_page"
             "commit_search", "repositories" -> "query page per_page"
-            "recovery" -> "stage_id engineering_task_id fixture_plan branch base_sha commit_sha"
+            "recovery" -> "stage_id engineering_task_id fixture_plan branch base_sha commit_sha page"
             else -> null
         }
         "github_ci" -> when (action) {
@@ -44,9 +44,12 @@ internal object GitHubActionSchema {
             else -> null
         }
         "github_pr", "github_issue" -> when (action) {
-            "list" -> "state head base sort direction page per_page"
+            "list" -> if (operation == "github_issue") "state sort direction page per_page after" else "state head base sort direction page per_page"
             "headers", "context" -> "pull_number issue_number expected_head_sha expected_base_sha include_health include_files include_checks include_patches check_page page per_page"
             "comments", "reviews", "history", "threads" -> "pull_number issue_number page per_page after"
+            "agent_merge_status" -> "pull_number"
+            "agent_merge_enable", "agent_merge_update" -> "pull_number expected_head_sha allowed_actions"
+            "agent_merge_disable" -> "pull_number expected_head_sha"
             "create" -> "title body head base draft labels assignees"
             "update" -> "pull_number issue_number expected_head_sha expected_updated_at title body state base"
             "merge", "enable_auto_merge" -> "pull_number expected_head_sha expected_base_sha merge_method"
@@ -115,7 +118,7 @@ internal object GitHubActionSchema {
             else -> ""
         }
         return tool.copy(
-            description = "$operation action=$action. Use only this selected action, or discover another action. Current revision guards and approvals still apply. Follow exact continuation_call.$guidance",
+            description = "$operation action=$action. Use only this selected action, or discover another action. Current revision guards and approvals still apply. Follow exact continuation_call. For a saved-view continuation containing view_cursor, send that field alone and do not carry over action, owner, repo, page, ref, branch or search_id.$guidance",
             inputSchema = buildJsonObject {
                 put("type", "object")
                 put("properties", JsonObject(properties))

@@ -69,7 +69,7 @@ class ConversationGlassInstrumentedTest {
             val red = samples()
             compose.runOnIdle { pattern = Pattern.BLUE }
             val blue = samples("conversation-glass-opacity-${if (darkTheme) "dark" else "light"}.png")
-            for ((tag, transparency) in listOf("chat_input_glass" to 0.15, "chat_latest_glass" to 0.50)) {
+            for ((tag, transparency) in listOf("chat_input_glass" to 0.15)) {
                 // The plate color cancels out. A red -> blue background changes R-B
                 // by 2 * transparency; an opaque/faded/missing source changes nothing.
                 val transmission = (red.getValue(tag).average() - blue.getValue(tag).average()) / 2.0
@@ -101,7 +101,7 @@ class ConversationGlassInstrumentedTest {
         }
     }
 
-    @Test fun conversationGlassFiltersDetailInBothControls() {
+    @Test fun conversationGlassFiltersDetailInComposerWithoutArrowSurface() {
         edgeFades = false
         pattern = Pattern.STRIPES
         backdropEnabled = false
@@ -153,17 +153,25 @@ class ConversationGlassInstrumentedTest {
         val red = samples()
         compose.runOnIdle { pattern = Pattern.BLUE }
         val blue = samples()
-        for ((tag, transparency) in listOf("chat_input_glass" to 0.15, "chat_latest_glass" to 0.50)) {
+        for ((tag, transparency) in listOf("chat_input_glass" to 0.15)) {
             val transmission = (red.getValue(tag).average() - blue.getValue(tag).average()) / 2.0
             assertEquals("$tag must restore the requested opacity over faded messages", transparency, transmission, 0.045)
         }
     }
 
+    @Test fun jumpToBottomKeepsTheArrowWithoutItsFormerGlassCircle() {
+        showConversation()
+        compose.onNodeWithTag("chat_jump_to_bottom", useUnmergedTree = true).assertExists()
+        // The floating arrow is still operable, but the previous glass circle
+        // was intentionally removed from every chat mode.
+        compose.onNodeWithTag("chat_latest_glass", useUnmergedTree = true).assertDoesNotExist()
+    }
+
     private fun showConversation() {
         compose.setContent {
             MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
-                // Chat controls must blur even when menu blur is disabled. The sharp
-                // reference below disables only the consumers' backdrop availability.
+                // The composer must blur even when menu blur is disabled. The sharp
+                // reference below disables only the composer's backdrop availability.
                 CompositionLocalProvider(LocalFrameEffectsGuard provides frameEffects, LocalOverlayMaterial provides "glass", LocalOverlayBlur provides "off") {
                     GlassBackdropHost {
                         // An unrelated outgoing destination must not contaminate this chat.
@@ -192,8 +200,8 @@ class ConversationGlassInstrumentedTest {
                                 }
                             }
                             // Keep the source Canvas active in both captures. Switching a
-                            // menu preference cannot disable these forced-glass controls;
-                            // an unavailable consumer backdrop gives an equally tinted,
+                            // menu preference cannot disable the composer's forced glass;
+                            // an unavailable composer backdrop gives an equally tinted,
                             // genuinely sharp reference without changing production code.
                             CompositionLocalProvider(LocalGlassBackdropActive provides backdropEnabled) {
                                 Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + dockInset + 12.dp)) {
@@ -214,7 +222,7 @@ class ConversationGlassInstrumentedTest {
 
     private fun samples(screenshot: String? = null): Map<String, List<Double>> {
         compose.waitForIdle()
-        val tags = listOf("chat_input_glass", "chat_latest_glass")
+        val tags = listOf("chat_input_glass")
         val bounds = tags.associateWith { compose.onNodeWithTag(it, useUnmergedTree = true).fetchSemanticsNode().boundsInWindow }
         val pixels = captureRenderedWindow()
         try {
@@ -226,11 +234,10 @@ class ConversationGlassInstrumentedTest {
                 }
             }
             return bounds.mapValues { (tag, rect) ->
-                val composer = tag == "chat_input_glass"
                 val left = (rect.left + rect.width * 0.35f).toInt()
                 val right = (rect.left + rect.width * 0.65f).toInt()
-                val top = (rect.top + rect.height * if (composer) 0.60f else 0.18f).toInt()
-                val bottom = (rect.top + rect.height * if (composer) 0.80f else 0.30f).toInt()
+                val top = (rect.top + rect.height * 0.60f).toInt()
+                val bottom = (rect.top + rect.height * 0.80f).toInt()
                 check(left in 0 until right && right <= pixels.width && top in 0 until bottom && bottom <= pixels.height) {
                     "Sample for $tag is outside the window: $rect, window=${pixels.width}x${pixels.height}"
                 }
@@ -256,7 +263,7 @@ class ConversationGlassInstrumentedTest {
     private fun captureRenderedWindow(): Bitmap {
         // Compose idle does not guarantee that SurfaceFlinger has presented its draw.
         // A committed frame plus Window PixelCopy reads the submitted window buffer,
-        // including both controls, without waiting for a per-node draw or sampling retries.
+        // including the composer, without waiting for a per-node draw or sampling retries.
         val committed = CountDownLatch(1)
         val callback = Runnable { committed.countDown() }
         val (view, observer) = compose.runOnIdle {

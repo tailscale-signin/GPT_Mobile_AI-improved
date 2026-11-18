@@ -40,6 +40,19 @@ class GitHubProgressPresentationTest {
         org.junit.Assert.assertTrue(GitHubProgressPresentation.taskLabel("a".repeat(500)).length <= 120)
     }
 
+    @Test fun differentPromptsProduceDifferentConciseOpeningsWithoutStatusScaffolding() {
+        val summaries = GitHubProgressPresentation.introduction(
+            "Exaine repo summaries, the updates are repetitive and should be shorter."
+        )
+        val audio = GitHubProgressPresentation.introduction("Fix microphone capture failure in voice chat")
+        assertEquals("repo summaries", GitHubProgressPresentation.taskFocus("Exaine repo summaries, the updates are repetitive."))
+        org.junit.Assert.assertTrue(summaries.contains("repo summaries") && summaries.contains("short, distinct updates"))
+        org.junit.Assert.assertTrue(audio.contains("microphone capture failure in voice chat"))
+        org.junit.Assert.assertFalse(summaries.contains("Next,") || summaries.contains("Repository findings"))
+        org.junit.Assert.assertFalse(audio.contains("Next,") || audio.contains("Repository findings"))
+        org.junit.Assert.assertTrue(summaries.length < 240 && audio.length < 240)
+    }
+
     @Test fun previewHidesInternalExecutionVocabulary() {
         assertEquals("Validating tool definition recorded result before request", GitHubProgressPresentation.preview("Validating schema receipt before dispatch"))
         assertEquals("Reviewing the source files.", GitHubProgressPresentation.preview("Reviewing the source files."))

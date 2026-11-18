@@ -95,7 +95,30 @@ internal object GitHubAcceptanceLedger {
         val ledger = snapshot(requirements, capabilities, value.text("request_digest").takeIf(String::isNotBlank))
         val pages = GitHubAcceptanceDiagnostics.pages(ledger, receipts)
         val diagnostics = pages.firstOrNull() ?: GitHubAcceptanceDiagnostics.snapshot(ledger, receipts)
-        return JsonObject(value + ("acceptance_ledger" to JsonObject(ledger + mapOf("diagnostic_projection" to diagnostics, "diagnostic_pages" to JsonArray(pages)))))
+        return JsonObject(value + ("acceptance_ledger" to JsonObject(ledger + mapOf("diagnostic_projection" to diagnostics, "diagnostic_pages" to JsonArray(pages), "revision_evidence" to revisionEvidence(receipts)))))
+    }
+
+    /** Receipt-linked revisions survive cache expiry; observation alone is never a test pass. */
+    internal fun revisionEvidence(receipts: Map<String, JsonObject>): JsonObject {
+        val rows = receipts.values.filter { it["trusted"] == JsonPrimitive(true) }.mapNotNull { receipt ->
+            val sha = receipt.text("source_head_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return@mapNotNull null
+            buildJsonObject {
+                put("receipt_id", receipt.text("receipt_id"))
+                put("source_head_sha", sha)
+                put("success", receipt["success"] == JsonPrimitive(true))
+                put("verification_eligible", receipt["verification_eligible"] != JsonPrimitive(false))
+                put("epoch", receipt["epoch"] ?: kotlinx.serialization.json.JsonNull)
+            }
+        }
+        return buildJsonObject {
+            put("schema", "github.revision-evidence.v1")
+            put("revision_state", if (rows.isEmpty()) "NOT_RECORDED" else "RECEIPT_LINKED")
+            put("total", rows.size)
+            put("retained", minOf(rows.size, 64))
+            put("truncated", rows.size > 64)
+            put("receipts", JsonArray(rows.takeLast(64)))
+            put("proof_scope", "Observed revisions only. Test acceptance requires matching successful test receipts at that exact SHA.")
+        }
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()

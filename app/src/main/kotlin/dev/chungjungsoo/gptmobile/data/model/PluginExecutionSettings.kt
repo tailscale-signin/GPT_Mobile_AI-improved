@@ -14,6 +14,10 @@ data class PluginExecutionSettings(
     val includePageLinks: Boolean = true,
     val fileExcerptLines: Int = 200,
     val githubCacheSeconds: Int = 15,
+    /** Opt-in Copilot cloud repair, independent of the selected model provider. */
+    val githubCopilotEnabled: Boolean = false,
+    val githubCopilotFixCi: Boolean = true,
+    val githubCopilotResolveConflicts: Boolean = true,
     val amazonMarketplace: String = "amazon.ca",
     val amazonIncludeSponsored: Boolean = false,
     val amazonFreshPrices: Boolean = false,

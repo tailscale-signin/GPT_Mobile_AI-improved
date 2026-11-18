@@ -6,6 +6,11 @@ package dev.chungjungsoo.gptmobile.data.github
  */
 internal object GitHubRichSummaryPresentation {
     internal data class CheckCount(val label: String, val count: Int)
+    internal data class CheckTable(val rows: List<CheckCount>, val source: String, val coverage: String) {
+        val headers = listOf("Check state", "Count", "Source", "Captured list", "Observation")
+        val observation = "Recorded results; not a new test execution"
+    }
+
     private data class CheckEvidence(val counts: List<CheckCount>, val scope: String?, val complete: Boolean)
 
     private val countEvidence = Regex(
@@ -18,7 +23,7 @@ internal object GitHubRichSummaryPresentation {
     private val sourceWords = Regex("""(?i)\b(?:file|source|read|repository search)\b""")
     private val zeroFailure = Regex("""(?i)\b0\s+(?:failed|blocked)\b""")
 
-    fun isRich(text: String): Boolean = text.startsWith("### ") && text.contains("\n- **")
+    fun isRich(text: String): Boolean = text.startsWith("### ") && text.contains("\n- ")
 
     /**
      * Stable across a timer tick or changed "next step". New observed facts
@@ -42,6 +47,7 @@ internal object GitHubRichSummaryPresentation {
                 line.startsWith("- **Source:**") -> true
                 line.startsWith("- **Coverage:**") -> true
                 line.startsWith("- **Verification:**") -> true
+                line.startsWith("- ") && !line.startsWith("- I’ll ") && !line.startsWith("- I'll ") && !line.startsWith("- **Next:**") -> true
                 line.startsWith("| ") -> !line.startsWith("| ---") && !line.startsWith("| Check state ")
                 else -> false
             }
@@ -50,45 +56,51 @@ internal object GitHubRichSummaryPresentation {
             ?: GitHubProgressPresentation.lineKey(markdown)
     }
 
-    fun render(snapshot: GitHubProgressSnapshot): String {
-        val seen = observations(snapshot)
-        if (seen.isEmpty()) return ""
+    /** Plain, evidence-backed updates vary with the actual file, failure or request. */
+    fun render(snapshot: GitHubProgressSnapshot, reported: Set<String> = emptySet()): String {
+        val all = observations(snapshot)
+        val unseen = all.filter { GitHubProgressPresentation.lineKey(it) !in reported }
+        if (unseen.isEmpty()) return ""
+        // Keep an unresolved failure visible when new independent evidence arrives,
+        // without repeating all the already-reported routine reads.
+        val lastProblem = all.lastOrNull { failure.containsMatchIn(it.replace(zeroFailure, "")) }
+        val seen = if (lastProblem != null && lastProblem !in unseen) listOf(lastProblem) + unseen else unseen
         val counts = seen.asReversed().firstNotNullOfOrNull(::parseChecks)
         val specific = seen.filterNot { counts != null && parseChecks(it) != null }
         val problem = specific.lastOrNull { failure.containsMatchIn(it.replace(zeroFailure, "")) }
         val latest = specific.lastOrNull()
+        val focus = (problem ?: latest)?.let(::observationFocus)
+        // Check-table titles remain stable because chart and export parsers verify provenance.
         val headline = when {
             counts != null -> if (counts.complete) "Recorded check results" else "Partial recorded check results"
-            problem != null && checkWords.containsMatchIn(problem) -> "Validation needs attention"
-            problem != null -> "Repository blocker identified"
-            latest != null && changeWords.containsMatchIn(latest) -> "Repository changes"
-            latest != null && sourceWords.containsMatchIn(latest) -> "Source inspection"
-            else -> "Repository findings"
+            problem != null && focus != null -> "$focus needs attention"
+            problem != null && checkWords.containsMatchIn(problem) -> "Investigating a check failure"
+            problem != null -> "Trouble with ${GitHubProgressPresentation.taskFocus(snapshot.task)}"
+            latest != null && focus != null && changeWords.containsMatchIn(latest) -> "Changes involving $focus"
+            latest != null && focus != null -> "Reviewing $focus"
+            else -> "Investigating ${GitHubProgressPresentation.taskFocus(snapshot.task)}"
         }
         val facts = buildList {
-            if (problem != null) add("**Attention:** ${escape(problem)}")
+            if (problem != null) add(if (counts == null) describe(problem, focus) else "**Attention:** ${escape(problem)}")
             if (counts != null) {
                 counts.scope?.let { add("**Source:** ${escape(it)}") }
                 if (!counts.complete) add("**Coverage:** The captured check list is incomplete; missing checks are not measured.")
                 val counted = counts.counts.joinToString(", ") { "${it.count} ${it.label.lowercase(java.util.Locale.ROOT)}" }
                 add("**Evidence:** These are recorded check results, not a new test execution. $counted (${if (counts.complete) "complete" else "incomplete"} captured list).")
-                if (problem == null) specific.lastOrNull()?.let { add("**Observed:** ${escape(it)}") }
+                if (problem == null) specific.lastOrNull()?.let { add(describe(it)) }
             } else {
                 specific.takeLast(2).forEach { step ->
-                    if (step != problem) add("**Observed:** ${escape(step)}")
-                }
-                if (specific.size == 1 && problem == null && sourceWords.containsMatchIn(specific.single())) {
-                    add("**Verification:** Inspecting the source does not establish that the requested fix or tests passed.")
+                    if (step != problem) add(describe(step, focus))
                 }
             }
         }
-        val nextAction = snapshot.next.takeIf(String::isNotBlank)?.let {
-            "**Next:** ${escape(it.replaceFirstChar(Char::lowercase))}"
+        val nextAction = snapshot.next.trim().takeIf { (problem != null || counts != null || snapshot.completed == 0) && it.isNotBlank() && !GitHubProgressPresentation.isGenericProgress(it) }?.let {
+            "I’ll ${escape(it.replaceFirstChar(Char::lowercase))}"
         }
         val statements = facts.take(4) + listOfNotNull(nextAction)
         if (statements.isEmpty()) return ""
         return buildString {
-            append("### ").append(headline).append('\n')
+            append("### ").append(escape(headline)).append('\n')
             statements.forEach { append("- ").append(it).append('\n') }
             counts?.let { observed ->
                 append('\n')
@@ -96,6 +108,30 @@ internal object GitHubRichSummaryPresentation {
                 observed.counts.forEach { append("| ").append(it.label).append(" | ").append(it.count).append(" |\n") }
             }
         }.trim().take(1600)
+    }
+
+    /** Shorten receipt boilerplate without upgrading a source read to a verified repair. */
+    private fun describe(step: String, currentHeadlineFocus: String? = null): String {
+        val read = Regex("""(?i)^The source read for (.+?) returned a result(?: for inspection)?$""").matchEntire(step)
+        if (read != null) {
+            return if (observationFocus(step) == currentHeadlineFocus) {
+                "The source read is available for inspection; no repair has been verified."
+            } else {
+                "Source read for ${escape(read.groupValues[1])} is available to inspect; no repair has been verified."
+            }
+        }
+        val failedRead = Regex("""(?i)^The source read for (.+?) failed$""").matchEntire(step)
+        if (failedRead != null) return "Reading ${escape(failedRead.groupValues[1])} failed; the source still needs recovery."
+        return escape(step)
+    }
+
+    /** Extract identifiers from bounded approved progress, never from raw result bodies. */
+    private fun observationFocus(step: String): String? {
+        val forTarget = Regex("""(?i)\bfor (.{1,100}?)(?: returned| failed| started| was skipped| is blocked|;|$)""")
+            .find(step)?.groupValues?.get(1)
+        val identifier = forTarget ?: Regex("""(?i)\b(?:PR #\d+|Issue #\d+|Job \d+|Run \d+)\b""").find(step)?.value
+        return identifier?.let(GitHubProgressPresentation::taskLabel)
+            ?.trimEnd('.', ';', ':')?.take(64)?.takeIf(String::isNotBlank)
     }
 
     /** Only source-owned, complete five-field check observations can create rows. */
@@ -120,11 +156,16 @@ internal object GitHubRichSummaryPresentation {
         return rows
     }
 
-    fun csv(markdown: String): String? {
+    fun checkTable(markdown: String): CheckTable? {
         val rows = parseRecordedTable(markdown) ?: return null
         val source = markdown.lineSequence().singleOrNull { it.startsWith("- **Source:** ") }
             ?.removePrefix("- **Source:** ")?.replace(Regex("""\\(.)"""), "$1") ?: "Not recorded"
         val coverage = if (markdown.startsWith("### Partial recorded check results")) "Incomplete" else "Complete"
+        return CheckTable(rows, source, coverage)
+    }
+
+    fun csv(markdown: String): String? {
+        val table = checkTable(markdown) ?: return null
 
         // A copied table must keep the same scope and limitations as the visible card.
         // Source labels may contain spreadsheet syntax even when Markdown-escaped.
@@ -132,8 +173,8 @@ internal object GitHubRichSummaryPresentation {
             val safe = if (value.trimStart().firstOrNull() in setOf('=', '+', '-', '@')) "'$value" else value
             return "\"" + safe.replace("\"", "\"\"") + "\""
         }
-        return "Check state,Count,Source,Captured list,Observation\r\n" + rows.joinToString("\r\n") {
-            it.label + "," + it.count + "," + cell(source) + "," + coverage + ",Recorded results; not a new test execution"
+        return table.headers.joinToString(",") + "\r\n" + table.rows.joinToString("\r\n") {
+            it.label + "," + it.count + "," + cell(table.source) + "," + table.coverage + "," + table.observation
         } + "\r\n"
     }
 

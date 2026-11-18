@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -35,12 +37,15 @@ internal object ToolArgumentValidator {
             "github_ci" ->
                 "Use only the declared fields for the selected action. Runs filters use status; returned runs include conclusion. " +
                     "For failed runs set status=failure. For logs use an observed job_id and positive ordered start_line/end_line spanning at most 2000 lines; read longer logs in successive windows. "
+            "github_watch_checks" ->
+                "Use github_ci action=runs with head_sha to discover a run_id, or github_pr action=list to discover a pr_number. " +
+                    "Supply an observed selector for the head to monitor. "
             "github_context" ->
                 "For saved content use only the exact view_cursor from continuation_call. " +
                     "For a fresh page use per_page=1..100. Do not copy an action from a different request. "
             "github_search" ->
                 "Use action=search, search_repository or search_code with query. Do not send per_page: " +
-                    "github_search does not accept it. max_new_blobs bounds source fetches, not remote pagination. " +
+                    "github_search does not accept it. max_new_blobs must be 1..100 (omit for the default); it is not a remote page size. " +
                     "For another page, use the last result's exact continuation_call. "
             else -> ""
         }
@@ -99,7 +104,15 @@ internal object ToolArgumentValidator {
             dispatched = false,
             executionReceipt = JsonObject(
                 rejectionReceipt(toolName.githubOperationFamily(), arguments, schema, validationErrors, selector) + buildJsonObject {
-                    if (toolName.githubOperationFamily() == "github_read") {
+                    val operation = toolName.githubOperationFamily()
+                    val nestedUnknown = if (operation == "github_read") {
+                        (arguments["ranges"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+                            .flatMap { it.keys - GitHubOperationArguments.readRangeFields }.toSet()
+                    } else {
+                        emptySet()
+                    }
+                    val effectiveReadRules = if (nestedUnknown.isEmpty()) readRules else readRules + GitHubOperationArguments.ReadRule.RANGE_FIELDS
+                    if (operation == "github_read") {
                         (arguments["ranges"] as? JsonArray)?.let { ranges ->
                             put("read_range_count", ranges.size)
                             val failures = ranges.filterIsInstance<JsonObject>().flatMap { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.readWindowFailures(it) }.distinct()
@@ -107,8 +120,8 @@ internal object ToolArgumentValidator {
                         }
                         put("read_invalid_window_count", validationErrors.count { "needs start_line>=1" in it })
                     }
-                    if (readRules.isNotEmpty()) {
-                        put("semantic_read_rules", JsonArray(readRules.map { JsonPrimitive(it.name) }))
+                    if (effectiveReadRules.isNotEmpty()) {
+                        put("semantic_read_rules", JsonArray(effectiveReadRules.map { JsonPrimitive(it.name) }))
                     }
                     val declaredFields = (schema["properties"] as? JsonObject).orEmpty().keys
                     val unknownFields = if (schema["additionalProperties"] == JsonPrimitive(false)) {
@@ -119,7 +132,12 @@ internal object ToolArgumentValidator {
                     val ci = ciRejections.takeIf { toolName.githubOperationFamily() == "github_ci" }.orEmpty()
                         .filter { it.fields.isNotEmpty() && it.fields.all(declaredFields::contains) }
                     if (ci.isNotEmpty()) put("semantic_ci_rules", JsonArray(ci.map { it.rule.name }.distinct().sorted().map(::JsonPrimitive)))
-                    val fields = (unknownFields + readRules.flatMap { it.fields.asList() } + ci.flatMap { it.fields }).distinct().sorted()
+                    val missingWatchSelector = operation == "github_watch_checks" && "view_cursor" !in arguments && GitHubOperationArguments.watchSelectors.none(arguments::containsKey)
+                    val watchFields = if (missingWatchSelector) GitHubOperationArguments.watchSelectors else emptyList()
+                    val fields = (
+                        unknownFields + nestedUnknown.filter { it in IssueReportIncidentCapsule.fieldNames } +
+                            effectiveReadRules.flatMap { it.fields.asList() } + ci.flatMap { it.fields } + watchFields
+                        ).distinct().sorted()
                     if (fields.isNotEmpty()) put("validation_field_names", JsonArray(fields.take(12).map(::JsonPrimitive)))
                 }
             )
@@ -190,7 +208,8 @@ internal object ToolArgumentValidator {
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
         val operation = toolName.githubOperationFamily()
         if (operation == "github_search" &&
-            arguments.keys.none { it in setOf("view_cursor", "index_cursor", "search_id") } &&
+            arguments.keys.none { it in setOf("view_cursor", "search_id") } &&
+            arguments["index_cursor"] in setOf(null, JsonPrimitive(0)) &&
             (integer(arguments["page"]) ?: 1) == 1
         ) {
             val declared = schema["properties"] as? JsonObject
@@ -200,6 +219,7 @@ internal object ToolArgumentValidator {
             val maximum = integer(properties?.get("maximum"))
             val corrected = arguments.toMutableMap()
             if (declared?.containsKey("per_page") == false) corrected.remove("per_page")
+            if (declared?.containsKey("response_detail") == false) corrected.remove("response_detail")
             if (requested != null && minimum != null && maximum != null && minimum <= maximum) {
                 corrected["max_new_blobs"] = JsonPrimitive(requested.coerceIn(minimum, maximum))
             }
@@ -242,8 +262,26 @@ internal object ToolArgumentValidator {
         return proposal.takeIf { errors(it, schema).isEmpty() }
     }
 
-    private fun boundedReadCorrection(operation: String, arguments: JsonObject): JsonObject? {
+    internal fun sourceReadArgumentCorrection(arguments: JsonObject): JsonObject? {
+        val argumentFields = setOf("owner", "repo", "commit_sha", "action", "response_detail", "path", "start_line", "end_line", "max_lines")
+        if (arguments["action"] !in setOf(null, JsonPrimitive("ranges")) || arguments.keys.any { it !in argumentFields }) return null
+        val rawPath = arguments["path"] as? JsonPrimitive
+        val path = rawPath?.takeIf { it.isString }?.content
+        if (path.isNullOrBlank() || path.startsWith("/") || path.contains('\\') || path.split('/').any { it == "." || it == ".." }) {
+            return null
+        }
+        val window = setOf("path", "start_line", "end_line", "max_lines")
+        val range = JsonObject(arguments.filterKeys { it in window })
+        return JsonObject(
+            arguments.filterKeys { it !in window } +
+                ("action" to JsonPrimitive("ranges")) +
+                ("ranges" to JsonArray(listOf(range)))
+        )
+    }
+
+    internal fun boundedReadCorrection(operation: String, arguments: JsonObject): JsonObject? {
         if (arguments.keys.any { it in setOf("view_cursor", "index_cursor", "evidence_id", "start_offset") }) return null
+        if (operation == "github_read") sourceReadArgumentCorrection(arguments)?.let { return it }
         return when (operation to arguments["action"]) {
             "github_ci" to JsonPrimitive("runs") -> {
                 val conclusion = arguments["conclusion"]?.takeIf { it == JsonPrimitive("failure") } ?: return null

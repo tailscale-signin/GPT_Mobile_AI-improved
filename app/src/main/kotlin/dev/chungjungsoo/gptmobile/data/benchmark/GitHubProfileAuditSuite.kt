@@ -187,12 +187,15 @@ internal object GitHubProfileAuditSuite {
                         str("head", "feature")
                         str("base", "main")
                     }
-                    "headers", "context", "comments", "reviews", "threads" -> num("pull_number", 1)
+                    "headers", "context", "comments", "reviews", "threads", "agent_merge_status" -> num("pull_number", 1)
                     else -> {
                         num("pull_number", 1)
                         str("expected_head_sha", sha)
                         when (action) {
                             "update" -> str("title", "Fixture update")
+                            "agent_merge_update" -> if ("allowed_actions" in fields) {
+                                put("allowed_actions", buildJsonArray { add(JsonPrimitive("fix_ci")) })
+                            }
                             "comment", "reply" -> {
                                 str("body", "Fixture comment")
                                 if (action == "reply") num("comment_id", 1)

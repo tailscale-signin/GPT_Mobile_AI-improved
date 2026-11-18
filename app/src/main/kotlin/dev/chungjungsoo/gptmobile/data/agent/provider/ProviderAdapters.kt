@@ -77,6 +77,18 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
+/** Preserve only the parser-owned closed subtype, never provider fragments or tool arguments. */
+internal fun retainSafeToolProtocolFrameKind(
+    previous: JsonObject?,
+    failure: ProviderEvent.Failed
+): JsonObject? {
+    if (failure.errorCode != "TOOL_PROTOCOL_INVALID_FRAME") return previous
+    val kind = (failure.failureDetails?.get("tool_protocol_frame_kind") as? JsonPrimitive)
+        ?.takeIf { it.isString && it.content in setOf("MISSING_FUNCTION_NAME", "UNFINISHED_STREAM", "NON_OBJECT_ARGUMENTS", "MALFORMED_JSON") }
+        ?: return previous
+    return JsonObject(previous.orEmpty() + ("tool_protocol_frame_kind" to kind))
+}
+
 class OpenAIResponsesAdapter @Inject constructor(
     private val api: OpenAIAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder
@@ -900,6 +912,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             if (event is ProviderEvent.Failed) {
                                 roundFailed = true
                                 protocolErrorCode = protocolErrorCode ?: event.errorCode
+                                failureDetails = retainSafeToolProtocolFrameKind(failureDetails, event)
                                 if (lastFinishReason != "length") lastFailedMessage = event.message
                             } else {
                                 emit(if (event is ProviderEvent.Usage && event.finishReason != null) event.copy(writerObservationKey = writerObservationKey) else event)
@@ -1190,6 +1203,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 roundFailed = true
                 if (!outputLimited) lastFailedMessage = event.message
                 protocolErrorCode = protocolErrorCode ?: event.errorCode
+                caughtEvidence = retainSafeToolProtocolFrameKind(caughtEvidence, event)
             } else {
                 emit(event)
             }

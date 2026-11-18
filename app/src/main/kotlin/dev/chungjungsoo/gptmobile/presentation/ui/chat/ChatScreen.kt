@@ -8,6 +8,14 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -50,6 +58,8 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Stop
@@ -61,6 +71,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -69,6 +80,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -111,6 +123,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -158,6 +171,8 @@ import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -187,25 +202,27 @@ fun ChatScreen(
     onExportHandled: () -> Unit = {},
     bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
-    ConversationViewport { viewportWidth, viewportHeight ->
-        ChatScreenContent(
-            chatViewModel = chatViewModel,
-            onBackAction = onBackAction,
-            onNavigateToLocalModels = onNavigateToLocalModels,
-            onReviewEvidenceAccess = onReviewEvidenceAccess,
-            onProfileSettings = onProfileSettings,
-            onOpenConversation = onOpenConversation,
-            onInspectContext = onInspectContext,
-            showTopBar = showTopBar,
-            embeddedHeaderHeight = embeddedHeaderHeight,
-            embeddedHeaderExpansion = embeddedHeaderExpansion,
-            allowResearchPanels = allowResearchPanels,
-            exportRequestedForChatId = exportRequestedForChatId,
-            onExportHandled = onExportHandled,
-            bottomInteractionContent = bottomInteractionContent,
-            viewportWidth = viewportWidth,
-            viewportHeight = viewportHeight
-        )
+    CompositionLocalProvider(LocalUniversalProgressInHeader provides showTopBar) {
+        ConversationViewport { viewportWidth, viewportHeight ->
+            ChatScreenContent(
+                chatViewModel = chatViewModel,
+                onBackAction = onBackAction,
+                onNavigateToLocalModels = onNavigateToLocalModels,
+                onReviewEvidenceAccess = onReviewEvidenceAccess,
+                onProfileSettings = onProfileSettings,
+                onOpenConversation = onOpenConversation,
+                onInspectContext = onInspectContext,
+                showTopBar = showTopBar,
+                embeddedHeaderHeight = embeddedHeaderHeight,
+                embeddedHeaderExpansion = embeddedHeaderExpansion,
+                allowResearchPanels = allowResearchPanels,
+                exportRequestedForChatId = exportRequestedForChatId,
+                onExportHandled = onExportHandled,
+                bottomInteractionContent = bottomInteractionContent,
+                viewportWidth = viewportWidth,
+                viewportHeight = viewportHeight
+            )
+        }
     }
 }
 
@@ -513,7 +530,13 @@ private fun ChatScreenContent(
     var githubScrollMode by rememberSaveable(chatRoom.id) { mutableStateOf(if (hasTargetMessage) GitHubScrollMode.USER_HISTORY else GitHubScrollMode.FOLLOW_BOTTOM) }
     var promptAnchorRevision by remember(chatRoom.id) { mutableIntStateOf(0) }
     val promptDensity = LocalDensity.current
-    val stableWindowHeight = if (githubPromptMode) rememberChatWindowHeight() else 0.dp
+    val stableWindowHeight = rememberChatWindowHeight()
+    var chatHeaderExpanded by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
+    val chatHeaderExpansion by animateFloatAsState(
+        targetValue = if (chatHeaderExpanded) 1f else 0f,
+        animationSpec = tween(280),
+        label = "Universal chat header fade"
+    )
     val renderedLines = remember(chatRoom.id, newestPromptKey) { GitHubRenderedLines() }
     val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
     val promptAnchor = remember(chatRoom.id, touchSlop) { GitHubPromptAnchor(touchSlop, githubScrollMode) }
@@ -765,10 +788,82 @@ private fun ChatScreenContent(
         onFollow = ::followChatBottom
     )
 
+    // Only a final, delivered answer from a turn observed live on this screen
+    // may run the cinematic handoff. Reopening history leaves its scroll intact.
+    val completedGitHubAnswer = githubPromptMode &&
+        groupedMessages.assistantMessages.getOrNull(lastMessageIndex).orEmpty().any { reply ->
+            val status = reply.currentRunId?.let(agentRunsById::get)?.status
+            status == AgentRunStatus.COMPLETED &&
+                dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(reply.effectiveContent()) &&
+                !gitHubResponsePresentation(reply.effectiveContent(), reply.effectiveTimeline()).progressOnly
+        }
+    var sawLiveGitHubTurn by remember(chatRoom.id, newestPromptKey) { mutableStateOf(false) }
+    var celebratedGitHubTurn by remember(chatRoom.id, newestPromptKey) { mutableStateOf(false) }
+    var completionCue by remember(chatRoom.id, newestPromptKey) { mutableIntStateOf(0) }
+    val completionGlow = remember(chatRoom.id, newestPromptKey) { Animatable(0f) }
+    LaunchedEffect(newestPromptKey, githubPromptMode, awaitingGitHubTurn, completedGitHubAnswer) {
+        if (!githubPromptMode || newestPromptKey == null) return@LaunchedEffect
+        if (awaitingGitHubTurn) sawLiveGitHubTurn = true
+        if (
+            shouldBeginGitHubFinalReveal(
+                githubPromptMode,
+                sawLiveGitHubTurn,
+                awaitingGitHubTurn,
+                completedGitHubAnswer,
+                celebratedGitHubTurn
+            )
+        ) {
+            celebratedGitHubTurn = true
+            completionCue++
+        }
+    }
+    LaunchedEffect(completionCue) {
+        if (completionCue == 0) return@LaunchedEffect
+        // Completion must never steal the scroll from a user reading history
+        // or from an actively followed bottom. Only an explicitly pinned prompt
+        // may take the cinematic repositioning path.
+        val repositionPrompt = mayRepositionCompletedPrompt(githubScrollMode, scrollInput.dragging)
+        if (repositionPrompt) {
+            promptAnchor.detach()
+            githubScrollMode = promptAnchor.mode
+            isFollowingBottom = false
+            isHoldingEntryCenter = false
+            isModelTabPositionLocked = false
+        }
+        coroutineScope {
+            if (repositionPrompt) {
+                launch {
+                    try {
+                        listState.animateToGitHubPrompt(
+                            latestTurnItem,
+                            isUserDragging = { scrollInput.dragging },
+                            shouldAnchor = { !scrollInput.dragging },
+                            animate = featureSettings.responseAnimation,
+                            durationMillis = GITHUB_COMPLETION_PROMPT_SCROLL_MILLIS
+                        )
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        // A direct user gesture wins; never restart an automated
+                        // anchor over their scroll or dismiss their keyboard.
+                        if (!scrollInput.dragging) throw cancelled
+                    }
+                }
+            }
+            launch {
+                if (featureSettings.responseAnimation) {
+                    completionGlow.snapTo(1f)
+                    delay(GITHUB_COMPLETION_GLOW_HOLD_MILLIS.toLong())
+                    completionGlow.animateTo(0f, tween(GITHUB_COMPLETION_GLOW_FADE_MILLIS))
+                } else {
+                    completionGlow.snapTo(0f)
+                }
+            }
+        }
+    }
+
     GitHubScrollMotion(
         listState = listState,
-        enabled = githubPromptMode && entryPositioned && !isModelTabPositionLocked,
-        mode = githubScrollMode,
+        enabled = entryPositioned && !isModelTabPositionLocked,
+        mode = universalChatScrollMode(githubPromptMode, githubScrollMode, isFollowingBottom),
         dragging = scrollInput.dragging || isUserDragging,
         renderedLines = renderedLines,
         promptKey = anchoredPromptKey ?: newestPromptKey,
@@ -777,19 +872,8 @@ private fun ChatScreenContent(
         fontScale = promptDensity.fontScale,
         animate = featureSettings.responseAnimation
     )
-    ChatBottomAutoScroller(
-        listState = listState,
-        animate = featureSettings.responseAnimation && featureSettings.smoothStreaming,
-        isEnabled = !githubPromptMode &&
-            entryPositioned &&
-            !isModelTabPositionLocked &&
-            shouldAutoScrollToBottom(
-                isFollowing = isFollowingBottom,
-                isUserDragging = scrollInput.dragging || isUserDragging,
-                isScrollInProgress = listState.isScrollInProgress,
-                isScrollingAway = listState.lastScrolledBackward
-            )
-    )
+    // The measured-line follower above now owns scrolling in every chat mode.
+    // Never start a second auto-scroll coroutine against the same LazyListState.
 
     LaunchedEffect(attachmentNotice) {
         attachmentNotice?.let { notice ->
@@ -811,13 +895,7 @@ private fun ChatScreenContent(
         snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHost) },
         modifier = Modifier.then(backFade.modifier)
             .diagnosticFrameTiming("Chat")
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() }
-            ) {
-                composerDiagnostics?.release(ComposerInputDiagnostics.Release.BACKGROUND_TAP)
-                focusManager.clearFocus()
-            },
+            .githubCompletionEdgeGlow(completionGlow.value, MaterialTheme.colorScheme.primary),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (showTopBar) {
@@ -841,7 +919,22 @@ private fun ChatScreenContent(
                         gatewayReadiness.isNotEmpty() -> "Model ready"
                         else -> null
                     },
-                    onGatewayStatus = { gatewayReadinessOpen = true }
+                    onGatewayStatus = { gatewayReadinessOpen = true },
+                    expanded = chatHeaderExpanded,
+                    onExpandedChange = { chatHeaderExpanded = it },
+                    progress = {
+                        if (!isIdle && entryPositioned) {
+                            val latestReply = groupedMessages.assistantMessages.lastOrNull()?.lastOrNull()
+                            val events = latestReply?.effectiveRunId()?.let(toolEventsByRun::get).orEmpty()
+                            ChatGenerationProgress(
+                                toolEvents = events,
+                                timeline = latestReply?.effectiveTimeline().orEmpty(),
+                                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                                active = true,
+                                githubPresentation = true
+                            )
+                        }
+                    }
                 )
             }
         }
@@ -862,6 +955,16 @@ private fun ChatScreenContent(
                     .then(transcriptTiming)
                     .fillMaxSize()
                     .then(scrollInput.modifier)
+                    // Only transcript taps dismiss the keyboard. A screen-wide
+                    // clickable can also receive composer/anchor gestures and
+                    // clear focus just after the IME has opened.
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {
+                        composerDiagnostics?.release(ComposerInputDiagnostics.Release.BACKGROUND_TAP)
+                        focusManager.clearFocus()
+                    }
                     .semantics {
                         customActions = listOf(
                             CustomAccessibilityAction("Follow latest messages") {
@@ -882,7 +985,9 @@ private fun ChatScreenContent(
                             else -> gitHubTopFadeHeight(
                                 (innerPadding.calculateTopPadding() + 48.dp - viewportHeight * 0.05f).value,
                                 stableWindowHeight.value,
-                                true
+                                true,
+                                chatHeaderExpansion,
+                                LocalGitHubFadeProfile.current
                             ).dp
                         },
                         // Content continues behind the composer. Fade it from the top edge
@@ -920,7 +1025,7 @@ private fun ChatScreenContent(
                     val replyVisible by remember(listState, pairKey) {
                         derivedStateOf { listState.layoutInfo.visibleItemsInfo.any { it.key == pairKey } }
                     }
-                    GitHubLineScope(renderedLines.takeIf { githubPromptMode && index == lastMessageIndex }, pairKey) {
+                    GitHubLineScope(renderedLines.takeIf { index == lastMessageIndex }, pairKey) {
                         ChatMessagePair(
                             awaitingGitHubTurn = index == lastMessageIndex && awaitingGitHubTurn,
                             reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { transcriptViewportHeight.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
@@ -1139,6 +1244,7 @@ private fun ChatScreenContent(
                             !isIdle
                         },
                     animate = featureSettings.responseAnimation,
+                    scrollInput = scrollInput,
                     onFollow = ::followChatBottom
                 )
             }
@@ -1376,6 +1482,8 @@ private fun ChatScreenContent(
             var currentProfileUid by remember(initialProfileUid) { mutableStateOf(initialProfileUid) }
             val combinedSaveState by chatViewModel.combinedSettingsSaveState.collectAsStateWithLifecycle()
             val combinedConversationIdentity by chatViewModel.combinedConversationIdentity.collectAsStateWithLifecycle()
+            val githubCopilotPluginOn =
+                featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCopilotEnabled == true
             ChatModelDialog(
                 conversationMode = chatRoom.conversationMode,
                 conversationIdentity = combinedConversationIdentity,
@@ -1409,6 +1517,14 @@ private fun ChatScreenContent(
                 onDelegationChanged = chatViewModel::setConversationDelegation,
                 initialReasoning = chatToolConfig.reasoning ?: appAllPlatforms.firstOrNull { it.uid in activePlatformUids }?.reasoning ?: false,
                 onReasoningChanged = chatViewModel::setConversationReasoning,
+                githubConversation = chatToolConfig.github != null,
+                githubCopilotAvailable = chatToolConfig.github != null && !chatRoom.isTemporary && githubCopilotPluginOn,
+                githubCopilotEnabled = dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(
+                    featureSettings,
+                    chatRoom.id,
+                    chatToolConfig.github
+                ),
+                onGitHubCopilotChanged = chatViewModel::setGitHubCopilotEnabled,
                 localAssist = featureSettings.localAssist,
                 onLocalAssistChanged = chatViewModel::setLocalAssist,
                 initialCreativity = initialCreativity,
@@ -2086,6 +2202,7 @@ internal fun ChatMessagePair(
                         debugMode = debugMode,
                         showExecutionTrace = !isCombinedConversation,
                         githubTask = githubTask,
+                        conversationTask = message.content,
                         awaitingGitHubDelivery = awaitingGitHubDelivery,
                         responseIcon = if (githubTask != null) {
                             { GPTMobileIcon(loading = isResponseLoading, github = true) }
@@ -2358,81 +2475,118 @@ private fun ChatTopBar(
     onDisablePlatformClick: () -> Unit = {},
     onOutlineClick: () -> Unit = {},
     gatewayStatus: String? = null,
-    onGatewayStatus: () -> Unit = {}
+    onGatewayStatus: () -> Unit = {},
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    progress: @Composable () -> Unit
 ) {
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
-    TopAppBar(
-        title = {
-            Text(
-                text = title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = if (isTitleCustomized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable(enabled = isMenuItemEnabled, onClick = onChatTitleItemClick)
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
-            )
-        },
-        navigationIcon = {
-            IconButton(
-                onClick = onBackAction,
-                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = stringResource(R.string.go_back),
-                    modifier = Modifier.size(21.dp)
+    Column(Modifier.fillMaxWidth()) {
+        TopAppBar(
+            title = {
+                Text(
+                    text = title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (isTitleCustomized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(enabled = isMenuItemEnabled, onClick = onChatTitleItemClick)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 )
-            }
-        },
-        actions = {
-            if (gatewayStatus != null) {
-                IconButton(onClick = onGatewayStatus) {
-                    Icon(Icons.Rounded.Info, "Gateway model status: $gatewayStatus", tint = MaterialTheme.colorScheme.primary)
+            },
+            navigationIcon = {
+                IconButton(
+                    onClick = onBackAction,
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = stringResource(R.string.go_back),
+                        modifier = Modifier.size(21.dp)
+                    )
                 }
-            }
-            IconButton(
-                enabled = isModelItemEnabled,
-                onClick = onChatModelItemClick
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Build,
-                    tint = MaterialTheme.colorScheme.primary,
-                    contentDescription = "Conversation settings"
+            },
+            actions = {
+                if (gatewayStatus != null) {
+                    IconButton(onClick = onGatewayStatus) {
+                        Icon(Icons.Rounded.Info, "Gateway model status: $gatewayStatus", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                IconButton(
+                    onClick = { onExpandedChange(!expanded) },
+                    modifier = Modifier.testTag("chat_header_toggle").semantics {
+                        stateDescription = if (expanded) "Expanded" else "Collapsed"
+                    }
+                ) {
+                    Icon(
+                        if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        if (expanded) "Collapse chat header" else "Expand chat header",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                IconButton(enabled = isModelItemEnabled, onClick = onChatModelItemClick) {
+                    Icon(Icons.Rounded.Build, "Conversation settings", tint = MaterialTheme.colorScheme.primary)
+                }
+                IconButton(onClick = { isDropDownMenuExpanded = !isDropDownMenuExpanded }) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.options), tint = MaterialTheme.colorScheme.primary)
+                }
+                ChatDropdownMenu(
+                    isDropdownMenuExpanded = isDropDownMenuExpanded,
+                    isMenuItemEnabled = isMenuItemEnabled,
+                    onDismissRequest = { isDropDownMenuExpanded = false },
+                    onChatTitleItemClick = {
+                        onChatTitleItemClick()
+                        isDropDownMenuExpanded = false
+                    },
+                    onExportChatItemClick = onExportChatItemClick,
+                    onDisablePlatformClick = {
+                        onDisablePlatformClick()
+                        isDropDownMenuExpanded = false
+                    },
+                    onOutlineClick = {
+                        onOutlineClick()
+                        isDropDownMenuExpanded = false
+                    }
                 )
-            }
-            IconButton(
-                onClick = { isDropDownMenuExpanded = isDropDownMenuExpanded.not() }
+            },
+            expandedHeight = 48.dp,
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = Color.Transparent,
+                scrolledContainerColor = Color.Transparent
+            ),
+            scrollBehavior = scrollBehavior
+        )
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(animationSpec = tween(280)) + fadeIn(tween(280)),
+            exit = shrinkVertically(animationSpec = tween(280)) + fadeOut(tween(280))
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.options), tint = MaterialTheme.colorScheme.primary)
+                OutlinedButton(
+                    onClick = onChatModelItemClick,
+                    enabled = isModelItemEnabled,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) { Text("Models") }
+                OutlinedButton(
+                    onClick = onOutlineClick,
+                    enabled = isMenuItemEnabled,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) { Text("Outline") }
+                OutlinedButton(
+                    onClick = onExportChatItemClick,
+                    enabled = isMenuItemEnabled,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) { Text("Export") }
             }
-
-            ChatDropdownMenu(
-                isDropdownMenuExpanded = isDropDownMenuExpanded,
-                isMenuItemEnabled = isMenuItemEnabled,
-                onDismissRequest = { isDropDownMenuExpanded = false },
-                onChatTitleItemClick = {
-                    onChatTitleItemClick.invoke()
-                    isDropDownMenuExpanded = false
-                },
-                onExportChatItemClick = onExportChatItemClick,
-                onDisablePlatformClick = {
-                    onDisablePlatformClick()
-                    isDropDownMenuExpanded = false
-                },
-                onOutlineClick = {
-                    onOutlineClick()
-                    isDropDownMenuExpanded = false
-                }
-            )
-        },
-        expandedHeight = 56.dp,
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background),
-        scrollBehavior = scrollBehavior
-    )
+        }
+        progress()
+    }
 }
 
 @Composable

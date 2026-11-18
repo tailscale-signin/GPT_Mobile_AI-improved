@@ -10,8 +10,18 @@ import kotlinx.serialization.json.put
 
 /** Action-specific admission after schema validation, before any repository request. */
 internal object GitHubOperationArguments {
+    val watchSelectors = listOf("pr_number", "run_id")
+    val readRangeFields = setOf("path", "start_line", "end_line", "max_lines", "start_offset")
+
     /** Advertise the same conditional prerequisites enforced before dispatch. */
     fun schemaAlternatives(operation: String): JsonArray? {
+        if (operation == "github_watch_checks") {
+            return JsonArray(
+                (watchSelectors + "view_cursor").map { field ->
+                    buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive(field)))) }
+                }
+            )
+        }
         val alternatives: List<Pair<List<String>, List<String>>> = when (operation) {
             "github_repository" -> listOf(
                 listOf("capabilities") to emptyList(),
@@ -27,7 +37,7 @@ internal object GitHubOperationArguments {
                 listOf("delete_fixture_branch") to listOf("branch", "expected_head_sha", "origin_head_sha"),
                 listOf("commit", "commit_staged_patch") to listOf("stage_id", "branch", "message", "expected_head_sha")
             )
-            "github_pr" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "reviews", "threads") to listOf("pull_number"), listOf("create") to listOf("title", "head", "base"), listOf("update", "merge", "review", "ready", "draft") to listOf("pull_number", "expected_head_sha"), listOf("comment") to listOf("pull_number", "body", "expected_head_sha"), listOf("reply") to listOf("pull_number", "comment_id", "body", "expected_head_sha"), dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toList() to listOf("pull_number", "expected_head_sha"))
+            "github_pr" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "reviews", "threads") to listOf("pull_number"), listOf("create") to listOf("title", "head", "base"), listOf("update", "merge", "review", "ready", "draft", "agent_merge_enable", "agent_merge_update", "agent_merge_disable") to listOf("pull_number", "expected_head_sha"), listOf("agent_merge_status") to listOf("pull_number"), listOf("comment") to listOf("pull_number", "body", "expected_head_sha"), listOf("reply") to listOf("pull_number", "comment_id", "body", "expected_head_sha"), dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toList() to listOf("pull_number", "expected_head_sha"))
             "github_issue" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "history") to listOf("issue_number"), listOf("create") to listOf("title"), listOf("update") to listOf("issue_number", "expected_updated_at"), dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.issueActions.toList() to listOf("issue_number", "expected_updated_at"))
             "github_ci" -> listOf(listOf("failure", "workflows", "definitions", "runs", "status") to emptyList(), listOf("run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "jobs") to listOf("run_id"), listOf("job", "logs", "jobs") to listOf("job_id"), listOf("dispatch") to listOf("workflow_id", "ref", "expected_head_sha"))
             else -> return null
@@ -167,7 +177,7 @@ internal object GitHubOperationArguments {
                 positive("pr_number")
                 positive("run_id")
                 if ("commit_sha" in args && !text("commit_sha").matches(Regex("[a-fA-F0-9]{40}"))) errors += "commit_sha must be the exact 40-character head to monitor"
-                if ("pr_number" !in args && "run_id" !in args) errors += "provide pr_number or run_id from PR or workflow discovery"
+                if (watchSelectors.none(args::containsKey)) errors += "provide pr_number or run_id from PR or workflow discovery"
                 if ("wait_timeout_seconds" in args && text("wait_timeout_seconds").toIntOrNull()?.let { it in 1..30 } != true) errors += "wait_timeout_seconds must be 1..30; omit it for the existing background subscription"
             }
             "github_read" -> {
@@ -181,7 +191,7 @@ internal object GitHubOperationArguments {
                         readError(ReadRule.RANGE_OBJECT, "ranges[$index] must be a source range object")
                         return@forEachIndexed
                     }
-                    if (range.keys.any { it !in setOf("path", "start_line", "end_line", "max_lines", "start_offset") }) {
+                    if (range.keys.any { it !in readRangeFields }) {
                         readError(ReadRule.RANGE_FIELDS, "ranges[$index] accepts only path, start_line, end_line, max_lines and start_offset")
                     }
                     val path = (range["path"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
@@ -278,6 +288,34 @@ internal object GitHubOperationArguments {
                         if ("state" in args && text("state") !in setOf("open", "closed")) errors += "state must be open or closed for an update"
                         unused("head", "draft", "comment_id", "event", "comments")
                         if ("draft" in args) errors += "Use action=ready or action=draft for an explicit draft-state transition"
+                    }
+                    "agent_merge_status" -> {
+                        required("pull_number")
+                        unused("title", "body", "head", "base", "state", "draft", "comment_id", "event", "comments", "expected_head_sha", "allowed_actions")
+                    }
+                    "agent_merge_enable", "agent_merge_update", "agent_merge_disable" -> {
+                        required("pull_number", "expected_head_sha")
+                        unused("title", "body", "head", "base", "state", "draft", "comment_id", "event", "comments")
+                        if (text("action") == "agent_merge_disable") {
+                            unused("allowed_actions")
+                        } else {
+                            if (text("action") == "agent_merge_update" && "allowed_actions" !in args) {
+                                errors += "agent_merge_update requires explicit allowed_actions"
+                            }
+                            if ("allowed_actions" in args) {
+                                val allowed = args["allowed_actions"] as? JsonArray
+                                val selected = allowed
+                                    ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content }
+                                    .orEmpty()
+                                val wrongCount = selected.size !in 1..2
+                                val wrongTypes = selected.size != allowed?.size
+                                val duplicates = selected.distinct().size != selected.size
+                                val invalidValues = selected.any { it !in setOf("fix_ci", "resolve_merge_conflicts") }
+                                if (wrongCount || wrongTypes || duplicates || invalidValues) {
+                                    errors += "allowed_actions must contain 1 or 2 distinct values from fix_ci, resolve_merge_conflicts"
+                                }
+                            }
+                        }
                     }
                     "merge", "ready", "draft" -> {
                         required("pull_number", "expected_head_sha")

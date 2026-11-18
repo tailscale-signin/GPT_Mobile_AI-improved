@@ -25,6 +25,37 @@ data class GitHubChatProfileOverride(
     val sampling: GitHubSamplingSettings = GitHubSamplingSettings()
 )
 
+/** Persisted conversation consent; an unrelated workspace cannot inherit it. */
+@Serializable
+data class GitHubCopilotConversationPreference(
+    val conversationIdentity: String,
+    val workspace: String,
+    val enabled: Boolean
+)
+
+/** Copilot Cloud Agent Merge is a separate paid service, off for all conversations by default. */
+internal object GitHubCopilotAgentMergePolicy {
+    fun enabled(features: AppFeatureSettings, chatId: Int?, context: GitHubConversationContext?): Boolean {
+        if (chatId == null || chatId <= 0 || context == null) return false
+        if (features.pluginExecution[ToolPluginId.GITHUB]?.githubCopilotEnabled != true) return false
+        val saved = features.githubCopilotConversations[chatId] ?: return false
+        return saved.enabled &&
+            saved.conversationIdentity.isNotBlank() &&
+            saved.conversationIdentity == features.conversationIdentities[chatId] &&
+            saved.workspace == GitHubChatDecisions.workspaceKey(context) &&
+            features.conversationGitHub[chatId]?.sameWorkspace(context) == true
+    }
+
+    fun allowedActions(features: AppFeatureSettings): List<String> {
+        val config = features.pluginExecution[ToolPluginId.GITHUB] ?: return emptyList()
+        if (!config.githubCopilotEnabled) return emptyList()
+        return buildList {
+            if (config.githubCopilotFixCi) add("fix_ci")
+            if (config.githubCopilotResolveConflicts) add("resolve_merge_conflicts")
+        }
+    }
+}
+
 /** Request-local copies: GitHub preferences never rewrite ordinary chat profiles or provider grants. */
 internal object GitHubChatPolicy {
     fun settings(features: AppFeatureSettings, uid: String, context: GitHubConversationContext?): GitHubChatProfileOverride? =

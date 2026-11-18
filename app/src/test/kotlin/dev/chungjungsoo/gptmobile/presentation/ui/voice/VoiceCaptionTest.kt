@@ -48,6 +48,14 @@ class VoiceCaptionTest {
         assertNull(caption.copy(speaker = "You").highlightRange(3..8))
     }
 
+    @Test fun phraseCallbacksStillIlluminateOnlyOneWord() {
+        val caption = VoiceCaption("First, second and third.", "AI reply", true)
+        assertEquals(0..4, caption.highlightRange(0..12))
+        assertEquals(7..12, caption.highlightRange(7..22))
+        assertEquals(18..22, caption.highlightRange(18..22))
+        assertNull(caption.highlightRange(5..5))
+    }
+
     @Test fun timedRangesNeverSplitASurrogatePair() {
         val caption = VoiceCaption("Say 👋 hello", "AI reply", true)
         assertEquals(4..5, caption.highlightRange(4..5))

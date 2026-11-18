@@ -8,7 +8,9 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.ToolRoundAdmission
+import dev.chungjungsoo.gptmobile.data.agent.captureProviderInvocation
 import dev.chungjungsoo.gptmobile.data.agent.planToolBatch
+import dev.chungjungsoo.gptmobile.data.agent.providerInvocation
 import dev.chungjungsoo.gptmobile.data.agent.toolRepeatKey
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -52,6 +54,73 @@ class GitHubOperationToolTest {
         assertEquals(listOf(JsonPrimitive("list_pull_requests"), JsonPrimitive("pr_context")), observed.map { it["action"] })
     }
 
+    @Test fun copilotAgentMergeActionsAreAdvertisedAndValidatedWithoutAutoMerge() = runBlocking {
+        val actions = mapOf(
+            "agent_merge_status" to "agent_merge_status",
+            "agent_merge_enable" to "agent_merge_enable",
+            "agent_merge_update" to "agent_merge_update",
+            "agent_merge_disable" to "agent_merge_disable"
+        )
+        val checked = "a".repeat(40)
+        for ((name, native) in actions) {
+            val request = buildJsonObject {
+                put("action", name)
+                put("pull_number", 1534)
+                if (name != "agent_merge_status") put("expected_head_sha", checked)
+                if (name == "agent_merge_update") put("allowed_actions", JsonArray(listOf(JsonPrimitive("fix_ci"))))
+            }
+            valid("github_pr", request)
+            assertEquals(JsonPrimitive(native), GitHubOperationTool.nativeArguments("github_pr", request)?.get("action"))
+        }
+        val tool = GitHubOperationTool(
+            "github_pr",
+            object : AgentTool {
+                override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =
+                    AgentToolResult(callId, ToolResultContent.Json(buildJsonObject {}), false)
+            },
+            "copilot-validation"
+        )
+        val unsafe = listOf(
+            """{"action":"agent_merge_enable","pull_number":1534}""",
+            """{"action":"agent_merge_update","pull_number":1534,"expected_head_sha":"$checked"}""",
+            """{"action":"agent_merge_disable","pull_number":1534,"expected_head_sha":"$checked","allowed_actions":["fix_ci"]}""",
+            """{"action":"agent_merge_enable","pull_number":1534,"expected_head_sha":"$checked","allowed_actions":["auto_merge"]}""",
+            """{"action":"agent_merge_status","pull_number":1534,"allowed_actions":["fix_ci"]}"""
+        )
+        for (input in unsafe) {
+            val denied = tool.execute("invalid-copilot", args(input))
+            assertTrue(input, denied.isError)
+            assertFalse(input, denied.dispatched)
+        }
+    }
+
+    @Test fun prReviewsDispatchesThroughAnAdvertisedNativeReadWithZeroRows() = runBlocking {
+        assertTrue("pull_request_reviews" in dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient.readActions)
+        val observed = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                observed += arguments
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Json(Json.parseToJsonElement("""{"reviews":[],"has_more":false,"returned":0}""").jsonObject),
+                    false
+                )
+            }
+        }
+        val pr = GitHubOperationTool("github_pr", backend, "review-read")
+        val request = args("""{"action":"reviews","pull_number":1534}""")
+        valid("github_pr", request)
+        val result = pr.execute("no-reviews", request)
+        assertFalse(result.toString(), result.isError)
+        assertEquals(JsonPrimitive("pull_request_reviews"), observed.single()["action"])
+        val progress = result.executionReceipt!!.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(0), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+        assertEquals(JsonPrimitive("NOT_MEASURED"), progress["acceptance_status"])
+    }
+
     @Test fun prPageSizeAndReadOnlySearchAliasesReachTheirAdvertisedBackend() = runBlocking {
         val observed = mutableListOf<JsonObject>()
         val backend = object : AgentTool {
@@ -77,13 +146,222 @@ class GitHubOperationToolTest {
         val before = observed.size
         assertTrue(search.execute("unsafe", args("""{"action":"delete","query":"checkpoint"}""")).isError)
         assertEquals(before, observed.size)
-        val invalid = search.execute("page-size", args("""{"query":"checkpoint","commit_sha":"$sha","per_page":50}"""))
-        assertFalse(invalid.dispatched)
-        assertEquals(before, observed.size)
-        val correction = (invalid.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject
-        val corrected = correction.getValue("arguments").jsonObject
-        assertEquals(args("""{"query":"checkpoint","commit_sha":"$sha"}"""), corrected)
-        valid("github_search", corrected)
+        // Direct native dispatch also performs the bounded first-page search repair;
+        // agent-level correction alone did not cover the build-142 precheck reports.
+        val repaired = search.execute("page-size", args("""{"query":"checkpoint","commit_sha":"$sha","per_page":50}"""))
+        assertFalse(repaired.isError)
+        assertEquals(before + 1, observed.size)
+        assertEquals(JsonPrimitive("search_repository"), observed.last()["action"])
+        assertFalse("per_page" in observed.last())
+        for (input in listOf(
+            """{"query":"checkpoint","per_page":50,"page":2}""",
+            """{"query":"checkpoint","per_page":50,"view_cursor":"unissued"}""",
+            """{"query":"checkpoint","per_page":50,"index_cursor":2}""",
+            """{"query":"checkpoint","per_page":50,"unknown":"unsafe"}"""
+        )) {
+            val rejected = search.execute("unsafe-page-size", args(input))
+            assertTrue(rejected.isError)
+            assertFalse(rejected.dispatched)
+            assertEquals(before + 1, observed.size)
+        }
+    }
+
+    @Test fun exactBuild142ZeroBlobSearchReachesNativeBackendWithSafeBound() = runBlocking {
+        val observed = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                observed += arguments
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("ok", true) }), false)
+            }
+        }
+        val search = GitHubOperationTool("github_search", backend, "build142-zero-blobs")
+        val original = listOf(
+            """{"action":"search","mode":"paths","query":"*","index_cursor":0,"batch_size":1000,"max_new_blobs":0}""",
+            """{"action":"search","mode":"paths","query":"*","batch_size":1000,"max_new_blobs":0}"""
+        )
+        original.forEachIndexed { index, json ->
+            val result = search.execute("original-call-$index", args(json))
+            assertFalse(result.toString(), result.isError)
+            assertEquals(JsonPrimitive(1), observed.last()["max_new_blobs"])
+            assertEquals(JsonPrimitive(1000), observed.last()["batch_size"])
+            assertEquals(JsonPrimitive("search_repository"), observed.last()["action"])
+        }
+        assertEquals(JsonPrimitive(0), observed.first()["index_cursor"])
+        assertFalse("index_cursor" in observed.last())
+
+        val before = observed.size
+        for (json in listOf(
+            """{"action":"search","mode":"paths","query":"*","index_cursor":2000,"max_new_blobs":0}""",
+            """{"action":"search","mode":"paths","query":"*","view_cursor":"unissued","max_new_blobs":0}""",
+            """{"action":"search","mode":"paths","query":"*","max_new_blobs":0,"unknown":"unsafe"}"""
+        )) {
+            val rejected = search.execute("no-unsafe-fix", args(json))
+            assertTrue(rejected.isError)
+            assertFalse(rejected.dispatched)
+            assertEquals(before, observed.size)
+        }
+    }
+
+    @Test fun selectedIssueListAcceptsAndForwardsTheIssuedCursor() = runBlocking {
+        var forwarded: JsonObject? = null
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                forwarded = arguments
+                val page = (arguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("has_more", page == 1)
+                            put("total_count", 2)
+                            put("items", kotlinx.serialization.json.JsonArray(listOf(buildJsonObject { put("id", page) })))
+                            if (page == 1) {
+                                put(
+                                    "continuation",
+                                    buildJsonObject {
+                                        put("action", "list_issues")
+                                        put("state", "open")
+                                        put("page", 2)
+                                        put("per_page", 20)
+                                        put("sort", "created")
+                                        put("direction", "asc")
+                                        put("after", "issued-opaque-cursor")
+                                    }
+                                )
+                            }
+                        }
+                    ),
+                    false
+                )
+            }
+        }
+        val tool = GitHubOperationTool("github_issue", backend, "continued-issues", "github_issue__selected")
+        val selected = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(tool.definition, "list"))
+        val first = tool.execute("first", args("""{"action":"list","state":"open","per_page":20}"""))
+        assertFalse(first.toString(), first.isError)
+        val request = (first.content as ToolResultContent.Json).value.jsonObject.getValue("continuation_call")
+            .jsonObject.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive("issued-opaque-cursor"), request["after"])
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = 1))
+        val second = budget.bindPresented(tool, selected).execute("continued", request)
+        assertFalse(second.toString(), second.isError)
+        assertEquals(JsonObject(request + ("action" to JsonPrimitive("list_issues"))), forwarded)
+        assertEquals(JsonPrimitive(true), second.executionReceipt?.get("pagination_progress")?.jsonObject?.get("complete"))
+    }
+
+    @Test fun rejectedHandWrittenIssuePageExposesItsMissingContinuationContract() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(
+                callId,
+                ToolResultContent.Text("Follow the exact issue continuation"),
+                true,
+                errorCode = "INVALID_ARGUMENTS",
+                dispatched = false,
+                executionReceipt = buildJsonObject {
+                    put("issue_continuation_rejected", true)
+                    put("missing_field_count", 1)
+                }
+            )
+        }
+        val tool = GitHubOperationTool("github_issue", backend, "build142")
+        val result = tool.execute("page-two", args("""{"action":"list","page":2,"per_page":20,"state":"open"}"""))
+        assertFalse(result.dispatched)
+        assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        val body = (result.content as ToolResultContent.Json).value.jsonObject
+        assertTrue(body.getValue("data").jsonObject.getValue("message").jsonPrimitive.content.contains("exact continuation_call"))
+        assertEquals(JsonPrimitive(1), result.executionReceipt?.get("missing_field_count"))
+        assertEquals(JsonPrimitive("TOOL_ARGUMENT_CONSTRAINT_REJECTED"), result.executionReceipt?.get("reason_code"))
+    }
+
+    @Test fun argumentRepairCannotShrinkAnOversizedNativeEnvelopePastAdmission() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Oversized original arguments must never dispatch")
+        }
+        val search = GitHubOperationTool("github_search", backend, "oversized")
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = 4))
+        val result = budget.bind(search).execute(
+            "oversized",
+            buildJsonObject {
+                put("query", "checkpoint")
+                put("per_page", "x".repeat(20_000))
+            }
+        )
+        assertEquals("TOOL_BATCH_OVERSIZE", result.errorCode)
+        assertFalse(result.dispatched)
+        assertEquals(0, budget.usedCalls())
+    }
+
+    @Test fun nativeSourceBatchCannotSpendTheVerificationReserve() = runBlocking {
+        var dispatches = 0
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatches++
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("ok", true) }), false)
+            }
+        }
+        val read = GitHubOperationTool("github_read", backend, "reserve")
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = 4, githubTask = true))
+        val bound = budget.bind(read)
+        val results = coroutineScope {
+            (0..7).map { index ->
+                async { bound.execute("read-$index", args("""{"path":"AGENTS.md","start_line":1,"end_line":250,"response_detail":"full"}""")) }
+            }.awaitAll()
+        }
+        assertEquals(2, results.count { !it.isError })
+        assertEquals(6, results.count { it.errorCode == "VERIFICATION_RESERVE_REACHED" && !it.dispatched })
+        assertEquals(2, dispatches)
+        assertEquals(2, budget.usedCalls())
+    }
+
+    @Test fun nativeAndRestoredBatchReadsNormalizeBeforeDispatchAndKeepCallId() = runBlocking {
+        val observed = mutableListOf<Pair<String, JsonObject>>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                observed += callId to arguments
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("ok", true) }), false)
+            }
+        }
+        val read = GitHubOperationTool("github_read", backend, "build142", "github_read__selected")
+        val raw = args("""{"path":"AGENTS.md","start_line":1,"end_line":250,"response_detail":"full"}""")
+        val checkpoint = dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint(null, "build142")
+        val original = ProviderEvent.ToolCall("restored-read", read.definition.name, raw).captureProviderInvocation()
+        checkpoint.enqueue(listOf(original))
+        val restored = checkpoint.recoverySnapshot().pending.single()
+        var authorized: JsonObject? = null
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = 4))
+        val bound = budget.bind(read, authorize = { _, arguments ->
+            authorized = arguments
+            true
+        })
+        val result = bound.execute(restored.callId, restored.arguments)
+        assertFalse(result.isError)
+        assertEquals("restored-read", result.callId)
+        assertEquals(JsonPrimitive("ranges"), authorized?.get("action"))
+        assertEquals(1, budget.usedCalls())
+        assertEquals(authorized, result.executionReceipt?.get("corrected_arguments"))
+        assertEquals(original.providerInvocation(), restored.providerInvocation())
+        assertEquals(JsonPrimitive("read_ranges"), observed.single().second["action"])
+        assertEquals(raw["response_detail"], authorized?.get("response_detail"))
+        assertEquals(args("""{"path":"AGENTS.md","start_line":1,"end_line":250}"""), observed.single().second["ranges"]!!.jsonArray.single())
+        for (invalid in listOf(
+            """{"path":"../secret","response_detail":"full"}""",
+            """{"path":"AGENTS.md","response_detail":"invalid"}""",
+            """{"path":"AGENTS.md","view_cursor":"unissued:1"}""",
+            """{"path":"AGENTS.md","ranges":[{"path":"other"}]}"""
+        )) {
+            val rejected = read.execute("bad", args(invalid))
+            assertTrue(rejected.isError)
+            assertFalse(rejected.dispatched)
+        }
+        val search = GitHubOperationTool("github_search", backend, "build142")
+        assertFalse(search.execute("search", args("""{"query":"checkpoint","per_page":50,"response_detail":"full"}""")).isError)
+        assertEquals(2, observed.size)
     }
 
     @Test fun structuredReadValidationPreservesPinnedCandidatesAndUsesTheActiveToolRoute() = runBlocking {

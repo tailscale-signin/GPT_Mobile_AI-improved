@@ -28,6 +28,38 @@ import org.robolectric.annotation.Config
 class IssueReportIncidentCapsuleTest {
     private val time = 1_800_000_000_000L
 
+    @Test fun modelInvocationSurvivesGenericErrorWithoutReplacingToolCausality() {
+        val boundary = IssueReportIncidentCapsule.boundaryFields(IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE)
+        val linked = IssueReportIncidentCapsule.invocationFields("model-one", boundary)
+        assertEquals(JsonPrimitive("MODEL_INVOCATION"), linked["causal_provenance"])
+        assertEquals(JsonPrimitive("model-one"), linked["causal_id"])
+        val tool = JsonObject(boundary + mapOf("causal_id" to JsonPrimitive("tool-one"), "causal_provenance" to JsonPrimitive("TOOL_CALL")))
+        assertEquals(tool, IssueReportIncidentCapsule.invocationFields("model-one", tool))
+        assertEquals(boundary, IssueReportIncidentCapsule.invocationFields(null, boundary))
+    }
+
+    @Test fun opaqueFailedEventRetainsOnlyProducerPresenceFlagsAndItsCaptureBoundary() {
+        val boundary = IssueReportIncidentCapsule.boundaryFields(
+            IssueReportIncidentCapsule.ExceptionCaptureSite.AGENT_FAILED_EVENT
+        )
+        val evidence = boundary + mapOf(
+            "failed_event_code_present" to JsonPrimitive(false),
+            "failed_event_invocation_present" to JsonPrimitive(false),
+            "failed_event_details_present" to JsonPrimitive(false),
+            "run_id" to JsonPrimitive("private-run")
+        )
+        val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", evidence)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive("AGENT_FAILED_EVENT"), diagnostic.values["incident_capture_site"])
+        assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), diagnostic.values["incident_phase_provenance"])
+        for (key in IssueReportIncidentCapsule.failedEventFields) {
+            assertEquals(JsonPrimitive(false), diagnostic.values[key])
+            assertNull(diagnostic.copy(values = diagnostic.values + (key to JsonPrimitive("private-value"))).validated())
+        }
+        assertEquals(JsonPrimitive("UNAVAILABLE"), diagnostic.values["causal_provenance"])
+        assertFalse(report(context).approvedPayload().contains("private-run"))
+    }
+
     @Test fun sqliteConstraintReportsOnlyAClosedConstraintCategory() {
         val error = IllegalStateException(
             "private run details",
@@ -194,6 +226,55 @@ class IssueReportIncidentCapsuleTest {
         val omitted = diagnostics.copy(omittedFields = IssueReportIncidentCapsule.chatDeliveryFields.sorted())
         assertTrue(omitted.isValid())
         assertTrue("CHAT_DELIVERY_EVIDENCE_V1" in omitted.requiredServiceFeatures())
+    }
+
+    @Test fun protocolRecoveryOutcomeIsClosedAndContainsNoPrivateArguments() {
+        val allowed = listOf(
+            "TEXT_FALLBACK_EXHAUSTED",
+            "TOOL_RETRY_EXHAUSTED",
+            "BACKEND_HANDLED_TOOLS",
+            "SINGLE_PASS_NOT_RETRYABLE",
+            "NO_SAFE_REPAIR"
+        )
+        for (outcome in allowed) {
+            val context = capture(
+                ReportFeature.CHAT,
+                "CHAT_FAILURE",
+                "TOOL_PROTOCOL_INVALID_FRAME",
+                mapOf(
+                    "diagnostic_area" to "PROVIDER",
+                    "provider_failure_code" to "TOOL_PROTOCOL_INVALID_FRAME",
+                    "tool_protocol_recovery_outcome" to outcome,
+                    "raw_arguments" to "PRIVATE_TOOL_ARGS"
+                )
+            )
+            val diagnostic = requireNotNull(context.diagnostics)
+            assertEquals(JsonPrimitive(outcome), diagnostic.values["tool_protocol_recovery_outcome"])
+            assertTrue("TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1" in diagnostic.requiredServiceFeatures())
+            assertFalse(report(context).approvedPayload().contains("PRIVATE_TOOL_ARGS"))
+        }
+        val base = requireNotNull(
+            capture(
+                ReportFeature.CHAT,
+                "CHAT_FAILURE",
+                "TOOL_PROTOCOL_INVALID_FRAME",
+                mapOf("diagnostic_area" to "PROVIDER")
+            ).diagnostics
+        )
+        for (invalid in listOf("PRIVATE_TOOL_ARGS", "UNKNOWN", "", "tool_retry_exhausted")) {
+            assertNull(base.copy(values = base.values + ("tool_protocol_recovery_outcome" to JsonPrimitive(invalid))).validated())
+        }
+        for (area in listOf("TOOL", "ACCEPTANCE", "GATEWAY", "INCIDENT", "VOICE", "APP")) {
+            val other = requireNotNull(
+                capture(
+                    ReportFeature.CHAT,
+                    "CHAT_FAILURE",
+                    "TOOL_PROTOCOL_INVALID_FRAME",
+                    mapOf("diagnostic_area" to area)
+                ).diagnostics
+            )
+            assertNull(other.copy(values = other.values + ("tool_protocol_recovery_outcome" to JsonPrimitive(allowed.first()))).validated())
+        }
     }
 
     @Test fun claimFreshnessPreservesObservedEmptyAndClosedPredicatesWithoutInventingMissingObservations() {
@@ -556,6 +637,93 @@ class IssueReportIncidentCapsuleTest {
         assertFalse(report(context).approvedPayload().contains("private"))
         assertNull(IssueReportIncidentCapsule.validValue("provider_parameter", JsonPrimitive("private-parameter")))
         assertNull(IssueReportIncidentCapsule.validValue("privacy_blockers", JsonArray(List(5) { JsonPrimitive("PROVIDER_ALLOWLIST") })))
+    }
+
+    @Test fun claimExtractionReportRetainsClosedFailureEvidenceWithoutProviderOutput() {
+        val context = capture(
+            ReportFeature.CHAT,
+            "CHAT_FAILURE",
+            "GITHUB_TASK_INCOMPLETE",
+            mapOf(
+                "diagnostic_area" to "PROVIDER",
+                "failed_stage" to "claim_extraction",
+                "claim_extraction_failure_kind" to "SCHEMA_REJECTED",
+                "claim_extraction_response_characters" to 1024,
+                "claim_extraction_max_claims" to 2,
+                "claim_extraction_completed" to true,
+                "raw_model_response" to "private-response-token"
+            )
+        )
+        val values = requireNotNull(context.diagnostics).values
+        assertEquals(JsonPrimitive("SCHEMA_REJECTED"), values["claim_extraction_failure_kind"])
+        assertEquals(JsonPrimitive(1024), values["claim_extraction_response_characters"])
+        assertEquals(JsonPrimitive(2), values["claim_extraction_max_claims"])
+        assertEquals(JsonPrimitive(true), values["claim_extraction_completed"])
+        assertFalse(report(context).approvedPayload().contains("private-response-token"))
+        assertNull(IssueReportIncidentCapsule.validValue("claim_extraction_failure_kind", JsonPrimitive("private-response-token")))
+        assertNull(IssueReportIncidentCapsule.validValue("claim_extraction_max_claims", JsonPrimitive(-1)))
+        assertNull(
+            capture(
+                ReportFeature.TOOLS,
+                "TOOL_RESULT",
+                "INVALID_ARGUMENTS",
+                mapOf("diagnostic_area" to "TOOL", "claim_extraction_failure_kind" to "SCHEMA_REJECTED")
+            ).diagnostics?.values?.get("claim_extraction_failure_kind")
+        )
+    }
+
+    @Test fun toolPrecheckReportsSafeSchemaReasonsAndCopilotActionsWithoutPrivateArguments() {
+        val reasons = listOf(
+            "TOOL_ARGUMENT_SCHEMA_REJECTED",
+            "TOOL_ARGUMENT_CONSTRAINT_REJECTED",
+            "SAVED_VIEW_CURSOR_MALFORMED",
+            "SAVED_VIEW_CONTEXT_MISMATCH"
+        )
+        for (reason in reasons) {
+            val context = capture(
+                ReportFeature.TOOLS,
+                "TOOL_RESULT",
+                "INVALID_ARGUMENTS",
+                mapOf(
+                    "diagnostic_area" to "TOOL",
+                    "failed_stage" to "tool_precheck",
+                    "dispatched" to false,
+                    "requires_reconciliation" to false,
+                    "operation" to "github_pr",
+                    "reason_code" to reason,
+                    "tool_reason_code" to reason.takeIf {
+                        it in setOf("TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "SAVED_VIEW_CONTEXT_MISMATCH")
+                    },
+                    "secret_args" to "private-GitHub-token"
+                )
+            )
+            assertEquals(reason, context.reasonCode)
+            assertTrue(requireNotNull(context.diagnostics).isValid())
+            val approved = report(context).approvedPayload()
+            assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.parseToJsonElement(approved).jsonObject["context"]))
+            assertFalse(approved.contains("private-GitHub-token"))
+        }
+        for (action in listOf("agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable")) {
+            val context = capture(
+                ReportFeature.TOOLS,
+                "TOOL_RESULT",
+                "INVALID_ARGUMENTS",
+                mapOf(
+                    "diagnostic_area" to "TOOL",
+                    "failed_stage" to "tool_precheck",
+                    "dispatched" to false,
+                    "operation" to "github_pr",
+                    "native_tool_action" to action,
+                    "tool_action" to action,
+                    "private_body" to "private-message-content"
+                )
+            )
+            val diagnostic = requireNotNull(context.diagnostics)
+            assertEquals(JsonPrimitive(action), diagnostic.values["native_tool_action"])
+            assertEquals(JsonPrimitive(action), diagnostic.values["tool_action"])
+            assertTrue(diagnostic.isValid())
+            assertFalse(report(context).approvedPayload().contains("private-message-content"))
+        }
     }
 
     private fun capture(feature: ReportFeature, source: String, code: String, fields: Map<String, Any?>) =

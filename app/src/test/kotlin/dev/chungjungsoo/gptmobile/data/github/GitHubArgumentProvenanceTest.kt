@@ -39,7 +39,7 @@ class GitHubArgumentProvenanceTest {
         val facade = GitHubOperationTool("github_ci", backend, "task-provenance", "github_ci__github_api")
         val args = buildJsonObject {
             put("action", "workflows")
-            put("page", 2)
+            put("page", 1)
             put("owner", "owner")
             put("repo", "repository")
         }

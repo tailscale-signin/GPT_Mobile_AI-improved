@@ -36,6 +36,38 @@ class ToolArgumentDiagnosticsTest {
         put("additionalProperties", false)
     }
 
+    @Test fun watchRequiresAnObservedSelectorAndAcceptsSavedViewContinuations() {
+        val schema = GitHubOperationTool.definition("github_watch_checks").inputSchema
+        val args = buildJsonObject {
+            put("commit_sha", "a".repeat(40))
+            put("wait_timeout_seconds", 5)
+        }
+        assertTrue(ToolArgumentValidator.errors(args, schema).isNotEmpty())
+        assertTrue(GitHubOperationArguments.errors("github_watch_checks", args).isNotEmpty())
+        val result = ToolArgumentValidator.rejection("watch", "github_watch_checks", args, schema)
+        assertFalse(result.dispatched)
+        assertEquals(JsonArray(listOf("pr_number", "run_id").map(::JsonPrimitive)), publicSnapshot("github_watch_checks", args, result).values["validation_field_names"])
+        assertTrue((result.content as ToolResultContent.Json).value.toString().contains("github_ci action=runs"))
+        for (selector in listOf("pr_number", "run_id")) {
+            val valid = JsonObject(args + (selector to JsonPrimitive(7)))
+            assertTrue(ToolArgumentValidator.errors(valid, schema).isEmpty())
+            assertTrue(GitHubOperationArguments.errors("github_watch_checks", valid).isEmpty())
+        }
+        assertTrue(ToolArgumentValidator.errors(buildJsonObject { put("view_cursor", "saved") }, schema).isEmpty())
+    }
+
+    @Test fun schemaRejectionOfNestedReadKeysKeepsOnlyPublicFieldNames() {
+        val args = Json.parseToJsonElement("""{"ranges":[{"path":"private-path","per_page":23,"private-key":"private-value"}]}""") as JsonObject
+        val schema = GitHubOperationTool.definition("github_read").inputSchema
+        val result = ToolArgumentValidator.rejection("read", "github_read", args, schema)
+        assertFalse(result.dispatched)
+        val snapshot = publicSnapshot("github_read", args, result)
+        assertEquals(JsonArray(listOf(JsonPrimitive("RANGE_FIELDS"))), snapshot.values["semantic_read_rules"])
+        assertTrue(JsonPrimitive("per_page") in (snapshot.values["validation_field_names"] as JsonArray))
+        assertFalse(snapshot.toString().contains("private"))
+        assertFalse(requireNotNull(result.executionReceipt).toString().contains("private"))
+    }
+
     @Test fun missingSearchQueryRetainsTypedNonDispatchEvidence() {
         val result = ToolArgumentValidator.rejection("call", "github_search__github_api", buildJsonObject {}, searchSchema)
         val receipt = requireNotNull(result.executionReceipt)
@@ -87,6 +119,57 @@ class ToolArgumentDiagnosticsTest {
         assertEquals(JsonPrimitive("fixture"), fix["query"])
         assertTrue(ToolArgumentValidator.errors(fix, schema).isEmpty())
         assertFalse((rejected.executionReceipt ?: JsonObject(emptyMap())).toString().contains("fixture"))
+    }
+
+    @Test fun initialIndexedSearchReportsBoundedBlobCorrectionWhenNotExecuted() {
+        val schema = GitHubOperationTool.definition("github_search").inputSchema
+        val initial = Json.parseToJsonElement(
+            """{"action":"search","mode":"paths","query":"*","index_cursor":0,"batch_size":1000,"max_new_blobs":0}"""
+        ) as JsonObject
+        val rejected = ToolArgumentValidator.rejection("zero-blobs", "github_search", initial, schema)
+        assertFalse(rejected.dispatched)
+        val response = (rejected.content as ToolResultContent.Json).value as JsonObject
+        val corrected = ((response.getValue("correction_call") as JsonObject).getValue("arguments") as JsonObject)
+        assertEquals(JsonPrimitive(0), corrected["index_cursor"])
+        assertEquals(JsonPrimitive(1), corrected["max_new_blobs"])
+        assertEquals(JsonPrimitive(1000), corrected["batch_size"])
+        assertTrue(ToolArgumentValidator.errors(corrected, schema).isEmpty())
+        val nonInitial = JsonObject(initial + ("index_cursor" to JsonPrimitive(2000)))
+        val unsafe = ToolArgumentValidator.rejection("later-page", "github_search", nonInitial, schema)
+        assertFalse("correction_call" in (unsafe.content as ToolResultContent.Json).value as JsonObject)
+    }
+
+    @Test fun githubReadTopLevelPathSuggestsOneSafeSchemaValidCorrection() {
+        val schema = GitHubOperationTool.definition("github_read").inputSchema
+        val args = buildJsonObject {
+            put("owner", "owner")
+            put("repo", "repo")
+            put("path", "docs/README.md")
+        }
+        assertTrue(ToolArgumentValidator.errors(args, schema).isNotEmpty())
+        val rejected = ToolArgumentValidator.rejection("bad-read", "github_read", args, schema)
+        assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+        assertFalse(rejected.dispatched)
+        val body = (rejected.content as ToolResultContent.Json).value as JsonObject
+        val fixed = (body.getValue("correction_call") as JsonObject).getValue("arguments") as JsonObject
+        assertEquals(JsonPrimitive("ranges"), fixed["action"])
+        assertEquals(JsonArray(listOf(buildJsonObject { put("path", "docs/README.md") })), fixed["ranges"])
+        assertFalse("path" in fixed)
+        assertTrue(ToolArgumentValidator.errors(fixed, schema).isEmpty())
+        assertFalse(rejected.executionReceipt.toString().contains("docs/README.md"))
+    }
+
+    @Test fun unsafeReadPathCannotBecomeACorrection() {
+        val schema = GitHubOperationTool.definition("github_read").inputSchema
+        val rejected = ToolArgumentValidator.rejection(
+            "bad-traversal",
+            "github_read",
+            buildJsonObject { put("path", "../private.txt") },
+            schema
+        )
+        val body = (rejected.content as ToolResultContent.Json).value as JsonObject
+        assertFalse("correction_call" in body)
+        assertFalse(rejected.dispatched)
     }
 
     @Test

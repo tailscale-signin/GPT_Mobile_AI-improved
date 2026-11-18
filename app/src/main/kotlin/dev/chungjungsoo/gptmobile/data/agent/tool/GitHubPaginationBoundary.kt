@@ -16,31 +16,66 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     private val ends = linkedMapOf<String, End>()
     private val traversals = linkedMapOf<String, Traversal>()
 
-    private fun key(operation: String, args: JsonObject): String = operation + dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(operation, args)
+    private fun key(operation: String, args: JsonObject, result: JsonObject? = null): String {
+        if (operation == "github_context" && args["action"] == JsonPrimitive("changed_since")) {
+            // The first page can use a mutable base ref, while the exact
+            // continuation uses its resolved immutable SHA. Both are one
+            // traversal only when the response proves the same pinned pair.
+            fun sha(value: kotlinx.serialization.json.JsonElement?): String? =
+                (value as? JsonPrimitive)?.content?.takeIf {
+                    it.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))
+                }?.lowercase()
+            val base = sha(result?.get("base_sha") ?: args["base"] ?: args["base_sha"])
+            val head = sha(result?.get("head_sha") ?: args["commit_sha"])
+            if (base != null && head != null) {
+                val pinned = buildJsonObject {
+                    put("action", "changed_since")
+                    for (field in listOf("owner", "repo")) {
+                        (args[field] as? JsonPrimitive)?.takeIf { it.isString }?.let {
+                            put(field, it.content.lowercase())
+                        }
+                    }
+                    put("base_sha", base)
+                    put("head_sha", head)
+                    put("include_patches", args["include_patches"] == JsonPrimitive(true))
+                }
+                return "$operation:$pinned"
+            }
+        }
+        return operation + dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(operation, args)
+    }
     private fun page(args: JsonObject) = (args["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
 
     // The failure digest bounds a search for one failed job. Its continuation
     // advances that search without publishing a page of workflow jobs.
-    private fun numberedRemotePage(args: JsonObject) = "view_cursor" !in args &&
-        "index_cursor" !in args &&
-        args["action"] !in setOf(
-            JsonPrimitive("workflow_catalog"),
-            JsonPrimitive("search_repository"),
-            JsonPrimitive("ci_failure_digest")
-        )
+    private fun numberedRemotePage(operation: String, args: JsonObject): Boolean {
+        val action = (args["action"] as? JsonPrimitive)?.content
+        // A PR context, commit, or branch dependency is one resource, not a
+        // numbered collection. These action names are resolved by nativeArguments.
+        if (operation == "github_pr" && action == "pr_context") return false
+        if (operation == "github_context" && action in setOf("get_commit_detail", "branch_dependencies")) return false
+        return "view_cursor" !in args &&
+            "index_cursor" !in args &&
+            args["action"] !in setOf(
+                JsonPrimitive("workflow_catalog"),
+                JsonPrimitive("search_repository"),
+                JsonPrimitive("ci_failure_digest"),
+                // Log windows are local text excerpts, not remote record collection pages.
+                JsonPrimitive("get_job_logs")
+            )
+    }
+
+    fun expectsNumberedRemotePage(operation: String, args: JsonObject): Boolean =
+        numberedRemotePage(operation, args)
 
     @Synchronized fun completedPage(operation: String, args: JsonObject): Int? {
-        if (!numberedRemotePage(args)) return null
+        if (!numberedRemotePage(operation, args)) return null
         val key = key(operation, args)
         val end = ends[key]
-        // An explicit live refresh starts a new observation epoch even when the
-        // caller requests a non-first page. Never join a fresh page to stale page 1.
-        if (args["verify_live"] == JsonPrimitive(true)) {
-            ends.remove(key)
-            traversals.remove(key)
-            return null
-        }
-        if (page(args) == 1 && end != null) {
+        // A first-page request starts a fresh observation epoch. A live
+        // continuation on page 2+ belongs to that same epoch; clearing it
+        // would make a complete remote traversal appear to contain one page.
+        if (page(args) == 1) {
             ends.remove(key)
             traversals.remove(key)
             return null
@@ -66,20 +101,98 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
 
     private fun identity(collection: String, row: JsonElement): String {
         val objectRow = row as? JsonObject
-        val value = objectRow?.let { it["id"] ?: it["node_id"] ?: it["sha"] ?: it["number"] ?: it["path"] } ?: row
+        // The same blob SHA can occur at multiple changed filenames. A file
+        // collection is identified by path, not by its shared content digest.
+        val value = objectRow?.let {
+            if (collection == "files") {
+                it["filename"] ?: it["path"] ?: it["sha"] ?: it["id"]
+            } else {
+                it["id"] ?: it["node_id"] ?: it["sha"] ?: it["number"] ?: it["path"]
+            }
+        } ?: row
         return collection + ":" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(value.toString())
+    }
+
+    private fun reportedTotal(operation: String, args: JsonObject, result: JsonObject): Int? {
+        val comparisonFiles = if (
+            operation == "github_context" &&
+            args["action"] == JsonPrimitive("changed_since")
+        ) {
+            result["files_total"]
+        } else {
+            null
+        }
+        val upstream = comparisonFiles ?: result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")
+        return (upstream as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it >= 0 }
+    }
+
+    /** A PR context is a singleton, but its explicitly requested file page must be real. */
+    private fun assessPrContextFilePage(args: JsonObject, result: JsonObject): Assessment {
+        if (result["files_included"] != JsonPrimitive(true)) return Assessment(result)
+        val pageNumber = page(args)
+        val total = (result["files_total"] as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it >= 0 }
+        val files = result["files"] as? JsonArray
+        val expectedRows = total?.let { (it.toLong() - (pageNumber.toLong() - 1L) * 30L).coerceIn(0L, 30L).toInt() }
+        val claimedRows = (result["files_returned"] as? JsonPrimitive)?.content?.toIntOrNull()
+        val expectedMore = total?.let { pageNumber.toLong() * 30L < it }
+        if (pageNumber > 0 &&
+            expectedRows != null &&
+            files?.size == expectedRows &&
+            claimedRows == expectedRows &&
+            result["has_more"] == JsonPrimitive(expectedMore == true)
+        ) {
+            return Assessment(result)
+        }
+
+        val progress = buildJsonObject {
+            put("schema", "github.pagination-progress.v1")
+            put("remote_page", pageNumber)
+            put("remote_pages_observed", JsonArray(listOf(JsonPrimitive(pageNumber))))
+            put("upstream_rows_returned", files?.size ?: 0)
+            put("unique_records_observed", files?.size ?: 0)
+            total?.let { put("reported_total", it) }
+            put("contiguous_from_first_page", pageNumber == 1)
+            put("complete", false)
+            put("acceptance_status", "NOT_MEASURED")
+        }
+        val missing = files == null || files.isEmpty() && (expectedRows ?: 0) > 0
+        return Assessment(
+            JsonObject(
+                result.filterKeys { it != "files_continuation" } + buildJsonObject {
+                    put("reason", if (missing) "MISSING_REMOTE_RECORD_COLLECTION" else "INCOMPLETE_REMOTE_COVERAGE")
+                    put("has_more", false)
+                    put("upstream_has_more", result["has_more"] ?: JsonPrimitive(false))
+                    put("complete", false)
+                    put("traversal_state", "INCOMPLETE")
+                    put("pagination_progress", progress)
+                    put("message", "Requested PR files did not match files_total for this page. Refresh page 1 with verify_live=true and include_files=true at the observed PR head; do not accept incomplete file coverage.")
+                }
+            ),
+            "GITHUB_PAGINATION_INCOMPLETE"
+        )
     }
 
     /** Compare stable record identifiers, including earlier nonadjacent pages and reordered rows. */
     @Synchronized fun assessPage(operation: String, args: JsonObject, result: JsonObject): Assessment {
-        if (!numberedRemotePage(args) || "has_more" !in result) return Assessment(result)
+        if (operation == "github_pr" && args["action"] == JsonPrimitive("pr_context")) {
+            return assessPrContextFilePage(args, result)
+        }
+        if (!numberedRemotePage(operation, args) || "has_more" !in result) return Assessment(result)
         val collections = rows(result)
         if (collections.isEmpty()) {
             // A successful envelope with no record collection cannot establish
             // coverage when the provider advertises records or another page.
             // An explicitly empty terminal result remains valid.
-            val reportedTotal = ((result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")) as? JsonPrimitive)?.content?.toIntOrNull()
-            if ((reportedTotal ?: 0) == 0 && result["has_more"] != JsonPrimitive(true)) return Assessment(result)
+            val reportedTotal = reportedTotal(operation, args, result)
+            // A zero-result first page is a complete empty collection. A
+            // later zero-result page cannot erase previously observed records.
+            if (reportedTotal == 0 &&
+                result["has_more"] == JsonPrimitive(false) &&
+                page(args) == 1 &&
+                traversals[key(operation, args)]?.pages?.isEmpty() != false
+            ) {
+                return Assessment(result)
+            }
             val number = page(args)
             val progress = buildJsonObject {
                 put("schema", "github.pagination-progress.v1")
@@ -109,7 +222,13 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             }
             return Assessment(JsonObject(withoutContinuations + failureBody), "GITHUB_PAGINATION_INCOMPLETE")
         }
-        val key = key(operation, args)
+        val key = key(operation, args, result)
+        if (page(args) == 1 && operation == "github_context" && args["action"] == JsonPrimitive("changed_since")) {
+            // A live page-one refresh starts a fresh epoch even when the
+            // resolved base/head are unchanged from the preceding traversal.
+            ends.remove(key)
+            traversals.remove(key)
+        }
         val state = traversals.getOrPut(key) { Traversal() }
         if (state.pages.values.any { now() - it.at !in 0..300_000_000_000L }) {
             state.pages.clear()
@@ -121,7 +240,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val earlier = state.pages.filterKeys { it < number }.values.flatMapTo(mutableSetOf()) { it.identities }
         val previous = state.pages[number]
         if (previous != null && previous.identities != identities) state.changed = true
-        val total = ((result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")) as? JsonPrimitive)?.content?.toIntOrNull()
+        val total = reportedTotal(operation, args, result)
         if (state.total != null && total != null && state.total != total) state.changed = true
         if (state.total == null) state.total = total
         state.pages[number] = Page(identities, now())
@@ -138,10 +257,13 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val stalled = repeated || emptyRemotePage
         val contiguous = number > 0 && state.pages.size == number && state.pages.keys.minOrNull() == 1 && state.pages.keys.maxOrNull() == number
         val terminal = result["has_more"] == JsonPrimitive(false)
-        val consistent = !state.changed && result["pagination_inconsistent"] != JsonPrimitive(true) && (total == null || all.size == total)
+        val consistent = !state.changed &&
+            result["pagination_inconsistent"] != JsonPrimitive(true) &&
+            result["tree_complete"] != JsonPrimitive(false) &&
+            (state.total == null || all.size == state.total)
         val error = when {
             stalled -> "GITHUB_PAGINATION_STALLED"
-            terminal && (!consistent && contiguous || state.changed) -> "GITHUB_PAGINATION_INCOMPLETE"
+            terminal && (!contiguous || !consistent) -> "GITHUB_PAGINATION_INCOMPLETE"
             else -> null
         }
         if (terminal || stalled) ends[key] = End(number, now(), error)
@@ -207,12 +329,12 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     @Synchronized fun completionError(operation: String, args: JsonObject): String? = ends[key(operation, args)]?.errorCode
 
     @Synchronized fun observe(operation: String, args: JsonObject, result: JsonObject) {
-        if (!numberedRemotePage(args) || result["has_more"] != JsonPrimitive(false)) return
+        if (!numberedRemotePage(operation, args) || result["has_more"] != JsonPrimitive(false)) return
         ends[key(operation, args)] = End(page(args), now())
         while (ends.size > 128) ends.remove(ends.keys.first())
     }
 
     companion object {
-        private val COLLECTIONS = setOf("items", "workflow_runs", "workflows", "jobs", "artifacts", "check_runs", "pull_requests", "commits")
+        private val COLLECTIONS = setOf("items", "workflow_runs", "workflows", "jobs", "artifacts", "check_runs", "pull_requests", "commits", "comments", "reviews", "threads", "files", "releases", "tags")
     }
 }

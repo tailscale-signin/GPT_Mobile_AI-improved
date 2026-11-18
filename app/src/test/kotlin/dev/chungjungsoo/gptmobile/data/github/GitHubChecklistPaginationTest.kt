@@ -59,6 +59,20 @@ class GitHubChecklistPaginationTest {
         assertTrue(GitHubTestChecklist.pendingPages(records).isNotEmpty())
     }
 
+    @Test fun integrationPresetFinishesExactIssuedRemotePageAfterOrdinarySampleCap() {
+        val remote = json("""{"tool":"github_context","arguments":{"action":"branches","page":2}}""")
+        val records = linkedMapOf(
+            "source" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches"},"result":{"continuation_call":$remote}}""")
+        )
+        repeat(9) { index ->
+            records["sample$index"] = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches","page":${index + 11}},"result":{}}""")
+        }
+        val prompt = GitHubWorkflowPreset.selected("test_integration").prompt()
+        assertTrue(GitHubChecklistScope.exhaustive(prompt))
+        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall(prompt, tools, records)?.arguments)
+        assertEquals(listOf(remote), GitHubTestChecklist.pendingPages(records))
+    }
+
     @Test fun sampleBudgetIsBoundedAndExplicitInventoryCanContinue() {
         val remote = json("""{"tool":"github_context","arguments":{"action":"branches","page":2}}""")
         val records = linkedMapOf("source" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches"},"result":{"local_page_complete":true,"continuation_call":$remote}}"""))

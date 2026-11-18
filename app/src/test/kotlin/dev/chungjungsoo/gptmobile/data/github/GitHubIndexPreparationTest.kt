@@ -120,4 +120,51 @@ class GitHubIndexPreparationTest {
         assertFalse(result.getValue("complete").jsonPrimitive.content.toBoolean())
         assertTrue("A failed file is not cached as evidence", result.getValue("indexed_blobs").jsonPrimitive.int == 0)
     }
+
+    @Test fun unsupportedBinaryAssetsDoNotPermanentlyBlockLexicalIndexCompletion() = runTest {
+        val sourceSha = "1".repeat(40)
+        val assetSha = "2".repeat(40)
+        var sourceFetches = 0
+        val session = GitHubRepositorySession(
+            "account",
+            "connection",
+            "workspace",
+            "index-source-only",
+            GitHubRepositoryStateStore(),
+            { path ->
+                when {
+                    "/commits/" in path -> Json.parseToJsonElement("""{"sha":"$head","commit":{"tree":{"sha":"$tree"}}}""")
+                    "/git/trees/" in path -> Json.parseToJsonElement(
+                        """{"truncated":false,"tree":[
+                            {"path":"src/Foo.kt","sha":"$sourceSha","size":16,"type":"blob","mode":"100644"},
+                            {"path":"assets/image.png","sha":"$assetSha","size":64,"type":"blob","mode":"100644"},
+                            {"path":"assets/reused.png","sha":"$sourceSha","size":16,"type":"blob","mode":"100644"}
+                        ]}"""
+                    )
+                    "/git/blobs/$sourceSha" in path -> {
+                        sourceFetches++
+                        buildJsonObject {
+                            put("encoding", "base64")
+                            put("content", Base64.getEncoder().encodeToString("fun foo() = 1".toByteArray()))
+                        }
+                    }
+                    else -> error("Unexpected binary download: $path")
+                }
+            },
+            { _, _ -> error("A read-only index must not mutate GitHub") }
+        )
+        val initial = session.execute("index_status", "owner", "repo", args()).jsonObject
+        assertFalse(initial.getValue("complete").jsonPrimitive.content.toBoolean())
+        val prepared = session.execute("build_index", "owner", "repo", args()).jsonObject
+        assertEquals(1, sourceFetches)
+        assertEquals(3, prepared.getValue("total_paths").jsonPrimitive.int)
+        assertEquals(2, prepared.getValue("indexed_blobs").jsonPrimitive.int)
+        assertEquals(1, prepared.getValue("eligible_paths").jsonPrimitive.int)
+        assertEquals(1, prepared.getValue("indexed_eligible_blobs").jsonPrimitive.int)
+        assertEquals(2, prepared.getValue("excluded_nonindexable_paths").jsonPrimitive.int)
+        assertEquals("ELIGIBLE_TEXT_SOURCE_ONLY", prepared.getValue("index_coverage_scope").jsonPrimitive.content)
+        assertTrue(prepared.getValue("complete").jsonPrimitive.content.toBoolean())
+        assertTrue(prepared.getValue("preparation_finished").jsonPrimitive.content.toBoolean())
+        assertFalse(prepared.getValue("compiler_resolution").jsonPrimitive.content.toBoolean())
+    }
 }

@@ -411,6 +411,53 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun observedProvider403KeepsPermissionCauseAndDisablesAutomaticRetry() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.chatFailure(
+            "HTTP_ERROR",
+            false,
+            null,
+            mapOf(
+                "run_id" to "private-permission-run",
+                "provider" to "OPENROUTER",
+                "failed_stage" to "model_invocation",
+                "http_status" to 403,
+                "dispatched" to true,
+                "remote_acceptance" to "NO",
+                "provider_rejection_category" to "PERMISSION",
+                "diagnostic_area" to "PROVIDER",
+                "message" to "private provider response body"
+            )
+        )
+        val report = IssueReportIncidents.pending.value.single()
+        val context = requireNotNull(report.context)
+        assertEquals("SOURCE_ACCESS_BLOCKED", report.errorCode)
+        assertEquals(403, context.httpStatus)
+        assertEquals("OPENROUTER", context.provider)
+        assertEquals(true, context.dispatched)
+        assertEquals(false, context.retryable)
+        assertEquals("RETRY_AFTER_CONFIGURATION_CHANGE", context.recoveryAction)
+        assertEquals(JsonPrimitive("PERMISSION"), context.diagnostics?.values?.get("provider_rejection_category"))
+        assertFalse(report.approvedPayload().contains("private provider response body"))
+        assertFalse(report.approvedPayload().contains("private-permission-run"))
+
+        IssueReportIncidents.chatFailure(
+            "HTTP_ERROR",
+            false,
+            null,
+            mapOf(
+                "provider" to "OPENROUTER",
+                "failed_stage" to "model_invocation",
+                "http_status" to 403,
+                "remote_acceptance" to "UNKNOWN",
+                "provider_rejection_category" to "PERMISSION",
+                "run_id" to "unverified-permission"
+            )
+        )
+        assertEquals("CHAT_FAILED", IssueReportIncidents.pending.value.last().errorCode)
+    }
+
+    @Test
     fun rejectedProviderRateLimitKeepsItsCauseWithoutAResumableWait() {
         LocalDiagnosticsPolicy.setEnabled(true)
         IssueReportIncidents.chatFailure(
@@ -660,6 +707,38 @@ class IssueReportIncidentsTest {
         assertTrue(report.events.any { it.endsWith("W tools MCP_AUTHENTICATION_REQUIRED") })
         assertTrue(report.events.any { it.endsWith("E tools GITHUB_CIRCUIT_OPEN") })
         assertFalse(IssueReport.json.encodeToString(IssueReport.serializer(), report).contains("private"))
+    }
+
+    @Test
+    fun interruptedRunAndUnavailableContinuationKeepTheirDistinctPublicCodes() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for (code in listOf("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE")) {
+            IssueReportIncidents.chatFailure(code, false)
+            val report = IssueReportIncidents.pending.value.single { it.errorCode == code }
+            assertEquals("chat", report.feature)
+            assertTrue(report.events.last().endsWith("E chat $code"))
+            assertTrue(report.approvedPayload().contains(code))
+        }
+    }
+
+    @Test
+    fun busyToolTrafficRetainsDistinctCodedWarningsInTheApprovedReport() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.log("MCP", "W", true, "MCP_AUTHENTICATION_REQUIRED")
+        repeat(48) {
+            IssueReportIncidents.log("Tool", "W", true, "GITHUB_CIRCUIT_OPEN")
+            IssueReportIncidents.log("Tool", "I", true, "private-message")
+        }
+        IssueReportIncidents.failure(ReportFeature.CHAT, "CHAT_FAILED")
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals(IssueReport.EVENT_LIMIT, report.events.size)
+        assertTrue(report.events.first().endsWith("W tools MCP_AUTHENTICATION_REQUIRED"))
+        assertTrue(report.events.any { it.endsWith("W tools GITHUB_CIRCUIT_OPEN") })
+        assertTrue(report.events.last().endsWith("E chat CHAT_FAILED"))
+        assertFalse(report.approvedPayload().contains("private-message"))
+        IssueReportIncidents.privacyChanged(true)
+        IssueReportIncidents.privacyChanged(false)
+        assertTrue(IssueReportIncidents.recentEvents().isEmpty())
     }
 
     @Test

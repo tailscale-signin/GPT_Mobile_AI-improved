@@ -46,6 +46,7 @@ internal class GitHubVerifiedSession(
     private val gatewayDiagnostic: (suspend () -> String)? = null,
     private val onPublication: suspend (JsonObject) -> Unit = {},
     private val remainingToolCalls: () -> Int? = { null },
+    private val executionCallLimit: Int? = null,
     private val currentRequest: String = task,
     private val openExecutionContinuation: (suspend (String) -> AgentProviderSession)? = null,
     private val resumeClaimExtraction: Boolean = false,
@@ -394,6 +395,20 @@ internal class GitHubVerifiedSession(
                 )
                 return@flow
             }
+        }
+        val reserve = GitHubChecklistBudget.ordinaryVerificationReserve(executionCallLimit)
+        if (!GitHubChecklistBudget.acquisitionAllowed(evidence.snapshot().first, remainingToolCalls(), reserve)) {
+            // The normal provider path must honor the same reserve as the checklist.
+            // Publish the immutable receipt snapshot while verification capacity remains.
+            // Resume uses the durable task; this does not renew its authorized allowance.
+            emitAll(
+                publish(
+                    null,
+                    GitHubAcceptancePublicationEvidence.Entry.RETAINED_FAILURE,
+                    failureCode = "VERIFICATION_RESERVE_REACHED"
+                )
+            )
+            return@flow
         }
         var round = collectDraft(delegate, tools, exchanges)
         val retained = evidence.snapshot().first

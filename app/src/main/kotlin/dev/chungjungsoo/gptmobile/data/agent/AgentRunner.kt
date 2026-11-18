@@ -418,7 +418,8 @@ class AgentRunner(
                     // Stamp live calls at the trusted routing boundary; restored journals retain their identity.
                     val identified = if (restoringBatch) call else call.captureProviderInvocation()
                     val resolved = resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
-                    resolved.copy(arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(resolved.name, resolved.arguments))
+                    val canonical = resolved.copy(arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(resolved.name, resolved.arguments))
+                    if (restoringBatch) canonical else GitHubRecoveryCalls.repairSourceRead(canonical, executableToolByName[canonical.name])
                 }
                 resolvedCalls.filterNot { it.callId in restoredCompleted }.forEach { emit(AgentRunEvent.Provider(it)) }
                 val calls = routeSearchCalls(resolvedCalls, executableToolByName)
@@ -891,7 +892,26 @@ class AgentRunner(
                 emit(AgentRunEvent.Notice("The provider could not repair its tool format. Generating a text answer from completed GitHub operations; their actions will not be repeated.", persistent = false))
                 return RoundRecovery(emptyList(), restoreRound = true, finalize = true)
             }
-            val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = round.errorCode ?: "TOOL_PROTOCOL_INVALID_FRAME", failureDetails = round.failureDetails, invocationId = round.invocationId)
+            // Bounded, attempt-owned outcome. Never include the malformed
+            // frame, model output or tool arguments in an approved incident.
+            val recoveryOutcome = when {
+                state.githubProtocolFinalizationAttempted -> "TEXT_FALLBACK_EXHAUSTED"
+                state.protocolRecoveryAttempted -> "TOOL_RETRY_EXHAUSTED"
+                session.handlesToolsInternally -> "BACKEND_HANDLED_TOOLS"
+                limits.combined?.requested?.singlePass == true -> "SINGLE_PASS_NOT_RETRYABLE"
+                else -> "NO_SAFE_REPAIR"
+            }
+            val observedDetails = JsonObject(
+                round.failureDetails.orEmpty() +
+                    ("tool_protocol_recovery_outcome" to JsonPrimitive(recoveryOutcome))
+            )
+            val failure = ProviderEvent.Failed(
+                roundFailure,
+                round.progressDeadline,
+                errorCode = round.errorCode ?: "TOOL_PROTOCOL_INVALID_FRAME",
+                failureDetails = observedDetails,
+                invocationId = round.invocationId
+            )
             if (limits.githubTask && hasToolWork && round.calls.isEmpty()) {
                 session.retainedFailureResponse(failure).collect { event ->
                     if (event is ProviderEvent.Completed) checkpoint?.finish()

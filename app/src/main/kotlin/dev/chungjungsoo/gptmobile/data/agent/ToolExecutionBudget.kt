@@ -142,6 +142,7 @@ class ToolExecutionBudget(
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = prepareExecution(callId, arguments).invoke()
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
+            val submittedArguments = arguments
             synchronized(outputAdmissionLock) { outputAdmissionClosed = true }
             fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
             AgentContractValidation.admission(definition, callId)?.let { rejected -> return { withBudgetState(rejected) } }
@@ -158,6 +159,13 @@ class ToolExecutionBudget(
             }
             val invocation = "$executionOwner:${tool.definition.name}:$callId"
             if (!invocationIds.add(invocation)) return { withBudgetState(ToolResultEnvelope.error(callId, "DUPLICATE_INVOCATION", "This invocation ID was already admitted. No action repeated.")) }
+            // Native callbacks and restored calls reach this validator before the
+            // operation tool. Normalize safe reads before both schema admission
+            // and authorization; keep the original invocation in its journal.
+            val arguments = GitHubRecoveryCalls.repairSourceRead(
+                ProviderEvent.ToolCall(callId, definition.name, arguments),
+                tool
+            ).arguments
             val signature = "$executionOwner:${tool.definition.name}:" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments)
             val replayableRead = ToolReplaySafety.isReplayableRead(tool.definition.name, arguments, tool) ||
                 AgentToolCapability.USER_DECISION in tool.definition.capabilities
@@ -197,6 +205,12 @@ class ToolExecutionBudget(
                     )
                 }
             }
+            val sourceAcquisition = limits.githubTask && definition.name.substringBefore("__") in setOf("github_read", "github_search")
+            val callCeiling = if (sourceAcquisition && executionLimit != Int.MAX_VALUE) {
+                executionLimit - dev.chungjungsoo.gptmobile.data.github.GitHubChecklistBudget.ordinaryVerificationReserve(executionLimit)
+            } else {
+                executionLimit
+            }
             if (!alreadyBudgeted && callBudgetIsExhausted()) {
                 return { withBudgetState(failure(toolCallBudgetMessage()).copy(toolCallBudgetExhausted = true)) }
             }
@@ -210,14 +224,34 @@ class ToolExecutionBudget(
                 return { bounded(ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty())) }
             } catch (error: Exception) {
                 authorityPrecheck(callId, definition.name, error)?.let { return { bounded(it) } }
-                throw error
+                // An unexpected admission exception is not a failed tool
+                // dispatch or proof of invalid model arguments. Fail locally,
+                // preserve a content-free exception fingerprint, and retain
+                // all tool-call allowance for an explicitly authorized retry.
+                val typeHash = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(error.javaClass.name)
+                val rejected = ToolResultEnvelope.error(
+                    callId,
+                    "TOOL_PRECHECK_FAILED",
+                    "The tool's authorization precheck could not complete. No tool was dispatched; inspect the selected connection and retry only after the precheck is available."
+                ).copy(
+                    executionReceipt = buildJsonObject {
+                        put("failed_stage", "tool_precheck")
+                        put("reason_code", "TOOL_PRECHECK_FAILED")
+                        put("precheck_origin", "AUTHORIZATION_CALLBACK")
+                        put("exception_type_hashes", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(typeHash))))
+                        put("dispatched", false)
+                        put("retryable", false)
+                        put("requires_reconciliation", false)
+                    }
+                )
+                return { withBudgetState(rejected) }
             }
             if (!authorized) {
                 terminalToolFailures[tool.definition.name] = "AUTH_REQUIRED"
                 return { bounded(ToolResultEnvelope.error(callId, "AUTH_REQUIRED", "Tool permission was denied or revoked. Review this tool's grants before retrying.")) }
             }
             val acquired = try {
-                alreadyBudgeted || tryAcquireCall(enforceResearchLimit = executionContext != null)
+                alreadyBudgeted || tryAcquireCall(enforceResearchLimit = executionContext != null, callLimit = callCeiling)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -225,6 +259,11 @@ class ToolExecutionBudget(
                 return { withBudgetState(ToolResultEnvelope.error(callId, "BUDGET_CHECKPOINT_UNAVAILABLE", "The durable tool allowance could not be saved. No action was dispatched; restore its checkpoint before resuming.")) }
             }
             if (!acquired) {
+                if (callCeiling < executionLimit && calls.get() < executionLimit) {
+                    return {
+                        withBudgetState(ToolResultEnvelope.error(callId, "VERIFICATION_RESERVE_REACHED", "Source acquisition stopped before spending the verification reserve. Retain the task checkpoint and verify completed work; no source request was dispatched."))
+                    }
+                }
                 val message = toolCallBudgetMessage()
                 AppLogRecorder.record(
                     "ToolBudget",
@@ -301,10 +340,15 @@ class ToolExecutionBudget(
                     }
                     // A receipt with another call ID cannot establish this call's outcome,
                     // even if that unrelated receipt claims it was not dispatched.
-                    val result = AgentContractValidation.receipt(callId, observed)
+                    val receipt = AgentContractValidation.receipt(callId, observed)
+                    val result = if (arguments != submittedArguments) {
+                        receipt.copy(executionReceipt = JsonObject(mapOf("corrected_arguments" to arguments) + receipt.executionReceipt.orEmpty()))
+                    } else {
+                        receipt
+                    }
                     combinedResult = result
                     recordAuthorityFailure(result)
-                    currentCoroutineContext()[ToolReceiptObserver]?.observe?.invoke(ProviderEvent.ToolCall(callId, tool.definition.name, arguments), result)
+                    currentCoroutineContext()[ToolReceiptObserver]?.observe?.invoke(ProviderEvent.ToolCall(callId, tool.definition.name, submittedArguments), result)
                     return result.also { raw ->
                         if (!raw.dispatched) {
                             statistics?.rejectedBeforeDispatch(statisticsId)
@@ -518,19 +562,19 @@ class ToolExecutionBudget(
     private fun authorityPrecheck(callId: String, tool: String, error: Throwable): AgentToolResult? =
         ToolFailureMetadata.authorityPrecheck(callId, tool, error)?.also(::recordAuthorityFailure)
 
-    private suspend fun tryAcquireCall(enforceResearchLimit: Boolean = false): Boolean {
+    private suspend fun tryAcquireCall(enforceResearchLimit: Boolean = false, callLimit: Int = executionLimit): Boolean {
         durableCalls?.let { checkpoint ->
-            val used = checkpoint.acquire(executionLimit) ?: return false
+            val used = checkpoint.acquire(callLimit) ?: return false
             calls.getAndUpdate { maxOf(it, used) }
             return true
         }
-        if (limits.researchAcquisition && !enforceResearchLimit || executionLimit == Int.MAX_VALUE) {
+        if (limits.researchAcquisition && !enforceResearchLimit || callLimit == Int.MAX_VALUE) {
             calls.getAndUpdate { if (it == Int.MAX_VALUE) it else it + 1 }
             return true
         }
         while (true) {
             val current = calls.get()
-            if (current >= executionLimit.coerceAtLeast(0)) return false
+            if (current >= callLimit.coerceAtLeast(0)) return false
             if (calls.compareAndSet(current, current + 1)) return true
         }
     }

@@ -62,6 +62,9 @@ class GitHubProgressNarratorTest {
         newObservation = true
         revision++
         narrator.beforeRound()
+        assertEquals(1, calls)
+        clock = 180_000
+        narrator.beforeRound()
         assertEquals(2, calls)
         assertEquals("Identical prose does not create another summary", 1, summaries.size)
     }
@@ -91,7 +94,7 @@ class GitHubProgressNarratorTest {
             revision = 3L,
             recentSteps = current.recentSteps + "Job 7 captured a new diagnostic result."
         )
-        clock = 135_000L
+        clock = 180_000L
         narrator.beforeRound()
         assertEquals(2, summaries.size)
     }
@@ -292,6 +295,8 @@ class GitHubProgressNarratorTest {
         assertEquals(null, GitHubProgressNarrator.validSummary("7 tools were tested. $prose", evidence))
         assertEquals(null, GitHubProgressNarrator.validSummary("2 authorized tools remain. $prose", evidence))
         assertEquals(null, GitHubProgressNarrator.validSummary("$prose\n| Check state | Count |\n| --- | ---: |\n| Failed | 9 |", evidence))
+        assertEquals(null, GitHubProgressNarrator.validSummary("### Repository findings\n- **Observed:** $prose", evidence))
+        assertEquals(null, GitHubProgressNarrator.validSummary("### Source inspection\n$prose", evidence))
     }
 
     @Test fun newerFailureDuringValidationPreventsPublishingAnObsoleteFallback() = runTest {

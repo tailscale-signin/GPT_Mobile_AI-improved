@@ -2552,6 +2552,7 @@ class ChatRepositoryImpl(
                                 resolvedTools, taskRoutedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
                                 localResearch, processingOwnership, reservedFinalToolCalls, followUps,
                                 remainingToolCalls = toolBudget::remainingCalls,
+                                executionCallLimit = toolBudget.snapshot().callsLimit,
                                 githubProgress = githubProgress,
                                 retryUndispatchedBudgetFailures = taskRecovery?.retryUndispatchedBudgetFailures == true && chatToolConfig?.combined == null,
                                 resumeToolBudget = taskRecovery?.renewsToolBudget == true && preparationInput.githubTask && chatToolConfig?.combined == null,
@@ -2719,8 +2720,11 @@ class ChatRepositoryImpl(
     /** Error values do not enter catch; retain their observed owner without inventing an exception or dispatch. */
     private fun Flow<ApiState>.withFailureBoundaryEvidence(runId: String, platform: PlatformV2): Flow<ApiState> = map { event ->
         if (event !is ApiState.Error) return@map event
-        val original = event.failureDetails.orEmpty()
-        val boundary = if ("incident_capture_site" !in original && (event.errorCode.isNullOrBlank() || event.errorCode == "UNKNOWN" || original.isEmpty())) {
+        val original = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.invocationFields(
+            event.invocationId,
+            kotlinx.serialization.json.JsonObject(event.failureDetails.orEmpty())
+        )
+        val boundary = if ("incident_capture_site" !in original) {
             dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.boundaryFields(
                 dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE
             )
@@ -3289,15 +3293,20 @@ class ChatRepositoryImpl(
         // starts. Local research must not consume the last tool allowance needed to
         // produce a grounded response.
         val reservedFinalToolCalls = if (localResearch) 1 else 0
+        val detectedGitHubTask = toolPreparation.resolvedTools.any { it.isGitHubTool() } &&
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(
+                input.taskRecovery?.originalRequest.orEmpty() + "\n" + input.effectiveUserMessages.lastOrNull()?.content.orEmpty()
+            ).isNotEmpty()
+        val resultBudgetGitHubTask = input.githubTask || detectedGitHubTask
         val toolBudgetLimits = customRunner.limits.copy(
-            maxObservedToolCalls = if (input.githubTask) 4096 else customRunner.limits.maxObservedToolCalls,
+            maxObservedToolCalls = if (resultBudgetGitHubTask) 4096 else customRunner.limits.maxObservedToolCalls,
             githubMode = chatToolConfig?.github != null,
-            githubTask = input.githubTask || toolPreparation.resolvedTools.any { it.isGitHubTool() } && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(input.taskRecovery?.originalRequest.orEmpty() + "\n" + input.effectiveUserMessages.lastOrNull()?.content.orEmpty()).isNotEmpty(),
-            maxToolCalls = if (chatToolConfig?.combined != null || input.githubTask) effectiveMaxTools else minOf(effectiveMaxTools, 64),
+            githubTask = resultBudgetGitHubTask,
+            maxToolCalls = if (chatToolConfig?.combined != null || resultBudgetGitHubTask) effectiveMaxTools else minOf(effectiveMaxTools, 64),
             combined = chatToolConfig?.combined,
             maxReplayTokens = minOf(customRunner.limits.maxReplayTokens, 4096),
             maxReplayResultTokens = minOf(customRunner.limits.maxReplayResultTokens, 1024),
-            maxToolOutputBytes = if (input.githubTask) {
+            maxToolOutputBytes = if (resultBudgetGitHubTask) {
                 maxOf(contextPlan.toolResultBytes, 16 * 1024 * 1024)
             } else if (localResearch) {
                 maxOf(contextPlan.toolResultBytes, 256 * 1024)
@@ -5093,6 +5102,7 @@ class ChatRepositoryImpl(
         reservedFinalToolCalls: Int,
         followUps: dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox?,
         remainingToolCalls: () -> Int?,
+        executionCallLimit: Int?,
         githubProgress: dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress? = null,
         retryUndispatchedBudgetFailures: Boolean = false,
         resumeToolBudget: Boolean = false,
@@ -6029,6 +6039,7 @@ class ChatRepositoryImpl(
                     evidence = verifiedEvidence,
                     task = githubEffectiveTask,
                     remainingToolCalls = remainingToolCalls,
+                    executionCallLimit = executionCallLimit,
                     currentRequest = originalUserRequest,
                     openExecutionContinuation = { prompt ->
                         val continuation = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(
@@ -6114,7 +6125,8 @@ class ChatRepositoryImpl(
                             budgetSettings.totalRunTokens.toLong() - invocationLedger.dao.committedTokens(turnKey) >= reservation + finalReserve
                     },
                     publish = { send(it) },
-                    tokenBudget = if (budgetSettings.totalRunTokens == Int.MAX_VALUE) 8192 else (budgetSettings.totalRunTokens / 10).coerceIn(0, 8192)
+                    tokenBudget = if (budgetSettings.totalRunTokens == Int.MAX_VALUE) 8192 else (budgetSettings.totalRunTokens / 10).coerceIn(0, 8192),
+                    deterministic = false
                 )
             } else {
                 null
@@ -6280,6 +6292,9 @@ class ChatRepositoryImpl(
         var providerToolFailures = 0
         var providerThinkingSeen = false
         var providerTextSeen = false
+        // A reasoning/progress event cannot stand in for an answer in the chat.
+        var visibleAnswerEmitted = false
+        var terminalFailureEmitted = false
         var accumulatedInputTokens = 0L
         var accumulatedOutputTokens = 0L
         var accumulatedTotalTokens = 0L
@@ -6345,10 +6360,18 @@ class ChatRepositoryImpl(
                         if (providerEvent.text.isNotEmpty()) progressLineage.append(providerEvent.lineage)
                         if (gitHubPublicProgress != null) {
                             val answer = gitHubPublicProgress.accept(providerEvent)
-                            if (answer.isNotEmpty()) emit(ApiState.Success(answer, progressLineage.lineage))
+                            if (answer.isNotBlank()) {
+                                visibleAnswerEmitted = true
+                                emit(ApiState.Success(answer, progressLineage.lineage))
+                            }
                         } else {
                             progressParser.accept(providerEvent.text).forEach { (progress, text) ->
-                                if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId)) else emit(ApiState.Success(text, progressLineage.lineage))
+                                if (progress) {
+                                    emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId))
+                                } else if (text.isNotBlank()) {
+                                    visibleAnswerEmitted = true
+                                    emit(ApiState.Success(text, progressLineage.lineage))
+                                }
                             }
                         }
                     }
@@ -6364,13 +6387,37 @@ class ChatRepositoryImpl(
                         progressParser.reset()
                         progressLineage.reset()
                         providerTextSeen = providerTextSeen || providerEvent.text.isNotBlank()
+                        visibleAnswerEmitted = visibleAnswerEmitted || providerEvent.text.isNotBlank()
                         if (editorialPass) dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordDelivery(observationKey, providerEvent.report, resolvedOutputCap)
                         emit(ApiState.CombinedAnswer(providerEvent.text, providerEvent.report, providerEvent.formatVersion))
                     }
                     is ProviderEvent.Failed -> {
+                        terminalFailureEmitted = true
                         val recovery = if (runId.startsWith("combined-synthesis:")) dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.from(providerEvent) else null
                         recovery?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordFailure(observationKey, it.category) }
-                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority), errorCode = providerEvent.errorCode, taskOutcome = providerEvent.taskOutcome, failureDetails = kotlinx.serialization.json.JsonObject(providerEvent.failureDetails.orEmpty() + mapOf("run_id" to kotlinx.serialization.json.JsonPrimitive(runId), "provider_kind" to kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name))), invocationId = providerEvent.invocationId))
+                        emit(
+                            ApiState.Error(
+                                providerEvent.message,
+                                providerEvent.progressDeadline,
+                                combinedFailure = recovery,
+                                providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority),
+                                errorCode = providerEvent.errorCode,
+                                taskOutcome = providerEvent.taskOutcome,
+                                failureDetails = kotlinx.serialization.json.JsonObject(
+                                    dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.boundaryFields(
+                                        dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.AGENT_FAILED_EVENT
+                                    ) + mapOf(
+                                        "failed_event_code_present" to kotlinx.serialization.json.JsonPrimitive(providerEvent.errorCode != null),
+                                        "failed_event_invocation_present" to kotlinx.serialization.json.JsonPrimitive(providerEvent.invocationId != null),
+                                        "failed_event_details_present" to kotlinx.serialization.json.JsonPrimitive(!providerEvent.failureDetails.isNullOrEmpty())
+                                    ) + providerEvent.failureDetails.orEmpty() + mapOf(
+                                        "run_id" to kotlinx.serialization.json.JsonPrimitive(runId),
+                                        "provider_kind" to kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name)
+                                    )
+                                ),
+                                invocationId = providerEvent.invocationId
+                            )
+                        )
                     }
                     is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent, providerEvent.researchDelivery))
                     is ProviderEvent.PhaseChanged -> {
@@ -6464,12 +6511,40 @@ class ChatRepositoryImpl(
                     }
 
                     is ProviderEvent.ToolResult -> Unit
-                    ProviderEvent.Completed -> if (gitHubPublicProgress != null) {
-                        val answer = gitHubPublicProgress.finish()
-                        if (answer.isNotEmpty()) emit(ApiState.Success(answer, progressLineage.lineage))
-                    } else {
-                        progressParser.accept("", flush = true).forEach { (progress, text) ->
-                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId)) else emit(ApiState.Success(text, progressLineage.lineage))
+                    ProviderEvent.Completed -> {
+                        if (gitHubPublicProgress != null) {
+                            val answer = gitHubPublicProgress.finish()
+                            if (answer.isNotBlank()) {
+                                visibleAnswerEmitted = true
+                                emit(ApiState.Success(answer, progressLineage.lineage))
+                            }
+                        } else {
+                            progressParser.accept("", flush = true).forEach { (progress, text) ->
+                                if (progress) {
+                                    emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId))
+                                } else if (text.isNotBlank()) {
+                                    visibleAnswerEmitted = true
+                                    emit(ApiState.Success(text, progressLineage.lineage))
+                                }
+                            }
+                        }
+                        if (!visibleAnswerEmitted && !terminalFailureEmitted) {
+                            // A provider can end a turn after thinking and tool
+                            // progress without ever delivering an answer. Report
+                            // an incomplete delivery; do not replay any tool call.
+                            emit(
+                                ApiState.Error(
+                                    "The model finished without a visible answer. No tool action was repeated; the unfinished response needs an authorized continuation.",
+                                    errorCode = "NO_VISIBLE_ANSWER",
+                                    failureDetails = kotlinx.serialization.json.buildJsonObject {
+                                        put("failed_stage", "delivery")
+                                        put("reason_code", "NO_VISIBLE_ANSWER")
+                                        put("run_id", runId)
+                                        put("provider_kind", platform.compatibleType.name)
+                                    }
+                                )
+                            )
+                            terminalFailureEmitted = true
                         }
                     }
                 }

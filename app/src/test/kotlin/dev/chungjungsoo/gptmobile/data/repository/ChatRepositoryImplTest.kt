@@ -284,6 +284,66 @@ class ChatRepositoryImplTest {
         assertEquals(0, api.streamChatCompletionCalls)
     }
 
+    @Test fun thinkingAndToolProgressCannotCompleteWithoutAnAnswer() = runBlocking {
+        val repository = createRepository()
+        val trace = mockk<ToolTraceSession>(relaxed = true)
+        coEvery { trace.finish(any(), any()) } returns null
+        val read = ProviderEvent.ToolCall("saved-read", "github_read", buildJsonObject { put("action", "read") })
+        val events = flowOf(
+            AgentRunEvent.Provider(ProviderEvent.ThinkingDelta("Thinking through the source.")),
+            AgentRunEvent.ToolStarted(read),
+            AgentRunEvent.ToolFinished(read, AgentToolResult(read.callId, ToolResultContent.Text("Observed result"), false)),
+            AgentRunEvent.Provider(ProviderEvent.Completed)
+        )
+        for (githubChat in listOf(false, true)) {
+            val states = repository.streamAgentEvents(
+                events,
+                customPlatform(),
+                "no-visible-answer-$githubChat",
+                1,
+                trace,
+                dispatchAuthority = RequestAuthorizationGuard("selected", null) {},
+                githubChat = githubChat
+            ).toList()
+            val error = states.filterIsInstance<ApiState.Error>().single()
+            assertEquals("NO_VISIBLE_ANSWER", error.errorCode)
+            assertEquals(JsonPrimitive("delivery"), error.failureDetails?.get("failed_stage"))
+            assertFalse(states.any { it is ApiState.Success || it is ApiState.CombinedAnswer })
+            assertTrue(states.any { it is ApiState.Thinking })
+        }
+    }
+
+    @Test fun aVisibleAnswerOrPriorFailureDoesNotCreateAnEmptyAnswerError() = runBlocking {
+        val repository = createRepository()
+        val trace = mockk<ToolTraceSession>(relaxed = true)
+        val success = repository.streamAgentEvents(
+            flowOf(
+                AgentRunEvent.Provider(ProviderEvent.TextDelta("Here is the verified answer.")),
+                AgentRunEvent.Provider(ProviderEvent.Completed)
+            ),
+            customPlatform(),
+            "visible-answer",
+            0,
+            trace,
+            dispatchAuthority = RequestAuthorizationGuard("selected", null) {}
+        ).toList()
+        assertTrue(success.any { it is ApiState.Success && it.textChunk.isNotBlank() })
+        assertFalse(success.any { it is ApiState.Error })
+
+        val failed = repository.streamAgentEvents(
+            flowOf(
+                AgentRunEvent.Provider(ProviderEvent.Failed("Provider offline", errorCode = "LOCAL_SERVICE_UNREACHABLE")),
+                AgentRunEvent.Provider(ProviderEvent.Completed)
+            ),
+            customPlatform(),
+            "failed-before-completion",
+            0,
+            trace,
+            dispatchAuthority = RequestAuthorizationGuard("selected", null) {}
+        ).toList()
+        assertEquals(listOf("LOCAL_SERVICE_UNREACHABLE"), failed.filterIsInstance<ApiState.Error>().map { it.errorCode })
+    }
+
     @Test fun nativeToolProgressAfterGatewayTelemetryReplacesStalePreflightSummary() = runBlocking {
         val repository = createRepository()
         val trace = mockk<ToolTraceSession>()
@@ -1706,6 +1766,11 @@ class ChatRepositoryImplTest {
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         val expectedDetails = buildJsonObject {
+            put("incident_capture_site", "AGENT_FAILED_EVENT")
+            put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+            put("failed_event_code_present", true)
+            put("failed_event_invocation_present", false)
+            put("failed_event_details_present", true)
             put("diagnostic_area", "PROVIDER")
             put("diagnostic_capture_mode", "INCIDENT")
             put("run_id_hash", IssueReportContext.identifierHash("run", runId))
@@ -1865,8 +1930,11 @@ class ChatRepositoryImplTest {
                 ApiState.Error(
                     "Gemini safety settings blocked the prompt: SAFETY",
                     failureDetails = buildJsonObject {
-                        put("incident_capture_site", "CHAT_REPOSITORY_ERROR_VALUE")
+                        put("incident_capture_site", "AGENT_FAILED_EVENT")
                         put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+                        put("failed_event_code_present", false)
+                        put("failed_event_invocation_present", false)
+                        put("failed_event_details_present", false)
                         put("run_id", runId)
                         put("provider_kind", "GOOGLE")
                     }
@@ -1903,8 +1971,11 @@ class ChatRepositoryImplTest {
                 ApiState.Error(
                     "Gemini safety settings blocked the response.",
                     failureDetails = buildJsonObject {
-                        put("incident_capture_site", "CHAT_REPOSITORY_ERROR_VALUE")
+                        put("incident_capture_site", "AGENT_FAILED_EVENT")
                         put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+                        put("failed_event_code_present", false)
+                        put("failed_event_invocation_present", false)
+                        put("failed_event_details_present", false)
                         put("run_id", runId)
                         put("provider_kind", "GOOGLE")
                     }
@@ -2107,6 +2178,11 @@ class ChatRepositoryImplTest {
                     "Service temporarily unavailable due to high error rates. Please wait a moment before trying again.",
                     errorCode = "CIRCUIT_BREAKER_OPEN",
                     failureDetails = kotlinx.serialization.json.buildJsonObject {
+                        put("incident_capture_site", kotlinx.serialization.json.JsonPrimitive("AGENT_FAILED_EVENT"))
+                        put("incident_phase_provenance", kotlinx.serialization.json.JsonPrimitive("CAPTURE_BOUNDARY_ONLY"))
+                        put("failed_event_code_present", true)
+                        put("failed_event_invocation_present", false)
+                        put("failed_event_details_present", true)
                         put("failed_stage", kotlinx.serialization.json.JsonPrimitive("provider_admission"))
                         put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
                         put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(5000L))
@@ -2151,6 +2227,11 @@ class ChatRepositoryImplTest {
                 failureDetails = buildJsonObject {
                     put("run_id", "bound-local-run")
                     put("provider_kind", "CUSTOM")
+                    put("incident_capture_site", "AGENT_FAILED_EVENT")
+                    put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+                    put("failed_event_code_present", true)
+                    put("failed_event_invocation_present", true)
+                    put("failed_event_details_present", true)
                     put("failed_stage", "request_validation")
                     put("http_status", 400)
                     put("reasonCode", "SELECTION_SCHEMA_INVALID")

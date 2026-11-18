@@ -2,6 +2,10 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipInputStream
+import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -21,13 +25,70 @@ class GitHubRichSummaryPresentationTest {
 
     @Test fun sourceObservationProducesHeadingAndShortBulletsWithoutAnInventedFix() {
         val output = GitHubRichSummaryPresentation.render(sample("The source read for Reader.kt returned a result for inspection."))
-        assertTrue(output.startsWith("### Source inspection"))
-        assertTrue(output.contains("- **Observed:**"))
+        assertTrue(output.startsWith("### Reviewing Reader.kt"))
+        assertFalse(output.contains("**Observed:**"))
         assertTrue(output.contains("Reader.kt"))
-        assertTrue(output.contains("- **Next:**"))
+        assertFalse(output.contains("**Next:**") || output.contains("- I’ll "))
+        assertTrue(output.contains("no repair has been verified"))
         assertFalse(output.contains("All tests passed"))
         assertFalse(output.contains("| Check state |"))
         assertTrue(GitHubRichSummaryPresentation.isRich(output))
+    }
+
+    @Test fun twoSourceReadsDescribeDifferentFilesInsteadOfRecyclingAHeading() {
+        val first = GitHubRichSummaryPresentation.render(sample("The source read for Renderer.kt returned a result for inspection."))
+        val second = GitHubRichSummaryPresentation.render(sample("The source read for Audio.kt returned a result for inspection."))
+        assertTrue(first.startsWith("### Reviewing Renderer.kt"))
+        assertTrue(second.startsWith("### Reviewing Audio.kt"))
+        listOf(first, second).forEach { text ->
+            assertTrue(text.contains("no repair has been verified"))
+            assertFalse(text.contains("Repository findings") || text.contains("**Next:**") || text.contains("**Observed:**"))
+        }
+    }
+
+    @Test fun failedSourceReadRemainsVisibleAlongsideLaterEvidence() {
+        val output = GitHubRichSummaryPresentation.render(
+            sample(
+                "The source read for Failure.kt failed.",
+                "The source read for Latest.kt returned a result for inspection."
+            )
+        )
+        assertTrue(output.startsWith("### Failure.kt needs attention"))
+        assertTrue(output.contains("Reading Failure.kt failed"))
+        assertTrue(output.contains("Latest.kt"))
+    }
+
+    @Test fun previouslyShownRoutineReadsAreNotRepeatedWhenNewEvidenceArrives() {
+        val earlier = sample("The source read for Earlier.kt returned a result for inspection.")
+        val later = earlier.copy(
+            revision = 2,
+            recentSteps = earlier.recentSteps + "The source read for Newer.kt returned a result for inspection."
+        )
+        val report = GitHubRichSummaryPresentation.render(
+            later,
+            GitHubRichSummaryPresentation.factKeys(earlier).toSet()
+        )
+        assertFalse(report.contains("Earlier.kt"))
+        assertTrue(report.contains("Newer.kt"))
+        assertFalse(report.contains("**Next:**"))
+    }
+
+    @Test fun earlierUnresolvedFailureSurvivesNewSourceWithoutRepeatingOtherReads() {
+        val prior = sample(
+            "The source read for Failure.kt failed.",
+            "The source read for Old.kt returned a result for inspection."
+        )
+        val updated = prior.copy(
+            revision = 2,
+            recentSteps = prior.recentSteps + "The source read for Latest.kt returned a result for inspection."
+        )
+        val report = GitHubRichSummaryPresentation.render(
+            updated,
+            GitHubRichSummaryPresentation.factKeys(prior).toSet()
+        )
+        assertTrue(report.contains("Failure.kt failed"))
+        assertTrue(report.contains("Latest.kt"))
+        assertFalse(report.contains("Old.kt"))
     }
 
     @Test fun theSameFactsDoNotChangeWhenOnlyTheClockOrNextStepChanges() {
@@ -57,13 +118,42 @@ class GitHubRichSummaryPresentationTest {
         assertEquals(5, csv.trim().lines().size)
     }
 
+    @Test fun workbookPreservesNumericCountsAndStoresTheSourceAsText() {
+        val markdown = GitHubRichSummaryPresentation.render(
+            sample("Recorded checks for =SUM(1,2)&<job>: 15 successful, 4 skipped, 0 in progress, 1 failed (incomplete captured list).")
+        )
+        val output = ByteArrayOutputStream()
+        GitHubSummaryWorkbook.write(output, requireNotNull(GitHubRichSummaryPresentation.checkTable(markdown)))
+        val parts = mutableMapOf<String, ByteArray>()
+        ZipInputStream(ByteArrayInputStream(output.toByteArray())).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                parts[entry.name] = zip.readBytes()
+            }
+        }
+        assertEquals(
+            setOf("[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/worksheets/sheet1.xml"),
+            parts.keys
+        )
+        val factory = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+        val sheet = factory.newDocumentBuilder().parse(ByteArrayInputStream(parts.getValue("xl/worksheets/sheet1.xml")))
+        val cells = sheet.getElementsByTagNameNS("*", "c")
+        val byRef = (0 until cells.length).map { cells.item(it) }.associateBy { it.attributes.getNamedItem("r").nodeValue }
+        assertEquals("n", byRef.getValue("B2").attributes.getNamedItem("t").nodeValue)
+        assertEquals("15", byRef.getValue("B2").textContent)
+        assertEquals("inlineStr", byRef.getValue("C2").attributes.getNamedItem("t").nodeValue)
+        assertEquals("=SUM(1,2)&<job>", byRef.getValue("C2").textContent)
+        assertEquals("Incomplete", byRef.getValue("D2").textContent)
+        assertEquals(0, sheet.getElementsByTagNameNS("*", "f").length)
+    }
+
     @Test fun incompleteRecordedChecksKeepJobScopeCoverageAndNextAction() {
         val source = "Recorded checks for Job 7: 2 successful, 1 skipped, 0 in progress, 4 failed (incomplete captured list)."
         val result = GitHubRichSummaryPresentation.render(sample(source))
         assertTrue(result.startsWith("### Partial recorded check results"))
         assertTrue(result.contains("**Source:** Job 7"))
         assertTrue(result.contains("**Coverage:** The captured check list is incomplete"))
-        assertTrue(result.contains("**Next:**"))
+        assertTrue(result.contains("- I’ll "))
         assertTrue(result.contains("| Failed | 4 |"))
         assertEquals(4, GitHubRichSummaryPresentation.chartData(result).size)
         assertTrue(GitHubRichSummaryPresentation.csv(result)?.contains("Failed,4") == true)
@@ -79,7 +169,7 @@ class GitHubRichSummaryPresentationTest {
             )
         )
         assertTrue(result.length <= 1600)
-        assertTrue(result.contains("**Next:**"))
+        assertTrue(result.contains("- I’ll "))
         assertTrue(result.endsWith("| Failed | 2 |"))
         assertEquals(4, GitHubRichSummaryPresentation.chartData(result).size)
     }
@@ -122,7 +212,7 @@ class GitHubRichSummaryPresentationTest {
         )
         assertTrue(output.contains("Failure.kt failed"))
         assertTrue(output.contains("Latest.kt"))
-        assertTrue(output.contains("Attention"))
+        assertTrue(output.contains("needs attention"))
         assertFalse(output.contains("successfully fixed"))
     }
 
@@ -164,7 +254,7 @@ class GitHubRichSummaryPresentationTest {
             ).copy(next = special)
         )
         assertTrue(output.length <= 1600)
-        assertTrue(output.contains("**Next:**"))
+        assertTrue(output.contains("- I’ll "))
         assertTrue(output.endsWith("| Other completed | 100000 |"))
         assertEquals(5, GitHubRichSummaryPresentation.chartData(output).size)
         assertTrue(requireNotNull(GitHubRichSummaryPresentation.csv(output)).contains("Incomplete"))
@@ -195,15 +285,15 @@ class GitHubRichSummaryPresentationTest {
         assertEquals(1, progress.tick().filterIsInstance<ApiState.ActivitySummary>().size)
 
         read("src/Beta.kt", "beta-1")
-        now = 90_000L
+        now = 180_000L
         assertEquals(1, progress.tick().filterIsInstance<ApiState.ActivitySummary>().size)
 
         read("src/Alpha.kt", "alpha-2")
-        now = 135_000L
+        now = 315_000L
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
 
         read("src/Alpha.kt", "alpha-3", failed = true)
-        now = 180_000L
+        now = 450_000L
         val newest = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertTrue(newest.text.contains("failed"))
     }
@@ -234,10 +324,10 @@ class GitHubRichSummaryPresentationTest {
                 )
             )
         )
-        now = 90_000L
+        now = 180_000L
         val fallback = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertFalse(fallback.modelAuthored)
-        assertTrue(fallback.text.startsWith("### Source inspection"))
+        assertTrue(fallback.text.startsWith("### Reviewing ") && fallback.text.contains("Reader.kt"))
         assertTrue(fallback.text.contains("Reader.kt"))
     }
 

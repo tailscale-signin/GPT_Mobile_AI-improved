@@ -57,6 +57,16 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_interrupted_run_and_unavailable_continuation_keep_their_codes_in_approved_issues(self):
+        for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE"):
+            with self.subTest(code=code):
+                report = self.report(self.capture())
+                report.pop("context")
+                report.update(feature="chat", errorCode=code, events=["-0ms E chat " + code])
+                _, issue = issue_from_report(report)
+                self.assertIn(code, issue["title"])
+                self.assertIn(code, issue["body"])
+
     def test_voice_pronunciation_reason_is_closed_and_contains_no_spoken_word(self):
         values = {
             "incident_phase": "voice_playback",
@@ -86,6 +96,87 @@ class IncidentReportContractTest(unittest.TestCase):
             forged["values"]["tool_protocol_frame_kind"] = invalid
             with self.assertRaises(ValueError):
                 validate_diagnostics(forged)
+
+    def test_copilot_actions_and_tool_precheck_reasons_roundtrip_without_raw_tool_arguments(self):
+        reasons = (
+            "TOOL_ARGUMENT_SCHEMA_REJECTED",
+            "TOOL_ARGUMENT_CONSTRAINT_REJECTED",
+            "SAVED_VIEW_CURSOR_MALFORMED",
+            "SAVED_VIEW_CONTEXT_MISMATCH",
+        )
+        actions = ("agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable")
+        for action in actions:
+            with self.subTest(action=action):
+                capture = self.capture("TOOL", {"native_tool_action": action, "tool_action": action})
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["context"].update(stage="tool_precheck", dispatched=False)
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                _, issue = issue_from_report(report)
+                self.assertIn(action, issue["body"])
+                self.assertNotIn("private-token-value", issue["body"])
+        for reason in reasons:
+            with self.subTest(reason=reason):
+                report = self.report(self.capture("TOOL"))
+                report["context"].update(stage="tool_precheck", dispatched=False, reasonCode=reason)
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                _, issue = issue_from_report(report)
+                self.assertIn(reason, issue["body"])
+                invalid = copy.deepcopy(report)
+                invalid["context"]["dispatched"] = True
+                with self.assertRaises(ReportError):
+                    issue_from_report(invalid)
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"native_tool_action": "private_copilot_command"}))
+
+    def test_protocol_recovery_outcome_is_closed_and_area_scoped(self):
+        choices = (
+            "TEXT_FALLBACK_EXHAUSTED",
+            "TOOL_RETRY_EXHAUSTED",
+            "BACKEND_HANDLED_TOOLS",
+            "SINGLE_PASS_NOT_RETRYABLE",
+            "NO_SAFE_REPAIR",
+        )
+        for value in choices:
+            with self.subTest(value=value):
+                observed = self.capture("PROVIDER", {
+                    "provider_failure_code": "TOOL_PROTOCOL_INVALID_FRAME",
+                    "tool_protocol_recovery_outcome": value,
+                })
+                self.assertEqual(observed, validate_diagnostics(copy.deepcopy(observed)))
+        for invalid in ("PRIVATE_TOOL_ARGS", "", "UNKNOWN", 3, None):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                forged = self.capture("PROVIDER", {"tool_protocol_recovery_outcome": invalid})
+                validate_diagnostics(forged)
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"tool_protocol_recovery_outcome": "NO_SAFE_REPAIR"}))
+
+    def test_claim_extraction_evidence_is_typed_bounded_and_private(self):
+        details = {
+            "incident_phase": "claim_extraction",
+            "causal_provenance": "UNAVAILABLE",
+            "causal_failure_code": "GITHUB_TASK_INCOMPLETE",
+            "incident_evidence_status": "TYPED_EVIDENCE",
+            "claim_extraction_failure_kind": "SCHEMA_REJECTED",
+            "claim_extraction_response_characters": 1024,
+            "claim_extraction_max_claims": 2,
+            "claim_extraction_completed": True,
+        }
+        capture = self.capture("PROVIDER", details)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for key, invalid in (
+            ("claim_extraction_failure_kind", "private-response"),
+            ("claim_extraction_response_characters", -1),
+            ("claim_extraction_max_claims", "8"),
+            ("claim_extraction_completed", "true"),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                bad = copy.deepcopy(capture)
+                bad["values"][key] = invalid
+                validate_diagnostics(bad)
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"claim_extraction_failure_kind": "SCHEMA_REJECTED"}))
+        self.assertNotIn("private-response", json.dumps(capture))
 
     def test_pending_gateway_tool_results_accept_closed_handoff_diagnostics(self):
         capture = self.capture("PROVIDER", {
@@ -1545,7 +1636,7 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_run_failure_evidence_accepts_only_closed_values_and_stays_in_the_capsule(self):
         examples = (
             ("TOOL", {"semantic_read_rules": ["LINE_WINDOW"], "validation_field_names": ["ranges", "end_line"],
-                      "dependency_admission_reasons": ["CALL_ALLOWANCE"], "saved_view_restore_state": "CURSOR_INDEX_MISSING",
+                      "dependency_admission_reasons": ["CALL_ALLOWANCE"], "saved_view_restore_state": "BODY_MISSING_INDEX_PRESENT",
                       "url_reader_dns_state": "RECOVERY_COOLDOWN", "url_reader_availability": "NEGATIVE_CACHE"}),
             ("INCIDENT", {"incident_capture_site": "CHAT_REPOSITORY_PREFLIGHT", "incident_origin": "APPLICATION",
                           "local_readiness_failure": "PENDING_CLEANUP", "pending_tool_count": 2,
@@ -1682,6 +1773,24 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
         self.assertNotIn("exception_type_hashes", capture["values"])
         self.assertTrue({"stage", "httpStatus", "dispatched", "retryable", "remoteAcceptance", "exceptionFingerprint"}.issubset(report["context"]["unavailableFields"]))
+
+    def test_failed_event_presence_flags_roundtrip_without_untrusted_payload(self):
+        values = {
+            "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",
+            "causal_failure_code": "CHAT_FAILED", "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+            "incident_capture_site": "AGENT_FAILED_EVENT", "incident_phase_provenance": "CAPTURE_BOUNDARY_ONLY",
+            "failed_event_code_present": False, "failed_event_invocation_present": False,
+            "failed_event_details_present": False,
+        }
+        report = self.report(self.capture("INCIDENT", values))
+        report.update(feature="chat", errorCode="CHAT_FAILED")
+        _, issue = issue_from_report(report)
+        self.assertIn("AGENT_FAILED_EVENT", issue["body"])
+        for key in capsule.FAILED_EVENT_FIELDS:
+            invalid = copy.deepcopy(report)
+            invalid["context"]["diagnostics"]["values"][key] = "private-value"
+            with self.subTest(key=key), self.assertRaises(ReportError):
+                issue_from_report(invalid)
 
     def test_exception_capture_vocabulary_matches_native_contract(self):
         source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()

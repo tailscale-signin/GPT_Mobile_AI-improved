@@ -62,9 +62,24 @@ internal class GitHubEvidenceBook(
             saved["repository"] == JsonPrimitive(repository) &&
             saved["selected_branch"] == JsonPrimitive(branch)
         ) {
-            // Older checkpoints used CONDITIONAL for an unobserved mode.
-            if (saved["decision_mode"] != JsonPrimitive("UNKNOWN") || saved["state"] == JsonPrimitive("UNKNOWN")) return@withLock saved
-            return@withLock GitHubTestChecklist.fixtureApprovalPreflight(null, binding, repository, branch, saved["runtime_identity"] as? JsonObject ?: runtimeIdentity())
+            // The first known task-bound decision is immutable. An older UNKNOWN
+            // checkpoint may be refreshed only with a current authorization
+            // revision and a known effective decision, never from display settings.
+            if (saved["decision_mode"] != JsonPrimitive("UNKNOWN")) return@withLock saved
+            if (fixtureDecisionMode != null && authorizationDigest != null) {
+                val rechecked = JsonObject(
+                    GitHubTestChecklist.fixtureApprovalPreflight(fixtureDecisionMode, binding, repository, branch, runtimeIdentity()) +
+                        ("recheck_source" to JsonPrimitive("TASK_BOUND_AUTHORIZATION_REVISION"))
+                )
+                save(fixturePreflightId, rechecked)
+                return@withLock rechecked
+            }
+            // Older checkpoints used CONDITIONAL for an unobserved mode. Do
+            // not treat this as a conditional approval supplied by the user.
+            if (saved["state"] != JsonPrimitive("UNKNOWN")) {
+                return@withLock GitHubTestChecklist.fixtureApprovalPreflight(null, binding, repository, branch, saved["runtime_identity"] as? JsonObject ?: runtimeIdentity())
+            }
+            return@withLock saved
         }
         val preflight = GitHubTestChecklist.fixtureApprovalPreflight(fixtureDecisionMode, binding, repository, branch, runtimeIdentity())
         save(fixturePreflightId, preflight)

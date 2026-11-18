@@ -188,7 +188,9 @@ class GitHubResultRetentionTest {
         }
         assertEquals(original.getValue("items").jsonArray.single().jsonObject.getValue("body").jsonPrimitive.content.take(recovered.length), recovered.toString())
         assertEquals("Recovery uses the captured original, without a remote refresh", 1, calls)
-        val second = reader.execute("page-2", remote)
+        // Saved local reconstruction does not import page-1 remote coverage into a new tool.
+        // Continue the upstream traversal on the original observer instead.
+        val second = tool.execute("page-2", remote)
         assertFalse(second.isError)
         assertEquals(2, calls)
         assertEquals(JsonPrimitive(false), body(second).getValue("data").jsonObject["has_more"])

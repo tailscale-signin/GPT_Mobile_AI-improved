@@ -97,7 +97,7 @@ class ToolPrecheckIssueReportTest {
         assertEquals(JsonPrimitive(1), report.context?.diagnostics?.values?.get("unknown_field_count"))
         assertEquals("tool_precheck", report.context?.stage)
         assertEquals(false, report.context?.dispatched)
-        assertNull(report.context?.reasonCode)
+        assertEquals("TOOL_ARGUMENT_SCHEMA_REJECTED", report.context?.reasonCode)
         assertNull(report.context?.missingFields)
         assertNull(report.context?.invalidFields)
         assertFalse(report.approvedPayload().contains("private"))

@@ -119,6 +119,7 @@ internal class IssueReportSubmission(
         private const val MAX_RECEIPT_BYTES = 1024L
         private const val MAX_LEGACY_READINESS_BYTES = 1024L
         private const val MAX_READINESS_BYTES = 4096L
+        private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
             GitHubAcceptancePublicationEvidence.FEATURE,
             GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE,
@@ -131,7 +132,8 @@ internal class IssueReportSubmission(
             IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE,
             IssueReportIncidentCapsule.URL_READER_AVAILABILITY_FEATURE,
             IssueReportIncidentCapsule.GITHUB_POLICY_RESPONSE_FEATURE,
-            "REPORT_TEXT_ATTACHMENT_V1"
+            "REPORT_TEXT_ATTACHMENT_V1",
+            TERMINAL_DELIVERY_CODES_FEATURE
         )
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
         private val RECOVERY_CODES = setOf(
@@ -157,6 +159,7 @@ internal class IssueReportSubmission(
                     code(event)?.let(REPORT_EVENT::matchEntire)?.groupValues?.get(1)
                 }
             return buildSet {
+                if ("GITHUB_RUN_INTERRUPTED" in codes || "OUTPUT_CONTINUATION_UNAVAILABLE" in codes) add(TERMINAL_DELIVERY_CODES_FEATURE)
                 if ("attachment" in report) add("REPORT_TEXT_ATTACHMENT_V1")
                 if (codes.any { it in REVIEW_CODES }) add("REVIEW_COMPARISON_V1")
                 if (codes.any { it in RECOVERY_CODES }) add("ISSUE_RECOVERY_CODES_V1")

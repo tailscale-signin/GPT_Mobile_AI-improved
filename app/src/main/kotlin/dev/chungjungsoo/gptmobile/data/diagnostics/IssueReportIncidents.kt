@@ -40,7 +40,9 @@ internal object IssueReportIncidents {
     private const val DUPLICATE_MILLIS = 3_000L
     private const val PENDING_LIMIT = 24
     private val lock = Any()
-    private val events = ArrayDeque<Pair<Long, String>>()
+    private data class RecentEvent(val timeMillis: Long, val line: String, val codedWarning: Boolean)
+
+    private val events = ArrayDeque<RecentEvent>()
     private data class FailureKey(
         val feature: ReportFeature,
         val code: String,
@@ -162,7 +164,7 @@ internal object IssueReportIncidents {
     fun recentEvents(): List<String> = synchronized(lock) {
         if (isPrivate) return emptyList()
         val now = System.nanoTime() / 1_000_000L
-        events.filter { it.first >= now - RECENT_MILLIS }.map { (time, event) -> "-${(now - time).coerceAtLeast(0)}ms $event" }
+        events.filter { it.timeMillis >= now - RECENT_MILLIS }.map { "-${(now - it.timeMillis).coerceAtLeast(0)}ms ${it.line}" }
     }
 
     fun log(tag: String, level: String, tracking: Boolean) = log(tag, level, tracking, null)
@@ -341,6 +343,18 @@ internal object IssueReportIncidents {
             ?: "GITHUB_TASK_INCOMPLETE".takeIf {
                 code in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED")
             }
+        // A confirmed provider-side 403 is not a transient transport retry.
+        // Keep the provider's observed rejection category and HTTP status, but
+        // publish an actionable public issue code without response-body text.
+        val observedPermissionDenial =
+            !localRecovery &&
+                specificCode == null &&
+                input.provider != null &&
+                input.stage in setOf("model_invocation", "provider_generation") &&
+                input.httpStatus == 403 &&
+                input.remoteAcceptance == "NO" &&
+                input.requiresReconciliation != true &&
+                rejection == "PERMISSION"
         val observedRateLimit = if (!localRecovery && specificCode == null && !rateLimited) {
             input.provider != null &&
                 input.stage in setOf("model_invocation", "provider_generation") &&
@@ -352,7 +366,15 @@ internal object IssueReportIncidents {
         }
         // A rejected provider attempt may lack a resumable checkpoint. Retain its
         // observed cause without treating the report as authorization to retry.
-        val publicCode = if (localRecovery) "CHAT_FAILED" else specificCode ?: if (rateLimited || observedRateLimit) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED"
+        val publicCode = if (localRecovery) {
+            "CHAT_FAILED"
+        } else {
+            specificCode ?: when {
+                observedPermissionDenial -> "SOURCE_ACCESS_BLOCKED"
+                rateLimited || observedRateLimit -> "PROVIDER_RATE_LIMITED"
+                else -> "CHAT_FAILED"
+            }
+        }
         val diagnosticFields = if (publicCode in dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.codes) {
             fields + mapOf(
                 "diagnostic_area" to "GATEWAY",
@@ -400,7 +422,15 @@ internal object IssueReportIncidents {
         } else {
             fields
         }
-        failure(ReportFeature.CHAT, publicCode, error, diagnosticFields + listOfNotNull(invocationId?.let { "invocation_id" to it }).toMap(), "CHAT_FAILURE")
+        val recoveryFields = if (observedPermissionDenial) {
+            diagnosticFields + mapOf(
+                "retryable" to false,
+                "recovery_action" to "RETRY_AFTER_CONFIGURATION_CHANGE"
+            )
+        } else {
+            diagnosticFields
+        }
+        failure(ReportFeature.CHAT, publicCode, error, recoveryFields + listOfNotNull(invocationId?.let { "invocation_id" to it }).toMap(), "CHAT_FAILURE")
     }
 
     /** Called by the existing uncaught exception handler before it delegates to Android. */
@@ -456,8 +486,19 @@ internal object IssueReportIncidents {
 
     private fun addEvent(level: Char, feature: ReportFeature, code: String? = null) {
         val line = "$level ${feature.name.lowercase()}" + (code?.let { " $it" } ?: "")
-        if (events.size == IssueReport.EVENT_LIMIT) events.removeFirst()
-        events.addLast(System.nanoTime() / 1_000_000L to line)
+        val now = System.nanoTime() / 1_000_000L
+        while (events.firstOrNull()?.let { it.timeMillis < now - RECENT_MILLIS } == true) events.removeFirst()
+        if (events.size == IssueReport.EVENT_LIMIT) {
+            // Keep recent activity and one instance of each recent coded warning or error.
+            // A busy tool batch otherwise evicts the entire failure history with info events.
+            val retained = events.indices.reversed().asSequence()
+                .filter { events[it].codedWarning }
+                .distinctBy { events[it].line }
+                .take(IssueReport.EVENT_LIMIT / 2)
+                .toSet()
+            events.removeAt(events.indices.first { it !in retained })
+        }
+        events.addLast(RecentEvent(now, line, code != null && level in "WEF"))
     }
 
     private fun addPending(report: IssueReport) {

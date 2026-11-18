@@ -8,6 +8,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolEvidenceContextBudgetExceptionTest {
+    @Test fun unknownToolRouteIsBudgetedBeforeTheRequestExhaustsOutput() {
+        val configured = TokenBudgetSettings(contextTokens = Int.MAX_VALUE, outputTokens = 4096)
+        val planned = ReplayAllowance.conservativeToolPlanningBudget(configured, true)
+        assertEquals(4096, planned.contextTokens)
+        assertEquals(768, planned.outputTokens)
+        val admitted = ReplayAllowance.allocate(planned.contextTokens, 2100, planned.outputTokens, 4096)
+        assertTrue(admitted.output > 0 && admitted.replay > 0)
+        assertEquals(0, ReplayAllowance.allocate(Int.MAX_VALUE, 3802, 4096, 4096).output)
+        assertSame(configured, ReplayAllowance.conservativeToolPlanningBudget(configured, false))
+        val known = TokenBudgetSettings(contextTokens = 32768, outputTokens = 4096)
+        assertSame(known, ReplayAllowance.conservativeToolPlanningBudget(known, true))
+    }
+
     @Test fun positiveReplyAndEvidenceReturnTheSameAllocation() {
         val allocation = ReplayAllowance.allocate(5632, 2400, 4096, 4096)
         assertEquals(1309, allocation.output)

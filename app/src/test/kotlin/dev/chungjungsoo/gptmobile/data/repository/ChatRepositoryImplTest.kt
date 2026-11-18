@@ -1173,7 +1173,7 @@ class ChatRepositoryImplTest {
         repeat(2) {
             val bound = repository.resolveDelegatedTools(customPlatform(), "parent", config).single()
             val result = bound.execute("same-call", JsonObject(emptyMap()))
-            assertFalse(result.isError)
+            assertFalse("Approved delegated tool rejected ${result.errorCode}: ${result.content}", result.isError)
             assertEquals("same-call", result.callId)
             assertTrue(bound.execute("over-budget", JsonObject(emptyMap())).isError)
         }

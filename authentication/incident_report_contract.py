@@ -10,6 +10,10 @@ import re
 
 
 ACTIONS = {
+    'agent_merge_status',
+    'agent_merge_enable',
+    'agent_merge_update',
+    'agent_merge_disable',
     'artifacts',
     'branches',
     'cancel',

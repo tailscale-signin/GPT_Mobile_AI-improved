@@ -65,6 +65,11 @@ class ChatBottomIndicatorTest {
     private lateinit var state: LazyListState
     private lateinit var scope: CoroutineScope
 
+    @Test fun jumpArrowRespectsTheSavedResponseAnimationPreference() {
+        assertEquals(1000, chatScrollArrowFadeMillis(true))
+        assertEquals(0, chatScrollArrowFadeMillis(false))
+    }
+
     @Test fun manualBottomArrivalAndButtonHaveTheSameIndicatorAndFollowBehavior() {
         animate = true
         setConversation()

@@ -68,7 +68,8 @@ internal fun ChatBottomIndicator(
             }
         }
         val reveal = if (scrollInput == null) true else heldVisible && hasOlderContent
-        AnimatedVisibility(visible = reveal, enter = fadeIn(tween(1000)), exit = fadeOut(tween(1000))) {
+        val fadeMillis = chatScrollArrowFadeMillis(animate)
+        AnimatedVisibility(visible = reveal, enter = fadeIn(tween(fadeMillis)), exit = fadeOut(tween(fadeMillis))) {
             ScrollToBottomButton(isGenerating = generating, onClick = onFollow)
         }
         return
@@ -126,3 +127,6 @@ fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
         )
     }
 }
+
+/** Motion-off settings skip the jump arrow's entrance/exit tween. */
+internal fun chatScrollArrowFadeMillis(animate: Boolean): Int = if (animate) 1000 else 0

@@ -672,6 +672,60 @@ class IssueReportIncidentCapsuleTest {
         )
     }
 
+    @Test fun toolPrecheckReportsSafeSchemaReasonsAndCopilotActionsWithoutPrivateArguments() {
+        val reasons = listOf(
+            "TOOL_ARGUMENT_SCHEMA_REJECTED",
+            "TOOL_ARGUMENT_CONSTRAINT_REJECTED",
+            "SAVED_VIEW_CURSOR_MALFORMED",
+            "SAVED_VIEW_CONTEXT_MISMATCH"
+        )
+        for (reason in reasons) {
+            val context = capture(
+                ReportFeature.TOOLS,
+                "TOOL_RESULT",
+                "INVALID_ARGUMENTS",
+                mapOf(
+                    "diagnostic_area" to "TOOL",
+                    "failed_stage" to "tool_precheck",
+                    "dispatched" to false,
+                    "requires_reconciliation" to false,
+                    "operation" to "github_pr",
+                    "reason_code" to reason,
+                    "tool_reason_code" to reason.takeIf {
+                        it in setOf("TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "SAVED_VIEW_CONTEXT_MISMATCH")
+                    },
+                    "secret_args" to "private-GitHub-token"
+                )
+            )
+            assertEquals(reason, context.reasonCode)
+            assertTrue(requireNotNull(context.diagnostics).isValid())
+            val approved = report(context).approvedPayload()
+            assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.parseToJsonElement(approved).jsonObject["context"]))
+            assertFalse(approved.contains("private-GitHub-token"))
+        }
+        for (action in listOf("agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable")) {
+            val context = capture(
+                ReportFeature.TOOLS,
+                "TOOL_RESULT",
+                "INVALID_ARGUMENTS",
+                mapOf(
+                    "diagnostic_area" to "TOOL",
+                    "failed_stage" to "tool_precheck",
+                    "dispatched" to false,
+                    "operation" to "github_pr",
+                    "native_tool_action" to action,
+                    "tool_action" to action,
+                    "private_body" to "private-message-content"
+                )
+            )
+            val diagnostic = requireNotNull(context.diagnostics)
+            assertEquals(JsonPrimitive(action), diagnostic.values["native_tool_action"])
+            assertEquals(JsonPrimitive(action), diagnostic.values["tool_action"])
+            assertTrue(diagnostic.isValid())
+            assertFalse(report(context).approvedPayload().contains("private-message-content"))
+        }
+    }
+
     private fun capture(feature: ReportFeature, source: String, code: String, fields: Map<String, Any?>) =
         IssueReportContext.fromFields(source, IssueReportIncidentCapsule.fields(feature, source, code, fields), time)
 

@@ -3,6 +3,13 @@ package dev.chungjungsoo.gptmobile.data.context
 /** Allocate reply and actionable evidence within the resolved route ceiling. */
 internal object ReplayAllowance {
     data class Allocation(val output: Int, val replay: Int, val ceiling: Int, val input: Int, val safety: Int)
+
+    /** Unknown provider context is not a verified unlimited capacity. Plan tool work before history/schema selection. */
+    fun conservativeToolPlanningBudget(settings: TokenBudgetSettings, toolEvidenceRequired: Boolean): TokenBudgetSettings {
+        if (!toolEvidenceRequired || settings.contextTokens != Int.MAX_VALUE) return settings
+        val output = settings.outputTokens.takeIf { it > 0 } ?: 768
+        return settings.copy(contextTokens = 4096, outputTokens = minOf(output, 768))
+    }
     fun allocate(context: Int, input: Int, output: Int, fallback: Int): Allocation {
         // Int.MAX_VALUE denotes unknown/unlimited, not a verified route capacity.
         val ceiling = if (context in 1 until Int.MAX_VALUE) context else fallback.coerceIn(0, 4096)

@@ -14,6 +14,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubProfileAuditSuiteTest {
+
+    @Test fun selectedActionSchemasReachGitHubBenchmarkModelsWithoutWeakeningFixtures() = runBlocking {
+        val cases = GitHubProfileAuditSuite.cases(allActions = false)
+        for (test in cases) {
+            val fixture = requireNotNull(GitHubProfileAuditSuite.fixture(test))
+            val scenario = BenchmarkToolScenario(test, "EXACT-FIXTURE-CODE")
+            val advertised = scenario.tools.single().definition.inputSchema
+            val action = fixture.action ?: continue
+            val contract = (advertised["properties"] as? JsonObject)?.get("action") as? JsonObject ?: continue
+            assertEquals(test.id, JsonArray(listOf(JsonPrimitive(action))), contract["enum"])
+            val exact = ProviderEvent.ToolCall("exact-" + test.id, fixture.operation, fixture.arguments)
+            assertTrue(test.id, scenario.valid(exact))
+            assertFalse(test.id, scenario.tools.single().execute(exact.callId, exact.arguments).isError)
+        }
+    }
+
     @Test
     fun quickSuiteUsesExactlyOneCasePerCurrentGitHubTool() {
         val quick = GitHubProfileAuditSuite.cases(allActions = false)

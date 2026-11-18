@@ -66,6 +66,7 @@ internal object GitHubProfileAuditSuite {
                 workload = WORKLOAD,
                 validatorVersion = "benchmark-validator-v5",
                 prompt = "You are testing an isolated, in-memory GitHub tool fixture, NOT an actual repository. " +
+                    "Only this case's selected GitHub action is advertised; do not choose other actions. " +
                     "Call the provided tool " + item.operation + " exactly once using precisely these arguments: " +
                     item.arguments + ". After receiving the tool result, output only the value of FIXTURE_CODE, no other text or tool call."
             )

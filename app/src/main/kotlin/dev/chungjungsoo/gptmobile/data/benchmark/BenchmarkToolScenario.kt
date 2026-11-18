@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
@@ -42,7 +43,14 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
 
     val tools: List<AgentTool> = when {
         githubFixture != null -> listOf(
-            tool(githubFixture.operation, "Offline GitHub tool-call fixture: no real connection or remote write.", githubFixture.definition.inputSchema) { id, args ->
+            tool(
+                githubFixture.operation,
+                "Offline GitHub tool-call fixture: no real connection or remote write.",
+                // Keep host validation strict. Only the advertised selected action
+                // contract is projected for the remote model's one requested call.
+                (githubFixture.action?.let { GitHubActionSchema.project(githubFixture.definition, it) }
+                    ?: githubFixture.definition).inputSchema
+            ) { id, args ->
                 if (args == githubFixture.arguments && ToolArgumentValidator.errors(args, githubFixture.definition.inputSchema).isEmpty()) {
                     result(id, "FIXTURE_CODE=$code")
                 } else {

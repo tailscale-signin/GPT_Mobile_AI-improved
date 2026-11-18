@@ -73,9 +73,26 @@ jobs:
         timeout-minutes: 10
         run: python3 scripts/check_model_configuration_cache.py
 
+      # Cache only the publisher-pinned Robolectric files, not test or coverage
+      # results. The provisioner rechecks SHA-512 on every restored jar and POM;
+      # corrupted/foreign cached bytes never become accepted dependencies.
+      - name: Restore verified Robolectric runtime cache
+        id: robolectric-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: robolectric-sha512-linux-${{ hashFiles('scripts/provision_robolectric_sdks.py') }}
+
       - name: Provision verified Robolectric runtimes
         timeout-minutes: 10
         run: python3 scripts/provision_robolectric_sdks.py
+
+      - name: Save verified Robolectric runtime cache
+        if: success() && steps.robolectric-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: robolectric-sha512-linux-${{ hashFiles('scripts/provision_robolectric_sdks.py') }}
 
       # The diagnostic workflow reproduced heap exhaustion when KSP and KAPT
       # shared a process. Keep Room generation, annotations and compilation separate.

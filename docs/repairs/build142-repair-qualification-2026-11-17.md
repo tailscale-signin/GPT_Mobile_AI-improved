@@ -72,3 +72,63 @@ regressions for short durable allowances, strict finite range conflicts, bounded
 EOF, the selected issue list, structured cursor rejection, and reporter
 provenance. This record describes the candidate and its intake. Final-head CI,
 hardware and live service observations must be recorded separately.
+
+
+## Late November 17 build-142 continuation — unresolved issue cohort
+
+The next installed Android 0.9.66.8 build-142 archive contains 45 tool-event rows
+(43 completed and two rejected GitHub search calls), 49 model-invocation rows
+and no source mutation or commit operation. The terminal run is
+EVIDENCE_MISSING / GITHUB_EVIDENCE_REQUIRED; it has no retained tested SHA.
+These are observations from the installed build, not validation of this PR head.
+
+* **#1562**: both source requests set max_new_blobs=0 (outside the declared
+  1..100 range). One uses initial index_cursor=0; the other has no cursor.
+  GitHubRecoveryCalls.repairSourceRead now clamps this bounded first-page
+  parameter before native admission without changing invocation identity.
+  It still rejects opaque/advanced cursors, malformed parameter types,
+  extra unknown fields and later-page rewrites. Direct native, provider-recovery,
+  validator and cursor-guard regressions were added.
+* **#1561**: an observed OpenRouter HTTP 403 reports category PERMISSION and
+  remote acceptance NO. This is not a recoverable provider 429.
+  IssueReportIncidents.chatFailure now classifies this tightly evidenced
+  case as SOURCE_ACCESS_BLOCKED with retryable=false and
+  RETRY_AFTER_CONFIGURATION_CHANGE. Unknown acceptance, other HTTP statuses
+  and untyped provider text do not get this inference. Actual provider access
+  cannot be repaired without verified credentials/routing evidence; the report
+  change improves triage without asserting that access now works.
+* **#1560** and the terminal archive outcome: the task required code edits and
+  tests, but all recorded tools were read/discovery operations.
+  ProgressiveToolCatalog previously deferred stage/commit contracts even
+  for explicit authorized GitHub engineering goals. GitHub mode now prioritizes
+  those contracts in the initial optional schema window when the request
+  expressly calls for staging/committing. It does not grant permission, bypass
+  wire-context admission, or advertise the larger github_write by default.
+  Acceptance remains fail-closed until exact-revision test receipts are observed.
+* **#1542, #1543**: earlier per_page search corrections remain in this branch.
+  Do not regress first-page correction or allow unknown/advanced continuation
+  fields to bypass admission.
+
+The archive also includes locally retained report correlations that did not
+appear in the searched open GitHub issues. An unsurfaced local report does not
+prove failed remote submission; no duplicate issue was created.
+
+### Qualification checklist for this continuation
+
+- [ ] Current exact-head GitHub Actions unit, lint, security, audit, gateway,
+  packaging and required-branch checks
+- [ ] Real installed Android build with both max_new_blobs=0 requests
+  successfully corrected before dispatch
+- [ ] Provider 403 report verified end-to-end without raw identity leakage,
+  along with credential/routing recovery on the actual provider
+- [ ] Selected-profile GitHub coding task demonstrates dispatched stage and
+  commit calls with exact-SHA evidence and passing tests, not just discovery
+- [ ] Verify durable saved-view reopening and Android-to-Windows Gateway
+  restart/resume with preserved job ownership and no duplicate mutations
+- [ ] Windows Gateway installer/release and installed UI/XLSX acceptance
+
+Keep PR #1534 draft and unmerged until relevant tests and live acceptance
+gates pass. Source fixes are candidate repairs; an issue should record whether
+closure represents verified device recovery or diagnostic enhancement only.
+Never mark a provider-access problem as repaired solely because its incident
+has a clearer public code.

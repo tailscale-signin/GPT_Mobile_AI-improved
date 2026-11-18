@@ -6292,6 +6292,9 @@ class ChatRepositoryImpl(
         var providerToolFailures = 0
         var providerThinkingSeen = false
         var providerTextSeen = false
+        // A reasoning/progress event cannot stand in for an answer in the chat.
+        var visibleAnswerEmitted = false
+        var terminalFailureEmitted = false
         var accumulatedInputTokens = 0L
         var accumulatedOutputTokens = 0L
         var accumulatedTotalTokens = 0L
@@ -6357,10 +6360,18 @@ class ChatRepositoryImpl(
                         if (providerEvent.text.isNotEmpty()) progressLineage.append(providerEvent.lineage)
                         if (gitHubPublicProgress != null) {
                             val answer = gitHubPublicProgress.accept(providerEvent)
-                            if (answer.isNotEmpty()) emit(ApiState.Success(answer, progressLineage.lineage))
+                            if (answer.isNotBlank()) {
+                                visibleAnswerEmitted = true
+                                emit(ApiState.Success(answer, progressLineage.lineage))
+                            }
                         } else {
                             progressParser.accept(providerEvent.text).forEach { (progress, text) ->
-                                if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId)) else emit(ApiState.Success(text, progressLineage.lineage))
+                                if (progress) {
+                                    emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId))
+                                } else if (text.isNotBlank()) {
+                                    visibleAnswerEmitted = true
+                                    emit(ApiState.Success(text, progressLineage.lineage))
+                                }
                             }
                         }
                     }
@@ -6376,10 +6387,12 @@ class ChatRepositoryImpl(
                         progressParser.reset()
                         progressLineage.reset()
                         providerTextSeen = providerTextSeen || providerEvent.text.isNotBlank()
+                        visibleAnswerEmitted = visibleAnswerEmitted || providerEvent.text.isNotBlank()
                         if (editorialPass) dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordDelivery(observationKey, providerEvent.report, resolvedOutputCap)
                         emit(ApiState.CombinedAnswer(providerEvent.text, providerEvent.report, providerEvent.formatVersion))
                     }
                     is ProviderEvent.Failed -> {
+                        terminalFailureEmitted = true
                         val recovery = if (runId.startsWith("combined-synthesis:")) dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.from(providerEvent) else null
                         recovery?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordFailure(observationKey, it.category) }
                         emit(
@@ -6498,12 +6511,40 @@ class ChatRepositoryImpl(
                     }
 
                     is ProviderEvent.ToolResult -> Unit
-                    ProviderEvent.Completed -> if (gitHubPublicProgress != null) {
-                        val answer = gitHubPublicProgress.finish()
-                        if (answer.isNotEmpty()) emit(ApiState.Success(answer, progressLineage.lineage))
-                    } else {
-                        progressParser.accept("", flush = true).forEach { (progress, text) ->
-                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId)) else emit(ApiState.Success(text, progressLineage.lineage))
+                    ProviderEvent.Completed -> {
+                        if (gitHubPublicProgress != null) {
+                            val answer = gitHubPublicProgress.finish()
+                            if (answer.isNotBlank()) {
+                                visibleAnswerEmitted = true
+                                emit(ApiState.Success(answer, progressLineage.lineage))
+                            }
+                        } else {
+                            progressParser.accept("", flush = true).forEach { (progress, text) ->
+                                if (progress) {
+                                    emit(ApiState.ProgressCheckpoint(text, modelAuthored = true, invocationId = progressLineage.lineage.invocationId))
+                                } else if (text.isNotBlank()) {
+                                    visibleAnswerEmitted = true
+                                    emit(ApiState.Success(text, progressLineage.lineage))
+                                }
+                            }
+                        }
+                        if (!visibleAnswerEmitted && !terminalFailureEmitted) {
+                            // A provider can end a turn after thinking and tool
+                            // progress without ever delivering an answer. Report
+                            // an incomplete delivery; do not replay any tool call.
+                            emit(
+                                ApiState.Error(
+                                    "The model finished without a visible answer. No tool action was repeated; the unfinished response needs an authorized continuation.",
+                                    errorCode = "NO_VISIBLE_ANSWER",
+                                    failureDetails = kotlinx.serialization.json.buildJsonObject {
+                                        put("failed_stage", "delivery")
+                                        put("reason_code", "NO_VISIBLE_ANSWER")
+                                        put("run_id", runId)
+                                        put("provider_kind", platform.compatibleType.name)
+                                    }
+                                )
+                            )
+                            terminalFailureEmitted = true
                         }
                     }
                 }

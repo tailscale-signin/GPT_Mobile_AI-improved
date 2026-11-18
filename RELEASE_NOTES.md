@@ -1,5 +1,11 @@
 # GPT Mobile 0.9.66.8
 
+## Privacy Mode — initial strict gate (PR #1741)
+
+Privacy Mode is OFF by default with 11 individually configurable, default-ON sensitivity categories. Settings now includes a Privacy section; New Chat has a top-right Privacy Mode checkbox that greys out remote and free profiles unless the full endpoint and account policy is verified. Private local and self-hosted gateway inference is exempt from third-party ZDR requirements; ordinary cloud routes cannot inherit that exemption. Existing-chat generation, research and benchmark entry points now reject ineligible remote providers while the master switch is on. The free-model catalog is assessed provider by provider, including Kilo automatic routing, volunteer AI Horde, OVHcloud's documented policy and upstream gateways.
+
+Privacy Mode is an initial local settings and fail-closed provider-selection/dispatch gate, not yet full privacy protection: on-device prompt pseudonymization, encrypted restoration, live account-level ZDR verification, tool egress, voice and gateway cloud-relay enforcement remain unverified or unimplemented. No remote AI endpoint is currently certified eligible.
+
 ## GitHub and Gateway delivery
 
 This release candidate adds the singleton GitHub context corrections from PR #1534 and a longer interval between follow-up GitHub chat summaries. GitHub Chat can use the selected profile to narrate observed findings when the task has budget available. Recorded check tables can be saved as XLSX. Windows Gateway 17.0.1 has a separate Windows installer and update package, built from the same source revision when published for this Android build.

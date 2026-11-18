@@ -1033,11 +1033,11 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         if (database.research().outboxById(row.id) == row) {
                             database.research().outbox(row.failedIngestion(now, reason))
                             val sourceId = (payload["source"] as? JsonObject)?.text("id").orEmpty()
-                            database.research().saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(row.id.removePrefix("ingest:"), payload.text("runId"), sourceId, payload.number("chatId"), disposition = "SAVE_FAILED", reason = "$reason:${error.javaClass.simpleName}", updatedAt = now))
+                            database.research().saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(row.id.removePrefix("ingest:"), payload.text("runId"), sourceId, payload.number("chatId"), disposition = "SAVE_FAILED", reason = archiveIngestionReceiptReason(error, "RETRY_CAPTURE"), updatedAt = now))
                         }
                     }
                 }
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchArchive", "RETRY_FAILED · reason=$reason · exception=${error.javaClass.simpleName} · retry=durable_backoff", "W")
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchArchive", "RETRY_FAILED · reason=$reason · phase=RETRY_CAPTURE · cause=${archiveIngestionCauseCode(error)} · site=${archiveIngestionFailureSite(error)} · retry=bounded_durable", "W")
                 complete = false
             }
         }

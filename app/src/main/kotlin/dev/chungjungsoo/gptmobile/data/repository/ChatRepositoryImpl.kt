@@ -3907,10 +3907,18 @@ class ChatRepositoryImpl(
         // exposes executable tools (or is a GitHub workflow).
         val planningLimits = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.conservativeToolPlanningBudget(
             limits,
-            githubMode || requireToolExecution && tools.isNotEmpty()
+            githubMode || (requireToolExecution && tools.isNotEmpty())
         )
         return dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(
-            turns, prompt, tools, planningLimits, externalTools, githubMode, requestedTask, requireToolExecution, allowOutputReduction
+            turns,
+            prompt,
+            tools,
+            planningLimits,
+            externalTools,
+            githubMode,
+            requestedTask,
+            requireToolExecution,
+            allowOutputReduction
         )
     }
 

@@ -132,3 +132,42 @@ gates pass. Source fixes are candidate repairs; an issue should record whether
 closure represents verified device recovery or diagnostic enhancement only.
 Never mark a provider-access problem as repaired solely because its incident
 has a clearer public code.
+
+
+## Follow-up intake: November 18 UTC, Android build 142 and 28 open reports
+
+Attached archive: `diagnostics-b5d39c3f-1d6d-4c10-bbf0-bbb42dc2fd4f-part-1-02288115-12ed-4bcc-93a1-432dd4a0ffda.zip`.
+Its manifest confirms 100% of selected capture stages completed, **not** complete upstream/provider history.
+The retained run is PARTIAL / `GITHUB_TASK_INCOMPLETE`, with no tested SHA or Gateway job identifier.
+It records 37 GitHub tool results, 36 successful and one failed. The full-catalog check
+reported 22 verified capabilities, 54 blocked, 21 not tested and one failed; 63 of
+100 permitted calls remained. These are installed build-142 observations, not proof
+about the newer PR head.
+
+| Open reports | Confirmed observation | Candidate disposition and proof needed |
+| --- | --- | --- |
+| #1584 | github_ci workflow runs: six successive live-verified pages, 170 reported results; the terminal page saw only its own 20 records. | Source fix: retain one `verify_live` traversal through pages 2+, beginning a new epoch only at page 1. Six-page regression and contradictory empty-terminal regression committed. Android/live confirmation required. |
+| #1585 | 0/1 top-level criteria verified; a failed workflow read, missing prerequisites and pending continuations despite 63 calls remaining. | Resume the capability matrix from receipts, avoid marking blocked or untested capabilities passed, and rerun authorized fixtures against an exact revision. |
+| #1582–1583 | Upstream provider shared-pool HTTP 429s with timed retry deadlines. | Candidate has provider-pool cooldown scoping. Verify wait/resume and unrelated-model admission on an installed build; a real quota response is not itself an application defect. |
+| #1578, #1581 | Generic `GITHUB_RUN_INTERRUPTED` without causal job identity. | Preserve durable task/job and first-failure source on the next recurrence; do not infer backend job termination from a chat-stream ending. |
+| #1566–1570, #1573–1577, #1579–1580 | Twelve `CHAT_FAILED` reports with absent/unrecognized producer code and no bound causal invocation. | Candidate now publishes the observed `AGENT_FAILED_EVENT` capture site and three typed presence flags for code/invocation/details. This is a diagnostic enhancement, **not** a verified recovery. |
+| #1571 | github_read rejected undeclared top-level read fields. | Existing strict bounded read normalizer is the candidate; preserve schema rejection for unsupported keys. Reproduce exact original inputs on device. |
+| #1572 | github_pr headers requested without `pull_number`. | Keep required selector admission; discover the PR number from the intended repository rather than guessing a PR. Validate the correction path. |
+| #1562–1563 | github_search received `max_new_blobs=0` before schema admission. | Candidate clamps bounded first-page search options and preserves original-call evidence; test saved/resumed and later-page paths. |
+| #1542–1543 | First-page search passed unknown `per_page` presentation option. | Candidate strips only known first-page presentation fields before strict validation; verify on installed app. |
+| #1560, #1564–1565 | Acceptance evidence unavailable, expired or not matched to tested revision. | Observe exact source SHA and successful test receipts separately; preserve NOT_TESTED without matching evidence. |
+| #1561 | Provider returned HTTP 403 PERMISSION with remote acceptance NO. | Candidate classifies tightly evidenced rejection as SOURCE_ACCESS_BLOCKED and advises configuration change; client cannot grant provider access. |
+
+Additional independent build failure: Windows Gateway 17.0.1 setup compiles in CI, but
+`gateway/desktop/smoke_windows.py` failed at its first clean stop assertion after
+`request(root, 'stop')`. The candidate preserves a bounded stop-failure record and
+redacted supervisor-log tail for the next CI run. It does not treat a packaged executable
+as release-qualified while this smoke check fails.
+
+**Issue closure contract:** A source patch or diagnostic enhancement alone does not
+prove installed-device recovery. Close as completed only with exact-head passing
+regressions and applicable installed-device evidence; if an upstream or unsupported
+condition is intentionally not fixed, record the diagnostic enhancement explicitly,
+close as not planned only where justified, and retain the separate acceptance gate.
+Do not merge PR #1534 while any required CI or Windows release gate is failing or
+device/Gateway acceptance remains unverified.

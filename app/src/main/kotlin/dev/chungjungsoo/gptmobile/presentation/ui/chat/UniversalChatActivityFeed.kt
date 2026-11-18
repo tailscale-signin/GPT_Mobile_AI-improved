@@ -177,7 +177,7 @@ internal fun observedToolReceiptSummary(events: List<ToolEvent>): ObservedToolRe
 /** A user-triggered export contains only fixed status labels and observed counts. */
 internal fun toolReceiptCsv(summary: ObservedToolReceiptSummary): String =
     buildString {
-        append("Execution state,Observed calls\\r\\n")
+        append("Execution state,Observed calls\r\n")
         listOf(
             "Completed" to summary.completed,
             "Failed" to summary.failed,
@@ -185,9 +185,9 @@ internal fun toolReceiptCsv(summary: ObservedToolReceiptSummary): String =
             "Pending or running" to summary.ongoing,
             "Unknown state" to summary.unknown
         ).forEach { (label, count) ->
-            append(label).append(',').append(count).append("\\r\\n")
+            append(label).append(',').append(count).append("\r\n")
         }
-        append("Total,").append(summary.total).append("\\r\\n")
+        append("Total,").append(summary.total).append("\r\n")
     }
 
 @Composable

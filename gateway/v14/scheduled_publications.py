@@ -1,6 +1,7 @@
 """Read a bounded Crossref metadata result for an operator-entered public topic."""
 from contextlib import closing
 import json
+import os
 import re
 from urllib.parse import quote
 import uuid
@@ -14,9 +15,15 @@ DOI = re.compile(r'10\.[0-9]{4,9}/[^\s\x00-\x1f\x7f]{1,210}', re.IGNORECASE)
 def literature(query):
     params = {'query.bibliographic': query, 'sort': 'published', 'order': 'desc', 'rows': 8,
               'select': 'DOI,title'}
+    endpoint = 'https://api.crossref.org/works'
     with requests.Session() as session:
+        # Honor the operator's network route and CA bundle without loading
+        # credentials from .netrc for a public research query.
         session.trust_env = False
-        with session.get('https://api.crossref.org/works', params=params, stream=True, timeout=(3, 8),
+        session.proxies.update({key: value for key, value in requests.utils.get_environ_proxies(endpoint).items()
+                                if key in ('https', 'http', 'all')})
+        session.verify = os.environ.get('REQUESTS_CA_BUNDLE') or os.environ.get('CURL_CA_BUNDLE') or True
+        with session.get(endpoint, params=params, stream=True, timeout=(3, 8),
                          allow_redirects=False, headers={'User-Agent': 'GPT-Mobile-Gateway/17 public literature watch'}) as reply:
             if reply.status_code != 200:
                 raise ValueError('Crossref unavailable')

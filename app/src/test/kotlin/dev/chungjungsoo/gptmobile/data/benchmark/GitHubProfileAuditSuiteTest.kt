@@ -66,6 +66,7 @@ class GitHubProfileAuditSuiteTest {
         assertTrue(scenario.passed(listOf(call), setOf(call.callId), emptySet()))
         assertFalse(scenario.valid(call.copy(arguments = kotlinx.serialization.json.buildJsonObject {})))
     }
+
     @Test
     fun failedGitHubFixtureArgumentsKeepOnlySafeFieldIdentities() {
         val benchmark = GitHubProfileAuditSuite.cases(allActions = false)
@@ -80,7 +81,11 @@ class GitHubProfileAuditSuiteTest {
         )
         val result = scenario.assess(
             listOf(ProviderEvent.ToolCall("wrong-1", fixture.operation, wrong)),
-            emptySet(), emptySet(), "invalid", "invalid", true
+            emptySet(),
+            emptySet(),
+            "invalid",
+            "invalid",
+            true
         )
         assertEquals(false, result.argumentsCorrect)
         val evidence = requireNotNull(result.argumentEvidence)
@@ -118,5 +123,4 @@ class GitHubProfileAuditSuiteTest {
             assertEquals(benchmark.id, true, score.argumentEvidence?.schemaValid)
         }
     }
-
 }

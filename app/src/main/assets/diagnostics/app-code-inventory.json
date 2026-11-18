@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "944c2f684c25ac90bb6c37e7913d6f8578a0e1cb257af8fb4bb3915393bf432a",
+  "source_digest": "0b89fc16def4f01acf9ae8ce0c14bb274a4ffe009e105ac75bedfc90f59bdd1d",
   "file_count": 2670,
   "indexed_line_count": 436192,
   "line_coverage_available": false,
@@ -2698,7 +2698,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "9112ebeab8376666c4967c7e1a81ef69420b2cdb725a3678e5f8dce30dddeafb",
+      "sha256": "ef5b0be629982890a09447d12995433bd04407b2dd94bd11af1e078d41a85cd8",
       "indexed_lines": 1321
     },
     {

@@ -4,6 +4,10 @@ package dev.chungjungsoo.gptmobile.data.context
 internal object ReplayAllowance {
     data class Allocation(val output: Int, val replay: Int, val ceiling: Int, val input: Int, val safety: Int)
 
+    /** A saved tool configuration alone is not evidence that a request exposes executable tools. */
+    fun needsConservativeToolReserve(githubMode: Boolean, requireExecution: Boolean, availableTools: Int): Boolean =
+        githubMode || (requireExecution && availableTools > 0)
+
     /** Unknown provider context is not a verified unlimited capacity. Plan tool work before history/schema selection. */
     fun conservativeToolPlanningBudget(settings: TokenBudgetSettings, toolEvidenceRequired: Boolean): TokenBudgetSettings {
         if (!toolEvidenceRequired || settings.contextTokens != Int.MAX_VALUE) return settings

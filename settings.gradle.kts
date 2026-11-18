@@ -1,5 +1,15 @@
 pluginManagement {
     repositories {
+        if (providers.environmentVariable("GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY").orNull == "1") {
+            maven {
+                name = "PublishedPluginRecovery"
+                url = uri("https://maven-central.storage-download.googleapis.com/maven2/")
+                content {
+                    includeGroup("org.jetbrains.kotlin")
+                    includeGroup("io.objectbox")
+                }
+            }
+        }
         google()
         mavenCentral()
         gradlePluginPortal()

@@ -126,6 +126,24 @@ class GradleRetryTest(unittest.TestCase):
             self.assertEqual(0, retry.run([':app:compileDebugKotlin'], delay_seconds=0, executable=str(fake)))
             self.assertEqual(4, len(counter.read_text().splitlines()))
 
+    def test_published_plugin_recovery_refreshes_metadata_without_changing_tasks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            record = pathlib.Path(directory) / 'calls'
+            fake = pathlib.Path(directory) / 'gradlew'
+            fake.write_text('#!/bin/sh\n' + f'echo "${{GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY:-0}} $*" >> "{record}"\n'
+                            + 'if [ "${GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY:-0}" != 1 ]; then\n'
+                            + "echo \"Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found\"\n"
+                            + "echo \"Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')\"\n"
+                            + 'exit 1\nfi\n')
+            fake.chmod(0o755)
+            args = [':app:compileDebugKotlin', '--stacktrace']
+            self.assertEqual(0, retry.run(args, delay_seconds=0, executable=str(fake)))
+            self.assertEqual(['0 :app:compileDebugKotlin --stacktrace',
+                              '1 :app:compileDebugKotlin --stacktrace --refresh-dependencies --info'], record.read_text().splitlines())
+            self.assertEqual([':app:compileDebugKotlin', '--stacktrace'], args)
+            self.assertEqual(1, retry.run(args + ['--offline'], delay_seconds=0, executable=str(fake)))
+            self.assertEqual(3, len(record.read_text().splitlines()))
+
     def test_dependency_throttling_is_retryable(self):
         self.assertTrue(retry.retryable(['Could not resolve dependency.', 'Received status code 429 from server: Too Many Requests']))
         self.assertTrue(retry.retryable(['Could not GET resource.', 'HTTP 503']))

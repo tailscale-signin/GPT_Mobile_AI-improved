@@ -142,7 +142,6 @@ class GitHubProfileAuditSuiteTest {
         }
     }
 
-
     private fun engineeringArgs(action: String, vararg fields: Pair<String, JsonElement>): JsonObject =
         JsonObject(mapOf("action" to JsonPrimitive(action)) + fields.toMap())
 

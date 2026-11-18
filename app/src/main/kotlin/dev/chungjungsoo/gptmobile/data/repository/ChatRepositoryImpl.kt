@@ -4151,6 +4151,10 @@ class ChatRepositoryImpl(
             } else {
                 budget
             }
+        }.let { provisional ->
+            dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.conservativeToolPlanningBudget(
+                provisional, input.githubTask || chatToolConfig != null
+            )
         }
         routeReadiness?.verifiedContextTokens?.let { contextTokens ->
             AppLogRecorder.record("Context", "VERIFIED_PLANNING_CAPACITY · profileUid=${platform.uid} · model=${platform.model} · routeContextTokens=$contextTokens · effectiveContextTokens=${profileBudget.contextTokens} · runtimeRevision=${routeReadiness.runtimeRevision} · observedAtMillis=${routeReadiness.observedAtMillis} · finalSerializedAdmissionRequired=true")

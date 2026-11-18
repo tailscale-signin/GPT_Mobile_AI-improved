@@ -353,9 +353,8 @@ class GitHubPaginationBoundaryTest {
         val boundary = GitHubPaginationBoundary()
         val first = json("""{"action":"get_pull_request_comments","owner":"o","repo":"r","pull_number":1534,"page":1}""")
         val second = json("""{"action":"get_pull_request_comments","owner":"o","repo":"r","pull_number":1534,"page":2}""")
-        val firstReply = json(
-            """{"has_more":true,"returned":30,"comments":[${(1..30).joinToString(",") { """{"id":$it}""" }}]}"""
-        )
+        val rows = (1..30).joinToString(",") { """{"id":$it}""" }
+        val firstReply = json("""{"has_more":true,"returned":30,"comments":[$rows]}""")
         val firstAssessment = boundary.assessPage("github_pr", first, firstReply)
         assertEquals(null, firstAssessment.errorCode)
         assertEquals(JsonPrimitive(false), firstAssessment.data.getValue("pagination_progress").jsonObject["complete"])

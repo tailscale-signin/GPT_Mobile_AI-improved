@@ -88,6 +88,32 @@ import org.junit.Test
 
 class ProviderAdaptersTest {
 
+    @Test fun githubRemoteAdaptersPublishPortableContractsButKeepHostValidation() = runBlocking {
+        val definition = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_read")
+        val fullHostContract = definition.inputSchema
+        val invalid = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"end_line":12,"max_lines":12}]}"""
+        ) as JsonObject
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(invalid, fullHostContract).isNotEmpty())
+
+        val openai = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(emptyFlow())))
+        OpenAIResponsesAdapter(openai, attachmentEncoder())
+            .openSession(turns(), platform(ClientType.OPENAI))
+            .streamRound(listOf(definition), emptyList()).toList()
+        val wire = requireNotNull(openai.responseRequests.single().tools).single()
+        assertEquals(false, wire.strict)
+        assertEquals(definition.name, wire.name)
+        assertFalse(wire.parameters.toString().contains("oneOf"))
+        assertTrue(fullHostContract.toString().contains("oneOf"))
+
+        val compatible = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        OpenAICompatibleAdapter(compatible, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.OPENROUTER))
+            .streamRound(listOf(definition), emptyList()).toList()
+        assertFalse(requestJson(compatible.chatRequests.single()).toString().contains("oneOf"))
+    }
+
+
     @Test fun openAiGitHubToolSchemaKeepsHostChecksButNeverPublishesUnsupportedOneOf() {
         val original = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_read").inputSchema
         val provider = modelCompatibleGitHubToolSchema(original)

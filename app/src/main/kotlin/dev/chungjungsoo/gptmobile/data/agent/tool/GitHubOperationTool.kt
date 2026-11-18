@@ -1250,9 +1250,9 @@ internal class GitHubOperationTool(
                 "github_issue" -> "Discover issues with action=list and optional state=open (PRs excluded). action=headers reads ONE observed issue and requires issue_number; it is not an inventory or listing action. After listing, use headers for title/state/updated_at, or context/comments/history when needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + when (operation) {
-                // The shared GitHub tool instruction already requires verbatim continuation_call.
-                "github_read", "github_context", "github_search" -> ""
-                else -> " Exact continuation_call; owner+repo."
+                "github_read", "github_context", "github_search", "github_ci", "github_pr", "github_issue" ->
+                    " Saved-view continuation: copy the returned continuation_call with only view_cursor; do not carry over action, owner, repo, branch, ref, page, per_page, search_id or other fields. For a new remote read, owner and repo must be supplied together or both omitted."
+                else -> " Follow the exact continuation_call. For new calls, supply owner and repo together."
             }
             return AgentToolDefinition(
                 modelName,

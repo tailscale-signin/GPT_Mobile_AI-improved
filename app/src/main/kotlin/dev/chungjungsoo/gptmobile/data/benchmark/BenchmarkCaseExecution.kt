@@ -183,6 +183,11 @@ internal class BenchmarkCaseExecution(
             generationDurationMs = benchmarkNativeGenerationDuration(executionReceipts.values.toList()),
             intelligenceSemantics = benchmarkIntelligenceEvidence(test, text.toString(), outcome in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED)),
             toolAssessment = if (test.category == "tools") scenario.assess(calls.values.toList(), successful, expectedErrors, output.finalAnswer, text.toString(), outcome in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED)) else null,
+            evidenceScope = when (test.workload) {
+                GitHubProfileAuditSuite.WORKLOAD -> "OFFLINE_TOOL_CONTRACT"
+                GitHubEngineeringBenchmarkSuite.WORKLOAD -> "OFFLINE_ENGINEERING_SIMULATION"
+                else -> "SYNTHETIC_BENCHMARK"
+            },
             performanceTrial = test.performanceTrial
         )
     }
@@ -270,7 +275,7 @@ internal class BenchmarkCaseExecution(
         val session = openSession(turns, tools)
         val exchanges = mutableListOf<AgentToolExchange>()
         var done = false
-        repeat(3) {
+        repeat(if (test.workload == GitHubEngineeringBenchmarkSuite.WORKLOAD) 10 else 3) {
             if (done) return@repeat
             val roundCalls = linkedMapOf<String, ProviderEvent.ToolCall>()
             roundStart = text.length
@@ -363,7 +368,7 @@ internal class BenchmarkCaseExecution(
                 check(event.callId !in calls) { "Duplicate completed tool call ID" }
                 calls[event.callId] = event
                 roundCalls[event.callId] = event
-                check(calls.size <= 3) { "Tool call limit reached" }
+                check(calls.size <= if (test.workload == GitHubEngineeringBenchmarkSuite.WORKLOAD) 10 else 3) { "Tool call limit reached" }
             }
             is ProviderEvent.ToolResult -> {
                 if (scenario.valid(event.call) && !event.result.isError) successful.add(event.call.callId)
@@ -460,7 +465,7 @@ internal class BenchmarkCaseExecution(
         }
         val expected = if (test.category == "tools") code else test.expected
         val details = benchmarkValidation(test, rawAnswer, answer, expected, basePassed, if (test.category == "tools") scenario.passed(calls.values.toList(), successful, expectedErrors) else null)
-        val passed = !toolRoundLimitReached && basePassed && (test.validatorVersion !in setOf("benchmark-validator-v4", "benchmark-validator-v5") || details.formatCompliant != false && details.protocolCompliant != false)
+        val passed = !toolRoundLimitReached && basePassed && (test.validatorVersion !in setOf("benchmark-validator-v4", "benchmark-validator-v5", "benchmark-validator-v6") || details.formatCompliant != false && details.protocolCompliant != false)
         val exclusions = buildList {
             if (test.category == "speed") {
                 addAll(details.reasons)

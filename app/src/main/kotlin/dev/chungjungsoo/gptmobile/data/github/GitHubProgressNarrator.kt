@@ -58,7 +58,7 @@ internal class GitHubProgressNarrator(
         if (unavailableForRun || at - lastAttemptAt < GitHubChatProgress.summaryInterval(lastEvidenceKey.isNotEmpty()) || attempts >= 16) return
         val current = snapshot()
         if (current.revision == lastRevision || current.revision == 0L) return
-        val factual = GitHubRichSummaryPresentation.render(current)
+        val factual = GitHubRichSummaryPresentation.render(current, reportedFactKeys)
         val evidenceKey = GitHubRichSummaryPresentation.evidenceKey(current)
         val factKeys = GitHubRichSummaryPresentation.factKeys(current)
         if (factKeys.isEmpty() || factKeys.all(reportedFactKeys::contains) || evidenceKey == lastEvidenceKey) {

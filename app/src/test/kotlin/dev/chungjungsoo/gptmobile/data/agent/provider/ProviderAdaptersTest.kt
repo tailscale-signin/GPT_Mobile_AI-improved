@@ -126,6 +126,7 @@ class ProviderAdaptersTest {
         ) as kotlinx.serialization.json.JsonObject
         assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(invalid, original).isNotEmpty())
         val serialized = kotlinx.serialization.json.Json.encodeToJsonElement(
+            dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionTool.serializer(),
             dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionTool(
                 "github_read",
                 "Offline tools",

@@ -9,15 +9,15 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "f501b408d4fcfe061ee8ad40902593e61211caa571ed247201fb20f80c1d7772"
+    val sourceDigest: String = "3fe53d25ad9054c882ec056e213380fc772900ee4fb9922624731655423d5b13"
     val fileCount: Int = 2670
-    val lineCount: Int = 435716
+    val lineCount: Int = 435725
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8632),
         AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 559, 98276),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 199, 9279),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 234, 40063),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 234, 40073),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 22718),
         AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 31, 4675),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
@@ -26,7 +26,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14855),
         AppAuditSourceArea("gateway_client", "Android gateway client", 35, 5836),
         AppAuditSourceArea("network", "Networking and readiness", 100, 10006),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 239, 40137),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 239, 40136),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14020),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 44, 4932),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 110, 14700),

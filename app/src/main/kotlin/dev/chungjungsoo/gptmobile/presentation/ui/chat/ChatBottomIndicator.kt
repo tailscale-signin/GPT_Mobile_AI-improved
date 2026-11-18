@@ -18,9 +18,13 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -51,9 +55,15 @@ internal fun ChatBottomIndicator(
         }
         return
     }
-    // Do not latch a previous bottom arrival: dots must wait for the actual
-    // sentinel on every return to bottom and disappear again when it leaves.
-    val reachedBottom by remember(listState) { derivedStateOf { listState.isAtGitHubBottom() } }
+    // Dots latch only for the current follow session once the actual bottom
+    // has been reached. Layout growth must not flicker them off while the
+    // measured-line follower catches up. Detaching removes this composition
+    // branch and resets the latch for the next explicit return.
+    var reachedBottom by remember(listState) { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isAtGitHubBottom() }.first { it }
+        reachedBottom = true
+    }
     if (!reachedBottom || !generating) return
     // The shared phase respects app/system motion preferences, lifecycle and frame pressure.
     val phase = rememberGitHubProgressMotion(animate)

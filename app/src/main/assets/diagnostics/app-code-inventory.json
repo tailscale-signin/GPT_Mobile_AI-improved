@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "33818563d4cfb6ffc257dee7c6aa2831e363e75dea58297d926fd723273e4b89",
+  "source_digest": "3d6b2af603ecc5159700c5bb8417bcb1326965e3ef15ec73f22bba54911d1bfb",
   "file_count": 2670,
-  "indexed_line_count": 435876,
+  "indexed_line_count": 435898,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 559,
-      "indexed_line_count": 98306
+      "indexed_line_count": 98310
     },
     {
       "id": "accessibility_and_localization",
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 234,
-      "indexed_line_count": 40073
+      "indexed_line_count": 40091
     },
     {
       "id": "agent_tools",
@@ -4630,8 +4630,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "84beda9c50af9ed296db34b014e345307899ca7f660cf62c3667c7fa20ebdf90",
-      "indexed_lines": 24
+      "sha256": "1839fb10e18083f48b860954e4caf767e1021c656f4f13d279b94c0bb0ef2dfd",
+      "indexed_lines": 28
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
@@ -10825,8 +10825,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "ec229216498d77abe9b7b29d49b13f3bb1cf6147995bbb7cdb2f681b8e931e63",
-      "indexed_lines": 7945
+      "sha256": "7052eec3fc43848bcd7fb87555bc9df8e6924de8ff4a1e6ba63b28aeefdfde12",
+      "indexed_lines": 7963
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/CombinedSettingsSaveJournal.kt",

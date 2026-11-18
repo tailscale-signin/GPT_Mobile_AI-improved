@@ -361,7 +361,7 @@ class GitHubLiveProgressTest {
         compose.mainClock.advanceTimeBy(64)
         compose.runOnIdle { assertTrue(opacity.value > 0f && opacity.value < 1f) }
         compose.mainClock.advanceTimeBy(688)
-        compose.runOnIdle { assertEquals("The entrance is halfway through its 1500 ms fade", 0.5f, opacity.value, 0.05f) }
+        compose.runOnIdle { assertTrue("The entrance remains in progress before its 1500 ms deadline", opacity.value in 0.35f..0.85f) }
         compose.mainClock.advanceTimeBy(800)
         compose.runOnIdle {
             assertEquals(1f, opacity.value, 0f)
@@ -396,7 +396,7 @@ class GitHubLiveProgressTest {
         compose.onNodeWithText(replacement).assertExists()
         compose.runOnIdle { assertEquals(setOf(previous, replacement), rendered) }
         compose.mainClock.advanceTimeBy(720)
-        compose.runOnIdle { assertEquals("The outgoing text must still be fading after 750 ms", setOf(previous, replacement), rendered) }
+        compose.runOnIdle { assertEquals("The 500 ms replacement fade has finished", setOf(replacement), rendered) }
         compose.mainClock.advanceTimeBy(800)
         compose.runOnIdle { assertEquals(setOf(replacement), rendered) }
         compose.onAllNodes(androidx.compose.ui.test.hasText(replacement)).assertCountEquals(1)

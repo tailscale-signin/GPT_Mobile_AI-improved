@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,9 +19,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
@@ -171,9 +174,26 @@ internal fun observedToolReceiptSummary(events: List<ToolEvent>): ObservedToolRe
     )
 }
 
+/** A user-triggered export contains only fixed status labels and observed counts. */
+internal fun toolReceiptCsv(summary: ObservedToolReceiptSummary): String =
+    buildString {
+        append("Execution state,Observed calls\\r\\n")
+        listOf(
+            "Completed" to summary.completed,
+            "Failed" to summary.failed,
+            "Canceled" to summary.canceled,
+            "Pending or running" to summary.ongoing,
+            "Unknown state" to summary.unknown
+        ).forEach { (label, count) ->
+            append(label).append(',').append(count).append("\\r\\n")
+        }
+        append("Total,").append(summary.total).append("\\r\\n")
+    }
+
 @Composable
 private fun ObservedToolReceiptChart(summary: ObservedToolReceiptSummary) {
     val scheme = MaterialTheme.colorScheme
+    val clipboard = LocalClipboardManager.current
     val rows = listOf(
         Triple("Completed", summary.completed, scheme.primary),
         Triple("Failed", summary.failed, scheme.error),
@@ -185,11 +205,21 @@ private fun ObservedToolReceiptChart(summary: ObservedToolReceiptSummary) {
         Modifier.fillMaxWidth().padding(top = 12.dp).testTag("universal_tool_receipt_chart"),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(
-            "Tool execution overview · ${summary.total} calls",
-            style = MaterialTheme.typography.labelMedium,
-            color = scheme.onSurface
-        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "Tool execution overview · ${summary.total} calls",
+                style = MaterialTheme.typography.labelMedium,
+                color = scheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(
+                onClick = { clipboard.setText(AnnotatedString(toolReceiptCsv(summary))) },
+                modifier = Modifier.testTag("universal_tool_receipt_copy_csv")
+            ) { Text("Copy CSV") }
+        }
         rows.forEach { (label, count, color) ->
             Column(
                 Modifier.fillMaxWidth().clearAndSetSemantics {

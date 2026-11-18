@@ -327,7 +327,7 @@ class ChatRepositoryImplTest {
             trace,
             dispatchAuthority = RequestAuthorizationGuard("selected", null) {}
         ).toList()
-        assertTrue(success.any { it is ApiState.Success && it.text.isNotBlank() })
+        assertTrue(success.any { it is ApiState.Success && it.textChunk.isNotBlank() })
         assertFalse(success.any { it is ApiState.Error })
 
         val failed = repository.streamAgentEvents(

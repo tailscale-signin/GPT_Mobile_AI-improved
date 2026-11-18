@@ -41,6 +41,7 @@ class ProgressiveToolCatalog(
     private data class ExecutionBinding(val source: AgentToolDefinition, val executable: AgentToolDefinition)
     private val executionBindings = mutableMapOf<String, ExecutionBinding>()
     private val deferredEngineering = setOf("github_write", "github_commit", "github_stage_patch", "github_release", "github_watch_checks")
+
     // Explicit engineering tasks need stage/commit schemas without a repeated
     // discovery round; all executable authorization and wire-context gates remain.
     // Larger write/release and check-watch contracts stay on-demand.

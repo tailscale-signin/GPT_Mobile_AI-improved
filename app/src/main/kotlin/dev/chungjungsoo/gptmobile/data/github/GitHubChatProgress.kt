@@ -92,7 +92,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             return null
         }
         val candidate = generated ?: if (allowFallback && (initial || revision != lastSummaryRevision)) {
-            ApiState.ActivitySummary(if (initial) summary else GitHubRichSummaryPresentation.render(source))
+            ApiState.ActivitySummary(if (initial) summary else GitHubRichSummaryPresentation.render(source, reportedFactKeys))
         } else {
             return null
         }

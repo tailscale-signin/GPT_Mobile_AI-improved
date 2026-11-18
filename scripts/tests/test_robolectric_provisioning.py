@@ -91,6 +91,45 @@ class RobolectricProvisioningTest(unittest.TestCase):
         self.assertEqual(self.body, self.target.read_bytes())
         self.assertFalse(list(self.target.parent.glob('*.part')))
 
+
+    def test_mirror_404_falls_back_to_canonical_without_weakening_checksum(self):
+        canonical = f"{sdk.BASE}/sample/runtime.jar"
+        calls, delays = [], []
+
+        def opener(url, timeout):
+            calls.append(url)
+            if len(calls) <= 2:
+                raise urllib.error.HTTPError(url, 429, 'throttled', {}, None)
+            if len(calls) == 3:
+                raise urllib.error.HTTPError(url, 404, 'mirror not synchronized', {}, None)
+            return io.BytesIO(self.body)
+
+        sdk.download(self.target, canonical, self.digest, 100, opener, delays.append,
+                     lambda: 0, lambda _low, _high: 0, lambda: 0)
+        self.assertEqual([
+            canonical,
+            sdk.MAVEN_CENTRAL_ALTERNATE_BASE + '/sample/runtime.jar',
+            sdk.GOOGLE_MAVEN_CENTRAL_BASE + '/sample/runtime.jar',
+            canonical,
+        ], calls)
+        self.assertEqual([15, 30, 20], delays)
+        self.assertEqual(self.body, self.target.read_bytes())
+        self.assertFalse(list(self.target.parent.glob('*.part')))
+
+    def test_canonical_404_still_fails_without_using_any_mirror(self):
+        canonical = f"{sdk.BASE}/sample/runtime.jar"
+        calls = []
+
+        def opener(url, timeout):
+            calls.append(url)
+            raise urllib.error.HTTPError(url, 404, 'unknown published coordinate', {}, None)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            sdk.download(self.target, canonical, self.digest, 100, opener,
+                         lambda _: self.fail('canonical 404 retried'), lambda: 0, lambda _low, _high: 0, lambda: 0)
+        self.assertEqual([canonical], calls)
+        self.assertFalse(self.target.exists())
+
     def test_google_maven_mirror_still_rejects_unpinned_bytes(self):
         calls = []
         canonical = f"{sdk.BASE}/sample/runtime.jar"

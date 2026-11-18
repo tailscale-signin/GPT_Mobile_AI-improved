@@ -54,6 +54,32 @@ class GitHubOperationToolTest {
         assertEquals(listOf(JsonPrimitive("list_pull_requests"), JsonPrimitive("pr_context")), observed.map { it["action"] })
     }
 
+    @Test fun prReviewsDispatchesThroughAnAdvertisedNativeReadWithZeroRows() = runBlocking {
+        assertTrue("pull_request_reviews" in dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient.readActions)
+        val observed = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                observed += arguments
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Json(Json.parseToJsonElement("""{"reviews":[],"has_more":false,"returned":0}""").jsonObject),
+                    false
+                )
+            }
+        }
+        val pr = GitHubOperationTool("github_pr", backend, "review-read")
+        val request = args("""{"action":"reviews","pull_number":1534}""")
+        valid("github_pr", request)
+        val result = pr.execute("no-reviews", request)
+        assertFalse(result.toString(), result.isError)
+        assertEquals(JsonPrimitive("pull_request_reviews"), observed.single()["action"])
+        val progress = result.executionReceipt!!.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(0), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+        assertEquals(JsonPrimitive("NOT_MEASURED"), progress["acceptance_status"])
+    }
+
     @Test fun prPageSizeAndReadOnlySearchAliasesReachTheirAdvertisedBackend() = runBlocking {
         val observed = mutableListOf<JsonObject>()
         val backend = object : AgentTool {

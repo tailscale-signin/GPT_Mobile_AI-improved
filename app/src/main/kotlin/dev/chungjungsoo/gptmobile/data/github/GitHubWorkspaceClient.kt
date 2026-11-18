@@ -102,7 +102,7 @@ class GitHubWorkspaceClient(
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
             "repo_status", "repo_map", "repo_docs", "find_symbol", "find_references", "find_tests", "related_files",
             "changed_since", "pr_context", "pr_headers", "issue_headers", "rate_limit_status", "plan_change", "write_capabilities",
-            "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status", "get_pull_request_comments",
+            "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status", "get_pull_request_comments", "pull_request_reviews",
             "resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "ci_failure_digest", "efficiency", "recovery_context"
         )
         val writeActions = GitHubCollaboration.writes + GitHubRepositoryLifecycle.writes + setOf(
@@ -510,6 +510,7 @@ class GitHubWorkspaceClient(
                 pageResult(request("$root/pulls/$number/files?$pagination"), page, perPage, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
             }
             "get_pull_request_comments" -> pullRequestComments(root, required("pull_number").toInt().also { require(it > 0) }, page)
+            "pull_request_reviews" -> pullRequestReviews(root, required("pull_number").toInt().also { require(it > 0) }, page)
             "pr_context" -> {
                 val number = required("pull_number").toInt().also { require(it > 0) }
                 try {
@@ -1053,6 +1054,40 @@ class GitHubWorkspaceClient(
                     "continuation",
                     buildJsonObject {
                         put("action", "get_pull_request_comments")
+                        put("pull_number", number)
+                        put("page", page + 1)
+                    }
+                )
+            }
+        }
+    }
+
+    private suspend fun pullRequestReviews(root: String, number: Int, page: Int): JsonObject {
+        val rows = request("$root/pulls/$number/reviews?per_page=30&page=$page").jsonArray
+        return buildJsonObject {
+            put("pull_number", number)
+            put("page", page)
+            put("returned", rows.size)
+            put("has_more", rows.size == 30)
+            put(
+                "reviews",
+                JsonArray(
+                    rows.map { raw ->
+                        val review = raw.jsonObject
+                        buildJsonObject {
+                            listOf("id", "node_id", "state", "body", "submitted_at", "commit_id", "html_url").forEach { key ->
+                                review[key]?.let { put(key, it) }
+                            }
+                            review["user"]?.jsonObject?.let { put("user", project(it, "login", "html_url")) }
+                        }
+                    }
+                )
+            )
+            if (rows.size == 30) {
+                put(
+                    "continuation",
+                    buildJsonObject {
+                        put("action", "pull_request_reviews")
                         put("pull_number", number)
                         put("page", page + 1)
                     }

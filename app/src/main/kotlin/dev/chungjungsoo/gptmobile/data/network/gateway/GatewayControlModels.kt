@@ -100,6 +100,9 @@ internal data class GatewayControlHostRequest(
 )
 
 @Serializable
+internal data class GatewayUpdateStatus(val installed: String, val state: String, val available: String? = null)
+
+@Serializable
 internal data class GatewayControlSnapshot(
     val schema: String,
     @SerialName("installation_id") val installationId: String,
@@ -114,10 +117,16 @@ internal data class GatewayControlSnapshot(
     val capabilities: JsonObject = JsonObject(emptyMap()),
     @SerialName("validation_profiles") val validationProfiles: Map<String, String> = emptyMap(),
     @SerialName("host_requests") val hostRequests: List<GatewayControlHostRequest> = emptyList(),
-    @SerialName("approved_backends") val approvedBackends: List<String> = emptyList()
+    @SerialName("approved_backends") val approvedBackends: List<String> = emptyList(),
+    val updates: GatewayUpdateStatus? = null
 ) {
     fun validate(installation: String, principal: String): GatewayControlSnapshot {
         require(schema == GATEWAY_CONTROL_SCHEMA && installationId == installation && principalId == principal)
+        updates?.let { update ->
+            val version = Regex("""[0-9]{1,6}(?:\.[0-9]{1,6}){2}""")
+            require(update.installed.matches(version) && (update.available == null || update.available.matches(version)))
+            require(update.state.matches(Regex("[a-z-]{1,40}")))
+        }
         require(revision >= 0 && observedAt.isFinite() && observedAt >= 0 && role in setOf("owner", "viewer"))
         require(capabilities["controlSettings.v1"] == JsonPrimitive(true))
         require(desired.size <= 32 && effective.size <= 32 && pending.size <= 32 && writableFields.size <= 32)

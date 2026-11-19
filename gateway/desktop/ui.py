@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import queue
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from desktop.configuration import atomic_json, load, public_repository_maps, copilot_enabled, save_copilot_enabled, settings_write_lock, validate
@@ -24,6 +25,7 @@ def build_window(root, parent=None, section='General'):
         window.transient(parent.winfo_toplevel())
     callbacks = WindowCallbacks(window)
     window.settings_callbacks = callbacks
+    last_open = time.time()
     style = theme.apply(window)
     window.title('GPT Mobile Gateway')
     width = min(900, max(660, window.winfo_screenwidth() - 32))
@@ -91,7 +93,7 @@ def build_window(root, parent=None, section='General'):
             tabs.select(canvas.master)
     github = ttk.Frame(tabs)
     tabs.add(github, text='GitHub')
-    if section == 'GitHub':
+    if section in {'GitHub', 'Repository Validation'}:
         tabs.select(github)
     def toggle_advanced():
         if advanced_visible.get():
@@ -272,6 +274,8 @@ def build_window(root, parent=None, section='General'):
     github_tabs.add(build_admission_panel(github_tabs, root), text='Job admission')
     refresh_github = build_github_settings(connection, root, cfg, public_maps, values['engineering'], copilot_jobs, managed_maps=True)
     validation_panel = RepositoryValidationPanel(validation_frame, root, cfg)
+    if section == 'Repository Validation':
+        github_tabs.select(validation_frame)
     window.repository_validation_panel = validation_panel
 
     scroll_surfaces[validation_panel.viewport] = validation_panel.viewport
@@ -322,13 +326,33 @@ def build_window(root, parent=None, section='General'):
             if show_native(root, view='Settings') is None:
                 messages.put((False, 'Open the installed Windows Gateway app and choose Settings to manage shared preferences.'))
         threading.Thread(target=work, daemon=True).start()
-    ttk.Button(actions, text='Shared settings', command=shared_settings).pack(side='left', padx=(0, 8))
-    ttk.Button(actions, text='Save host settings', command=save).pack(side='left', padx=(0, 12))
+    buttons = [('Shared settings', shared_settings), ('Save host settings', save)]
     for label, action in [('Restart', 'restart'), ('Stop', 'stop'), ('Check updates', 'check'), ('Install update', 'install')]:
-        ttk.Button(actions, text=label, command=lambda a=action: operation(a)).pack(side='left', padx=4)
+        buttons.append((label, lambda a=action: operation(a)))
+    for index, (label, handler) in enumerate(buttons):
+        ttk.Button(actions, text=label, command=handler).grid(row=index // 3, column=index % 3, sticky='ew', padx=3, pady=2)
+        actions.columnconfigure(index % 3, weight=1)
 
     def refresh():
-        nonlocal busy
+        nonlocal busy, last_open
+        try:
+            opened = json.loads((root / 'show-settings.json').read_text(encoding='utf-8'))
+            if opened['requestedAt'] > last_open:
+                last_open = opened['requestedAt']
+                target = opened['section']
+                if target == 'Advanced' and not advanced_visible.get():
+                    advanced_visible.set(True)
+                    toggle_advanced()
+                outer = 'GitHub' if target == 'Repository Validation' else target
+                for tab in tabs.tabs():
+                    if tabs.tab(tab, 'text') == outer:
+                        tabs.select(tab)
+                if outer == 'GitHub':
+                    github_tabs.select(validation_frame if target == 'Repository Validation' else connection_canvas.master)
+                window.deiconify()
+                window.lift()
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
         refresh_github()
         validation_panel.refresh()
         while not messages.empty():
@@ -340,7 +364,7 @@ def build_window(root, parent=None, section='General'):
         try:
             state = json.loads((root / 'status.json').read_text(encoding='utf-8'))
             state_text.set(f"{str(state.get('state', 'unknown')).capitalize()}  ·  v{state.get('version', '?')}")
-            diagnostics.set(f"Gateway: {state.get('state', 'unknown')}\nUpdates: {state.get('updateState', 'not checked')}\n{state.get('error', '')}")
+            diagnostics.set(f"Gateway: {state.get('state', 'unknown')}\nUpdates: {state.get('updateState', 'not checked')}\n{state.get('availableVersion') or ''} {state.get('updateError') or state.get('error') or ''}")
         except (OSError, ValueError):
             state_text.set('Start Gateway to connect')
             state = {}
@@ -380,6 +404,7 @@ def show(root, parent=None, section='General'):
     try:
         lock.acquire()
     except StateDirectoryAlreadyOwned:
+        atomic_json(Path(root) / 'show-settings.json', {'requestedAt': time.time(), 'section': section})
         return
     try:
         build_window(root, section=section).mainloop()

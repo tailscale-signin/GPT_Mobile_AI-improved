@@ -30,7 +30,23 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
     val error = mutableError.asStateFlow()
     private var action: Job? = null
 
-    fun refresh(profile: PlatformV2) = run(profile) { repository.refresh(it) }
+    private var refreshJob: Job? = null
+
+    fun refresh(profile: PlatformV2) {
+        if (refreshJob?.isActive == true || action?.isActive == true) return
+        refreshJob = viewModelScope.launch {
+            try {
+                val current = settings.fetchPlatformV2s().singleOrNull { it.uid == profile.uid && it.enabled && it.apiUrl == profile.apiUrl }
+                if (current != null) repository.refresh(current)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                mutableError.value = "Could not refresh Gateway settings."
+            }
+        }
+    }
+
+    fun updateGateway(profile: PlatformV2, target: String? = null) = run(profile) { repository.updateGateway(it, target) }
     fun pair(profile: PlatformV2, link: String) = run(profile) { repository.pair(it, link) }
     fun finishPairing(profile: PlatformV2) = run(profile) { repository.finishPairing(it) }
     fun apply(profile: PlatformV2, revision: Long, changes: JsonObject, confirmEngineering: Boolean = false) = run(profile) { repository.apply(it, revision, changes, confirmEngineering) }

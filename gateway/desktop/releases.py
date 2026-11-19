@@ -1,6 +1,7 @@
 """TLS-authenticated official release metadata, digest verification and bounded extraction."""
 import hashlib
 import json
+import time
 import re
 import shutil
 import stat
@@ -22,6 +23,7 @@ def version(value):
 
 
 def choose(releases, current):
+    installed = version(current)
     candidates = []
     for release in releases:
         tag = release.get('tag_name', '')
@@ -29,7 +31,7 @@ def choose(releases, current):
             continue
         try:
             number = tag.removeprefix('gateway-v')
-            if version(number) <= version(current) or version(number)[0] not in {15, 16, 17}:
+            if version(number) <= installed:
                 continue
         except ValueError:
             continue
@@ -48,19 +50,34 @@ def choose(releases, current):
 
 
 def check(current, session=None):
-    session = session or requests.Session()
-    session.trust_env = False
-    with session.get(RELEASES_URL, timeout=(10, 20), headers={'Accept': 'application/vnd.github+json'}, stream=True, allow_redirects=False) as response:
-        response.raise_for_status()
-        data = bytearray()
-        for chunk in response.iter_content(65536):
-            data.extend(chunk)
-            if len(data) > 2 * 1024 * 1024:
-                raise ValueError('Release metadata exceeds limit')
-    parsed = json.loads(data)
-    if not isinstance(parsed, list):
-        raise ValueError('Invalid release metadata')
-    return choose(parsed, current)
+    if session is None:
+        with requests.Session() as client:
+            client.trust_env = False
+            return check(current, client)
+    # Android and Windows share this feed. Publication order need not match
+    # semantic version order. Only request pages on the fixed repository URL.
+    best = None
+    deadline = time.monotonic() + 90
+    for page in range(1, 101):
+        url = RELEASES_URL if page == 1 else f'{RELEASES_URL}&page={page}'
+        with session.get(url, timeout=(5, 10), headers={'Accept': 'application/vnd.github+json'},
+                         stream=True, allow_redirects=False) as response:
+            if response.status_code != 200:
+                response.raise_for_status()
+                raise ValueError('Unexpected release catalog response')
+            data = bytearray()
+            for chunk in response.iter_content(65536):
+                data.extend(chunk)
+                if len(data) > 4 * 1024 * 1024 or time.monotonic() > deadline:
+                    raise ValueError('Release catalog scan exceeded its limit')
+            parsed = json.loads(data)
+            if not isinstance(parsed, list):
+                raise ValueError('Invalid release metadata')
+            newer = choose(parsed, best['version'] if best else current)
+            best = newer or best
+            if 'next' not in response.links:
+                return best
+    raise ValueError('Release catalog is incomplete')
 
 
 def download(candidate, target, session=None):
@@ -71,6 +88,7 @@ def download(candidate, target, session=None):
     if candidate['url'] != expected or not re.fullmatch('[a-f0-9]{64}', candidate['sha256']):
         raise ValueError('Invalid update destination or digest')
     hasher, size = hashlib.sha256(), 0
+    deadline = time.monotonic() + 1800
     try:
         url = expected
         for _ in range(6):
@@ -94,6 +112,8 @@ def download(candidate, target, session=None):
             with Path(target).open('xb') as stream:
                 for chunk in response.iter_content(1024 * 1024):
                     size += len(chunk)
+                    if time.monotonic() > deadline:
+                        raise TimeoutError('Update download timed out')
                     if size > MAX_DOWNLOAD or size > candidate['size']:
                         raise ValueError('Update exceeds declared size')
                     hasher.update(chunk)

@@ -163,7 +163,23 @@ def create_app(controller):
 
     @app.get('/gateway/settings')
     async def settings(request: Request):
-        return await execute(request, lambda: store.snapshot(principal(request)))
+        return await execute(request, lambda: controller.phone_snapshot(principal(request)))
+
+    @app.post('/gateway/updates')
+    async def update(request: Request):
+        payload = await request.json()
+        if not isinstance(payload, dict) or set(payload) not in ({'action'}, {'action', 'target'}):
+            raise ControlError('invalid_update_request')
+        command = dict(payload, principal=principal(request))
+        def dispatch():
+            from desktop.manager import ManagerRequestError, request as send
+            controller.phone_update_action(command)
+            try:
+                send(controller.supervisor.root, 'phone-update', payload=command)
+            except ManagerRequestError as error:
+                raise ControlError(error.code or 'update_not_accepted', error.status or 409) from None
+            return {'accepted': True}
+        return await execute(request, dispatch)
 
     @app.patch('/gateway/settings')
     async def change(request: Request):

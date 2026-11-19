@@ -1,4 +1,8 @@
-# GPT Mobile 0.9.66.8 (build 142) and Windows Gateway 17.0.1
+# GPT Mobile 0.9.66.9 (build 143) and Windows Gateway 18.0.0
+
+Windows Setup uses the Gateway workspace theme for connection, update, and advanced settings. The desktop and paired Android controls show the installed version, available version and update progress. Paired owners with update permission can check for stable releases and select a version to install when idle.
+
+Installed v17 updaters first select the 17.0.2 transition release. Once it restarts, check again for v18 or let automatic updates continue. The Windows release workflow builds both packages and exercises the transition using the packaged v18 ZIP.
 
 ## Getting started
 

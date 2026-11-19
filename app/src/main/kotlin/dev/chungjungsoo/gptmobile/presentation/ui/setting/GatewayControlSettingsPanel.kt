@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -74,14 +75,16 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
         title = { Text("Gateway settings") },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { menu = true }, enabled = !busy) { Text(profile?.name?.take(120) ?: "Choose Gateway connection") }
-                DropdownMenu(menu, { menu = false }) {
-                    profiles.forEach { candidate ->
-                        DropdownMenuItem(text = { Text(candidate.name.take(120)) }, onClick = {
-                            selected = candidate.uid
-                            model.clearError()
-                            menu = false
-                        })
+                Box {
+                    OutlinedButton(onClick = { menu = true }, enabled = !busy) { Text(profile?.name?.take(120) ?: "Choose Gateway connection") }
+                    DropdownMenu(menu, { menu = false }) {
+                        profiles.forEach { candidate ->
+                            DropdownMenuItem(text = { Text(candidate.name.take(120)) }, onClick = {
+                                selected = candidate.uid
+                                model.clearError()
+                                menu = false
+                            })
+                        }
                     }
                 }
                 if (profiles.isEmpty()) Text("Add a private Llama or Ollama Gateway connection in AI Profiles. Your inference profile stays separate.")
@@ -168,6 +171,22 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
     }
     if (snapshot != null && state.phase !in setOf(GatewayControlPhase.UNPAIRED, GatewayControlPhase.PAIRING)) {
         Text("${if (snapshot.role == "owner") "Paired owner" else "Viewer"} · Revision ${snapshot.revision} · ${snapshot.installationId.takeLast(12)}", style = MaterialTheme.typography.labelSmall)
+        snapshot.updates?.let { update ->
+            OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Gateway updates", style = MaterialTheme.typography.titleMedium)
+                    Text("Installed ${update.installed} · ${update.state.replace('-', ' ')}")
+                    update.available?.let { Text("Available $it", style = MaterialTheme.typography.bodySmall) }
+                    if ("update_mode" in snapshot.writableFields) {
+                        val ready = live && update.state !in setOf("checking", "downloading", "waiting-for-idle", "validating")
+                        OutlinedButton(onClick = { model.updateGateway(profile) }, enabled = ready) { Text("Check for updates") }
+                        if (update.available != null && update.state == "available") {
+                            OutlinedButton(onClick = { model.updateGateway(profile, update.available) }, enabled = ready) { Text("Install ${update.available} when idle") }
+                        }
+                    }
+                }
+            }
+        }
         val desiredEngineering = snapshot.desired["engineering_enabled"] == JsonPrimitive(true)
         val effectiveEngineering = snapshot.effective["engineering_enabled"] == JsonPrimitive(true)
         OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
@@ -235,13 +254,15 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
         }
         if ("host_request" in snapshot.writableFields) {
             var requestMenu by remember(profile.uid) { mutableStateOf(false) }
-            OutlinedButton(onClick = { requestMenu = true }, enabled = live && snapshot.hostRequests.none { it.status == "waiting_pc" }) { Text("Request PC review") }
-            DropdownMenu(requestMenu, { requestMenu = false }) {
-                GatewayControlField.HOST_REQUEST.choices.forEach { request ->
-                    DropdownMenuItem(text = { Text(request) }, onClick = {
-                        requestMenu = false
-                        model.apply(profile, snapshot.revision, JsonObject(mapOf("host_request" to JsonPrimitive(request))))
-                    })
+            Box {
+                OutlinedButton(onClick = { requestMenu = true }, enabled = live && snapshot.hostRequests.none { it.status == "waiting_pc" }) { Text("Request PC review") }
+                DropdownMenu(requestMenu, { requestMenu = false }) {
+                    GatewayControlField.HOST_REQUEST.choices.forEach { request ->
+                        DropdownMenuItem(text = { Text(request) }, onClick = {
+                            requestMenu = false
+                            model.apply(profile, snapshot.revision, JsonObject(mapOf("host_request" to JsonPrimitive(request))))
+                        })
+                    }
                 }
             }
             Text("Sends a review note to the PC. Network access, setup and restart decisions are made there.", style = MaterialTheme.typography.bodySmall)
@@ -313,13 +334,15 @@ private fun GatewayControlFieldEditor(field: GatewayControlField, requested: Jso
             field.choices.isNotEmpty() || field in setOf(GatewayControlField.VALIDATION_PROFILE, GatewayControlField.BACKEND) -> {
                 var expanded by remember(field) { mutableStateOf(false) }
                 Text(field.label, style = MaterialTheme.typography.labelMedium)
-                OutlinedButton(onClick = { expanded = true }, enabled = enabled && choices.isNotEmpty()) { Text(choices[value] ?: if (field == GatewayControlField.BACKEND) value else value.replaceFirstChar(Char::uppercase)) }
-                DropdownMenu(expanded, { expanded = false }) {
-                    choices.forEach { (choice, label) ->
-                        DropdownMenuItem(text = { Text(label) }, onClick = {
-                            expanded = false
-                            onChange(JsonPrimitive(choice))
-                        })
+                Box {
+                    OutlinedButton(onClick = { expanded = true }, enabled = enabled && choices.isNotEmpty()) { Text(choices[value] ?: if (field == GatewayControlField.BACKEND) value else value.replaceFirstChar(Char::uppercase)) }
+                    DropdownMenu(expanded, { expanded = false }) {
+                        choices.forEach { (choice, label) ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = {
+                                expanded = false
+                                onChange(JsonPrimitive(choice))
+                            })
+                        }
                     }
                 }
                 if (field == GatewayControlField.VALIDATION_PROFILE) {
@@ -332,7 +355,11 @@ private fun GatewayControlFieldEditor(field: GatewayControlField, requested: Jso
                 value,
                 { text ->
                     if (field.minimum != null) {
-                        text.toIntOrNull()?.let { onChange(JsonPrimitive(it)) }
+                        if (text.isEmpty()) {
+                            onChange(JsonPrimitive(""))
+                        } else {
+                            text.toIntOrNull()?.let { onChange(JsonPrimitive(it)) }
+                        }
                     } else if (text.length <= 512) {
                         onChange(JsonPrimitive(text))
                     }

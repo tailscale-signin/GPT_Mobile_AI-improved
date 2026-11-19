@@ -32,6 +32,7 @@ public partial class MainWindow
     private void BuildSettings()
     {
         int viewEpoch = epoch;
+        BuildUpdateCard();
         page.Children.Add(Ui.Card(Ui.Column(Ui.Text("Reading confirmed settings…", 20, bold: true),
             Ui.Text("The Gateway owns the effective values. Running jobs keep their accepted configuration.", color: "MutedBrush"),
             Ui.Actions(Ui.Button("Host connection settings", () => OpenUtility("settings")), Ui.Button("Start Gateway", () => Run(async () => { await Call("runtime-start"); Navigate("Settings"); }))))));
@@ -40,7 +41,7 @@ public partial class MainWindow
             var devices = await Call("control-devices");
             var current = await Call("control-settings-read", new JsonObject { ["owner_principal"] = settingsOwner });
             if (viewEpoch != epoch) return;
-            page.Children.Clear();
+            page.Children.Clear(); BuildUpdateCard();
             var effective = current.Object("effective"); var desired = current.Object("desired");
             var writable = current.Array("writable_fields").Select(item => item?.ToString()).ToHashSet();
             var body = Ui.Column(Ui.Text("Confirmed configuration", 22, bold: true),
@@ -157,9 +158,7 @@ public partial class MainWindow
                     var result = await Call("control-settings-command", new JsonObject { ["command_id"] = pending.Text("command_id"),
                         ["owner_principal"] = pending.Text("owner_principal", "local:single-user") });
                     ShowDetails("Original settings receipt", result); Navigate("Settings");
-                })), retryOriginal, Ui.Button("Host connection and firewall", () => OpenUtility("settings")),
-                Ui.Button("Install verified update when idle", () => Run(async () =>
-                { await Call("runtime-control", new JsonObject { ["action"] = "install" }); status.Text = "Update requested through the guarded supervisor."; }))));
+                })), retryOriginal, Ui.Button("Host connection and firewall", () => OpenUtility("settings"))));
             page.Children.Add(Ui.Card(body));
         });
     }
@@ -223,7 +222,7 @@ public partial class MainWindow
             accessDescription.Text = owner ? "Owner can change its Engineering gate and the shared settings you explicitly grant below." :
                 "Viewer can read settings and status. This invitation grants no writable settings or Engineering controls.";
         };
-        grant.Children.Add(Ui.Text("Also grant capacity, model, public repository maps, startup, update and diagnostics settings, selection of PC-approved backend origins and validation profiles, and requests for PC review.", 13, "MutedBrush"));
+        grant.Children.Add(Ui.Text("Also grant capacity, model, public repository maps, startup, stable update checks and installation, and diagnostics settings, selection of PC-approved backend origins and validation profiles, and requests for PC review.", 13, "MutedBrush"));
         grant.Children.Add(Ui.Actions(Ui.Button("Create pairing invitation", () => Run(async () =>
         {
             var confirmed = await Call("control-settings-read");
@@ -306,7 +305,7 @@ public partial class MainWindow
             foreach (var origin in origins)
                 backendList.Children.Add(Ui.Text(origin?.ToString() ?? "Unavailable origin", 13, "MutedBrush"));
         }
-        profiles.Children.Add(Ui.Actions(Ui.Button("Open repository validation", () => OpenUtility("github-settings")),
+        profiles.Children.Add(Ui.Actions(Ui.Button("Open repository validation", () => OpenUtility("github-settings", "Repository Validation")),
             Ui.Button("Approve current validation profile", () => Run(async () =>
             {
                 if (MessageBox.Show(this, "Approve the repository validation policy currently saved on this PC as an immutable choice for granted phone controls? Existing jobs keep their original policy.",

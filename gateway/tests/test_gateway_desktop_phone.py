@@ -83,6 +83,25 @@ class CanonicalPhoneControlsTests(unittest.TestCase):
         self.control.local('control-device-revoke', {'device_id': grant['device_id']})
         self.assertEqual(401, client.call(grant['token'], 'GET', path).status_code)
 
+    def test_signed_update_checks_require_owner_grant_and_matching_target(self):
+        from unittest.mock import patch
+        client = self.transport
+        owner, viewer = client.pair(), self.pair_viewer()
+        self.control.supervisor.status = {'version': '18.0.0', 'updateState': 'available', 'availableVersion': '18.1.0'}
+        status = client.call(viewer['token'], 'GET', '/gateway/settings').json()['updates']
+        self.assertEqual('18.1.0', status['available'])
+        with patch('desktop.manager.request') as queue:
+            self.assertEqual(403, client.call(viewer['token'], 'POST', '/gateway/updates', {'action': 'check'}).status_code)
+            with self.control.store.tx() as db:
+                db.execute('UPDATE gateway_control_devices SET fields=? WHERE id=?', ('["engineering_enabled"]', owner['device_id']))
+            self.assertEqual(403, client.call(owner['token'], 'POST', '/gateway/updates', {'action': 'check'}).status_code)
+            with self.control.store.tx() as db:
+                db.execute('UPDATE gateway_control_devices SET fields=? WHERE id=?', ('["update_mode"]', owner['device_id']))
+            self.assertEqual(409, client.call(owner['token'], 'POST', '/gateway/updates', {'action': 'install', 'target': '18.0.5'}).status_code)
+            queue.assert_not_called()
+            self.assertEqual(200, client.call(owner['token'], 'POST', '/gateway/updates', {'action': 'install', 'target': '18.1.0'}).status_code)
+            self.assertEqual({'principal': owner['principal_id'], 'action': 'install', 'target': '18.1.0'}, queue.call_args.kwargs['payload'])
+
     def test_viewer_owner_identity_and_management_inference_separation(self):
         client = self.transport
         owner = client.pair()

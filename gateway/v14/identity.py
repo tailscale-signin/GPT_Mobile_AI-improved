@@ -169,7 +169,7 @@ class Admission:
         if engineering_path and not principal.engineering_allowed and not (public_map_path and 'tools' in principal.scopes):
             return await deny("engineering_scope_required")
         if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
-            public_reads = {"/gateway/privacy/inference", "/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/v17", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
+            public_reads = {"/gateway/privacy/inference", "/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/v17", "/gateway/v18", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
                 landing_page = self.config.mode == "open_network" and request_path in LANDING_PATHS

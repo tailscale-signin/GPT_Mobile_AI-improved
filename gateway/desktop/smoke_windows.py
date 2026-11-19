@@ -1,4 +1,6 @@
 """Exercise the actual unsigned installer, frozen runtime, rollback and uninstall on CI."""
+import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -75,6 +77,9 @@ def stop_checked(root, child, phase, output):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--upgrade-archive', type=Path)
+    upgrade = parser.parse_args().upgrade_archive
     output=ROOT/'dist'/'windows'
     installer=output/f'Gateway-{VERSION}-windows-x64-setup.exe'
     results=[]
@@ -90,7 +95,8 @@ def main():
         settings = validate({'backend': plan['setup']['backend'], 'port': int(plan['setup']['port']),
                              'bind_host': plan['setup']['bind']})
         assert settings['access'] == 'loopback' and settings['backend'] == 'http://127.0.0.1:1'
-        assert plan['setup']['engineeringSetup'] == '0' and plan['setup']['advanced'] == '0'
+        assert plan['setup']['engineeringSetup'] == '0' and plan['setup']['advanced'] == '1'
+        assert [plan.getint('setup', key) for key in ('workers', 'chats', 'grace', 'updates')] == [7, 11, 42, 1]
         results.append('native four-step setup rejects invalid ports and accepts an offline model on loopback')
         cmd=[str(installer),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=',f'/DIR={root}']
         subprocess.run(cmd,check=True,timeout=120)
@@ -202,6 +208,41 @@ def main():
             assert json.loads((root/'settings.json').read_text(encoding='utf-8'))==cfg
             assert (root/'data'/'preserve.txt').read_text()=='user data'
             results.append('repair install retains settings and persistent data')
+            if upgrade:
+                from unittest.mock import patch
+                from desktop import releases, windows_job
+                from desktop.manager import Supervisor
+                target = '18.0.0'
+                assert VERSION == '17.0.2' and upgrade.name == f'Gateway-{target}-windows-x64.zip'
+                with upgrade.open('rb') as stream:
+                    digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+                url = f'https://github.com/{releases.REPOSITORY}/releases/download/gateway-v{target}/{upgrade.name}'
+                candidate = releases.choose([{'tag_name': f'gateway-v{target}', 'assets': [{'name': upgrade.name,
+                    'browser_download_url': url, 'size': upgrade.stat().st_size, 'digest': 'sha256:' + digest}]}], VERSION)
+                assert candidate and candidate['version'] == target
+                # Replace only the network transport with the CI-built ZIP. Exercise
+                # digest verification, frozen preflight, activation and real boot.
+                manager = Supervisor(root, headless=True)
+                try:
+                    with requests.Response() as response, upgrade.open('rb') as stream:
+                        response.status_code, response.url, response.raw = 200, url, stream
+                        with patch.object(requests.Session, 'get', return_value=response):
+                            manager.stage(candidate)
+                    assert manager.activate(target)
+                finally:
+                    manager.http.close()
+                    windows_job.close(manager.job)
+                    for handler in manager.log.handlers[:]:
+                        handler.close()
+                        manager.log.removeHandler(handler)
+                child = subprocess.Popen(launcher)
+                observed = wait_state(root, 'running', version=target)
+                assert observed.get('updateState') == 'installed'
+                assert json.loads((root/'current.json').read_text())['previous'] == VERSION
+                assert json.loads((root/'settings.json').read_text()) == cfg
+                assert (root/'data'/'preserve.txt').read_text() == 'user data'
+                stop_checked(root, child, 'updated v18 stop', output)
+                results.append('17.0.2 verified and staged the v18 ZIP, booted the installed v18 runtime and retained settings and data')
             subprocess.run([str(root/'unins000.exe'),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',f'/LOG={output / "uninstall.log"}'],check=True,timeout=120)
             # Inno relocates its uninstaller; the original bootstrap may exit first.
             deadline=time.monotonic()+60

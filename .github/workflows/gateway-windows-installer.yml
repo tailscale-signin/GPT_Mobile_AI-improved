@@ -35,7 +35,7 @@ jobs:
 
   windows-installer:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -56,12 +56,15 @@ jobs:
         run: dotnet run --project gateway/desktop/native/tests/Gateway.Native.Contracts.csproj -c Release
       - run: python gateway/desktop/build_windows.py
       - run: python gateway/desktop/smoke_windows.py
+      - name: Verify the v17-to-v18 transition package
+        run: python gateway/desktop/build_v17_transition.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: Gateway-Windows-x64
           path: |
             dist/windows/*-setup.exe
             dist/windows/*.zip
+            dist/windows/v17-transition/*
             dist/windows/SHA256SUMS.txt
             dist/windows/smoke-results.json
             dist/windows/dashboard-*.png

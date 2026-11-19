@@ -161,6 +161,21 @@ internal class GatewayControlRepository @Inject constructor(
         }
     }
 
+    suspend fun updateGateway(profile: PlatformV2, target: String?) = mutex(profile.uid).withLock {
+        val binding = requireNotNull(load(profile.uid))
+        check(binding.originalEndpoint == original(profile) && !binding.revoked && !binding.revocationPending && binding.pending == null)
+        val observed = snapshot(binding)
+        val updates = requireNotNull(observed.updates)
+        check(observed.role == "owner" && "update_mode" in observed.writableFields)
+        if (target != null) check(updates.state == "available" && updates.available == target)
+        val body = buildJsonObject {
+            put("action", JsonPrimitive(if (target == null) "check" else "install"))
+            if (target != null) put("target", JsonPrimitive(target))
+        }
+        check(exchange(binding, "POST", "/gateway/updates", body.toString()).status == 200)
+        publish(profile, GatewayControlPhase.LIVE, binding, "Request accepted. Waiting for the Gateway to report its update status.")
+    }
+
     suspend fun pair(profile: PlatformV2, link: String) = mutex(profile.uid).withLock {
         val endpoint = original(profile)
         val parsed = GatewayPairingLink.parse(link, System.currentTimeMillis() / 1000)

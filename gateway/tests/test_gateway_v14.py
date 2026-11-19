@@ -178,7 +178,7 @@ class RuntimeTests(unittest.TestCase):
             else:
                 self.assertEqual(cap[key],value)
         self.assertFalse(cap['auth']['apiKeyRequired'])
-        self.assertEqual(cap['gatewayVersion'],'17.0.1')
+        self.assertEqual(cap['gatewayVersion'],'18.0.0')
         self.assertEqual(cap['memory']['authority'],'client')
         self.assertFalse(cap['features']['mcpFacade'])
         self.assertEqual(cap['contracts']['toolArguments'], ['gptmobile.tool-arguments.v1'])

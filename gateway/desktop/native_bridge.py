@@ -367,6 +367,11 @@ def dispatch(root, action, args, output):
         if command not in {'settings', 'github-settings', 'engineering-setup', 'benchmark-settings', 'dashboard', 'schedules'}:
             raise ValueError('Unknown Gateway utility.')
         call = executable(root, read_pointer(root)['version'], command) + ['--legacy-ui']
+        if command in {'settings', 'github-settings'} and 'view' in args:
+            view = args['view']
+            if view not in ({'Add-ons', 'General', 'Advanced'} if command == 'settings' else {'Repository Validation', 'GitHub'}):
+                raise ValueError('Unknown settings section.')
+            call += ['--section', view]
         if command == 'dashboard':
             view = args.get('view', 'Overview')
             if view not in UTILITY_VIEWS:

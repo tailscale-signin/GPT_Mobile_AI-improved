@@ -11,7 +11,7 @@ SOURCE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(SOURCE))
 from desktop.configuration import DEFAULTS, atomic_json, environment, load, validate
 from desktop.manager import read_pointer, release_path, request, startup_registration, supervise
-from desktop.releases import validate_release
+from desktop.releases import validate_release, version
 from v14.state_lock import StateDirectoryLock
 
 
@@ -26,6 +26,7 @@ def main():
     parser.add_argument('--settings-file', type=Path)
     parser.add_argument('--smoke-ui', action='store_true')
     parser.add_argument('--legacy-ui', action='store_true', help='Open the validated host utility inside the existing runtime')
+    parser.add_argument('--section', choices=['General', 'Advanced', 'Add-ons', 'GitHub', 'Repository Validation'])
     parser.add_argument('--view', choices=['Overview', 'Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks', 'Android controls', 'Diagnostics', 'Settings'])
     parser.add_argument('--page', choices=['Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks'], help='Compatibility alias for a workspace view')
     args = parser.parse_args()
@@ -100,6 +101,9 @@ def main():
         sys.argv = ['gateway.py', 'serve' if args.command == 'serve-engine' else 'validate-config']
         runpy.run_path(str(SOURCE / 'gateway.py'), run_name='__main__')
         return 0
+    if args.command in {'validate-settings', 'configure'} and args.version and (root / 'current.json').exists():
+        if version(args.version) < version(read_pointer(root)['version']):
+            raise ValueError('This PC already has a newer Gateway. Use its installed update option.')
     if args.command == 'validate-settings':
         load(root) if (root / 'settings.json').exists() else validate(json.loads(args.settings_file.read_text(encoding='utf-8-sig')))
         return 0
@@ -110,12 +114,11 @@ def main():
         try:
             validate_release(release_path(root, args.version), args.version)
             cfg = load(root) if (root / 'settings.json').exists() else validate(json.loads(args.settings_file.read_text(encoding='utf-8-sig')) if args.settings_file else DEFAULTS)
-            atomic_json(root / 'settings.json', cfg)
             previous = read_pointer(root)['version'] if (root / 'current.json').exists() else None
             if previous and args.version != previous:
-                from desktop.releases import version
                 if version(args.version) < version(previous):
                     raise ValueError('Installer downgrade refused; use the compatible newer installer')
+            atomic_json(root / 'settings.json', cfg)
             atomic_json(root / 'current.json', {'version': args.version, 'previous': previous, 'pending': bool(previous and previous != args.version)})
             startup_registration(root, cfg['start_at_login'])
         finally:
@@ -146,7 +149,7 @@ def main():
         return 0
     if args.command in {'settings', 'github-settings'}:
         from desktop.ui import show
-        show(root, section='GitHub' if args.command == 'github-settings' else 'General')
+        show(root, section=args.section or ('GitHub' if args.command == 'github-settings' else 'General'))
         return 0
     if args.command == 'validate-ui':
         from desktop.ui import build_window

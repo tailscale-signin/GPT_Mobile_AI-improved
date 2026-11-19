@@ -190,6 +190,7 @@ class ControlSettingsTests(unittest.TestCase):
     def client(self):
         controller = SimpleNamespace(store=self.store, secret=self.secret, allowed_hosts={'testserver'},
                                      endpoint='https://testserver', fingerprint='f' * 64,
+                                     phone_snapshot=lambda owner: self.store.snapshot(owner),
                                      patch=lambda owner, payload: self.store.patch(owner, payload))
         return TestClient(create_app(controller), base_url='https://testserver')
 

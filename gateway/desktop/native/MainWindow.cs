@@ -31,6 +31,9 @@ public partial class MainWindow : Window
     private JsonObject? identity;
     private string[] models = [];
     private string selectedPage = "Overview";
+    private TextBlock? updateInfo;
+    private Button? checkUpdate, installUpdate;
+    private bool requestingUpdate;
     private bool refreshing;
     private bool closed;
     private bool sending;
@@ -52,7 +55,10 @@ public partial class MainWindow : Window
         if (!File.Exists(System.IO.Path.Combine(root, "current.json"))) throw new ArgumentException("This Gateway is not configured. Run Setup first.");
         bridge = new BridgeClient(root, runtime);
         Title = "GPT Mobile · Gateway";
-        Width = 1220; Height = 820; MinWidth = 900; MinHeight = 600;
+        var workArea = SystemParameters.WorkArea;
+        MinWidth = Math.Min(740, workArea.Width); MinHeight = Math.Min(480, workArea.Height);
+        Width = Math.Min(1220, workArea.Width); Height = Math.Min(820, workArea.Height);
+        UseLayoutRounding = SnapsToDevicePixels = true;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         var layout = new Grid();
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(210) });
@@ -128,6 +134,7 @@ public partial class MainWindow : Window
     private void Navigate(string name)
     {
         if (!Pages.Contains(name)) name = "Overview";
+        updateInfo = null; checkUpdate = installUpdate = null;
         selectedPage = name; epoch++; page.Children.Clear(); pageScroll.ScrollToTop(); heading.Text = name;
         foreach (var (key, button) in navigation)
         {
@@ -169,14 +176,28 @@ public partial class MainWindow : Window
         refreshing = true;
         try
         {
+            var previous = snapshot;
             snapshot = await Call("snapshot");
+            RefreshUpdateCard();
             bool fresh = snapshot.Flag("fresh");
             connection.Text = $"{Environment.MachineName.ToUpperInvariant()}  /  {snapshot.Object("manager").Text("state", "Unavailable")}  ·  {(fresh ? "Live observation" : "Offline or stale observation")}";
-            if (selectedPage == "Overview") RefreshOverview();
+            if (selectedPage == "Overview")
+            {
+                overviewRefreshPending |= !JsonNode.DeepEquals(OverviewData(previous), OverviewData(snapshot));
+                if (overviewRefreshPending && Mouse.LeftButton != MouseButtonState.Pressed)
+                { overviewRefreshPending = false; RefreshOverview(); }
+            }
         }
         catch { connection.Text = "Offline · last confirmed values retained"; }
         finally { refreshing = false; }
     }
+
+    private bool overviewRefreshPending;
+    private static JsonArray OverviewData(JsonObject data) => new(
+        data.Object("manager")["state"]?.DeepClone(), data.Object("manager")["backend"]?.DeepClone(),
+        data["fresh"]?.DeepClone(), data["openJobs"]?.DeepClone(), data["usage"]?.DeepClone(),
+        data.Object("service")["activeWorkers"]?.DeepClone(), data.Object("service")["maxWorkers"]?.DeepClone(),
+        data["activities"]?.DeepClone());
 
     private void RefreshOverview()
     {
@@ -287,8 +308,8 @@ public partial class MainWindow : Window
         query.TextChanged += (_, _) => Fill(); Fill(); panel.Children.Add(list);
         panel.Children.Add(Ui.Actions(Ui.Button("Inspect capability", () => { if (Ui.Selected(list) is { } tool) ShowDetails("Capability evidence", tool); }),
             Ui.Button("GitHub connection and maps", () => OpenUtility("github-settings")),
-            Ui.Button("Repository validation", () => OpenUtility("github-settings")),
-            Ui.Button("MCP add-ons", () => OpenUtility("settings")),
+            Ui.Button("Repository validation", () => OpenUtility("github-settings", "Repository Validation")),
+            Ui.Button("MCP add-ons", () => OpenUtility("settings", "Add-ons")),
             Ui.Button("Engineering setup", () => OpenUtility("engineering-setup")),
             Ui.Button("Analysis workspace", () => OpenUtility("dashboard", "Chat"))));
         panel.Children.Add(Ui.Text("Host setup opens the existing validated utility. Its resource approvals and repair actions remain authoritative.", 13, "MutedBrush"));
@@ -297,6 +318,7 @@ public partial class MainWindow : Window
 
     private void BuildDiagnostics()
     {
+        BuildUpdateCard();
         var manager = snapshot.Object("manager"); var service = snapshot.Object("service"); var usage = snapshot.Object("usage");
         var preview = new JsonObject
         {
@@ -312,8 +334,55 @@ public partial class MainWindow : Window
             Ui.Text("Only runtime state and counters are included. Prompts, credentials, device addresses and repository contents are excluded.", 13, "MutedBrush"), output,
             Ui.Actions(Ui.Button("Export this summary", () => SaveJson(preview, "gateway-diagnostics.json"), true),
                 Ui.Button("Full debug export", () => OpenUtility("settings")),
-                Ui.Button("Check for updates", () => Run(async () => { await Call("runtime-control", new JsonObject { ["action"] = "check" }); status.Text = "Update check acknowledged."; })),
                 Ui.Button("Repair host prerequisites", () => OpenUtility("engineering-setup"))))));
+    }
+
+    private void BuildUpdateCard()
+    {
+        updateInfo = Ui.Text("", color: "MutedBrush");
+        System.Windows.Automation.AutomationProperties.SetLiveSetting(updateInfo, System.Windows.Automation.AutomationLiveSetting.Polite);
+        checkUpdate = Ui.Button("Check for updates", () => Run(() => RequestUpdate("check")));
+        installUpdate = Ui.Button("Install when idle", () => Run(() => RequestUpdate("install")), true);
+        page.Children.Add(Ui.Card(Ui.Column(Ui.Text("Gateway updates", 20, bold: true), updateInfo, Ui.Actions(checkUpdate, installUpdate))));
+        RefreshUpdateCard();
+    }
+
+    private void RefreshUpdateCard()
+    {
+        if (updateInfo is null || checkUpdate is null || installUpdate is null) return;
+        var manager = snapshot.Object("manager");
+        string state = manager.Text("updateState", "unchecked");
+        string available = manager.Text("availableVersion", "");
+        string installed = manager.Text("version", snapshot.Text("version"));
+        string detail = state switch
+        {
+            "checking" => "Checking published Gateway releases…",
+            "available" => $"Version {available} is available.",
+            "downloading" => $"Downloading and verifying version {available}…",
+            "waiting-for-idle" => $"Version {available} will install when current work finishes.",
+            "validating" => $"Starting version {available} and checking its health…",
+            "installed" => "Update installed and runtime health confirmed.",
+            "up-to-date" => "No newer stable Gateway release found.",
+            "rolled-back" or "startup-failed" => $"Version {manager.Text("failedVersion")} could not start. Restored the previous version.",
+            "error" => manager.Text("updateError", "Update failed. Check the Gateway log and retry."),
+            _ => "Updates have not been checked yet."
+        };
+        updateInfo.Text = $"Installed {installed}  ·  {detail}";
+        bool ready = !requestingUpdate && manager.Text("state") == "running" && state is not ("checking" or "downloading" or "validating" or "waiting-for-idle");
+        checkUpdate.IsEnabled = ready;
+        installUpdate.IsEnabled = ready && state == "available";
+    }
+
+    private async Task RequestUpdate(string action)
+    {
+        if (requestingUpdate) return;
+        requestingUpdate = true; RefreshUpdateCard();
+        try
+        {
+            await Call("runtime-control", new JsonObject { ["action"] = action });
+            await RefreshSnapshot();
+        }
+        finally { requestingUpdate = false; RefreshUpdateCard(); }
     }
 
     private void OpenUtility(string command, string? view = null) => Run(async () =>

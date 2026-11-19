@@ -12,4 +12,7 @@
     <ApplicationIcon>../assets/gateway.ico</ApplicationIcon>
     <DebugType>none</DebugType>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="../assets/gateway.png" Link="gateway.png" />
+  </ItemGroup>
 </Project>

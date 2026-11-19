@@ -162,6 +162,27 @@ class Controller:
                            for key, value in desired.items() if value != effective[key]]
                 self.store.apply_observed(snapshot['revision'], effective, pending)
 
+    def phone_snapshot(self, principal):
+        snapshot = self.store.snapshot(principal)
+        status = getattr(self.supervisor, 'status', {})
+        if status.get('version'):
+            snapshot['updates'] = {'installed': status['version'], 'state': status.get('updateState', 'unchecked'),
+                                   'available': status.get('availableVersion')}
+        return snapshot
+
+    def phone_update_action(self, payload):
+        principal = payload.get('principal')
+        grant = self.store.grant(principal) if isinstance(principal, str) else None
+        if not grant or grant['role'] != 'owner' or 'update_mode' not in json.loads(grant['fields']):
+            raise ControlError('update_permission_required', 403)
+        if set(payload) == {'principal', 'action'} and payload['action'] == 'check':
+            return 'check'
+        if (set(payload) != {'principal', 'action', 'target'} or payload['action'] != 'install' or
+                not isinstance(payload['target'], str) or self.supervisor.status.get('availableVersion') != payload['target'] or
+                self.supervisor.status.get('updateState') != 'available'):
+            raise ControlError('update_target_changed', 409)
+        return 'install'
+
     def patch(self, principal, payload):
         with self.lock:
             return self.store.patch(principal, payload)

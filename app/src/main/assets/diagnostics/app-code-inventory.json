@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "a9a5c789699ad3438b62c8f8c5db7f5fa30a4d98f205d0e15dfe4883b9774107",
+  "source_digest": "698ac538805caf79629a348ce1f2a6570f31dfef60798f3ce86ae14fb68febb7",
   "file_count": 2701,
-  "indexed_line_count": 442094,
+  "indexed_line_count": 442102,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 566,
-      "indexed_line_count": 99632
+      "indexed_line_count": 99640
     },
     {
       "id": "accessibility_and_localization",
@@ -4420,8 +4420,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedCorpusMultipass.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "ba6be57bc978a1230c498af945032f5aa94bfc5b058da3e785f0855979a57b9e",
-      "indexed_lines": 247
+      "sha256": "b1de5a615efbb12a75a42ea53170a6a9646f8c9bf68bf93e1a01be3fd19042ff",
+      "indexed_lines": 255
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedCorpusMultipassSession.kt",

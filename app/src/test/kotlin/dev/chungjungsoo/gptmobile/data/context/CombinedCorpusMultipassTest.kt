@@ -77,10 +77,31 @@ class CombinedCorpusMultipassTest {
 
     @Test fun rejectsUnsupportedOutputHeadroomAndNeverChangesExplicitLimits() {
         val original = listOf(turn("History ".repeat(1000), false), turn("Goal", true))
-        val failure = assertThrows(IllegalArgumentException::class.java) {
+        val failure = assertThrows(RequestCapacityException::class.java) {
             CombinedCorpusMultipass.plan(original, "", TokenBudgetSettings(contextTokens = 1024, outputTokens = 1024))
         }
+        assertEquals("OUTPUT_CAPACITY_EXCEEDED", failure.code)
+        assertEquals(1024L, failure.outputTokens)
+        assertEquals(1024L, failure.capacityTokens)
+        assertEquals(64L, failure.safetyTokens)
         assertTrue(failure.message.orEmpty().contains("COMBINED_MULTIPASS_OUTPUT"))
+        val routedFailure = assertThrows(RequestCapacityException::class.java) {
+            ContextBudgetService.planFullInputOrMultipass(original, "", TokenBudgetSettings(contextTokens = 1024, outputTokens = 1024))
+        }
+        assertEquals("OUTPUT_CAPACITY_EXCEEDED", routedFailure.code)
+    }
+
+    @Test fun oversizedOutputNeverWrapsTheFiniteContextCheck() {
+        val failure = assertThrows(RequestCapacityException::class.java) {
+            CombinedCorpusMultipass.plan(
+                listOf(turn("History", false), turn("Current", true)),
+                "",
+                TokenBudgetSettings(contextTokens = 1024, outputTokens = Int.MAX_VALUE)
+            )
+        }
+        assertEquals("OUTPUT_CAPACITY_EXCEEDED", failure.code)
+        assertEquals(Int.MAX_VALUE.toLong(), failure.outputTokens)
+        assertEquals(1024L, failure.capacityTokens)
     }
 
     @Test fun refusesExcessivePhysicalPassesWithoutDiscardingOriginalCorpus() {

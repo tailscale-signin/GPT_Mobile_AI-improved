@@ -153,8 +153,16 @@ object CombinedCorpusMultipass {
         }.getOrNull().orEmpty().ifBlank { current.userMessage.content }
         val output = (config.outputTokens.takeIf { it > 0 } ?: minOf(1024, capacity / 4))
         val safety = minOf(256, capacity / 16)
-        require(output >= 128 && output + safety < capacity) {
-            "COMBINED_MULTIPASS_OUTPUT: Insufficient output headroom for safe inspection."
+        if (output < 128 || output.toLong() + safety.toLong() >= capacity.toLong()) {
+            throw RequestCapacityException(
+                code = "OUTPUT_CAPACITY_EXCEEDED",
+                message = "COMBINED_MULTIPASS_OUTPUT: The inspection output and safety reserve exceed the verified context. Explicitly reduce the configured output allowance or select a larger context. All frozen input remains retained.",
+                promptTokens = 0L,
+                safetyTokens = safety.toLong(),
+                outputTokens = output.toLong(),
+                capacityTokens = capacity.toLong(),
+                measurement = TokenMeasurementKind.UTF8_ESTIMATE
+            )
         }
         val sourceTexts = turns.flatMapIndexed { index, turn ->
             buildList {

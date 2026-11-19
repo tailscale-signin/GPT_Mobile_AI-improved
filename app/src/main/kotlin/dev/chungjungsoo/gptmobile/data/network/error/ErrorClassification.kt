@@ -83,8 +83,29 @@ object ErrorClassification {
         val recoveryCheckpointCode = causes.filterIsInstance<IllegalStateException>().mapNotNull { it.message }
             .firstOrNull { it in setOf("PROVIDER_WAIT_CHECKPOINT_CHANGED", "RESEARCH_RECOVERY_ACTION_CHANGED") }
 
+        val localFailure = causes.firstNotNullOfOrNull { cause ->
+            when (cause) {
+                is dev.chungjungsoo.gptmobile.data.network.gateway.GatewayReservationFailure -> ErrorCategory.LOCAL_STORAGE_FAILURE to cause.message.orEmpty()
+                is dev.chungjungsoo.gptmobile.data.network.FreeAttachmentsRejected -> ErrorCategory.REQUEST_REJECTED to cause.message.orEmpty()
+                is dev.chungjungsoo.gptmobile.data.network.QueueHttpRejection -> ErrorCategory.REQUEST_REJECTED to cause.rejection.message()
+                is dev.chungjungsoo.gptmobile.data.network.QueueTerminalFailure -> when {
+                    cause.remoteTerminal != true -> ErrorCategory.NETWORK_DISCONNECTED to "QUEUE_STREAM_DISCONNECTED: The saved reply and receipt are retained. This stream cannot resume automatically."
+                    cause.quota -> ErrorCategory.BUDGET_RESTRICTED to "HOSTED_GENERATION_FAILED: Provider quota reached. This job cannot resume."
+                    else -> ErrorCategory.REQUEST_REJECTED to "HOSTED_GENERATION_FAILED: This job cannot resume. No more specific reason is available for display."
+                }
+                is IllegalStateException -> when (cause.message?.substringBefore(':')?.take(64)) {
+                    "DISPATCH_POLICY_CHANGED" -> ErrorCategory.POLICY_STALE to "DISPATCH_POLICY_CHANGED: Permissions changed. Review the saved job before continuing."
+                    "QUEUE_RECEIPT_REVIEW_REQUIRED" -> ErrorCategory.REQUEST_REJECTED to "QUEUE_RECEIPT_REVIEW_REQUIRED: Review the saved job before starting another generation."
+                    "QUEUE_RECEIPT_NOT_RESUMABLE" -> ErrorCategory.REQUEST_REJECTED to "QUEUE_RECEIPT_NOT_RESUMABLE: This job cannot be resumed. Start a new generation explicitly."
+                    else -> null
+                }
+                else -> null
+            }
+        }
+
         return when {
             throwable is kotlinx.coroutines.CancellationException -> ClassifiedError(ErrorCategory.CLIENT_CANCELLED, ErrorSeverity.LOW, false, 0, "Request was cancelled.", throwable)
+            localFailure != null -> ClassifiedError(localFailure.first, ErrorSeverity.MEDIUM, false, 0, localFailure.second, throwable)
             causes.any { it is android.database.sqlite.SQLiteException } -> ClassifiedError(
                 ErrorCategory.LOCAL_STORAGE_FAILURE,
                 ErrorSeverity.HIGH,
@@ -206,6 +227,9 @@ object ErrorClassification {
                 userMessage = "Connection timed out. Retrying may resolve the issue.",
                 originalThrowable = throwable
             )
+
+            causes.any { it is java.io.IOException && it.message?.contains("connection reset", ignoreCase = true) == true } ->
+                ClassifiedError(ErrorCategory.NETWORK_DISCONNECTED, ErrorSeverity.MEDIUM, true, 2_000L, "Connection reset before the response finished.", throwable)
 
             dnsFailure || msg.contains("network is unreachable") || causes.any { it is java.net.ConnectException } -> ClassifiedError(
                 category = ErrorCategory.NETWORK_DISCONNECTED,

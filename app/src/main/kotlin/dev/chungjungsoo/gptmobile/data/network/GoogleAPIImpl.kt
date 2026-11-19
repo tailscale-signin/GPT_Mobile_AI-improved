@@ -155,7 +155,11 @@ class GoogleAPIImpl @Inject constructor(
                                     )
                                 }
 
-                                val errorMessage = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
+                                val errorMessage = if (response.status.value == 400 && !request.tools.isNullOrEmpty() && "function_declarations" in errorBody && "parameters" in errorBody) {
+                                    "HTTP 400: provider rejected the tool parameter schema."
+                                } else {
+                                    dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
+                                }
 
                                 receivedPayload = true
                                 emit(

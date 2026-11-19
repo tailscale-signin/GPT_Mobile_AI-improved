@@ -398,7 +398,7 @@ class FreeQueuedTransportTest {
             val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, queueScope = java.util.UUID.randomUUID().toString())
             val failure = api.streamChatCompletion(request("automatic"), 30, config).toList().last().error!!.message
             org.junit.Assert.assertTrue(failure.contains("anonymous allowance"))
-            org.junit.Assert.assertTrue(failure.contains("private server detail"))
+            org.junit.Assert.assertFalse(failure.contains("private server detail"))
             assertEquals("Hello", api.streamChatCompletion(request("automatic"), 30, config).toList().last().choices!!.single().effectiveDelta.content)
             assertEquals(2, submissions)
         } finally {
@@ -408,7 +408,7 @@ class FreeQueuedTransportTest {
 
     @Test fun gradioRetainsTerminalDetailsForStructuredEmptyAndUnterminatedEvents() = runBlocking {
         val cases = listOf(
-            "event: error\ndata: {\"error\":{\"code\":\"QuotaExceeded\",\"message\":\"Downstream quota reached\"}}" to "Downstream quota reached",
+            "event: error\ndata: {\"error\":{\"code\":\"QuotaExceeded\",\"message\":\"Downstream quota reached\"}}" to "Provider quota reached",
             "event: error\n\n" to "No more specific reason",
             "event: error\ndata: null\n\n" to "No more specific reason"
         )

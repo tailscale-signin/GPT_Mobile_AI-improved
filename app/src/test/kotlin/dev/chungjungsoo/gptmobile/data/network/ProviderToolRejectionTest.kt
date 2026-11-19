@@ -243,7 +243,8 @@ class ProviderToolRejectionTest {
                 .single()
         }
 
-        assertEquals("function_declarations[0].parameters is invalid", response.error?.message)
+        assertEquals(400, response.error?.code)
+        assertEquals("HTTP 400: provider rejected the tool parameter schema.", response.error?.message)
     }
 
     @Test

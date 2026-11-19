@@ -29,6 +29,8 @@ enum class FreeFailureCategory(val action: String) {
     NETWORK_ERROR("Check your connection and retry")
 }
 
+internal class FreeAttachmentsRejected : IllegalArgumentException("Free profiles support public text only. Start a chat without attachments, or select another platform.")
+
 open class FreeProviderException(val category: FreeFailureCategory, message: String, val providerLimit: ProviderLimitDecision? = null) : IllegalStateException(message)
 
 data class FreePreflightOutcome(val category: FreeFailureCategory, val message: String, val retryAt: Long? = null, val cooldown: FreeCooldown? = null)

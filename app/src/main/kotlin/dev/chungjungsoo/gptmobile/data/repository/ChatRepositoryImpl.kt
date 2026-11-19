@@ -2864,8 +2864,8 @@ class ChatRepositoryImpl(
     private fun PlatformV2.withSystemPrompt(systemPrompt: String) = copy(systemPrompt = systemPrompt)
 
     private fun validateFreeRequest(platform: PlatformV2, users: List<MessageV2>, assistants: List<List<MessageV2>>) {
-        require(users.all { it.attachments.isEmpty() } && assistants.flatten().all { it.attachments.isEmpty() }) {
-            "Free profiles support public text only. Start a chat without attachments, or select another platform."
+        if (users.any { it.attachments.isNotEmpty() } || assistants.any { turn -> turn.any { it.attachments.isNotEmpty() } }) {
+            throw dev.chungjungsoo.gptmobile.data.network.FreeAttachmentsRejected()
         }
     }
 

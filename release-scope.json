@@ -3216,6 +3216,9 @@
     "gateway/desktop/phone_policies.py",
     "gateway/desktop/windows/Theme.xaml",
     "gateway/desktop/windows/WorkspaceWindow.xaml",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/FreeProviderPreflight.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/FreeProviderContractTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/FreeQueuedTransportTest.kt",
     "gateway/desktop/windows/WorkspaceWindow.xaml.cs"
   ]
 }

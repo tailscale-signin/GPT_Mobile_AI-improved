@@ -721,7 +721,21 @@ class GitHubVerifiedSessionTest {
                 val call = requireNotNull(GitHubStatusRequest.nextCall(tools, receipts, 1000L, task = task))
                 actions += call.arguments.getValue("action").toString()
                 if (index == 1 || index == 3) assertEquals(JsonPrimitive("a".repeat(40)), call.arguments["commit_sha"])
-                receipts[index.toString()] = JsonObject(mapOf("tool" to JsonPrimitive(call.name), "arguments" to call.arguments, "observed_at_ms" to JsonPrimitive(1000L), "trusted" to JsonPrimitive(true), "success" to JsonPrimitive(true), "result" to JsonObject(mapOf("commit_sha" to JsonPrimitive("a".repeat(40))))))
+                val result = buildJsonObject {
+                    put("commit_sha", "a".repeat(40))
+                    if (call.arguments["action"] == JsonPrimitive("checks")) {
+                        put("checks", 0)
+                        put("statuses", 0)
+                    }
+                }
+                receipts[index.toString()] = buildJsonObject {
+                    put("tool", call.name)
+                    put("arguments", call.arguments)
+                    put("observed_at_ms", 1000L)
+                    put("trusted", true)
+                    put("success", true)
+                    put("result", result)
+                }
             }
             assertEquals(listOf("\"status\"", "\"checks\"", "\"list\"", "\"commits\""), actions)
             assertEquals(null, GitHubStatusRequest.nextCall(tools, receipts, 1000L, task = task))

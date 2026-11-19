@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "79f81d0381633891161394c966856ab94010fba8f5e2c31e8e5fdf7cc1d3dd13",
+  "source_digest": "291f8acd96844565db10fcfae1a9c27e8e6338ad640098571b928637d29436f1",
   "file_count": 2753,
-  "indexed_line_count": 453609,
+  "indexed_line_count": 453610,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 234,
-      "indexed_line_count": 40411
+      "indexed_line_count": 40412
     },
     {
       "id": "agent_tools",
@@ -10986,8 +10986,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "b04ad891e11dbc1a7681fe7604eaa0b2bc42aaa1e22b4d678c51fc195cd2dfcf",
-      "indexed_lines": 8082
+      "sha256": "ea35c8f120a0af0820126a23a2b42125b7538cfc0be987416d288c79f3ea6771",
+      "indexed_lines": 8083
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/CombinedSettingsSaveJournal.kt",

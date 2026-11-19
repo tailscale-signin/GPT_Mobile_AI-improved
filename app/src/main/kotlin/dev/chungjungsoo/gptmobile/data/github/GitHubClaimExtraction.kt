@@ -38,6 +38,7 @@ internal object GitHubClaimExtraction {
     ): JsonObject {
         val response = StringBuilder()
         var complete = false
+        var receivedProviderOutput = false
         var oversized = false
         var unexpectedOperation = false
         var finishReason: String? = null
@@ -57,7 +58,9 @@ internal object GitHubClaimExtraction {
             attempt.terminalFailure = null
             openVerifier(request.payload).streamRound(emptyList(), emptyList()).collect { event ->
                 when (event) {
+                    is ProviderEvent.ThinkingDelta -> if (event.text.isNotEmpty()) receivedProviderOutput = true
                     is ProviderEvent.TextDelta -> {
+                        if (event.text.isNotEmpty()) receivedProviderOutput = true
                         if (response.length + event.text.length.toLong() > MAX_OUTPUT_CHARACTERS) oversized = true
                         // Drain a bounded response to its terminal event. Aborting the
                         // stream here would not establish that another attempt is safe.
@@ -108,6 +111,11 @@ internal object GitHubClaimExtraction {
                         if (provider?.failureDetails?.get("failed_stage") == null) put("failed_stage", "claim_extraction")
                         put("review_stage", "claim_extraction")
                         put("cause_types", JsonArray(sanitizedCauseTypes(error).map(::JsonPrimitive)))
+                        if (receivedProviderOutput) {
+                            put("request_replay_allowed", false)
+                            put("logical_continuation_allowed", false)
+                            put("retryable", false)
+                        }
                         if (unknown) {
                             put("retryable", false)
                             put("request_replay_allowed", false)

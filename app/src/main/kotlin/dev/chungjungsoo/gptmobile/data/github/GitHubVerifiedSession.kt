@@ -322,7 +322,9 @@ internal class GitHubVerifiedSession(
             val executionBlocker = when {
                 acceptanceComplete -> null
                 remainingToolCalls() == 0 -> "TOOL_BUDGET_EXHAUSTED"
-                catalogObservation != null || tools.isEmpty() && authorizedTools.isEmpty() -> "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE"
+                catalogObservation != null -> "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE"
+                tools.none { it.modelVisible && (it.name.startsWith("github_") || it.name.isGatewayRepositoryTool()) } &&
+                    (discovery == null || catalogComplete && authorizedTools.none { it.modelVisible && (it.name.startsWith("github_") || it.name.isGatewayRepositoryTool()) }) -> "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE"
                 else -> null
             }
             if (executionBlocker == null) {
@@ -337,7 +339,7 @@ internal class GitHubVerifiedSession(
                             if (executionBlocker == "TOOL_BUDGET_EXHAUSTED") {
                                 "The accepted tool allowance is exhausted. Saved operation, catalog and fixture receipts are retained. Review the remaining work and explicitly authorize a new allowance before continuing execution."
                             } else {
-                                "The current request has no executable tool catalog for the missing verification. Review the exact saved connection, repository scope and tool selection. Saved evidence alone cannot perform the unfinished operations."
+                                "This round has no executable GitHub tool for the remaining checks. Check the selected repository, connection and enabled GitHub tools, then resume the saved task."
                             },
                             errorCode = executionBlocker,
                             taskOutcome = "BLOCKED",
@@ -387,7 +389,7 @@ internal class GitHubVerifiedSession(
         }
         if (GitHubReviewComparison.matches(task)) {
             val comparisonTools = if (remainingToolCalls()?.let { it > 0 } != false) tools else emptyList()
-            val comparison = withContext(computationDispatcher) { GitHubReviewComparison.plan(task, comparisonTools, evidence.snapshot().first) }
+            val comparison = withContext(computationDispatcher) { GitHubReviewComparison.plan(task, comparisonTools, evidence.snapshot().first, authorizedTools) }
             comparison?.nextCall?.let { next ->
                 progress("Resolving exact review comparison revisions")
                 emit(next)
@@ -1253,6 +1255,7 @@ internal class GitHubVerifiedSession(
             val stageMessage = when (code) {
                 "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "Claim verification reached its output limit. The repository observations and completed claim batches are saved."
                 "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "Claim verification received invalid structured output. The repository observations and completed claim batches are saved."
+                "CONNECTION_ABORTED", "TRANSPORT_EOF", "INCOMPLETE_PROVIDER_STREAM" -> "The provider stream ended during claim verification. Saved ${completedCount()} of ${requests.size} verified batches and the original repository observations. Inspect the interrupted request before resuming the unfinished batch."
                 else -> null
             }
             val failure = providerFailure?.copy(message = stageMessage ?: providerFailure.message, errorCode = code, failureDetails = details) ?: ProviderEvent.Failed(
@@ -1294,7 +1297,9 @@ internal class GitHubVerifiedSession(
                 return GitHubClaimExtraction.collect(current, openVerifier, computationDispatcher, attempt)
             } catch (failure: GitHubClaimExtraction.Failure) {
                 if (!failure.repairAllowed || failure.code !in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE") || current.maxClaims <= 1) throw failure
-                current = GitHubClaimBatches.withClaimLimit(current, maxOf(1, current.maxClaims / 2))
+                val limit = maxOf(1, current.maxClaims / 2)
+                val reduced = GitHubClaimBatches.withClaimLimit(current, limit, invalidResponse = failure.code == "GITHUB_EXTRACTION_INVALID_RESPONSE")
+                current = if (TextTokenEstimate.estimate(reduced.payload) <= inputLimit()) reduced else GitHubClaimBatches.withClaimLimit(request, limit)
             }
         }
     }

@@ -102,10 +102,15 @@ internal object GitHubClaimBatches {
         return JsonObject(result)
     }
 
-    fun withClaimLimit(request: Request, limit: Int): Request {
+    fun withClaimLimit(request: Request, limit: Int, invalidResponse: Boolean = false): Request {
         require(limit in 1 until request.maxClaims)
         val parsed = kotlinx.serialization.json.Json.parseToJsonElement(request.payload) as JsonObject
-        val reduced = JsonObject(parsed + ("claim_limit" to JsonPrimitive(limit)))
+        val reduced = JsonObject(
+            (parsed - "format_correction") + buildJsonObject {
+                put("claim_limit", limit)
+                if (invalidResponse) put("format_correction", "Return 1 to $limit claims in total. Use only the supplied requirement IDs and zero-based indexes into this smaller claims array. Omit mappings without a supported claim. Encode source values in value_json and give each not_measured claim a subject.")
+            }
+        )
         return request.copy(payload = reduced.toString(), maxClaims = limit)
     }
 

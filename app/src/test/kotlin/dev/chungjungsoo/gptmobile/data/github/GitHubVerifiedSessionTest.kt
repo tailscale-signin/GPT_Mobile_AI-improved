@@ -791,6 +791,20 @@ class GitHubVerifiedSessionTest {
         assertTrue(events.none { it is ProviderEvent.ToolCall })
     }
 
+    @Test fun unrelatedRoundToolsDoNotSatisfyTheIntegrationCatalog() = runTest {
+        val unrelated = AgentToolDefinition("weather", "Weather", buildJsonObject { put("type", "object") })
+        val deferred = unrelated.copy(name = "github_context")
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf(deferred.name))
+        val gate = GitHubVerifiedSession(
+            answer("unused"), book, "Test GitHub tools and report.", { 8192 }, { error("No verifier without receipts") },
+            {}, {}, authorizedTools = listOf(deferred), remainingToolCalls = { 256 }
+        )
+        val events = gate.streamRound(listOf(unrelated), emptyList()).toList()
+        assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertTrue(book.snapshot().first.isEmpty())
+    }
+
     @Test fun absentIntegrationCatalogStopsBeforeProviderDenialCanBeDispatched() = runTest {
         val task = "Test GitHub tools and report."
         val book = GitHubEvidenceBook("b", "o/r", "main", emptySet())

@@ -71,6 +71,15 @@ class GitHubClaimBatchesTest {
         )
         val reduced = GitHubClaimBatches.withClaimLimit(original, 4)
         assertEquals(4, reduced.maxClaims)
+        assertTrue("format_correction" !in Json.parseToJsonElement(reduced.payload).jsonObject)
+        val corrected = GitHubClaimBatches.withClaimLimit(reduced, 1, invalidResponse = true)
+        val retry = Json.parseToJsonElement(corrected.payload).jsonObject
+        assertEquals(JsonPrimitive(1), retry["claim_limit"])
+        assertTrue(retry.getValue("format_correction").toString().contains("1 to 1 claims"))
+        assertEquals(original.requirementIds, corrected.requirementIds)
+        val firstRepair = GitHubClaimBatches.withClaimLimit(original, 4, invalidResponse = true)
+        val afterOutputLimit = GitHubClaimBatches.withClaimLimit(firstRepair, 2)
+        assertTrue("format_correction" !in Json.parseToJsonElement(afterOutputLimit.payload).jsonObject)
         assertEquals(JsonPrimitive(4), Json.parseToJsonElement(reduced.payload).jsonObject["claim_limit"])
         val invalid = buildJsonObject {
             put(

@@ -104,19 +104,23 @@ internal class ProviderThrottleRegistry(
         if (removed || prior?.blockedUntil != blockedUntil) _revision.update { it + 1 }
     }
 
-    /** Zero admits this attempt atomically; a positive value is a cancellable wait, not a reserved dispatch. */
+    fun remainingMillis(identity: String): Long = remainingMillis(listOf(identity))
+
+    /** Consume pacing permits only when every scope for this request is ready. */
     @Synchronized
-    fun remainingMillis(identity: String): Long {
-        val state = states[identity] ?: return 0
+    fun remainingMillis(identities: List<String>): Long {
         val now = nowMillis()
-        if (now >= state.recoveryUntil) {
+        val active = identities.distinct().mapNotNull { identity ->
+            val state = states[identity] ?: return@mapNotNull null
+            if (now < state.recoveryUntil) return@mapNotNull state
             states.remove(identity)
             _revision.update { it + 1 }
-            return 0
+            null
         }
-        val remaining = ProviderRetryPolicy.remainingMillis(maxOf(state.blockedUntil, state.nextPermit), now)
-        if (remaining > 0) return remaining
-        state.nextPermit = ProviderRetryPolicy.deadlineMillis(now, 1000L + jitterMillis().coerceIn(0L, 250L))
+        val wait = active.maxOfOrNull { ProviderRetryPolicy.remainingMillis(maxOf(it.blockedUntil, it.nextPermit), now) } ?: return 0
+        if (wait > 0) return wait
+        val next = ProviderRetryPolicy.deadlineMillis(now, 1000L + jitterMillis().coerceIn(0L, 250L))
+        active.forEach { it.nextPermit = next }
         return 0
     }
 }

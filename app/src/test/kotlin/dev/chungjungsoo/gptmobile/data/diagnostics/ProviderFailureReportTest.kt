@@ -462,6 +462,23 @@ class ProviderFailureReportTest {
         assertFalse(capture.toString().contains("private"))
     }
 
+    @Test fun upstream429ReportsHeaderOrBackoffAndCountWithoutInferringScheduledRecovery() {
+        for ((source, expected) in listOf("RETRY_AFTER" to "PROVIDER_HEADER", "APP_BACKOFF" to "LOCAL_BACKOFF", "untrusted" to null)) {
+            val failure = ProviderEvent.Failed(
+                "rate limited",
+                errorCode = "PROVIDER_RATE_LIMITED",
+                failureDetails = buildJsonObject {
+                    put("retry_source", source)
+                    put("consecutive_rejections", 2)
+                }
+            )
+            val fields = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
+            assertEquals(expected?.let(::JsonPrimitive), fields["retry_delay_source"])
+            assertEquals(JsonPrimitive(2), fields["provider_consecutive_rejections"])
+            assertNull(fields["recovery_observation"])
+        }
+    }
+
     @Test fun cooldownReportDistinguishesWaitEligibilityFromCheckpointAvailability() {
         val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision(
             provider = "LLAMA",

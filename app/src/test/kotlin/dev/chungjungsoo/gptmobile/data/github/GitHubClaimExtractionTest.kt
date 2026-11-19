@@ -88,6 +88,20 @@ class GitHubClaimExtractionTest {
         assertEquals(JsonPrimitive(false), result.observations?.get("claim_extraction_completed"))
     }
 
+    @Test fun interruptedReasoningOnlyClaimStreamCannotAuthorizeReplay() = runBlocking {
+        val failure = failed(
+            flow {
+                emit(ProviderEvent.ThinkingDelta("private reasoning"))
+                throw java.net.SocketException("Connection reset")
+            }
+        )
+        val details = requireNotNull(failure.providerFailure?.failureDetails)
+        assertFalse(failure.repairAllowed)
+        assertEquals(JsonPrimitive(false), details["request_replay_allowed"])
+        assertEquals(JsonPrimitive(false), details["logical_continuation_allowed"])
+        assertFalse(details.toString().contains("private reasoning"))
+    }
+
     @Test fun incompleteOutputLimitCannotAuthorizeAnotherExtractionAttempt() = runBlocking {
         val original = ProviderEvent.Failed("Output allowance reached", errorCode = "OUTPUT_LIMIT", invocationId = "incomplete-attempt")
         val result = failed(flowOf(ProviderEvent.TextDelta(response), original, ProviderEvent.Completed))

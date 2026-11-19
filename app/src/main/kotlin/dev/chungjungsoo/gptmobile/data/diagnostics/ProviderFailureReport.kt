@@ -31,6 +31,14 @@ internal object ProviderFailureReport {
             receipt.privacyReasonCode?.let { put("privacy_reason_code", it) }
             receipt.privacyStatus?.let { put("privacy_status", it) }
         }
+        if (failure.errorCode == "PROVIDER_RATE_LIMITED" || receipt.httpStatus == 429) {
+            val details = failure.failureDetails
+            when ((details?.get("retry_source") as? JsonPrimitive)?.contentOrNull) {
+                "RETRY_AFTER", "RATE_LIMIT_RESET" -> put("retry_delay_source", "PROVIDER_HEADER")
+                "APP_BACKOFF" -> put("retry_delay_source", "LOCAL_BACKOFF")
+            }
+            details?.number("consecutive_rejections")?.takeIf { it in 1..MAX_COUNT }?.let { put("provider_consecutive_rejections", it) }
+        }
         // Closed, content-free rate-limit evidence for future provider incident triage.
         for (key in listOf("provider_limit_source", "provider_cooldown_scope_hash")) {
             failure.failureDetails?.get(key)?.let { put(key, it) }

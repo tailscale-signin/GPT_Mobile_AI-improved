@@ -1338,7 +1338,9 @@ private fun ChatScreenContent(
                             Text(stringResource(R.string.next_message_label, enabledPlatformLookup[uid]?.name ?: uid))
                         }
                     }
+                    val pickScanPage = rememberScanPagePicker(chatViewModel.chatRoom, chatViewModel::addSelectedFile)
                     ChatInputBox(
+                        onPickScanPage = pickScanPage,
                         modifier = Modifier.fillMaxWidth(),
                         inputState = chatViewModel.question,
                         diagnostics = composerDiagnostics,
@@ -2763,6 +2765,7 @@ fun ChatInputBox(
     workflows: List<dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow> = emptyList(),
     isPreparingSend: Boolean = false,
     diagnostics: ComposerInputDiagnostics? = null,
+    onPickScanPage: (() -> Unit)? = null,
     onSendButtonClick: () -> Unit = {}
 ) {
     val localStyle = LocalTextStyle.current
@@ -2975,6 +2978,12 @@ fun ChatInputBox(
                                                 DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = {
                                                     attachmentMenu = false
                                                     filePickerLauncher.launch(mime)
+                                                })
+                                            }
+                                            if (onPickScanPage != null) {
+                                                DropdownMenuItem(text = { Text("Attach scanned PDF page") }, onClick = {
+                                                    attachmentMenu = false
+                                                    onPickScanPage()
                                                 })
                                             }
                                         }

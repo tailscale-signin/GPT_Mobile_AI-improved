@@ -6795,7 +6795,8 @@ class ChatRepositoryImpl(
         val excerpts = withContext(Dispatchers.IO) {
             documents.mapNotNull { document ->
                 val extracted = document.extractedText?.let { DocumentTextExtractor.Result(it, document.extractionNote) }
-                    ?: DocumentTextExtractor.extract(context, java.io.File(document.filePathForDisplay), document.mimeType)
+                    ?: DocumentTextExtractor.forChatAttachment(context, java.io.File(document.filePathForDisplay), document.mimeType, nativePdf)
+                    ?: return@mapNotNull null
                 if (!platform.excludesMemory() && !platform.disableAllTools && !platform.disableLocalTools && factVault?.state?.value?.enabled == true && factVault.state.value.settings.learningEnabled && knowledge != null && message.chatId > 0 && extracted.text.isNotBlank()) {
                     try {
                         knowledge.index(document.resolvedDisplayName, extracted.text.take(1_000_000), chatId = message.chatId, sourceKey = java.io.File(document.filePathForDisplay).name)
@@ -7761,7 +7762,6 @@ class ChatRepositoryImpl(
     override suspend fun branchChat(chatRoom: ChatRoomV2, editedUser: MessageV2): ChatRoomV2 {
         val branch = agentPersistenceDao.duplicateChatWithHistory(chatRoom.id, "${chatRoom.title} · branch".take(70), System.currentTimeMillis() / 1000, editedUser)
         settingRepository.copyConversationCombinedSettings(chatRoom.id, branch.id)
-        knowledge?.dao?.projectForChat(chatRoom.id)?.let { knowledge.dao.attachChat(dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeProjectChat(branch.id, it.id)) }
         settingRepository.mutateFeatureSettings { features ->
             features.copy(
                 conversationReasoning = features.conversationReasoning + listOfNotNull(features.conversationReasoning[chatRoom.id]?.let { branch.id to it }).toMap(),

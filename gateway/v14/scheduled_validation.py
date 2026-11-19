@@ -73,10 +73,13 @@ def run_tests(store, stop):
         db.execute('BEGIN IMMEDIATE')
         # A crashed occurrence may have already executed. Preserve that outcome
         # as unverified and never dispatch the same scheduled occurrence again.
-        stale = [r[0] for r in db.execute('SELECT id FROM repository_test WHERE token IS NOT NULL AND expires<=?', (now,))]
-        for key in stale:
+        stale = db.execute('SELECT id,last_due FROM repository_test JOIN schedule USING(id) '
+                           'WHERE token IS NOT NULL AND expires<=?', (now,)).fetchall()
+        for key, due in stale:
             db.execute('UPDATE repository_test SET token=NULL,expires=NULL WHERE id=?', (key,))
             db.execute("UPDATE schedule SET result='Interrupted · test outcome unverified' WHERE id=?", (key,))
+            if due is not None:
+                store.notify(db, key, due, 'Interrupted · test outcome unverified')
         if db.execute('SELECT 1 FROM repository_test WHERE token IS NOT NULL LIMIT 1').fetchone():
             return
         row = db.execute('''SELECT s.id,s.due,s.period,t.repository,t.policy_hash FROM schedule s
@@ -114,3 +117,5 @@ def run_tests(store, stop):
                 db.execute('INSERT INTO test_receipt(id,due,receipt) VALUES (?,?,?)', (row['id'], row['due'], json.dumps(receipt)))
                 db.execute('DELETE FROM test_receipt WHERE id=? AND due NOT IN (SELECT due FROM test_receipt WHERE id=? ORDER BY due DESC LIMIT 10)', (row['id'], row['id']))
             db.execute('UPDATE schedule SET result=? WHERE id=?', (result, row['id']))
+            if not receipt or receipt['status'] == 'FAILED':
+                store.notify(db, row['id'], row['due'], result)

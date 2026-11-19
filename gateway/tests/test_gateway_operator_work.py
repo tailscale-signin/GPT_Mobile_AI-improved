@@ -6,14 +6,15 @@ import sqlite3
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
 import zipfile
 
 from desktop.analysis_export import NS, export_result
 from v14.job_catalog import engineering_summary
 
-from desktop.analysis_panel import analyze, import_data
+from desktop.analysis_panel import analyze, import_data, read_analysis, write_analysis
 from v14.operator_schedule import OperatorSchedule
 
 
@@ -53,6 +54,58 @@ class OperatorWorkTest(unittest.TestCase):
         self.assertEqual((None, 'Reminder due'), (row['due'], row['result']))
         self.open().remove(key)
         self.assertEqual([], self.open().rows())
+
+    def test_alerts_survive_restarts_and_acknowledgement_only_covers_displayed_occurrences(self):
+        key = self.open().add('Review results', 'Reminder', 1, 1)
+        for n in range(35):
+            self.clock = 160 + n * 3600
+            self.open().tick(self.jobs)
+        shown = self.open().notices(key)
+        self.assertEqual(32, len(shown))
+        self.clock += 3600
+        self.open().tick(self.jobs)
+        self.open().acknowledge(key, shown[0]['due'])
+        self.assertEqual([{'due': self.clock, 'message': 'Reminder due'}], self.open().notices(key))
+        self.assertEqual(('Waiting', 1), (self.open().rows()[0]['state'], self.open().rows()[0]['unread']))
+        self.open().remove(key)
+        self.assertEqual([], self.open().notices(key))
+
+    def test_editable_workspace_round_trip_does_not_execute_or_overwrite_on_invalid_input(self):
+        target = self.root / 'review.gptanalysis'
+        code = 'def handle(data):\n    return data'
+        source = '[1, "é"]'
+        with patch('desktop.analysis_panel.execute') as sandbox:
+            write_analysis(target, code, source)
+            self.assertEqual((code, source), read_analysis(target))
+            with self.assertRaises(ValueError):
+                write_analysis(target, code, '[')
+            self.assertEqual((code, source), read_analysis(target))
+            for invalid in ('[]', '{"format":"other"}', 'x' * 1048577):
+                target.write_text(invalid)
+                with self.assertRaises(ValueError):
+                    read_analysis(target)
+            sandbox.assert_not_called()
+
+    def test_analysis_cannot_move_selections_or_results_between_conversations(self):
+        from desktop.chat_panel import ChatPanel
+        panel = SimpleNamespace(root=self.root, identity={'gateway_id':'g', 'principal_id':'p'}, conversation={'conversation_id':'a'},
+                                epoch=1, busy=False, closed=False, sending=False, composer=Mock(), text=Mock())
+        panel.composer.cget.return_value = 'normal'
+        panel.composer.get.return_value = ''
+        panel.text.get.return_value = 'def handle(data): return data'
+        with patch('desktop.analysis_panel.show_analysis') as show:
+            ChatPanel.analyze_selection(panel)
+        _, _, code, append, select = show.call_args.args
+        self.assertEqual(code, select())
+        panel.conversation = {'conversation_id':'b'}
+        self.assertFalse(append('private result'))
+        self.assertEqual('', select())
+        panel.conversation = {'conversation_id':'a'}
+        self.assertTrue(append('private result'))
+        panel.epoch += 1
+        self.assertFalse(append('previous draft'))
+        self.assertEqual('', select())
+        panel.composer.insert.assert_called_once()
 
     def test_csv_is_data_and_code_only_goes_to_the_sandbox(self):
         csv = self.root / 'data.csv'
@@ -114,6 +167,7 @@ class OperatorWorkTest(unittest.TestCase):
         works.insert(0, {'title': 'Second work', 'doi': '10.1234/def'})
         run_watch(self.open(), self.clock, lambda _: list(works))
         self.assertEqual(self.open().rows()[0]['result'], '1 new publication')
+        self.assertIn('10.1234/def', self.open().notices(key)[0]['message'])
         self.clock += 3600
         run_watch(self.open(), self.clock, lambda _: list(works))
         self.assertIn('No new', self.open().rows()[0]['result'])
@@ -212,3 +266,5 @@ class OperatorWorkTest(unittest.TestCase):
             run_tests(self.open(), Event())
             check.assert_not_called()
         self.assertTrue(self.open().rows()[0]['result'].startswith('Interrupted'))
+        self.assertEqual('Unverified', self.open().rows()[0]['state'])
+        self.assertEqual(1, len(self.open().notices(key)))

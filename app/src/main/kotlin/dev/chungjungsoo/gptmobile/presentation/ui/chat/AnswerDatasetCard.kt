@@ -8,6 +8,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,12 +38,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun AnswerDatasetCard(data: AnswerDataset) {
     var column by rememberSaveable(data) { mutableIntStateOf(-1) }
     var descending by rememberSaveable(data) { mutableStateOf(false) }
     var limit by rememberSaveable(data) { mutableIntStateOf(8) }
-    var visual by rememberSaveable(data) { mutableStateOf(data.type == "bars" || data.type == "diagram") }
+    val hasVisual = data.type in setOf("bars", "diagram", "metrics")
+    var visual by rememberSaveable(data) { mutableStateOf(hasVisual) }
     val ordered = remember(data, column, descending) { data.ordered(column, descending) }
     if (data.type == "places") {
         val map = remember(data) {
@@ -65,6 +68,15 @@ internal fun AnswerDatasetCard(data: AnswerDataset) {
                     }
                 }
                 if (openFailed) Text("Could not open this source.", color = MaterialTheme.colorScheme.error)
+            } else if (visual && data.type == "metrics") {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ordered.forEach { (label, value) ->
+                        Column(Modifier.semantics(mergeDescendants = true) {}) {
+                            Text(label, style = MaterialTheme.typography.labelMedium)
+                            Text(value, style = MaterialTheme.typography.headlineSmall)
+                        }
+                    }
+                }
             } else if (visual && data.type == "diagram") {
                 AnswerRelationshipDiagram(data)
             } else if (visual) {
@@ -101,11 +113,13 @@ internal fun AnswerDatasetCard(data: AnswerDataset) {
             }
             if (limit < ordered.size && !(visual && data.type == "diagram")) TextButton(onClick = { limit += 8 }) { Text("Show more rows (${ordered.size - limit} remaining)") }
             Row(Modifier.horizontalScroll(rememberScrollState())) {
-                if (data.type == "bars" || data.type == "diagram") {
+                if (hasVisual) {
                     TextButton(onClick = { visual = !visual }) {
                         Text(
                             if (visual) {
                                 "View table"
+                            } else if (data.type == "metrics") {
+                                "View metrics"
                             } else if (data.type == "diagram") {
                                 "View diagram"
                             } else {

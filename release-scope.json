@@ -271,6 +271,10 @@
     "Gateway Windows installer"
   ],
   "allowedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/FreeContextRecovery.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ScanPagePicker.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/FreeProviderBudgetRecoveryTest.kt",
+    "docs/quality/premium-experience-roadmap.md",
     ".github/pull_request_template.md",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AgentRunStatusBlockTest.kt",
     "scripts/publish_gateway_windows.sh",

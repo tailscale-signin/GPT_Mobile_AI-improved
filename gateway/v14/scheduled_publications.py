@@ -72,6 +72,7 @@ def run_watch(store, now, fetch=literature):
             return
         db.execute('UPDATE publication_watch SET token=?,lease_until=? WHERE id=?', (token, now + 180, row['id']))
     previous = json.loads(row['seen'])
+    alert = None
     try:
         found = fetch(row['query'])
         ids = [item['doi'] for item in found]
@@ -80,6 +81,8 @@ def run_watch(store, now, fetch=literature):
                 f'{len(fresh)} new publication' + ('s' if len(fresh) > 1 else '') if fresh else 'No new publications in the latest results')
         seen = json.dumps(list(dict.fromkeys(ids + previous))[:256])
         results = json.dumps(found, ensure_ascii=False)
+        if row['results'] is not None and fresh:
+            alert = note + ' · ' + ', '.join(fresh)
     except (OSError, requests.RequestException, ValueError, RecursionError):
         note, seen, results = 'Blocked · Crossref metadata unavailable', row['seen'], row['results']
     with closing(store.connect()) as db, db:
@@ -91,3 +94,5 @@ def run_watch(store, now, fetch=literature):
             current = max(now, int(store.now()))
             next_due = due + ((current - due) // period + 1) * period if period else None
             db.execute('UPDATE schedule SET due=?,last_due=?,result=? WHERE id=?', (next_due, due, note, row['id']))
+            if alert:
+                store.notify(db, row['id'], due, alert)

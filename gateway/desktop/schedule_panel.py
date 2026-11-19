@@ -37,10 +37,10 @@ def show_schedules(parent, root):
             query_field.grid_remove()
     kind.trace_add('write', enable_query)
     enable_query()
-    table = ttk.Treeview(body, columns=('name', 'due', 'last', 'result'), show='headings', height=8)
-    for col, label in zip(table['columns'], ('Task', 'Next occurrence', 'Last occurrence', 'Result')):
+    table = ttk.Treeview(body, columns=('name', 'state', 'due', 'last', 'result', 'unread'), show='headings', height=8)
+    for col, label in zip(table['columns'], ('Task', 'State', 'Next occurrence', 'Last occurrence', 'Result', 'Unread')):
         table.heading(col, text=label)
-        table.column(col, width=155)
+        table.column(col, width=65 if col in ('state', 'unread') else 145)
     table.grid(row=6, column=0, columnspan=3, sticky='nsew')
     status = tk.StringVar(window)
     ttk.Label(body, textvariable=status).grid(row=7, column=0, columnspan=3, sticky='w')
@@ -63,7 +63,7 @@ def show_schedules(parent, root):
             previous = received.get(row['id'])
             if previous and previous != current[row['id']] and (row['result'] == 'Reminder due' or (row['result'] or '').endswith((' new publication', ' new publications'))):
                 window.bell()
-            table.insert('', 'end', iid=row['id'], values=(row['title'], stamp(row['due']), stamp(row['last_due']), row['result'] or 'Scheduled'))
+            table.insert('', 'end', iid=row['id'], values=(row['title'], row['state'], stamp(row['due']), stamp(row['last_due']), row['result'] or '—', row['unread']))
         received.clear()
         received.update(current)
         if selected and table.exists(selected[0]):
@@ -125,9 +125,40 @@ def show_schedules(parent, root):
         refresh()
         window.after(15000, poll)
 
+    def show_alerts():
+        if not table.selection():
+            return
+        key = table.selection()[0]
+        try:
+            notices = store.notices(key)
+        except sqlite3.Error:
+            status.set('Alerts are unavailable.')
+            return
+        if not notices:
+            status.set('No unread alerts for this schedule.')
+            return
+        dialog = tk.Toplevel(window)
+        dialog.title('Schedule alerts')
+        history = tk.Text(dialog, width=72, height=12, wrap='word')
+        history.pack(fill='both', expand=True)
+        for notice in notices:
+            stamp = datetime.fromtimestamp(notice['due']).strftime('%Y-%m-%d %H:%M')
+            history.insert('end', f"{stamp} · {notice['message']}\n")
+        history.configure(state='disabled')
+        def acknowledge():
+            try:
+                store.acknowledge(key, notices[0]['due'])
+            except sqlite3.Error:
+                status.set('Could not mark the alerts as read.')
+                return
+            dialog.destroy()
+            refresh()
+        ttk.Button(dialog, text='Mark displayed alerts as read', command=acknowledge).pack()
+
     ttk.Button(body, text='Schedule', command=add).grid(row=5, column=0)
     ttk.Button(body, text='Remove selected', command=remove).grid(row=5, column=1)
     ttk.Button(body, text='View results…', command=view_results).grid(row=5, column=2)
+    ttk.Button(body, text='Read alerts…', command=show_alerts).grid(row=8, column=0, sticky='w')
     body.columnconfigure(1, weight=1)
     body.rowconfigure(6, weight=1)
     poll()

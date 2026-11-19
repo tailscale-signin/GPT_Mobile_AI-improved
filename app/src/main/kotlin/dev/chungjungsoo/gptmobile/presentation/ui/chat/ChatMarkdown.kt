@@ -488,6 +488,7 @@ private fun ChatMarkdownContent(
         }
     }
     val components = remember(
+        streaming,
         isDarkTheme,
         copyCodeToClipboard,
         displayMathByPlaceholder,
@@ -587,10 +588,13 @@ private fun ChatMarkdownContent(
                     MarkdownCodeFence(it.content, it.node, it.typography.code) { code, language, style ->
                         val cleanLang = language?.trim()?.lowercase()
                         val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
-                        val dataset = remember(cleanLang, code) {
-                            if (cleanLang == "gpt-ui") dev.chungjungsoo.gptmobile.data.model.AnswerDataset.parse(code) else null
+                        val pendingCard = cleanLang == "gpt-ui" && streaming && it.node.children.none { child -> child.type == MarkdownTokenTypes.CODE_FENCE_END && child.endOffset > child.startOffset }
+                        val dataset = remember(cleanLang, code, pendingCard) {
+                            if (cleanLang == "gpt-ui" && !pendingCard) dev.chungjungsoo.gptmobile.data.model.AnswerDataset.parse(code) else null
                         }
-                        if (dataset != null) {
+                        if (pendingCard) {
+                            Text("Preparing answer preview…", style = MaterialTheme.typography.bodySmall)
+                        } else if (dataset != null) {
                             AnswerDatasetCard(dataset)
                         } else if (isHtmlOrSvg) {
                             SandboxedArtifactView(

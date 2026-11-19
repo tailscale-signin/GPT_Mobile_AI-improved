@@ -17,7 +17,11 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
                 isCharacterBoundary(it.first) &&
                 isCharacterBoundary(it.last + 1)
         } ?: return null
-        return words.firstOrNull { range.first in it } ?: words.firstOrNull { it.first <= range.last && it.last >= range.first }
+        // Speech ranges advance through long replies. Find the first intersecting
+        // word without walking the entire preceding transcript on every callback.
+        val index = words.binarySearchBy(range.first) { it.last }
+        val first = if (index >= 0) index else -index - 1
+        return words.getOrNull(first)?.takeIf { it.first <= range.last }
     }
 
     /** BreakIterator respects punctuation, non-Latin text and surrogate boundaries. */
@@ -29,7 +33,8 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
         var end = iterator.next()
         while (end != BreakIterator.DONE) {
             val firstPoint = text.codePointAt(start)
-            val word = text.substring(start, end).any(Char::isLetterOrDigit) ||
+            val word = Character.isLetterOrDigit(firstPoint) ||
+                text.substring(start, end).any(Char::isLetterOrDigit) ||
                 Character.getType(firstPoint) == Character.OTHER_SYMBOL.toInt()
             if (word && isCharacterBoundary(start) && isCharacterBoundary(end)) ranges += start until end
             start = end

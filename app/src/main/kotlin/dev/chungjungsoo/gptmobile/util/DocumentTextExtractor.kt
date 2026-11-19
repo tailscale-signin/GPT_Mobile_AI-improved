@@ -80,6 +80,15 @@ object DocumentTextExtractor {
         return finish(raw, raw.length > MAX_TEXT_CHARS)
     }
 
+    internal class PdfWithoutText : IllegalArgumentException("This PDF has no readable text layer. Use a PDF-capable profile or attach a scanned page to a vision model.")
+
+    internal fun forChatAttachment(context: Context, file: File, mimeType: String, acceptsOriginalPdf: Boolean): Result? = try {
+        extract(context, file, mimeType)
+    } catch (missing: PdfWithoutText) {
+        if (!acceptsOriginalPdf || mimeType != "application/pdf") throw missing
+        null
+    }
+
     internal fun extractPdf(pdf: PDDocument, pageStart: Int, pageLimit: Int): Result {
         require(pageStart >= 1 && pageLimit in 1..100) { "PDF page ranges must start at page 1 or later and contain at most 100 pages." }
         require(pdf.currentAccessPermission.canExtractContent()) { "This PDF does not allow text extraction." }
@@ -114,6 +123,7 @@ object DocumentTextExtractor {
             pageTextWriter.completeRange()
         } catch (_: PdfPageTextWriter.LimitReached) { }
         val text = pageTextWriter.toString()
+        if (text.isBlank()) throw PdfWithoutText()
         val nextPage = pageTextWriter.nextPage ?: pageTextWriter.lastPage.takeIf { !pageTextWriter.partialPage && it < pdf.numberOfPages }?.plus(1)
         val incomplete = pageStart > 1 || pageTextWriter.lastPage < pdf.numberOfPages || pageTextWriter.partialPage
         val warnings = buildList {

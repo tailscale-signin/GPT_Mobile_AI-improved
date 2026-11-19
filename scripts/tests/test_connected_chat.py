@@ -6,7 +6,7 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from qualify_connected_chat import bound_answer, observe, screen_contains, unplugged_charge
+from qualify_connected_chat import bound_answer, compare_reopens, observe, screen_contains, unplugged_charge
 
 
 class ConnectedChatTest(unittest.TestCase):
@@ -61,6 +61,21 @@ class ConnectedChatTest(unittest.TestCase):
         self.assertIsNone(unplugged_charge(raw.replace('status: 3', 'status: 4')))
         self.assertIsNone(unplugged_charge(raw.replace('3781000', '0')))
         self.assertIsNone(unplugged_charge('UPDATES STOPPED\n' + raw))
+
+    def test_two_build_comparison_requires_the_same_device_and_original_receipt(self):
+        _, receipt = self.bind(self.history)
+        fixture = dict.fromkeys(('osBuildHash', 'deviceSerialHash', 'installationHash', 'principalHash', 'scenarioHash'), '1' * 64)
+        before = dict(fixture, format='gptmobile.connected-chat-reopen.v1', status='PASSED', receipt=receipt,
+                      apkSetSha256='a'*64, firstVisibleMs=160, reopenedVisibleMs=200, reopenObservationMs=400)
+        after = dict(before, apkSetSha256='b'*64, reopenedVisibleMs=175)
+        self.assertEqual(-25, compare_reopens(before, after)['candidateMinusBaseline']['reopenedVisibleMs'])
+        self.assertNotIn('wholeDeviceChargeChangeUah', compare_reopens(before, after)['candidateMinusBaseline'])
+        self.assertEqual(2, compare_reopens(dict(before, wholeDeviceChargeChangeUah=1), dict(after, wholeDeviceChargeChangeUah=3))['candidateMinusBaseline']['wholeDeviceChargeChangeUah'])
+        for field, value in [('apkSetSha256', 'a'*64), ('osBuildHash', '2'*64), ('scenarioHash', '2'*64),
+                             ('deviceSerialHash', ''), ('principalHash', '2'*64), ('receipt', dict(receipt, revision=100)),
+                             ('status', 'FAILED'), ('firstVisibleMs', True), ('reopenedVisibleMs', -1)]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                compare_reopens(before, dict(after, **{field: value}))
 
     def test_restart_never_reissues_a_gateway_command(self):
         def adb(cmd, **kwargs):

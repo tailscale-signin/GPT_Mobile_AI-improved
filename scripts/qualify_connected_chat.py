@@ -70,6 +70,27 @@ def unplugged_charge(raw):
     return int(counter) if re.fullmatch(r'[1-9]\d{0,8}', counter) else None
 
 
+def compare_reopens(baseline, candidate):
+    """Only compare two builds on the same handset, OS, Gateway and original answer."""
+    keys = ('deviceSerialHash', 'osBuildHash', 'scenarioHash', 'installationHash', 'principalHash')
+    for row in (baseline, candidate):
+        if (row.get('format') != 'gptmobile.connected-chat-reopen.v1' or row.get('status') != 'PASSED'
+                or not all(re.fullmatch('[0-9a-f]{64}', str(row.get(k, ''))) for k in (*keys, 'apkSetSha256'))):
+            raise ValueError('INCOMPLETE_COMPARISON_EVIDENCE')
+    if any(baseline[k] != candidate[k] for k in keys) or not baseline.get('receipt') or baseline['receipt'] != candidate.get('receipt'):
+        raise ValueError('COMPARISON_WORKLOAD_OR_DEVICE_CHANGED')
+    if baseline['apkSetSha256'] == candidate['apkSetSha256']:
+        raise ValueError('COMPARISON_REQUIRES_TWO_BUILDS')
+    changes = {}
+    for key in ('firstVisibleMs', 'reopenedVisibleMs', 'reopenObservationMs', 'wholeDeviceChargeChangeUah'):
+        if key == 'wholeDeviceChargeChangeUah' and (key not in baseline or key not in candidate):
+            continue
+        if any(type(row.get(key)) is not int or row[key] < 0 for row in (candidate, baseline)):
+            raise ValueError('INVALID_COMPARISON_MEASUREMENT')
+        changes[key] = candidate[key] - baseline[key]
+    return {'baselineApkSetSha256': baseline['apkSetSha256'], 'candidateMinusBaseline': changes}
+
+
 def observe(args, report):
     if not args.serial.strip() or args.room < 1 or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+', args.package):
         raise ValueError('INVALID_ANDROID_ROOM_OR_PACKAGE')
@@ -84,6 +105,10 @@ def observe(args, report):
     if serial != args.serial:
         raise ValueError('DEVICE_IDENTITY_MISMATCH')
     report['deviceSerialHash'] = digest(serial)
+    fingerprint = adb('shell', 'getprop ro.build.fingerprint')
+    if fingerprint:
+        report['osBuildHash'] = digest(fingerprint)
+    report['scenarioHash'] = digest(json.dumps([args.package, args.room, args.conversation, args.command, args.model]))
     artifact = installed_apks(adb, args.package)
     report['apkSetSha256'] = artifact['apkSetSha256']
     report['versionCode'] = artifact['versionCode']
@@ -140,12 +165,22 @@ def main():
     parser.add_argument('--model', required=True)
     parser.add_argument('--gateway-root', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--baseline', type=Path, help='Compare with a previous build on the same handset and saved answer')
     args = parser.parse_args()
+    if args.baseline and args.output.resolve() == args.baseline.resolve():
+        parser.error('Choose a different output file so the baseline is preserved.')
     report = {'format': 'gptmobile.connected-chat-reopen.v1', 'status': 'BLOCKED'}
     try:
         observe(args, report)
+        if args.baseline:
+            with args.baseline.open('rb') as stream:
+                raw = stream.read(65537)
+            if len(raw) > 65536:
+                raise ValueError('BASELINE_TOO_LARGE')
+            report['comparison'] = compare_reopens(json.loads(raw), report)
     except Exception as error:
         reason = str(error)
+        report['status'] = 'BLOCKED'
         if reason in {'SAVED_ANSWER_NOT_VISIBLE', 'REOPEN_CHANGED_RECEIPT_OR_INSTALL'} and report.get('phase') == 'Restart and reconcile':
             report['status'] = 'FAILED'
         report['reason'] = reason if re.fullmatch('[A-Z_]{1,80}', reason) else type(error).__name__

@@ -100,6 +100,27 @@ class WorkspaceIntegrationTest {
         assertTrue(copied.all { it.id !in original.map { item -> item.id } })
     }
 
+    @Test fun copiesAndEditedBranchesKeepProjectMemoryAndItsPersonalOptOut() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val source = dao.insertChatRoom(ChatRoomV2(title = "Private project")).toInt()
+        val prompt = MessageV2(chatId = source, content = "Question", platformType = null, createdAt = 1)
+        val promptId = dao.insertMessage(prompt).toInt()
+        val project = KnowledgeProject("private", "Research", instructions = "Use project sources only")
+        database.knowledgeDao().saveProject(project)
+        database.knowledgeDao().attachChat(KnowledgeProjectChat(source, project.id))
+        val copies = listOf(
+            dao.duplicateChatWithHistory(source, "Copy", 2),
+            dao.duplicateChatWithHistory(source, "Edit", 3, prompt.copy(id = promptId, content = "Revised"))
+        )
+        val scopes = MemoryScopeResolver(database)
+        for (copy in copies) {
+            val scope = scopes.resolve(copy.id)
+            assertEquals(project, scope.project)
+            assertFalse(scope.accepts("personal"))
+            assertTrue(scope.accepts("project:private"))
+        }
+    }
+
     @Test fun temporaryAndMissingConversationsNeverResolveToPersistentMemory() = runBlocking {
         val id = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Private", isTemporary = true)).toInt()
         val scopes = MemoryScopeResolver(database)

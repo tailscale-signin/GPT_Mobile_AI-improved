@@ -82,6 +82,28 @@ class DocumentTextExtractorTest {
         assertEquals("Meeting agenda", DocumentTextExtractor.extract(context, file, "application/pdf").text)
     }
 
+    @Test fun imageOnlyPdfKeepsTheOriginalOnANativeRouteAndRequiresVisionOnATextOnlyRoute() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        AndroidPdfFonts.initialize(context)
+        val file = files.newFile("scan.pdf")
+        PDDocument().use { document ->
+            val page = PDPage()
+            document.addPage(page)
+            PDPageContentStream(document, page).use { drawing ->
+                drawing.addRect(20f, 30f, 150f, 50f)
+                drawing.fill()
+            }
+            document.save(file)
+        }
+        assertEquals(null, DocumentTextExtractor.forChatAttachment(context, file, "application/pdf", true))
+        assertThrows(DocumentTextExtractor.PdfWithoutText::class.java) {
+            DocumentTextExtractor.forChatAttachment(context, file, "application/pdf", false)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            DocumentTextExtractor.forChatAttachment(context, File(files.root, "missing.pdf"), "application/pdf", true)
+        }
+    }
+
     @Test fun pdfPageRangesReturnOnlyRequestedPagesAndAnExactContinuation() {
         val context = ApplicationProvider.getApplicationContext<Application>()
         AndroidPdfFonts.initialize(context)

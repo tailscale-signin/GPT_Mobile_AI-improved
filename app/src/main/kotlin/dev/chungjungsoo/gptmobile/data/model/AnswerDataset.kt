@@ -24,7 +24,7 @@ internal data class AnswerDataset(val version: Int, val type: String, val title:
 
     companion object {
         private val numericLiteral = Regex("""-?\d{1,24}(?:\.\d{1,12})?""")
-        private val request = Regex("""(?i)\b(chart|graph|tabulate|table|plot|map|sources|diagram|flowchart)\b""")
+        private val request = Regex("""(?i)\b(chart|graph|tabulate|table|plot|map|sources|diagram|flowchart|compare|comparison|metrics|counts|statistics)\b""")
 
         fun number(text: String): BigDecimal? = text.takeIf(numericLiteral::matches)?.toBigDecimalOrNull()
 
@@ -36,10 +36,20 @@ internal data class AnswerDataset(val version: Int, val type: String, val title:
                 return null
             }
             fun label(text: String, max: Int) = text.isNotBlank() && text.length <= max && text.none(Char::isISOControl)
-            if (data.version != 1 || data.type !in setOf("table", "bars", "places", "sources", "diagram") || !label(data.title, 120)) return null
+            if (data.version != 1 || data.type !in setOf("table", "bars", "metrics", "places", "sources", "diagram") || !label(data.title, 120)) return null
             if (data.columns.size !in 1..8 || data.columns.any { !label(it, 80) } || data.columns.distinct().size != data.columns.size) return null
             if (data.rows.size !in 1..64 || data.rows.any { row -> row.size != data.columns.size || row.any { it.length > 256 || it.any(Char::isISOControl) } }) return null
             if (data.type == "bars" && (data.columns.size != 2 || data.rows.any { it.first().isBlank() || (number(it.last())?.signum() ?: -1) < 0 })) return null
+            if (data.type == "metrics" &&
+                (
+                    data.columns.size != 2 ||
+                        data.rows.size > 6 ||
+                        data.rows.any { !label(it[0], 64) || number(it[1]) == null } ||
+                        data.rows.distinctBy { it[0] }.size != data.rows.size
+                    )
+            ) {
+                return null
+            }
             if (data.type == "places" &&
                 (
                     data.rows.size > 12 ||
@@ -79,7 +89,7 @@ internal data class AnswerDataset(val version: Int, val type: String, val title:
             if (capacity < 8192 || !request.containsMatchIn(task.take(2048))) return ""
             return "\nWhen a small comparison of known values helps and the user hasn't specified another format, you may emit one gpt-ui fenced JSON block: " +
                 """{"version":1,"type":"table","title":"…","columns":["…","…"],"rows":[["…","…"]]}. """ +
-                "Use type bars for two columns with nonnegative decimal values. For places use name, latitude, longitude. For sources use title, HTTPS URL. For a directed diagram use type diagram and two columns, from and to. Cite evidence in surrounding text. Never invent values."
+                "Use metrics for up to six observed label/number pairs, or bars for nonnegative comparisons. For places use name, latitude, longitude. For sources use title, HTTPS URL. For a directed diagram use type diagram and two columns, from and to. Cite evidence in surrounding text. Never invent values."
         }
     }
 }

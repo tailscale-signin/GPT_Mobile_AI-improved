@@ -438,16 +438,24 @@ class ChatPanel(tk.Frame):
 
     def analyze_selection(self):
         from desktop.analysis_panel import show_analysis
-        try:
-            code = self.text.get('sel.first', 'sel.last')[:32768]
-        except tk.TclError:
-            code = ''
+        def destination():
+            return scope_key(self.identity or {}), (self.conversation or {}).get('conversation_id'), self.epoch
+        original = destination()
+        def selected_python():
+            if destination() != original or self.busy or self.closed:
+                return ''
+            try:
+                selection = self.text.get('sel.first', 'sel.last')
+                return selection if len(selection.encode('utf-8')) <= 32768 else ''
+            except tk.TclError:
+                return ''
         def append_result(result):
-            if self.composer.cget('state') == 'disabled' or len(self.composer.get('1.0', 'end-1c')) + len(result) + 3 > 32000:
+            if (not self.identity or destination() != original or self.busy or self.sending or self.closed
+                    or self.composer.cget('state') == 'disabled' or len(self.composer.get('1.0', 'end-1c')) + len(result) + 3 > 32000):
                 return False
             self.composer.insert('end', '\n\n' + result + '\n')
             return True
-        show_analysis(self, self.root, code, append_result)
+        show_analysis(self, self.root, selected_python(), append_result, selected_python)
 
     def copy_selection(self):
         try:

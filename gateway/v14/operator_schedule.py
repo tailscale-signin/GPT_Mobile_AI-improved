@@ -34,6 +34,9 @@ class OperatorSchedule:
         db.execute("""CREATE TABLE IF NOT EXISTS test_receipt (
             id TEXT NOT NULL REFERENCES schedule(id) ON DELETE CASCADE, due INTEGER NOT NULL,
             receipt TEXT NOT NULL, PRIMARY KEY(id,due))""")
+        db.execute("""CREATE TABLE IF NOT EXISTS schedule_notice (
+            id TEXT NOT NULL REFERENCES schedule(id) ON DELETE CASCADE, due INTEGER NOT NULL,
+            message TEXT NOT NULL, PRIMARY KEY(id,due))""")
         return db
 
     def add(self, title, kind, delay_minutes, period_hours, query=None):
@@ -61,7 +64,35 @@ class OperatorSchedule:
 
     def rows(self):
         with closing(self.connect()) as db:
-            return [dict(row) for row in db.execute('SELECT * FROM schedule ORDER BY due IS NULL, due, id')]
+            return [dict(row) for row in db.execute('''SELECT s.*,
+                CASE WHEN w.token IS NOT NULL AND w.lease_until > :now THEN 'Running'
+                     WHEN t.token IS NOT NULL AND t.expires > :now THEN 'Running'
+                     WHEN t.token IS NOT NULL THEN 'Unverified'
+                     WHEN s.result LIKE 'Blocked%' THEN 'Blocked'
+                     WHEN s.result LIKE 'Failed%' THEN 'Failed'
+                     WHEN s.result LIKE 'Interrupted%' OR s.result LIKE 'Unverified%' THEN 'Unverified'
+                     WHEN s.due IS NOT NULL THEN 'Waiting'
+                     WHEN s.last_due IS NOT NULL THEN 'Completed'
+                     ELSE 'Unverified' END AS state,
+                (SELECT COUNT(*) FROM schedule_notice n WHERE n.id=s.id) AS unread
+                FROM schedule s LEFT JOIN publication_watch w USING(id) LEFT JOIN repository_test t USING(id)
+                ORDER BY s.due IS NULL, s.due, s.id''', {'now': int(self.now())})]
+
+    @staticmethod
+    def notify(db, key, due, message):
+        # Store the alert in the occurrence transaction, including when the desktop is closed.
+        db.execute('INSERT OR IGNORE INTO schedule_notice VALUES (?,?,?)', (key, due, message))
+        db.execute('DELETE FROM schedule_notice WHERE id=? AND due NOT IN '
+                   '(SELECT due FROM schedule_notice WHERE id=? ORDER BY due DESC LIMIT 32)', (key, key))
+
+    def notices(self, key):
+        with closing(self.connect()) as db:
+            return [dict(row) for row in db.execute(
+                'SELECT due,message FROM schedule_notice WHERE id=? ORDER BY due DESC', (key,))]
+
+    def acknowledge(self, key, through_due):
+        with closing(self.connect()) as db, db:
+            db.execute('DELETE FROM schedule_notice WHERE id=? AND due<=?', (key, through_due))
 
     def publications(self, key):
         with closing(self.connect()) as db:
@@ -94,6 +125,8 @@ class OperatorSchedule:
                 next_due = due + ((now - due) // period + 1) * period if period else None
                 db.execute('UPDATE schedule SET last_due=?, result=?, due=? WHERE id=?',
                            (due, result, next_due, row['id']))
+                if row['kind'] == 'Reminder' or (result.startswith('Blocked') and result != row['result']):
+                    self.notify(db, row['id'], due, result)
         run_watch(self, now)
 
 

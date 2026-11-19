@@ -43,6 +43,37 @@ class ComposerControlsInstrumentedTest {
     @get:Rule
     val composeRule = createComposeRule()
 
+    @Test fun selectedPdfPageRendersAsABoundedImageForTheVisionComposer() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val pdf = File.createTempFile("scanned-pages-", ".pdf", context.cacheDir)
+        try {
+            android.graphics.pdf.PdfDocument().use { doc ->
+                for (number in 1..2) {
+                    val page = doc.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(200, 100, number).create())
+                    page.canvas.drawColor(if (number == 1) android.graphics.Color.RED else android.graphics.Color.BLUE)
+                    doc.finishPage(page)
+                }
+                pdf.outputStream().use(doc::writeTo)
+            }
+            val image = renderScanPage(context, android.net.Uri.fromFile(pdf), 2)
+            try {
+                val bitmap = requireNotNull(android.graphics.BitmapFactory.decodeFile(image.absolutePath))
+                try {
+                    assertEquals(1800, bitmap.width)
+                    assertEquals(900, bitmap.height)
+                    assertEquals(android.graphics.Color.BLUE, bitmap.getPixel(900, 450))
+                } finally {
+                    bitmap.recycle()
+                }
+            } finally {
+                image.delete()
+            }
+            assertTrue(runCatching { renderScanPage(context, android.net.Uri.fromFile(pdf), 3) }.isFailure)
+        } finally {
+            pdf.delete()
+        }
+    }
+
     @Test
     fun previewedImageReturnsToItsOriginalComposer() {
         val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext

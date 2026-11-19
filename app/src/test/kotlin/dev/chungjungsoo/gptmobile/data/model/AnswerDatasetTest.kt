@@ -33,6 +33,14 @@ class AnswerDatasetTest {
         assertNotNull(AnswerDataset.parse(Json.encodeToString(table.copy(type = "bars"))))
     }
 
+    @Test fun metricCardsRequireDistinctLabelsAndFiniteBoundedValues() {
+        val metrics = table.copy(type = "metrics", rows = listOf(listOf("Passed", "0"), listOf("Change", "-0.25")))
+        assertEquals(metrics, AnswerDataset.parse(Json.encodeToString(metrics)))
+        listOf(metrics.rows + listOf(metrics.rows.first()), List(7) { listOf(it.toString(), "0") }, listOf(listOf(" ", "1")), listOf(listOf("Failed", "NaN"))).forEach {
+            assertNull(AnswerDataset.parse(Json.encodeToString(metrics.copy(rows = it))))
+        }
+    }
+
     @Test fun boundsInteractiveDiagramsAndKeepsCycles() {
         val edges = table.copy(type = "diagram", rows = listOf(listOf("Draft", "Review"), listOf("Review", "Draft")))
         assertEquals(edges, AnswerDataset.parse(Json.encodeToString(edges)))

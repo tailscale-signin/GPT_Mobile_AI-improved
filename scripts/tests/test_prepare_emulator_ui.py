@@ -473,6 +473,26 @@ class DisplayReadinessTest(unittest.TestCase):
         self.assertEqual(['adb', 'shell', 'am', 'wait-for-application-barrier'], device.calls[1][0])
         self.assertEqual([], device.mutations())
 
+    def test_a_cold_application_must_acknowledge_a_fresh_barrier_before_acceptance(self):
+        device = self.device()
+        now, wait = self.clock()
+        timeout = 'Waiting for application barriers, at 67 of 68...\nGave up waiting for application barriers!'
+        def cold(command, **options):
+            if 'wait-for-application-barrier' in command:
+                prior = sum('wait-for-application-barrier' in args for args, _ in device.calls)
+                device.application_output = timeout if prior == 0 else emulator.APPLICATION_IDLE
+                wait(30 if prior == 0 else 1)
+            return device(command, **options)
+        result = emulator.settle_display(cold, now=now, wait=wait)
+        self.assertEqual(2, result['application_barrier_attempts'])
+        self.assertTrue(result['application_threads_drained'])
+        self.assertEqual([], device.mutations())
+        device = self.device()
+        device.application_output = timeout
+        with self.assertRaisesRegex(ValueError, 'did not confirm'):
+            emulator.settle_display(device)
+        self.assertEqual(2, sum('wait-for-application-barrier' in args for args, _ in device.calls))
+
     def test_pending_configuration_and_null_focus_are_only_observed_until_ready(self):
         device = self.device()
         ready = device.window_dump

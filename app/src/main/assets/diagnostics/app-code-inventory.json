@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "e8b0f66004115e416c145c3255049d963e72908d5e9d12574c852aa362b82bc1",
+  "source_digest": "6c39aa427d6223609713604009869a9c5a1f2fcf66c5c06c689fc0823e9635e4",
   "file_count": 2717,
-  "indexed_line_count": 447028,
+  "indexed_line_count": 447031,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -142,7 +142,7 @@
       "id": "auth_and_security",
       "label": "Permissions, privacy and credentials",
       "file_count": 31,
-      "indexed_line_count": 4234
+      "indexed_line_count": 4237
     },
     {
       "id": "voice_and_media",
@@ -11875,8 +11875,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/EncryptedChatDatabase.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "1900b1e287546a3af99a25ea2ae21d39c808bc5f8613b16095c60ed8d1856786",
-      "indexed_lines": 133
+      "sha256": "1de7e2c3d780d0b829f4374d025a5815f223ead7c3b639133c208788f7093962",
+      "indexed_lines": 136
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/EndpointSecrets.kt",

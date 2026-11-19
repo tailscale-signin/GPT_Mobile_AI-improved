@@ -108,16 +108,19 @@ internal class EncryptedChatDatabase(context: Context) : SupportSQLiteOpenHelper
                 val version = open(source, byteArrayOf(), SQLiteDatabase.OPEN_READWRITE).use { db ->
                     // Switching out of WAL must succeed before installing a different main file.
                     check(db.compileStatement("PRAGMA journal_mode=DELETE").use { it.simpleQueryForString() }.equals("delete", true))
-                    val originalVersion = db.version
-                    db.execSQL("ATTACH DATABASE ? AS sealed KEY ?", arrayOf(copy.path, key))
-                    db.rawQuery("SELECT sqlcipher_export('sealed')", emptyArray<String>()).use { check(it.moveToFirst()) }
-                    db.execSQL("PRAGMA sealed.user_version=$originalVersion")
-                    if (db.compileStatement("SELECT COUNT(*) FROM main.sqlite_master WHERE name='sqlite_sequence'").use { it.simpleQueryForLong() } > 0) {
-                        db.execSQL("DELETE FROM sealed.sqlite_sequence")
-                        db.execSQL("INSERT INTO sealed.sqlite_sequence SELECT * FROM main.sqlite_sequence")
+                    db.version
+                }
+                // Create the encrypted destination as the primary database. Android SQLCipher
+                // can refuse to create a missing file through an ATTACH on an existing database.
+                open(copy, key, SQLiteDatabase.CREATE_IF_NECESSARY).use { db ->
+                    db.execSQL("ATTACH DATABASE ? AS legacy KEY ''", arrayOf(source.absolutePath))
+                    db.rawQuery("SELECT sqlcipher_export('main', 'legacy')", emptyArray<String>()).use { check(it.moveToFirst()) }
+                    db.version = version
+                    if (db.compileStatement("SELECT COUNT(*) FROM legacy.sqlite_master WHERE name='sqlite_sequence'").use { it.simpleQueryForLong() } > 0) {
+                        db.execSQL("DELETE FROM main.sqlite_sequence")
+                        db.execSQL("INSERT INTO main.sqlite_sequence SELECT * FROM legacy.sqlite_sequence")
                     }
-                    db.execSQL("DETACH DATABASE sealed")
-                    originalVersion
+                    db.execSQL("DETACH DATABASE legacy")
                 }
                 open(copy, key, SQLiteDatabase.OPEN_READONLY).use { db ->
                     check(db.version == version)

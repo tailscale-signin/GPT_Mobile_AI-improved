@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -143,7 +144,7 @@ class GatewayConversationRequestTest {
 
     @Test
     fun aReservationFailureRetainsItsOriginalErrorAfterBestEffortUnsentRecording() = runTest {
-        val original = IOException("reservation failed")
+        val original = IOException("cannot open /private/example/journal")
         val unsent = mutableListOf<String>()
         val selected = config.copy(
             onGatewayCommandPrepared = { throw original },
@@ -153,7 +154,11 @@ class GatewayConversationRequestTest {
             }
         )
         val frozen = gatewayConversationRequest(payload, selected)
-        assertEquals(original, runCatching { frozen.beforeDispatch(selected) }.exceptionOrNull())
+        val failure = runCatching { frozen.beforeDispatch(selected) }.exceptionOrNull()
+        assertTrue(failure is GatewayReservationFailure)
+        assertSame(original, failure?.cause)
+        assertTrue(failure?.message.orEmpty().contains("no model request was sent"))
+        assertFalse(failure?.message.orEmpty().contains("/private/example/journal"))
         assertEquals(listOf(frozen.commandId), unsent)
     }
 

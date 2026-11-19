@@ -453,7 +453,18 @@ internal class KokoroVoiceOutput(
                     main.postDelayed(watchdog, KOKORO_FOCUS_PAUSE_MAX_MS)
                 }
                 else -> {
-                    playback.diagnostics?.playbackFocus(if (focusResult == null) VoiceDiagnosticTrace.Focus.ERROR else VoiceDiagnosticTrace.Focus.DENIED, attempt)
+                    playback.diagnostics?.playbackFocus(
+                        if (focusResult == null) VoiceDiagnosticTrace.Focus.ERROR else VoiceDiagnosticTrace.Focus.DENIED,
+                        attempt,
+                        when (runCatching { audioManager?.mode }.getOrNull()) {
+                            null -> null
+                            AudioManager.MODE_NORMAL -> VoiceDiagnosticTrace.PlaybackAudioMode.NORMAL
+                            AudioManager.MODE_RINGTONE -> VoiceDiagnosticTrace.PlaybackAudioMode.RINGTONE
+                            AudioManager.MODE_IN_CALL -> VoiceDiagnosticTrace.PlaybackAudioMode.IN_CALL
+                            AudioManager.MODE_IN_COMMUNICATION -> VoiceDiagnosticTrace.PlaybackAudioMode.IN_COMMUNICATION
+                            else -> VoiceDiagnosticTrace.PlaybackAudioMode.OTHER
+                        }
+                    )
                     if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && attempt == 1) {
                         main.postDelayed({ acquireFocus(attempt + 1) }, 250)
                     } else {

@@ -22,6 +22,7 @@ class VoiceDiagnosticTrace internal constructor(
 ) {
     enum class Engine { SYSTEM, LOCAL, KOKORO }
     enum class Focus { GRANTED, DENIED, ERROR, NOT_REQUESTED }
+    enum class PlaybackAudioMode { NORMAL, RINGTONE, IN_CALL, IN_COMMUNICATION, OTHER }
     enum class FirstAudio { UTTERANCE_START, PLAYBACK_HEAD }
 
     private val lock = Any()
@@ -60,7 +61,7 @@ class VoiceDiagnosticTrace internal constructor(
     internal fun beginReply(generation: Long): Probe = synchronized(lock) {
         values.keys.removeAll { it in IssueReportIncidentCapsule.fieldsFor("VOICE") || it in setOf("voice_reply_state", "voice_reply_characters") }
         moments.keys.retainAll(setOf("speech_end", "final_transcript"))
-        values.keys.removeAll { it.endsWith("_ms") && it != "voice_speech_end_to_transcript_ms" || it in setOf("voice_engine_warm", "voice_first_audio_basis", "voice_playback_failure", "voice_playback_focus_attempts", "voice_caption_alignment") }
+        values.keys.removeAll { it.endsWith("_ms") && it != "voice_speech_end_to_transcript_ms" || it in setOf("voice_engine_warm", "voice_playback_audio_mode", "voice_first_audio_basis", "voice_playback_failure", "voice_playback_focus_attempts", "voice_caption_alignment") }
         advance(generation, newOrigin = true)
     }
 
@@ -140,7 +141,7 @@ class VoiceDiagnosticTrace internal constructor(
             val previous = owner.values["voice_engine"]
             if (previous != null && previous != engine.name) {
                 listOf("warmup", "ready", "synthesis", "audio").forEach(owner.moments::remove)
-                listOf("voice_warmup_ms", "voice_engine_warm", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_first_audio_basis", "voice_playback_failure", "voice_playback_focus_attempts", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed").forEach(owner.values::remove)
+                listOf("voice_warmup_ms", "voice_engine_warm", "voice_playback_audio_mode", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_first_audio_basis", "voice_playback_failure", "voice_playback_focus_attempts", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed").forEach(owner.values::remove)
             }
             owner.values["voice_engine"] = engine.name
         }
@@ -153,7 +154,8 @@ class VoiceDiagnosticTrace internal constructor(
         fun permission(granted: Boolean) = owner.record(this) { owner.values["voice_permission_granted"] = granted }
         fun muted(muted: Boolean) = owner.record(this) { owner.values["voice_muted"] = muted }
         fun focus(result: Focus) = owner.record(this) { owner.values["voice_focus_result"] = result.name }
-        fun playbackFocus(result: Focus?, attempt: Int) = owner.record(this) {
+        fun playbackFocus(result: Focus?, attempt: Int, audioMode: PlaybackAudioMode? = null) = owner.record(this) {
+            if (audioMode == null) owner.values.remove("voice_playback_audio_mode") else owner.values["voice_playback_audio_mode"] = audioMode.name
             if (result == null) owner.values.remove("voice_focus_result") else owner.values["voice_focus_result"] = result.name
             owner.values["voice_playback_focus_attempts"] = attempt
         }

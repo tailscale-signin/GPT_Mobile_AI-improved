@@ -441,6 +441,26 @@ internal class GitHubVerifiedSession(
             val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, retained, evidence.diagnostic())
             round = collectDraft(openExecutionContinuation.invoke(prompt), tools, exchanges)
             if (!round.calls && round.completed && !round.failed) {
+                // If neither attempt started work, establish the selected repository through its
+                // ordinary read tool. The next provider round receives the real tool result.
+                val context = tools.singleOrNull { GitHubOperationTool.operationName(it.name) == "github_context" }
+                if (context != null &&
+                    exchanges.isEmpty() &&
+                    evidence.snapshot().first.isEmpty() &&
+                    remainingToolCalls()?.let { it > reserve } == true &&
+                    evidence.remainingTaskMillis() != 0L &&
+                    GitHubRepositoryLifecycle.intent(task) == null
+                ) {
+                    val repository = (evidence.acceptedPromptContract()?.get("repository") as? JsonPrimitive)?.contentOrNull
+                    if (!repository.isNullOrBlank()) {
+                        GitHubStatusRequest.nextCall(listOf(context), emptyMap(), now(), acceptedRepository = repository)?.let { next ->
+                            lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                            emit(next)
+                            emit(ProviderEvent.Completed)
+                            return@flow
+                        }
+                    }
+                }
                 // A correction can resume operations, but its raw prose has not passed
                 // the selected review pipeline. Publish only the application ledger.
                 emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.PROSE_ONLY_CORRECTION, failureCode = "GITHUB_TASK_INCOMPLETE"))

@@ -1287,6 +1287,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_kokoro_pronunciation_focus_receipt_is_bounded_and_contains_no_spoken_text(self):
         values = {
+            "voice_playback_audio_mode": "IN_COMMUNICATION",
             "voice_playback_failure": "AUDIO_FOCUS_TIMEOUT",
             "voice_focus_last_transition": "PAUSE",
             "voice_focus_transition_count": 2,

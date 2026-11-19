@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "103f1dabf788faa5bf5505a6796ffc0b3f7907e3f758771ed32ce047d2089dba",
+  "source_digest": "91aea8c44708d3fc5a927ed06779c5119fcee655a5bb81196ebbbda63641f192",
   "file_count": 2753,
-  "indexed_line_count": 453613,
+  "indexed_line_count": 453649,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 242,
-      "indexed_line_count": 41977
+      "indexed_line_count": 41997
     },
     {
       "id": "research",
@@ -130,7 +130,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 94,
-      "indexed_line_count": 13993
+      "indexed_line_count": 13995
     },
     {
       "id": "benchmark",
@@ -148,7 +148,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 31,
-      "indexed_line_count": 6227
+      "indexed_line_count": 6240
     },
     {
       "id": "portable_domain",
@@ -172,7 +172,7 @@
       "id": "authentication_service",
       "label": "Authentication broker software",
       "file_count": 9,
-      "indexed_line_count": 2641
+      "indexed_line_count": 2642
     },
     {
       "id": "external_integrations",
@@ -5694,8 +5694,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "df92c1dd0957b1d3201da030cc17e1da9333e7040452b12f8dce11d6a0d55e99",
-      "indexed_lines": 664
+      "sha256": "d2c4e4a6d54999fa3c0beab7e8c2426cbff59b162af1e1a6578655f8fc234cb0",
+      "indexed_lines": 666
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportGitHubSubmission.kt",
@@ -7822,8 +7822,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "e0812bbe2db0d0736aa058c021e5328b4a14262608e3ab26be1e75e5780d052e",
-      "indexed_lines": 1362
+      "sha256": "3d3eeab783d79108ce10f8c5a6c19095c4c4eb10f677ced0af490e9a5a6927e2",
+      "indexed_lines": 1382
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchBackoff.kt",
@@ -9789,7 +9789,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRejectionDiagnostics.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "a58169b41a1adad95f49750b537f290b9da425b4a2e5f4649012bb7264e41e00",
+      "sha256": "be9563e00d11e364d9e888d7f13f56c0026c454468ff304aa1a5ffb3a869f2f7",
       "indexed_lines": 95
     },
     {
@@ -12078,8 +12078,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "91270c7f35a8da79cb31a1b98bdd0b866c3679450750b8b48f8f0d2f4711edc1",
-      "indexed_lines": 890
+      "sha256": "e8b9d4d7af4b6bb5c8fa78ba8e7fd3856a407b8e36920d50ba60eff1bca26924",
+      "indexed_lines": 901
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
@@ -12127,8 +12127,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "53b3aa81530b7aba5a8c71edad1a58918ce253071374f653267cda48932f2f12",
-      "indexed_lines": 247
+      "sha256": "b3cb4380be0d8659a0b1499d7d7d8ec8ea5a5d369e3c0d5bce0fe8cae839d0ed",
+      "indexed_lines": 249
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInstallObservation.kt",
@@ -17699,15 +17699,15 @@
       "path": "authentication/issue_report_app.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "70f5863e5f5cb60f4011df3d8f1248f8bcc7924f2a02ed50920420ba051f1fb9",
+      "sha256": "d05b330252a2957742334941f84ad1e72684d45e85437943f4f62e64c4d3f76f",
       "indexed_lines": 102
     },
     {
       "path": "authentication/issue_report_diagnostics.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "9692a7b558b0eb5e5391c2b1d489a35c654c4f222fa5398adfeff2701c0b0f7f",
-      "indexed_lines": 461
+      "sha256": "b9a53e7e9188ac3e369a023396ba29d58561c7080224975052cd8c7b04f842d0",
+      "indexed_lines": 462
     },
     {
       "path": "authentication/issue_reports.py",

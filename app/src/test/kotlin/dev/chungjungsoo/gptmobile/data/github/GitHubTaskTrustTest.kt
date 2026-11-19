@@ -388,6 +388,24 @@ class GitHubTaskTrustTest {
         }
     }
 
+    @Test fun emptyCorrectionStartsOneAuthorizedRepositoryReadWithoutPublishingEitherDraft() = runBlocking {
+        val task = "Fix the bug in app.kt"
+        val tool = AgentToolDefinition("github_context", "Read the selected repository", JsonObject(emptyMap()))
+        val book = GitHubEvidenceBook("b", "o/r", "feature", setOf(tool.name))
+        book.retainTaskContract(task, 7, listOf(tool), 256)
+        val session = GitHubVerifiedSession(
+            answer("I will fix the bug."), book, task, { 8192 }, { error("No evidence to verify") }, {}, {},
+            remainingToolCalls = { 256 }, executionCallLimit = 256,
+            openExecutionContinuation = { answer("The bug has been fixed.") }
+        )
+        val events = session.streamRound(listOf(tool), emptyList()).toList()
+        val call = events.filterIsInstance<ProviderEvent.ToolCall>().single()
+        assertEquals(tool.name, call.name)
+        assertEquals(JsonObject(mapOf("action" to JsonPrimitive("status"))), call.arguments)
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+        assertTrue(book.snapshot().first.isEmpty())
+    }
+
     @Test fun correctiveProseCannotBypassReviewOrBecomeExecutionEvidence() = runBlocking {
         val book = GitHubEvidenceBook("b", "o/r", "feature", setOf(read.name))
         val session = GitHubVerifiedSession(

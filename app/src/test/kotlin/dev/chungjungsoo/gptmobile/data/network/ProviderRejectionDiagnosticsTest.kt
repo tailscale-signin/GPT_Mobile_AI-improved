@@ -30,6 +30,17 @@ class ProviderRejectionDiagnosticsTest {
         assertFalse("private" in result.toString())
     }
 
+    @Test fun authenticationRejectionCanBeCorrelatedWithItsConfiguredRouteWithoutExportingSecrets() {
+        fun denied(endpoint: String) = ProviderRejectionDiagnostics.response(401, "{}", ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint)
+        val plain = denied("https://example.com/v1/responses")
+        val secret = denied("https://user:private@example.com/v1/responses?token=private#private")
+        assertEquals(JsonPrimitive("AUTHENTICATION"), plain["provider_rejection_category"])
+        assertEquals(JsonPrimitive(false), plain["retryable"])
+        assertEquals(plain["provider_route_hash"], secret["provider_route_hash"])
+        assertTrue(plain["provider_route_hash"] != null && plain["provider_route_hash"] != denied("https://example.com/v2/responses")["provider_route_hash"])
+        assertFalse(secret.toString().contains("private"))
+    }
+
     @Test fun responsesRejectionsRetainOnlyTheParameterRootAndTheWireContract() {
         val result = ProviderRejectionDiagnostics.response(400, """{"error":{"param":"input[3].private_field","message":"private text"}}""", ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES)
         assertEquals(JsonPrimitive("OPENAI_RESPONSES"), result["payload_contract"])

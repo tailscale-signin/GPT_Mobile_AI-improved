@@ -40,7 +40,7 @@ internal object ProviderRejectionDiagnostics {
                     fields["provider_parameter"] == JsonPrimitive("response_format") ||
                     text("message")?.startsWith("Invalid schema for response_format", ignoreCase = true) == true
                 )
-        if (!billing && status != 410 && !schemaRejected) return fields
+        if (!billing && status != 401 && status != 410 && !schemaRejected) return fields
         return JsonObject(
             fields + buildJsonObject {
                 if (billing) put("provider_rejection_category", "BILLING_UNAVAILABLE")

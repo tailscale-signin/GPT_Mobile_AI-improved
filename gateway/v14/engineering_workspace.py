@@ -35,7 +35,22 @@ def act(backend, job, action):
         raise ValueError('Workspace action must name the current pinned head_sha')
     kind = action.get('action')
     receipt = {'action': kind, 'head_sha': job['data']['head_sha']}
-    if kind == 'requirements':
+    if kind in {'skills', 'skill', 'workflow_step'}:
+        from v14.workspace_guidance import workflow
+        receipt.update(workflow(backend, job, action))
+    elif kind == 'progress':
+        fields = {key: action.get(key, '') for key in ('hypothesis', 'next_action', 'tried')}
+        if any(not isinstance(value, str) or len(value) > 1000 for value in fields.values()) or not fields['next_action'].strip():
+            raise ValueError('Record a next action and up to 1000 characters per working note')
+        job['data']['progress_notes'] = dict(fields, head_sha=job['data']['head_sha'])
+        receipt.update(job['data']['progress_notes'])
+    elif kind == 'instructions':
+        from v14.workspace_guidance import activate
+        paths = action.get('paths')
+        if not isinstance(paths, list) or not 1 <= len(paths) <= 60:
+            raise ValueError('Select 1–60 paths for instruction resolution')
+        receipt.update(active_instructions=activate(backend, job, paths))
+    elif kind == 'requirements':
         offset = action.get('offset', 0)
         if type(offset) is not int or offset < 0:
             raise ValueError('Invalid acceptance requirement offset')
@@ -57,6 +72,8 @@ def act(backend, job, action):
         receipt.update(paths=paths[offset:offset + 80], total=len(paths), next_offset=offset + 80 if offset + 80 < len(paths) else None)
     elif kind == 'read':
         path = action.get('path')
+        from v14.workspace_guidance import activate
+        receipt['active_instructions'] = activate(backend, job, [path])
         original = load_file(backend, job, path)
         start, count = action.get('start_line', 1), action.get('line_count', 80)
         if type(start) is not int or type(count) is not int or start < 1 or not 1 <= count <= 200:
@@ -107,7 +124,8 @@ def view(data):
         content = value['content'][:min(max(limit, 0), 2400)]
         files[path] = {'sha': value['sha'], 'content': content,
                        'partial': len(content) < len(value['content']), 'total_lines': len(value['content'].splitlines())}
-    return {'head_sha': data['head_sha'], 'workspace_receipts': windows, 'plan': data['plan'],
+    return {'head_sha': data['head_sha'], 'progress_notes': data.get('progress_notes'), 'workflow': data.get('workflow'),
+            'active_instructions': data.get('active_instructions', []), 'workspace_receipts': windows, 'plan': data['plan'],
             'repair_feedback': repair_feedback(data), 'files': files, 'iteration': data.get('workspace_iterations', 0),
             'ci': data.get('ci'), 'review': data.get('review')}
 

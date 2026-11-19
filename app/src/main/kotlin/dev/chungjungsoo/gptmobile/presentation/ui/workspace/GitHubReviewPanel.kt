@@ -621,6 +621,17 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         pendingEngineeringTask.value = replacement
         notice.value = "Edited patch validated. Review the new diff and approve to commit."
     }
+    fun acceptReviewEdit(taskId: String?, expected: GitHubFileProposal, replacement: String) {
+        val proposal = review.value ?: return
+        if (busy.value || proposal.stale || expected !in proposal.files) return
+        if (taskId == null && programmerScope.value == null) {
+            edit(expected.path, replacement)
+        } else if (taskId != null && selectedEngineeringRun.value?.taskId == taskId) {
+            val updated = expected.copy(after = replacement, delete = false)
+            restageEditedCommit(taskId, proposal.copy(files = proposal.files.map { if (it == expected) updated else it }))
+        }
+    }
+
     fun editAndRestage(taskId: String, path: String, search: String, replacement: String) {
         if (busy.value) return
         val proposal = review.value ?: return
@@ -760,15 +771,37 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel(), programmer
             items(value.files, key = { it.path }) { file ->
                 WorkspaceCard(file.path) {
                     Text(if (file.delete) "Delete file" else "Replacement diff", style = MaterialTheme.typography.labelLarge)
-                    val diff by androidx.compose.runtime.produceState("Preparing diff…", file.path, file.before, file.after, file.delete) {
-                        kotlinx.coroutines.delay(120)
+                    val hunks by androidx.compose.runtime.produceState(emptyList<dev.chungjungsoo.gptmobile.data.workspace.ReviewDiff.Hunk>(), file) {
                         this.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                            dev.chungjungsoo.gptmobile.data.workspace.ReviewDiff.render(file.path, file.before, file.after).take(12000)
+                            dev.chungjungsoo.gptmobile.data.workspace.ReviewDiff.hunks(file.before, file.after)
                         }
                     }
-                    GitHubCodeDiff(diff)
-                    if (file.before.length + file.after.length > 12000) Text("Diff preview may be truncated. Review the complete proposed file below before committing.", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(file.after, { model.edit(file.path, it) }, readOnly = programmerContext != null, enabled = !file.delete, label = { Text("Proposed complete file") }, modifier = Modifier.fillMaxWidth(), maxLines = 16)
+                    var hunkIndex by remember(file) { androidx.compose.runtime.mutableIntStateOf(0) }
+                    val hunk = hunks.getOrNull(hunkIndex)
+                    val savedTask = selectedRun?.taskId.takeIf { programmerContext != null }
+                    val editable = !busy && !value.stale && (programmerContext == null || savedTask != null)
+                    if (hunk != null) {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            OutlinedButton(onClick = { hunkIndex-- }, enabled = hunkIndex > 0) { Text("Previous") }
+                            Text(" Hunk ${hunkIndex + 1} of ${hunks.size} ")
+                            OutlinedButton(onClick = { hunkIndex++ }, enabled = hunkIndex < hunks.lastIndex) { Text("Next") }
+                        }
+                        GitHubCodeDiff(remember(hunk) { hunk.render() })
+                        OutlinedButton(enabled = editable, onClick = { model.acceptReviewEdit(savedTask, file, hunk.reject(file.after)) }) { Text("Remove hunk from proposal") }
+                        var comment by remember(file, hunkIndex) { mutableStateOf("") }
+                        OutlinedTextField(comment, { comment = it.take(1000) }, label = { Text("Comment on line ${hunk.newStart + 1}") })
+                        OutlinedButton(
+                            enabled = editable && comment.isNotBlank() && value.reviewNotes.length + file.path.length + comment.length < 7970,
+                            onClick = {
+                                model.notes(value.reviewNotes + "\n${file.path}:${hunk.newStart + 1} · ${comment.trim()}")
+                                model.saveDraft()
+                                comment = ""
+                            }
+                        ) { Text("Save review comment") }
+                    }
+                    var edited by remember(file) { mutableStateOf(file.after) }
+                    OutlinedTextField(if (programmerContext == null) file.after else edited, { if (programmerContext == null) model.edit(file.path, it) else edited = it }, enabled = editable && !file.delete, label = { Text("Proposed complete file") }, modifier = Modifier.fillMaxWidth(), maxLines = 16)
+                    if (programmerContext != null && edited != file.after) OutlinedButton(enabled = editable, onClick = { model.acceptReviewEdit(savedTask, file, edited) }) { Text("Apply edit to proposal") }
                     if (programmerContext == null) OutlinedButton(enabled = !busy && !value.stale, onClick = { model.deleteFile(file.path) }) { Text(if (file.delete) "Restore file" else "Delete file in this commit") }
                     Text(
                         "${file.before.lines().size} → ${file.after.lines().size} lines · ${if (file.delete) {

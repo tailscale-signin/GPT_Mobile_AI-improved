@@ -1,0 +1,10 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "326683b484f9fea4dfc585fc9732f4b3b97d9068",
+  "working_branch": "fix/post-1534-runtime-continuation-and-acceptance-2026-11-18",
+  "start_sha": "8023a17b0dc961e57d51fe4c94f384dc0d34ed3e",
+  "existing_pr": 1741,
+  "intent": "Deliver and qualify the persistent development workspace on the shared release branch.",
+  "state": "IN_PROGRESS"
+}

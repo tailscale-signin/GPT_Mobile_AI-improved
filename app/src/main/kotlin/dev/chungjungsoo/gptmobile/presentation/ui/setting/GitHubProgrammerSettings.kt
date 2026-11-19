@@ -96,6 +96,19 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
                 Text("Gateway execution mode", style = MaterialTheme.typography.titleSmall)
                 val gateway = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)
+                val inference = state.profiles.singleOrNull { it.enabled && it.uid == state.profileUid }
+                val account = workspace.connection?.connectionUid
+                val repository = workspace.selection?.fullName
+                if (inference != null && gateway != null && account != null && repository != null && !dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(inference)) {
+                    val consentKey = dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.key(inference, account, repository, gateway.uid)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Share repository map results from $repository with ${inference.model}", Modifier.weight(1f))
+                        Switch(
+                            checked = state.profileSettings.graphSharingConsent == consentKey,
+                            onCheckedChange = { enabled -> onSettings(state.profileSettings.copy(graphSharingConsent = consentKey.takeIf { enabled })) }
+                        )
+                    }
+                }
                 val androidContext = androidx.compose.ui.platform.LocalContext.current
                 androidx.compose.material3.TextButton(onClick = { androidContext.startActivity(android.content.Intent(androidContext, OwnerPairingActivity::class.java)) }) { Text("Pair a Windows Gateway") }
                 OutlinedButton(onClick = { controlGateway = gateway?.uid }, enabled = gateway != null, modifier = Modifier.testTag("github_gateway_controls")) { Text("Engineering & Gateway settings") }

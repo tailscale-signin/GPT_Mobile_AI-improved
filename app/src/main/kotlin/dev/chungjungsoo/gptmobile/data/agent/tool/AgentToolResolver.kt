@@ -1497,7 +1497,7 @@ class AgentToolResolver @Inject constructor(
                 features.githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid != null &&
                 features.githubProfileOverrides[profileUid]?.engineeringMemory != dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.SESSION_ONLY &&
                 workspaceContext != null &&
-                dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }) &&
+                dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.allowed(approvalProfile, features.githubProfileOverrides[profileUid], workspaceContext, requestedModel) &&
                 userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } == true
             ) {
                 { args -> repositoryGraphs.execute(workspaceContext, args) }

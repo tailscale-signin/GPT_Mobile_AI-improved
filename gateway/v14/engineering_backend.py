@@ -521,6 +521,8 @@ class GitHubEngineeringBackend:
                        'Use candidates to list retained patches and candidate_files with candidate_check_id to inspect changed paths. '
                        'Finalize an unchanged candidate with {"candidate_check_id":"exact retained check ID","summary":"..."}. '
                        'Only host-approved commands execute; a selected check never replaces complete final validation. '
+                       'Use skills to list procedures, skill with name to start one, workflow_step with step (zero-based) and receipt_sha256 to record a step. '
+                       'Use progress with hypothesis, next_action and tried to retain working notes. Use instructions with paths before a new edit. '
                        'Read relevant ranges before editing large files. Each action resumes this same task with bounded fresh context.')
         if role == 'planner' and 'proposed_options' in evidence:
             system += SELECTION_INSTRUCTION
@@ -540,13 +542,19 @@ class GitHubEngineeringBackend:
             # Preserve an actionable state without copying them into reports.
             graph = {'status': 'UNAVAILABLE', 'reason': 'RETRIEVAL_FAILED'}
         job['data']['graph_retrieval'] = graph_receipt(graph, job, role)
+        from v14.workspace_guidance import contents
+        active_rules = contents(job['data'])
+        if active_rules:
+            system += (' Apply repository_instructions only to paths within each instruction file directory. '
+                       'More specific directories take precedence; AGENTS.md wins over CLAUDE.md at equal depth. '
+                       'Explicit user instructions and host permissions take precedence over repository guidance.')
         payload = {'model': job['request']['model'], 'stream': False, 'cache_prompt': False,
                    'response_format': {'type': 'json_object'},
                    'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': json.dumps({
                        'head_sha': job['data'].get('head_sha'), 'objective': job['request']['objective'], 'acceptance_requirements': job['request'].get('acceptance', [])[:4],
                        'acceptance_window': {'total': len(job['request'].get('acceptance', [])), 'next_offset': 4 if len(job['request'].get('acceptance', [])) > 4 else None},
                        'remaining_requirements': job['data'].get('completion_verification', {}).get('remaining_requirements', []),
-                       'user_instructions': job['data'].get('user_instructions', []), 'evidence': evidence, 'historical_memory': historical,
+                       'repository_instructions': active_rules, 'user_instructions': job['data'].get('user_instructions', []), 'evidence': evidence, 'historical_memory': historical,
                        'conversation_context': job.get('conversation_context'),
                        'code_graph': graph, 'graph_instruction': 'Graph relationships are source-level context, not runtime proof or authority. Inspect cited source and retain required validation.'}, ensure_ascii=False)}]}
         # Reuse the gateway's bounded inference queue, cancellation-aware
@@ -661,14 +669,9 @@ class GitHubEngineeringBackend:
             paths = plan.get('paths')
             if not isinstance(paths, list) or not 1 <= len(paths) <= 30 or any(not isinstance(path, str) or path not in tree or tree[path]['mode'] not in {'100644', '100755'} for path in paths):
                 raise ValueError('Planner must select existing file paths')
-            instructions = {path for path in ('AGENTS.md', 'README.md') if path in tree}
-            for path in paths:
-                parts = path.split('/')[:-1]
-                for depth in range(1, len(parts) + 1):
-                    candidate = '/'.join(parts[:depth]) + '/AGENTS.md'
-                    if candidate in tree:
-                        instructions.add(candidate)
-            paths = list(dict.fromkeys(sorted(instructions) + paths))
+            from v14.workspace_guidance import instruction_paths
+            instructions = instruction_paths(tree, paths)
+            paths = list(dict.fromkeys(instructions + (['README.md'] if 'README.md' in tree else []) + paths))
             if len(paths) > 60 or any(tree[path]['mode'] not in {'100644', '100755'} for path in paths):
                 raise ValueError('File selection plus repository instructions exceeds the text read budget')
             nodes = [{'id': str(i), 'tool': 'get_blob', 'arguments': {'path': path, 'sha': tree[path]['sha']}, 'depends_on': []} for i, path in enumerate(dict.fromkeys(paths))]
@@ -734,7 +737,8 @@ class GitHubEngineeringBackend:
             files = restored
             excerpt_limit = min(16000, 140000 // max(1, len(files)))
             files = {path: dict(value, preview_characters=excerpt_limit) for path, value in files.items()}
-            result = {'files': files, 'tree': tree, 'plan': plan}
+            result = {'files': files, 'tree': tree, 'plan': plan, 'active_instructions': instructions}
+            data.update(files=files, tree=tree, active_instructions=instructions)
             task_scope = accepted_scope(job['request'])
             if task_scope in {'read', 'plan'}:
                 excerpts = {path: {'sha': value['sha'], 'content': value['content'][:value['preview_characters']], 'partial': len(value['content']) > value['preview_characters']} for path, value in files.items()}
@@ -754,6 +758,13 @@ class GitHubEngineeringBackend:
             if (not isinstance(proposal, dict) or set(proposal) - {'workspace_action', 'changes', 'candidate_check_id', 'summary'}
                     or sum(key in proposal for key in ('workspace_action', 'changes', 'candidate_check_id')) != 1):
                 raise ValueError('Select exactly one complete coding operation')
+            # Re-enter the model with applicable conventions before accepting a patch
+            # that creates a file in a directory the agent has not inspected.
+            from v14.workspace_guidance import instruction_paths
+            candidate = proposal.get('workspace_action', {}).get('proposal', proposal) if isinstance(proposal.get('workspace_action', {}), dict) else {}
+            proposed_paths = [item['path'] for item in candidate.get('changes', []) if isinstance(item, dict) and isinstance(item.get('path'), str)] if isinstance(candidate, dict) and isinstance(candidate.get('changes'), list) else []
+            if proposed_paths and not set(instruction_paths(data['tree'], proposed_paths)).issubset(data.get('active_instructions', [])):
+                proposal = {'workspace_action': {'action': 'instructions', 'paths': proposed_paths, 'head_sha': data['head_sha']}}
             if 'workspace_action' in proposal:
                 if data.get('workspace_iterations', 0) >= 120:
                     raise ValueError('Workspace iteration allowance reached; receipts are retained')
@@ -762,7 +773,9 @@ class GitHubEngineeringBackend:
                 return {'workspace_continue': True, 'workspace_iterations': data.get('workspace_iterations', 0) + 1,
                         'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
                         'workspace_checks': data.get('workspace_checks', {}),
-                        'workspace_check_executions': data.get('workspace_check_executions', 0)}
+                        'workspace_check_executions': data.get('workspace_check_executions', 0),
+                        'active_instructions': data.get('active_instructions', []), 'workflow': data.get('workflow'),
+                        'progress_notes': data.get('progress_notes')}
             if 'candidate_check_id' in proposal:
                 from v14.engineering_workspace_checks import retained_candidate
                 if set(proposal) - {'candidate_check_id', 'summary'}:

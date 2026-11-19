@@ -45,7 +45,7 @@ class GatewayGraphRepository @Inject constructor(
     }
 
     suspend fun execute(context: GitHubConversationContext, arguments: JsonObject): JsonObject {
-        val response = executeForMap(context, arguments, refreshReadiness = false)
+        val response = executeForMap(context, arguments, refreshReadiness = false, forModel = true)
         // This observation belongs to the local checkpoint, not the gateway payload.
         // A successful status read need not acknowledge an earlier index request.
         return JsonObject(
@@ -64,7 +64,8 @@ class GatewayGraphRepository @Inject constructor(
         context: GitHubConversationContext,
         arguments: JsonObject,
         expectedGatewayProfileUid: String? = null,
-        refreshReadiness: Boolean = true
+        refreshReadiness: Boolean = true,
+        forModel: Boolean = false
     ): GatewayGraphResponse = operations.withLock {
         var gateway: PlatformV2? = null
         var checkpoint: GatewayGraphIndexCheckpoint? = null
@@ -73,6 +74,12 @@ class GatewayGraphRepository @Inject constructor(
         var dispatched = false
         try {
             val admitted = admission(context, expectedGatewayProfileUid)
+            fun requireSharing() {
+                if (forModel && !GatewayGraphSharing.allowed(admitted.profile, admitted.preferences, context)) {
+                    throw GatewayGraphAdmissionException("GRAPH_SOURCE_SHARING_REQUIRED", "Enable repository map sharing for this repository and AI profile in GitHub settings.")
+                }
+            }
+            requireSharing()
             gateway = admitted.gateway
             val config = admitted.gateway.engineeringConfig()
             val capability = if (refreshReadiness) client.refreshCapabilities(config) else client.capabilities(config)
@@ -110,7 +117,11 @@ class GatewayGraphRepository @Inject constructor(
             val durableJobs = capability.codeGraph?.durableIndexJobs == true
             if (payload["background"] == JsonPrimitive(true) && !durableJobs) payload = JsonObject(payload - "background")
             val background = action == "index" && payload["background"] == JsonPrimitive(true)
-            val modelAccess = if (GitHubAutonomousEngineeringPolicy.supportsSavedJobs(admitted.profile)) "PRIVATE_PROFILE_ELIGIBLE" else "PRIVATE_PROFILE_REQUIRED"
+            val modelAccess = when {
+                !GatewayGraphSharing.allowed(admitted.profile, admitted.preferences, context) -> "SHARING_DISABLED"
+                GitHubAutonomousEngineeringPolicy.supportsSavedJobs(admitted.profile) -> "PRIVATE_PROFILE_ELIGIBLE"
+                else -> "REMOTE_PROFILE_AUTHORIZED"
+            }
             var previousStatus: JsonObject? = null
             verifyAdmission(context, expectedGatewayProfileUid, admitted)
             if (cancelJob) {
@@ -139,6 +150,8 @@ class GatewayGraphRepository @Inject constructor(
                 verifyResult(context, saved)
                 verifyAdmission(context, expectedGatewayProfileUid, admitted)
                 if (saved["has_more"] == JsonPrimitive(false) && arguments["retry_failed"] != JsonPrimitive(true)) {
+                    verifyAdmission(context, expectedGatewayProfileUid, admitted)
+                    requireSharing()
                     return@withLock GatewayGraphResponse(saved, "status", admitted.gateway.uid, admitted.gateway.name, durableIndexJobs = durableJobs, modelAccess = modelAccess)
                 }
                 if (saved["has_more"] == JsonPrimitive(true) && arguments["retry_failed"] != JsonPrimitive(true) && !background) {
@@ -193,6 +206,8 @@ class GatewayGraphRepository @Inject constructor(
             }
             val confirmed = attempt?.let { retained.confirm(it) }
             val observed = if (action == "status") retained.reconcileObserved(result, requireAttemptIdentity = expectedAttempt != null) else retained.observation()
+            verifyAdmission(context, expectedGatewayProfileUid, admitted)
+            requireSharing()
             GatewayGraphResponse(
                 JsonObject(result - "confirmed_sync_request_id"),
                 action,

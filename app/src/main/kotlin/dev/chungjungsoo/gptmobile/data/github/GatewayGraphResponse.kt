@@ -1,6 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
+import java.util.Locale
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** Display identity belongs to the frozen route that produced this response, never a later selection. */
 internal data class GatewayGraphResponse(
@@ -42,4 +47,22 @@ internal fun graphFailureCode(failure: Exception): String = when (failure) {
     is GatewayEngineeringRequestRejected -> failure.errorCode?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{1,100}")) } ?: "GRAPH_REQUEST_REJECTED"
     is java.io.IOException -> "GRAPH_TRANSPORT_UNAVAILABLE"
     else -> "GRAPH_OPERATION_FAILED"
+}
+
+/** Source-sharing consent is specific to this account connection, repository, host and inference destination. */
+internal object GatewayGraphSharing {
+    fun key(profile: PlatformV2, connection: String, repository: String, gateway: String): String =
+        GitHubRepositoryStateStore.digest(
+            JsonArray(
+                listOf(profile.uid, profile.compatibleType.name, profile.apiUrl, profile.providerConnectionUid.orEmpty(), profile.model, connection, repository.lowercase(Locale.ROOT), gateway).map(::JsonPrimitive)
+            ).toString()
+        )
+
+    fun allowed(profile: PlatformV2?, preferences: GitHubChatProfileOverride?, context: GitHubConversationContext, requestedModel: String? = null): Boolean {
+        if (profile == null || !profile.enabled || profile.uid != context.mainProfileUid || PrivacyModeStore.active()) return false
+        if (GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) return true
+        val gateway = preferences?.engineeringGatewayProfileUid ?: return false
+        if (!requestedModel.isNullOrBlank() && requestedModel != profile.model) return false
+        return preferences.graphSharingConsent == key(profile, context.connectionUid, context.repository.fullName, gateway)
+    }
 }

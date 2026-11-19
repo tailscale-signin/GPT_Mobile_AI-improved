@@ -3269,7 +3269,12 @@
     "gateway/tests/test_gateway_control_host_requests.py",
     "gateway/tests/test_gateway_control_policies.py",
     "gateway/tests/test_gateway_desktop_control_identity.py",
-    "gateway/tests/test_gateway_desktop_control_integration.py"
+    "gateway/tests/test_gateway_desktop_control_integration.py",
+    "docs/repairs/development-workspace-2026-11-19-task.json",
+    "gateway/tests/test_workspace_guidance.py",
+    "gateway/v14/workspace_guidance.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ReviewDiff.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubCodeDiff.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.8",

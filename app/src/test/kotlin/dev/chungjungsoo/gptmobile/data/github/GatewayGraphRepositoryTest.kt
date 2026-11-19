@@ -61,6 +61,22 @@ class GatewayGraphRepositoryTest {
     private val notIndexed = """{"status":"NOT_INDEXED","repository":"owner/repo","commit_sha":"${context.commitSha}"}"""
     private fun status(cursor: String) = """{"has_more":true,"index_cursor":"$cursor","graph":{"repository":"owner/repo","branch":"main","commit_sha":"${context.commitSha}"}}"""
 
+    private fun authorizeGraphSharing() {
+        val preferences = features.githubProfileOverrides.getValue(ai.uid)
+        features = features.copy(githubProfileOverrides = mapOf(ai.uid to preferences.copy(graphSharingConsent = GatewayGraphSharing.key(ai, context.connectionUid, context.repository.fullName, host.uid))))
+    }
+
+    @Test fun sourceSharingIsScopedToModelRepositoryConnectionAndHost() {
+        authorizeGraphSharing()
+        val preferences = features.githubProfileOverrides.getValue(ai.uid)
+        assertTrue(GatewayGraphSharing.allowed(ai, preferences, context))
+        assertFalse(GatewayGraphSharing.allowed(ai, preferences, context, "other-model"))
+        assertFalse(GatewayGraphSharing.allowed(ai.copy(apiUrl = "https://elsewhere.example"), preferences, context))
+        assertFalse(GatewayGraphSharing.allowed(ai, preferences, context.copy(repo = "elsewhere")))
+        assertFalse(GatewayGraphSharing.allowed(ai, preferences, context.copy(connectionUid = "other")))
+        assertFalse(GatewayGraphSharing.allowed(ai, preferences.copy(engineeringGatewayProfileUid = "other"), context))
+    }
+
     private fun repository(http: HttpClient, state: GitHubRepositoryStateStore = GitHubRepositoryStateStore()): GatewayGraphRepository {
         coEvery { settings.fetchPlatformV2s() } coAnswers { profiles }
         coEvery { settings.getFeatureSettings() } coAnswers { features }
@@ -88,7 +104,7 @@ class GatewayGraphRepositoryTest {
             val result = repository(http).executeForMap(context, action("status"), host.uid)
             assertEquals(host.uid, result.gatewayProfileUid)
             assertEquals(host.name, result.gatewayName)
-            assertEquals("PRIVATE_PROFILE_REQUIRED", result.modelAccess)
+            assertEquals("SHARING_DISABLED", result.modelAccess)
             assertEquals(1, graphRequests)
         }
     }
@@ -391,6 +407,7 @@ class GatewayGraphRepositoryTest {
             }
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http)
+            authorizeGraphSharing()
             val tool = RepositoryGraphTool("repository_graph__selected") { repo.execute(context, it) }
             val savedEvidence = linkedMapOf<String, JsonObject>()
             fun book() = GitHubEvidenceBook(
@@ -555,6 +572,7 @@ class GatewayGraphRepositoryTest {
             }
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http)
+            authorizeGraphSharing()
             val tool = RepositoryGraphTool(
                 "repository_graph__selected",
                 nativeStatus = {
@@ -593,6 +611,7 @@ class GatewayGraphRepositoryTest {
             }
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http)
+            authorizeGraphSharing()
             val tool = RepositoryGraphTool(
                 "repository_graph__selected",
                 nativeStatus = {
@@ -721,6 +740,7 @@ class GatewayGraphRepositoryTest {
             }
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http, store)
+            authorizeGraphSharing()
             val tool = RepositoryGraphTool("repository_graph__selected") { repo.execute(context, it) }
             val failed = tool.execute("interposed-index", action("index"))
             assertTrue(failed.isError)
@@ -759,6 +779,7 @@ class GatewayGraphRepositoryTest {
             }
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http)
+            authorizeGraphSharing()
             val tool = RepositoryGraphTool("repository_graph__selected") { repo.execute(context, it) }
             val result = tool.execute("remote-checkpoint-fields", action("status"))
             assertFalse(result.isError)

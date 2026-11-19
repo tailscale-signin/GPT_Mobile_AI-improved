@@ -77,7 +77,7 @@ class GatewayEngineeringClientTest {
                 val preview = GatewayEngineeringClient(http).candidateDetails(config, jobId, checkId)
                 assertTrue(preview.startsWith("+partial patch"))
                 assertTrue(preview.endsWith("test output"))
-                assertEquals(truncated, preview.contains("[Diff truncated]"))
+                assertEquals(truncated, preview.contains("The Gateway returned a partial diff. Update it to enable paging."))
             }
         }
     }

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b4b4fd0d4fffb33dc7cac96aa2278934ee777719822e2b84e2c92922ae94dd58",
+  "source_digest": "d4bf5eb252d0499b956043ded537a39d020d292835965f90db6cef041b5f7adc",
   "file_count": 2746,
-  "indexed_line_count": 452073,
+  "indexed_line_count": 452080,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 208,
-      "indexed_line_count": 83410
+      "indexed_line_count": 83417
     },
     {
       "id": "authentication_service",
@@ -19162,8 +19162,8 @@
       "path": "gateway/v14/workspace_terminal.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "0cf72f82a58cc69c5e4c2baa68b1a6ed33418b1cf023d5d7a2b1a0a26faebed3",
-      "indexed_lines": 195
+      "sha256": "33a67bb2620883a14f99190d1843d71f66fbf63e235b6731157b247f845f46e7",
+      "indexed_lines": 202
     },
     {
       "path": "gateway/v14/workspace_timeline.py",

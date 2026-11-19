@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tarfile
 import tempfile
+import time
 
 from v14 import workspace_process
 from v14.engineering_scope import accepted_scope
@@ -97,24 +98,25 @@ def act(backend, job, action):
             if saved and saved.get('name') != name:
                 raise ValueError('Close the previous workspace before opening a different checkout')
             state = docker(['container', 'inspect', '--format', STATUS, name], root, missing=True)
-            if state is None:
-                if saved:
-                    raise ValueError('The container expired or was removed. Close the saved session and open a new checkout.')
-                from v14.engineering_source import prepare_source
-                parent = backend.api(backend.root(job) + '/git/commits/' + head, job=job)
-                prepare_source(job, backend.token(), parent['tree']['sha'], cancel)
-                checkout = materialize_checkout(job, mirror, changes, root, cancel)
-                argv = ['run', '--detach', '--rm', '--pull=never', '--name', name, '--label', 'gpt.workspace=' + identity,
-                        '--network=none', '--read-only', '--cap-drop=ALL', '--cap-add=CHOWN', '--cap-add=SETUID',
-                        '--cap-add=SETGID', '--cap-add=KILL', '--security-opt=no-new-privileges',
-                        '--pids-limit=256', '--memory=6g', '--cpus=2', '--user=0:0', '--log-driver=none',
-                        '--tmpfs=/task:rw,nosuid,nodev,size=4g', '--tmpfs=/tmp:rw,nosuid,nodev,size=512m',
-                        '--tmpfs=/control:rw,noexec,nosuid,nodev,mode=0700,size=272m', '--entrypoint=python3',
-                        image, '-I', '-u', '-c', Path(workspace_process.__file__).read_text(encoding='utf-8'), str(job['deadline'])]
-                container = docker(argv, root)
-                if not re.fullmatch('[a-f0-9]{64}', container):
-                    raise ValueError('Docker did not return a workspace container ID')
-                try:
+            container = None
+            try:
+                if state is None:
+                    if saved:
+                        raise ValueError('The container expired or was removed. Close the saved session and open a new checkout.')
+                    from v14.engineering_source import prepare_source
+                    parent = backend.api(backend.root(job) + '/git/commits/' + head, job=job)
+                    prepare_source(job, backend.token(), parent['tree']['sha'], cancel)
+                    checkout = materialize_checkout(job, mirror, changes, root, cancel)
+                    argv = ['run', '--detach', '--rm', '--pull=never', '--name', name, '--label', 'gpt.workspace=' + identity,
+                            '--network=none', '--read-only', '--cap-drop=ALL', '--cap-add=CHOWN', '--cap-add=SETUID',
+                            '--cap-add=SETGID', '--cap-add=KILL', '--security-opt=no-new-privileges',
+                            '--pids-limit=256', '--memory=6g', '--cpus=2', '--user=0:0', '--log-driver=none',
+                            '--tmpfs=/task:rw,nosuid,nodev,size=4g', '--tmpfs=/tmp:rw,nosuid,nodev,size=512m',
+                            '--tmpfs=/control:rw,noexec,nosuid,nodev,mode=0700,size=272m', '--entrypoint=python3',
+                            image, '-I', '-u', '-c', Path(workspace_process.__file__).read_text(encoding='utf-8'), str(job['deadline'])]
+                    container = docker(argv, root)
+                    if not re.fullmatch('[a-f0-9]{64}', container):
+                        raise ValueError('Docker did not return a workspace container ID')
                     # Docker's archive API refuses writes to a read-only rootfs,
                     # including its tmpfs mounts. Extract the sealed source inside /task.
                     with tempfile.TemporaryFile(dir=root) as archive:
@@ -123,14 +125,19 @@ def act(backend, job, action):
                         archive.seek(0)
                         docker(['exec', '-i', container, 'python3', '-I', '-c', SEAL],
                                root, 180, stdin=archive)
-                except BaseException:
-                    docker(['rm', '-f', container], root, missing=True)
-                    raise
-                state = docker(['container', 'inspect', '--format', STATUS, name], root)
-            bits = state.split()
-            if len(bits) != 3 or bits[1:] != [identity, 'true'] or saved and bits[0] != saved.get('container'):
-                raise ValueError('Workspace container identity changed')
-            docker(['exec', bits[0], 'test', '-f', '/control/ready'], root)
+                    state = docker(['container', 'inspect', '--format', STATUS, name], root)
+                bits = state.split()
+                if len(bits) != 3 or bits[1:] != [identity, 'true'] or saved and bits[0] != saved.get('container'):
+                    raise ValueError('Workspace container identity changed')
+                docker(['exec', bits[0], 'test', '-f', '/control/ready'], root)
+            except BaseException:
+                if container is not None:
+                    # A stopped job must still remove its own observed container.
+                    # Only this bounded cleanup may outlive the cancelled scope;
+                    # normal work keeps the original cancellation and deadline.
+                    with cancellation_scope(None, time.time() + 30):
+                        dispose_one({'container': container, 'identity': identity})
+                raise
             saved = dict(name=name, session_id=session, container=bits[0], identity=identity, head_sha=head,
                          candidate_check_id=candidate, forked_from=forked_from or saved.get('forked_from'),
                          patch_identity=patch_identity(head, changes), policy_sha256=policy_sha, image=image)

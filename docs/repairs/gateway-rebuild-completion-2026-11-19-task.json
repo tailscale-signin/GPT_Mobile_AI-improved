@@ -36,17 +36,17 @@
     "latest_repairs": "Preserved encrypted chat upgrade repairs, exact-main Android/Windows release-pair verification, emulator reproducibility and dependency publisher metadata through d261c0b03. Do not execute publication or weaken required checks. Preserved the separate bounded KSP/KAPT release-generation stages in 019a1186770093574e289a260586efc6de804f7a."
   },
   "acceptance": {
-    "native_setup_and_dashboard": "IMPLEMENTED: retained canonical setup; native WPF dashboard builds/publishes for win-x64; actual Windows smoke pending.",
+    "native_setup_and_dashboard": "PASS at 7110434b: retained canonical setup, native win-x64 builds and all 13 installed smoke scenarios, including nine loaded WPF views at 900x600.",
     "paired_revisioned_controls": "IMPLEMENTED: 29 canonical settings/policy/host-request/real-TLS tests, 29 engineering HTTP tests and 2 companion TLS compatibility tests pass before final broad verification.",
     "identity_revocation_conflict_and_recovery": "PASS: host control regressions and real loopback TLS pairing, original receipt, stale edit, replay and revocation integration; final integrated full suite pending.",
-    "android_behavior": "PARTIAL VERIFICATION: 22 actual-source supplemental JVM tests pass; full Gradle/Hilt/Compose validation pending. Framework boundaries in the supplemental harness are scaffolded.",
-    "windows_build_and_install": "BUILD PASS: both canonical setup and full native dashboard self-contained win-x64 publishes pass; 23 C# assertions, 19 native bridge tests, 5 host integration tests and 2 encrypted identity tests pass. Installed Windows smoke remains pending.",
+    "android_behavior": "PARTIAL VERIFICATION: actual production/instrumentation compilation, API34/API36 device acceptance and Android Lint pass on a3cdc7a. Its unit-test compiler errors are corrected in 7110434b; later full unit execution remains pending. The separate 22-test supplemental harness uses scaffolded framework boundaries.",
+    "windows_build_and_install": "PASS at 7110434b: workflow 44483771672 completed native cross-build, 187 desktop tests, 15 network tests, 15 dashboard tests, 23 C# assertions, packaging and all 13 installed smoke scenarios. Artifact 14510390907 SHA256 fd019f515ea357cc84393b90cc31bb06b2ad599a0fe46eb9bfc2ea9e5219c214.",
     "exact_commit_ci": "PENDING",
     "physical_android_windows": "NOT_RUN",
     "live_provider_copilot": "NOT_RUN",
     "authentication_and_reporting": "PASS: 175 tests on the inherited provider-recovery and reporter changes.",
-    "host_fast_validation": "PASS: canonical fast validation, 552 host tests plus CI policy, dependency catalog, metadata, resource, regex, secret scan and whitespace gates.",
-    "gateway_full_validation": "PASS after targeted expectation correction: all 112 isolated suites exercised 1,511 Python cases (1,483 passed, 28 platform skips) plus 7 browser tests. The sole stale dashboard default-view expectation was corrected while retaining its full call and no-firewall assertions; all 15 dashboard cases reran successfully. Full driver log gateway-full-stable.log.",
+    "host_fast_validation": "PASS on the 7110434b source tree: canonical fast validation, 554 host tests plus architecture/source inventory, CI policy, dependency catalog, metadata, resource, regex, secret scan and whitespace gates.",
+    "gateway_full_validation": "PASS for 7110434b in both Ubuntu Python3.12/3.13 jobs of workflow44483771424: 113 isolated suites, 1517 Python cases (1489 passed,28 platform/UI skips), 7 browser checks and 175 authentication tests per job. Later concurrent development-workspace changes require fresh qualification.",
     "capability_contract": "PASS: canonical v17 and byte-identical Android fixture captured from actual standalone HTTP response; all 4 capability route/identity/full-response tests pass. Historical fixtures retained.",
     "native_pairing_roles": "PASS: explicit Owner/Viewer selection, Viewer sends zero writable fields, native compilation and 19 bridge plus 2 targeted permission/confirmation tests pass."
   },
@@ -79,8 +79,8 @@
     ],
     "observed_verification": {
       "host_fast": "PASS:554 tests, CI policy, architecture and production source inventories, dependency catalog, schema/metadata, resource/regex, secrets and whitespace checks on the final integrated follow-up. Package manifest validates.",
-      "windows": "Gateway Windows installer run44479098369 at8023a17b passed native builds,187 desktop tests,15 network tests,15 dashboard tests,23 C# assertions and13 installed smoke scenarios. Later runs were cancelled by concurrent pushes.",
-      "android": "At a3cdc7a, both API34 and API36 acceptance jobs passed production and instrumentation compilation. PR Validation unit and lint jobs passed production compilation; unit-test compilation and lint remain active. Later-source qualification remains pending.",
+      "windows": "Gateway Windows installer run44483771672 at7110434b passed native builds,187 desktop tests,15 network tests,15 dashboard tests,23 C# assertions and13 installed smoke scenarios. This retained success does not qualify later source revisions.",
+      "android": "At a3cdc7a, both API34 and API36 acceptance jobs fully passed, including actual production/instrumentation compilation, APK packaging and device regressions; Android Lint also passed. Unit-test compilation exposed three call-site mismatches, corrected in7110434b. Later full unit execution remains pending; cancelled runs are not passing evidence.",
       "mirror": "KSP marker POM and plugin JAR/module downloaded from the existing Central mirror match all3 existing SHA256 entries. Local configuration-only Gradle remains blocked resolving com.android.legacy-kapt9.4.1 before compilation; do not qualify that attempt.",
       "guidance": "PASS:142 tests across7 isolated suites on the integrated source: guidance6, selected execution26, reliability27, completion16, backend30, workspace checks12 and source authority25. Exact path/blob recovery, nested-rule retention, selected-model budgets and paired owner/repository boundaries remain covered."
     },
@@ -94,5 +94,24 @@
       ],
       "validation": "Scoped ktlint, canonical fast validation (554 host tests plus architecture/source-inventory and repository checks), and diff checks pass. Assertions and production APIs are unchanged; complete hosted unit-test compilation/execution remains required."
     }
+  },
+  "workspace_integration_followup": {
+    "source_base": "c917afa436bad8619615622c1d91244b34215ed5",
+    "working_branch": "completion-ci-d1803bc",
+    "intent": "Finish the concrete workspace integration regressions while preserving all concurrent source, isolation and qualification requirements.",
+    "concurrent_fixes_retained": "The read-only Docker staging failure at d1803bc is repaired by upstream 1daf4e9 using the verified checkout archive and docker exec stdin. The c917afa workspace timelines and repository graph read checks remain intact.",
+    "repairs": [
+      "Match the Android partial-diff regression to the current visible warning while retaining both truncated and complete response assertions.",
+      "Clean up a newly created terminal container when staging, identity inspection or readiness is cancelled or expires. Use a separate 30-second cleanup deadline, recheck exact container ID and workspace label, preserve the original failure and restore normal-work cancellation.",
+      "Preserve existing terminal sessions when a readiness read is cancelled; unavailable Docker and mismatched ownership never authorize deleting a different container."
+    ],
+    "verification": {
+      "focused": "PASS: terminal4, lifecycle2, validation18 and timeline2 tests. The cancellation regression exercises all three setup phases, cancellation and expiry, cleanup availability/ownership/deadline outcomes, and preservation of existing sessions.",
+      "android_style": "PASS: scoped ktlint and diff checks for the single Android test correction.",
+      "host_fast": "PASS:554 canonical host tests plus architecture/source inventories, CI policy, dependency catalog, schema/metadata, resources/regex, secrets and whitespace checks after final regeneration. Gateway source manifest validates.",
+      "integrated_linux": "PASS for c917afa in both Ubuntu Python3.12/3.13 jobs of run44485793338:117 suites,1525 Python cases (1497 passed,28 platform/UI skips),7 browser checks and175 authentication tests per job.",
+      "real_docker": "PASS: run44485793338/job135428920173 on PR merge checkout8d35e5ccadb48ebfad4fe35ac957d1911c7c9a22 (c917afa into326683b4). Offline terminal execution and same-process retry identity pass. Managed validation covers source checks, not device acceptance."
+    },
+    "remaining": "Fresh final-source CI, physical Android-to-Windows enrollment and live selected-provider acceptance; no merge or release is claimed."
   }
 }

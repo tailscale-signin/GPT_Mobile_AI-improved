@@ -132,7 +132,8 @@ class MoonshineVoiceRecognizerTest {
             fixture.drain()
             assertEquals(2, calls.get())
             assertEquals(listOf("VOICE_MICROPHONE_BUSY"), fixture.codes)
-            assertTrue(fixture.retryableErrors.isEmpty())
+            assertEquals(listOf(1_000L), fixture.retryDelays)
+            assertEquals(1, fixture.retryableErrors.size)
             assertTrue(fixture.finals.isEmpty())
             assertEquals(1, second.closeCount.get())
         } finally {

@@ -5,6 +5,8 @@ import android.system.Os
 import android.util.Base64
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
+import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
+import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace
 import java.io.DataInputStream
 import java.io.File
 import java.io.RandomAccessFile
@@ -24,7 +26,9 @@ internal class EncryptedChatDatabase(context: Context) : SupportSQLiteOpenHelper
             private var wal = false
             private val helper = lazy {
                 val file = configuration.context.getDatabasePath(databaseName)
-                val key = prepare(file, vault)
+                val key = CombinedOperationTrace.measure("database_key_preparation", CombinedOperationOwner(screen = "Database")) {
+                    prepare(file, vault)
+                }
                 SupportOpenHelperFactory(key).create(configuration).also { it.setWriteAheadLoggingEnabled(wal) }
             }
 

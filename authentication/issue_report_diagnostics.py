@@ -295,10 +295,11 @@ ACCEPTANCE_RECOVERY_FIELDS = {
     "acceptance_preparation_state", "acceptance_ready_read_count", "acceptance_additional_ready_read_count",
     "acceptance_fixture_creation_admissible", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count",
     "status_policy_protection_http_status", "status_policy_rules_http_status",
-    "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint",
+    "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint", "status_missing_observations",
 }
 ENUMS["acceptance_preparation_state"] = {"CLEANUP_RESERVE_ACTIVE", "OWNED_FIXTURE_STEP_PREPARED", "BOUNDED_READS_PREPARED", "NO_PENDING_CAPABILITY_PREREQUISITES", "PREREQUISITES_REQUIRED"}
 ENUMS["status_policy_recovery_hint"] = {"CHECK_AUTHENTICATION", "CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION", "CHECK_POLICY_READ_PERMISSIONS", "WAIT_RATE_LIMIT", "REFRESH_POLICY_OBSERVATIONS"}
+ENUM_LISTS["status_missing_observations"] = {"BRANCH_HEAD", "COMMITS", "OPEN_PULLS", "COMMIT_CHECKS", "LATEST_WORKFLOW", "REQUIRED_POLICY", "RECENT_FAILURES", "REVIEW_DECISIONS"}
 ENUM_LISTS["acceptance_blocked_operation_families"] = {"github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_decide", "github_review", "github_engineering", "github_repository", "repository_graph"}
 COUNTS.update({"acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_additional_blocked_family_count"})
 FLAGS.update({"acceptance_fixture_creation_admissible", "status_branch_protected", "status_policy_complete"})

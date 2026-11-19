@@ -266,6 +266,17 @@ class GitHubPolicyResponseObservationTest {
     private fun branch(name: String) = json("""{"name":"$name","protected":true,"commit":{"sha":"$head"}}""")
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject
     private fun jsonArray(vararg values: String) = JsonArray(values.map(::JsonPrimitive))
+
+    @Test fun missingCheckInventoryIsDistinctFromClassicProtectionAndUnrecognizedLabels() {
+        fun row(item: String, observed: Boolean) = buildJsonObject {
+            put("item", item)
+            put("observed", observed)
+        }
+        val rows = listOf(row("Required-check policy", true), row("Checks and statuses for the current commit", false), row("private label", false))
+        val values = GitHubAcceptanceRecoveryEvidence.fields(buildJsonObject { put("status_coverage", JsonArray(rows)) })
+        assertEquals(JsonArray(listOf(JsonPrimitive("COMMIT_CHECKS"))), values["status_missing_observations"])
+    }
+
     private fun recovery(coverage: JsonObject) = GitHubAcceptanceRecoveryEvidence.fields(buildJsonObject { put("status_coverage", JsonArray(listOf(coverage))) })
 
     private fun records(policy: JsonObject): Map<String, JsonObject> = linkedMapOf(

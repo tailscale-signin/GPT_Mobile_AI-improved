@@ -55,7 +55,7 @@ internal class GitHubProgressNarrator(
 
     suspend fun beforeRound(workReplayTokens: Long = 0) {
         val at = now()
-        if (unavailableForRun || at - lastAttemptAt < GitHubChatProgress.summaryInterval(lastEvidenceKey.isNotEmpty()) || attempts >= 16) return
+        if (at - lastAttemptAt < GitHubChatProgress.summaryInterval(lastEvidenceKey.isNotEmpty())) return
         val current = snapshot()
         if (current.revision == lastRevision || current.revision == 0L) return
         val factual = GitHubRichSummaryPresentation.render(current, reportedFactKeys)
@@ -65,16 +65,13 @@ internal class GitHubProgressNarrator(
             lastRevision = current.revision
             return
         }
-        if (deterministic || GitHubRichSummaryPresentation.checkTable(factual) != null) {
+        if (deterministic || unavailableForRun || attempts >= 16 || GitHubRichSummaryPresentation.checkTable(factual) != null) {
             validate()
             if (snapshot().revision != current.revision) return
             lastAttemptAt = at
             lastRevision = current.revision
             lastEvidenceKey = evidenceKey
-            if (factual.isNotBlank() && published.add(evidenceKey)) {
-                publish(ApiState.ActivitySummary(factual, modelAuthored = false))
-                rememberFacts(factKeys)
-            }
+            publishFacts(factual, evidenceKey, factKeys)
             return
         }
         val prompt = current.prompt()
@@ -121,10 +118,18 @@ internal class GitHubProgressNarrator(
             // New repository evidence cannot repair a failed optional narrator. Keep
             // this run's remaining budget for work; receipt-derived progress continues.
             unavailableForRun = true
+            publishFacts(factual, evidenceKey, factKeys)
             return
         }
         if (published.add(GitHubProgressPresentation.lineKey(text))) {
             publish(ApiState.ActivitySummary(text, modelAuthored = true))
+            rememberFacts(factKeys)
+        }
+    }
+
+    private suspend fun publishFacts(factual: String, evidenceKey: String, factKeys: List<String>) {
+        if (factual.isNotBlank() && published.add(evidenceKey)) {
+            publish(ApiState.ActivitySummary(factual, modelAuthored = false))
             rememberFacts(factKeys)
         }
     }

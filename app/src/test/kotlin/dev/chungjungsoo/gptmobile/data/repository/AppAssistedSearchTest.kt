@@ -63,7 +63,12 @@ class AppAssistedSearchTest {
         val events = mutableListOf<ApiState>()
         val result = AppAssistedSearch.prepare(listOf(MessageV2(content = "Search online for launch news", platformType = null)), emptyList(), mockk(), "test", 2200, events::add)
         assertEquals(null, result)
-        assertTrue(events.single() is ApiState.Error)
+        val error = events.single() as ApiState.Error
+        assertEquals("TOOL_UNAVAILABLE", error.errorCode)
+        assertEquals("BLOCKED", error.taskOutcome)
+        assertEquals("tool_readiness", error.failureDetails?.get("failed_stage")?.let { (it as kotlinx.serialization.json.JsonPrimitive).content })
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), error.failureDetails?.get("dispatched"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("web_search"), error.failureDetails?.get("operation"))
         assertFalse(events.any { it is ApiState.Done })
     }
 

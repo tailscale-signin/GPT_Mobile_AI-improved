@@ -418,8 +418,9 @@ class VoiceSession(
             cause: Throwable? = null
         ) {
             if (!valid()) return
-            val retry = retryable && recoveryAction == null && autoContinue && !state.muted && ++recognitionFailures <= 3
             val captureFailure = cause as? LocalVoiceCaptureException
+            // The recorder already retried silenced input. Wait for an explicit tap after the route changes.
+            val retry = retryable && captureFailure?.code != "MICROPHONE_CAPTURE_SILENCED" && recoveryAction == null && autoContinue && !state.muted && ++recognitionFailures <= 3
             fail(
                 message,
                 if (code == "VOICE_SESSION_FAILED" && captureFailure != null) "VOICE_${captureFailure.code}" else code,

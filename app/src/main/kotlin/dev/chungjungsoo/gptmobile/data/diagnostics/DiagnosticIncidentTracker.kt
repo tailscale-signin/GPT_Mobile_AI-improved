@@ -90,8 +90,11 @@ internal class DiagnosticIncidentTracker {
             !fatalHeader &&
             exceptionStart.containsMatchIn(content)
         if (causal != null) {
-            if (tag == "Gateway" && content.startsWith("METADATA_READ_OUTCOME") && fields.diagnosticText("outcome") == "COMPLETED") {
-                outcomes[causal] = "RECOVERED_METADATA_READ"
+            if (tag == "Gateway" && content.startsWith("METADATA_READ_OUTCOME")) {
+                when (fields.diagnosticText("outcome")) {
+                    "COMPLETED" -> outcomes[causal] = "RECOVERED_METADATA_READ"
+                    "RETRY_EXHAUSTED" -> outcomes[causal] = "METADATA_RETRY_EXHAUSTED"
+                }
                 while (outcomes.size > 2048) outcomes.remove(outcomes.keys.first())
             }
             if (begins) setTrace(causal, at, source, fatalHeader)

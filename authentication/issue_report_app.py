@@ -63,7 +63,7 @@ def create_app(public_url, reporter, rate_key):
                 "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1",
                 "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1",
                 "PRIVACY_ELIGIBILITY_EVIDENCE_V1",
-                "GATEWAY_CAPABILITY_EVIDENCE_V1",
+                "GATEWAY_CAPABILITY_EVIDENCE_V1", "STATUS_COVERAGE_EVIDENCE_V1",
             ])
         return response
 

@@ -73,7 +73,7 @@ internal fun structuredDiagnosticLine(
         put("duplicate", duplicate)
         put("observedFailure", !duplicate && match != null && classification.actionable)
         put("countAsIssue", !duplicate && incidentRoot && match != null && classification.actionable)
-        put("incidentOutcome", incidentOutcome?.takeIf { it == "RECOVERED_METADATA_READ" })
+        put("incidentOutcome", incidentOutcome?.takeIf { it == "RECOVERED_METADATA_READ" || it == "METADATA_RETRY_EXHAUSTED" })
         put("unresolvedIssue", !duplicate && incidentRoot && match != null && classification.actionable && incidentOutcome != "RECOVERED_METADATA_READ")
         put("issueCountingUnit", "CORRELATED_INCIDENT")
         put(

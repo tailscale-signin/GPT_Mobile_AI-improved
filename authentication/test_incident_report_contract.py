@@ -1185,6 +1185,7 @@ class IncidentReportContractTest(unittest.TestCase):
             "status_policy_rules_http_status": 403,
             "status_branch_protected": False, "status_policy_complete": False,
             "status_policy_recovery_hint": "CHECK_POLICY_READ_PERMISSIONS",
+            "status_missing_observations": ["COMMIT_CHECKS", "LATEST_WORKFLOW"],
         }
         capture = self.capture("ACCEPTANCE", values)
         original = copy.deepcopy(capture)
@@ -1202,6 +1203,7 @@ class IncidentReportContractTest(unittest.TestCase):
             ("acceptance_preparation_state", "private repository path"),
             ("acceptance_blocked_operation_families", ["private-owner/private-repo"]),
             ("status_policy_recovery_hint", "BYPASS_POLICY"),
+            ("status_missing_observations", ["private-observation"]),
         ):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("ACCEPTANCE", {key: bad}))

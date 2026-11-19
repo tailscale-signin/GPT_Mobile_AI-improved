@@ -106,6 +106,7 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in conflictEvidenceFields } || values["conflict_pending_tool_count"] == JsonPrimitive(0)) add("CONVERSATION_CONFLICT_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in acceptanceScopeFields }) add("ACCEPTANCE_SCOPE_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in githubPrerequisiteFields }) add("GITHUB_PREREQUISITE_EVIDENCE_V1")
+        if ("status_missing_observations" in values || "status_missing_observations" in omittedFields) add("STATUS_COVERAGE_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in GitHubAcceptanceRecoveryEvidence.fields }) add("ACCEPTANCE_RECOVERY_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in GitHubAcceptancePublicationEvidence.fields }) add(GitHubAcceptancePublicationEvidence.FEATURE)
         if ((values.keys + omittedFields).any { it in graphPolicyFields } ||
@@ -403,6 +404,7 @@ internal data class IssueReportDiagnostics(
             "app_exit_kind" to setOf("JVM_CRASH", "NATIVE_CRASH", "APP_NOT_RESPONDING", "STARTUP_FAILED")
         )
         private val enumLists = mapOf(
+            "status_missing_observations" to GitHubAcceptanceRecoveryEvidence.statusObservationCodes,
             "acceptance_blocked_operation_families" to GitHubAcceptanceRecoveryEvidence.operationFamilies,
             "acceptance_claim_failure_reasons" to setOf("RECEIPT_NOT_FOUND", "UNTRUSTED_RECEIPT", "AUTHORIZATION_REVALIDATION_REQUIRED", "OPERATION_FAILED", "CLAIM_VALUE_MISSING", "POINTER_NOT_IN_EVIDENCE", "FIELD_SEMANTICS_MISMATCH", "OBSERVATION_TIME_UNKNOWN", "HISTORICAL_OBSERVATION", "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "VALUE_MISMATCH", "EXACT_RECEIPT_MATCH"),
             "read_window_rejections" to setOf("BAD_START", "CONFLICTING_LIMITS", "BAD_MAX_LINES", "BAD_END"),

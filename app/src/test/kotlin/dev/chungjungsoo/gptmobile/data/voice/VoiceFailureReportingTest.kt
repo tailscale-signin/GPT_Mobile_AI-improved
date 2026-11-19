@@ -104,6 +104,31 @@ class VoiceFailureReportingTest {
     }
 
     @Test
+    fun silencedInputCanBeRetriedManuallyWithoutAnotherAutomaticRecorder() {
+        var time = 1_000L
+        val listeners = mutableListOf<VoiceAudio.Listener>()
+        val audio = object : VoiceAudio {
+            override fun listen(listener: VoiceAudio.Listener) {
+                listeners += listener
+            }
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val session = VoiceSession(audio, { error("No input recorded") }, {}, { time }).apply { autoContinue = true }
+        session.access(true, true, true)
+        session.resume()
+        val cause = LocalVoiceCaptureException("Silenced", "MICROPHONE_CAPTURE_SILENCED", "capture_read", retryable = true)
+        listeners.single().failure("Input is busy", "VOICE_MICROPHONE_BUSY", retryMillis = 1_000, retryable = true, cause = cause)
+        time += 1_000
+        session.tick()
+        assertEquals(1, listeners.size)
+        session.resume()
+        assertEquals(2, listeners.size)
+        session.close()
+    }
+
+    @Test
     fun quietTurnsKeepBoundedRetryGuidanceWithoutCreatingBugReports() {
         LocalDiagnosticsPolicy.setEnabled(true)
         for (emptyFinal in listOf(false, true)) {

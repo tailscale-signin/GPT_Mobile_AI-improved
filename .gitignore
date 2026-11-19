@@ -59,6 +59,10 @@ gateway/.venv/
 /dist/
 /build/
 Gateway_v*_Implementation.zip
+gateway/desktop/native/**/bin/
+gateway/desktop/native/**/obj/
+gateway/desktop/windows/**/bin/
+gateway/desktop/windows/**/obj/
 
 # Developer-specific state, private configuration and local Android packages
 .idea/deviceManager.xml

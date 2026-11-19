@@ -272,7 +272,7 @@ class PresentationTests(unittest.TestCase):
                 patch.object(fake, 'show') as show, patch('desktop.firewall.apply') as firewall, \
                 patch.object(sys, 'argv', ['Gateway', 'dashboard', '--root', temp, '--smoke-ui']):
             self.assertEqual(0, main())
-            show.assert_called_once_with(Path(temp).resolve(), smoke=True)
+            show.assert_called_once_with(Path(temp).resolve(), smoke=True, view='Overview')
             firewall.assert_not_called()
 
 

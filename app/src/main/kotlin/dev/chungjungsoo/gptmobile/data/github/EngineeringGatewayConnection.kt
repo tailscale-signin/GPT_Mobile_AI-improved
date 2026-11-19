@@ -19,7 +19,7 @@ internal fun engineeringGatewayProfile(profiles: List<PlatformV2>, gatewayProfil
     return profiles.singleOrNull { it.uid == gatewayProfileUid }?.takeIf(GitHubAutonomousEngineeringPolicy::supportsSavedJobs)
 }
 
-internal fun PlatformV2.engineeringConfig() = ProviderRequestConfig(apiUrl, token, profileUid = uid)
+internal fun PlatformV2.engineeringConfig() = ProviderRequestConfig(apiUrl, token, profileUid = uid, gatewayOwnerControl = true)
 
 /** Preconditions are derived from a verified identity, never from a selected label. */
 internal fun ProviderRequestConfig.withGatewayIdentity(identity: GatewayScopeIdentity): ProviderRequestConfig {

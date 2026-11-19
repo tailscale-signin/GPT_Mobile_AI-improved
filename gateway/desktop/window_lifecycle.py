@@ -85,7 +85,7 @@ def close_windows(root, timeout=10):
     root = Path(root)
     atomic_json(root / 'close-desktop.json', {'requestedAt': time.time()})
     deadline = time.monotonic() + timeout
-    for name in ('dashboard', 'settings'):
+    for name in ('dashboard', 'settings', 'native', 'schedules'):
         lock = StateDirectoryLock(root / (name + '-ui') / 'owner')
         while True:
             try:

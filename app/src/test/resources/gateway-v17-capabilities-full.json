@@ -64,6 +64,12 @@
       "gptmobile.tool-arguments.v1"
     ]
   },
+  "controlSettings": {
+    "enabled": false,
+    "endpoint": null,
+    "pairing_required": true,
+    "protocol": "controlSettings.v1"
+  },
   "desktop": {
     "idleUpdates": true,
     "maintenanceProtocol": 1,
@@ -122,6 +128,7 @@
     "compare_commits_preferred_when_available": true,
     "context_overflow_auto_retry": true,
     "context_preflight_guard": true,
+    "controlSettings.v1": false,
     "conversation_message_parts_v1": true,
     "conversation_metadata_v1": true,
     "conversation_sync_v1": true,

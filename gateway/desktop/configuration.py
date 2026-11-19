@@ -7,6 +7,7 @@ import socket
 import sys
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 from desktop.validation_policy import SETTING as VALIDATION_POLICY_SETTING, active_policy_path
@@ -16,6 +17,18 @@ DEFAULTS = dict(schema=1, port=8090, backend='http://127.0.0.1:8080', workers=2,
                 update_interval_hours=24, start_at_login=True, access='loopback',
                 tailnet_host='', tailnet_user='', engineering=False, mcp_config='',
                 bind_host='127.0.0.1', network_hostnames='', debug_mode=False)
+
+
+@contextmanager
+def settings_write_lock(root):
+    """Serialize host edits with the canonical supervisor's effective projection."""
+    from v14.state_lock import StateDirectoryLock
+    lock = StateDirectoryLock(Path(root) / 'data' / 'settings-write-lock' / 'owner')
+    lock.acquire()
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def validate(value):

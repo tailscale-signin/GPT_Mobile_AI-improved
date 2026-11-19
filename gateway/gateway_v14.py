@@ -9,6 +9,7 @@ import json
 import sqlite3
 import copy
 import hashlib
+import time
 import importlib.metadata
 from pathlib import Path
 
@@ -139,9 +140,7 @@ debug_log.configure_identity(gatewayVersion=VERSION, sourceCommit=build_identity
 model_preparation = ModelPreparationService(engineering.capabilities)
 benchmarks = BenchmarkService(runtime, engineering)
 runtime.gateway_benchmarks = benchmarks
-from desktop.phone_listener import companion_lifespan
-engine_lifespan = schedule_lifespan(benchmarks.lifecycle(model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))))), os.getenv("GATEWAY_DESKTOP_ROOT"), runtime.GATEWAY_JOB_DB_PATH)
-app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=companion_lifespan(engine_lifespan, os.getenv("GATEWAY_DESKTOP_ROOT"), engineering_store, engineering.readiness),
+app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=schedule_lifespan(benchmarks.lifecycle(model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))))), os.getenv("GATEWAY_DESKTOP_ROOT"), runtime.GATEWAY_JOB_DB_PATH),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)
@@ -155,6 +154,8 @@ install_model_preparation_routes(app, model_preparation, runtime.gateway_convers
 install_benchmark_routes(app, benchmarks)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
+from v14.control_settings import install_control_settings
+install_control_settings(app, runtime, service, engineering, config)
 
 
 @app.get("/gateway/admin/dashboard")
@@ -190,6 +191,8 @@ async def chat(request: Request):
         return JSONResponse({"error": error}, status_code=status)
     try:
         payload = await request.json()
+        if isinstance(payload, dict) and not payload.get('model') and getattr(runtime, 'gateway_default_model', ''):
+            payload['model'] = runtime.gateway_default_model
         runtime.validate_chat_request(payload)
         verify_mutation_identity(request.headers, request.state.principal.id, runtime.gateway_conversations.gateway_id)
         presentation = profile_metadata(request.headers)
@@ -350,6 +353,19 @@ def capabilities(model=""):
     result['contracts']['modelPreparation'] = ['gptmobile.gateway.model-preparation.v1']
     result['contracts']['conversationMetadata'] = ['gptmobile.gateway.conversation-metadata.v1']
     result['contracts']['benchmarks'] = ['gateway.benchmark.v1']
+    # Phone controls have a separate authenticated TLS listener. Publishing its
+    # existence never gives the legacy/shared-network principal an owner grant.
+    try:
+        root = os.environ.get('GATEWAY_DESKTOP_ROOT')
+        status = json.loads((Path(root) / 'status.json').read_text(encoding='utf-8')) if root else {}
+        control = status.get('phoneControls', {})
+        enabled = control.get('enabled') is True and time.time() - status.get('updatedAt', 0) <= 30
+    except (OSError, ValueError, TypeError):
+        control, enabled = {}, False
+    result['features']['controlSettings.v1'] = enabled
+    result['controlSettings'] = {'protocol': 'controlSettings.v1', 'enabled': enabled,
+                                 'endpoint': control.get('endpoint') if enabled else None,
+                                 'pairing_required': True}
     if model:
         result['selectedModel'] = engineering.capabilities.selected_model(model)
         model_preparation.observe_loaded(model, result['selectedModel'])

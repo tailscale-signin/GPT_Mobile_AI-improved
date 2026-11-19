@@ -65,9 +65,10 @@ def record_verified_mutation_reconciliation(job, phase, recovered):
 
 
 def principal_authorized(config, principal, devices):
-    if principal.startswith('phone:'):
-        from desktop.phone_access import authorized
-        return authorized(os.getenv('GATEWAY_DESKTOP_ROOT'), principal)
+    if principal.startswith('paired:'):
+        from v14.identity import control_grant
+        grant = control_grant(config, principal)
+        return bool(grant and grant['role'] == 'owner' and json.loads(grant['repositories']))
     if config.mode == 'open_network':
         return config.remote_engineering and principal == 'network:shared'
     if config.mode == 'loopback':
@@ -237,7 +238,7 @@ class EngineeringStore:
     def admission_settings(db, principal):
         row = db.execute('SELECT enabled, revision FROM engineering_admission_settings WHERE principal=?',
                          (principal,)).fetchone()
-        return {'enabled': bool(row[0]), 'revision': row[1]} if row else {'enabled': not principal.startswith('phone:'), 'revision': 0}
+        return {'enabled': bool(row[0]), 'revision': row[1]} if row else {'enabled': not principal.startswith(('paired:', 'phone:')), 'revision': 0}
 
     def change_admission_settings(self, principal, payload):
         if (set(payload) != {'enabled', 'revision'} or type(payload['enabled']) is not bool or
@@ -254,6 +255,13 @@ class EngineeringStore:
         return self.tx(change)
 
     def require_new_jobs(self, db, principal):
+        if principal.startswith('paired:'):
+            from desktop.control_store import ControlStore
+            grant = ControlStore.device(db, principal)
+            if not grant or grant['role'] != 'owner' or not json.loads(grant['repositories']):
+                raise ExecutionBindingError('PAIRED_OWNER_REQUIRED', 'Pair an owner with repository permission on this PC.', 403)
+            if not db.execute('SELECT 1 FROM engineering_admission_settings WHERE principal=?', (principal,)).fetchone():
+                raise ExecutionBindingError('ENGINEERING_JOBS_PAUSED', 'Enable new saved jobs for this paired owner.', 412)
         if not self.admission_settings(db, principal)['enabled']:
             raise ExecutionBindingError('ENGINEERING_JOBS_PAUSED', 'Enable new saved jobs in the Gateway settings for this account.', 412)
 

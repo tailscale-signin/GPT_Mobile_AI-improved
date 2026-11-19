@@ -8,6 +8,8 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayPairedRequestSource
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import io.ktor.client.HttpClient
@@ -44,9 +46,10 @@ import kotlinx.serialization.json.put
 class GatewayEngineeringClient internal constructor(
     private val http: HttpClient,
     private val readHttp: HttpClient = http,
-    private val evictIdleConnections: suspend () -> Unit = {}
+    private val evictIdleConnections: suspend () -> Unit = {},
+    private val pairedRequests: GatewayPairedRequestSource? = null
 ) {
-    @Inject constructor(network: NetworkClient) : this(network(), network.gatewayReadClient(), network::evictIdleConnections)
+    @Inject internal constructor(network: NetworkClient, control: GatewayControlRepository) : this(network(), network.gatewayReadClient(), network::evictIdleConnections, control)
     private val json = Json { ignoreUnknownKeys = true }
 
     // The gateway requires the complete selected authority, including the
@@ -54,7 +57,7 @@ class GatewayEngineeringClient internal constructor(
     private val selectionJson = Json(json) { encodeDefaults = true }
     private data class CapabilityAttempt(val capability: GatewayEngineeringCapabilities? = null, val failure: GatewayAdmissionException? = null)
     private val capabilityCache = RouteCapabilityCache<CapabilityAttempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
-    private fun capabilityKey(config: ProviderRequestConfig) = "${selectionDigest(JsonPrimitive(config.buildEndpoint("gateway/engineering/capabilities")))}|${GatewaySurfacePolicy.identity(config)}"
+    private suspend fun capabilityKey(config: ProviderRequestConfig) = "${selectionDigest(JsonPrimitive(config.buildEndpoint("gateway/engineering/capabilities")))}|${GatewaySurfacePolicy.identity(config)}|${pairedRequests?.identity(config).orEmpty()}"
 
     private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false, root: String = "gateway/engineering", operationId: String? = null, userAction: String? = null): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
@@ -62,12 +65,14 @@ class GatewayEngineeringClient internal constructor(
         val bindingRead = body == null && path.startsWith("bindings/") && path.endsWith("/capabilities")
         val exchange: suspend () -> String = {
             gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST", operationId = operationId) { headers ->
+                // A safe GET retry gets a fresh nonce. Writes are never automatically replayed.
+                val paired = pairedRequests?.prepare(config, if (body == null) "GET" else "POST", "/$root/$path", body.orEmpty())
                 val repositoryRequest = path == "repository-operations" || path.startsWith("repository-operations/")
                 val repositoryRequestId = if (repositoryRequest) GitHubDispatchAccounting.started(body != null) else null
-                (if (body == null) readHttp else http).prepareRequest(endpoint) {
+                (paired?.http ?: if (body == null) readHttp else http).prepareRequest(paired?.endpoint ?: endpoint) {
                     method = if (body == null) HttpMethod.Get else HttpMethod.Post
-                    config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                    headers.forEach { (key, value) -> header(key, value) }
+                    (paired?.token ?: config.token)?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                    (paired?.requestHeaders(headers) ?: headers).forEach { (key, value) -> header(key, value) }
                     if ((body == null || path in setOf("bindings", "preflight")) && LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     if (approval) header("X-Gateway-User-Action", "approve-and-merge")
                     if (userAction == "restore-local-candidate") header("X-Gateway-User-Action", userAction)
@@ -361,10 +366,12 @@ class GatewayEngineeringClient internal constructor(
         require(jobId.matches(Regex("diag_[a-f0-9]{32}")) && after in 0..3)
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
         gatewayClientExchange(diagnostic, "engineering", safeRead = true) { headers ->
-            http.prepareRequest(config.buildEndpoint("gateway/engineering/diagnostics/jobs/$jobId/events?after=$after")) {
+            val path = "gateway/engineering/diagnostics/jobs/$jobId/events?after=$after"
+            val paired = pairedRequests?.prepare(config, "GET", "/$path")
+            (paired?.http ?: http).prepareRequest(paired?.endpoint ?: config.buildEndpoint(path)) {
                 method = HttpMethod.Get
-                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                headers.forEach { (key, value) -> header(key, value) }
+                (paired?.token ?: config.token)?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                (paired?.requestHeaders(headers) ?: headers).forEach { (key, value) -> header(key, value) }
                 header("Accept", "text/event-stream")
                 timeout {
                     connectTimeoutMillis = 10_000

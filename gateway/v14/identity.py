@@ -34,7 +34,8 @@ class PrincipalResolver:
         except ValueError:
             local_peer = False
         path = scope.get('path', '').removeprefix('/v1')
-        if path in {"/gateway/admin/maintenance", "/gateway/admin/dashboard", "/gateway/admin/engineering-admission"} or (
+        paired = headers.get('x-gateway-control-principal')
+        if paired or path.startswith('/gateway/admin/retained-work/') or path in {"/gateway/admin/maintenance", "/gateway/admin/dashboard", "/gateway/admin/settings", "/gateway/admin/engineering-admission"} or (
                 path == '/gateway/admin/debug/export' and 'x-gateway-management' in headers):
             # A specific-interface listener is reached through that interface on
             # the same PC. The independent supervisor secret is still mandatory.
@@ -45,13 +46,19 @@ class PrincipalResolver:
             forwarded = any(k.startswith("tailscale-") or k in {"forwarded", "x-forwarded-for", "x-forwarded-host", "origin", "cookie", "sec-fetch-site"} for k in headers)
             if not local_control or forwarded or not token or not hmac.compare_digest(headers.get("x-gateway-management", "").encode(), token.encode()):
                 return None
+            if paired:
+                grant = control_grant(self.config, paired)
+                if not grant:
+                    return None
+                scopes = {'chat', 'jobs', 'tools'}
+                if grant['role'] == 'owner' and grant['repositories'] != '[]':
+                    scopes.add('engineering')
+                return Principal(paired, frozenset(scopes))
             return Principal("local:manager", frozenset({"chat"}), True)
         if self.config.mode == "open_network":
-            # This is a key-free shared network identity, NOT a paired owner.
-            # The legacy remote_engineering flag cannot authenticate a device
-            # or grant its owner scoped control. Retain legacy chat/jobs/tools;
-            # future controlSettings.v1 writes require a separate device-bound
-            # management channel and a locally approved, revocable grant.
+            # A key-free shared listener does not authenticate an owner. Saved
+            # engineering mutations require the separate paired grant or an
+            # established authenticated local/trusted account.
             return Principal("network:shared", frozenset({"chat", "jobs", "tools"}))
         if not local_peer:
             return None
@@ -69,12 +76,17 @@ class PrincipalResolver:
         return Principal("tailnet:" + grant["principalId"], frozenset(grant["scopes"]))
 
 
+def control_grant(config, principal):
+    if not config.control_journal or not principal.startswith('paired:'):
+        return None
+    from desktop.control_store import retained_device_grant
+    return retained_device_grant(config.control_journal, principal)
+
+
 def principal_can_graph(config, principal, devices):
     """Recheck tools admission for a retained public-map indexing job."""
-    if principal.startswith('phone:'):
-        from desktop.phone_access import authorized
-        import os
-        return authorized(os.getenv('GATEWAY_DESKTOP_ROOT'), principal)
+    if principal.startswith('paired:'):
+        return control_grant(config, principal) is not None
     if config.mode == 'open_network':
         return principal == 'network:shared'
     if config.mode == 'loopback':
@@ -84,10 +96,8 @@ def principal_can_graph(config, principal, devices):
 
 def principal_can_chat(config, principal, devices):
     """Revalidate a retained admission immediately before first execution."""
-    if principal.startswith('phone:'):
-        from desktop.phone_access import authorized
-        import os
-        return authorized(os.getenv('GATEWAY_DESKTOP_ROOT'), principal)
+    if principal.startswith('paired:'):
+        return control_grant(config, principal) is not None
     if config.mode == 'open_network':
         return principal == 'network:shared'
     if config.mode == 'loopback':
@@ -113,7 +123,7 @@ class Admission:
         pairs = [(k.decode("latin1").lower(), v.decode("latin1")) for k, v in scope.get("headers", [])]
         sensitive = {"host", "origin", "authorization", "tailscale-user-login", "x-gateway-csrf", "x-gateway-management",
                      "x-gateway-profile-id", "x-gateway-profile-name-base64", "x-gateway-conversation-retention",
-                     "x-gateway-installation-id", "x-gateway-principal-id", "idempotency-key"}
+                     "x-gateway-installation-id", "x-gateway-principal-id", "idempotency-key", "x-gateway-control-principal"}
         if any(sum(k == name for k, _ in pairs) > 1 for name in sensitive):
             return await deny("duplicate_admission_header", 400)
         headers = dict(pairs)
@@ -132,13 +142,12 @@ class Admission:
                     not any(c.isspace() or c in "\\@" for c in host))
             except ValueError:
                 pass
-        if host not in self.config.allowed_hosts and not socket_host and 'gateway.paired' not in scope:
+        if host not in self.config.allowed_hosts and not socket_host:
             return await deny("invalid_host")
         origin = headers.get("origin")
         if origin is not None and origin not in self.config.allowed_origins:
             return await deny("invalid_origin")
-        paired = scope.get("gateway.paired")
-        principal = paired or await self.resolver.resolve(scope, headers)
+        principal = await self.resolver.resolve(scope, headers)
         if principal is None:
             return await deny("transport_identity_required", 401)
         request_path = scope.get("path", "")
@@ -159,7 +168,7 @@ class Admission:
         model_preparation_write = path == '/gateway/models/prepare' and scope['method'] == 'POST'
         if engineering_path and not principal.engineering_allowed and not (public_map_path and 'tools' in principal.scopes):
             return await deny("engineering_scope_required")
-        if (paired or self.config.mode in {"trusted_proxy", "open_network"}) and not principal.local_admin:
+        if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
             public_reads = {"/gateway/privacy/inference", "/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/v17", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:

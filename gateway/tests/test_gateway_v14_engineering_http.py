@@ -82,29 +82,39 @@ class EngineeringHTTPTests(unittest.TestCase):
         self.assertEqual(2, enabled.json()['revision'])
 
     def test_paired_phone_gate_controls_real_job_route_and_preserves_accepted_job(self):
-        from desktop import phone_settings
+        import base64
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from desktop.control_store import ControlStore
         from desktop.configuration import DEFAULTS, atomic_json
-        from v14.identity import Principal
         from uuid import uuid4
         root = Path(self.temp.name) / 'phone-installation'
         root.mkdir()
         atomic_json(root / 'settings.json', DEFAULTS)
-        owner = 'phone:' + uuid4().hex
+        controls = ControlStore(root)
+        controls.path = Path(self.temp.name) / 'jobs.db'
+        installation = self.store.conversations.gateway_id()
+        key = ec.generate_private_key(ec.SECP256R1())
+        public = base64.b64encode(key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+        invite = controls.pairing_create({'repositories': ['owner/repo']})
+        claim = controls.pairing_claim(invite['code'], {'installation_id': installation, 'device_name': 'Android', 'public_key': public})
+        controls.pairing_confirm(claim['pairing_id'], True)
+        grant, status = controls.pairing_finish(invite['code'], {'pairing_id': claim['pairing_id'], 'public_key': public}, b's' * 32)
+        self.assertEqual(200, status)
+        owner = grant['principal_id']
         fixtures.DurableEngineeringTests.admit(self, owner)
         app = FastAPI()
-        app.add_middleware(Admission, config=Config(mode='loopback', allowed_hosts=('testserver',), allowed_origins=()))
+        app.add_middleware(Admission, config=Config(mode='open_network', allowed_hosts=('testserver',), allowed_origins=(),
+            management_token='local-control', control_journal=str(controls.path)))
         install_engineering_routes(app, self.service)
-        async def paired(scope, receive, send):
-            scope['gateway.paired'] = Principal(owner, frozenset({'chat','jobs','tools','engineering'}))
-            await app(scope, receive, send)
-        client = TestClient(paired)
+        client = TestClient(app, client=('127.0.0.1', 12001))
+        self.addCleanup(client.close)
+        client.headers.update({'X-Gateway-Management': 'local-control', 'X-Gateway-Control-Principal': owner})
         def switch(value):
-            def update(db):
-                snapshot = phone_settings.snapshot(root, db, self.store, owner, 'owner', {})
-                body = dict(command_id=uuid4().hex, revision=snapshot['revision'], installation=snapshot['installation'],
-                            device=owner, changes={'engineering': value})
-                return phone_settings.change(root, db, self.store, owner, 'owner', {}, body)
-            self.store.tx(update)
+            snapshot = controls.snapshot(owner)
+            receipt = controls.patch(owner, dict(command_id=uuid4().hex, expected_revision=snapshot['revision'],
+                installation_id=installation, changes={'engineering_enabled': value}))
+            self.assertNotEqual('rejected', receipt['status'])
         path = '/gateway/engineering/jobs'
         self.assertEqual('ENGINEERING_JOBS_PAUSED', client.post(path, json=dict(self.request, request_id='before-enable')).json()['error']['code'])
         switch(True)

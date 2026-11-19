@@ -7,6 +7,36 @@
 - In any chat, scroll to the bottom to resume following the answer. After a deliberate scroll stops away from the bottom, the return arrow stays visible for five seconds and fades over one second when animations are enabled.
 - New Chat offers a Privacy Mode checkbox. Under Settings → Privacy, select a saved OpenRouter profile to review account settings, apply the recommended changes and confirm default plugins. The app checks eligibility again before sending.
 
+## Native Gateway and paired owner controls
+
+Windows gains a rounded WPF dashboard for Overview, Chat, Saved, Jobs, Tools,
+Benchmarks, Android controls, Diagnostics and Settings. It uses the existing
+supervisor, saved conversation journal and benchmark services. The four-step
+native setup keeps Standard installation independent of Docker and accepts an
+offline model backend. Existing installation identity, data and repair behavior
+remain in the established installer flow.
+
+Android and Windows can edit one revisioned Gateway configuration through
+PC-approved device pairing. Engineering admission belongs to the selected
+paired owner; capacity, model, startup, update and diagnostic preferences belong
+to the PC. Desired, effective and pending values remain visible. Active work
+retains its execution binding, and uncertain settings changes recover their
+original receipts. The separate HTTPS listener pins the PC certificate, verifies
+device signatures and rejects revoked or unpaired access. The five-second
+jump-to-latest hold from the preceding chat fix is retained.
+
+Paired owners can select a repository validation snapshot already approved on
+Windows when their grant permits it. They can also leave a bounded request for
+local review of network access, Engineering setup or a pending restart. These
+requests retain waiting-for-PC and reviewed receipts without executing host
+actions. Offline Android controls show their last confirmation time and remain
+read-only until the original Gateway is verified again.
+
+Native Gateway and paired-owner controls require matching Android and Windows
+builds. Physical phone pairing, host firewall behavior, Windows accessibility
+and live selected-provider/GitHub execution require observed acceptance; source,
+host tests and build checks do not establish those outcomes.
+
 ## Chat, projects and Gateway
 
 New Chat can select an eligible profile for Auto, Fast, Think or Research. Interactive answer blocks support sorting, chart views, navigable relationship diagrams, maps, source links and CSV export. Google chat accepts supported audio recordings and can preview or save a final image returned by the selected Gemini profile. In a chat, use **Attach to reply** in the image preview to edit or discuss it in the same conversation. Research history exposes captured passages and counterevidence. The Windows Gateway Chat page includes local schedules and an analysis workspace that runs Python in the configured offline container. Operators can also schedule a public Crossref search and inspect recently returned titles and DOIs, or run approved repository tests on the current local mirror revision. A changed validation policy requires a new schedule. Results from the analysis workspace can be exported as editable OpenDocument text, spreadsheets and presentations, JSON or an SVG bar chart. Saved answers show their recorded model when available. A connected-device check can compare a reopened Android answer with its original Gateway command and transcript. An unplugged, discharging phone can also report whole-device charge change across the observation.

@@ -131,15 +131,24 @@ def main():
             assert observation['service']['activeWorkers'] == 0
             assert observation['historyError'] is None
             assert (root / 'data' / 'activity.json').exists()
-            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=150)
-            subprocess.run([str(exe.parent / 'GatewayWorkspace.exe'), '--dashboard-smoke', str(root)], check=True, timeout=45)
-            results.append('installed native workspace renders its nine sections from the runtime observation')
+            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet', '--legacy-ui'], check=True, timeout=150)
             ui = json.loads((root / 'dashboard-ui-smoke.json').read_text(encoding='utf-8'))
             assert ui['pages'] == ['Overview', 'Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks']
             assert ui['width'] >= 900 and ui['height'] >= 600
             for capture in root.glob('dashboard-*.png'):
                 shutil.copy2(capture, output / capture.name)
             results.append('frozen themed dashboard renders all views; observer persists metadata; UI closes without stopping gateway')
+            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=180)
+            native = json.loads((root / 'native-ui-smoke.json').read_text(encoding='utf-8'))
+            assert native['runtime'] == 'WPF' and native['passed'] is True
+            assert native['pages'] == ['Overview', 'Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks', 'Android controls', 'Diagnostics', 'Settings']
+            assert native['width'] >= 900 and native['height'] >= 600
+            assert native['highContrastPaletteExercised'] and native['reducedMotionExercised'] and native['focusAndScrollPreserved']
+            assert native['simulatedLayoutScale'] == 1.5
+            for capture in root.glob('native-*.png'):
+                shutil.copy2(capture, output / capture.name)
+            shutil.copy2(root / 'native-ui-smoke.json', output / 'native-ui-smoke.json')
+            results.append('packaged WPF workspace renders nine live views at 900x600 and closes without stopping runtime')
             assert child.poll() is None
             from desktop.tray import TrayIcon
             tray = TrayIcon(lambda: 'Gateway smoke test', {})

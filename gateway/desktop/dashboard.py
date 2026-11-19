@@ -379,7 +379,7 @@ class Dashboard:
         self.window.destroy()  # The supervisor/tray owns gateway lifetime.
 
 
-def show(root, smoke=False):
+def show(root, smoke=False, view='Overview'):
     # Separate lock directory: opening a dashboard must not claim the engine lock.
     lock = StateDirectoryLock(Path(root) / 'dashboard-ui' / 'owner')
     try:
@@ -388,20 +388,18 @@ def show(root, smoke=False):
         atomic_json(Path(root) / 'show-dashboard.json', {'requestedAt': time.time()})
         return
     try:
-        shell = Path(sys.executable).parent / 'GatewayWorkspace.exe'
-        if not smoke and os.name == 'nt' and getattr(sys, 'frozen', False) and shell.is_file():
-            subprocess.run([str(shell), '--dashboard', str(root)], check=True)
-        else:
-            _show(root, smoke)
+        _show(root, smoke, view)
     finally:
         from desktop.repository_validation_panel import settle_setup_workers
         settle_setup_workers(root)
         lock.release()
 
 
-def _show(root, smoke):
+def _show(root, smoke, view='Overview'):
     dashboard = Dashboard(root)
     dashboard.smoke = smoke
+    if view in PAGES:
+        dashboard.navigate(view)
     failures = []
     if smoke:
         dashboard.window.report_callback_exception = lambda kind, error, trace: failures.append(f'{kind.__name__}: {error}')

@@ -1,14 +1,14 @@
 # Gateway 17 for Windows
 
-Gateway connects GPT Mobile to your model backend and approved PC tools. The Windows x64 installer bundles Python and the pinned gateway dependencies. The model server is a separate prerequisite. No Tailscale installation is needed.
+Gateway connects GPT Mobile to your model backend and approved PC tools. The Windows x64 installer bundles Python, the pinned gateway dependencies and the self-contained .NET 10 native Windows workspace. The model server is a separate prerequisite. No Tailscale installation is needed.
 
 ## Install and connect
 
 1. Run `Gateway-17.0.1-windows-x64-setup.exe` under your normal Windows account. Choose the installation folder. On a fresh install, select Standard Gateway or GitHub Engineering, choose the backend and network interface, and review the PC checks. An offline model can be connected after installation. Select **Review advanced connection, worker and update settings** on the last page for additional controls. Repair installs retain the existing settings.
 2. Start your model server. Default backend: `http://127.0.0.1:8080`. Gateway listens only on `127.0.0.1:8090` by default. Backend origins must omit `/v1`; remote backends require HTTPS. MCP commands run with your Windows account permissions: use configuration from sources you trust.
-3. Open **Gateway Settings** from the Start menu to check status, edit settings, restart, stop, check updates or install an available update. Notify is the default; select Auto for unattended updates. Restart applies saved connection/concurrency changes after work finishes.
-4. For phone access, set **Listen address** to the PC interface IP or `0.0.0.0` (all IPv4 interfaces), save and restart. On Android, use a LLAMA connection with `http://<PC-IP-or-hostname>:8090/v1` and leave the API key empty. `0.0.0.0` is a listener setting, not the phone's destination. The PC hostname is admitted automatically; add custom aliases in **Additional hostnames** if needed.
-5. If Windows blocks the connection, choose the installer's unchecked firewall task or **Allow LAN through firewall…** in Settings. This asks Windows for administrator approval and creates one installation-specific inbound TCP rule for the saved port, restricted to the **Private** profile and **LocalSubnet**. No rule is created by default or during automatic updates. Reapply after changing the port or bind address; **Remove firewall rule…** and uninstall remove only this installation's rule.
+3. Open **Gateway Settings** from the Start menu. Shared settings display their revision, desired value, effective value and any job that delays application. Notify is the default; select Auto for unattended updates. Overview and Diagnostics provide runtime and update controls. **Host connection settings** opens listener, firewall and host approval utilities.
+4. For phone model access, open **Settings → Host connection settings**, set **Listen address** to the PC interface IP or `0.0.0.0` (all IPv4 interfaces), save and restart. On Android, use a LLAMA connection with `http://<PC-IP-or-hostname>:8090/v1` and leave the API key empty. `0.0.0.0` is a listener setting, not the phone's destination. The PC hostname is admitted automatically; add custom aliases in **Additional hostnames** if needed.
+5. If Windows blocks the connection, choose the installer's unchecked firewall task or **Allow LAN through firewall…** in Host connection settings. This asks Windows for administrator approval and creates one installation-specific inbound TCP rule for the saved port, restricted to the **Private** profile and **LocalSubnet**. No rule is created by default or during automatic updates. Reapply after changing the port or bind address; **Remove firewall rule…** and uninstall remove only this installation's rule.
 6. Network access is key-free. Reachable devices can use the enabled models and PC tools, and they share network jobs. Enable network engineering separately if wanted. Use only a trusted LAN/private VPN, or put a separately authenticated HTTPS endpoint in front of Gateway for public access. Browsers, remote administration, spoofed identity headers and arbitrary DNS hostnames do not get extra access.
 
 Existing installations retain their backend, port, performance, startup/update settings and saved jobs. Legacy Tailscale settings migrate to localhost until a network address is deliberately chosen; old identity fields remain recorded for recovery. Change them through Gateway Settings. Uninstall refuses active work and retains `data/`, settings and logs for deliberate recovery. Remove that folder manually only if you intend to delete all saved jobs and configuration. Automatic updates keep the previous release and three verified pre-update SQLite backup sets; releases are never allowed to perform a new state-schema migration automatically.
@@ -29,6 +29,7 @@ On Windows x64 with Python 3.12, the .NET 10 SDK and Inno Setup 6.6 or later:
 python -m pip install --require-hashes -r gateway/requirements.txt
 python -m pip install --require-hashes -r gateway/desktop/requirements-build.txt
 python gateway/build_v14_package.py --manifest-only
+dotnet run --project gateway/desktop/native/tests/Gateway.Native.Contracts.csproj -c Release
 python gateway/desktop/build_windows.py
 python gateway/desktop/smoke_windows.py
 ```
@@ -41,7 +42,13 @@ The installer cannot guarantee a flawless installation on every PC. Interactive 
 
 The running supervisor adds the app's robot icon to the Windows notification area. Click it to open **Gateway Dashboard**; right-click for settings, restart and stop. Its tooltip shows observed clients and open jobs. The dashboard has its own matching taskbar icon and Start menu shortcut; setup also offers an optional desktop shortcut. Closing the dashboard leaves the gateway running.
 
-The dashboard uses GPT Mobile's default dark teal, cyan and purple palette. Overview shows persistent total generated tokens, today's output, measured generation speed, open jobs and a seven-day output graph. Devices shows actual socket addresses, client agents, active requests and last-seen times. Recent activity combines saved chats, engineering jobs and tool executions. Search jobs and GitHub jobs have their own filterable views with status and details. Start, restart, stop and connection settings are available from the window.
+The packaged dashboard is a native WPF workspace using GPT Mobile's dark teal, cyan and purple palette, rounded controls, keyboard focus indicators and system high contrast colors. Its navigation contains **Overview, Chat, Saved, Jobs, Tools, Benchmarks, Android controls, Diagnostics and Settings**. Overview shows measured output, active workers, open jobs and seven days of saved token measurements. Jobs contains actual saved chat, Engineering and Copilot work; recent tool operations and observed devices remain separate observations. Missing measurements and stale snapshots stay visibly unavailable.
+
+Chat uses the exact selected model and principal-bound Gateway conversation API. **Save draft** retains the composer on this PC; a send persists its original command before dispatch. **Check send** reads that command after an interruption without resubmitting it. Saved provides conversation search, favorites, archive and message bookmarks. Benchmark runs and evidence use the existing Gateway-owned service, so closing the window does not transfer execution into the desktop. Copilot cloud tasks retain their GitHub URL and report when remote cancellation is unsupported.
+
+Host resource approval and advanced Engineering workflows open their existing validated utilities from Tools, Jobs or Settings. Repository validation, GitHub credentials, MCP configuration, checkpoint review, schedules and detailed benchmark comparisons remain available. These utilities share the installed runtime and retained state. Their shared settings fields are read-only; revisioned settings are changed through the native Settings page. Source checkouts retain the existing Python UI, and `--legacy-ui` is available for Windows compatibility diagnostics.
+
+The Windows build publishes both the canonical four-step setup and dashboard as self-contained x64 applications before creating the update archive and release hashes. Frozen smoke testing opens every native page at 900 × 600 and saves screenshots alongside the existing installation, offline-backend, rollback, legacy utility and uninstall checks. A successful cross-build does not establish physical Windows, screen-reader or Android-device acceptance.
 
 Device observations are grouped by socket address, not authenticated identity. “Connected” includes active requests and addresses seen in the last 60 seconds; NAT or a proxy can combine clients. Offline/stale snapshots never claim live connections. Connection and request counters reset when the engine restarts; measured token totals persist. The latest 300 tool/request activities persist locally; interrupted activities are marked on restart. Saved chat and engineering views each show up to 100 jobs. Search entries represent tool operations, including operations inside chats, rather than a separate search scheduler.
 
@@ -49,7 +56,12 @@ Only the local supervisor can retrieve desktop observations. The desktop reads l
 
 ## GitHub
 
-Public repository maps are enabled by default. Once your phone connects to this gateway, open **GitHub Mode → Status → Repository map** and choose **Build repository index**. GitHub's anonymous rate limits apply. You can turn public maps off in **Gateway Settings → GitHub**. Save settings and restart to apply this preference.
+The native **Tools → GitHub connection and maps** button opens the existing host
+GitHub settings utility. References below to the GitHub or Advanced tabs identify
+tabs in that utility. Shared route, capacity, startup, update, debug and public-map
+choices are changed in native Settings; the host utility displays them read-only.
+
+Public repository maps are enabled by default. Once your phone connects to this gateway, open **GitHub Mode → Status → Repository map** and choose **Build repository index**. GitHub's anonymous rate limits apply. Change **Public repository maps** in native Settings and observe its effective value before relying on the new preference.
 
 For private maps or saved GitHub jobs, select **Open GitHub settings for private repositories or saved jobs** when the installer finishes, or open **Gateway Settings → GitHub** later. The gateway reuses one eligible GitHub add-on automatically. To connect a different account, use **Create GitHub token**, grant access to the repositories you need, and paste the token into the masked field. For mapping, grant **Contents → Read-only**. Enter a repository to check its source access, then click **Connect**. The gateway stores the token in Windows Credential Manager after GitHub confirms it. **Test connection** checks the current configuration, and **Remove saved token** restores automatic selection.
 
@@ -141,7 +153,16 @@ is no longer required.
 
 ## General, Advanced and Add-ons
 
-Open Settings from the dashboard. General, Add-ons and GitHub are available there; select Show advanced settings for worker limits, batch controls and benchmark setup. Repository validation lives in its own GitHub subtab. General exposes the backend, listener address, hostnames, startup/update preferences and explicit firewall actions. Advanced exposes worker/chat limits and shutdown grace. Add-ons shows the enabled services in the selected MCP JSON configuration. Saving add-ons preserves commands, arguments and credentials, and refuses a save if the configuration changed externally. Save the selected file path in settings and restart when work finishes to apply it. The gateway service allowlist remains authoritative.
+Open **Settings → Host connection settings** for General, Add-ons and GitHub;
+select Show advanced settings for benchmark setup and host recovery utilities.
+Repository validation lives in its own GitHub subtab. General retains the listener,
+hostnames and explicit firewall actions. Native Settings is authoritative for
+shared backend, model, worker/chat capacity, batch mode, startup and update
+preferences. Add-ons shows the enabled services in the selected MCP JSON
+configuration. Saving add-ons preserves commands, arguments and credentials, and
+refuses a save if the configuration changed externally. Save the selected file
+path and restart when work finishes to apply it. The Gateway service allowlist
+remains authoritative.
 
 The token graph uses provider completion usage or llama.cpp timing receipts, including reasoning when counted by the backend. Missing measurements remain unavailable and partial coverage is disclosed. Counters start with this update, persist in `data/usage.sqlite3`, and exclude cached deliveries. These are measurements for this installation, without inferred per-phone attribution. Old logs are not estimated. A single background observer delivers both usage and activity without blocking generation; stale data is visibly marked.
 
@@ -170,16 +191,64 @@ Each scenario uses an authorized job in the designated test repository. The runn
 
 ## Chat, saved messages and benchmarks
 
-The dashboard now has Overview, Chat, Saved, Jobs and Benchmarks. New prompt opens the selected-model composer; Ctrl+Enter sends. Saved offers history search, bookmarks, favorites and archiving. Advanced setup is optional. See [Gateway 17 contracts](../V17_DESKTOP.md) for conversation identity, benchmark scope, safe recovery and upgrade behavior.
+New prompt opens the selected-model composer; Ctrl+Enter sends. Saved offers
+history search, bookmarks, favorites and archiving. Advanced setup is optional.
+See [Gateway 17 contracts](../V17_DESKTOP.md) for conversation identity, benchmark
+scope, safe recovery and upgrade behavior.
 
-## Manage the Gateway from Android
+## Android owner controls
 
-Open **Android controls** in the Windows dashboard. Select the PC’s private IPv4 interface, a separate HTTPS port (8443 by default), and an Owner or Viewer grant. Create an invitation and scan it on the intended phone. You can also paste the invitation under **Settings → Windows Gateways**. Compare the displayed certificate fingerprints. Select the waiting phone on Windows, choose **Confirm device**, and compare its 12-character code before granting access. Each invitation expires after five minutes and can pair one device. The optional Windows firewall button allows only the selected port and interface on a Private network for the local subnet.
+Open **Android controls** on the PC, deliberately choose a reachable LAN or VPN
+interface, and enable the separate TLS settings endpoint. The default loopback
+interface is for this PC only and cannot create a phone invitation. Create a
+short-lived invitation with the intended fields and repository scope; copy its
+`gptmobile://` link to the phone and compare the displayed endpoint certificate
+fingerprint. Approve the claimed device on the PC after comparing its device-key
+fingerprint. Invitation expiry and device revocation remain visible.
 
-In GitHub settings select the paired PC as the engineering Gateway for the desired inference profile. On first binding the app can apply that profile’s Engineering preference to the PC. The phone and Windows both show the per-device job admission state. Turning Engineering off leaves already accepted jobs in their original journal. A viewer can inspect settings. Shared-LAN traffic and ordinary inference credentials have no owner privileges.
+The invitation QR is rendered locally from that same one-time link. **Allow
+private control-port access** explicitly adds the separate installation-specific
+TLS rule for the Windows Private profile and LocalSubnet; it can prompt for
+administrator approval. **Remove control-port rule** removes only that rule.
+The ordinary model listener has its own firewall rule. Uninstall removes both
+installation-specific rules while retaining settings and saved work.
 
-Owners can change worker and chat limits, select approved backends and validation profiles, choose a permitted batch mode, and manage repository maps, startup, update policy and diagnostic recording. Windows approves new backend origins and validation profiles. The app reports desired and active values separately and looks up the original command after a lost response. A backend must return a usable model catalogue before activation. Requested Windows actions appear for local review under Android controls. Revoke individual devices there, or pause phone access for the installation.
+Settings has an explicit **Owner** selector. **This desktop** and each paired
+phone are separate owners. Select the phone to change that phone's Engineering
+gate; both clients then observe the same installation, owner and revision. Turning
+the gate off blocks new work for that owner while existing accepted jobs retain
+their identifiers. Host-wide settings show their desired and effective values;
+pending changes name the blocking job count. A lost settings reply retains its
+original command for **Read original receipt**, and cannot silently replay a
+change or overwrite it with another window. **Review / retry original change**
+first reads the existing receipt. Only an explicit, typed not-found result on the
+same installation and owner allows the exact saved command, revision and changes
+to be retried. A timeout or unknown response retains the reference. Older pending
+records that did not save the original payload support receipt lookup only.
 
-The Windows workspace uses the installer’s WPF theme. Open a section to inspect the runtime, then open the associated chat, job, benchmark or settings editor. **Diagnostics** previews the fields included in its text export. Closing the workspace leaves the supervisor and jobs running.
+**Approved validation profiles** opens the existing Repository Validation utility
+and lets the PC operator approve its saved, immutable policy for phone selection.
+The Settings selector retains the exact requested profile and shows its effective
+profile separately. It offers approved profiles; disabled or invalid policies are
+shown only when they are the current observation. Change host approval or disable
+validation through the existing Repository Validation utility.
 
-The Windows account that runs the Gateway protects its phone-pairing authority and HTTPS private keys with DPAPI. Upgrading an existing installation preserves its certificate fingerprints and paired devices.
+**Approved model backends** checks and approves exact backend origins for phone
+selection. Approval adds an origin to the bounded host catalog without switching
+the active route. **Allow shared controls** explicitly grants approved backend and
+profile selection and PC review requests in addition to the listed shared settings. A phone cannot
+create its own host policy or supply validation commands.
+
+**Phone requests for PC review** lists the requesting owner and retained command
+for network-access review, engineering setup and pending-restart review. **Mark
+reviewed** records the PC operator's acknowledgement; it does not change the
+network, install software or restart Gateway. The phone sees the same retained
+request change from waiting for PC review to reviewed. An acknowledged request
+awaiting review does not block unrelated settings changes.
+
+Windows protects the pairing authority with account-bound DPAPI. The TLS private
+key is encrypted with that protected secret. Updates retain this installation's
+keys and paired devices.
+
+See [Owner controls](../OWNER_CONTROLS.md)
+for authority, pairing and recovery details.

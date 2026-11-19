@@ -149,6 +149,11 @@ def install_engineering_routes(app, service):
             if request.method == 'POST':
                 if owner == 'network:shared':
                     raise ExecutionBindingError('ENGINEERING_OWNER_REQUIRED', 'Change the shared network setting on the Gateway PC.', 403)
+                if owner.startswith('paired:'):
+                    raise ExecutionBindingError('ENGINEERING_MANAGED_SETTINGS_REQUIRED', 'Use the paired revisioned Gateway settings.', 403)
+                if owner == 'local:single-user' and await asyncio.to_thread(service.store.tx, lambda db: db.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_control_settings'").fetchone() is not None):
+                    raise ExecutionBindingError('ENGINEERING_MANAGED_SETTINGS_REQUIRED', 'Use the supervisor revisioned Gateway settings.', 403)
                 if not all(request.headers.get(name) for name in MUTATION_IDENTITY_HEADERS):
                     raise ExecutionBindingError('CONTINUITY_IDENTITY_INVALID', 'Read the installation and account before editing.', 400)
                 value = await asyncio.to_thread(service.store.change_admission_settings, owner, await body(request))
@@ -164,11 +169,11 @@ def install_engineering_routes(app, service):
             if request.state.principal.id != 'local:manager':
                 raise PermissionError('Gateway supervisor required')
             def owners(db):
-                # Include the local operator before the first saved job.
                 rows = db.execute("SELECT principal FROM engineering_admission_settings "
                                   "UNION SELECT DISTINCT principal FROM engineering_jobs "
                                   "ORDER BY principal LIMIT 257").fetchall()
-                names = sorted({'local:single-user'} | {row[0] for row in rows if row[0] != 'network:shared'})
+                names = sorted({'local:single-user'} | {row[0] for row in rows
+                               if row[0] != 'network:shared' and not row[0].startswith('paired:')})
                 return [{'principal_id': name, **service.store.admission_settings(db, name)} for name in names[:256]]
             gateway_id = await asyncio.to_thread(service.store.conversations.gateway_id)
             if request.method == 'POST':
@@ -177,7 +182,11 @@ def install_engineering_routes(app, service):
                     raise ExecutionBindingError('ENGINEERING_SETTINGS_CHANGED', 'Read this installation before editing.')
                 target = record['principal_id']
                 if not isinstance(target, str) or target not in {r['principal_id'] for r in await asyncio.to_thread(service.store.tx, owners)}:
-                    raise ExecutionBindingError('ENGINEERING_OWNER_REQUIRED', 'Choose an observed Gateway account.', 403)
+                    raise ExecutionBindingError('ENGINEERING_OWNER_REQUIRED', 'Use Gateway Settings for a paired owner, or choose an observed account.', 403)
+                managed = await asyncio.to_thread(service.store.tx, lambda db: db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_control_settings'").fetchone() is not None)
+                if target == 'local:single-user' and managed:
+                    raise ExecutionBindingError('ENGINEERING_MANAGED_SETTINGS_REQUIRED', 'Use the supervisor revisioned settings command.', 403)
                 updated = await asyncio.to_thread(service.store.change_admission_settings, target,
                                                   {'revision': record['revision'], 'enabled': record['enabled']})
                 return JSONResponse(dict(updated, gateway_id=gateway_id, principal_id=target))
@@ -281,7 +290,7 @@ def install_engineering_routes(app, service):
             if set(payload) != {'selection'}:
                 raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'A selected profile snapshot is required.', 400)
             return await asyncio.to_thread(service.prepare_binding, owner, payload['selection'],
-                                           gateway_endpoint=str(request.base_url).rstrip('/'))
+                                           gateway_endpoint=request.headers.get('X-Gateway-Control-Endpoint') if owner.startswith('paired:') else str(request.base_url).rstrip('/'))
         return await execute(run, stage='provider_admission')
 
     @app.get('/gateway/engineering/bindings/{binding_id}/capabilities')

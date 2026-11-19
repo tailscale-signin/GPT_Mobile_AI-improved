@@ -5,9 +5,9 @@ import queue
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from desktop.configuration import atomic_json, load, public_repository_maps, save_public_repository_maps, copilot_enabled, save_copilot_enabled, validate
-from v14.engineering_batch_policy import load_policy as load_execution_policy, save_policy as save_execution_policy
-from desktop.manager import request, startup_registration
+from desktop.configuration import atomic_json, load, public_repository_maps, copilot_enabled, save_copilot_enabled, settings_write_lock, validate
+from v14.engineering_batch_policy import load_policy as load_execution_policy
+from desktop.manager import request
 from desktop.addons import load_addons, save_addons
 from desktop.window_lifecycle import WindowCallbacks
 from desktop import theme
@@ -43,7 +43,7 @@ def build_window(root, parent=None, section='General'):
     ttk.Label(header, textvariable=state_text, style='Muted.TLabel').pack(side='right')
     footer = ttk.Frame(window, padding=(24, 10))
     footer.pack(side='bottom', fill='x')
-    notice = tk.StringVar(value='Settings apply after Restart. Active work is preserved.')
+    notice = tk.StringVar(value='Host connection changes apply after Restart. Shared settings are managed in Gateway → Settings.')
     ttk.Label(footer, textvariable=notice, style='Muted.TLabel').pack(anchor='w', pady=(0, 10))
     actions = ttk.Frame(footer)
     actions.pack(fill='x')
@@ -104,6 +104,7 @@ def build_window(root, parent=None, section='General'):
     if not advanced_visible.get():
         tabs.hide(advanced_shell)
     values = {}
+    shared_fields = {'backend', 'workers', 'active_chats', 'start_at_login', 'update_mode', 'update_interval_hours', 'debug_mode'}
 
     def title(frame, text, detail):
         ttk.Label(frame, text=text, style='Title.TLabel').grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 8))
@@ -114,11 +115,13 @@ def build_window(root, parent=None, section='General'):
         variable = tk.StringVar(value=str(cfg[name]))
         values[name] = variable
         widget = ttk.Combobox(frame, textvariable=variable, values=choices, state='readonly') if choices else ttk.Entry(frame, textvariable=variable)
+        if name in shared_fields:
+            widget.configure(state='disabled')
         widget.grid(row=row, column=1, columnspan=2, sticky='ew', pady=7)
         return widget
 
     general = sections['General']
-    title(general, 'Make it yours', 'Your connection, startup preferences and updates in one place.')
+    title(general, 'Host connection settings', 'Configure this PC’s listener here. Open Gateway → Settings to edit shared backend, capacity, startup and update preferences with revision checks.')
     field(general, 2, 'backend', 'Model backend origin')
     field(general, 3, 'port', 'Gateway port')
     field(general, 4, 'bind_host', 'Listen address (IP)')
@@ -126,7 +129,7 @@ def build_window(root, parent=None, section='General'):
     field(general, 6, 'update_mode', 'Updates', ['off', 'notify', 'auto'])
     field(general, 7, 'update_interval_hours', 'Check updates every (hours)')
     values['start_at_login'] = tk.BooleanVar(value=cfg['start_at_login'])
-    ttk.Checkbutton(general, text='Start Gateway when I sign in', variable=values['start_at_login']).grid(row=8, column=0, columnspan=3, sticky='w', pady=12)
+    ttk.Checkbutton(general, text='Start Gateway when I sign in', variable=values['start_at_login'], state='disabled').grid(row=8, column=0, columnspan=3, sticky='w', pady=12)
     ttk.Label(general, text='127.0.0.1: this PC only. A PC network IP: one interface. 0.0.0.0: all IPv4 interfaces.\nNetwork access is key-free: reachable devices can use enabled models and tools.\nAuto installs verified compatible updates when idle. Save settings, then Restart to apply.', style='Muted.TLabel', wraplength=600).grid(row=9, column=0, columnspan=3, sticky='w', pady=12)
     network_buttons = ttk.Frame(general)
     network_buttons.grid(row=10, column=0, columnspan=3, sticky='w', pady=8)
@@ -142,7 +145,7 @@ def build_window(root, parent=None, section='General'):
     ttk.Label(advanced, textvariable=diagnostics, wraplength=600, justify='left', style='Muted.TLabel').grid(row=7, column=0, columnspan=3, sticky='w')
 
     values['debug_mode'] = tk.BooleanVar(value=cfg['debug_mode'])
-    ttk.Checkbutton(advanced, text='Debug mode — retain up to 5,000 diagnostic lines', variable=values['debug_mode']).grid(row=8, column=0, columnspan=3, sticky='w', pady=(14, 4))
+    ttk.Checkbutton(advanced, text='Debug mode — retain up to 5,000 diagnostic lines', variable=values['debug_mode'], state='disabled').grid(row=8, column=0, columnspan=3, sticky='w', pady=(14, 4))
     ttk.Label(advanced, text='The full diagnostic bundle includes request timing, backend failures, gateway build details and retained task events. Enable Debug mode on your phone to include its profile, build and network details. Prompts, message bodies and credentials are excluded.', style='Muted.TLabel', wraplength=600).grid(row=9, column=0, columnspan=3, sticky='w', pady=8)
     def export_debug():
         target = filedialog.asksaveasfilename(defaultextension='.zip', initialfile='gateway-debug.zip',
@@ -174,13 +177,13 @@ def build_window(root, parent=None, section='General'):
     batch_policy_path = root / 'data' / 'execution-policy.json'
     batch_settings = load_execution_policy(batch_policy_path)
     batch_mode = tk.StringVar(value=batch_settings['default_mode'])
-    ttk.Combobox(advanced, textvariable=batch_mode, state='readonly',
+    ttk.Combobox(advanced, textvariable=batch_mode, state='disabled',
                  values=['standard', 'smart', 'full']).grid(row=12, column=0, columnspan=3, sticky='ew', pady=5)
     ttk.Label(advanced, text='Standard keeps the existing path. Smart uses safe read batching. Full tracks durable engineering stages and can run host-approved independent local test suites in parallel. Enable Full on this PC and select it in Android GitHub Mode; previous saved jobs retain their original policy.',
               style='Muted.TLabel', wraplength=600).grid(row=13, column=0, columnspan=3, sticky='w', pady=(4, 12))
     ttk.Label(advanced, text='Full Batch local validation workers', style='Section.TLabel').grid(row=14, column=0, columnspan=3, sticky='w', pady=(6, 8))
     batch_workers = tk.StringVar(value=str(batch_settings['local_validation_workers']))
-    ttk.Combobox(advanced, textvariable=batch_workers, state='readonly',
+    ttk.Combobox(advanced, textvariable=batch_workers, state='disabled',
                  values=['1', '2', '3', '4']).grid(row=15, column=0, columnspan=3, sticky='ew', pady=5)
     ttk.Label(advanced, text='One runs sequentially. Higher values parallelize only adjacent independent checks that the repository validation policy explicitly groups. Each check stays in its own offline sandbox. GitHub API requests remain serialized; native cloud-provider batching is unavailable.',
               style='Muted.TLabel', wraplength=600).grid(row=16, column=0, columnspan=3, sticky='w', pady=(4, 12))
@@ -267,7 +270,7 @@ def build_window(root, parent=None, section='General'):
     copilot_saved = copilot_enabled(root)
     copilot_jobs = tk.BooleanVar(value=copilot_saved)
     github_tabs.add(build_admission_panel(github_tabs, root), text='Job admission')
-    refresh_github = build_github_settings(connection, root, cfg, public_maps, values['engineering'], copilot_jobs)
+    refresh_github = build_github_settings(connection, root, cfg, public_maps, values['engineering'], copilot_jobs, managed_maps=True)
     validation_panel = RepositoryValidationPanel(validation_frame, root, cfg)
     window.repository_validation_panel = validation_panel
 
@@ -280,41 +283,24 @@ def build_window(root, parent=None, section='General'):
     ttk.Button(general, text='Android controls and pairing…', command=lambda: show_phone_controls(window, root)).grid(row=20, column=0, columnspan=3, sticky='w', pady=8)
 
     def save():
-        nonlocal public_maps_saved, copilot_saved
-        from desktop.phone_settings import write_lock
-        lock = write_lock(root)
+        nonlocal copilot_saved
         try:
-            lock.acquire()
-            if load(root) != cfg or public_repository_maps(root) != public_maps_saved:
-                raise ValueError('Gateway settings changed on another device. Reopen Settings to load the current values.')
-            updated = dict(cfg)
-            for name, variable in values.items():
-                updated[name] = int(variable.get()) if type(cfg[name]) is int else variable.get()
-            updated = validate(updated)
-            selected_batch_mode = batch_mode.get()
-            staged_batch = dict(batch_settings, default_mode=selected_batch_mode,
-                                full_enabled=(selected_batch_mode == 'full'),
-                                local_validation_workers=int(batch_workers.get()))
-            # Validate separately so the older Windows schema-1 settings reader
-            # never receives the new policy fields.
-            from v14.engineering_batch_policy import validate_policy as validate_execution_policy
-            staged_batch = validate_execution_policy(staged_batch)
-            startup_registration(root, updated['start_at_login'])
-            atomic_json(root / 'settings.json', updated)
-            cfg.update(updated)
-            save_execution_policy(batch_policy_path, staged_batch)
-            batch_settings.update(staged_batch)
-            if public_maps.get() != public_maps_saved:
-                save_public_repository_maps(root, public_maps.get())
-                public_maps_saved = public_maps.get()
+            # Never copy an old shared-settings snapshot back over the
+            # supervisor's observed effective state from this host-only utility.
+            with settings_write_lock(root):
+                updated = load(root)
+                for name, variable in values.items():
+                    if name not in shared_fields:
+                        updated[name] = int(variable.get()) if type(cfg[name]) is int else variable.get()
+                updated = validate(updated)
+                atomic_json(root / 'settings.json', updated)
+                cfg.update(updated)
             if copilot_jobs.get() != copilot_saved:
                 save_copilot_enabled(root, copilot_jobs.get())
                 copilot_saved = copilot_jobs.get()
-            notice.set('General settings saved. Repository validation uses its own Save policy / Prepare & save actions. Restart when idle.')
+            notice.set('Host connection settings saved. Shared settings remain managed in Gateway → Settings. Restart when idle.')
         except Exception as error:
             messagebox.showerror('Check settings', str(error))
-        finally:
-            lock.release()
 
     def operation(action):
         nonlocal busy
@@ -330,7 +316,14 @@ def build_window(root, parent=None, section='General'):
                 messages.put((False, str(error)))
         threading.Thread(target=work, daemon=True).start()
 
-    ttk.Button(actions, text='Save settings', command=save).pack(side='left', padx=(0, 12))
+    def shared_settings():
+        def work():
+            from desktop.native_launch import show as show_native
+            if show_native(root, view='Settings') is None:
+                messages.put((False, 'Open the installed Windows Gateway app and choose Settings to manage shared preferences.'))
+        threading.Thread(target=work, daemon=True).start()
+    ttk.Button(actions, text='Shared settings', command=shared_settings).pack(side='left', padx=(0, 8))
+    ttk.Button(actions, text='Save host settings', command=save).pack(side='left', padx=(0, 12))
     for label, action in [('Restart', 'restart'), ('Stop', 'stop'), ('Check updates', 'check'), ('Install update', 'install')]:
         ttk.Button(actions, text=label, command=lambda a=action: operation(a)).pack(side='left', padx=4)
 

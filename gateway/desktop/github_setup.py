@@ -80,13 +80,15 @@ def test_connection(token, repository):
     return f'{account} can read {repository}.' if account else f'Public access to {repository} confirmed.'
 
 
-def build_github_settings(frame, root, config, public_maps, network_engineering, copilot_jobs=None):
-    ttk.Checkbutton(frame, text='Enable public repository maps', variable=public_maps).grid(row=2, column=0, columnspan=3, sticky='w')
-    ttk.Label(frame, text='Public maps work without a token. Save settings and restart to apply this option.',
+def build_github_settings(frame, root, config, public_maps, network_engineering, copilot_jobs=None, *, managed_maps=False):
+    ttk.Checkbutton(frame, text='Enable public repository maps', variable=public_maps,
+                    state='disabled' if managed_maps else 'normal').grid(row=2, column=0, columnspan=3, sticky='w')
+    ttk.Label(frame, text=('Edit public repository maps in Gateway → Settings. This utility displays the current applied value.' if managed_maps else
+                          'Public maps work without a token. Save settings and restart to apply this option.'),
               style='Muted.TLabel', wraplength=570).grid(row=3, column=0, columnspan=3, sticky='w', pady=(3, 18))
-    ttk.Checkbutton(frame, text='Allow network devices to run GitHub engineering tasks',
+    ttk.Checkbutton(frame, text='Allow retained shared-network engineering work to continue',
                     variable=network_engineering).grid(row=4, column=0, columnspan=3, sticky='w')
-    ttk.Label(frame, text='This also lets your phone map private repositories using the PC’s GitHub connection.',
+    ttk.Label(frame, text='New phone engineering jobs require an approved paired owner in Gateway → Android controls. This legacy permission preserves previously accepted shared-network work.',
               style='Muted.TLabel', wraplength=570).grid(row=5, column=0, columnspan=3, sticky='w', pady=(3, 18))
 
     status = tk.StringVar()

@@ -14,7 +14,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,6 +61,8 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
 @Composable
 internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}, onCopilotEnabled: (Boolean) -> Unit = {}, onBatchModes: suspend (String, String) -> Set<String> = { _, _ -> emptySet() }, onAdmissionSetting: (suspend (String, String, GatewayAdmissionSetting?) -> GatewayAdmissionSetting)? = null) {
     var inspection by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var controlGateway by remember { mutableStateOf<String?>(null) }
+    controlGateway?.let { uid -> GatewayControlSettingsDialog(onDismiss = { controlGateway = null }, initialProfileUid = uid) }
     inspection?.let { (profileUid, engineering) ->
         ConnectionDoctorDialog(onDismiss = { inspection = null }, initialProfileUid = profileUid, engineeringGateway = engineering)
     }
@@ -95,17 +96,10 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
                 Text("Gateway execution mode", style = MaterialTheme.typography.titleSmall)
                 val gateway = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)
-                val selectedProfile = state.profileUid
                 val androidContext = androidx.compose.ui.platform.LocalContext.current
                 androidx.compose.material3.TextButton(onClick = { androidContext.startActivity(android.content.Intent(androidContext, OwnerPairingActivity::class.java)) }) { Text("Pair a Windows Gateway") }
-                val pairedOwner = gateway?.let { dev.chungjungsoo.gptmobile.data.pairing.OwnerGateway.forUrl(it.apiUrl) }
-                if (pairedOwner != null && gateway != null) {
-                    OwnerGatewayControls(pairedOwner, gateway.name, profileUid = selectedProfile, appEngineering = state.profileSettings.engineeringMode != dev.chungjungsoo.gptmobile.data.context.EngineeringMode.OFF)
-                } else if (gateway != null && selectedProfile != null && onAdmissionSetting != null) {
-                    key(selectedProfile, gateway) {
-                        GatewayAdmissionControl { previous -> onAdmissionSetting(selectedProfile, gateway.uid, previous) }
-                    }
-                }
+                OutlinedButton(onClick = { controlGateway = gateway?.uid }, enabled = gateway != null, modifier = Modifier.testTag("github_gateway_controls")) { Text("Engineering & Gateway settings") }
+                Text("Shares the confirmed PC settings with Settings › Gateway. Pair this phone and confirm the target before enabling owner Engineering.", style = MaterialTheme.typography.bodySmall)
                 var batchModeOpen by remember(state.profileUid, gateway) { mutableStateOf(false) }
                 var availableModes by remember(batchModeOpen, state.profileUid, gateway) { mutableStateOf<Set<String>?>(null) }
                 androidx.compose.runtime.LaunchedEffect(batchModeOpen, state.profileUid, gateway) {

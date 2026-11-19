@@ -43,7 +43,7 @@ class NetworkClient @Inject constructor(
     /** Only bounded gateway GETs use this pool; mutations and event streams keep the ordinary client. */
     internal fun gatewayReadClient(): HttpClient = gatewayReads
 
-    private fun createClient(pool: ConnectionPool): HttpClient = HttpClient(if (httpEngine == OkHttp) dev.chungjungsoo.gptmobile.data.pairing.PairedGatewayEngine else httpEngine) {
+    private fun createClient(pool: ConnectionPool): HttpClient = HttpClient(httpEngine) {
         install(PrivateMetadataGate)
         install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
         if (httpEngine == OkHttp) {

@@ -125,7 +125,8 @@ class GatewayEngineeringRepository @Inject constructor(
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == binding.profileUid && it.enabled }
             ?: error("The saved engineering AI profile is unavailable. The gateway job is retained.")
         check(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile) && profile.apiUrl.trimEnd('/') == binding.endpoint) { "The saved job requires its original local Llama or Ollama engineering connection. Restore that profile to reconnect." }
-        return ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid)
+        val config = ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid)
+        return if (binding.gatewayId != null && binding.principalId != null) config.withGatewayIdentity(GatewayScopeIdentity(gatewayId = binding.gatewayId, principalId = binding.principalId)) else config
     }
 
     /** False means an explicitly unsupported protocol, never temporary capacity or transport failure. */
@@ -239,15 +240,16 @@ class GatewayEngineeringRepository @Inject constructor(
             settings.fetchPlatformV2s().singleOrNull { it.uid == savedBinding.connectionProfileUid && it.enabled && it.apiUrl.trimEnd('/') == savedBinding.endpoint }
                 ?: error("Restore the original gateway connection before replying to this saved conversation.")
         }
-        val capability = client.capabilities(gateway.engineeringConfig())
+        val frozenConfig = gateway.engineeringConfig()
+        val retainedConfig = savedBinding?.let { frozenConfig.withGatewayIdentity(GatewayScopeIdentity(gatewayId = it.gatewayId, principalId = it.principalId)) } ?: frozenConfig
+        val capability = client.capabilities(retainedConfig)
         if (runId != null) check(capability.supportsDurableChat) { "This gateway does not support durable chat admission. Update it before sending this saved turn." }
         capability.requireJobReadiness()
         val principal = requireNotNull(capability.principalId)
-        val frozenConfig = gateway.engineeringConfig()
-        val identity = if (capability.conversationSync) history.identity(frozenConfig) else null
+        val identity = if (capability.conversationSync) history.identity(retainedConfig) else null
         check(identity == null || identity.principalId == principal) { "The authenticated gateway account changed before binding admission." }
         if (savedBinding != null) check(savedBinding.principalId == principal && savedBinding.gatewayId == identity?.gatewayId) { "The original gateway or account changed. The saved conversation was retained." }
-        val admissionConfig = identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig
+        val admissionConfig = identity?.let { retainedConfig.withGatewayIdentity(it) } ?: retainedConfig
         val savedSnapshot = savedBinding?.snapshot?.let { Json { ignoreUnknownKeys = true }.decodeFromString<GatewayConversationSnapshot>(it) }
         val connection = profile.providerConnectionUid?.let { settings.getProviderConnection(it) }
         val originalExecution = savedSnapshot?.executionBinding

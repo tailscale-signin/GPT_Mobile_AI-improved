@@ -362,10 +362,11 @@ class GatewayJobRecoveryApprovalTest {
         val conversations = mockk<GatewayConversationRepository>()
         private val settings = mockk<SettingRepository>()
         private val owner = ViewModelStore()
-        val config = ProviderRequestConfig("https://approval.gateway.invalid/v1", "original-credential", profileUid = "original-connection")
-        val route = GatewayJobRoute("original-connection", config.apiUrl, config)
-        var currentRoute = route
         val identity = GatewayScopeIdentity("gateway", "owner")
+        val originalConfig = ProviderRequestConfig("https://approval.gateway.invalid/v1", "original-credential", profileUid = "original-connection")
+        val config = originalConfig.withGatewayIdentity(identity)
+        val route = GatewayJobRoute("original-connection", config.apiUrl, originalConfig)
+        var currentRoute = route
         val summary = GatewayJobSummary(
             jobId = "eng_" + "a".repeat(32),
             jobKind = "engineering",

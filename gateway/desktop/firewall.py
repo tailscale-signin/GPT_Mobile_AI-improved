@@ -2,6 +2,8 @@
 import base64
 import ctypes
 import hashlib
+import ipaddress
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -13,6 +15,23 @@ def rule_name(root):
     return 'GPTMobileGateway-' + hashlib.sha256(os.path.abspath(os.fspath(root)).casefold().encode()).hexdigest()[:24]
 
 
+def control_listener(root):
+    path = Path(root) / 'data' / 'control-listener.json'
+    if path.stat().st_size > 4096:
+        raise ValueError('The saved control listener is invalid.')
+    listener = json.loads(path.read_text(encoding='utf-8'))
+    if not isinstance(listener, dict) or set(listener) != {'host', 'port'}:
+        raise ValueError('Enable the owner control listener first.')
+    address = ipaddress.ip_address(listener['host'])
+    private_networks = ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', 'fc00::/7')
+    if not any(address in ipaddress.ip_network(network) for network in private_networks):
+        raise ValueError('Choose a private LAN or VPN control interface first.')
+    port = listener['port']
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError('The saved control port is invalid.')
+    return dict(port=port, bind_host=str(address), access='network')
+
+
 def apply(root, remove=False, *, phone=False):
     if os.name != 'nt':
         raise RuntimeError('Windows Firewall is available on Windows only')
@@ -20,14 +39,7 @@ def apply(root, remove=False, *, phone=False):
     cfg = None
     if not remove:
         if phone:
-            import ipaddress
-            import json
-            from desktop.phone_access import directory
-            listener = json.loads((directory(root) / 'listener.json').read_text())
-            addr = ipaddress.ip_address(listener['host'])
-            if not any(addr in ipaddress.ip_network(net) for net in ('10.0.0.0/8', '192.168.0.0/16', '172.16.0.0/12')):
-                raise ValueError('Choose a private IPv4 interface first')
-            cfg = dict(port=int(listener['port']), bind_host=str(addr), access='network')
+            cfg = control_listener(root)
         else:
             cfg = load(root)
         if cfg['access'] != 'network':

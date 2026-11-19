@@ -1,0 +1,65 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "326683b484f9fea4dfc585fc9732f4b3b97d9068",
+  "start_sha": "f3ce4a79bee75682f375fead0dc52bc313d547bd",
+  "working_branch": "fix/post-1534-runtime-continuation-and-acceptance-2026-11-18",
+  "existing_pr": 1741,
+  "intent": "Complete the missing five-second chat arrow hold, native Windows Gateway setup/dashboard, and paired Android-to-Gateway settings from the November 19 recap and saved Gateway rebuild design; preserve concurrent branch work and qualify the actual integration.",
+  "state": "SOURCE_COMPLETE_VALIDATION_IN_PROGRESS",
+  "source_design": "Gateway-Rebuild-Design.pdf, November 19 2026, ten pages, baseline 8c83ef1801fa",
+  "observed_concurrent_work": {
+    "arrow_hold": "Already implemented at f3ce4a79 with a Compose regression; preserve and check edge cases.",
+    "legacy_admission_control": "f3ce4a79 adds account-scoped saved-job admission; it does not authorize paired owner management on shared network connections.",
+    "native_setup": "Retained the canonical four-step WPF setup, extracted theme and installed three-tab GitHub settings smoke from 5ed26061c/dcf1adea7. Route workspace compatibility commands to the full native dashboard instead of packaging competing workspaces.",
+    "other_updates": "Retained the concurrent BouncyCastle 1.86 alignment, Hilt mirror metadata, provider stream bounds, PDF viewport and stale-source cleanup changes.",
+    "legacy_owner_panel": "Preserved the new PC Job admission panel and its identity/revision checks. Paired owners use canonical shared settings; legacy local-owner edits advance the same canonical revision.",
+    "owner_control_consolidation": {
+      "source_commit": "d8d71fa5ec47084b7ef357e9617e032de8ffbbfb",
+      "preserved_snapshot": "58b9dc463 (local safety snapshot before final ancestry integration)",
+      "decision": "Use one supervisor-owned revisioned control plane. Consolidate the unreleased alternative mTLS owner store/listener into the signed paired-owner implementation; preserve the incoming commit in ancestry.",
+      "retained_features": [
+        "Pairing deep-link activity and compact chat control entry point",
+        "Installation-specific control-port firewall rule and cleanup",
+        "Useful owner/viewer, invitation, revocation and activation regressions",
+        "Host-approved immutable validation selection with repository scope and guarded activation",
+        "Bounded host-review notes with durable waiting/reviewed receipts and no privileged execution",
+        "Exact approved model-backend choices; host approval probes without switching the active route",
+        "Persisted last-confirmed Android snapshot with explicit offline read-only state",
+        "Windows DPAPI API signatures and unmanaged-buffer cleanup in the canonical key protector"
+      ],
+      "reason": "Two independent settings journals and principal namespaces cannot provide one confirmed revision or coherent ownership. The retained protocol includes local claim confirmation, scoped fields/repositories, durable rejected/superseded command receipts and original-owner routing.",
+      "migration": "Do not infer grants or transfer accepted jobs from the superseded prototype. Leave existing data files untouched; require explicit canonical pairing and retain host-only inspection of historical receipts.",
+      "latest_source_commit": "d261c0b03ba1d8ea3d509760d3b90a08f96c13ea"
+    },
+    "provider_recovery": "Retained the privacy-safe interrupted, rejected and unsent provider recovery changes in 98d934e8e7b26650cf32ff2d8946fd3e0dd34311, including their Android regressions and reporter error codes.",
+    "latest_repairs": "Preserved encrypted chat upgrade repairs, exact-main Android/Windows release-pair verification, emulator reproducibility and dependency publisher metadata through d261c0b03. Do not execute publication or weaken required checks. Preserved the separate bounded KSP/KAPT release-generation stages in 019a1186770093574e289a260586efc6de804f7a."
+  },
+  "acceptance": {
+    "native_setup_and_dashboard": "IMPLEMENTED: retained canonical setup; native WPF dashboard builds/publishes for win-x64; actual Windows smoke pending.",
+    "paired_revisioned_controls": "IMPLEMENTED: 29 canonical settings/policy/host-request/real-TLS tests, 29 engineering HTTP tests and 2 companion TLS compatibility tests pass before final broad verification.",
+    "identity_revocation_conflict_and_recovery": "PASS: host control regressions and real loopback TLS pairing, original receipt, stale edit, replay and revocation integration; final integrated full suite pending.",
+    "android_behavior": "PARTIAL VERIFICATION: 22 actual-source supplemental JVM tests pass; full Gradle/Hilt/Compose validation pending. Framework boundaries in the supplemental harness are scaffolded.",
+    "windows_build_and_install": "BUILD PASS: both canonical setup and full native dashboard self-contained win-x64 publishes pass; 23 C# assertions, 19 native bridge tests, 5 host integration tests and 2 encrypted identity tests pass. Installed Windows smoke remains pending.",
+    "exact_commit_ci": "PENDING",
+    "physical_android_windows": "NOT_RUN",
+    "live_provider_copilot": "NOT_RUN",
+    "authentication_and_reporting": "PASS: 175 tests on the inherited provider-recovery and reporter changes.",
+    "host_fast_validation": "PASS: canonical fast validation, 552 host tests plus CI policy, dependency catalog, metadata, resource, regex, secret scan and whitespace gates.",
+    "gateway_full_validation": "PASS after targeted expectation correction: all 112 isolated suites exercised 1,511 Python cases (1,483 passed, 28 platform skips) plus 7 browser tests. The sole stale dashboard default-view expectation was corrected while retaining its full call and no-firewall assertions; all 15 dashboard cases reran successfully. Full driver log gateway-full-stable.log.",
+    "capability_contract": "PASS: canonical v17 and byte-identical Android fixture captured from actual standalone HTTP response; all 4 capability route/identity/full-response tests pass. Historical fixtures retained.",
+    "native_pairing_roles": "PASS: explicit Owner/Viewer selection, Viewer sends zero writable fields, native compilation and 19 bridge plus 2 targeted permission/confirmation tests pass."
+  },
+  "publication": "Use only the existing PR branch, reconcile concurrent head changes, preserve all release and required-check gates.",
+  "integration_base_sha": "b586ef73562aced744ef4d39138cb05b0ef1ba69",
+  "review_findings": [
+    "Reject legacy admission-setting writes through the paired proxy so revisions cannot be bypassed.",
+    "Constrain repository lifecycle operations to approved repository scope; new destinations require host approval.",
+    "Recover only matching installation/owner/command receipts; definite rejected and superseded receipts resolve uncertainty.",
+    "Expose matching device key fingerprints on Windows and Android for local pairing confirmation.",
+    "Reject backend self-routing against the actual running listener, including a custom port; never probe or activate the Gateway as its own backend.",
+    "Bind saved-job cancellation and recovery approval reads to the retained installation and principal before any mutation.",
+    "Retain the full original settings request and allow an explicit retry only after definitive absent-receipt and unchanged-target checks.",
+    "Preserve saved chat model identity even when the current model catalogue does not contain it; chart measured benchmark distributions without inventing a score."
+  ]
+}

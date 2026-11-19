@@ -47,12 +47,12 @@ class PrincipalResolver:
                 return None
             return Principal("local:manager", frozenset({"chat"}), True)
         if self.config.mode == "open_network":
-            # Explicit key-free network mode has one shared identity. Client
-            # headers never select a user, job owner or administrative privilege.
-            scopes = {"chat", "jobs", "tools"}
-            if self.config.remote_engineering:
-                scopes.add("engineering")
-            return Principal("network:shared", frozenset(scopes))
+            # This is a key-free shared network identity, NOT a paired owner.
+            # The legacy remote_engineering flag cannot authenticate a device
+            # or grant its owner scoped control. Retain legacy chat/jobs/tools;
+            # future controlSettings.v1 writes require a separate device-bound
+            # management channel and a locally approved, revocable grant.
+            return Principal("network:shared", frozenset({"chat", "jobs", "tools"}))
         if not local_peer:
             return None
         if self.config.legacy_bearer and headers.get("authorization", "").lower().startswith("bearer "):

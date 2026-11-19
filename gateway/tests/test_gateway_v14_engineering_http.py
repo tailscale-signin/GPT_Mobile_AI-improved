@@ -656,3 +656,40 @@ class EngineeringHTTPTests(unittest.TestCase):
         self.assertEqual([job['id']], self.store.due())
         self.assertEqual('CI', self.store.get(job['id'])['state'])
         self.assertNotIn('merge', self.backend.calls)
+
+
+class SharedNetworkEngineeringAdmissionRegressionTests(unittest.TestCase):
+    def test_legacy_network_engineering_flag_does_not_grant_unpaired_clients_owner_controls(self):
+        # A reachable LAN listener and the old remote flag are not pairing evidence.
+        # An old phone can still chat and inspect its existing shared jobs.
+        for legacy_remote_flag in (False, True):
+            with self.subTest(remote_engineering=legacy_remote_flag):
+                app = FastAPI()
+
+                @app.get('/gateway/capabilities')
+                def ordinary_capabilities():
+                    return {'available': True}
+
+                @app.get('/gateway/engineering/capabilities')
+                def privileged_capabilities():
+                    return {'unexpected': 'engineering authorization'}
+
+                app.add_middleware(
+                    Admission,
+                    config=Config(
+                        mode='open_network', host='0.0.0.0',
+                        allowed_hosts=('testserver',), allowed_origins=(),
+                        remote_engineering=legacy_remote_flag,
+                    ),
+                )
+                for ip in ('192.0.2.10', '192.0.2.11'):
+                    with TestClient(app, client=(ip, 42933)) as client:
+                        available = client.get('/gateway/capabilities')
+                        self.assertEqual(200, available.status_code, available.text)
+                        self.assertTrue(available.json()['available'])
+                        blocked = client.get('/gateway/engineering/capabilities')
+                        self.assertEqual(403, blocked.status_code, blocked.text)
+                        self.assertEqual('engineering_scope_required', blocked.json()['error']['code'])
+                        denied_write = client.post('/gateway/engineering/jobs', json={})
+                        self.assertEqual(403, denied_write.status_code, denied_write.text)
+                        self.assertEqual('engineering_scope_required', denied_write.json()['error']['code'])

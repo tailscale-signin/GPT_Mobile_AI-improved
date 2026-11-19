@@ -202,7 +202,8 @@ fun ChatScreen(
     onExportHandled: () -> Unit = {},
     bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
-    CompositionLocalProvider(LocalUniversalProgressInHeader provides showTopBar) {
+    val mediaPreview = rememberChatMediaPreview(chatViewModel.chatRoom, chatViewModel::addSelectedFile, chatViewModel::notifyAttachmentCopyFailed)
+    CompositionLocalProvider(LocalUniversalProgressInHeader provides showTopBar, LocalChatMediaPreview provides mediaPreview) {
         ConversationViewport { viewportWidth, viewportHeight ->
             ChatScreenContent(
                 chatViewModel = chatViewModel,
@@ -994,7 +995,8 @@ private fun ChatScreenContent(
                         // of the input surface to transparent halfway through the bar.
                         bottomFadeStartFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight else 0.dp,
                         bottomFadeEndFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight * 0.5f else 0.dp,
-                        contentVisible = entryPositioned || groupedMessages.userMessages.isEmpty()
+                        contentVisible = entryPositioned || groupedMessages.userMessages.isEmpty(),
+                        topFadeConcentration = if (embeddedHeaderHeight > 0.dp) embeddedHeaderExpansion else chatHeaderExpansion
                     ),
                 state = listState,
                 contentPadding = PaddingValues(top = innerPadding.calculateTopPadding() + embeddedHeaderHeight, bottom = composerHeight + 16.dp)
@@ -1218,6 +1220,12 @@ private fun ChatScreenContent(
                 }
                 if (chatToolConfig.github != null) {
                     chatToolConfig.github?.let { github ->
+                        val ownerTarget = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(appAllPlatforms, featureSettings.githubProfileOverrides[github.mainProfileUid]?.engineeringGatewayProfileUid)
+                        if (ownerTarget != null) {
+                            item(key = "gateway-owner-control") {
+                                dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayControlChatEntry(ownerTarget)
+                            }
+                        }
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
                 }
@@ -1336,7 +1344,9 @@ private fun ChatScreenContent(
                             Text(stringResource(R.string.next_message_label, enabledPlatformLookup[uid]?.name ?: uid))
                         }
                     }
+                    val pickScanPage = rememberScanPagePicker(chatViewModel.chatRoom, chatViewModel::addSelectedFile)
                     ChatInputBox(
+                        onPickScanPage = pickScanPage,
                         modifier = Modifier.fillMaxWidth(),
                         inputState = chatViewModel.question,
                         diagnostics = composerDiagnostics,
@@ -2648,7 +2658,7 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
         }
         val file = if (format == ChatExportFormat.DEBUG) {
             withContext(Dispatchers.IO) {
-                val output = context.getExternalFilesDir(null) ?: File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                val output = File(context.cacheDir, "chat-exports").apply { mkdirs() }
                 chatViewModel.exportDebugFile(output, reducedMemory, resume, fullHistory)
             }
         } else {
@@ -2658,7 +2668,7 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
                 return
             }
             withContext(Dispatchers.IO) {
-                val output = context.getExternalFilesDir(null) ?: File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                val output = File(context.cacheDir, "chat-exports").apply { mkdirs() }
                 val destination = File(output, fileName)
                 val staging = File(destination.parentFile, ".${destination.name}.partial")
                 try {
@@ -2761,6 +2771,7 @@ fun ChatInputBox(
     workflows: List<dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow> = emptyList(),
     isPreparingSend: Boolean = false,
     diagnostics: ComposerInputDiagnostics? = null,
+    onPickScanPage: (() -> Unit)? = null,
     onSendButtonClick: () -> Unit = {}
 ) {
     val localStyle = LocalTextStyle.current
@@ -2969,10 +2980,16 @@ fun ChatInputBox(
                                             Icon(Icons.Rounded.AttachFile, contentDescription = stringResource(R.string.attach_file))
                                         }
                                         DropdownMenu(expanded = attachmentMenu, onDismissRequest = { attachmentMenu = false }) {
-                                            listOf(R.string.attach_images to "image/*", R.string.attach_documents to "application/pdf", R.string.attach_any_file to "*/*").forEach { (label, mime) ->
+                                            listOf(R.string.attach_images to "image/*", R.string.attach_audio to "audio/*", R.string.attach_documents to "application/pdf", R.string.attach_any_file to "*/*").forEach { (label, mime) ->
                                                 DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = {
                                                     attachmentMenu = false
                                                     filePickerLauncher.launch(mime)
+                                                })
+                                            }
+                                            if (onPickScanPage != null) {
+                                                DropdownMenuItem(text = { Text("Attach scanned PDF page") }, onClick = {
+                                                    attachmentMenu = false
+                                                    onPickScanPage()
                                                 })
                                             }
                                         }

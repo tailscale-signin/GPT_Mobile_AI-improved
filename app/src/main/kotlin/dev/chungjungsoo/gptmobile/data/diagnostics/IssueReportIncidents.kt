@@ -200,7 +200,7 @@ internal object IssueReportIncidents {
                 evidence
             }
             val capturedBudgetKind = toolContext?.diagnostics?.values?.get("tool_budget_kind") != null
-            val sourceBudgetKind = reportSource == "TOOL_RESULT" && evidence["tool_budget_kind"] in setOf("CALLS", "RESULT_BYTES", "BOTH")
+            val sourceBudgetKind = reportSource == "TOOL_RESULT" && evidence["tool_budget_kind"] in setOf("CALLS", "RESULT_BYTES", "BOTH", "COMBINED_WORK")
             val toolBudget = toolPrecheck && (capturedBudgetKind || sourceBudgetKind)
             // Exhaustion can accompany the last admitted call's specific failure; it is not its cause.
             val fallbackCode = if (toolBudget) {
@@ -266,11 +266,13 @@ internal object IssueReportIncidents {
                 is JsonPrimitive -> value.contentOrNull
                 else -> null
             }
+            val rawPhase = fields["phase"]
             val reportFields = if (
                 feature == ReportFeature.TOOLS &&
                 reportSource == "TOOL_RESULT" &&
                 toolDispatchPhase in setOf("READ_FAILED", "OBSERVED", "FAILED") &&
-                listOf("failed_stage", "failedStage", "failurePhase", "phase", "stage").none { it in fields }
+                listOf("failed_stage", "failedStage", "failurePhase", "stage").none { it in fields } &&
+                (rawPhase == null || rawPhase == toolDispatchPhase || (rawPhase as? JsonPrimitive)?.contentOrNull == toolDispatchPhase)
             ) {
                 fields + ("failed_stage" to "tool_execution")
             } else {
@@ -355,6 +357,35 @@ internal object IssueReportIncidents {
                 input.remoteAcceptance == "NO" &&
                 input.requiresReconciliation != true &&
                 rejection == "PERMISSION"
+        val providerReceipt = input.diagnostics?.values
+        val rejectedProviderAttempt = !localRecovery &&
+            specificCode == null &&
+            input.provider != null &&
+            input.dispatched == true &&
+            input.remoteAcceptance == "NO" &&
+            input.requiresReconciliation != true &&
+            (
+                input.stage in setOf("model_invocation", "provider_generation") ||
+                    input.stage == "claim_extraction" &&
+                    providerReceipt?.get("provider_failure_domain") == kotlinx.serialization.json.JsonPrimitive("PROVIDER") &&
+                    providerReceipt["provider_failure_stage"] == kotlinx.serialization.json.JsonPrimitive("CLAIM_VERIFICATION") ||
+                    providerReceipt?.get("provider_failure_domain") == kotlinx.serialization.json.JsonPrimitive("PROVIDER") &&
+                    providerReceipt["provider_failure_stage"] in setOf(kotlinx.serialization.json.JsonPrimitive("GENERATION"), kotlinx.serialization.json.JsonPrimitive("CONTINUATION"))
+                )
+        val rejectedHttpCode = if (rejectedProviderAttempt) {
+            when (input.httpStatus) {
+                401 -> "AUTHENTICATION_FAILED"
+                404 -> when (rejection) {
+                    "MODEL_UNAVAILABLE" -> "SELECTED_MODEL_NOT_AVAILABLE"
+                    "NOT_FOUND" -> "SOURCE_UNAVAILABLE"
+                    else -> "SOURCE_HTTP_ERROR"
+                }
+                400, 422 -> if (rejection in setOf("INVALID_REQUEST", "PAYLOAD_SIZE")) "PROVIDER_PAYLOAD_ERROR" else "SOURCE_HTTP_ERROR"
+                else -> null
+            }
+        } else {
+            null
+        }
         val observedRateLimit = if (!localRecovery && specificCode == null && !rateLimited) {
             input.provider != null &&
                 input.stage in setOf("model_invocation", "provider_generation") &&
@@ -371,6 +402,7 @@ internal object IssueReportIncidents {
         } else {
             specificCode ?: when {
                 observedPermissionDenial -> "SOURCE_ACCESS_BLOCKED"
+                rejectedHttpCode != null -> rejectedHttpCode
                 rateLimited || observedRateLimit -> "PROVIDER_RATE_LIMITED"
                 else -> "CHAT_FAILED"
             }
@@ -392,6 +424,17 @@ internal object IssueReportIncidents {
                 "provider_failure_stage" to "GENERATION",
                 "provider_failure_code" to publicCode
             )
+        } else if (publicCode == PrivacyFailureEvidence.CODE) {
+            fields + mapOf(
+                "diagnostic_area" to "PROVIDER",
+                "diagnostic_capture_mode" to "INCIDENT",
+                "provider_failure_code" to publicCode,
+                "failure_origin" to "APPLICATION"
+            ) + when (input.stage) {
+                "provider_admission" -> mapOf("provider_failure_stage" to "ADMISSION")
+                "provider_generation" -> mapOf("provider_failure_stage" to "GENERATION")
+                else -> emptyMap()
+            }
         } else if (publicCode in setOf("GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_PROFILE_LOCKED", "GITHUB_COOLDOWN_ACTIVE")) {
             fields + mapOf(
                 "diagnostic_area" to "PROVIDER",
@@ -422,7 +465,7 @@ internal object IssueReportIncidents {
         } else {
             fields
         }
-        val recoveryFields = if (observedPermissionDenial) {
+        val recoveryFields = if (observedPermissionDenial || rejectedHttpCode == "AUTHENTICATION_FAILED") {
             diagnosticFields + mapOf(
                 "retryable" to false,
                 "recovery_action" to "RETRY_AFTER_CONFIGURATION_CHANGE"

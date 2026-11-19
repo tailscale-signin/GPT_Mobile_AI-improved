@@ -523,7 +523,9 @@ class UpdateTransactionTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)
         bundle(self.root/'releases'/'15.0.1')
         atomic_json(self.root/'current.json',{'version':'15.0.0'})
-        self.manager=Supervisor.__new__(Supervisor);self.manager.root=self.root
+        self.manager=Supervisor.__new__(Supervisor)
+        self.manager._request_claimed = self.manager._request_busy = False
+        self.manager.root = self.root
         for method in ('stop','backup','spawn','control','publish','discard_failed_start'):
             setattr(self.manager,method,Mock())
         self.manager.log=Mock()
@@ -547,6 +549,17 @@ class UpdateTransactionTests(unittest.TestCase):
         self.assertIs(manager.observer_thread, observer)
         observer.start.assert_called_once_with()
         self.assertFalse((self.root / 'notified.json').exists())
+
+    def test_windows_control_file_sharing_failures_preserve_the_request_for_one_dispatch(self):
+        path = self.root / 'request.json'
+        atomic_json(path, {'action': 'stop', 'id': 'real-stop'})
+        with patch('desktop.manager.sys.platform', 'win32'):
+            with patch.object(Path, 'read_text', side_effect=PermissionError('busy reader')):
+                self.assertEqual((None, None), self.manager.take_control_request())
+            with patch.object(Path, 'unlink', side_effect=PermissionError('busy file')):
+                self.assertEqual((None, None), self.manager.take_control_request())
+            self.assertEqual(('stop', 'real-stop'), self.manager.take_control_request())
+            self.assertEqual((None, None), self.manager.take_control_request())
 
     def test_watchdog_keeps_trying_after_five_crashes_and_records_recovery(self):
         manager = self.manager
@@ -668,8 +681,25 @@ class UpdateTransactionTests(unittest.TestCase):
             self.manager.activate('14.9.0')
         self.manager.stop.assert_not_called()
 
+    def test_windows_locked_request_is_consumed_once_and_preserves_the_next_command(self):
+        manager = self.manager
+        inbox = self.root / 'request.json'
+        atomic_json(inbox, {'action': 'check', 'id': 'first'})
+        with patch('desktop.manager.sys.platform', 'win32'), patch.object(Path, 'read_text', side_effect=PermissionError(13, 'sharing')):
+            self.assertEqual((None, None), manager.take_control_request())
+        atomic_json(inbox, {'action': 'stop', 'id': 'second'})
+        self.assertEqual(('check', 'first'), manager.take_control_request())
+        self.assertEqual(('stop', 'second'), manager.take_control_request())
+        self.assertEqual((None, None), manager.take_control_request())
+
+    def test_new_supervisor_does_not_replay_a_command_claimed_before_a_crash(self):
+        atomic_json(self.root / 'request.claimed.json', {'id': 'abandoned', 'action': 'stop'})
+        self.assertEqual((None, None), self.manager.take_control_request())
+        atomic_json(self.root / 'request.json', {'id': 'new', 'action': 'check'})
+        self.assertEqual(('check', 'new'), self.manager.take_control_request())
+
     def test_stopping_absent_supervisor_does_not_stop_next_launch(self):
-        self.assertTrue(request(self.root,'stop',timeout=1)['accepted'])
+        self.assertEqual({'accepted': True, 'supervisorAbsent': True}, request(self.root, 'stop', timeout=1))
         self.assertFalse((self.root/'request.json').exists())
 
 

@@ -462,6 +462,23 @@ class ProviderFailureReportTest {
         assertFalse(capture.toString().contains("private"))
     }
 
+    @Test fun upstream429ReportsHeaderOrBackoffAndCountWithoutInferringScheduledRecovery() {
+        for ((source, expected) in listOf("RETRY_AFTER" to "PROVIDER_HEADER", "APP_BACKOFF" to "LOCAL_BACKOFF", "untrusted" to null)) {
+            val failure = ProviderEvent.Failed(
+                "rate limited",
+                errorCode = "PROVIDER_RATE_LIMITED",
+                failureDetails = buildJsonObject {
+                    put("retry_source", source)
+                    put("consecutive_rejections", 2)
+                }
+            )
+            val fields = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
+            assertEquals(expected?.let(::JsonPrimitive), fields["retry_delay_source"])
+            assertEquals(JsonPrimitive(2), fields["provider_consecutive_rejections"])
+            assertNull(fields["recovery_observation"])
+        }
+    }
+
     @Test fun cooldownReportDistinguishesWaitEligibilityFromCheckpointAvailability() {
         val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision(
             provider = "LLAMA",
@@ -547,6 +564,38 @@ class ProviderFailureReportTest {
         assertEquals(JsonPrimitive(researchHash(profile.model)), fields["model_hash"])
         assertEquals(JsonPrimitive(128), fields["effective_output_limit"])
         assertEquals(1, source.calls)
+    }
+
+    @Test fun localBudgetRefusalKeepsEarlierHttpAndUsageOffItsReceipt() = runBlocking {
+        val timing = dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming(httpStatus = 502, serverRequestId = "previous-request")
+        val local = ProviderEvent.Failed(
+            "Stopped at local budget",
+            errorCode = "BUDGET_RESTRICTED",
+            failureDetails = buildJsonObject {
+                put("provider_local_budget_block", true)
+                put("failed_stage", "provider_admission")
+                put("request_replay_allowed", false)
+            }
+        )
+        val source = Session(listOf(ProviderEvent.Usage(providerResponseTiming = timing, outputTokens = 32), local))
+        val events = withContext(RequestDispatchContext(emptySet(), "run", "same-invocation")) {
+            withProviderFailureReceipts(source, "run", profile, "primary").streamRound(emptyList(), emptyList()).toList()
+        }
+        assertEquals(32, events.filterIsInstance<ProviderEvent.Usage>().single().outputTokens)
+        val fields = requireNotNull(events.filterIsInstance<ProviderEvent.Failed>().single().failureDetails)
+        assertEquals(JsonPrimitive("BUDGET_RESTRICTED"), fields["provider_failure_code"])
+        assertEquals(JsonPrimitive("APPLICATION"), fields["failure_origin"])
+        assertEquals(JsonPrimitive("ADMISSION"), fields["provider_failure_stage"])
+        assertEquals(JsonPrimitive("APPLICATION_VERIFICATION"), fields["provider_failure_domain"])
+        assertEquals(JsonPrimitive(false), fields["request_replay_allowed"])
+        for (key in listOf("http_status", "server_request_id", "generation_id", "output_tokens")) assertNull(key, fields[key])
+    }
+
+    @Test fun successfulHttpResponseDoesNotClassifyAnUnknownLogicalFailureAsHttpError() {
+        val failure = ProviderEvent.Failed("incomplete answer", failureDetails = buildJsonObject { put("http_status", 200) })
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+        assertEquals(200, receipt.httpStatus)
+        assertEquals("UNCLASSIFIED_PROVIDER_FAILURE", receipt.errorCode)
     }
 
     @Test fun eachRoundAndMissingOwnerKeepUnknownMeasurementsUnknown() = runBlocking {

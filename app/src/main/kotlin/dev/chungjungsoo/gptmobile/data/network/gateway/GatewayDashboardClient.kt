@@ -256,38 +256,41 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
 
     private suspend fun readReadiness(config: ProviderRequestConfig, model: String?): GatewayReadinessObservation? {
         val endpoint = config.buildEndpoint("gateway/ready")
-        return LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
-            gatewayClientExchange(config, "readiness", safeRead = true) { requestHeaders ->
-                val started = elapsedMillis()
-                http.prepareGet(endpoint) {
-                    config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                    requestHeaders.filterKeys { !it.equals("X-Gateway-Management", true) }.forEach { (key, value) -> header(key, value) }
-                    if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
-                    model?.takeIf(String::isNotBlank)?.let { parameter("model", it) }
-                    timeout {
-                        connectTimeoutMillis = 2_000
-                        requestTimeoutMillis = 5_000
-                        socketTimeoutMillis = 5_000
-                    }
-                }.execute { response ->
-                    GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
-                    if (response.status.value in setOf(404, 405, 501)) return@execute null
-                    if (response.status.value in setOf(401, 403)) throw GatewayDashboardAccessDenied()
-                    check(response.status.value in setOf(200, 503)) { "Gateway readiness is unavailable (HTTP ${response.status.value})." }
-                    val readiness = withContext(Dispatchers.Default) {
-                        val body = Json.parseToJsonElement(response.boundedMetadata(128_000)) as? JsonObject ?: error("Invalid gateway readiness.")
-                        val received = elapsedMillis()
-                        val parsed = parseGatewayReadiness(body, response.status.value, model, System.currentTimeMillis(), received)
-                        // The server age excludes travel to the client. Counting
-                        // the bounded round trip conservatively avoids extending
-                        // old model evidence while a response is in transit.
-                        val travel = (received - started).takeIf { it >= 0 } ?: Long.MAX_VALUE
-                        val age = parsed.observationAgeMillis ?: 0
-                        parsed.copy(observationAgeMillis = if (travel > Long.MAX_VALUE - age) Long.MAX_VALUE else age + travel)
-                    }
-                    GatewayClientDiagnostics.readiness(config, requestHeaders, readiness, model)
-                    readiness.also {
-                        GatewayClientDiagnostics.observeInstance(config, it.instanceId)
+        return dev.chungjungsoo.gptmobile.data.network.PrivateGatewayMetadata.withReadiness(endpoint, model) { grant ->
+            LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
+                gatewayClientExchange(config, "readiness", safeRead = true) { requestHeaders ->
+                    val started = elapsedMillis()
+                    http.prepareGet(endpoint) {
+                        grant?.let { attributes.put(dev.chungjungsoo.gptmobile.data.network.PrivateGatewayMetadata.grantKey, it) }
+                        config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                        requestHeaders.filterKeys { !it.equals("X-Gateway-Management", true) }.forEach { (key, value) -> header(key, value) }
+                        if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+                        model?.takeIf(String::isNotBlank)?.let { parameter("model", it) }
+                        timeout {
+                            connectTimeoutMillis = 2_000
+                            requestTimeoutMillis = 5_000
+                            socketTimeoutMillis = 5_000
+                        }
+                    }.execute { response ->
+                        GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+                        if (response.status.value in setOf(404, 405, 501)) return@execute null
+                        if (response.status.value in setOf(401, 403)) throw GatewayDashboardAccessDenied()
+                        check(response.status.value in setOf(200, 503)) { "Gateway readiness is unavailable (HTTP ${response.status.value})." }
+                        val readiness = withContext(Dispatchers.Default) {
+                            val body = Json.parseToJsonElement(response.boundedMetadata(128_000)) as? JsonObject ?: error("Invalid gateway readiness.")
+                            val received = elapsedMillis()
+                            val parsed = parseGatewayReadiness(body, response.status.value, model, System.currentTimeMillis(), received)
+                            // The server age excludes travel to the client. Counting
+                            // the bounded round trip conservatively avoids extending
+                            // old model evidence while a response is in transit.
+                            val travel = (received - started).takeIf { it >= 0 } ?: Long.MAX_VALUE
+                            val age = parsed.observationAgeMillis ?: 0
+                            parsed.copy(observationAgeMillis = if (travel > Long.MAX_VALUE - age) Long.MAX_VALUE else age + travel)
+                        }
+                        GatewayClientDiagnostics.readiness(config, requestHeaders, readiness, model)
+                        readiness.also {
+                            GatewayClientDiagnostics.observeInstance(config, it.instanceId)
+                        }
                     }
                 }
             }

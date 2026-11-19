@@ -37,6 +37,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.LocalDelegationCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.SharedToolCallBroker
+import dev.chungjungsoo.gptmobile.data.agent.tool.executionAdmission
 import dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
@@ -108,6 +109,8 @@ import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import dev.chungjungsoo.gptmobile.data.network.gateway.observedResponseSource
 import dev.chungjungsoo.gptmobile.data.orchestration.assistEnabled
 import dev.chungjungsoo.gptmobile.data.orchestration.effectiveAssistPolicy
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
 import dev.chungjungsoo.gptmobile.data.rag.FactRecall
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
@@ -271,8 +274,18 @@ class ChatRepositoryImpl(
     private val gatewayConversations: dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository? = null,
     private val gatewayEngineering: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository? = null,
     private val reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null,
-    private val gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
+    private val gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
+    private val privacyMode: PrivacyModeStore? = null
 ) : ChatRepository {
+    private suspend fun requirePrivacyAdmission(platform: PlatformV2) {
+        if (privacyMode?.snapshot()?.enabled != true) return
+        val decision = requireNotNull(privacyMode).verifier.verify(platform).decision
+        if (!decision.eligible) error("PRIVACY_PROVIDER_INELIGIBLE: " + decision.explanation + " " + privacyAlternatives(platform))
+    }
+
+    private suspend fun privacyAlternatives(profile: PlatformV2): String =
+        privacyMode?.verifier?.alternatives(settingRepository.fetchPlatformV2s(), profile.uid).orEmpty()
+
     override suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
         userMessages: List<MessageV2>,
@@ -385,16 +398,29 @@ class ChatRepositoryImpl(
         val systemCharacters = profiles.maxOfOrNull { it.systemPrompt.orEmpty().length } ?: 0
         val estimatedInput = ((historyCharacters + systemCharacters) / 3L + 4096L).coerceIn(256L, Int.MAX_VALUE.toLong()).toInt()
         val allowed = !tools.allToolsDisabled && profiles.any { !it.disableAllTools && available[it.uid]?.disableAllTools != true }
+        val githubTask = execution.requested.userPrompt
+        val integrationLimit = if ((tools.github != null || githubTask.contains("github", ignoreCase = true)) && dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(githubTask)) {
+            val main = profiles.singleOrNull { it.uid == tools.github?.mainProfileUid } ?: writer
+            val preset = features.githubProfileOverrides[main.uid]?.workflowPreset ?: dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPreset.DEFAULT_ID
+            dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.toolCalls(
+                githubTask,
+                minOf(main.maxToolCalls, tools.maxToolCalls ?: Int.MAX_VALUE),
+                dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPreset.selected(preset)
+            )
+        } else {
+            null
+        }
         val resolved = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.resolve(
             execution.requested,
             estimatedInputTokens = estimatedInput,
+            githubIntegrationCalls = integrationLimit,
             requiredOutputTokens = profiles.filter { dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(it, execution.requested.userPrompt, writer = true, appendContinuations = execution.requested.appendContinuations) == null }.maxOfOrNull {
                 dev.chungjungsoo.gptmobile.data.agent.CombinedWriterPolicy.preferredOutput(execution.requested.userPrompt, it, execution.requested.appendContinuations, limits.outputTokens, listOfNotNull(limits.contextTokens, limits.profileContextCeilings[it.uid]).minOrNull())
             },
             toolsAllowed = allowed,
             hardLimits = dev.chungjungsoo.gptmobile.data.agent.CombinedHardLimits(
                 totalTokens = limits.totalRunTokens.takeIf { it != Int.MAX_VALUE }?.toLong(),
-                toolOperations = tools.maxToolCalls?.toLong(),
+                toolOperations = (integrationLimit ?: tools.maxToolCalls)?.toLong(),
                 costMicros = features.spendBudget.perTurnMicros.takeIf { it > 0 },
                 deadlineEpochMillis = limits.generationTimeoutMinutes.takeIf { it > 0 }?.let {
                     System.currentTimeMillis() + it.toLong() * 60_000L
@@ -751,6 +777,8 @@ class ChatRepositoryImpl(
         onInvocation: (String) -> Unit,
         onPhysicalRequest: (String) -> Unit
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
+        requirePrivacyAdmission(platform)
+        PrivacyModeStore.requireUnprotectedTransport()
         val requested = kotlinx.coroutines.currentCoroutineContext()[BenchmarkRequestContext] ?: BenchmarkRequestContext()
         val schema = requested.responseSchemaJson ?: when (benchmarkCategory) {
             dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY -> dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.responseSchemaJson
@@ -852,6 +880,8 @@ class ChatRepositoryImpl(
         parentRunId: String,
         onInvocation: (String) -> Unit
     ): AgentProviderSession {
+        requirePrivacyAdmission(platform)
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         require(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.minimum(role) != null)
         require(outputTokens in 256..8192 && prompt.toByteArray().size <= 96 * 1024)
         dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(role, outputTokens.toLong())
@@ -903,6 +933,8 @@ class ChatRepositoryImpl(
         settings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
         frozenProfiles: Map<String, PlatformV2>
     ): dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSample {
+        requirePrivacyAdmission(platform)
+        PrivacyModeStore.requireUnprotectedTransport()
         val config = settings.normalized().copy(fallbackToAnotherProfile = false)
         check(config.enabled) { "Enable delegation before benchmarking its settings." }
         // A resumed benchmark must keep the helper and reviewer accepted with its queue.
@@ -1190,11 +1222,12 @@ class ChatRepositoryImpl(
                 budget.bind(resolved.tool.withRunContext(parentRunId), onFinished = { callId, success ->
                     toolApprovals?.finish(parentRunId, "$invocation:$callId", success)
                 }) { callId, arguments ->
-                    if (resolved.canReuseResult?.invoke() == false) {
+                    val executionAllowed = resolved.executionAdmission(arguments)
+                    if (!executionAllowed()) {
                         false
                     } else {
                         resolved.connectionUid?.let { uid ->
-                            toolApprovals?.authorizeOrThrow(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema, nativeGitHub = resolved.nativeGitHub, executionAllowed = resolved.canReuseResult) ?: true
+                            toolApprovals?.authorizeOrThrow(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema, nativeGitHub = resolved.nativeGitHub, executionAllowed = executionAllowed) ?: true
                         } ?: true
                     }
                 }
@@ -1239,7 +1272,7 @@ class ChatRepositoryImpl(
                         val features = settingRepository.getFeatureSettings()
                         check(live != null && live.enabled && live == registeredTarget && features.toolPluginStates == helperFeatures.toolPluginStates && features.profileBehavior[target.uid]?.toolPluginStates == helperFeatures.profileBehavior[target.uid]?.toolPluginStates) { "Helper permissions changed; dispatch stopped." }
                         val helperPermission = helperCatalog.firstOrNull { it.connectionUid == inherited.connectionUid && it.realToolName == inherited.realToolName }
-                        check(helperPermission != null && helperPermission.canReuseResult?.invoke() != false && inherited.canReuseResult?.invoke() != false) { "Helper connection authorization changed; dispatch stopped." }
+                        check(helperPermission != null && helperPermission.executionAdmission(arguments)() && inherited.executionAdmission(arguments)()) { "Helper connection authorization changed; dispatch stopped." }
                         return inherited.tool.execute(callId, arguments)
                     }
                 }
@@ -1737,6 +1770,24 @@ class ChatRepositoryImpl(
                 )
             )
         }
+        val privateMode = privacyMode?.takeIf { it.snapshot().enabled }
+        val privacyDecision = privateMode?.verifier?.verify(platform)?.decision ?: PrivacyProfileEligibility.evaluate(platform, false)
+        if (!privacyDecision.eligible) {
+            emit(
+                ApiState.Error(
+                    "PRIVACY_PROVIDER_INELIGIBLE: " + privacyDecision.explanation + " " + privacyAlternatives(platform),
+                    errorCode = "PRIVACY_PROVIDER_INELIGIBLE",
+                    taskOutcome = "BLOCKED"
+                )
+            )
+            emit(ApiState.Done)
+            return@flow
+        }
+        if (privateMode != null && (chatToolConfig?.github != null || chatToolConfig?.research?.researchToggle == true || chatToolConfig?.combined != null || stage != null || userMessages.any { it.attachments.isNotEmpty() })) {
+            emit(ApiState.Error("This conversation uses an unverified tool, attachment or workflow. Choose a text chat with a verified profile.", errorCode = "PRIVACY_SERVICE_UNVERIFIED", taskOutcome = "BLOCKED"))
+            emit(ApiState.Done)
+            return@flow
+        }
         retainToolAdmission(runId, platform, userMessages.lastOrNull()?.chatId, dev.chungjungsoo.gptmobile.data.agent.RunToolAdmissionStage.STAGE_NOT_REACHED)
         val auditUser = userMessages.lastOrNull()
         if (stage == null &&
@@ -1819,10 +1870,17 @@ class ChatRepositoryImpl(
         val features = settingRepository.getFeatureSettings()
         val githubProfile = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.platform(platform, features, chatToolConfig?.github)
         val githubTools = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(chatToolConfig, features, platform.uid)
-        emitAll(preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, githubTools, fence, boundStage))
+        if (privateMode == null) {
+            emitAll(preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, githubTools, fence, boundStage))
+        } else {
+            val privateTools = ChatMcpToolConfig(allToolsDisabled = true, allowAllByDefault = false, delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false))
+            emitAll(preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, privateTools, fence, boundStage).flowOn(dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn))
+        }
     }.withFailureBoundaryEvidence(runId, platform).withSystemOutputLineage(runId).flowOn(Dispatchers.Default)
 
     override suspend fun preflightAnswerPrivacy(platform: PlatformV2) = withContext(Dispatchers.Default) {
+        requirePrivacyAdmission(platform)
+        if (privacyMode?.snapshot()?.enabled == true) return@withContext
         // UI entry points share this preflight with generation. Metadata parsing
         // and policy evaluation must not return to Main after the client's IO.
         if (platform.compatibleType != ClientType.OPENROUTER || privacyPreflight == null) return@withContext
@@ -1905,6 +1963,18 @@ class ChatRepositoryImpl(
         )
     }
 
+    private fun localAdmissionError(code: String, message: String, stage: String) = ApiState.Error(
+        message,
+        errorCode = code,
+        taskOutcome = "BLOCKED",
+        failureDetails = kotlinx.serialization.json.buildJsonObject {
+            put("failed_stage", stage)
+            put("failure_origin", "APPLICATION")
+            put("dispatched", false)
+            put("requires_reconciliation", false)
+        }
+    )
+
     private fun preparedCompleteChat(
         userMessages: List<MessageV2>,
         assistantMessages: List<List<MessageV2>>,
@@ -1915,7 +1985,7 @@ class ChatRepositoryImpl(
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = channelFlow {
         if (chatToolConfig?.github?.let { it.mainProfileUid != platform.uid } == true) {
-            send(ApiState.Error("GitHub chat can dispatch only its selected AI profile."))
+            send(localAdmissionError("GITHUB_PROFILE_LOCKED", "GitHub chat can dispatch only its selected AI profile.", "provider_admission"))
             return@channelFlow
         }
         val greeting = userMessages.lastOrNull()
@@ -1959,7 +2029,7 @@ class ChatRepositoryImpl(
                 acceptedRecovery
             }
             if (recovery == null) {
-                emit(ApiState.Error("There is no saved task to resume. Send the original request before using Continue or Retry."))
+                emit(localAdmissionError("OUTPUT_CONTINUATION_UNAVAILABLE", "There is no saved task to resume. Send the original request before using Continue or Retry.", "planning"))
                 return@authorizedRun
             }
             val savedUserTurns = recovery.savedUserTurns
@@ -2230,7 +2300,7 @@ class ChatRepositoryImpl(
                     var exposedTools = dispatchPreparation.exposedTools
                     val projectInstructions = dispatchPreparation.projectInstructions
                     val quickRepliesEnabled = dispatchPreparation.quickRepliesEnabled
-                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true, chatToolConfig?.github != null) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
+                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true, chatToolConfig?.github != null) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty(), admission.capacityDecision.tokens) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
                     val memorySettings = dispatchPreparation.memory.memorySettings
                     val connectedMemoryTools = dispatchPreparation.memory.connectedMemoryTools
                     val researchMemory = dispatchPreparation.memory.researchMemory
@@ -2731,12 +2801,24 @@ class ChatRepositoryImpl(
         } else {
             emptyMap()
         }
+        val revokedEvidence = event.recoveryBlock?.code == "SOURCE_PERMISSION_REVOKED" &&
+            (event.errorCode == null || event.errorCode == "PERMISSION_REQUIRED" || event.errorCode == "PERMISSION_REVOKED")
+        val recoveryFields = if (revokedEvidence) {
+            kotlinx.serialization.json.buildJsonObject {
+                put("failed_stage", "saved_evidence_dispatch")
+                put("failure_origin", "LOCAL_RECOVERY")
+                put("dispatched", false)
+            }
+        } else {
+            emptyMap()
+        }
         event.copy(
+            errorCode = if (revokedEvidence) "PERMISSION_REVOKED" else event.errorCode,
             failureDetails = kotlinx.serialization.json.JsonObject(
                 boundary + mapOf(
                     "run_id" to kotlinx.serialization.json.JsonPrimitive(runId),
                     "provider_kind" to kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name)
-                ) + original
+                ) + original + recoveryFields
             )
         )
     }
@@ -2794,8 +2876,8 @@ class ChatRepositoryImpl(
     private fun PlatformV2.withSystemPrompt(systemPrompt: String) = copy(systemPrompt = systemPrompt)
 
     private fun validateFreeRequest(platform: PlatformV2, users: List<MessageV2>, assistants: List<List<MessageV2>>) {
-        require(users.all { it.attachments.isEmpty() } && assistants.flatten().all { it.attachments.isEmpty() }) {
-            "Free profiles support public text only. Start a chat without attachments, or select another platform."
+        if (users.any { it.attachments.isNotEmpty() } || assistants.any { turn -> turn.any { it.attachments.isNotEmpty() } }) {
+            throw dev.chungjungsoo.gptmobile.data.network.FreeAttachmentsRejected()
         }
     }
 
@@ -2839,11 +2921,12 @@ class ChatRepositoryImpl(
             tool = boundBudget.bind(resolved.tool.withRunContext(runId), statisticsIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(resolved.realToolName, resolved.connectionUid), onFinished = { callId, success ->
                 toolApprovals?.finish(runId, callId, success)
             }) { callId, arguments ->
-                if (resolved.canReuseResult?.invoke() == false) {
+                val executionAllowed = resolved.executionAdmission(arguments)
+                if (!executionAllowed()) {
                     false
                 } else {
                     resolved.connectionUid?.let { uid ->
-                        toolApprovals?.authorizeOrThrow(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema, nativeGitHub = resolved.nativeGitHub, executionAllowed = resolved.canReuseResult) ?: true
+                        toolApprovals?.authorizeOrThrow(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema, nativeGitHub = resolved.nativeGitHub, executionAllowed = executionAllowed) ?: true
                     } ?: true
                 }
             }
@@ -3163,7 +3246,7 @@ class ChatRepositoryImpl(
             ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext
         val responseFeatures = settingRepository.getFeatureSettings()
         val quickRepliesEnabled = responseFeatures.smartSuggestions
-        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true, chatToolConfig?.github != null) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
+        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true, chatToolConfig?.github != null) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty(), admission.capacityDecision.tokens) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
         val memoryPreparation = preparePrimaryDispatchMemory(input, admission, toolPreparation, recallPreparation, taskRoutedTools)
         val researchMemory = memoryPreparation.researchMemory
         val documentContext = memoryPreparation.documentContext
@@ -3901,7 +3984,30 @@ class ChatRepositoryImpl(
         }
     }
 
-    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean, allowOutputReduction: Boolean = false): dev.chungjungsoo.gptmobile.data.context.ContextPlan = dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(turns, prompt, tools, limits, externalTools, githubMode, requestedTask, requireToolExecution, allowOutputReduction)
+    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean, allowOutputReduction: Boolean = false): dev.chungjungsoo.gptmobile.data.context.ContextPlan {
+        // A saved ChatMcpToolConfig may exist for a text-only conversation.
+        // Reserve unknown-route tool headroom only when this request actually
+        // exposes executable tools (or is a GitHub workflow).
+        val planningLimits = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.conservativeToolPlanningBudget(
+            limits,
+            dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.needsConservativeToolReserve(
+                githubMode,
+                requireToolExecution,
+                tools.size
+            )
+        )
+        return dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(
+            turns,
+            prompt,
+            tools,
+            planningLimits,
+            externalTools,
+            githubMode,
+            requestedTask,
+            requireToolExecution,
+            allowOutputReduction
+        )
+    }
 
     private fun withoutExcludedAttachments(messages: List<MessageV2>, excluded: Collection<String>) =
         messages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in excluded }) }
@@ -4066,7 +4172,13 @@ class ChatRepositoryImpl(
             } else {
                 failure.blockedMessage()
             }
-            emit(ApiState.Error(message))
+            val code = when (failure.status) {
+                401 -> "AUTH_REQUIRED"
+                402 -> "BUDGET_RESTRICTED"
+                403 -> "ACCESS_FORBIDDEN"
+                else -> if (failure.code == "model_load_failed") "SELECTED_MODEL_NOT_AVAILABLE" else "PROVIDER_INVOCATION_FAILED"
+            }
+            emit(localAdmissionError(code, message, "provider_admission"))
             return null
         }
         var contextTurns = measurePreparation(runId, PreparationPhase.NORMALIZATION) {
@@ -4411,8 +4523,9 @@ class ChatRepositoryImpl(
         researchReport: Boolean,
         githubMode: Boolean
     ): String {
+        val datasetInstruction = dev.chungjungsoo.gptmobile.data.model.AnswerDataset.instruction(latestUser?.effectiveContent().orEmpty(), contextTokens)
         if (platform.compatibleType == ClientType.FREE && !synthesisRun && !researchReport && !hasTools) {
-            return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + freeTextSystemPrompt(platform.systemPrompt, dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(latestUser?.createdAt ?: java.time.Instant.now().epochSecond), projectInstructions) + dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
+            return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + freeTextSystemPrompt(platform.systemPrompt, dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(latestUser?.createdAt ?: java.time.Instant.now().epochSecond), projectInstructions) + datasetInstruction + dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
         }
         if (platform.compatibleType == ClientType.LITERT_LM && !synthesisRun && !localResearch && !researchReport && !reviewedPreparationUnavailable) {
             val task = latestUser?.effectiveContent().orEmpty()
@@ -4423,7 +4536,7 @@ class ChatRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.requiredToolNames(task + "\n" + platform.systemPrompt.orEmpty() + "\n" + projectInstructions, definitions)
             )
             return dev.chungjungsoo.gptmobile.data.context.LocalRequestPrompt.build(platform.systemPrompt, projectInstructions, relevant.isNotEmpty(), taskRecovery?.action?.name) +
-                dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
+                datasetInstruction + dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
         }
         val recoveryInstruction = taskRecovery?.let { "\nRecovery action: ${it.action.name}. Resume unfinished stages using saved evidence; preserve prior constraints and verify unknown action outcomes before retrying." }.orEmpty()
         val progressInstruction = if (hasTools) {
@@ -4459,7 +4572,7 @@ class ChatRepositoryImpl(
         val turnContextInstruction = latestUser?.let {
             dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(it.createdAt).instruction()
         }.orEmpty()
-        return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + turnContextInstruction + liveToolSystemPrompt(
+        return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + turnContextInstruction + datasetInstruction + liveToolSystemPrompt(
             platform.systemPrompt,
             tools.map { it.modelToolName },
             compact = platform.compatibleType in setOf(ClientType.LITERT_LM, ClientType.FREE) || localResearch || contextTokens < 4096,
@@ -4653,6 +4766,7 @@ class ChatRepositoryImpl(
                 currentToolContracts = evidenceTools.filter { it.nativeGitHub }.associate { it.modelToolName to it.tool.definition.inputSchema },
                 authorizationRevision = dispatchAuthority.revision,
                 sourceRunId = runId,
+                inferenceProfile = platform,
                 readSources = dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(if (reuse) previousTask else githubEffectiveTask),
                 fixtureDecisionMode = githubContext?.let { context ->
                     settingRepository.getFeatureSettings().githubDecisionMode(user.chatId, context)
@@ -4990,11 +5104,18 @@ class ChatRepositoryImpl(
         settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
         latestUser: MessageV2?,
         contextPlan: dev.chungjungsoo.gptmobile.data.context.ContextPlan,
-        githubMode: Boolean
+        githubMode: Boolean,
+        contextCeilingTokens: Int
     ): dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? =
         (
             effectiveTools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (settings.adaptiveToolCatalog && !session.handlesToolsInternally) {
-                dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(runnerTools.map { it.definition }, latestUser?.content.orEmpty(), contextPlan.tools.mapTo(HashSet()) { it.name }, githubMode = githubMode)
+                dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(
+                    runnerTools.map { it.definition },
+                    latestUser?.content.orEmpty(),
+                    contextPlan.tools.mapTo(HashSet()) { it.name },
+                    githubMode = githubMode,
+                    contextCeilingTokens = contextCeilingTokens
+                )
             } else {
                 null
             }
@@ -5146,7 +5267,10 @@ class ChatRepositoryImpl(
                     boundGitHubRepository,
                     resolved.realToolName,
                     resolved.shareableReadOnly,
-                    dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(acceptanceRequest)
+                    dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(acceptanceRequest),
+                    copilotAllowed = {
+                        dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy.enabled(settingRepository.getFeatureSettings(), latestUser?.chatId, chatToolConfig?.github)
+                    }
                 )
             } else {
                 resolved.tool
@@ -5211,37 +5335,46 @@ class ChatRepositoryImpl(
                     }
                 }
             val costs = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.breakdown(turns, invocationPlatform.systemPrompt.orEmpty(), if (textOnly) emptyList() else contextPlan.tools)
-            workspace?.recordContext(latestUser?.chatId ?: 0, runId, invocationPlatform, contextPlan.copy(turns = turns, system = invocationPlatform.systemPrompt.orEmpty(), tools = if (textOnly) emptyList() else contextPlan.tools, outputTokens = constraints.outputLimit(platform.maxTokens), promptTokens = costs.total), turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
-            try {
-                workspace?.recordDebugRequest(latestUser?.chatId ?: 0, runId, kind, invocationPlatform, turns, if (textOnly) emptyList() else contextPlan.tools, constraints)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                AppLogRecorder.record("Debug", "Request snapshot unavailable · parentRunId=$runId · requestKind=$kind", "W")
+            val privateTurn = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.Key] != null
+            if (!privateTurn) {
+                workspace?.recordContext(latestUser?.chatId ?: 0, runId, invocationPlatform, contextPlan.copy(turns = turns, system = invocationPlatform.systemPrompt.orEmpty(), tools = if (textOnly) emptyList() else contextPlan.tools, outputTokens = constraints.outputLimit(platform.maxTokens), promptTokens = costs.total), turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
+                try {
+                    workspace?.recordDebugRequest(latestUser?.chatId ?: 0, runId, kind, invocationPlatform, turns, if (textOnly) emptyList() else contextPlan.tools, constraints)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    AppLogRecorder.record("Debug", "Request snapshot unavailable · parentRunId=$runId · requestKind=$kind", "W")
+                }
             }
             AppLogRecorder.record("Context", "REQUEST_BUDGET · runId=$runId · requestKind=$kind · phase=initial_advertisement · authorizedTools=${if (textOnly) 0 else contextPlan.authorizedTools.size} · advertisedSchema=see_WIRE_SCHEMA · ${costs.diagnostic()}", if (costs.total > 131_072) "W" else "I")
-            val raw = when (platform.compatibleType) {
-                ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, invocationPlatform, constraints)
+            val routedSession = if (privateTurn && platform.compatibleType != ClientType.LITERT_LM) {
+                val store = requireNotNull(privacyMode)
+                dev.chungjungsoo.gptmobile.data.privacy.PrivateInferenceSession(store.verifier, store, invocationPlatform, turns, constraints) { privacyAlternatives(platform) }
+            } else {
+                when (platform.compatibleType) {
+                    ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, invocationPlatform, constraints)
 
-                ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
-                    openAICompatibleAdapter.openSession(turns, invocationPlatform, constraints)
+                    ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
+                        openAICompatibleAdapter.openSession(turns, invocationPlatform, constraints)
 
-                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, invocationPlatform, constraints)
+                    ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, invocationPlatform, constraints)
 
-                ClientType.GOOGLE -> geminiAdapter.openSession(turns, invocationPlatform, constraints)
+                    ClientType.GOOGLE -> geminiAdapter.openSession(turns, invocationPlatform, constraints)
 
-                ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
-                    turns,
-                    invocationPlatform,
-                    if (textOnly) emptyList() else effectiveTools.map(::bindGitHubTarget),
-                    constraints,
-                    fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true, researchReport = chatToolConfig?.research?.researchToggle == true),
-                    advertisedTools = if (textOnly) emptyList() else contextPlan.tools,
-                    progressSettings = progressSettings,
-                    githubMode = chatToolConfig?.github != null && !textOnly
-                )
-            }.let { session ->
-                if (platform.compatibleType in setOf(ClientType.LLAMA, ClientType.OLLAMA) && !session.handlesToolsInternally) {
+                    ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
+                        turns,
+                        invocationPlatform,
+                        if (textOnly) emptyList() else effectiveTools.map(::bindGitHubTarget),
+                        constraints,
+                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true, researchReport = chatToolConfig?.research?.researchToggle == true),
+                        advertisedTools = if (textOnly) emptyList() else contextPlan.tools,
+                        progressSettings = progressSettings,
+                        githubMode = chatToolConfig?.github != null && !textOnly
+                    )
+                }
+            }
+            val raw = routedSession.let { session ->
+                if (!privateTurn && platform.compatibleType in setOf(ClientType.LLAMA, ClientType.OLLAMA) && !session.handlesToolsInternally) {
                     dev.chungjungsoo.gptmobile.data.agent.provider.LocalNativeToolFrameSession(session)
                 } else {
                     session
@@ -5746,7 +5879,16 @@ class ChatRepositoryImpl(
             effectiveTools.map(::bindGitHubTarget)
         }
 
-        val catalog = primaryToolCatalog(effectiveTools, runnerTools, groundedSession, budgetSettings, latestUser, contextPlan, chatToolConfig?.github != null)
+        val catalog = primaryToolCatalog(
+            effectiveTools,
+            runnerTools,
+            groundedSession,
+            budgetSettings,
+            latestUser,
+            contextPlan,
+            chatToolConfig?.github != null,
+            limits.contextTokens
+        )
         // Exhausted execution budgets and writer-only stages must not erase the
         // still-authorized identity/contracts used to restore durable evidence.
         // Only runnerTools are executable; this catalog is a read-validation scope.
@@ -5830,7 +5972,15 @@ class ChatRepositoryImpl(
                 val expectedCheckpoint = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.GitHubProviderResumeContext]?.checkpoint
                 dispatchAuthority.validate()
                 check(validateSavedEvidence())
-                val savedProviderCheckpoint = expectedCheckpoint?.let { workspace?.protectedSynthesisCheckpoint(checkpointKey) }
+                val savedProviderCheckpoint = if (expectedCheckpoint != null || restoreGatewayHandoffRequested) workspace?.protectedSynthesisCheckpoint(checkpointKey) else null
+                val savedContext = savedProviderCheckpoint?.get("context") as? kotlinx.serialization.json.JsonObject
+                val handoffTask = verifiedEvidence.checkpointBinding().takeIf {
+                    restoreGatewayHandoffRequested &&
+                        savedContext != null &&
+                        savedContext["profile_uid"] == kotlinx.serialization.json.JsonPrimitive(platform.uid) &&
+                        savedContext["provider"] == kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name) &&
+                        savedContext["model"] == kotlinx.serialization.json.JsonPrimitive(platform.model)
+                }
                 val resolvedToolCheckpoint = dev.chungjungsoo.gptmobile.data.agent.GitHubProviderToolCheckpoint.resolve(
                     context.filesDir,
                     latestUser.chatId,
@@ -5838,7 +5988,8 @@ class ChatRepositoryImpl(
                     dispatchAuthority.revision,
                     expectedCheckpoint,
                     savedProviderCheckpoint,
-                    persistent = agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false
+                    persistent = agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false,
+                    handoffTaskBinding = handoffTask
                 )
                 dispatchAuthority.validate()
                 check(validateSavedEvidence())
@@ -6668,15 +6819,19 @@ class ChatRepositoryImpl(
     }
 
     private suspend fun withDocumentContext(message: MessageV2, platform: PlatformV2): MessageV2 {
+        require(platform.compatibleType == ClientType.GOOGLE || message.attachments.none { FileUtils.isAudioUpload(it.mimeType) }) {
+            "This conversation includes an audio attachment. Choose an audio-capable Google model to transcribe or analyze it."
+        }
         if (platform.compatibleType == ClientType.FREE) return message
         val nativePdf = platform.compatibleType in setOf(ClientType.OPENAI, ClientType.ANTHROPIC, ClientType.GOOGLE)
-        val documents = message.attachments.filter { !FileUtils.isImage(it.mimeType) }
+        val documents = message.attachments.filterNot { FileUtils.isImage(it.mimeType) || FileUtils.isAudioUpload(it.mimeType) }
         if (documents.isEmpty()) return message
         val textOnlyDocuments = documents.filterNot { nativePdf && it.mimeType == "application/pdf" }
         val excerpts = withContext(Dispatchers.IO) {
             documents.mapNotNull { document ->
                 val extracted = document.extractedText?.let { DocumentTextExtractor.Result(it, document.extractionNote) }
-                    ?: DocumentTextExtractor.extract(context, java.io.File(document.filePathForDisplay), document.mimeType)
+                    ?: DocumentTextExtractor.forChatAttachment(context, java.io.File(document.filePathForDisplay), document.mimeType, nativePdf)
+                    ?: return@mapNotNull null
                 if (!platform.excludesMemory() && !platform.disableAllTools && !platform.disableLocalTools && factVault?.state?.value?.enabled == true && factVault.state.value.settings.learningEnabled && knowledge != null && message.chatId > 0 && extracted.text.isNotBlank()) {
                     try {
                         knowledge.index(document.resolvedDisplayName, extracted.text.take(1_000_000), chatId = message.chatId, sourceKey = java.io.File(document.filePathForDisplay).name)
@@ -7573,6 +7728,7 @@ class ChatRepositoryImpl(
         assistantMessage: String,
         platform: PlatformV2
     ): String? {
+        if (privacyMode?.snapshot()?.enabled == true) return null
         if (settingRepository.getFeatureSettings().spendBudget.enforced) return null
         val authority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, platform)
         return withContext(authority) { titleSummarizer?.summarize(userMessage, assistantMessage, platform) }
@@ -7582,14 +7738,18 @@ class ChatRepositoryImpl(
         profileUids: List<String>,
         conversationMode: String,
         title: String,
-        primaryProfileUid: String?
+        primaryProfileUid: String?,
+        firstMessage: String?
     ): ChatRoomV2 {
         val selected = profileUids.filter(String::isNotBlank).distinct()
         require(selected.isNotEmpty()) { "Choose at least one AI profile." }
         val configured = settingRepository.fetchPlatformV2s().filter { it.enabled }.map { it.uid }.toSet()
         require(selected.all { it in configured }) { "One or more selected profiles are no longer enabled." }
         val mode = dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.normalize(conversationMode)
+        val draft = firstMessage?.takeIf(String::isNotBlank)
         val room = ChatRoomV2(
+            draftText = draft,
+            draftUpdatedAt = draft?.let { System.currentTimeMillis() / 1000 },
             title = title.trim().ifBlank { "New Chat" }.take(50),
             enabledPlatform = selected,
             activePlatform = selected,
@@ -7641,7 +7801,6 @@ class ChatRepositoryImpl(
     override suspend fun branchChat(chatRoom: ChatRoomV2, editedUser: MessageV2): ChatRoomV2 {
         val branch = agentPersistenceDao.duplicateChatWithHistory(chatRoom.id, "${chatRoom.title} · branch".take(70), System.currentTimeMillis() / 1000, editedUser)
         settingRepository.copyConversationCombinedSettings(chatRoom.id, branch.id)
-        knowledge?.dao?.projectForChat(chatRoom.id)?.let { knowledge.dao.attachChat(dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeProjectChat(branch.id, it.id)) }
         settingRepository.mutateFeatureSettings { features ->
             features.copy(
                 conversationReasoning = features.conversationReasoning + listOfNotNull(features.conversationReasoning[chatRoom.id]?.let { branch.id to it }).toMap(),

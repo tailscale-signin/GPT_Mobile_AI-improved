@@ -102,12 +102,20 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
                 val branch = segment(required("branch"))
                 val details = get("$root/branches/$branch")
                 val protection = observed("$root/branches/$branch/protection")
-                val rules = observed("$root/rules/branches/$branch")
+                val rules = observedRules("$root/rules/branches/$branch")
+                val classicAbsent = if (graphQl != null &&
+                    GitHubStatusPolicyEvidence.completeRuleRows(rules) &&
+                    (protection["policy_response_observation"] as? JsonObject)?.s("kind") == "EXPLICIT_BRANCH_NOT_PROTECTED"
+                ) {
+                    confirmClassicAbsence(root.removePrefix("/repos/"), required("branch"), details as? JsonObject, graphQl)
+                } else {
+                    false
+                }
                 buildJsonObject {
                     put("branch", details)
                     put("protection", protection)
                     put("rules", rules)
-                    put("policy", branchPolicy(protection, rules))
+                    put("policy", branchPolicy(protection, rules, classicAbsent))
                     put("observed_at", System.currentTimeMillis())
                 }
             }
@@ -286,9 +294,61 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
         }
     }
 
-    private fun branchPolicy(protection: JsonObject, rules: JsonObject): JsonObject {
+    private suspend fun observedRules(path: String): JsonObject {
+        val first = observed(path)
+        var page = first["data"] as? JsonArray ?: return first
+        if (page.size < 30) return first
+        val rows = page.toMutableList()
+        for (number in 2..10) {
+            val next = observed("$path?per_page=30&page=$number")
+            val nextRows = next["data"] as? JsonArray
+            if (nextRows == null || nextRows == page || nextRows.size > 30) {
+                return JsonObject(next + ("data" to JsonArray(rows)) + ("complete" to JsonPrimitive(false)))
+            }
+            rows.addAll(nextRows)
+            if (nextRows.size < 30) return JsonObject(first + ("data" to JsonArray(rows)))
+            page = nextRows
+        }
+        return JsonObject(first + ("data" to JsonArray(rows)) + ("complete" to JsonPrimitive(false)))
+    }
+
+    private suspend fun confirmClassicAbsence(
+        repository: String,
+        branch: String,
+        details: JsonObject?,
+        graphQl: suspend (String, JsonObject) -> JsonObject
+    ): Boolean {
+        if (details?.s("name") != branch) return false
+        val head = (details["commit"] as? JsonObject)?.s("sha") ?: return false
+        if (!head.matches(Regex("[a-fA-F0-9]{40}"))) return false
+        val response = try {
+            graphQl(
+                "query(\$owner:String!,\$repo:String!,\$ref:String!){repository(owner:\$owner,name:\$repo){nameWithOwner viewerPermission ref(qualifiedName:\$ref){name prefix target{oid} branchProtectionRule{id}}}}",
+                buildJsonObject {
+                    put("owner", repository.substringBefore('/'))
+                    put("repo", repository.substringAfter('/'))
+                    put("ref", "refs/heads/$branch")
+                }
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return false
+        }
+        if ("errors" in response && response["errors"] != JsonArray(emptyList())) return false
+        val repo = (response["data"] as? JsonObject)?.get("repository") as? JsonObject ?: return false
+        val ref = repo["ref"] as? JsonObject ?: return false
+        return repo.s("nameWithOwner").equals(repository, ignoreCase = true) &&
+            repo.s("viewerPermission") == "ADMIN" &&
+            ref.s("prefix") == "refs/heads/" &&
+            ref.s("name") == branch &&
+            (ref["target"] as? JsonObject)?.s("oid").equals(head, ignoreCase = true) &&
+            ref["branchProtectionRule"] == JsonNull
+    }
+
+    private fun branchPolicy(protection: JsonObject, rules: JsonObject, classicAbsent: Boolean): JsonObject {
         val protectionAvailable = protection["available"] == JsonPrimitive(true) && protection["data"] is JsonObject
-        val rulesAvailable = rules["available"] == JsonPrimitive(true) && (rules["data"] as? JsonArray)?.all { it is JsonObject && it.s("type").isNotBlank() } == true
+        val rulesAvailable = GitHubStatusPolicyEvidence.completeRuleRows(rules)
         val required = mutableListOf<JsonElement>()
         val classic = ((protection["data"] as? JsonObject)?.get("required_status_checks") as? JsonObject)
         (classic?.get("contexts") as? JsonArray)?.let { required.addAll(it) }
@@ -296,9 +356,10 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
         (rules["data"] as? JsonArray)?.filterIsInstance<JsonObject>()?.filter { it.s("type") == "required_status_checks" }?.forEach { rule ->
             (((rule["parameters"] as? JsonObject)?.get("required_status_checks")) as? JsonArray)?.mapNotNull { (it as? JsonObject)?.get("context") }?.let { required.addAll(it) }
         }
-        val complete = protectionAvailable && rulesAvailable
+        val complete = (protectionAvailable || classicAbsent) && rulesAvailable
         return buildJsonObject {
             put("protection_available", protectionAvailable)
+            if (classicAbsent) put("classic_absence_verified_at_branch_head", true)
             put("rules_available", rulesAvailable)
             put(
                 "required_checks_state",
@@ -312,7 +373,7 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
             )
             put("observed_required_checks", JsonArray(required.distinct()))
             put("required_checks_complete", complete)
-            put("interpretation", if (complete) "Both policy sources were retrieved. Observed check results are independent of this requirement policy." else "One or more policy endpoints were unavailable. Branch metadata protected=false or an empty available rules list cannot establish that no checks are required.")
+            put("interpretation", if (complete) "Classic protection and applicable rules were verified. Observed check results are independent of this requirement policy." else "One or more policy endpoints were unavailable. Branch metadata protected=false or an empty available rules list cannot establish that no checks are required.")
         }
     }
 

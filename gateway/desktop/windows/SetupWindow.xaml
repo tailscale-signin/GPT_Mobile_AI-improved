@@ -1,0 +1,47 @@
+<Window x:Class="GatewayDesktop.SetupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Set up GPT Mobile Gateway" Width="830" Height="610" MinWidth="610" MinHeight="460"
+        WindowStartupLocation="CenterScreen" Background="{DynamicResource CanvasBrush}"
+        Foreground="{DynamicResource TextBrush}" FontFamily="Segoe UI" FontSize="15">
+
+  <Grid Margin="28,20">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <DockPanel Margin="0,0,0,14">
+      <TextBlock x:Name="StepNumber" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}"/>
+      <TextBlock Text="GPT Mobile Gateway" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
+    </DockPanel>
+    <Border Grid.Row="1" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="20" Padding="24">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+          <TextBlock x:Name="Heading" FontSize="32" FontWeight="SemiBold" Margin="0,0,0,16"/>
+          <StackPanel x:Name="EditionPage">
+            <RadioButton x:Name="Standard" IsChecked="True" Content="Standard Gateway"/>
+            <TextBlock Margin="22,0,0,12" Foreground="{DynamicResource MutedBrush}" Text="Chat with a local model and reconnect to saved work."/>
+            <RadioButton x:Name="Engineering" Content="GitHub Engineering"/>
+            <TextBlock Margin="22,0,0,12" Foreground="{DynamicResource MutedBrush}" Text="Also open the Git, WSL and Docker setup assistant for isolated repository tests."/>
+          </StackPanel>
+          <StackPanel x:Name="ConnectionPage">
+            <Label Target="{Binding ElementName=Backend}" Foreground="{DynamicResource TextBrush}" Content="Model _backend origin"/>
+            <TextBox x:Name="Backend" Text="http://127.0.0.1:8080" Padding="8" MaxLength="512"/>
+            <Label Target="{Binding ElementName=Port}" Foreground="{DynamicResource TextBrush}" Content="Gateway _port"/>
+            <TextBox x:Name="Port" Text="8090" Padding="8" MaxLength="5"/>
+            <Label Target="{Binding ElementName=Listener}" Foreground="{DynamicResource TextBrush}" Content="_Listen on"/>
+            <ComboBox x:Name="Listener" DisplayMemberPath="Label" Padding="8"/>
+            <TextBlock x:Name="ListenerHint" Margin="0,10,0,0" Foreground="{DynamicResource MutedBrush}"/>
+          </StackPanel>
+          <StackPanel x:Name="ChecksPage">
+            <TextBlock x:Name="Checks" LineHeight="25" AutomationProperties.LiveSetting="Polite"/>
+            <Button x:Name="Retry" HorizontalAlignment="Left" Margin="0,16,0,0" Content="Check again" Click="RetryChecks"/>
+          </StackPanel>
+          <StackPanel x:Name="FinishPage"><TextBlock x:Name="Summary" LineHeight="25"/><CheckBox x:Name="Advanced" Margin="0,14" Foreground="{DynamicResource TextBrush}" Content="Review advanced connection, worker and update settings"/></StackPanel>
+          <TextBlock x:Name="Problem" Margin="0,14,0,0" FontWeight="SemiBold" AutomationProperties.LiveSetting="Assertive"/>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+    <DockPanel Grid.Row="2" Margin="0,16,0,0">
+      <Button x:Name="Next" DockPanel.Dock="Right" IsDefault="True" Foreground="{DynamicResource CanvasBrush}" Background="{DynamicResource AccentBrush}" Click="NextPage"/>
+      <Button x:Name="Back" HorizontalAlignment="Left" Content="_Back" Click="PreviousPage"/>
+    </DockPanel>
+  </Grid>
+</Window>

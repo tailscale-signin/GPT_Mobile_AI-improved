@@ -7,6 +7,7 @@ import socket
 import sys
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 from desktop.validation_policy import SETTING as VALIDATION_POLICY_SETTING, active_policy_path
@@ -16,6 +17,18 @@ DEFAULTS = dict(schema=1, port=8090, backend='http://127.0.0.1:8080', workers=2,
                 update_interval_hours=24, start_at_login=True, access='loopback',
                 tailnet_host='', tailnet_user='', engineering=False, mcp_config='',
                 bind_host='127.0.0.1', network_hostnames='', debug_mode=False)
+
+
+@contextmanager
+def settings_write_lock(root):
+    """Serialize host edits with the canonical supervisor's effective projection."""
+    from v14.state_lock import StateDirectoryLock
+    lock = StateDirectoryLock(Path(root) / 'data' / 'settings-write-lock' / 'owner')
+    lock.acquire()
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def validate(value):
@@ -120,6 +133,20 @@ def save_public_repository_maps(root, enabled):
     atomic_json(Path(root) / 'data' / 'github-settings.json', {'public_repository_maps': enabled})
 
 
+def copilot_enabled(root):
+    try:
+        value = json.loads((Path(root) / 'data' / 'copilot-settings.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False
+    return isinstance(value, dict) and value.get('enabled') is True
+
+
+def save_copilot_enabled(root, enabled):
+    if type(enabled) is not bool:
+        raise ValueError('Copilot cloud task enablement must be boolean')
+    atomic_json(Path(root) / 'data' / 'copilot-settings.json', {'enabled': enabled})
+
+
 def control_host(cfg):
     host = cfg['bind_host']
     return {'0.0.0.0': '127.0.0.1', '::': '::1'}.get(host, host)
@@ -161,6 +188,7 @@ def environment(root, cfg, management_token=''):
                GATEWAY_ALLOWED_HOSTS=json.dumps(hosts),
                GATEWAY_ALLOWED_ORIGINS=json.dumps([] if cfg['access'] == 'network' else ['http://' + h for h in hosts]),
                GATEWAY_REMOTE_ENGINEERING=str(cfg['engineering']).lower(), GATEWAY_MANAGEMENT_TOKEN=management_token,
+               GATEWAY_COPILOT_ENABLED=str(copilot_enabled(root)).lower(),
                GATEWAY_PUBLIC_REPOSITORY_MAPS=str(public_repository_maps(root)).lower(), GATEWAY_DESKTOP_ROOT=str(root),
                GATEWAY_ACTIVITY_STATE=str(data / 'activity.json'),
                GATEWAY_DEBUG_MODE=str(cfg['debug_mode']).lower(), GATEWAY_DEBUG_LOG=str(root / 'logs' / 'gateway-debug.jsonl'),

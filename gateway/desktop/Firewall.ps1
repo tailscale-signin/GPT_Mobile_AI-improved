@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory=$true)][ValidatePattern('^GPTMobileGateway-[a-f0-9]{24}$')][string]$RuleName,
+    [Parameter(Mandatory=$true)][ValidatePattern('^GPTMobileGateway-[a-f0-9]{24}(-phone)?$')][string]$RuleName,
     [ValidateRange(1024,65535)][int]$Port = 8090,
     [string]$BindAddress = '0.0.0.0',
     [switch]$Remove

@@ -30,6 +30,22 @@ if(ANDROID_ABI STREQUAL "arm64-v8a" AND GGUF_KLEIDIAI)
 else()
     set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "" FORCE)
 endif()
+# A prepared Gateway image contains the original FetchContent downloads for each ABI.
+# Copy archives into the new build tree. CMake still verifies the current URL_HASH,
+# applies the candidate's patches and compiles its sources in this checkout.
+if(ANDROID AND DEFINED ENV{GPTMOBILE_PREPARED_ANDROID_CXX})
+    file(GLOB prepared_builds "$ENV{GPTMOBILE_PREPARED_ANDROID_CXX}/*/${ANDROID_ABI}")
+    foreach(prepared_build IN LISTS prepared_builds)
+        file(GLOB archives LIST_DIRECTORIES false RELATIVE "${prepared_build}"
+            "${prepared_build}/_deps/*-subbuild/*-populate-prefix/src/*")
+        foreach(archive IN LISTS archives)
+            if(archive MATCHES "[.](tar|gz|xz|bz2|zip|tgz)$" AND NOT EXISTS "${CMAKE_BINARY_DIR}/${archive}")
+                get_filename_component(directory "${CMAKE_BINARY_DIR}/${archive}" DIRECTORY)
+                file(COPY "${prepared_build}/${archive}" DESTINATION "${directory}")
+            endif()
+        endforeach()
+    endforeach()
+endif()
 include(FetchContent)
 option(GGUF_OPENCL "Build an optional Adreno OpenCL backend" OFF)
 if(ANDROID AND GGUF_OPENCL)

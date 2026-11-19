@@ -342,35 +342,39 @@ internal class LlamaHealthDiagnostics(
     private suspend fun read(endpoint: String, config: ProviderRequestConfig, model: String, timeoutMillis: Long = 1_500): Probe = try {
         withTimeoutOrNull(timeoutMillis) {
             val diagnostic = GatewayClientDiagnostics.withHeaders(config.copy(providerType = config.providerType ?: "LLAMA"), model)
-            LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
-                gatewayClientExchange(diagnostic, if (endpoint.substringBefore('?').endsWith("/gateway/ready")) "readiness" else "capabilities", safeRead = true) { headers ->
-                    val response = readClient().get(endpoint) {
-                        config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                        headers.forEach { (key, value) -> header(key, value) }
-                        parameter("model", model)
-                        parameter("autoload", "false")
-                        if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+            dev.chungjungsoo.gptmobile.data.network.PrivateGatewayMetadata.withReadiness(endpoint, model) { grant ->
+                LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
+                    gatewayClientExchange(diagnostic, if (endpoint.substringBefore('?').endsWith("/gateway/ready")) "readiness" else "capabilities", safeRead = true) { headers ->
+                        val response = readClient().get(endpoint) {
+                            grant?.let { attributes.put(dev.chungjungsoo.gptmobile.data.network.PrivateGatewayMetadata.grantKey, it) }
+                            config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                            headers.forEach { (key, value) -> header(key, value) }
+                            parameter("model", model)
+                            parameter("autoload", "false")
+                            if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+                        }
+                        GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+                        val status = response.status.value
+                        val body = try {
+                            response.boundedMetadata(64 * 1024)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            // A rejected response remains HTTP evidence even if its optional body is unreadable.
+                            if (status in 200..299) throw failure
+                            null
+                        }
+                        val document = body?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+                        val rejection = if (status !in 200..299) llamaMetadataFailure(status, document, headers["X-Request-ID"]) else null
+                        Probe(status, document, rejection?.code ?: if (document == null) "METADATA_INVALID_JSON" else null, rejection = rejection)
                     }
-                    GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
-                    val status = response.status.value
-                    val body = try {
-                        response.boundedMetadata(64 * 1024)
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        // A rejected response remains HTTP evidence even if its optional body is unreadable.
-                        if (status in 200..299) throw failure
-                        null
-                    }
-                    val document = body?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
-                    val rejection = if (status !in 200..299) llamaMetadataFailure(status, document, headers["X-Request-ID"]) else null
-                    Probe(status, document, rejection?.code ?: if (document == null) "METADATA_INVALID_JSON" else null, rejection = rejection)
                 }
             }
         } ?: Probe(failure = "PROBE_TIMEOUT")
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failure: Exception) {
-        Probe(failure = LocalServiceHealth.classify(failure).name)
+        val denied = generateSequence<Throwable>(failure) { it.cause }.take(8).any { it is dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied }
+        Probe(failure = if (denied) "PRIVACY_SERVICE_UNVERIFIED" else LocalServiceHealth.classify(failure).name)
     }
 }

@@ -225,28 +225,29 @@ class ChatRepositoryImplTest {
             assertTrue(outcome is dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed)
             val failure = states.filterIsInstance<ApiState.Error>().single()
             assertTrue(failure.message.contains("There is no saved task to resume"))
-            assertNull(failure.errorCode)
+            assertEquals("OUTPUT_CONTINUATION_UNAVAILABLE", failure.errorCode)
             assertNull(failure.invocationId)
             assertEquals(0, api.streamChatCompletionCalls)
             val report = incidents.pending.value.single()
-            assertEquals("CHAT_FAILED", report.errorCode)
+            assertEquals("OUTPUT_CONTINUATION_UNAVAILABLE", report.errorCode)
             assertNull(report.errorType)
             assertTrue(report.frames.isEmpty())
             val context = requireNotNull(report.context)
             assertEquals(IssueReportContext.identifierHash("run", runId), context.runIdHash)
             assertEquals("CUSTOM", context.provider)
-            assertNull(context.stage)
+            assertEquals("planning", context.stage)
             assertNull(context.exceptionFingerprint)
             assertNull(context.invocationIdHash)
-            assertNull(context.dispatched)
+            assertEquals(false, context.dispatched)
+            assertEquals(false, context.requiresReconciliation)
             assertNull(context.remoteAcceptance)
             assertNull(context.httpStatus)
             assertNull(context.retryable)
             val values = requireNotNull(context.diagnostics).values
             assertEquals(JsonPrimitive("CHAT_REPOSITORY_ERROR_VALUE"), values["incident_capture_site"])
             assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), values["incident_phase_provenance"])
-            assertEquals(JsonPrimitive("ABSENT"), values["chat_failure_code_state"])
-            assertEquals(JsonPrimitive("unknown"), values["incident_phase"])
+            assertEquals(JsonPrimitive("planning"), failure.failureDetails?.get("failed_stage"))
+            assertEquals(JsonPrimitive("planning"), values["incident_phase"])
             assertEquals(JsonPrimitive("UNAVAILABLE"), values["causal_provenance"])
             assertFalse(values.containsKey("exception_type_hashes"))
             val approved = report.approvedPayload()
@@ -1163,23 +1164,30 @@ class ChatRepositoryImplTest {
         )
         val approvals = mockk<dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager>(relaxed = true)
         val ids = mutableListOf<String>()
-        coEvery { approvals.authorizeOrThrow("work", "parent", capture(ids), "github", any(), any()) } throws dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected("AUTH_REQUIRED", "Permission is required")
+        coEvery { approvals.authorizeOrThrow("work", "parent", capture(ids), "github", any(), any(), nativeGitHub = false, executionAllowed = any()) } throws dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected("AUTH_REQUIRED", "Permission is required")
         val repository = createRepository(agentToolResolver = resolver, toolApprovals = approvals)
         assertTrue(repository.resolveDelegatedTools(customPlatform(), "parent", config.copy(allToolsDisabled = true)).isEmpty())
         val denied = repository.resolveDelegatedTools(customPlatform(), "parent", config).single().execute("same-call", JsonObject(emptyMap()))
         assertTrue(denied.isError)
+        assertEquals("AUTH_REQUIRED", denied.errorCode)
+        assertEquals(1, ids.size)
         assertEquals(0, executions)
-        coEvery { approvals.authorizeOrThrow("work", "parent", capture(ids), "github", any(), any()) } returns true
+        io.mockk.coVerify(exactly = 0) { approvals.finish("parent", ids.single(), any()) }
+        coEvery { approvals.authorizeOrThrow("work", "parent", capture(ids), "github", any(), any(), nativeGitHub = false, executionAllowed = any()) } coAnswers {
+            // The live admission callback is part of the authorization request;
+            // an omitted argument would match only its null default.
+            requireNotNull(arg<(suspend () -> Boolean)?>(7)).invoke()
+        }
         repeat(2) {
             val bound = repository.resolveDelegatedTools(customPlatform(), "parent", config).single()
             val result = bound.execute("same-call", JsonObject(emptyMap()))
-            assertFalse(result.isError)
+            assertFalse("Approved delegated tool rejected ${result.errorCode}: ${result.content}", result.isError)
             assertEquals("same-call", result.callId)
             assertTrue(bound.execute("over-budget", JsonObject(emptyMap())).isError)
         }
         assertEquals(2, executions)
         assertEquals(3, ids.distinct().size)
-        ids.drop(1).forEach { id -> io.mockk.coVerify { approvals.finish("parent", id, true) } }
+        ids.drop(1).forEach { id -> io.mockk.coVerify(exactly = 1) { approvals.finish("parent", id, true) } }
     }
 
     @Test
@@ -1379,7 +1387,11 @@ class ChatRepositoryImplTest {
                 .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Recall the saved research and compare the mobility trial", platformType = null)), emptyList(), platform, runId = "research-$mode").toList()
             if (mode == "revoked") {
                 assertEquals(0, api.streamCalls)
-                assertTrue(states.any { it is ApiState.Error && it.recoveryBlock?.code == "SOURCE_PERMISSION_REVOKED" })
+                val denial = states.filterIsInstance<ApiState.Error>().single { it.recoveryBlock?.code == "SOURCE_PERMISSION_REVOKED" }
+                assertEquals("PERMISSION_REVOKED", denial.errorCode)
+                val report = IssueReportContext.fromFields("CHAT_FAILURE", requireNotNull(denial.failureDetails))
+                assertEquals("provider_admission", report.stage)
+                assertEquals(false, report.dispatched)
             } else {
                 assertEquals(1, api.streamCalls)
                 assertEquals(mode == "allowed", api.lastRequest!!.messages.first().content.toString().contains(evidence))
@@ -1575,7 +1587,7 @@ class ChatRepositoryImplTest {
                 ApiState.PhaseChanged(LocalInferencePhase.LOADING),
                 ApiState.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
                 ApiState.Thinking("plan"),
-                ApiState.Success("hello", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ApiState.Success("hello", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ApiState.Done
             ),
             states
@@ -1653,10 +1665,10 @@ class ChatRepositoryImplTest {
                 ApiState.PhaseChanged(LocalInferencePhase.INSPECTING),
                 ApiState.PhaseChanged(LocalInferencePhase.LOADING),
                 ApiState.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
-                ApiState.Success("before", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ApiState.Success("before", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ApiState.ToolCall(toolSequence = 0),
                 ApiState.ToolCall(toolSequence = 0),
-                ApiState.Success("after", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ApiState.Success("after", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ApiState.Done
             ),
             states.map { if (it is ApiState.ToolCall) it.copy(metrics = null) else it }

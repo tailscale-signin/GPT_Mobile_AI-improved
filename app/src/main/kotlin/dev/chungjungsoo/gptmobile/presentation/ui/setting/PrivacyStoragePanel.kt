@@ -1,9 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import android.app.Activity
 import android.app.KeyguardManager
 import android.content.Context
-import android.view.WindowManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.settingSearchFocus
@@ -37,7 +36,7 @@ internal fun PrivacyStoragePanel(embedded: Boolean = false) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("device_privacy", Context.MODE_PRIVATE) }
     var locked by remember { mutableStateOf(preferences.getBoolean("app_lock", false)) }
-    var secure by remember { mutableStateOf(preferences.getBoolean("secure_screen", false)) }
+    val devicePrivacy by dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.state.collectAsStateWithLifecycle()
     var sizes by remember { mutableStateOf<List<Pair<String, Long>>>(emptyList()) }
     var confirmCleanup by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
@@ -67,11 +66,11 @@ internal fun PrivacyStoragePanel(embedded: Boolean = false) {
             }
             Row(Modifier.settingSearchFocus("Hide Screenshots And Recent-App Previews")) {
                 Text(stringResource(R.string.ui_v2_hide_screenshots_and_recent_app_previews), Modifier.weight(1f))
-                Switch(secure, { enabled ->
-                    secure = enabled
-                    preferences.edit().putBoolean("secure_screen", enabled).apply()
-                    (context as? Activity)?.window?.let { window -> if (enabled || locked) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-                })
+                Switch(
+                    checked = devicePrivacy?.secureScreen != false || locked,
+                    enabled = devicePrivacy != null && !locked && devicePrivacy?.privacyMode == false,
+                    onCheckedChange = { preferences.edit().putBoolean("secure_screen", it).apply() }
+                )
             }
             sizes.forEach { (name, size) -> Text("$name · ${"%.1f".format(size / 1_048_576.0)} MB", style = MaterialTheme.typography.bodySmall) }
             TextButton(modifier = Modifier.settingSearchFocus("Clear Attachment Previews"), onClick = { confirmCleanup = true }) { Text(stringResource(R.string.ui_v2_clear_attachment_previews)) }

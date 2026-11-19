@@ -24,6 +24,7 @@ from v14.execution_binding import ExecutionBindingError
 from v14.conversations import FEATURES, QueueFull, ConversationConflict, CommandIdentityConflict
 from v14.conversation_policy import verify_mutation_identity, MUTATION_IDENTITY_HEADERS
 from v14.repository_lifecycle import RepositoryLifecycle, RepositoryLifecycleError
+from v14.copilot_tasks import CopilotTaskError
 from v14.code_graph.public_github import PublicGitHubRateLimited, PublicRepositoryUnavailable
 from v14.github_api_governor import GitHubApiGovernor, GitHubApiRateWait
 
@@ -76,6 +77,8 @@ def install_engineering_routes(app, service):
         except ExecutionBindingError as error:
             return JSONResponse({'error': error.error_payload(stage=stage)}, status_code=error.status)
         except RepositoryLifecycleError as error:
+            return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
+        except CopilotTaskError as error:
             return JSONResponse({'error': {'code': error.code, 'message': str(error), 'retryable': False}}, status_code=error.status)
         except QueueFull:
             return JSONResponse({'error': {'code': 'queue_full', 'retryable': True}}, status_code=429)
@@ -136,6 +139,60 @@ def install_engineering_routes(app, service):
             return JSONResponse({'error': {'code': code, 'retryable': False,
                                            'operation_result_unconfirmed': True}}, status_code=500)
 
+    @app.api_route('/gateway/engineering/admission-settings', methods=['GET', 'POST'])
+    @app.api_route('/v1/gateway/engineering/admission-settings', methods=['GET', 'POST'])
+    async def admission_settings(request: Request):
+        async def run():
+            owner = principal(request)
+            if not service.store.runtime.GATEWAY_DURABLE_JOBS:
+                raise ExecutionBindingError('ENGINEERING_SETTINGS_UNAVAILABLE', 'Enable durable storage on the host.', 503)
+            if request.method == 'POST':
+                if owner == 'network:shared':
+                    raise ExecutionBindingError('ENGINEERING_OWNER_REQUIRED', 'Change the shared network setting on the Gateway PC.', 403)
+                if owner.startswith('paired:'):
+                    raise ExecutionBindingError('ENGINEERING_MANAGED_SETTINGS_REQUIRED', 'Use the paired revisioned Gateway settings.', 403)
+                if owner == 'local:single-user' and await asyncio.to_thread(service.store.tx, lambda db: db.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_control_settings'").fetchone() is not None):
+                    raise ExecutionBindingError('ENGINEERING_MANAGED_SETTINGS_REQUIRED', 'Use the supervisor revisioned Gateway settings.', 403)
+                if not all(request.headers.get(name) for name in MUTATION_IDENTITY_HEADERS):
+                    raise ExecutionBindingError('CONTINUITY_IDENTITY_INVALID', 'Read the installation and account before editing.', 400)
+                value = await asyncio.to_thread(service.store.change_admission_settings, owner, await body(request))
+            else:
+                value = await asyncio.to_thread(service.store.tx, lambda db: service.store.admission_settings(db, owner))
+            gateway_id = await asyncio.to_thread(service.store.conversations.gateway_id)
+            return JSONResponse(dict(value, gateway_id=gateway_id, principal_id=owner), headers={'Cache-Control': 'no-store'})
+        return await execute(run)
+
+    @app.api_route('/gateway/admin/engineering-admission', methods=['GET', 'POST'])
+    async def host_admission(request: Request):
+        async def run():
+            if request.state.principal.id != 'local:manager':
+                raise PermissionError('Gateway supervisor required')
+            def owners(db):
+                rows = db.execute("SELECT principal FROM engineering_admission_settings "
+                                  "UNION SELECT DISTINCT principal FROM engineering_jobs "
+                                  "ORDER BY principal LIMIT 257").fetchall()
+                names = sorted({'local:single-user'} | {row[0] for row in rows
+                               if row[0] != 'network:shared' and not row[0].startswith('paired:')})
+                return [{'principal_id': name, **service.store.admission_settings(db, name)} for name in names[:256]]
+            gateway_id = await asyncio.to_thread(service.store.conversations.gateway_id)
+            if request.method == 'POST':
+                record = await body(request)
+                if set(record) != {'gateway_id', 'principal_id', 'revision', 'enabled'} or record['gateway_id'] != gateway_id:
+                    raise ExecutionBindingError('ENGINEERING_SETTINGS_CHANGED', 'Read this installation before editing.')
+                target = record['principal_id']
+                if not isinstance(target, str) or target not in {r['principal_id'] for r in await asyncio.to_thread(service.store.tx, owners)}:
+                    raise ExecutionBindingError('ENGINEERING_OWNER_REQUIRED', 'Use Gateway Settings for a paired owner, or choose an observed account.', 403)
+                managed = await asyncio.to_thread(service.store.tx, lambda db: db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_control_settings'").fetchone() is not None)
+                if target == 'local:single-user' and managed:
+                    raise ExecutionBindingError('ENGINEERING_MANAGED_SETTINGS_REQUIRED', 'Use the supervisor revisioned settings command.', 403)
+                updated = await asyncio.to_thread(service.store.change_admission_settings, target,
+                                                  {'revision': record['revision'], 'enabled': record['enabled']})
+                return JSONResponse(dict(updated, gateway_id=gateway_id, principal_id=target))
+            return JSONResponse({'gateway_id': gateway_id, 'accounts': await asyncio.to_thread(service.store.tx, owners)})
+        return await execute(run)
+
     @app.get('/gateway/engineering/capabilities')
     @app.get('/v1/gateway/engineering/capabilities')
     async def capabilities(request: Request):
@@ -147,7 +204,7 @@ def install_engineering_routes(app, service):
                             'principal_id': owner, 'gateway_id': await asyncio.to_thread(service.store.conversations.gateway_id) if service.store.runtime.GATEWAY_DURABLE_JOBS else None,
                             'code_graph': {'schema_version': 1, 'supported': True, 'configured': connection != 'missing',
                                            'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True,
-                                           'durable_index_jobs': True, 'architecture_pagination': True,
+                                           'durable_index_jobs': True, 'sync_index_receipts': True, 'architecture_pagination': True,
                                            'access': connection}}
             if public_only:
                 # These callers have access to public maps, with no visibility into
@@ -162,12 +219,48 @@ def install_engineering_routes(app, service):
                     'instance_id': getattr(getattr(service.store.runtime, 'gateway_service', None), 'instance_id', None),
                     'task_scope_protocol': 1, 'task_scopes': ['read', 'plan', 'implement'], 'features': dict({key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES}, mutation_identity_preconditions_v1=True, repository_lifecycle_v1=repository_operations['enabled']), **{key: bool(service.store.runtime.GATEWAY_DURABLE_JOBS) for key in FEATURES},
                     'repository_operations': repository_operations,
+                    'copilot_tasks': {'schema': 'github.copilot-tasks.v1', 'supported': True,
+                                      'enabled': bool(service.store.runtime.GATEWAY_DURABLE_JOBS and service.copilot.enabled()),
+                                      'requires_explicit_consent': True, 'orchestration_owner': 'GATEWAY',
+                                      'execution_owner': 'GITHUB_CLOUD', 'automatic_merge': False},
                     'mutationIdentityPreconditions': MUTATION_IDENTITY_HEADERS,
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
                     'execution_batch': batch_capability(durable=service.store.runtime.GATEWAY_DURABLE_JOBS),
                     'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',
                     'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY', 'admission_preflight_protocol': 1, 'sampling_policy_protocol': 1}
+        return await execute(run)
+
+    @app.get('/gateway/engineering/copilot/capabilities')
+    @app.get('/v1/gateway/engineering/copilot/capabilities')
+    async def copilot_capabilities(request: Request):
+        async def run():
+            return await asyncio.to_thread(service.copilot.capabilities, principal(request))
+        return await execute(run)
+
+    @app.post('/gateway/engineering/copilot/tasks')
+    @app.post('/v1/gateway/engineering/copilot/tasks')
+    async def copilot_create(request: Request):
+        async def run():
+            owner = principal(request)
+            if any(request.headers.get(name) is None for name in MUTATION_IDENTITY_HEADERS):
+                raise ExecutionBindingError('CONTINUITY_IDENTITY_REQUIRED', 'Refresh the gateway identity and supply both installation and account preconditions.', 400)
+            result = await asyncio.to_thread(service.copilot.submit, owner, await body(request))
+            return JSONResponse(result, status_code=202 if result['state'] == 'ACCEPTED' else 200)
+        return await execute(run)
+
+    @app.get('/gateway/engineering/copilot/tasks')
+    @app.get('/v1/gateway/engineering/copilot/tasks')
+    async def copilot_list(request: Request, request_id: str | None = None, repository: str | None = None, page: int = 1, per_page: int = 30):
+        async def run():
+            return await asyncio.to_thread(service.copilot.list, principal(request), request_id, repository, page, per_page)
+        return await execute(run)
+
+    @app.get('/gateway/engineering/copilot/tasks/{task_id}')
+    @app.get('/v1/gateway/engineering/copilot/tasks/{task_id}')
+    async def copilot_status(task_id: str, request: Request):
+        async def run():
+            return await asyncio.to_thread(service.copilot.status, principal(request), task_id)
         return await execute(run)
 
     @app.post('/gateway/engineering/repository-operations')
@@ -197,7 +290,7 @@ def install_engineering_routes(app, service):
             if set(payload) != {'selection'}:
                 raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'A selected profile snapshot is required.', 400)
             return await asyncio.to_thread(service.prepare_binding, owner, payload['selection'],
-                                           gateway_endpoint=str(request.base_url).rstrip('/'))
+                                           gateway_endpoint=request.headers.get('X-Gateway-Control-Endpoint') if owner.startswith('paired:') else str(request.base_url).rstrip('/'))
         return await execute(run, stage='provider_admission')
 
     @app.get('/gateway/engineering/bindings/{binding_id}/capabilities')
@@ -243,6 +336,15 @@ def install_engineering_routes(app, service):
                                              after=int(request.query_params.get('after', '0')),
                                              limit=int(request.query_params.get('limit', '10')))
             return result if result else JSONResponse({'error': {'code': 'unknown_diagnostic_job'}}, status_code=404)
+        return await execute(run)
+
+    @app.post('/gateway/engineering/profile-checks')
+    @app.post('/v1/gateway/engineering/profile-checks')
+    async def profile_checks(request: Request):
+        from v14.profile_checks import ProfileChecks
+        async def run():
+            owner = principal(request)
+            return await asyncio.to_thread(ProfileChecks(service).execute, owner, await body(request))
         return await execute(run)
 
     @app.post('/gateway/engineering/graph')
@@ -404,10 +506,10 @@ def install_engineering_routes(app, service):
 
     @app.get('/gateway/engineering/jobs/{job_id}/checkpoints/{check_id}')
     @app.get('/v1/gateway/engineering/jobs/{job_id}/checkpoints/{check_id}')
-    async def checkpoint_detail(job_id: str, check_id: str, request: Request):
+    async def checkpoint_detail(job_id: str, check_id: str, request: Request, offset: int = 0, left_check_id: str | None = None):
         from v14.engineering_checkpoints import candidate_details
         async def run():
-            return await asyncio.to_thread(candidate_details, service, principal(request), job_id, check_id)
+            return await asyncio.to_thread(candidate_details, service, principal(request), job_id, check_id, offset, left_check_id)
         return await execute(run)
 
     @app.get('/gateway/engineering/jobs/{job_id}/operations')

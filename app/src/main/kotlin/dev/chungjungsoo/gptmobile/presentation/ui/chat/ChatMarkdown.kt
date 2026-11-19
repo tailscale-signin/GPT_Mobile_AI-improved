@@ -488,6 +488,7 @@ private fun ChatMarkdownContent(
         }
     }
     val components = remember(
+        streaming,
         isDarkTheme,
         copyCodeToClipboard,
         displayMathByPlaceholder,
@@ -587,7 +588,15 @@ private fun ChatMarkdownContent(
                     MarkdownCodeFence(it.content, it.node, it.typography.code) { code, language, style ->
                         val cleanLang = language?.trim()?.lowercase()
                         val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
-                        if (isHtmlOrSvg) {
+                        val pendingCard = cleanLang == "gpt-ui" && streaming && it.node.children.none { child -> child.type == MarkdownTokenTypes.CODE_FENCE_END && child.endOffset > child.startOffset }
+                        val dataset = remember(cleanLang, code, pendingCard) {
+                            if (cleanLang == "gpt-ui" && !pendingCard) dev.chungjungsoo.gptmobile.data.model.AnswerDataset.parse(code) else null
+                        }
+                        if (pendingCard) {
+                            Text("Preparing answer preview…", style = MaterialTheme.typography.bodySmall)
+                        } else if (dataset != null) {
+                            AnswerDatasetCard(dataset)
+                        } else if (isHtmlOrSvg) {
                             SandboxedArtifactView(
                                 title = cleanLang.uppercase(),
                                 content = code,
@@ -644,7 +653,8 @@ private fun ChatMarkdownContent(
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     val externalHandler = LocalUriHandler.current
-    val sourceHandler = remember(context, externalHandler, interactionOwner) {
+    val chatMedia = LocalChatMediaPreview.current
+    val sourceHandler = remember(context, externalHandler, interactionOwner, chatMedia) {
         object : androidx.compose.ui.platform.UriHandler {
             override fun openUri(uri: String) {
                 if (!interactionOwner.active) return
@@ -652,7 +662,7 @@ private fun ChatMarkdownContent(
                 if (parsedUri.scheme == "gptmobile" && parsedUri.host == "knowledge") {
                     context.startActivity(android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.setting.KnowledgeSourceActivity::class.java).setData(parsedUri))
                 } else if (parsedUri.scheme == "gptmobile" && parsedUri.host == "media") {
-                    context.startActivity(android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.setting.McpMediaActivity::class.java).setData(parsedUri))
+                    if (chatMedia != null) chatMedia(parsedUri) else context.startActivity(android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.setting.McpMediaActivity::class.java).setData(parsedUri))
                 } else if (parsedUri.scheme in setOf("https", "http", "mailto")) {
                     externalHandler.openUri(uri)
                 }
@@ -824,11 +834,12 @@ private fun CodeBlockWithCopy(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    modifier = Modifier.padding(end = 12.dp),
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
                     text = language?.trim()?.takeIf { it.isNotEmpty() } ?: stringResource(R.string.code),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                SaveAnswerText("Save", "code.txt", "text/plain", code)
                 TextButton(
                     modifier = Modifier.heightIn(min = 32.dp),
                     onClick = { onCopyCode(code) },

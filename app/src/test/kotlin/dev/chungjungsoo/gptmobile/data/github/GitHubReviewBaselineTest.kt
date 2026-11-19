@@ -22,6 +22,21 @@ class GitHubReviewBaselineTest {
         AgentToolDefinition("github_pr", "Read pull requests", json("""{"type":"object","properties":{"action":{"type":"string"},"state":{"type":"string"},"per_page":{"type":"integer"}},"required":["action"],"additionalProperties":false}"""))
     )
 
+    @Test fun discoveryCanRestoreTheBoundReviewStatusToolWithoutReplayingAnAcquisition() {
+        val discovery = AgentToolDefinition(GitHubAuthorizedCatalog.TOOL, "Discover", json("""{"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"additionalProperties":false}"""))
+        val scoped = tools.first().copy(name = "github_context__selected")
+        val available = listOf(discovery)
+        val authorized = listOf(scoped, discovery)
+        val next = requireNotNull(GitHubReviewComparison.plan(review, available, emptyMap(), authorized)?.nextCall)
+        assertEquals(discovery.name, next.name)
+        assertEquals(json("""{"names":["github_context__selected"]}"""), next.arguments)
+        val observed = mapOf("discover" to receipt(discovery.name, next.arguments, json("{}")))
+        assertNull(GitHubReviewComparison.plan(review, available, observed, authorized)?.nextCall)
+        assertNull(GitHubReviewComparison.plan(review, available, emptyMap(), authorized + scoped.copy(name = "github_context__other"))?.nextCall)
+        assertNull(GitHubReviewComparison.plan(review, available, emptyMap(), available)?.nextCall)
+        assertEquals(scoped.name, GitHubReviewComparison.plan(review, listOf(scoped, discovery), observed, authorized)?.nextCall?.name)
+    }
+
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
     private fun receipt(tool: String, arguments: JsonObject, data: JsonObject, repository: String = "owner/repo", success: Boolean = true) = buildJsonObject {
         put("repository", repository)
@@ -49,6 +64,17 @@ class GitHubReviewBaselineTest {
     )
 
     private fun failed(ref: String, code: String, action: String = "commit") = JsonObject(resolved(ref, success = false, action = action) + ("error_code" to JsonPrimitive(code)))
+
+    @Test fun missingHeadPreservesTheCauseOfTheSelectedStatusRead() {
+        val status = JsonObject(context() + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("NETWORK_TIMEOUT")))
+        val plan = requireNotNull(GitHubReviewComparison.plan(review, tools, mapOf("status" to status)))
+        assertNull(plan.nextCall)
+        val failure = GitHubReviewComparison.blockedFailure(plan)
+        assertEquals("NETWORK_TIMEOUT", failure.errorCode)
+        assertEquals(JsonPrimitive("STATUS_READ_FAILED"), failure.failureDetails?.get("github_prerequisite_observation"))
+        val absent = requireNotNull(GitHubReviewComparison.plan(review, emptyList(), emptyMap()))
+        assertEquals(JsonPrimitive("STATUS_TOOL_NOT_EXPOSED"), absent.checkpoint["github_prerequisite_observation"])
+    }
 
     @Test fun blockedComparisonPreservesOnlyTheConcreteFailedLookupCause() {
         val original = JsonObject(failed("release/stable", "GITHUB_REF_UNAVAILABLE") + ("call_id" to JsonPrimitive("baseline-lookup")))

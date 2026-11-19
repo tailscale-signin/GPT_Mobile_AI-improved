@@ -194,6 +194,18 @@ internal object GitHubExecutionLedger {
             put("unresolved_remote_outcomes", unresolved)
             put("reconciled_remote_outcomes", reconciledOutcomes)
             put("unresolved_graph_index_attempts", unresolvedGraphAttempts)
+            graphAttempts.values.firstOrNull { group -> group.none { it.key in reconciled } }?.let { group ->
+                val original = group.firstOrNull { graphExecution(it.value)?.get("action") == JsonPrimitive("index") } ?: group.first()
+                put(
+                    "pending_graph_index",
+                    buildJsonObject {
+                        put("operation", "repository_graph:index")
+                        if (graphAttemptKey(original.value, "graph_index_attempt_hash") != null) {
+                            put("attempt_hash", requireNotNull(graphExecution(original.value)).getValue("graph_index_attempt_hash"))
+                        }
+                    }
+                )
+            }
             put("reconciled_graph_index_attempts", reconciledGraphAttempts)
             put("reconciliation_proofs", JsonObject(reconciled))
             put("receipt_scope", "Retained observations; a shared result does not prove another dispatch")
@@ -324,6 +336,14 @@ internal object GitHubExecutionLedger {
             graphAttemptKey(receipt, "graph_index_attempt_hash")?.let(graphProofs::get)?.let { id to JsonPrimitive(it) }
         }.toMap()
         return native + graph
+    }
+
+    fun pendingGraphIndex(receipts: Map<String, JsonObject>): JsonObject? {
+        val pending = receipts.filterValues { it["verification_eligible"] != JsonPrimitive(false) && hasGraphIndexUncertainty(it) }
+        if (pending.isEmpty()) return null
+        val settled = reconciledReceiptIds(receipts)
+        val outstanding = pending.filterKeys { it !in settled }.values
+        return outstanding.firstOrNull { graphAttemptKey(it, "graph_index_attempt_hash") != null } ?: outstanding.firstOrNull()
     }
 
     /** Retained prior uncertainty is an obligation, not another dispatched current mutation. */

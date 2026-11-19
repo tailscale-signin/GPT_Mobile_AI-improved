@@ -1020,6 +1020,59 @@ internal class GitHubRepositorySession(
         return SearchMatches(matches, incompleteSymbols)
     }
 
+    private suspend fun applicableGuidance(context: GitHubTaskSnapshot, paths: Collection<String>, pinned: JsonObject): JsonObject {
+        val directories = linkedSetOf("")
+        paths.forEach { path ->
+            val parts = path.split('/').dropLast(1)
+            parts.indices.forEach { index -> directories.add(parts.take(index + 1).joinToString("/")) }
+        }
+        val entries = pinned["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { it.s("path") }
+        val complete = pinned["truncated"]?.jsonPrimitive?.booleanOrNull != true
+        val directoryTrees = mutableMapOf("" to context.treeSha)
+        var budget = 8192
+        val rules = mutableListOf<JsonObject>()
+        for (dir in directories.sortedWith(compareBy<String> { it.count { c -> c == '/' } + if (it.isEmpty()) 0 else 1 }.thenBy { it })) {
+            val names = listOf("CLAUDE.md", "AGENTS.md")
+            val local = if (complete) {
+                null
+            } else {
+                val treeSha = directoryTrees[dir] ?: continue
+                val response = cachedSource(blobScope(context), "guidance-tree:$treeSha")
+                    ?: request("${root(context.owner, context.repo)}/git/trees/$treeSha").jsonObject.also {
+                        store.write(blobScope(context), "guidance-tree:$treeSha", it)
+                    }
+                require(response["truncated"]?.jsonPrimitive?.booleanOrNull != true) { "The instruction directory listing is incomplete." }
+                response["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { row ->
+                    val full = listOf(dir, row.s("path")).filter(String::isNotEmpty).joinToString("/")
+                    if (row.s("type") == "tree" && full in directories) directoryTrees[full] = row.s("sha")
+                    full
+                }
+            }
+            for (name in names) {
+                val path = listOf(dir, name).filter(String::isNotEmpty).joinToString("/")
+                val item = (local ?: entries)[path] ?: continue
+                if (item.s("mode") !in setOf("100644", "100755")) continue
+                val content = blob(context, item).s("content")
+                val visible = utf8Prefix(content, minOf(4096, budget))
+                budget -= visible.encodeToByteArray().size
+                rules += buildJsonObject {
+                    put("path", path)
+                    put("blob_sha", item.s("sha"))
+                    put("text", visible)
+                    put("has_more", visible.length < content.length)
+                    if (visible.length < content.length) put("read_with", "github_read at this commit and path")
+                }
+            }
+        }
+        return buildJsonObject {
+            put("commit_sha", context.commitSha)
+            put("files", JsonArray(rules))
+            put("precedence", "Apply instructions to files in their directory tree. Nearer directories take precedence. AGENTS.md takes precedence over CLAUDE.md in one directory. User instructions and tool permissions remain authoritative.")
+        }
+    }
+
+    private fun guidanceKey(context: GitHubTaskSnapshot) = "active-guidance:" + GitHubRepositoryStateStore.digest("${context.owner}/${context.repo}|${context.commitSha}")
+
     private suspend fun read(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
         val ranges = args["ranges"] as? JsonArray ?: JsonArray(listOf(args))
         require(ranges.size in 1..8) { "Read between one and eight ranges." }
@@ -1125,6 +1178,8 @@ internal class GitHubRepositorySession(
                 }
             }
         }
+        val guidance = applicableGuidance(context, selected.keys, pinnedTree)
+        if (guidance.getValue("files").jsonArray.isNotEmpty()) store.write(scope, guidanceKey(context), guidance)
         val contextGraph = withContext(Dispatchers.Default) { GitHubCodeContext.build(sources, entries.keys.toList(), context.commitSha) }
         val evidenceId = GitHubRepositoryStateStore.digest(scope + context.commitSha + results.toString())
         val evidence = buildJsonObject {
@@ -1135,6 +1190,7 @@ internal class GitHubRepositorySession(
             put("ranges", ranges)
             put("items", JsonArray(results))
             put("context_graph", contextGraph)
+            if (guidance["files"]?.jsonArray?.isNotEmpty() == true) put("active_instructions", guidance)
         }
         store.write(scope, "evidence:$evidenceId", evidence)
         retainSourceDescriptor(evidenceId, evidence)
@@ -1160,6 +1216,7 @@ internal class GitHubRepositorySession(
             put("source_coverage", JsonArray(coverage))
             put("items", JsonArray(results))
             put("context_graph", contextGraph)
+            if (guidance["files"]?.jsonArray?.isNotEmpty() == true) put("active_instructions", guidance)
             put("concurrent_blob_limit", 2)
             put("excerpt_bytes", MAX_EXCERPT_BYTES - remaining)
         }
@@ -1190,7 +1247,18 @@ internal class GitHubRepositorySession(
             args["edits"] as? JsonArray ?: error("Supply edits or target_file, search_snippet and replacement_snippet.")
         }
         require(edits.size in 1..20) { "Supply 1–20 exact edits." }
-        val entries = tree(context)["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { it.s("path") }
+        val pinned = tree(context)
+        val entries = pinned["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { it.s("path") }
+        val guidance = applicableGuidance(context, edits.map { it.jsonObject.s("path") }, pinned)
+        val key = guidanceKey(context)
+        if (guidance["files"]!!.jsonArray.isNotEmpty() && store.read(scope, key) != guidance) {
+            store.write(scope, key, guidance)
+            return buildJsonObject {
+                put("status", "REPOSITORY_INSTRUCTIONS")
+                put("active_instructions", guidance)
+                put("next_action", "Review the applicable files and any remaining instruction pages. Then submit the intended candidate against the same revision.")
+            }
+        }
         val originals = edits.map { it.jsonObject.s("path") }.distinct().associateWith { path ->
             val entry = requireNotNull(entries[path]) { "Patch path does not exist in the pinned tree: $path. Paths are repository-relative; do not prefix them with a branch name. Use github_search mode=paths to discover the exact file, then read its content before staging." }
             require(entry.s("mode") in setOf("100644", "100755")) { "Patch may only replace regular text blobs." }

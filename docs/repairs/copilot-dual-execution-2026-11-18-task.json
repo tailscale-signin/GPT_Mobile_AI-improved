@@ -1,0 +1,60 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "326683b484f9fea4dfc585fc9732f4b3b97d9068",
+  "start_sha": "d5d248a59ac5322c417897baf40745d2147f4063",
+  "working_branch": "fix/post-1534-runtime-continuation-and-acceptance-2026-11-18",
+  "existing_pr": 1741,
+  "intent": "Run Copilot cloud work directly from Android with remote AI profiles, or through an explicitly selected standalone Gateway that persists and supervises accepted work while Android is closed. Preserve default-off consent, account and route identity, uncertain-write reconciliation, and separate merge approval.",
+  "state": "SOURCE_IMPLEMENTED_PENDING_ANDROID_CI",
+  "validation": {
+    "canonical_fast": {
+      "status": "PASS",
+      "host_tests": 540,
+      "note": "Passed after integrating the shared branch changes through 1f8ae0db6edbb0dcca2d7d1988d5c6c7a8de8fd2, with regenerated inventories."
+    },
+    "gateway": {
+      "status": "PASS",
+      "python_suites": 104,
+      "python_cases": 1441,
+      "passed": 1413,
+      "skipped": 28,
+      "browser_passed": 7,
+      "copilot_cases": 17,
+      "manifest_sha256": "ee73493c2504e447a6a746da506cec446b6615f7c28ec15fcff61e358ff3d826",
+      "note": "Full checker plus successful final replacements for suites affected by generated-manifest/fixture updates; each suite counted once."
+    },
+    "kotlin_host_checks": {
+      "status": "PASS",
+      "direct_task_cases": 8,
+      "gateway_adapter": "Compiled actual adapter and durable state store; lost submission response and two restarts recovered with GET only and one POST.",
+      "scope": "Application settings, Android scaffolding and HTTP transport ports are stubbed; this does not qualify the committed Android/Ktor suites.",
+      "admission_cases": 4,
+      "direct_and_admission_total": 12
+    },
+    "android_gradle": {
+      "status": "BLOCKED_BEFORE_APP_COMPILATION",
+      "stage": ":app:dataBindingMergeDependencyArtifactsDebug",
+      "reason": "Missing Android AAR dependencies in the offline cache. JDK 21 and cached Gradle 9.8 were selected; dependency verification remains enabled.",
+      "ci": "Required on the published exact commit; no local Android/Ktor test success is claimed."
+    },
+    "live_copilot": "NOT_RUN",
+    "installed_android_gateway": "NOT_RUN",
+    "merge_acceptance": "NOT_AUTHORIZED_BY_TASK_COMPLETION",
+    "kotlin_formatting": {
+      "status": "PASS",
+      "changed_kotlin_files": 32,
+      "version": "ktlint 1.3.1"
+    },
+    "release_scope": "PASS"
+  },
+  "contracts": {
+    "rest": "https://docs.github.com/en/rest/agent-tasks/agent-tasks",
+    "mcp": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/use-cloud-agent-with-mcp",
+    "api_version": "2026-03-10",
+    "native_creation_access": "Copilot Business or Enterprise public preview; GitHub App user token or fine-grained PAT with Agent tasks permission; installation tokens unsupported.",
+    "sha_guard": "PREFLIGHT_ONLY: the upstream API has no conditional-SHA field.",
+    "ownership": "GitHub executes accepted cloud work. Android direct or an explicitly selected Gateway owns submission and observation; no automatic owner switch or unknown-write replay."
+  },
+  "reconciled_parent_sha": "1f8ae0db6edbb0dcca2d7d1988d5c6c7a8de8fd2"
+}

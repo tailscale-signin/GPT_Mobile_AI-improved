@@ -30,6 +30,19 @@ class WorkspaceIntegrationTest {
         database.close()
     }
 
+    @Test fun removedDefaultCannotSilentlySelectAnotherProvider() = runBlocking {
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(name = "Other", model = "other")
+        database.platformDao().addPlatform(profile)
+        val repository = ProjectWorkspaceRepository(database)
+        val project = KnowledgeProject("isolated", "Isolated", defaultProfileUid = "removed")
+        repository.save(project)
+        assertTrue(runCatching { repository.createChat(project) }.isFailure)
+        assertTrue(repository.chats().isEmpty())
+        repository.save(project.copy(defaultProfileUid = profile.uid))
+        val id = repository.createChat(project)
+        assertEquals(project.id, database.knowledgeDao().projectForChat(id)?.id)
+    }
+
     @Test fun preparedDocumentReceiptRejectsDeletedOrRevisedSource() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Recall")).toInt()
         val repository = MemoryDocumentRepository(database, MemoryScopeResolver(database))
@@ -85,6 +98,27 @@ class WorkspaceIntegrationTest {
         assertEquals(listOf("Edited", ""), copied.map { it.content })
         assertEquals(copied.first().id, copied.last().linkedMessageId)
         assertTrue(copied.all { it.id !in original.map { item -> item.id } })
+    }
+
+    @Test fun copiesAndEditedBranchesKeepProjectMemoryAndItsPersonalOptOut() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val source = dao.insertChatRoom(ChatRoomV2(title = "Private project")).toInt()
+        val prompt = MessageV2(chatId = source, content = "Question", platformType = null, createdAt = 1)
+        val promptId = dao.insertMessage(prompt).toInt()
+        val project = KnowledgeProject("private", "Research", instructions = "Use project sources only")
+        database.knowledgeDao().saveProject(project)
+        database.knowledgeDao().attachChat(KnowledgeProjectChat(source, project.id))
+        val copies = listOf(
+            dao.duplicateChatWithHistory(source, "Copy", 2),
+            dao.duplicateChatWithHistory(source, "Edit", 3, prompt.copy(id = promptId, content = "Revised"))
+        )
+        val scopes = MemoryScopeResolver(database)
+        for (copy in copies) {
+            val scope = scopes.resolve(copy.id)
+            assertEquals(project, scope.project)
+            assertFalse(scope.accepts("personal"))
+            assertTrue(scope.accepts("project:private"))
+        }
     }
 
     @Test fun temporaryAndMissingConversationsNeverResolveToPersistentMemory() = runBlocking {

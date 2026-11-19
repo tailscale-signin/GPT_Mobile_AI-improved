@@ -62,12 +62,12 @@ data class ToolBatchRecoverySnapshot(
 
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
 class ToolBatchCheckpoint(private val file: File?, private val binding: String, private val initialJob: ToolBatchJobContext? = null, private val expectedProviderEvidenceDigest: String? = null, private val expectedProviderJournalDigest: String? = null) {
-    @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject, val originalInvocationFingerprint: String? = null, val originalInvocation: ProviderToolInvocation? = null, val originalProviderName: String? = null, val originalProviderArguments: JsonObject? = null) {
+    @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject, val originalInvocationFingerprint: String? = null, val originalInvocation: ProviderToolInvocation? = null, val originalProviderName: String? = null, val originalProviderArguments: JsonObject? = null, val reportedModelId: String? = null) {
         fun event(): ProviderEvent.ToolCall {
             require((originalProviderName == null) == (originalProviderArguments == null)) { "Tool recovery journal has an incomplete provider call." }
             val legacy = originalProviderName?.let { ProviderToolInvocation(it, requireNotNull(originalProviderArguments)) }
             require(originalInvocation == null || legacy == null || originalInvocation == legacy) { "Tool recovery journal has conflicting provider calls." }
-            return ProviderEvent.ToolCall(id, name, arguments, originalInvocationFingerprint, originalInvocation ?: legacy)
+            return ProviderEvent.ToolCall(id, name, arguments, originalInvocationFingerprint, originalInvocation ?: legacy, reportedModelId)
         }
     }
 
@@ -221,6 +221,14 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         }
     }
 
+    /** Only a complete journal matching the protected handoff may follow a turn to its new guard. */
+    internal suspend fun settledHandoffDigest(checkpoint: JsonObject): String? = locked {
+        val state = read()
+        if (state.entries.isEmpty() || state.entries.values.any { it.result == null }) return@locked null
+        val receipts = GitHubProviderReplayEvidence.receipts(state.settledExchanges())
+        GitHubProviderReplayEvidence.settledHandoffDigest(checkpoint, receipts)
+    }
+
     suspend fun markConsumed(ids: Set<String>) = locked {
         val state = read()
         val consumed = state.consumedCallIds + ids.filter { state.entries[it]?.result != null }
@@ -321,7 +329,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         val entries = state.entries.toMutableMap()
         calls.forEach { call ->
             if (call.originalInvocation != null) call.providerInvocation()
-            val row = Call(call.callId, call.name, call.arguments, call.originalInvocationFingerprint, call.originalInvocation)
+            val row = Call(call.callId, call.name, call.arguments, call.originalInvocationFingerprint, call.originalInvocation, reportedModelId = call.reportedModelId)
             require(entries[call.callId]?.call?.let { it.event() == call } != false) { "Tool call ID changed its operation; dispatch rejected." }
             entries.putIfAbsent(call.callId, Entry(row))
         }

@@ -13,8 +13,11 @@ data class McpCatalogueAvailability(
     val executionObservedAtMs: Long? = null
 )
 
-/** Emitted only by local catalogue checks before any tools/call request is made. */
-internal class McpLocalToolRejection(val code: String, message: String) : IllegalStateException(message)
+/** Emitted only by local admission checks before any tools/call request is made. */
+internal class McpLocalToolRejection(val code: String, message: String, val phase: String = "catalog") : IllegalStateException(message)
+
+/** A later continuation was blocked after an earlier tools/call already reached the server. */
+internal class McpContinuationAdmissionRejected(val code: String, message: String) : IllegalStateException(message)
 
 /** Validate before publishing a successful discovery receipt; a malformed list must never be ready. */
 internal fun validateMcpCatalogue(tools: List<io.modelcontextprotocol.kotlin.sdk.types.Tool>): Int {

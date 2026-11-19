@@ -15,7 +15,8 @@ permissions:
   contents: read
 concurrency:
   group: ui-review-apk-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Let the running PR build publish its APK while new revisions share the pending slot.
+  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
 env:
   OBX_DISABLE_ANALYTICS: "true"
   ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}

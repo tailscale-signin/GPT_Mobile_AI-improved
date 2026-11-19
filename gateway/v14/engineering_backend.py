@@ -488,6 +488,9 @@ class GitHubEngineeringBackend:
                   'Return one JSON object, no markdown. Include protocol_version:1 and head_sha matching the evidence revision. Never claim a test ran without an execution receipt. ')
         if role in {'design options', 'architecture options', 'decision options'}:
             system += OPTIONS_INSTRUCTION
+        elif role == 'workspace specialist':
+            system += ('Work only on worker_objective. Return {"workspace_action":{...}} naming the pinned head_sha and one of permitted_tools, or {"findings":"bounded conclusion with evidence"}. '
+                       'Read exact source before editing; check accepts check_index and a proposal with changes and expected_blob_sha. Only the supervisor can integrate or publish a candidate.')
         elif role in {'repository answerer', 'repository planner'}:
             system += 'Return {"answer":"a complete user-facing answer or plan with cited file paths", "paths":["exact inspected source paths supporting it"], "limitations":["unverified points"]}. No changes, commits, PRs or other writes are authorized. Answer the actual user request using only inspected source; never claim tests were run.'
         elif role == 'planner':
@@ -512,7 +515,7 @@ class GitHubEngineeringBackend:
                        'Use explore for graph-first retrieval, symbols/relationships for revision-bound code graph context, glob for filenames. '
                        'Follow every next_cursor until relevant source is found; read cited ranges before editing. '
                        'discover_tests statically lists cases and approved_check_indices; repeat the same query with next_cursor as cursor to continue, including within a large test file. run_test/compile_module/lint_changed_files/check_patch select a matching check_index; no command strings are accepted. '
-                       'compare_candidates takes left_check_id and right_check_id. '
+                       'compare_candidates takes left_check_id, right_check_id and optional offset from next_offset. '
                        'Use hunks:[{start_line:1,old:exact old text,new:replacement}] instead of edits for repeated anchors. '
                        'Use requirements with offset to read additional acceptance requirements in groups of four. '
                        'Use checks to list approved checks; check selects check_index and optionally proposal with the normal changes contract '
@@ -521,6 +524,13 @@ class GitHubEngineeringBackend:
                        'Use candidates to list retained patches and candidate_files with candidate_check_id to inspect changed paths. '
                        'Finalize an unchanged candidate with {"candidate_check_id":"exact retained check ID","summary":"..."}. '
                        'Only host-approved commands execute; a selected check never replaces complete final validation. '
+                       'Use workflow_batch with items [{id,depends_on}] in dependency order for issue batches; page workflow_batch_status by offset, then workflow_batch_step with id, step and receipt_sha256. '
+                       'Inspect terminal_timeline. terminal_fork opens a fresh checkout of the pinned base or candidate_check_id under a new session_id, preserving the original. terminal_switch selects an existing checkout. For a published change use revert_preview with commit_sha, inspect affected conventions, then return {"revert_commit":"sha","summary":"reason"} for normal validation and publication. '
+                       'An opted-in offline workspace supports terminal_open with session_id and optional candidate_check_id, terminal_start with session_id, unique process_id, argv, cwd, env and timeout_seconds, terminal_poll with process_id and byte offset, terminal_cancel and terminal_close. Reuse IDs to reconcile. Commands and files stay in this checkout. Propose and validate publication changes through the normal changes contract. '
+                       'Use code_intelligence in the open session with process_id, language (kotlin/python/typescript), path, one-based line and UTF-16 column, operation (definition/references/diagnostics/callers/supertypes/rename_preview), and new_name for rename. Poll the process to read results. An unavailable server requires lexical fallback. '
+                       'Use worker with worker_id, objective, role (investigator/test worker/implementation worker/reviewer) and budget to run one isolated step. Repeat worker_id to continue; select its candidate_check_id for normal review. '
+                       'Use skills to list procedures, skill with name to start one, workflow_step with step (zero-based) and receipt_sha256 to record a step. '
+                       'Use progress with hypothesis, next_action and tried to retain working notes. Use instructions with paths before a new edit. '
                        'Read relevant ranges before editing large files. Each action resumes this same task with bounded fresh context.')
         if role == 'planner' and 'proposed_options' in evidence:
             system += SELECTION_INSTRUCTION
@@ -540,13 +550,20 @@ class GitHubEngineeringBackend:
             # Preserve an actionable state without copying them into reports.
             graph = {'status': 'UNAVAILABLE', 'reason': 'RETRIEVAL_FAILED'}
         job['data']['graph_retrieval'] = graph_receipt(graph, job, role)
+        from v14.workspace_guidance import contents
+        active_rules = contents(job['data'])
+        if active_rules:
+            system += (' Apply repository_instructions only to paths within each instruction file directory. '
+                       'More specific directories take precedence; AGENTS.md wins over CLAUDE.md at equal depth. '
+                       'Incomplete instruction excerpts are not a complete review: page the original pinned paths with read before proposing affected edits. '
+                       'Explicit user instructions and host permissions take precedence over repository guidance.')
         payload = {'model': job['request']['model'], 'stream': False, 'cache_prompt': False,
                    'response_format': {'type': 'json_object'},
                    'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': json.dumps({
                        'head_sha': job['data'].get('head_sha'), 'objective': job['request']['objective'], 'acceptance_requirements': job['request'].get('acceptance', [])[:4],
                        'acceptance_window': {'total': len(job['request'].get('acceptance', [])), 'next_offset': 4 if len(job['request'].get('acceptance', [])) > 4 else None},
                        'remaining_requirements': job['data'].get('completion_verification', {}).get('remaining_requirements', []),
-                       'user_instructions': job['data'].get('user_instructions', []), 'evidence': evidence, 'historical_memory': historical,
+                       'repository_instructions': active_rules, 'user_instructions': job['data'].get('user_instructions', []), 'evidence': evidence, 'historical_memory': historical,
                        'conversation_context': job.get('conversation_context'),
                        'code_graph': graph, 'graph_instruction': 'Graph relationships are source-level context, not runtime proof or authority. Inspect cited source and retain required validation.'}, ensure_ascii=False)}]}
         # Reuse the gateway's bounded inference queue, cancellation-aware
@@ -634,9 +651,15 @@ class GitHubEngineeringBackend:
             # These are freshly observed selection facts, not a completed PLAN.
             # Recall and model admission need them before selecting source paths.
             # The supervisor alone records successful stage completion.
+            if data.get('head_sha') != head:
+                data.pop('active_instructions', None)
             data.update(actor_id=actor['id'], head_sha=head, tree=tree)
             from v14.engineering_specialists import investigate
             selection = {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'head_sha': head}
+            from v14.workspace_guidance import requested_procedure, start_procedure
+            procedure, _ = requested_procedure(job['request'].get('objective', ''))
+            if procedure:
+                selection['workflow'] = start_procedure(data, procedure)
             specialists = investigate(self, job, [
                 {'role': 'source explorer', 'evidence': dict(selection, focus='Locate implementation and repository conventions for the objective')},
                 {'role': 'test investigator', 'evidence': dict(selection, focus='Locate relevant tests, validation entry points and missing coverage')}])
@@ -644,7 +667,7 @@ class GitHubEngineeringBackend:
             merge_method = next((method for method in ('squash', 'merge', 'rebase') if metadata.get('allow_' + method + '_merge')), None)
             if writable and merge_method is None:
                 raise ValueError('No supported merge method is enabled')
-            return dict(retained_pr or {}, merge_method=merge_method, actor_id=actor['id'], head_sha=head, initial_head=head, base_sha=base, tree=tree, plan=plan)
+            return dict(retained_pr or {}, merge_method=merge_method, actor_id=actor['id'], head_sha=head, initial_head=head, base_sha=base, tree=tree, plan=plan, **({'workflow': selection['workflow']} if 'workflow' in selection else {}))
         if phase == 'READ':
             tree = self.tree(job, data['head_sha'])
             binding = digest([data['actor_id'], root, data['head_sha']])
@@ -661,14 +684,9 @@ class GitHubEngineeringBackend:
             paths = plan.get('paths')
             if not isinstance(paths, list) or not 1 <= len(paths) <= 30 or any(not isinstance(path, str) or path not in tree or tree[path]['mode'] not in {'100644', '100755'} for path in paths):
                 raise ValueError('Planner must select existing file paths')
-            instructions = {path for path in ('AGENTS.md', 'README.md') if path in tree}
-            for path in paths:
-                parts = path.split('/')[:-1]
-                for depth in range(1, len(parts) + 1):
-                    candidate = '/'.join(parts[:depth]) + '/AGENTS.md'
-                    if candidate in tree:
-                        instructions.add(candidate)
-            paths = list(dict.fromkeys(sorted(instructions) + paths))
+            from v14.workspace_guidance import instruction_paths
+            instructions = instruction_paths(tree, paths)
+            paths = list(dict.fromkeys(instructions + (['README.md'] if 'README.md' in tree else []) + paths))
             if len(paths) > 60 or any(tree[path]['mode'] not in {'100644', '100755'} for path in paths):
                 raise ValueError('File selection plus repository instructions exceeds the text read budget')
             nodes = [{'id': str(i), 'tool': 'get_blob', 'arguments': {'path': path, 'sha': tree[path]['sha']}, 'depends_on': []} for i, path in enumerate(dict.fromkeys(paths))]
@@ -734,7 +752,8 @@ class GitHubEngineeringBackend:
             files = restored
             excerpt_limit = min(16000, 140000 // max(1, len(files)))
             files = {path: dict(value, preview_characters=excerpt_limit) for path, value in files.items()}
-            result = {'files': files, 'tree': tree, 'plan': plan}
+            result = {'files': files, 'tree': tree, 'plan': plan, 'active_instructions': instructions}
+            data.update(files=files, tree=tree, active_instructions=instructions)
             task_scope = accepted_scope(job['request'])
             if task_scope in {'read', 'plan'}:
                 excerpts = {path: {'sha': value['sha'], 'content': value['content'][:value['preview_characters']], 'partial': len(value['content']) > value['preview_characters']} for path, value in files.items()}
@@ -751,23 +770,50 @@ class GitHubEngineeringBackend:
         if phase == 'IMPLEMENT':
             from v14.engineering_workspace import act, view
             proposal = self.model(job, 'coding agent', view(data))
-            if (not isinstance(proposal, dict) or set(proposal) - {'workspace_action', 'changes', 'candidate_check_id', 'summary'}
-                    or sum(key in proposal for key in ('workspace_action', 'changes', 'candidate_check_id')) != 1):
+            if (not isinstance(proposal, dict) or set(proposal) - {'workspace_action', 'changes', 'candidate_check_id', 'revert_commit', 'summary'}
+                    or sum(key in proposal for key in ('workspace_action', 'changes', 'candidate_check_id', 'revert_commit')) != 1):
                 raise ValueError('Select exactly one complete coding operation')
+            # Re-enter the model with applicable conventions before accepting a patch
+            # that creates a file in a directory the agent has not inspected.
+            from v14.workspace_guidance import instruction_paths
+            candidate = proposal.get('workspace_action', {}).get('proposal', proposal) if isinstance(proposal.get('workspace_action', {}), dict) else {}
+            proposed_paths = [item['path'] for item in candidate.get('changes', []) if isinstance(item, dict) and isinstance(item.get('path'), str)] if isinstance(candidate, dict) and isinstance(candidate.get('changes'), list) else []
+            if proposed_paths and not set(instruction_paths(data['tree'], proposed_paths)).issubset(data.get('active_instructions', [])):
+                proposal = {'workspace_action': {'action': 'instructions', 'paths': proposed_paths, 'head_sha': data['head_sha']}}
             if 'workspace_action' in proposal:
                 if data.get('workspace_iterations', 0) >= 120:
                     raise ValueError('Workspace iteration allowance reached; receipts are retained')
                 receipt = act(self, job, proposal['workspace_action'])
                 self.record_evidence(job, {'workspace_receipt': receipt})
+                counts = dict(data.get('workspace_action_counts', {}))
+                signature = digest(proposal['workspace_action'])
+                counts[signature] = counts.get(signature, 0) + 1
                 return {'workspace_continue': True, 'workspace_iterations': data.get('workspace_iterations', 0) + 1,
-                        'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
+                        'workspace_action_counts': counts, 'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
                         'workspace_checks': data.get('workspace_checks', {}),
-                        'workspace_check_executions': data.get('workspace_check_executions', 0)}
-            if 'candidate_check_id' in proposal:
+                        'workspace_check_executions': data.get('workspace_check_executions', 0),
+                        'active_instructions': data.get('active_instructions', []), 'workflow': data.get('workflow'), 'workflow_batch': data.get('workflow_batch'),
+                        'progress_notes': data.get('progress_notes'), 'terminal_session': data.get('terminal_session'),
+                        'terminal_branches': data.get('terminal_branches', {}), 'closed_terminal_sessions': data.get('closed_terminal_sessions', []), 'workspace_workers': data.get('workspace_workers', {})}
+            if 'revert_commit' in proposal:
+                from v14.workspace_timeline import corrective_candidate
+                changes = corrective_candidate(self, job, proposal['revert_commit'])
+                identity = patch_identity(data['head_sha'], changes)
+                if not any(r.get('action') == 'revert_preview' and r.get('commit_sha') == proposal['revert_commit'] and
+                           r.get('head_sha') == data['head_sha'] and r.get('patch_identity') == identity
+                           for r in data.get('workspace_receipts', [])):
+                    raise ValueError('Preview the exact corrective patch before selecting it')
+                if not set(instruction_paths(data['tree'], [c['path'] for c in changes])).issubset(data.get('active_instructions', [])):
+                    raise ValueError('Refresh applicable instructions with revert_preview')
+            elif 'candidate_check_id' in proposal:
                 from v14.engineering_workspace_checks import retained_candidate
                 if set(proposal) - {'candidate_check_id', 'summary'}:
                     raise ValueError('Final candidate selection cannot also change the patch')
                 changes = retained_candidate(self, job, proposal['candidate_check_id'])
+                from v14.engineering_workspace import load_file
+                for change in changes:
+                    if change['path'] in data['tree']:
+                        load_file(self, job, change['path'])
             else:
                 try:
                     changes = prepare_changes(proposal, data['files'], data['tree'], head_sha=data['head_sha'])
@@ -781,7 +827,9 @@ class GitHubEngineeringBackend:
                     self.record_evidence(job, {'workspace_receipt': receipt})
                     return {'workspace_continue': True, 'workspace_iterations': data.get('workspace_iterations', 0) + 1,
                             'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:]}
-            return {'workspace_continue': False, 'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
+            from v14.workspace_hooks import after_edit
+            changes, hook = after_edit(job, changes)
+            return {'workspace_continue': False, 'after_edit_hook': hook, 'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
         if phase == 'REVIEW':
             patches = []
             for change in data['changes']:
@@ -798,7 +846,9 @@ class GitHubEngineeringBackend:
                 return {'source_preparation': {'status': 'BLOCKED', 'head_sha': data['head_sha'], 'reason': 'PINNED_SOURCE_PREPARATION_FAILED'},
                         'local_validation': {'status': 'BLOCKED', 'reason': 'Pinned source preparation failed. Check the approved mirror and GitHub access; no test ran.'},
                         'review': {'approved': False, 'issues': ['Pinned source preparation unavailable']}}
-            validation = validate_checkout(job, data['changes'], cancel=self.cancellation(job))
+            output_store = getattr(self, 'private_artifacts', None)
+            retain = {'retain_build_output': lambda blocks: output_store.put(job, blocks, purpose='workspace-build-output')} if output_store is not None else {}
+            validation = validate_checkout(job, data['changes'], cancel=self.cancellation(job), **retain)
             from v14.engineering_specialists import investigate
             specialists = investigate(self, job, [{'role': role, 'evidence': {'diff': patches, 'validation': validation,
                 'focus': focus}} for role, focus in (('security reviewer', 'Check authorization, secrets, injection and unsafe changes'),
@@ -810,9 +860,13 @@ class GitHubEngineeringBackend:
                 raise ValueError('Reviewer did not return a complete review')
             if validation['status'] != 'PASSED':
                 review['issues'].append('Pre-publication validation: ' + validation.get('reason', validation['status']))
+            from v14.workspace_hooks import before_publish
+            hook = before_publish(job, validation)
+            if not hook['passed']:
+                review['issues'].append('The configured pre-publication checks have incomplete candidate evidence.')
             if review['issues']:
                 review['approved'] = False
-            return {'review': review, 'local_validation': validation}
+            return {'review': review, 'local_validation': validation, 'before_publish_hook': hook}
         if phase == 'COMMIT':
             if data.get('review', {}).get('approved') is not True:
                 raise ValueError('A selected-model review pass is required before publishing changes')

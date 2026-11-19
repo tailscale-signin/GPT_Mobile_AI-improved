@@ -42,6 +42,31 @@ GitHub-focused routing, bounded immutable reads and new diagnostics are document
 
 App-launched engineering jobs that continue after Android closes, reconnectable updates, adaptive read batches, CI repair and exact-commit merge approval are documented in [INTELLIGENT_ENGINEERING.md](INTELLIGENT_ENGINEERING.md).
 
+## Optional Copilot cloud task supervision
+
+Copilot cloud tasks support both **Android direct** and **Gateway** supervision. Choose the Copilot execution owner in the app's GitHub profile. Android direct uses the selected app GitHub connection without a Gateway; GitHub runs an accepted cloud task independently, and Android reconnects to its saved receipt when the app opens again. Gateway uses this PC's GitHub connection and durable journal, submits the approved task once, and keeps observing it while Android is closed or disconnected. The inference model's location does not determine the Copilot execution owner. This REST integration does not require Copilot CLI or the Copilot SDK on the PC.
+
+Copilot is off by default. Enable the app's Copilot setting and the current conversation's Copilot setting before submitting a task. For Gateway supervision, also open **Gateway Settings → GitHub → Connection**, select **Allow Gateway to supervise Copilot cloud tasks**, save settings, and restart when idle. If Android uses a LAN listener, the existing **Allow network devices to run GitHub engineering tasks** setting is also required. The host uses its existing saved GitHub credential; Android does not upload its token to the PC.
+
+For a manual Python installation, set `GATEWAY_COPILOT_ENABLED=true` before starting `python gateway.py serve`, with durable jobs enabled and the normal host GitHub credential selected. `GATEWAY_ENGINEERING_GITHUB_SERVER` selects an existing host GitHub connection, or `GATEWAY_ENGINEERING_GITHUB_TOKEN` supplies a dedicated host credential when no connection is selected. The managed Windows installation reads its saved checkbox and does not inherit this consent from an environment variable.
+
+The [GitHub Agent Tasks REST API](https://docs.github.com/en/rest/agent-tasks/agent-tasks) is a preview, using API version `2026-03-10`. Task creation currently requires a Copilot Business or Enterprise user and a fine-grained personal access token or GitHub App **user** access token with repository **Agent tasks: write** permission; observation requires **Agent tasks: read**. GitHub App installation tokens are not supported by this API. Base/head checks additionally need access to the selected repository's contents. A successful host connection check identifies the account; the task API determines that account's subscription and repository eligibility.
+
+The authenticated endpoints below also have `/v1` aliases. Creation requires both `X-Gateway-Installation-ID` and `X-Gateway-Principal-ID`, explicit `execution_owner: "GATEWAY"`, both Copilot consent flags, a stable `request_id`, the verified numeric GitHub actor ID, and the selected base branch and exact commit. A selected work branch also requires its exact head commit.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /gateway/engineering/copilot/capabilities` | Read host opt-in, installation/principal identity and configured GitHub actor. |
+| `POST /gateway/engineering/copilot/tasks` | Durably accept an explicitly authorized cloud task. |
+| `GET /gateway/engineering/copilot/tasks?request_id=…&repository=…` | Recover the original receipt after a lost Android response without repeating a creation request. |
+| `GET /gateway/engineering/copilot/tasks/{gateway_job_id}` | Read the saved checkpoint scoped to the admitted owner. |
+
+Receipts distinguish the local `cp_…` Gateway job ID from GitHub's upstream task ID. The desktop **GitHub jobs** view shows bounded task metadata. Existing tasks remain readable if Copilot is disabled; disabling delegation does not cancel an accepted GitHub task. A Gateway restart resumes known upstream tasks with GET requests. The installed credential identity stays pinned to the accepted receipt, so changing credentials pauses observation rather than silently transferring ownership.
+
+The journal records the submission fence before sending POST. A lost response or crash after that fence becomes `RECONCILE_REQUIRED`; it is never automatically submitted again. Inspect GitHub's task history to establish the remote result. GitHub documents neither an idempotency key nor a task cancellation endpoint for this preview. Disconnecting Android, stopping polling or shutting down Gateway does not claim to cancel the remote worker.
+
+Exact base/head commits are checked immediately before submission, but GitHub's creation API has no commit comparison precondition. Receipts therefore label this check `PREFLIGHT_ONLY`. A task marked `COMPLETED` is not proof of passing CI, the current pull-request head, or merge authorization. Existing exact-head review, verification and explicit merge controls remain separate.
+
 
 ## Readiness, diagnostics and live status
 
@@ -58,3 +83,13 @@ Capability discovery distinguishes a definite unsupported endpoint (HTTP 404/501
 ## Saved conversations and gateway jobs
 
 Gateway 16 exposes a scoped Jobs catalog and a browser of conversations stored on the gateway. Android can reopen the original user-facing transcript and reconnect to accepted work after its process closes. Ordinary generations and engineering jobs retain their existing executors, selected model and explicit stop/approval rules. See [GATEWAY_CONVERSATIONS.md](GATEWAY_CONVERSATIONS.md) for the admission receipts, API contract, private-chat behavior, queue/restart boundaries and regression coverage.
+
+### Development workspace output
+
+Open a saved engineering job in Android and select **Workspace → Tests**. Each retained APK or test report shows its path and SHA-256. Use **Save** to verify all its pages and copy it to a document you choose.
+
+On the paired PC, the same retained file can be exported from the installed configuration directory. When several commands produced the same path, add `--revision`, `--patch` and `--command` from the job receipt.
+
+```powershell
+python export_workspace_output.py --root $GatewayConfigurationDirectory --job $EngineeringJobId --path app/build/outputs/apk/debug/app-debug.apk --output candidate.apk
+```

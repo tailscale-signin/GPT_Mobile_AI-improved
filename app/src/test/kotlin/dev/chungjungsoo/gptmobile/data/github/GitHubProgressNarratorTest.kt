@@ -111,7 +111,7 @@ class GitHubProgressNarratorTest {
             },
             validate = {},
             admit = { _, _ -> true },
-            publish = { error("Failed generation cannot become authored progress") },
+            publish = { assertFalse(it.modelAuthored) },
             now = { clock },
             deterministic = false
         )
@@ -160,12 +160,12 @@ class GitHubProgressNarratorTest {
             clock += 45_000
             firstRun.beforeRound()
             assertEquals(1, calls)
-            assertTrue(summaries.isEmpty())
+            assertFalse(summaries.single().modelAuthored)
             val nextRun = narrator()
             clock += 45_000
             nextRun.beforeRound()
             assertEquals(2, calls)
-            assertEquals(prose, summaries.single().text)
+            assertEquals(prose, summaries.single { it.modelAuthored }.text)
         }
     }
 
@@ -238,7 +238,7 @@ class GitHubProgressNarratorTest {
             },
             validate = {},
             admit = { _, _ -> true },
-            publish = { error("Incomplete prose must not publish") },
+            publish = { assertFalse(it.modelAuthored) },
             now = { clock },
             deterministic = false
         )

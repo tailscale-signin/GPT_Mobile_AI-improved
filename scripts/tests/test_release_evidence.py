@@ -31,6 +31,26 @@ class ReleaseEvidenceTest(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
+    def test_joint_release_waits_for_other_main_ci_without_waiting_for_itself(self):
+        def run(name, **fields):
+            return dict(dict(name=name, head_sha=SHA, event="push", head_branch="main", status="in_progress"), **fields)
+        actual = [run("Android acceptance"), run("Signed release"), run("Preview", conclusion="skipped"),
+                  run("Lint", conclusion="failure"), run("Mobile", event="pull_request"), run("Previous", head_sha="b"*40)]
+        self.assertEqual(["Android acceptance", "Lint"], checks.observed_main_workflows(actual, SHA, "Signed release"))
+
+    def test_windows_publisher_waits_for_independent_main_push_at_release_sha(self):
+        name = "Gateway Windows installer"
+        required = [name]
+        run = dict(name=name, event="push", head_branch="main", head_sha=SHA,
+                   id=1, status="completed", conclusion="success")
+        publisher = dict(run, event="workflow_dispatch", id=9, status="in_progress", conclusion=None)
+        wrong = [publisher, dict(run, head_branch="feature"), dict(run, head_sha="0" * 40)]
+        self.assertEqual(([], required), checks.conclusions(wrong, SHA, required, main_push=required))
+        report = checks.evidence_document([run, *wrong], SHA, required, main_push=required)
+        self.assertEqual(("PASSED", 1), (report["status"], report["workflows"][0]["runId"]))
+        failed = dict(run, id=2, conclusion="failure")
+        self.assertEqual((required, []), checks.conclusions([run, failed, *wrong], SHA, required, main_push=required))
+
     def test_uploaded_bytes_and_tag_are_bound_without_claiming_installation(self):
         result = evidence.verify_uploaded_release(self.release, self.provenance, SHA, self.assets, published=True)
         self.assertEqual("PUBLISHED_VERIFIED", result["status"])

@@ -151,6 +151,12 @@ class GitHubSchemaAdmissionEvidenceTest {
         for (key in listOf("configured_output_limit", "admission_route_context_tokens", "admission_catalog_context_tokens", "admission_configured_context_tokens")) assertFalse(key, key in fields)
     }
 
+    @Test fun clampedZeroSchemaRoomIncludesTheAlreadyOvercommittedPrompt() {
+        val budget = GitHubSchemaBudget(4096, 2743, 768, 256, 512)
+        assertEquals(0L, budget.available)
+        assertTrue(GitHubToolContextBudgetException(4403, budget.available, budget).message.orEmpty().contains("short by 4586 tokens"))
+    }
+
     @Test fun measuredRouteShortfallExplainsWhyTheAppAllowanceAndReplyAloneCannotRecover() {
         val budget = GitHubSchemaBudget(5632, 2485, 512, 256, 704, ContextCostBreakdown(2394, 0, 91, 0, 0))
         val original = GitHubToolContextBudgetException(2481, budget.available, budget)

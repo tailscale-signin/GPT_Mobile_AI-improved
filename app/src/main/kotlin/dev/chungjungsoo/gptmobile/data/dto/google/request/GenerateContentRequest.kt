@@ -77,7 +77,11 @@ data class GenerationConfig(
 
     @SerialName("thinkingConfig")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val thinkingConfig: ThinkingConfig? = null
+    val thinkingConfig: ThinkingConfig? = null,
+
+    @SerialName("responseModalities")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val responseModalities: List<String>? = null
 )
 
 @OptIn(ExperimentalSerializationApi::class)

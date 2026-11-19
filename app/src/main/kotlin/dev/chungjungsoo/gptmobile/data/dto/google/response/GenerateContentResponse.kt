@@ -16,7 +16,8 @@ data class GenerateContentResponse(
     val error: ErrorDetail? = null,
 
     @SerialName("usageMetadata")
-    val usageMetadata: GeminiUsageMetadata? = null
+    val usageMetadata: GeminiUsageMetadata? = null,
+    val modelVersion: String? = null
 )
 
 @Serializable

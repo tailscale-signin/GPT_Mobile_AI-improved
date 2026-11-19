@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import java.util.Collections
 import java.util.IdentityHashMap
 import kotlinx.serialization.json.JsonArray
@@ -55,8 +56,10 @@ internal fun providerTransportFailureDetails(
         attemptTiming?.serverRequestId?.let { put("server_request_id", it) }
         attemptTiming?.generationId?.let { put("generation_id", it) }
         put("generation_completed", generationCompleted)
-        put("request_replay_allowed", replayAllowed)
-        put("logical_continuation_allowed", !requiresReconciliation && kind.retryable)
+        // A transport cause cannot authorize replay or continuation that its
+        // owning admission check explicitly refused.
+        put("request_replay_allowed", !requiresReconciliation && replayAllowed && details?.get("request_replay_allowed") != JsonPrimitive(false))
+        put("logical_continuation_allowed", !requiresReconciliation && kind.retryable && details?.get("logical_continuation_allowed") != JsonPrimitive(false))
         put("partial_output_preserved", receivedPayload)
         put("visible_output_preserved", receivedVisibleText)
         // Dispatch/acceptance are boundary observations. They do not turn an
@@ -65,6 +68,10 @@ internal fun providerTransportFailureDetails(
         if (kind == NetworkFailureKind.TLS) {
             put("tls_failure_kind", tlsFailureKind(error))
             put("tls_response_started", attemptTiming?.httpStatus != null || receivedPayload)
+        }
+        if (kind == NetworkFailureKind.UNKNOWN && details?.get("code") == JsonPrimitive("PROVIDER_INVOCATION_FAILED")) {
+            val captured = IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.OPENAI_ADAPTER_STREAM_CATCH)
+            captured.forEach { (key, value) -> if (key !in details) put(key, value) }
         }
         put("cause_types", JsonArray(sanitizedCauseTypes(error).map(::JsonPrimitive)))
         if (requiresReconciliation) put("requires_reconciliation", true)

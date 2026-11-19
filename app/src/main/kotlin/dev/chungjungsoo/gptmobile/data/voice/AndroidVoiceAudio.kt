@@ -255,7 +255,7 @@ class AndroidVoiceAudio internal constructor(
             )
         }
         try {
-            val onDevice = !allowOnlineSpeech
+            val onDevice = !allowOnlineSpeech || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
             if (!recognitionService.available(onDevice)) {
                 recognitionGate.bindingFailed(sessionId)
                 recognitionFailure("SPEECH_SERVICE_UNAVAILABLE", failedStage, false, ticket)
@@ -490,6 +490,7 @@ class AndroidVoiceAudio internal constructor(
                     failedStage = "service_start"
                     dispatched = true
                     observations?.captureAttempt()
+                    if (!onDevice) dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
                     engine.startListening(intent)
                 } catch (failure: Exception) {
                     failedStart(failure)
@@ -720,6 +721,10 @@ class AndroidVoiceAudio internal constructor(
                             }
                         }
                         if (!admitted) return@work
+                        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() && engine.voice?.isNetworkConnectionRequired != false) {
+                            fail("Choose an offline voice for Privacy Mode. Captions are still available.", retireEngine = true)
+                            return@work
+                        }
                         if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$ticket:$index") == TextToSpeech.ERROR) {
                             fail("Could not play this response. Captions are still available.", retireEngine = true)
                             break

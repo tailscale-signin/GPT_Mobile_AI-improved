@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptancePublicationEvidence
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceRecoveryEvidence
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -36,7 +37,7 @@ internal data class IssueReportDiagnostics(
         if (captureMode == "NO_CAPTURE" && (values.isNotEmpty() || omittedFields.isNotEmpty())) return null
         val copied = linkedMapOf<String, JsonElement>()
         values.forEach { (key, value) -> copied[key] = validatedValue(key, value) ?: return null }
-        if (!alignedCriteria(copied) || !alignedComposer(copied) || schemaVersion == 3 && !IssueReportIncidentCapsule.aligned(copied)) return null
+        if (!alignedCriteria(copied) || !alignedComposer(copied) || !GatewayCapabilityFailureEvidence.valid(copied) || schemaVersion == 3 && !IssueReportIncidentCapsule.aligned(copied)) return null
         val expectedUnavailable = requiredFields(area, schemaVersion).filterNot { it in copied }
         val optionalUnavailable = (reasoningProbeFields + IssueReportIncidentCapsule.policyResponseFields + IssueReportIncidentCapsule.repeatHistoryFields).intersect(allowed) - copied.keys
         if (!unavailableFields.containsAll(expectedUnavailable) || unavailableFields.any { it !in expectedUnavailable && it !in optionalUnavailable } || unavailableFields.distinct().size != unavailableFields.size) return null
@@ -55,11 +56,25 @@ internal data class IssueReportDiagnostics(
         }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ("claim_extraction_schema_hash" in values.keys + omittedFields + unavailableFields) add("CLAIM_EXTRACTION_SCHEMA_HASH_V1")
+        if ((values.keys + omittedFields + unavailableFields).any { it in GatewayCapabilityFailureEvidence.fields } ||
+            (values["provider_failure_code"] as? JsonPrimitive)?.contentOrNull in GatewayCapabilityFailureEvidence.codes
+        ) {
+            add(GatewayCapabilityFailureEvidence.FEATURE)
+        }
+        if ((values.keys + omittedFields + unavailableFields).any { it in PrivacyFailureEvidence.fields } ||
+            listOf("provider_failure_code", "causal_failure_code", "voice_chat_failure_code").any { values[it] == JsonPrimitive(PrivacyFailureEvidence.CODE) }
+        ) {
+            add(PrivacyFailureEvidence.FEATURE)
+        }
         if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.policyResponseFields }) add(IssueReportIncidentCapsule.GITHUB_POLICY_RESPONSE_FEATURE)
         if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.repeatHistoryFields }) add(IssueReportIncidentCapsule.REPEAT_HISTORY_FEATURE)
         if ("semantic_ci_rules" in values || "semantic_ci_rules" in omittedFields) add(IssueReportIncidentCapsule.GITHUB_CI_SEMANTIC_FEATURE)
         if ("search_validation_field_names" in values || "search_validation_field_names" in omittedFields) add(IssueReportIncidentCapsule.GITHUB_SEARCH_VALIDATION_FEATURE)
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.inventoryPaginationFields }) add(IssueReportIncidentCapsule.TOOL_INVENTORY_PAGINATION_FEATURE)
+        if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.remotePaginationFields || it == "provider_limit_source" || it == "provider_cooldown_scope_hash" }) {
+            add(PAGINATION_AND_PROVIDER_LIMIT_FEATURE)
+        }
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.prContextRaceFields }) add(IssueReportIncidentCapsule.GITHUB_PR_CONTEXT_RACE_FEATURE)
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.repeatAdmissionFields }) add(IssueReportIncidentCapsule.REPEAT_ADMISSION_FEATURE)
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.toolEventPersistenceFields }) add(IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE)
@@ -91,6 +106,7 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in conflictEvidenceFields } || values["conflict_pending_tool_count"] == JsonPrimitive(0)) add("CONVERSATION_CONFLICT_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in acceptanceScopeFields }) add("ACCEPTANCE_SCOPE_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in githubPrerequisiteFields }) add("GITHUB_PREREQUISITE_EVIDENCE_V1")
+        if ("status_missing_observations" in values || "status_missing_observations" in omittedFields) add("STATUS_COVERAGE_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in GitHubAcceptanceRecoveryEvidence.fields }) add("ACCEPTANCE_RECOVERY_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in GitHubAcceptancePublicationEvidence.fields }) add(GitHubAcceptancePublicationEvidence.FEATURE)
         if ((values.keys + omittedFields).any { it in graphPolicyFields } ||
@@ -100,6 +116,8 @@ internal data class IssueReportDiagnostics(
             add("GITHUB_GRAPH_POLICY_EVIDENCE_V1")
         }
         if ((values.keys + omittedFields).any { it in voiceInstallEvidenceFields } || values["voice_install_failure"] == JsonPrimitive("WORK_NOT_FOUND")) add("VOICE_INSTALL_EVIDENCE_V1")
+        if ((values.keys + omittedFields + unavailableFields).any { it == "claim_extraction_validation_stage" || it == "github_prerequisite_observation" }) add("GITHUB_VALIDATION_CONTEXT_V1")
+        if ("voice_playback_audio_mode" in values || "voice_playback_audio_mode" in omittedFields) add("AUDIO_FOCUS_MODE_V1")
         if ((values.keys + omittedFields).any { it in voiceCapturePlaybackFields || it in voicePackStateFields }) add("VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in composerEvidenceFields }) add("COMPOSER_IME_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in completionEvidenceFields } || values["provider_failure_code"] == JsonPrimitive("TOOL_PROTOCOL_INVALID_FRAME")) add("COMPLETION_EVIDENCE_V1")
@@ -125,7 +143,7 @@ internal data class IssueReportDiagnostics(
             add(IssueReportIncidentCapsule.URL_READER_AVAILABILITY_FEATURE)
         }
         if ((values.keys + omittedFields).any { it in recoveryObservationFields } ||
-            (values["saved_view_restore_state"] as? JsonPrimitive)?.contentOrNull in setOf("BODY_MISSING", "BODY_MISSING_INDEX_PRESENT", "BODY_UNREADABLE", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID") ||
+            (values["saved_view_restore_state"] as? JsonPrimitive)?.contentOrNull in setOf("BODY_MISSING", "BODY_MISSING_INDEX_PRESENT", "BODY_UNREADABLE", "CURSOR_INDEX_MISSING", "CURSOR_INDEX_INVALID", "INVALID_VIEW_ID") ||
             "saved_view_restore_state" in omittedFields ||
             values["tool_error_code"] == JsonPrimitive("DNS_RESOLUTION_FAILED")
         ) {
@@ -194,7 +212,7 @@ internal data class IssueReportDiagnostics(
         private val composerEvents = setOf("ATTACHED", "DETACHED", "EDITOR_FOCUSED", "EDITOR_UNFOCUSED", "IME_VISIBLE", "IME_HIDDEN", "WINDOW_FOCUSED", "WINDOW_UNFOCUSED", "CHAT_ENABLED", "CHAT_DISABLED", "INPUT_TOUCH", "INPUT_KEYBOARD", "LIFECYCLE_CREATE", "LIFECYCLE_START", "LIFECYCLE_RESUME", "LIFECYCLE_PAUSE", "LIFECYCLE_STOP", "LIFECYCLE_DESTROY", "RELEASE_SEND", "RELEASE_SHORTCUT", "RELEASE_BACKGROUND_TAP", "RELEASE_DISABLED", "RELEASE_LIFECYCLE_STOP", "RELEASE_DISPOSE")
         private val completionEvidenceFields = setOf("empty_completion_observed_attempts", "empty_completion_reasoning_only_attempts")
         private val voicePackStateFields = setOf("voice_install_recognition_status", "voice_install_playback_status")
-        private val voiceCapturePlaybackFields = setOf("voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed")
+        private val voiceCapturePlaybackFields = setOf("voice_playback_audio_mode", "voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed")
         private val voiceInstallEvidenceFields = setOf(
             "voice_install_pending_reason",
             "voice_install_elapsed_ms",
@@ -227,6 +245,7 @@ internal data class IssueReportDiagnostics(
         private val newEvidenceFieldNames = setOf("end_line", "max_lines", "start_offset", "ranges", "evidence_id").map(::JsonPrimitive).toSet()
         const val MAX_BYTES = 3072
         const val MAX_CRITERIA = 8
+        const val PAGINATION_AND_PROVIDER_LIMIT_FEATURE = "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1"
         const val MODEL_PREPARATION_FEATURE = "GATEWAY_MODEL_PREPARATION_V1"
         val areas = setOf("PROVIDER", "TOOL", "ACCEPTANCE", "VOICE", "GATEWAY", "APP", "INCIDENT")
         private val captureModes = setOf("INCIDENT", "SELECTED_CAPTURE", "NO_CAPTURE")
@@ -331,13 +350,17 @@ internal data class IssueReportDiagnostics(
 
             "provider_failure_stage" to setOf("ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"),
             "provider_failure_domain" to setOf("PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"),
-            "provider_failure_code" to reconciliationCodes + setOf("GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION"),
+            "provider_failure_code" to GatewayCapabilityFailureEvidence.codes + reconciliationCodes + setOf("OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE),
+            GatewayCapabilityFailureEvidence.KIND to GatewayCapabilityFailureEvidence.kinds,
+            GatewayCapabilityFailureEvidence.DECODE_REASON to GatewayCapabilityFailureEvidence.decodeReasons,
+            "privacy_reason_code" to PrivacyFailureEvidence.reasonCodes,
+            "privacy_status" to PrivacyFailureEvidence.statuses,
             "github_cooldown_resource" to setOf("CORE", "SEARCH", "GRAPHQL", "OTHER"),
             "github_cooldown_basis" to setOf("SECONDARY_DEADLINE", "RESOURCE_RESET", "RESOURCE_RETRY_AFTER", "RESOURCE_RESET_AND_RETRY_AFTER"),
             "voice_reply_state" to setOf("FAILED_WITHOUT_DETAILS", "EMPTY_REPLY"),
             "tool_action" to setOf("agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable", "status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch"),
             "tool_error_code" to setOf("APP_ERROR", "DNS_RESOLUTION_FAILED", "TOOL_FAILURE", "TOOL_PRECHECK_FAILED", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "GITHUB_PR_HEAD_CHANGED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED"),
-            "tool_reason_code" to setOf("GITHUB_PATH_NOT_FOUND", "BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "TOOL_PRECHECK_FAILED", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH", "GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER"),
+            "tool_reason_code" to setOf("GITHUB_PATH_NOT_FOUND", "BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "TOOL_PRECHECK_FAILED", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH", "GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER"),
             "tool_dispatch_phase" to setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED"),
             "chat_failure_code_state" to setOf("ABSENT", "KNOWN", "UNRECOGNIZED"),
             // These states come from the actual OpenAI-compatible stream error
@@ -367,6 +390,7 @@ internal data class IssueReportDiagnostics(
             "voice_pronunciation_failure_kind" to setOf("UNKNOWN_WORD", "UNSUPPORTED_SCRIPT", "MISSING_LETTER"),
             "voice_capture_silenced_stage" to setOf("CAPTURE_START", "CAPTURE_READ"),
             "voice_caption_alignment" to setOf("NO_TIMING", "EXACT_RANGE", "TEXT_UNMAPPED"),
+            "voice_playback_audio_mode" to setOf("NORMAL", "RINGTONE", "IN_CALL", "IN_COMMUNICATION", "OTHER"),
             "voice_focus_result" to setOf("GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"),
             "voice_first_audio_basis" to setOf("UTTERANCE_START", "PLAYBACK_HEAD"),
             "voice_focus_last_transition" to setOf("RESTORE", "PAUSE", "DUCK", "STOP"),
@@ -383,6 +407,7 @@ internal data class IssueReportDiagnostics(
             "app_exit_kind" to setOf("JVM_CRASH", "NATIVE_CRASH", "APP_NOT_RESPONDING", "STARTUP_FAILED")
         )
         private val enumLists = mapOf(
+            "status_missing_observations" to GitHubAcceptanceRecoveryEvidence.statusObservationCodes,
             "acceptance_blocked_operation_families" to GitHubAcceptanceRecoveryEvidence.operationFamilies,
             "acceptance_claim_failure_reasons" to setOf("RECEIPT_NOT_FOUND", "UNTRUSTED_RECEIPT", "AUTHORIZATION_REVALIDATION_REQUIRED", "OPERATION_FAILED", "CLAIM_VALUE_MISSING", "POINTER_NOT_IN_EVIDENCE", "FIELD_SEMANTICS_MISMATCH", "OBSERVATION_TIME_UNKNOWN", "HISTORICAL_OBSERVATION", "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "VALUE_MISMATCH", "EXACT_RECEIPT_MATCH"),
             "read_window_rejections" to setOf("BAD_START", "CONFLICTING_LIMITS", "BAD_MAX_LINES", "BAD_END"),
@@ -408,7 +433,7 @@ internal data class IssueReportDiagnostics(
             "gateway_model_state", "gateway_failure_category", "gateway_dependency", "gateway_upstream_status", "gateway_upstream_message_code", "gateway_reconciliation_status"
         )
         private val fieldsByArea = mapOf(
-            "PROVIDER" to reasoningProbeFields + githubCooldownFields + profileSelectionFields + completionEvidenceFields + capacityEvidenceFields + githubSchemaBudgetFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
+            "PROVIDER" to GatewayCapabilityFailureEvidence.fields + reasoningProbeFields + githubCooldownFields + profileSelectionFields + completionEvidenceFields + capacityEvidenceFields + githubSchemaBudgetFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
                 "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash",
                 "provider_failure_stage", "provider_failure_domain", "provider_failure_code",
                 "provider_error_code_state", "provider_error_origin", "chat_failure_code_state",
@@ -417,7 +442,7 @@ internal data class IssueReportDiagnostics(
                 "original_error_code_hash", "server_request_id_hash", "generation_id_hash", "response_format", "finish_reason", "configured_output_limit", "effective_output_limit", "backend_output_limit",
                 "input_tokens", "output_tokens", "reasoning_tokens", "visible_output_bytes", "reasoning_output_bytes", "backend_attempts", "backend_completed_attempts", "backend_failed_attempt",
                 "repair_attempts", "repair_attempt_limit", "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "usage_source", "output_byte_scope",
-                "privacy_policy_hash", "privacy_zdr_required", "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "privacy_fallbacks_allowed", "privacy_observation",
+                "privacy_policy_hash", "privacy_zdr_required", "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "privacy_fallbacks_allowed", "privacy_observation", "privacy_reason_code", "privacy_status",
                 "backend_terminal_code_hash", "backend_terminal_status", "backend_finish_reason", "backend_status"
             ),
             "TOOL" to setOf("tool_budget_bytes_available", "graph_index_attempt_hash") + githubCooldownFields + commonHashes + transportFields + setOf("github_transport_kind", "github_transport_wait_ms", "read_range_count", "read_invalid_window_count", "read_window_rejections", "argument_page_size", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "original_reason_code_hash", "argument_shape_hash", "missing_field_count", "invalid_field_count", "validation_error_count", "invalid_field_classes"),
@@ -494,6 +519,9 @@ internal data class IssueReportDiagnostics(
             if (!IssueReportIncidentCapsule.repeatHistoryAligned(values)) {
                 IssueReportIncidentCapsule.repeatHistoryFields.forEach(values::remove)
             }
+            if (GatewayCapabilityFailureEvidence.fields.any { it in fields && it !in values } || !GatewayCapabilityFailureEvidence.valid(values)) {
+                GatewayCapabilityFailureEvidence.fields.forEach(values::remove)
+            }
             if (version == 3 && !IssueReportIncidentCapsule.aligned(values)) {
                 listOf("argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types").filter { it in values }.forEach {
                     values.remove(it)
@@ -504,7 +532,7 @@ internal data class IssueReportDiagnostics(
             var result = snapshot()
             // Bound before preview/approval, and say exactly which otherwise valid fields did not fit.
             while (IssueReport.json.encodeToString(serializer(), result).encodeToByteArray().size > MAX_BYTES && values.isNotEmpty()) {
-                val optional = if (version == 3) values.filterKeys { it !in IssueReportIncidentCapsule.priorityFields && it !in acceptanceScopeFields && it !in githubPrerequisiteFields && it !in GitHubAcceptanceRecoveryEvidence.fields && it !in voiceCapturePlaybackFields && it !in githubSchemaBudgetFields && it !in profileSelectionFields && it !in githubCooldownFields } else values
+                val optional = if (version == 3) values.filterKeys { it !in IssueReportIncidentCapsule.priorityFields && it !in acceptanceScopeFields && it !in githubPrerequisiteFields && it !in GitHubAcceptanceRecoveryEvidence.fields && it !in voiceCapturePlaybackFields && it !in githubSchemaBudgetFields && it !in profileSelectionFields && it !in githubCooldownFields && it !in PrivacyFailureEvidence.fields } else values
                 val key = (optional.ifEmpty { values }).maxBy { it.key.length + it.value.toString().length }.key
                 val criterionSize = (values[key] as? JsonArray)?.size ?: 0
                 if (version == 3 && key in criterionFields && criterionSize > 1) {
@@ -518,6 +546,7 @@ internal data class IssueReportDiagnostics(
                 }
                 val shapePair = listOf("argument", "resolved_argument").firstOrNull { key in setOf("${it}_field_names", "${it}_field_types") }
                 val remove = when {
+                    key in GatewayCapabilityFailureEvidence.fields || key == "provider_failure_code" -> (listOf(key) + GatewayCapabilityFailureEvidence.fields.filter { it in values }).distinct()
                     key in composerSlotFields -> composerSlotFields.filter { it in values }
                     key in setOf("composer_generation", "composer_events_dropped") -> listOf(key) + composerSlotFields.filter { it in values }
                     key in criterionFields -> criterionFields.filter { it in values }

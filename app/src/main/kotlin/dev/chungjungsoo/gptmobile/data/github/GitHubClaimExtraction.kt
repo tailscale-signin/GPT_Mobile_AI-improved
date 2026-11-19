@@ -20,7 +20,7 @@ import kotlinx.serialization.json.put
 /** Provider attempts finish before a malformed or length-limited claim batch can be retried. */
 internal object GitHubClaimExtraction {
     /** Provider error names alone never grant another attempt. */
-    class Failure(val code: String, val providerFailure: ProviderEvent.Failed? = null, val repairAllowed: Boolean = false) : IllegalStateException(code)
+    class Failure(val code: String, val providerFailure: ProviderEvent.Failed? = null, val repairAllowed: Boolean = false, val observations: JsonObject? = null) : IllegalStateException(code)
 
     /** A deadline may interrupt a provider attempt or later local checkpoint/rendering work. */
     class Attempt {
@@ -38,17 +38,29 @@ internal object GitHubClaimExtraction {
     ): JsonObject {
         val response = StringBuilder()
         var complete = false
+        var receivedProviderOutput = false
         var oversized = false
         var unexpectedOperation = false
         var finishReason: String? = null
         var failure: ProviderEvent.Failed? = null
         var repairProhibited = false
+        fun interrupted(event: ProviderEvent.Failed) = Failure(
+            event.errorCode ?: "GITHUB_EXTRACTION_FAILED",
+            event,
+            observations = buildJsonObject {
+                put("claim_extraction_response_characters", response.length)
+                put("claim_extraction_max_claims", request.maxClaims)
+                put("claim_extraction_completed", complete)
+            }
+        )
         try {
             attempt.awaitingTerminal = true
             attempt.terminalFailure = null
             openVerifier(request.payload).streamRound(emptyList(), emptyList()).collect { event ->
                 when (event) {
+                    is ProviderEvent.ThinkingDelta -> if (event.text.isNotEmpty()) receivedProviderOutput = true
                     is ProviderEvent.TextDelta -> {
+                        if (event.text.isNotEmpty()) receivedProviderOutput = true
                         if (response.length + event.text.length.toLong() > MAX_OUTPUT_CHARACTERS) oversized = true
                         // Drain a bounded response to its terminal event. Aborting the
                         // stream here would not establish that another attempt is safe.
@@ -86,7 +98,7 @@ internal object GitHubClaimExtraction {
                     it is dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure
             }
             if (policy != null) throw policy
-            failure?.let { throw Failure(it.errorCode ?: "GITHUB_EXTRACTION_FAILED", it) }
+            failure?.let { throw interrupted(it) }
             val provider = providerExceptionDetails(error, partialOutput = response.isNotEmpty())
             val transport = networkFailureKind(error)
             val unknown = provider == null && transport == NetworkFailureKind.UNKNOWN
@@ -99,6 +111,11 @@ internal object GitHubClaimExtraction {
                         if (provider?.failureDetails?.get("failed_stage") == null) put("failed_stage", "claim_extraction")
                         put("review_stage", "claim_extraction")
                         put("cause_types", JsonArray(sanitizedCauseTypes(error).map(::JsonPrimitive)))
+                        if (receivedProviderOutput) {
+                            put("request_replay_allowed", false)
+                            put("logical_continuation_allowed", false)
+                            put("retryable", false)
+                        }
                         if (unknown) {
                             put("retryable", false)
                             put("request_replay_allowed", false)
@@ -113,7 +130,7 @@ internal object GitHubClaimExtraction {
 
         val terminalFailure = failure
         val completedLimit = terminalFailure != null && !repairProhibited
-        if (terminalFailure != null && !completedLimit) throw Failure(terminalFailure.errorCode ?: "GITHUB_EXTRACTION_FAILED", terminalFailure)
+        if (terminalFailure != null && !completedLimit) throw interrupted(terminalFailure)
         if (!complete && !completedLimit) throw Failure("GITHUB_EXTRACTION_FAILED", incompleteProviderFailure())
         if (unexpectedOperation) {
             val observed = terminalFailure ?: ProviderEvent.Failed("Evidence formatting attempted an operation.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME", transportComplete = true)
@@ -122,6 +139,7 @@ internal object GitHubClaimExtraction {
         val outputLimited = oversized || completedLimit || finishReason?.lowercase() in setOf("length", "max_tokens", "max_output_tokens", "token_limit")
         if (oversized) throw Failure("GITHUB_EXTRACTION_OUTPUT_LIMIT", terminalFailure, repairAllowed = true)
         var invalidKind = "INVALID_JSON"
+        var validationStage: String? = null
         return try {
             withContext(computationDispatcher) {
                 val payload = structuredPayload(response.toString())
@@ -137,7 +155,7 @@ internal object GitHubClaimExtraction {
                 invalidKind = "NON_OBJECT"
                 val answer = parsed as? JsonObject ?: error("Claim extraction was not structured")
                 invalidKind = "SCHEMA_REJECTED"
-                GitHubClaimBatches.validate(answer, request)
+                GitHubClaimBatches.validate(answer, request) { validationStage = it }
             }.also { attempt.terminalFailure = null }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -154,6 +172,7 @@ internal object GitHubClaimExtraction {
                     put("failed_stage", "claim_extraction")
                     put("diagnostic_area", "PROVIDER")
                     put("claim_extraction_failure_kind", invalidKind)
+                    validationStage?.let { put("claim_extraction_validation_stage", it) }
                     put("claim_extraction_response_characters", response.length.coerceAtMost(MAX_OUTPUT_CHARACTERS))
                     put("claim_extraction_max_claims", request.maxClaims)
                     put("claim_extraction_completed", complete)

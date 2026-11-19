@@ -107,8 +107,8 @@ internal object GitHubActionSchema {
         }
         val required = alternatives.flatMap { (it["required"] as? JsonArray).orEmpty() }.mapNotNull { (it as? JsonPrimitive)?.content }.toSet()
         val keep = names + required + setOf("owner", "repo", "action", "verify_live", "view_cursor", "response_detail")
-        val properties = original.filterKeys { it in keep }.mapValues { (_, value) ->
-            (value as? JsonObject)?.let { JsonObject(it.filterKeys { key -> key != "description" }) } ?: value
+        val properties = original.filterKeys { it in keep }.mapValues { (field, value) ->
+            (value as? JsonObject)?.let { JsonObject(it.filterKeys { key -> key != "description" || field == "view_cursor" }) } ?: value
         }.toMutableMap()
         properties["action"] = JsonObject(selector + ("enum" to JsonArray(listOf(JsonPrimitive(action)))))
         val guidance = when (operation to action) {
@@ -123,6 +123,15 @@ internal object GitHubActionSchema {
                 put("type", "object")
                 put("properties", JsonObject(properties))
                 put("additionalProperties", false)
+                // Cursor-only recovery must be exclusive in the selected model
+                // contract, not just rejected after the model spends another call.
+                if ("view_cursor" in properties) {
+                    put("oneOf", dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.exclusiveSavedViewAlternatives(JsonObject(properties)))
+                }
+                if (operation == "github_read") {
+                    tool.inputSchema["anyOf"]?.let { put("anyOf", it) }
+                    return@buildJsonObject
+                }
                 val selected = alternatives.ifEmpty {
                     listOf(buildJsonObject { put("required", JsonArray(((tool.inputSchema["required"] as? JsonArray).orEmpty() + JsonPrimitive("action")).distinct())) })
                 }

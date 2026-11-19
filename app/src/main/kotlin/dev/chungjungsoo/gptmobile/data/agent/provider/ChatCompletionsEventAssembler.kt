@@ -11,6 +11,13 @@ import kotlinx.serialization.json.put
 
 class ChatCompletionsEventAssembler {
     // Fragment slots consume memory even before they become executable calls.
+    var reportedModelId: String? = null
+        private set
+
+    fun observeModel(id: String?) {
+        if (id != null && id != reportedModelId) reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(id)
+    }
+
     private val toolGuard = ToolStreamGuard()
     private data class PendingCall(
         var callId: String? = null,
@@ -33,7 +40,7 @@ class ChatCompletionsEventAssembler {
         rejected?.let { throw it }
         val events = mutableListOf<ProviderEvent>()
         reasoning?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.ThinkingDelta(it) }
-        content?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT)) }
+        content?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, reportedModelId = reportedModelId)) }
         toolCalls.orEmpty().forEach { delta ->
             require(choiceIndex >= 0 && delta.index >= 0) { "TOOL_STREAM_INVALID: negative choice/tool index; dispatched=false" }
             val key = choiceIndex to delta.index
@@ -93,7 +100,7 @@ class ChatCompletionsEventAssembler {
             } else {
                 // Some compatible servers omit IDs; preserve supplied IDs and replay generated ones.
                 val callId = call.callId?.takeIf(String::isNotBlank) ?: "call_${java.util.UUID.randomUUID()}"
-                toolCall(callId, name, call.arguments.toString()).single()
+                toolCall(callId, name, call.arguments.toString(), reportedModelId).single()
             }
         }
         completed.keys.forEach(pending::remove)
@@ -125,14 +132,14 @@ private fun invalidToolFrame(message: String, kind: String): ProviderEvent.Faile
     failureDetails = buildJsonObject { put("tool_protocol_frame_kind", kind) }
 )
 
-internal fun toolCall(callId: String, name: String, arguments: String): List<ProviderEvent> {
+internal fun toolCall(callId: String, name: String, arguments: String, reportedModelId: String? = null): List<ProviderEvent> {
     if (callId.length > 256) throw ToolBatchOversizeException("CALL_ID_CHARACTERS", callId.length, 256)
     if (name.length > 256) throw ToolBatchOversizeException("TOOL_NAME_CHARACTERS", name.length, 256)
     if (arguments.length > 16 * 1024) throw ToolBatchOversizeException("ARGUMENT_CHARACTERS", arguments.length, 16 * 1024)
     return try {
         val parsed = Json.parseToJsonElement(arguments.ifBlank { "{}" })
         if (parsed is JsonObject) {
-            listOf(ProviderEvent.ToolCall(callId, name, parsed))
+            listOf(ProviderEvent.ToolCall(callId, name, parsed, reportedModelId = reportedModelId))
         } else {
             listOf(invalidToolFrame("Tool arguments must be a JSON object.", "NON_OBJECT_ARGUMENTS"))
         }

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptancePublicationEvidence
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence
 import java.io.IOException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -55,6 +56,131 @@ class IssueReportSubmissionTest {
             1000L
         )
     )
+
+    @Test fun privacyEligibilityEvidenceAndCodesWaitForTheirOwnCapabilityBeforePostingApprovedBytes() {
+        val code = PrivacyFailureEvidence.CODE
+        val feature = PrivacyFailureEvidence.FEATURE
+        val diagnosticContext = IssueReportContext.fromFields(
+            "CHAT_FAILURE",
+            mapOf("diagnostic_area" to "PROVIDER", "privacy_reason_code" to "ACCOUNT_PRIVACY_UNVERIFIED", "privacy_status" to "NOT_VERIFIED"),
+            1_000L
+        )
+        val diagnostic = requireNotNull(diagnosticContext.diagnostics)
+        val variants = mutableListOf(
+            report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = code),
+            report.copy(events = listOf("-1ms E chat $code")),
+            report.copy(context = diagnosticContext),
+            report.copy(context = diagnosticContext.withDiagnostics(diagnostic.copy(values = emptyMap(), omittedFields = PrivacyFailureEvidence.fields.toList())))
+        )
+        for (location in listOf("provider_failure_code", "causal_failure_code", "voice_chat_failure_code")) {
+            val area = when (location) {
+                "provider_failure_code" -> "PROVIDER"
+                "voice_chat_failure_code" -> "VOICE"
+                else -> "INCIDENT"
+            }
+            val context = IssueReportContext.fromFields(if (area == "VOICE") "VOICE_STATE" else "CHAT_FAILURE", mapOf("diagnostic_area" to area, location to code), 1_000L)
+            assertEquals(JsonPrimitive(code), context.diagnostics?.values?.get(location))
+            variants += report.copy(context = context)
+        }
+        for (approved in variants) {
+            val payload = approved.approvedPayload()
+            val needed = approved.context?.diagnostics?.requiredServiceFeatures().orEmpty() + feature
+            var compatible = false
+            var dispatched = 0
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                    val readiness = buildJsonObject {
+                        put("service", "gpt-mobile-issue-reporter")
+                        put("version", 2)
+                        put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                        put("reportDiagnosticFeatures", JsonArray(needed.filter { compatible || it != feature }.map(::JsonPrimitive)))
+                    }
+                    response(request, 200, readiness.toString())
+                } else {
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${report.reportId}","number":1741}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+            assertFalse(blocked.automaticRetry)
+            assertEquals(listOf("GET"), methods)
+            assertEquals(0, dispatched)
+            assertTrue(posted.isEmpty())
+            assertEquals(payload, approved.approvedPayload())
+            compatible = true
+            assertEquals(IssueReportSubmission.Confirmed(1741), submission.send(report.reportId, payload) { dispatched++ })
+            assertEquals(listOf("GET", "GET", "POST"), methods)
+            assertEquals(1, dispatched)
+            assertEquals(listOf(payload), posted)
+        }
+        assertEquals(1022, ready(false).encodeToByteArray().size)
+    }
+
+    @Test fun gatewayCapabilityEvidenceCodesAndOmissionsWaitForCompatibleReporterWithoutChangingApprovedBytes() {
+        val error = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityDiscoveryException("Capability read failed", decodeReason = "EXPECTED_BOOLEAN", fieldPath = "PRIVATE_PATH")
+        val failure = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Failed("Capability read failed", errorCode = error.code, failureDetails = GatewayCapabilityFailureEvidence.failureDetails(error, false))
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(name = "PRIVATE_NAME", model = "PRIVATE_MODEL", compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA)
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", failure.failureDetails.orEmpty() + ProviderFailureReport.fields("run", failure, receipt), 1_000L)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive("EXPECTED_BOOLEAN"), diagnostic.values[GatewayCapabilityFailureEvidence.DECODE_REASON])
+        val empty = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "PROVIDER"), 1_000L))
+        val variants = listOf(
+            context,
+            context.withDiagnostics(diagnostic.copy(values = diagnostic.values - GatewayCapabilityFailureEvidence.fields, omittedFields = GatewayCapabilityFailureEvidence.fields.toList())),
+            context.withDiagnostics(empty.copy(omittedFields = GatewayCapabilityFailureEvidence.fields.toList()))
+        ) + GatewayCapabilityFailureEvidence.codes.map { code ->
+            IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "PROVIDER", "provider_failure_code" to code), 1_000L)
+        }
+        for (candidate in variants) {
+            val approved = report.copy(context = candidate)
+            val payload = approved.approvedPayload()
+            val needed = requireNotNull(candidate.diagnostics).requiredServiceFeatures()
+            assertTrue(GatewayCapabilityFailureEvidence.FEATURE in needed)
+            var compatible = false
+            var dispatched = 0
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                    val readiness = buildJsonObject {
+                        put("service", "gpt-mobile-issue-reporter")
+                        put("version", 2)
+                        put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                        put("reportDiagnosticFeatures", JsonArray(needed.filter { compatible || it != GatewayCapabilityFailureEvidence.FEATURE }.map(::JsonPrimitive)))
+                    }
+                    response(request, 200, readiness.toString())
+                } else {
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${report.reportId}","number":1768}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+            assertFalse(blocked.automaticRetry)
+            assertEquals(listOf("GET"), methods)
+            assertEquals(0, dispatched)
+            assertTrue(posted.isEmpty())
+            assertEquals(payload, approved.approvedPayload())
+            compatible = true
+            assertEquals(IssueReportSubmission.Confirmed(1768), submission.send(report.reportId, payload) { dispatched++ })
+            assertEquals(listOf("GET", "GET", "POST"), methods)
+            assertEquals(1, dispatched)
+            assertEquals(listOf(payload), posted)
+        }
+        assertEquals(1022, ready(false).encodeToByteArray().size)
+    }
 
     @Test fun publicationEvidenceValuesAndOmissionsNegotiateExtendedReadinessBeforeUnchangedPost() {
         assertEquals(1022, ready(false).encodeToByteArray().size)
@@ -417,6 +543,34 @@ class IssueReportSubmissionTest {
         val payload = IssueReport.json.encodeToString(IssueReport.serializer(), report.copy(context = context.copy(diagnostics = invalid)))
         assertEquals("REPORT_PAYLOAD_INVALID", (IssueReportSubmission(origin, client).send(report.reportId, payload) as IssueReportSubmission.Failure).code)
         assertEquals(0, requests)
+    }
+
+    @Test fun paginationQuotaAndStreamEvidenceSelectExtendedReporterReadiness() {
+        val samples = listOf(
+            Triple("TOOL", "remote_pagination_page", JsonPrimitive(6)),
+            Triple("TOOL", "pr_context_revision_changed", JsonPrimitive(true)),
+            Triple("PROVIDER", "provider_limit_source", JsonPrimitive("upstream_provider_shared_pool")),
+            Triple("PROVIDER", "tool_protocol_frame_kind", JsonPrimitive("UNFINISHED_STREAM"))
+        )
+        for ((area, field, sample) in samples) {
+            val context = requireNotNull(
+                IssueReportContext.fromFields("CHAT_FAILURE", IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", mapOf("diagnostic_area" to area)), 1000L)
+            )
+            val base = requireNotNull(context.diagnostics)
+            for (diagnostic in listOf(base.copy(values = base.values + (field to sample)), base.copy(omittedFields = listOf(field)))) {
+                val payload = report.copy(context = context.withDiagnostics(diagnostic)).approvedPayload()
+                val calls = mutableListOf<String>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    calls += request.method
+                    assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                    response(request, 200, ready(false))
+                }.build()
+                val failure = IssueReportSubmission(origin, client).send(report.reportId, payload) as IssueReportSubmission.Failure
+                assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", failure.code)
+                assertEquals(listOf("GET"), calls)
+            }
+        }
     }
 
     @Test fun inventoryPaginationValuesAndOmissionsWaitForCompatibleHostWithoutChangingApproval() {

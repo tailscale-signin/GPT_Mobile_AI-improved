@@ -18,6 +18,12 @@ DEPENDENCY = re.compile(
 # status. These exact artifacts are independently published on Maven Central;
 # a missing version, authentication denial, or HTTP 404 is never retried.
 # Match each plugin and module together, not one plugin from a different error.
+PUBLISHED_MARKERS = (
+    ('org.jetbrains.kotlin.plugin.compose', '2.4.20'),
+    ('org.jetbrains.kotlin.plugin.parcelize', '2.4.20'),
+    ('org.jetbrains.kotlin.plugin.serialization', '2.4.20'),
+    ('com.google.devtools.ksp', '2.3.12'),
+)
 KNOWN_PUBLISHED_PLUGINS = (
     (
         re.compile(
@@ -35,6 +41,20 @@ KNOWN_PUBLISHED_PLUGINS = (
         ),
         re.compile(r"could not resolve plugin artifact 'io\.objectbox:objectbox-gradle-plugin:5\.4\.2'", re.I),
     ),
+    (
+        re.compile(
+            r"Plugin \[id: 'com\.google\.dagger\.hilt\.android', version: '2\.60\.1', "
+            r"artifact: 'com\.google\.dagger:hilt-android-gradle-plugin:2\.60\.1', apply: false\] was not found",
+            re.I,
+        ),
+        re.compile(r"could not resolve plugin artifact 'com\.google\.dagger:hilt-android-gradle-plugin:2\.60\.1'", re.I),
+    ),
+) + tuple(
+    (
+        re.compile(rf"Plugin \[id: '{re.escape(marker)}', version: '{re.escape(version)}', apply: false\] was not found", re.I),
+        re.compile(rf"could not resolve plugin artifact '{re.escape(marker)}:{re.escape(marker)}\.gradle\.plugin:{re.escape(version)}'", re.I),
+    )
+    for marker, version in PUBLISHED_MARKERS
 )
 NON_TRANSIENT_HTTP = re.compile(r'(?:HTTP|status(?: code)?|response code:)\D{0,12}(?:401|403|404)\b', re.I)
 DETERMINISTIC = re.compile(r'There were failing tests|\btests completed, [1-9]\d* failed|Compilation error|^e: .*\.(?:kt|java):|Lint found .* errors', re.I)
@@ -71,13 +91,14 @@ def run(arguments, attempts=4, delay_seconds=10, executable='./gradlew', timeout
     environment = dict(os.environ)
     environment.setdefault('OBX_DISABLE_ANALYTICS', 'true')
     deadline = time.monotonic() + timeout_seconds if timeout_seconds is not None else None
+    command_args = list(arguments)
     for attempt in range(attempts):
         if deadline is not None and time.monotonic() >= deadline:
             return 124
-        dependency = transient = deterministic = denied = False
+        dependency = transient = central_unavailable = deterministic = denied = False
         published = [False] * len(KNOWN_PUBLISHED_PLUGINS)
         artifact = [False] * len(KNOWN_PUBLISHED_PLUGINS)
-        with subprocess.Popen([executable, *arguments], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', env=environment, start_new_session=os.name == 'posix') as process:
+        with subprocess.Popen([executable, *command_args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', env=environment, start_new_session=os.name == 'posix') as process:
             finished, timed_out = threading.Event(), threading.Event()
 
             def watchdog():
@@ -98,6 +119,7 @@ def run(arguments, attempts=4, delay_seconds=10, executable='./gradlew', timeout
                     print(line, end='', flush=True)
                     dependency |= bool(DEPENDENCY.search(line))
                     transient |= bool(TRANSIENT.search(line))
+                    central_unavailable |= "repo.maven.apache.org/maven2/" in line
                     for index, (plugin_pattern, artifact_pattern) in enumerate(KNOWN_PUBLISHED_PLUGINS):
                         published[index] |= bool(plugin_pattern.search(line))
                         artifact[index] |= bool(artifact_pattern.search(line))
@@ -121,8 +143,13 @@ def run(arguments, attempts=4, delay_seconds=10, executable='./gradlew', timeout
                 # Kill surviving descendants even if the parent exited on SIGTERM.
                 stop_process_group(process, force=True)
                 return 124
-        if code == 0 or attempt + 1 == attempts or not ((dependency and transient) or any(p and a for p, a in zip(published, artifact))) or deterministic or denied:
+        published_plugin_missing = any(p and a for p, a in zip(published, artifact))
+        if code == 0 or attempt + 1 == attempts or '--offline' in arguments or not ((dependency and transient) or published_plugin_missing) or deterministic or denied:
             return code
+        if (published_plugin_missing or (dependency and transient and central_unavailable)) and environment.get('GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY') != '1':
+            environment['GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY'] = '1'
+            command_args.extend(flag for flag in ('--refresh-dependencies', '--info') if flag not in command_args)
+            print('Rechecking dependency metadata with the Maven Central mirror. Dependency verification remains enabled.', flush=True)
         pause = delay_seconds * (attempt + 1)
         if deadline is not None:
             pause = min(pause, max(0, deadline - time.monotonic()))

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure
 import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
+import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.serialization.Serializable
@@ -94,7 +95,7 @@ internal data class IssueReportContext(
         private val reviewStages = setOf("review_comparison", "approval")
         private val reviewRecoveryActions = setOf("SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE")
         private val recoveryReasonCodes = ProviderRecoveryFailure.CODES + setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED")
-        private val toolPrecheckReasonCodes = setOf("BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "TOOL_PRECHECK_FAILED", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "SAVED_VIEW_CONTEXT_MISMATCH", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED")
+        private val toolPrecheckReasonCodes = setOf("BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "TOOL_PRECHECK_FAILED", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "SAVED_VIEW_CONTEXT_MISMATCH", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED")
         private val lifecycleRecoveryActions = setOf(
             "REVIEW_SAVED_RECOVERY",
             "RECONCILE_TOOL_RECEIPTS",
@@ -107,7 +108,7 @@ internal data class IssueReportContext(
         private val acceptanceReasonCodes = setOf(
             "UNVERIFIED_ACCEPTANCE_CRITERIA", "ACCEPTED_TASK_DEADLINE_REACHED", "ACCEPTANCE_EVIDENCE_MISSING",
             "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "FIXTURE_CLEANUP_UNVERIFIED",
-            "AUTHORIZED_CATALOG_INCOMPLETE", "RECORDED_OPERATION_BLOCKERS", "BOUNDED_INVENTORY_SAMPLE_REACHED",
+            "COMBINED_BUDGET_EXHAUSTED", "AUTHORIZED_CATALOG_INCOMPLETE", "RECORDED_OPERATION_BLOCKERS", "BOUNDED_INVENTORY_SAMPLE_REACHED",
             "INVENTORY_CONTINUATION_BLOCKED", "CAPABILITY_PREREQUISITES_MISSING", "PRIMARY_EVIDENCE_INCOMPLETE",
             "SAVED_VIEW_PERSISTENCE_UNAVAILABLE", "RECONCILE_REMOTE_OUTCOME", "RECORDED_EXECUTION_FAILURE",
             "WAITING_FOR_APPROVAL", "APPROVAL_REJECTED", "GITHUB_EVIDENCE_INCOMPLETE", "STATUS_READ_PENDING", "STATUS_OBSERVATION_UNAVAILABLE", "STATUS_OBSERVATIONS_COMPLETE"
@@ -116,7 +117,7 @@ internal data class IssueReportContext(
             "RESUME_UNFINISHED_WORK", "RESUME_VERIFICATION", "RECONCILE_REMOTE_OUTCOME", "RESUME_UNVERIFIED_REQUIREMENTS",
             "RECONCILE_CATALOG_CONTRACTS", "RESUME_ISSUED_CATALOG_CONTINUATION", "RECONCILE_CATALOG_SNAPSHOT",
             "RESOLVE_BOUND_APPROVAL", "RECHECK_OWNED_FIXTURE_PREFLIGHT", "RECONCILE_OWNED_FIXTURE",
-            "REVIEW_REMAINING_SCOPE_AND_BUDGET", "RESOLVE_CAPABILITY_PREREQUISITE", "NEW_TASK_REQUIRED",
+            "REVIEW_SHARED_COMBINED_ALLOWANCE", "REVIEW_REMAINING_SCOPE_AND_BUDGET", "RESOLVE_CAPABILITY_PREREQUISITE", "NEW_TASK_REQUIRED",
             "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE", "INSPECT_EXISTING_WORKFLOW_AT_RECORDED_REVISION"
         )
         private val acceptanceFields = listOf("requiredCriteria", "verifiedCriteria", "remainingCriteria")
@@ -154,7 +155,10 @@ internal data class IssueReportContext(
             )
             if (enums.any { (key, choices) -> key in context && text(key) !in choices }) return false
             if (text("reasonCode") in IssueReportDiagnostics.modelPreparationReasonCodes && text("stage") != "model_preparation") return false
-            if (text("reasonCode") in toolPrecheckReasonCodes &&
+            val reason = text("reasonCode")
+            val chatAcceptance = reason in acceptanceReasonCodes && text("source") == "CHAT_FAILURE" && text("stage") != "tool_precheck"
+            if (reason in toolPrecheckReasonCodes &&
+                !chatAcceptance &&
                 (text("source") != "TOOL_RESULT" || text("stage") != "tool_precheck" || context["dispatched"] != JsonPrimitive(false) || context["requiresReconciliation"] == JsonPrimitive(true))
             ) {
                 return false
@@ -244,8 +248,11 @@ internal data class IssueReportContext(
                 dispatchState == "DISPATCHED" -> true
                 else -> null
             }
-            val stage = text("failed_stage", "failedStage", "failurePhase", "phase", "stage")?.lowercase(Locale.ROOT)
-                ?.takeIf { it in stages || it in acceptanceStages || it in reviewStages || it in admissionStages }
+            val observedStage = text("failed_stage", "failedStage", "failurePhase", "phase", "stage")?.lowercase(Locale.ROOT)
+            val stage = when (observedStage) {
+                "saved_evidence_dispatch" -> "provider_admission"
+                else -> observedStage?.takeIf { it in stages || it in acceptanceStages || it in reviewStages || it in admissionStages }
+            }
             val recoveryAction = text("recovery_action", "next_action", "recoveryAction", "nextAction")?.uppercase(Locale.ROOT)
                 ?.takeIf { it in recoveryActions || it in acceptanceRecoveryActions || it in reviewRecoveryActions || it in lifecycleRecoveryActions }
             val localRecovery = localRecoveryCode(fields)
@@ -308,7 +315,7 @@ internal data class IssueReportContext(
                 unavailableFields = emptyList(),
                 stage = stage,
                 provider = text("provider_kind", "provider", "apiType")?.uppercase(Locale.ROOT)?.takeIf { it in providers },
-                operation = text("operation", "tool", "tool_name")?.substringBefore("__")?.lowercase(Locale.ROOT)?.takeIf { it in operations },
+                operation = text("operation", "tool", "tool_name")?.lowercase(Locale.ROOT)?.githubOperationFamily()?.takeIf { it in operations },
                 httpStatus = number("http_status", "httpStatus", "statusCode")?.takeIf { it in 100..599 }?.toInt(),
                 // Only explicit relative durations; ProfileFailureRecord also has absolute deadlines.
                 retryAfterMillis = number("retry_after_ms", "retryAfterMs")?.takeIf { it in 0..86_400_000 },

@@ -116,7 +116,7 @@ internal fun GitHubChatApprovalCard(model: GitHubReviewViewModel, onCommitted: (
                             }
                             items(files, key = { it.path }) { file ->
                                 Text(file.path, style = MaterialTheme.typography.labelLarge)
-                                val diff = remember(file) { inlinePatchPreview(file.before, file.after, file.delete) }
+                                val diff = remember(file) { dev.chungjungsoo.gptmobile.data.workspace.ReviewDiff.render(file.path, file.before, if (file.delete) "" else file.after) }
                                 GitHubCodeDiff(diff)
                                 if (!file.delete && editPath == null) TextButton(enabled = !busy, onClick = { editPath = file.path }) { Text("Edit inline") }
                             }

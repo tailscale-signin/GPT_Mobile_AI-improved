@@ -22,6 +22,9 @@ class DiagnosticIncidentTrackerTest {
         assertEquals("RECOVERED_METADATA_READ", other.outcome)
         val original = tracker.accept("2026-11-12T12:00:05Z I/Gateway: CLIENT_EXCHANGE · incident_id=read-a · transport=TIMEOUT", "still-failed", null)
         assertEquals(null, original.outcome)
+        val exhausted = tracker.accept("2026-11-12T12:00:06Z I/Gateway: METADATA_READ_OUTCOME · incident_id=read-a · outcome=RETRY_EXHAUSTED", "final-retry", null)
+        assertEquals(failure.id, exhausted.id)
+        assertEquals("METADATA_RETRY_EXHAUSTED", exhausted.outcome)
     }
 
     @Test fun gatewayRetryAttemptsAndFinalMetadataOutcomeHaveOneIncidentWithoutErasingTheObservedFailure() {

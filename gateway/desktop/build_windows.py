@@ -44,6 +44,11 @@ def main():
         '--copy-metadata', 'fastapi', '--copy-metadata', 'uvicorn', '--copy-metadata', 'requests', '--copy-metadata', 'httpx',
         str(GATEWAY / 'desktop' / 'entry.py')], check=True)
     bundle = output / 'Gateway'
+    # Ship one native WPF workspace beside the authoritative frozen supervisor.
+    # Include every native payload byte in the existing release verification.
+    subprocess.run(['dotnet', 'publish', str(GATEWAY / 'desktop/native/Gateway.Desktop.csproj'),
+                    '-c', 'Release', '--artifacts-path', str(ROOT / 'build/windows-desktop'),
+                    '-o', str(bundle / 'native')], check=True)
     release = dict(version=VERSION, stateSchema=1, bootstrapProtocol=1, sourceCommit=source_commit,
         files={p.relative_to(bundle).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(bundle.rglob('*')) if p.is_file()})
     (bundle / 'release.json').write_text(json.dumps(release, indent=2), encoding='utf-8')
@@ -54,6 +59,10 @@ def main():
         for path in sorted(bundle.rglob('*')):
             if path.is_file():
                 zipped.write(path, path.relative_to(bundle).as_posix())
+    setup_ui = output / 'setup-ui'
+    subprocess.run(['dotnet', 'publish', str(GATEWAY / 'desktop/windows/GatewaySetup.csproj'),
+                    '-c', 'Release', '--artifacts-path', str(ROOT / 'build/windows-setup'),
+                    '-o', str(setup_ui)], check=True)
     compiler = Path(os.environ.get('ISCC', r'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'))
     if not compiler.is_file():
         raise SystemExit('Inno Setup 6 compiler is required (set ISCC to its full path)')

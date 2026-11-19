@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.Flow
 interface KnowledgeDao {
     @Upsert suspend fun saveProject(project: KnowledgeProject)
 
+    @Query("SELECT * FROM knowledge_projects WHERE id = :id")
+    suspend fun project(id: String): KnowledgeProject?
+
     @Upsert suspend fun attachChat(link: KnowledgeProjectChat)
 
     @Query("DELETE FROM knowledge_project_chats WHERE chatId = :chatId")

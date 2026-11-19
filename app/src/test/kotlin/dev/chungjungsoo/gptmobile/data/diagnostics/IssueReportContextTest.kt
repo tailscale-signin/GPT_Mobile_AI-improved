@@ -17,6 +17,14 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportContextTest {
+    @Test fun inspectionToolsUseTheirPublicOperationFamily() {
+        for ((tool, expected) in listOf("github_context_inspect__selected" to "github_context", "github_pr_inspect__selected" to "github_pr")) {
+            val context = IssueReportContext.fromFields("TOOL_RESULT", mapOf("tool" to tool))
+            assertEquals(expected, context.operation)
+        }
+        assertNull(IssueReportContext.fromFields("TOOL_RESULT", mapOf("tool" to "other_private_inspect__selected")).operation)
+    }
+
     @Test fun modelPreparationStageRequiresSixAndKeepsHttpAndInvocationUnknown() {
         val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "model_preparation", "dispatched" to false, "operation_id" to "private-load-operation", "reason_code" to "SELECTED_MODEL_NOT_LOADED"), 1_700_000_000_000)
         assertEquals(6, context.schemaVersion)

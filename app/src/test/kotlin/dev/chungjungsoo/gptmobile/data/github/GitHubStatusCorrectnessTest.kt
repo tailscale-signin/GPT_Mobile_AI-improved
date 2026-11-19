@@ -266,7 +266,21 @@ class GitHubStatusCorrectnessTest {
                     "rules",
                     buildJsonObject {
                         put("available", true)
-                        put("data", JsonArray(listOf(buildJsonObject { put("type", "required_status_checks") })))
+                        put(
+                            "data",
+                            kotlinx.serialization.json.Json.parseToJsonElement(
+                                """
+                                [
+                                  {
+                                    "type": "required_status_checks",
+                                    "parameters": {
+                                      "required_status_checks": [{"context": "Required verification"}]
+                                    }
+                                  }
+                                ]
+                                """.trimIndent()
+                            )
+                        )
                     }
                 )
                 put(

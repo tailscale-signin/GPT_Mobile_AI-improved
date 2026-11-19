@@ -200,39 +200,7 @@ internal class GitHubResultViews(
                 )
             }
         }
-        // Reveal a correction only for a cursor already issued in this authorized scope.
-        if (entry != null && entry.scope == scope && cursor in entry.issuedCursors && entry.operation != operation) {
-            return AgentToolResult(
-                callId,
-                ToolResultContent.Json(
-                    buildJsonObject {
-                        put("schema", "github.arguments.v1")
-                        put("reason", "WRONG_OPERATION")
-                        put("message", "This cursor belongs to another operation. Use the exact correction_call; no operation was dispatched.")
-                        put("correction_call", savedCall(entry.modelName, cursor))
-                        put(
-                            "recovery_identity",
-                            recoveryIdentity(
-                                scope = scope,
-                                cursor = cursor,
-                                originalOperation = entry.operation,
-                                originalModelName = entry.modelName,
-                                requestedOperation = operation,
-                                requestedModelName = modelName,
-                                reason = "WRONG_OPERATION",
-                                sourceRecoveryAvailable = entry.sourceRecovery != null
-                            )
-                        )
-                        entry.sourceRecovery?.let { put("source_recovery_call", it) }
-                    }
-                ),
-                true,
-                errorCode = "SAVED_VIEW_WRONG_OPERATION",
-                dispatched = false,
-                executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
-            )
-        }
-        if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || entry.operation != operation || offset !in 0 until entry.fragmentCount || cursor !in entry.issuedCursors) {
+        if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || offset !in 0 until entry.fragmentCount || cursor !in entry.issuedCursors) {
             // An exact issued cursor proves the authorized view even when the
             // caller selected the wrong operation after eviction. Preserve the
             // original and requested operation identities in the recovery object;
@@ -304,7 +272,7 @@ internal class GitHubResultViews(
                 expected != value
             }
         }
-        if (conflictingFields.isNotEmpty()) {
+        if (entry.operation == operation && conflictingFields.isNotEmpty()) {
             return AgentToolResult(
                 callId,
                 ToolResultContent.Json(
@@ -342,6 +310,38 @@ internal class GitHubResultViews(
                         put("validation_field_names", JsonArray(conflictingFields.keys.sorted().map(::JsonPrimitive)))
                     }
                 )
+            )
+        }
+        // Reveal a correction only for a cursor already issued in this authorized scope.
+        if (entry.operation != operation || entry.modelName != modelName) {
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("schema", "github.arguments.v1")
+                        put("reason", "WRONG_OPERATION")
+                        put("message", "This cursor belongs to another tool. Use the exact correction_call; no operation was dispatched.")
+                        put("correction_call", savedCall(entry.modelName, cursor))
+                        put(
+                            "recovery_identity",
+                            recoveryIdentity(
+                                scope = scope,
+                                cursor = cursor,
+                                originalOperation = entry.operation,
+                                originalModelName = entry.modelName,
+                                requestedOperation = operation,
+                                requestedModelName = modelName,
+                                reason = "WRONG_OPERATION",
+                                sourceRecoveryAvailable = entry.sourceRecovery != null
+                            )
+                        )
+                        entry.sourceRecovery?.let { put("source_recovery_call", it) }
+                    }
+                ),
+                true,
+                errorCode = "SAVED_VIEW_WRONG_OPERATION",
+                dispatched = false,
+                executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
             )
         }
         // Active readers can take longer than ten minutes to consume a large result.

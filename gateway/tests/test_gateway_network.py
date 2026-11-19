@@ -87,10 +87,10 @@ class NetworkAdmissionTests(unittest.TestCase):
             self.assertEqual(200, client.get(path, headers=headers).status_code)
             self.assertEqual(401, client.get(path, headers=dict(headers, **{'X-Forwarded-For': '127.0.0.1'})).status_code)
 
-    def test_engineering_requires_explicit_enable_and_shared_identity(self):
+    def test_legacy_network_flag_permits_retained_work_but_does_not_grant_new_engineering_access(self):
         path = '/gateway/engineering/capabilities'
         self.assertEqual(403, self.client().get(path).status_code)
-        self.assertEqual(200, self.client(engineering=True).get(path).status_code)
+        self.assertEqual(403, self.client(engineering=True).get(path).status_code)
         self.assertFalse(principal_authorized(Config(mode='open_network'), 'network:shared', self.store))
         self.assertTrue(principal_authorized(Config(mode='open_network', remote_engineering=True), 'network:shared', self.store))
         self.assertFalse(principal_authorized(Config(mode='open_network', remote_engineering=True), 'local:single-user', self.store))

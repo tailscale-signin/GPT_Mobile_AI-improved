@@ -13,6 +13,16 @@ SPEC.loader.exec_module(retry)
 
 
 class GradleRetryTest(unittest.TestCase):
+    def test_plugin_markers_recover_only_for_matching_pinned_artifacts(self):
+        for marker, version in retry.PUBLISHED_MARKERS:
+            with self.subTest(marker=marker):
+                missing = f"Plugin [id: '{marker}', version: '{version}', apply: false] was not found"
+                artifact = f"Plugin Repositories (could not resolve plugin artifact '{marker}:{marker}.gradle.plugin:{version}')"
+                self.assertTrue(retry.retryable([missing, artifact]))
+                self.assertFalse(retry.retryable([missing, artifact.replace(marker, 'another.plugin')]))
+                self.assertFalse(retry.retryable([missing, artifact.replace(version, '0.0.0')]))
+                self.assertFalse(retry.retryable([missing, artifact, 'HTTP 404']))
+
     @unittest.skipUnless(hasattr(os, 'pidfd_open'), 'Descendant exit qualification requires Linux process handles')
     def test_deadline_terminates_a_stalled_descendant_and_never_retries_it(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -53,6 +63,17 @@ class GradleRetryTest(unittest.TestCase):
             self.assertEqual(124, retry.run(['help'], executable=str(fake), timeout_seconds=.1, delay_seconds=10))
             self.assertLess(time.monotonic() - started, 2)
             self.assertEqual(1, len(counter.read_text().splitlines()))
+
+    def test_hilt_recovery_requires_the_published_version_and_preserves_failures(self):
+        lines = [
+            "Plugin [id: 'com.google.dagger.hilt.android', version: '2.60.1', "
+            "artifact: 'com.google.dagger:hilt-android-gradle-plugin:2.60.1', apply: false] was not found",
+            "Plugin Repositories (could not resolve plugin artifact 'com.google.dagger:hilt-android-gradle-plugin:2.60.1')",
+        ]
+        self.assertTrue(retry.retryable(lines))
+        self.assertFalse(retry.retryable([line.replace("2.60.1", "2.60.99") for line in lines]))
+        self.assertFalse(retry.retryable(lines + ["HTTP 404"]))
+        self.assertFalse(retry.retryable(lines + ["Compilation error"]))
 
     def test_published_kotlin_plugin_lookup_without_status_retries_only_exact_version(self):
         lines = [
@@ -125,6 +146,37 @@ class GradleRetryTest(unittest.TestCase):
             fake.chmod(0o755)
             self.assertEqual(0, retry.run([':app:compileDebugKotlin'], delay_seconds=0, executable=str(fake)))
             self.assertEqual(4, len(counter.read_text().splitlines()))
+
+    def test_published_plugin_recovery_refreshes_metadata_without_changing_tasks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            record = pathlib.Path(directory) / 'calls'
+            fake = pathlib.Path(directory) / 'gradlew'
+            fake.write_text('#!/bin/sh\n' + f'echo "${{GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY:-0}} $*" >> "{record}"\n'
+                            + 'if [ "${GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY:-0}" != 1 ]; then\n'
+                            + "echo \"Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found\"\n"
+                            + "echo \"Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')\"\n"
+                            + 'exit 1\nfi\n')
+            fake.chmod(0o755)
+            args = [':app:compileDebugKotlin', '--stacktrace']
+            self.assertEqual(0, retry.run(args, delay_seconds=0, executable=str(fake)))
+            self.assertEqual(['0 :app:compileDebugKotlin --stacktrace',
+                              '1 :app:compileDebugKotlin --stacktrace --refresh-dependencies --info'], record.read_text().splitlines())
+            self.assertEqual([':app:compileDebugKotlin', '--stacktrace'], args)
+            self.assertEqual(1, retry.run(args + ['--offline'], delay_seconds=0, executable=str(fake)))
+            self.assertEqual(3, len(record.read_text().splitlines()))
+
+    def test_throttled_central_transitive_dependency_enables_mirror_on_next_attempt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake = pathlib.Path(directory) / 'gradlew'
+            fake.write_text(
+                '#!/bin/sh\n'
+                'if [ "${GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY:-0}" = 1 ]; then exit 0; fi\n'
+                'echo "Could not GET https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.9.1/asm-9.9.1.pom"\n'
+                'echo "Received status code 429 from server: Too Many Requests"\n'
+                'exit 1\n'
+            )
+            fake.chmod(0o755)
+            self.assertEqual(0, retry.run(['help'], attempts=2, delay_seconds=0, executable=str(fake)))
 
     def test_dependency_throttling_is_retryable(self):
         self.assertTrue(retry.retryable(['Could not resolve dependency.', 'Received status code 429 from server: Too Many Requests']))

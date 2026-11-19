@@ -418,8 +418,9 @@ class VoiceSession(
             cause: Throwable? = null
         ) {
             if (!valid()) return
-            val retry = retryable && recoveryAction == null && autoContinue && !state.muted && ++recognitionFailures <= 3
             val captureFailure = cause as? LocalVoiceCaptureException
+            // The recorder already retried silenced input. Wait for an explicit tap after the route changes.
+            val retry = retryable && captureFailure?.code != "MICROPHONE_CAPTURE_SILENCED" && recoveryAction == null && autoContinue && !state.muted && ++recognitionFailures <= 3
             fail(
                 message,
                 if (code == "VOICE_SESSION_FAILED" && captureFailure != null) "VOICE_${captureFailure.code}" else code,
@@ -812,8 +813,13 @@ internal fun speechChunks(text: String, limit: Int = 3000): List<String> {
     val chunks = mutableListOf<String>()
     var start = 0
     while (start < text.length) {
-        var end = (start + limit).coerceAtMost(text.length)
-        if (end < text.length && text[end - 1].isHighSurrogate()) end--
+        var end = start + minOf(limit, text.length - start)
+        if (end < text.length) {
+            // Prefer a nearby word break while keeping long unbroken tokens bounded.
+            val boundary = (end - 1 downTo start + limit / 2).firstOrNull { text[it].isWhitespace() }
+            if (boundary != null) end = boundary + 1
+            if (text[end - 1].isHighSurrogate()) end--
+        }
         chunks += text.substring(start, end)
         start = end
     }

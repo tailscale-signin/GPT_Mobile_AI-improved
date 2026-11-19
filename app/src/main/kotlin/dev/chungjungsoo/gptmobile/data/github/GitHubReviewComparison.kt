@@ -179,7 +179,7 @@ internal object GitHubReviewComparison {
         return if (sourceRead) null else "The exact comparison is retained, but no relevant changed-source read at the pinned base/head is recorded. Checks and inventories cannot verify a source review."
     }
 
-    fun plan(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): Plan? {
+    fun plan(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, authorizedTools: List<AgentToolDefinition> = tools): Plan? {
         if (!matches(task)) return null
         val eligible = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) && it["success"] == JsonPrimitive(true) }
         fun operation(row: JsonObject) = row.text("tool").githubOperationFamily()
@@ -202,15 +202,39 @@ internal object GitHubReviewComparison {
             // A retained page belongs to its issued facade and connection, even
             // when another family member accepts the same arguments.
             val candidates = if (issuedToolName == null) githubFamilyTools(tools, operation) else tools.filter { it.modelVisible && it.name == issuedToolName }
-            val tool = candidates.firstOrNull { ToolArgumentValidator.errors(arguments, it.inputSchema).isEmpty() } ?: return null
+            val tool = candidates.firstOrNull { ToolArgumentValidator.errors(arguments, it.inputSchema).isEmpty() }
+            if (tool == null) {
+                val discovery = tools.singleOrNull { it.modelVisible && it.name == GitHubAuthorizedCatalog.TOOL } ?: return null
+                val family = authorizedTools.filter { it.modelVisible && it.name.githubOperationFamily() == operation }
+                val connection = (issuedToolName ?: candidates.firstOrNull()?.name)?.substringAfter("__", "")
+                    ?: family.map { it.name.substringAfter("__", "") }.distinct().singleOrNull() ?: return null
+                val exact = family.firstOrNull {
+                    it.name.substringAfter("__", "") == connection &&
+                        (issuedToolName == null || it.name == issuedToolName) &&
+                        ToolArgumentValidator.errors(arguments, it.inputSchema).isEmpty()
+                } ?: return null
+                if (receipts.values.any { targetReceipt(it) && it["trusted"] == JsonPrimitive(true) && it.text("tool") == exact.name && it["arguments"] == arguments && it["verification_eligible"] != JsonPrimitive(false) }) return null
+                val acquire = buildJsonObject {
+                    put("names", JsonArray(listOf(JsonPrimitive(exact.name))))
+                    val action = arguments.text("action")
+                    if (dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(exact, action) != null) put("action", action)
+                }
+                if (ToolArgumentValidator.errors(acquire, discovery.inputSchema).isNotEmpty() ||
+                    receipts.values.any { it.text("tool") == discovery.name && it["arguments"] == acquire && it["verification_eligible"] != JsonPrimitive(false) }
+                ) {
+                    return null
+                }
+                return ProviderEvent.ToolCall("review-discovery-${receipts.size}", discovery.name, acquire)
+            }
             if (receipts.values.any { targetReceipt(it) && it["trusted"] == JsonPrimitive(true) && it["tool"] == JsonPrimitive(tool.name) && it["arguments"] == arguments && it["verification_eligible"] != JsonPrimitive(false) }) return null
             return ProviderEvent.ToolCall("review-base-${receipts.size}-${GitHubEvidenceBook.digest(arguments.toString()).take(8)}", tool.name, arguments)
         }
-        fun state(code: String, detail: String, next: ProviderEvent.ToolCall? = null, failure: JsonObject? = null) = Plan(
+        fun state(code: String, detail: String, next: ProviderEvent.ToolCall? = null, failure: JsonObject? = null, observation: String? = null) = Plan(
             buildJsonObject {
                 put("state", code)
                 put("detail", detail)
                 put("comparison_policy", policy)
+                observation?.let { put("github_prerequisite_observation", it) }
                 if (targetRepository.isNotBlank()) put("repository", targetRepository)
                 if (head.isNotBlank()) put("head_sha", head)
                 if (base.isNotBlank()) put("base_sha", base)
@@ -256,7 +280,29 @@ internal object GitHubReviewComparison {
                 it["repository_role"] != JsonPrimitive("READ_SOURCE") &&
                 (it.text("workspace_branch").isBlank() || data(it).text("branch") == it.text("workspace_branch"))
         }
-            ?: return state("HEAD_REQUIRED", "Resolve the selected branch and default branch before comparing.", call("github_context", buildJsonObject { put("action", "status") }))
+        if (context == null) {
+            val arguments = buildJsonObject { put("action", "status") }
+            val next = call("github_context", arguments)
+            if (next != null) return state("HEAD_REQUIRED", "Resolve the selected branch and default branch before comparing.", next)
+            val candidates = githubFamilyTools(tools, "github_context")
+            val selectedTool = candidates.firstOrNull { ToolArgumentValidator.errors(arguments, it.inputSchema).isEmpty() }
+            val prior = receipts.values.filter {
+                targetReceipt(it) &&
+                    it["trusted"] == JsonPrimitive(true) &&
+                    it["verification_eligible"] != JsonPrimitive(false) &&
+                    it.text("tool") == selectedTool?.name &&
+                    args(it) == arguments
+            }
+            val failed = prior.takeIf { rows -> rows.map { it.text("repository") to it.text("workspace_branch") }.distinct().size == 1 }
+                ?.lastOrNull()?.takeIf { it["success"] == JsonPrimitive(false) }
+            val observation = when {
+                candidates.isEmpty() -> "STATUS_TOOL_NOT_EXPOSED"
+                selectedTool == null -> "STATUS_ARGUMENTS_UNAVAILABLE"
+                failed != null -> "STATUS_READ_FAILED"
+                else -> "STATUS_RECEIPT_UNUSABLE"
+            }
+            return state("HEAD_REQUIRED", "The selected branch head could not be verified from repository status.", failure = failed?.let(::resolutionFailure), observation = observation)
+        }
         val selected = data(context)
         targetRepository = context.text("repository")
         head = selected.text("commit_sha")

@@ -56,6 +56,9 @@ def preflight(request, *, runner=None):
         return result
     result['checks']['validation_policy'] = 'ready'
     result['validation_policy_state'] = 'VALIDATED'
+    result['development_environment'] = {'profile': (policy.get('prepared_environment') or {}).get('profile', 'Custom repository'), 'image': image}
+    result['workspace_hooks_enabled'] = bool(policy.get('workspace_hooks'))
+    result['workspace_terminal_enabled'] = policy.get('workspace_terminal') is True
     result['policy_sha256'] = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     from v14.engineering_release_checks import contract
     result['post_merge_contract'] = contract(policy.get('post_merge'), len(commands))
@@ -72,6 +75,9 @@ def preflight(request, *, runner=None):
     elif not result['acceptance']:
         templates = policy.get('acceptance_templates', [])
         matches = []
+        from v14.workspace_guidance import requested_procedure
+        _, objective_text = requested_procedure(request['objective'])
+        objectives = {' '.join(value.casefold().split()) for value in (objective_text, request['objective'])}
         valid = isinstance(templates, list) and len(templates) <= 32
         for template in templates if valid else []:
             if not isinstance(template, dict) or set(template) != {'objectives', 'requirements'}:
@@ -81,8 +87,7 @@ def preflight(request, *, runner=None):
             if not isinstance(terms, list) or not 1 <= len(terms) <= 16 or any(not isinstance(term, str) or not 3 <= len(term.strip()) <= 16000 for term in terms):
                 valid = False
                 break
-            objective = ' '.join(request['objective'].casefold().split())
-            if objective in {' '.join(term.casefold().split()) for term in terms}:
+            if objectives & {' '.join(term.casefold().split()) for term in terms}:
                 matches.append(template['requirements'])
         if valid and len(matches) == 1:
             try:

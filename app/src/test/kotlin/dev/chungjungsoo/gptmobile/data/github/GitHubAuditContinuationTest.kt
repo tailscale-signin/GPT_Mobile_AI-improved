@@ -74,7 +74,7 @@ class GitHubAuditContinuationTest {
 
     @Test fun requirementMemoryExcludesPresetControlsAndBudgetHeadings() {
         val requirements = GitHubEngineeringMemoryPolicy.requirements(GitHubWorkflowPreset.selected("test_integration").prompt())
-        assertEquals(5, requirements.size)
+        assertEquals(7, requirements.size)
         assertFalse(requirements.toString().contains("Budget:"))
         assertFalse(requirements.toString().contains("[github-workflow-preset:"))
     }
@@ -84,7 +84,8 @@ class GitHubAuditContinuationTest {
         assertTrue(GitHubChecklistScope.supportedFixturePlan(prompt))
         val requirements = GitHubIntegrationAcceptance.requirements(prompt, emptyMap(), listOf(definition))
         val objective = requirements.first() as JsonObject
-        assertTrue(objective["acceptance"].toString().contains("Every requested authorized API action"))
+        assertTrue(requirements.any { it.toString().contains("authorized tool catalog") })
+        assertTrue(objective["requirement"].toString().contains("authorized GitHub integration"))
         assertFalse(GitHubChecklistScope.supportedFixturePlan("Test all authorized GitHub integration tools.\n[github-workflow-preset:test_integration]"))
     }
 

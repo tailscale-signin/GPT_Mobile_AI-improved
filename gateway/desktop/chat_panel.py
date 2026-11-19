@@ -47,6 +47,8 @@ class ChatPanel(tk.Frame):
         head.pack(fill='x', pady=(0, 6))
         self.heading = theme.label(head, 'Chat', 23, bold=True)
         self.heading.pack(side='left')
+        from desktop.schedule_panel import show_schedules
+        ttk.Button(head, text='Schedules…', command=lambda: show_schedules(self, self.root)).pack(side='right', padx=5)
         ttk.Button(head, text='Checkpoints…', command=self.inspect_checkpoints).pack(side='right', padx=5)
         self.compose_engineering_button = ttk.Button(head, text='Engineering task…', command=self.compose_engineering, state='disabled')
         self.compose_engineering_button.pack(side='right', padx=5)
@@ -139,6 +141,7 @@ class ChatPanel(tk.Frame):
         self.save_message_button = ttk.Button(message_actions, text='Save message', command=self.bookmark, state='disabled')
         self.save_message_button.pack(side='left')
         ttk.Button(message_actions, text='Copy', width=5, command=self.copy_selection).pack(side='left', padx=5)
+        ttk.Button(message_actions, text='Analyze…', command=self.analyze_selection).pack(side='left')
         self.reconcile_button = ttk.Button(message_actions, text='Check send', command=self.reconcile, state='disabled')
         self.reconcile_button.pack(side='right')
         text_shell.pack_forget()
@@ -432,6 +435,27 @@ class ChatPanel(tk.Frame):
         row = self.rows[int(selected[0])]
         if row.get('conversation_id') and row.get('message_id'):
             self.launch('unbookmarked', lambda: self.client().bookmark(row['conversation_id'], row['message_id'], False))
+
+    def analyze_selection(self):
+        from desktop.analysis_panel import show_analysis
+        def destination():
+            return scope_key(self.identity or {}), (self.conversation or {}).get('conversation_id'), self.epoch
+        original = destination()
+        def selected_python():
+            if destination() != original or self.busy or self.closed:
+                return ''
+            try:
+                selection = self.text.get('sel.first', 'sel.last')
+                return selection if len(selection.encode('utf-8')) <= 32768 else ''
+            except tk.TclError:
+                return ''
+        def append_result(result):
+            if (not self.identity or destination() != original or self.busy or self.sending or self.closed
+                    or self.composer.cget('state') == 'disabled' or len(self.composer.get('1.0', 'end-1c')) + len(result) + 3 > 32000):
+                return False
+            self.composer.insert('end', '\n\n' + result + '\n')
+            return True
+        show_analysis(self, self.root, selected_python(), append_result, selected_python)
 
     def copy_selection(self):
         try:

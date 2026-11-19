@@ -104,6 +104,15 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             "requested important-while-foreground flag" in text &&
             "is ignored and takes no effect" in text ->
             DiagnosticClassification("platform_job_hint", "info", false)
+        tag == "Android" && capturedTag == "mediacodec" && text == "media quality service not found." ->
+            DiagnosticClassification("platform_media_quality_service", "info", false)
+        tag == "Android" &&
+            capturedTag == "mobile.improved" &&
+            text ==
+            "aibinder_linktodeath is being called with a non-null cookie and no onunlink callback set. this might not be intended. aibinder_deathrecipient_setonunlinked should be called first." ->
+            DiagnosticClassification("platform_binder_registration", "info", false)
+        tag == "Android" && capturedTag == "mobile.improved" && text == "failed to query component interface for required system resources: 6" ->
+            DiagnosticClassification("codec_resource_query", "warning", true, "inspect_codec_configuration_and_playback_outcome")
         tag == "Android" && capturedTag == "libc" && text == "access denied finding property \"ro.hardware.chipname\"" ->
             DiagnosticClassification("platform_optional_property", "info", false)
         tag == "Android" && capturedTag == "system" && text.startsWith("uncaught exception thrown by finalizer") ->

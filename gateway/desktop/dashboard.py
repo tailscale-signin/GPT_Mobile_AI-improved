@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+from desktop.window_lifecycle import WindowCallbacks
 from tkinter import ttk, messagebox
 
 from desktop import theme
@@ -36,6 +37,7 @@ class Dashboard:
         self.window.minsize(900, 600)
         theme.apply(self.window)
         self.page = 'Overview'
+        self.callbacks = WindowCallbacks(self.window)
         self.snapshot = {}
         self.displayed = []
         self.messages = queue.Queue()
@@ -80,6 +82,8 @@ class Dashboard:
             button.pack(fill='x', padx=12, pady=3)
             self.nav[page] = button
         tk.Frame(sidebar, bg=theme.LINE, height=1).pack(fill='x', padx=25, pady=25)
+        from desktop.phone_panel import show as show_phone_controls
+        ttk.Button(sidebar, text='Android controls', command=lambda: show_phone_controls(self.window, self.root)).pack(fill='x', padx=17, pady=4)
         ttk.Button(sidebar, text='Settings', command=self.settings).pack(fill='x', padx=17, pady=4)
         theme.label(sidebar, 'Closing this window keeps\nyour Gateway running.', 9, color=theme.MUTED,
                     bg=theme.SIDEBAR, justify='left').pack(anchor='w', padx=22, pady=16)
@@ -110,23 +114,24 @@ class Dashboard:
                 ('GENERATION SPEED', 'Measured model output', theme.PURPLE),
                 ('OPEN JOBS', 'Chat and engineering', theme.PURPLE)]):
             cards.columnconfigure(i, weight=1, uniform='card')
-            card = tk.Frame(cards, bg=theme.PANEL, highlightbackground=theme.LINE, highlightthickness=1)
-            card.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 6, 0 if i == 3 else 6))
-            theme.label(card, name, 8 if self.compact else 9, color=theme.MUTED, bold=True, bg=theme.PANEL).pack(anchor='w', padx=10, pady=(13, 4))
+            surface = theme.RoundedPanel(cards)
+            surface.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 6, 0 if i == 3 else 6))
+            card = surface.content
+            theme.label(card, name, 8 if self.compact else 9, color=theme.MUTED, bold=True, bg=theme.PANEL).pack(anchor='w', padx=10, pady=(7, 4))
             value = theme.label(card, '—', 20 if self.compact else 24, color=accent, bold=True, bg=theme.PANEL)
             value.pack(anchor='w', padx=14)
-            theme.label(card, note, 8, color=theme.MUTED, bg=theme.PANEL, wraplength=155 if self.compact else 185, justify='left').pack(anchor='w', padx=10, pady=(0, 13))
+            theme.label(card, note, 8, color=theme.MUTED, bg=theme.PANEL, wraplength=155 if self.compact else 185, justify='left').pack(anchor='w', padx=10, pady=(0, 7))
             self.cards.append(value)
-        self.chart_frame = tk.Frame(self.body, bg=theme.PANEL, highlightbackground=theme.LINE, highlightthickness=1)
+        self.chart_frame = theme.RoundedPanel(self.body)
         self.chart_frame.pack(fill='x', pady=(0, 18))
-        chart_head = tk.Frame(self.chart_frame, bg=theme.PANEL)
+        chart_head = tk.Frame(self.chart_frame.content, bg=theme.PANEL)
         chart_head.pack(fill='x', padx=16, pady=(12, 0))
         theme.label(chart_head, 'TOKENS GENERATED / LAST 7 DAYS', 9, color=theme.CYAN, bold=True, bg=theme.PANEL).pack(side='left')
         self.metrics = theme.label(chart_head, 'Local time', 9, color=theme.MUTED, bg=theme.PANEL)
         self.metrics.pack(side='right')
-        self.chart = TokenHistory(self.chart_frame, height=125 if self.compact else 165)
+        self.chart = TokenHistory(self.chart_frame.content, height=125 if self.compact else 165)
         self.chart.pack(fill='x', padx=12, pady=8)
-        self.coverage = theme.label(self.chart_frame, 'Provider measurements only; no estimates.', 9, color=theme.MUTED, bg=theme.PANEL, anchor='w')
+        self.coverage = theme.label(self.chart_frame.content, 'Provider measurements only; no estimates.', 9, color=theme.MUTED, bg=theme.PANEL, anchor='w')
         self.coverage.pack(fill='x', padx=16, pady=(0, 10))
         self.chart_frame.bind('<Configure>', lambda event: self.coverage.configure(wraplength=max(250, event.width - 32)))
         toolbar = tk.Frame(self.body, bg=theme.BG)
@@ -338,7 +343,7 @@ class Dashboard:
         self.coverage.configure(text=(f'Measured output only · {missing} rounds unavailable. ' if missing else '') + 'Includes model-counted reasoning. Totals persist across restarts.')
         self.note.configure(text=self.snapshot.get('historyError') or ('Refreshes every 2s · latest 100 saved jobs / 300 activities' if fresh else 'Offline or refreshing · retained history shown'))
         self.render_rows()
-        self.window.after(2000, self.refresh)
+        self.callbacks.schedule(2000, self.refresh)
 
     def settings(self, section='General'):
         from desktop.ui import show
@@ -374,7 +379,7 @@ class Dashboard:
         self.window.destroy()  # The supervisor/tray owns gateway lifetime.
 
 
-def show(root, smoke=False):
+def show(root, smoke=False, view='Overview'):
     # Separate lock directory: opening a dashboard must not claim the engine lock.
     lock = StateDirectoryLock(Path(root) / 'dashboard-ui' / 'owner')
     try:
@@ -383,16 +388,18 @@ def show(root, smoke=False):
         atomic_json(Path(root) / 'show-dashboard.json', {'requestedAt': time.time()})
         return
     try:
-        _show(root, smoke)
+        _show(root, smoke, view)
     finally:
         from desktop.repository_validation_panel import settle_setup_workers
         settle_setup_workers(root)
         lock.release()
 
 
-def _show(root, smoke):
+def _show(root, smoke, view='Overview'):
     dashboard = Dashboard(root)
     dashboard.smoke = smoke
+    if view in PAGES:
+        dashboard.navigate(view)
     failures = []
     if smoke:
         dashboard.window.report_callback_exception = lambda kind, error, trace: failures.append(f'{kind.__name__}: {error}')

@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelSelectionController
 import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
 import dev.chungjungsoo.gptmobile.data.model.NewChatType
@@ -16,13 +17,19 @@ import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityRepository
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayAvailabilityTargets
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -30,7 +37,10 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /** Shared by both full-screen creation destinations; selecting models never generates text. */
 @HiltViewModel
@@ -40,7 +50,8 @@ class NewChatViewModel @Inject constructor(
     private val settings: SettingRepository,
     private val chats: ChatRepository,
     private val availability: GatewayAvailabilityRepository,
-    gatewayPreparation: GatewayModelPreparationRepository? = null
+    gatewayPreparation: GatewayModelPreparationRepository? = null,
+    private val privacyMode: PrivacyModeStore? = null
 ) : ViewModel() {
     private val gatewayModelSelection = GatewayModelSelectionController(gatewayPreparation, viewModelScope)
     val gatewayModelPreparation = gatewayModelSelection.states
@@ -48,6 +59,7 @@ class NewChatViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val features = settings.observeFeatureSettings()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppFeatureSettings())
+    val privacyState: StateFlow<PrivacyModeState> = privacyMode?.state ?: MutableStateFlow(PrivacyModeState())
     val typeName = savedStateHandle.getStateFlow("new_chat_type", "")
     internal val gatewayAvailability = combine(profiles, features, typeName) { savedProfiles, settings, type ->
         gatewayAvailabilityTargets(savedProfiles, settings, type == NewChatType.GITHUB.name)
@@ -55,6 +67,11 @@ class NewChatViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 0, replayExpirationMillis = 0), emptyMap())
     val selectedUids = savedStateHandle.getStateFlow("new_chat_uids", emptyList<String>())
     val primaryUid = savedStateHandle.getStateFlow("new_chat_primary", "")
+    val firstMessage = savedStateHandle.getStateFlow("new_chat_first_message", "")
+    fun editFirstMessage(value: String) {
+        if (!_creating.value && value.length <= 8192) savedStateHandle["new_chat_first_message"] = value
+    }
+
     val researchDepth = savedStateHandle.getStateFlow("new_chat_research_depth", 50)
     private val _creating = MutableStateFlow(false)
     val creating = _creating.asStateFlow()
@@ -79,13 +96,90 @@ class NewChatViewModel @Inject constructor(
 
     fun recheckGatewayModel(uid: String) = gatewayModelSelection.recheck(uid)
 
+    private val checked = MutableStateFlow<Map<PlatformV2, PrivacyProfileEligibility.Decision>>(emptyMap())
+    val checkedProfiles = checked.asStateFlow()
+    private val privacyCheckGeneration = AtomicLong()
+    private val _privacyChecking = MutableStateFlow(false)
+    val privacyChecking = _privacyChecking.asStateFlow()
+
+    fun privacyDecision(profile: PlatformV2): PrivacyProfileEligibility.Decision =
+        if (privacyState.value.enabled) checked.value[profile] ?: PrivacyProfileEligibility.evaluate(profile, true) else PrivacyProfileEligibility.evaluate(profile, false)
+
+    suspend fun checkPrivacyProfiles(items: List<PlatformV2>) {
+        val store = privacyMode ?: return
+        val generation = privacyCheckGeneration.incrementAndGet()
+        val state = store.snapshot()
+        if (!state.enabled) {
+            checked.value = emptyMap()
+            _privacyChecking.value = false
+            return
+        }
+        val enabled = items.filter { it.enabled }
+        val slots = Semaphore(4)
+        checked.value = enabled.associateWith { profile ->
+            val local = PrivacyProfileEligibility.evaluate(profile, true)
+            if (local.eligible) {
+                local
+            } else {
+                PrivacyProfileEligibility.Decision(
+                    false,
+                    "Checking this model's privacy requirements. No conversation text is sent.",
+                    local.policyUrl,
+                    PrivacyProfileEligibility.Status.CHECKING
+                )
+            }
+        }
+        _privacyChecking.value = enabled.isNotEmpty()
+        try {
+            coroutineScope {
+                enabled.forEach { profile ->
+                    launch {
+                        val decision = try {
+                            slots.withPermit { store.verifier.verify(profile).decision }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            PrivacyProfileEligibility.Decision(false, "Could not complete verification. Recheck the connection and try again.")
+                        }
+                        if (privacyCheckGeneration.get() != generation || store.snapshot() != state) return@launch
+                        checked.update { it + (profile to decision) }
+                        if (!decision.eligible && profile.uid in selectedUids.value) {
+                            val retained = selectedUids.value - profile.uid
+                            savedStateHandle["new_chat_uids"] = retained
+                            if (primaryUid.value !in retained) savedStateHandle["new_chat_primary"] = retained.firstOrNull().orEmpty()
+                        }
+                    }
+                }
+            }
+        } finally {
+            if (privacyCheckGeneration.get() == generation) {
+                checked.update { observations ->
+                    observations.mapValues { (profile, decision) ->
+                        if (decision.status == PrivacyProfileEligibility.Status.CHECKING) PrivacyProfileEligibility.evaluate(profile, true) else decision
+                    }
+                }
+                _privacyChecking.value = false
+            }
+        }
+    }
+
+    fun setPrivacyMode(enabled: Boolean) {
+        privacyCheckGeneration.incrementAndGet()
+        checked.value = emptyMap()
+        _privacyChecking.value = false
+        privacyMode?.setEnabled(enabled)
+        clearError()
+    }
+
     fun chooseType(choice: NewChatType): Boolean {
         if (choice.requiredPluginId?.let { !features.value.isToolPluginEnabled(it) } == true) {
             _error.value = "Enable this mode's plugin before creating a chat."
             return false
         }
         savedStateHandle["new_chat_type"] = choice.name
-        val enabled = profiles.value.filter { it.enabled }.map { it.uid }.toSet()
+        val enabled = profiles.value.filter {
+            it.enabled && privacyDecision(it).eligible
+        }.map { it.uid }.toSet()
         val kept = selectedUids.value.filter { it in enabled }.let {
             if (choice in setOf(NewChatType.SINGLE, NewChatType.GITHUB)) it.take(1) else it
         }
@@ -97,6 +191,11 @@ class NewChatViewModel @Inject constructor(
 
     fun toggleProfile(uid: String) {
         val profile = profiles.value.firstOrNull { it.uid == uid && it.enabled } ?: return
+        val privacyDecision = privacyDecision(profile)
+        if (!privacyDecision.eligible) {
+            _error.value = "Privacy Mode: " + privacyDecision.explanation
+            return
+        }
         val current = selectedUids.value
         if (uid !in current) {
             dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let {
@@ -114,6 +213,24 @@ class NewChatViewModel @Inject constructor(
         savedStateHandle["new_chat_uids"] = next
         if (primaryUid.value !in next) savedStateHandle["new_chat_primary"] = next.firstOrNull().orEmpty()
         clearError()
+    }
+
+    internal fun chooseSuggestedProfile(uid: String, research: Boolean) {
+        val destination = if (research) NewChatType.RESEARCH else NewChatType.SINGLE
+        val profile = profiles.value.firstOrNull { it.uid == uid && it.enabled } ?: return
+        val admission = privacyDecision(profile)
+        if (!admission.eligible) {
+            _error.value = "Privacy Mode: " + admission.explanation
+            return
+        }
+        dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let {
+            _error.value = it.message
+            return
+        }
+        if (chooseType(destination)) {
+            savedStateHandle["new_chat_uids"] = listOf(uid)
+            savedStateHandle["new_chat_primary"] = uid
+        }
     }
 
     fun setPrimary(uid: String) {
@@ -207,11 +324,20 @@ class NewChatViewModel @Inject constructor(
             }
             return
         }
+        if (privacyMode?.snapshot()?.enabled == true && choice in setOf(NewChatType.GITHUB, NewChatType.RESEARCH)) {
+            _error.value = "Privacy Mode currently blocks cloud-capable GitHub and Research tools because their downstream services lack verified retention terms."
+            return
+        }
         _creating.value = true
         _error.value = null
         viewModelScope.launch {
             val created = mutableListOf<ChatRoomV2>()
             try {
+                val creationPrivacy = privacyMode?.snapshot()
+                val creationCheckGeneration = privacyCheckGeneration.get()
+                require(creationPrivacy?.enabled != true || choice !in setOf(NewChatType.GITHUB, NewChatType.RESEARCH)) {
+                    "Privacy Mode currently blocks cloud-capable GitHub and Research tools because their downstream services lack verified retention terms."
+                }
                 val available = settings.fetchPlatformV2s().filter { it.enabled }
                 require(selected.all { uid -> available.any { it.uid == uid } }) {
                     "A selected AI profile was disabled or deleted. Check your selection."
@@ -220,6 +346,8 @@ class NewChatViewModel @Inject constructor(
                     val profile = available.first { it.uid == uid }
                     val block = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)
                     require(block == null) { block?.message.orEmpty() }
+                    val privacyDecision = privacyMode?.takeIf { creationPrivacy?.enabled == true }?.verifier?.verify(profile)?.decision ?: PrivacyProfileEligibility.evaluate(profile, false)
+                    require(privacyDecision.eligible) { "Privacy Mode: " + privacyDecision.explanation }
                     require(!settings.providerActivationRequired(profile)) { "Review ${profile.name}'s data policy in AI profile settings before starting." }
                 }
                 if (choice == NewChatType.RESEARCH) {
@@ -238,6 +366,13 @@ class NewChatViewModel @Inject constructor(
                 }
                 require(choice.requiredPluginId?.let { settings.getFeatureSettings().isToolPluginEnabled(it) } != false) {
                     "This chat mode's plugin was disabled. Enable it before continuing."
+                }
+                require(privacyMode?.snapshot() == creationPrivacy && (creationPrivacy?.enabled != true || privacyCheckGeneration.get() == creationCheckGeneration)) {
+                    "Privacy settings changed while checking. Recheck your profiles before starting."
+                }
+                val currentProfiles = settings.fetchPlatformV2s()
+                require(selected.all { uid -> currentProfiles.firstOrNull { it.uid == uid && it.enabled } == available.first { it.uid == uid } }) {
+                    "A selected AI profile changed while checking. Recheck your selection before starting."
                 }
                 if (choice == NewChatType.GITHUB) {
                     val nextRoute = "github_chat/${android.net.Uri.encode(selected.single())}"
@@ -258,7 +393,8 @@ class NewChatViewModel @Inject constructor(
                         selected,
                         mode,
                         title,
-                        primary
+                        primary,
+                        firstMessage.value.takeIf { it.isNotBlank() && choice in setOf(NewChatType.SINGLE, NewChatType.RESEARCH) }
                     )
                     val chatId = created.single().id
                     settings.mutateFeatureSettings {

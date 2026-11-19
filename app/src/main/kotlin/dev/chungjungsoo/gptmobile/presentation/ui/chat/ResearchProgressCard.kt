@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -175,13 +176,21 @@ internal fun ResearchProgressCard(
                                     Text("Version: ${source.versionId.take(100)} · ${source.providerReceipts.size} receipts", style = MaterialTheme.typography.labelSmall)
                                 }
                                 if (source.publishedAt.isNotBlank()) Text("Published: ${source.publishedAt}", style = MaterialTheme.typography.bodySmall)
-                                if (source.retrievedAt > 0) Text("Read: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(source.retrievedAt))}", style = MaterialTheme.typography.bodySmall)
+                                if (source.retrievedAt > 0) Text("Retrieved: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(source.retrievedAt))}", style = MaterialTheme.typography.bodySmall)
                                 session.snapshot.claims.filter { it.sourceId == source.id }.forEach { claim ->
                                     Text("${claim.verdict}: ${claim.text}", style = MaterialTheme.typography.bodyMedium)
+                                    if (claim.counterEvidence.isNotBlank()) Text("Counterevidence · ${claim.counterEvidence}", style = MaterialTheme.typography.bodySmall)
+                                    if (claim.locator.isNotBlank()) Text(claim.locator, style = MaterialTheme.typography.labelSmall)
                                     Text(claim.quote, style = MaterialTheme.typography.bodySmall)
                                     Text("Exact quote: ${claim.exactQuoteVerified} · ${if (claim.independentReview) "Distinct model passage review" else "Self-review or unverified independence"}", style = MaterialTheme.typography.labelSmall)
                                 }
-                                if (source.passage.isNotBlank()) Text(source.passage.take(1800), style = MaterialTheme.typography.bodySmall)
+                                if (source.passage.isNotBlank()) {
+                                    var visibleChars by remember(source.id, source.contentFingerprint) { mutableIntStateOf(1800) }
+                                    Text(source.passage.take(visibleChars), style = MaterialTheme.typography.bodySmall)
+                                    if (source.passage.length > visibleChars) {
+                                        OutlinedButton(onClick = { visibleChars += 1800 }) { Text("Read more of the captured passage") }
+                                    }
+                                }
                                 OutlinedButton(onClick = { runCatching { if (java.net.URI(source.url).scheme?.lowercase() in setOf("http", "https")) uri.openUri(source.url) } }) { Text("Open source") }
                             }
                         }

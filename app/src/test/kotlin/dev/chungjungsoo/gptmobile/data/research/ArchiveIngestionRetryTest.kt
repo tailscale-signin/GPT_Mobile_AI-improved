@@ -30,6 +30,15 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ArchiveIngestionRetryTest {
+    @Test fun retainedReviewRowsDoNotRescheduleTheWorker() = runBlocking {
+        withStore { store, database, _, _ ->
+            val held = ResearchOutbox("ingest:held", """{"state":"REQUIRES_REVIEW","retryAttempt":16}""", 1)
+            database.research().outbox(held)
+            assertTrue(store.retryPendingDiscovery())
+            assertEquals(held, database.research().outboxById(held.id))
+        }
+    }
+
     @Test fun retryBackoffSurvivesSerializationAndRetainsOriginalSource() {
         var row = ResearchOutbox("ingest:test", """{"source":{"id":"S1"}}""", 1)
         repeat(20) { attempt ->
@@ -38,8 +47,57 @@ class ArchiveIngestionRetryTest {
             val payload = Json.parseToJsonElement(restored.operation).jsonObject
             assertEquals("S1", payload.getValue("source").jsonObject.text("id"))
             assertFalse(restored.retryDue(1001))
-            assertTrue(restored.retryDue(3_601_000))
+            assertEquals(if (attempt >= 15) "REQUIRES_REVIEW" else "RETRY_PENDING", payload.text("state"))
+            assertEquals(attempt < 15, restored.retryDue(3_601_000))
             if (attempt == 0) assertTrue(restored.retryDue(31_000))
+        }
+    }
+
+    @Test fun failedArchiveReceiptsAreCategorizedWithoutLeakingPrivateMessages() {
+        val privateMessage = "Sensitive private research title"
+        val error = IllegalStateException(privateMessage)
+        assertEquals("ARCHIVE_WRITE_FAILED", archiveIngestionFailure(error))
+        val receipt = archiveIngestionReceiptReason(error, "ARCHIVE_CAPTURE")
+        assertEquals("ARCHIVE_WRITE_FAILED:IllegalStateException:ARCHIVE_CAPTURE:UNCLASSIFIED_ILLEGAL_STATE", receipt)
+        assertFalse(receipt.contains(privateMessage))
+        assertEquals("ARCHIVE_OWNER_UNAVAILABLE", archiveIngestionFailure(IllegalStateException("Conversation was deleted")))
+        assertEquals("ARCHIVE_SUPERSEDED", archiveIngestionFailure(IllegalStateException("Archive was cleared; start a new import")))
+    }
+
+    @Test fun terminalArchiveRetriesAreQuarantinedWithoutDiscardingSources() {
+        for ((reason, state) in listOf(
+            "ARCHIVE_OWNER_UNAVAILABLE" to "OWNER_UNAVAILABLE",
+            "ARCHIVE_SUPERSEDED" to "ARCHIVE_SUPERSEDED",
+            "IDENTITY_CONFLICT_REQUIRES_REVIEW" to "IDENTITY_REVIEW_REQUIRED"
+        )) {
+            val row = ResearchOutbox("ingest:test", """{"source":{"id":"S1"}}""", 1).failedIngestion(1000, reason)
+            val payload = Json.parseToJsonElement(row.operation).jsonObject
+            assertEquals(state, payload.text("state"))
+            assertFalse(row.retryDue(Long.MAX_VALUE))
+            assertEquals("S1", payload.getValue("source").jsonObject.text("id"))
+        }
+    }
+
+    @Test fun bulkArchiveCapturePersistsEveryReceiptAndMembership() = runBlocking {
+        withStore { store, database, settings, context ->
+            val sources = (0 until 76).map { index ->
+                ResearchSource(
+                    "B" + index,
+                    "https://example.org/bulk/" + index,
+                    "Bulk study " + index,
+                    passage = "Methods and results for source " + index
+                )
+            }
+            val journal = store.journal("bulk-run", 8, true, "8:1").scoped("public", true)
+            journal.save(ResearchSnapshot("Bulk capture", sources = sources))
+            val receipts = database.research().saveReceipts(8)
+            assertEquals(76, receipts.size)
+            assertTrue(receipts.all { it.disposition == "ARCHIVED" })
+            assertEquals(76, database.research().count())
+            val reopened = ResearchSessionStore(context, database, settings)
+            assertTrue(reopened.retryPendingDiscovery())
+            assertEquals(76, database.research().count())
+            assertEquals(sources, journal.load()!!.sources)
         }
     }
 

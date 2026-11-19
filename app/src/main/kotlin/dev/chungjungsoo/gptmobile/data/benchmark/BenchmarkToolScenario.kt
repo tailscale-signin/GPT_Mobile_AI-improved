@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
@@ -22,6 +23,11 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     private val permanent = test.workload == "permanent_error_decision"
     private val research = test.workload == "research_fixture"
     private val githubFixture = GitHubProfileAuditSuite.fixture(test)
+    private val engineering = if (test.workload == GitHubEngineeringBenchmarkSuite.WORKLOAD) {
+        GitHubEngineeringScenario(test, code)
+    } else {
+        null
+    }
     private val parcelArguments = buildJsonObject { put("key", "parcel") }
     private val typedArguments = buildJsonObject {
         put("key", "parcel")
@@ -41,8 +47,17 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     private fun result(id: String, body: String, error: Boolean = false, code: String? = null) = AgentToolResult(id, ToolResultContent.Text(body), error, errorCode = code)
 
     val tools: List<AgentTool> = when {
+        engineering != null -> listOf(engineering.tool)
         githubFixture != null -> listOf(
-            tool(githubFixture.operation, "Offline GitHub tool-call fixture: no real connection or remote write.", githubFixture.definition.inputSchema) { id, args ->
+            tool(
+                githubFixture.operation,
+                "Offline GitHub tool-call fixture: no real connection or remote write.",
+                // Keep host validation strict. Only the advertised selected action
+                // contract is projected for the remote model's one requested call.
+                githubFixture.action?.let {
+                    GitHubActionSchema.project(githubFixture.definition, it)?.inputSchema
+                } ?: githubFixture.definition.inputSchema
+            ) { id, args ->
                 if (args == githubFixture.arguments && ToolArgumentValidator.errors(args, githubFixture.definition.inputSchema).isEmpty()) {
                     result(id, "FIXTURE_CODE=$code")
                 } else {
@@ -87,6 +102,7 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     }
 
     fun valid(call: ProviderEvent.ToolCall): Boolean = when {
+        engineering != null -> engineering.valid(call)
         githubFixture != null ->
             call.name == githubFixture.operation &&
                 call.arguments == githubFixture.arguments &&
@@ -98,9 +114,41 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
         else -> call.name == "benchmark_lookup" && call.arguments == if (test.workload == "typed_arguments") typedArguments else parcelArguments
     }
 
-    fun expectedError(call: ProviderEvent.ToolCall, result: AgentToolResult): Boolean = valid(call) && result.isError && (recovery && result.errorCode == "BENCHMARK_RETRYABLE" || permanent && result.errorCode == "BENCHMARK_PERMANENT")
+    fun expectedError(call: ProviderEvent.ToolCall, result: AgentToolResult): Boolean {
+        engineering?.let { return it.expectedError(call, result) }
+        if (!valid(call) || !result.isError) return false
+        return when {
+            recovery -> result.errorCode == "BENCHMARK_RETRYABLE"
+            permanent -> result.errorCode == "BENCHMARK_PERMANENT"
+            else -> false
+        }
+    }
+
+    /**
+     * A model can choose the correct tool yet send a semantically wrong argument.
+     * Store only closed field identities and mismatch categories, never the values.
+     */
+    private fun githubArgumentEvidence(calls: List<ProviderEvent.ToolCall>): BenchmarkToolArgumentEvidence? {
+        val fixture = githubFixture ?: return null
+        val call = calls.singleOrNull() ?: return null
+        val expected = fixture.arguments
+        val observed = call.arguments
+        fun fields(values: Collection<String>): List<String> = values.map { key ->
+            key.takeIf { it.matches(Regex("[A-Za-z_][A-Za-z_0-9]{0,63}")) } ?: "NONCANONICAL_FIELD"
+        }.distinct().sorted().take(32)
+        return BenchmarkToolArgumentEvidence(
+            expectedToolSelected = call.name == fixture.operation,
+            schemaValid = ToolArgumentValidator.errors(observed, fixture.definition.inputSchema).isEmpty(),
+            exactArguments = expected == observed,
+            observedFieldNames = fields(observed.keys),
+            missingFieldNames = fields(expected.keys - observed.keys),
+            additionalFieldNames = fields(observed.keys - expected.keys),
+            changedFieldNames = fields(expected.keys.intersect(observed.keys).filter { expected[it] != observed[it] })
+        )
+    }
 
     fun assess(calls: List<ProviderEvent.ToolCall>, successful: Set<String>, expectedErrors: Set<String>, answer: String, raw: String, complete: Boolean): BenchmarkToolAssessment {
+        engineering?.let { return it.assess(calls, successful, expectedErrors, answer, raw, complete) }
         val selected = calls.map { it.name }.all { name ->
             name in if (githubFixture != null) {
                 setOf(githubFixture.operation)
@@ -128,16 +176,20 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
             } else {
                 null
             },
-            calls.size <= maximum, calls.size, successful.size, expectedErrors.size
+            calls.size <= maximum, calls.size, successful.size, expectedErrors.size,
+            argumentEvidence = githubArgumentEvidence(calls)
         )
     }
 
-    fun passed(calls: List<ProviderEvent.ToolCall>, successful: Set<String>, expectedErrors: Set<String>): Boolean = calls.isNotEmpty() &&
-        (githubFixture == null || calls.size == 1) &&
-        calls.all(::valid) &&
-        successful.size + expectedErrors.size == calls.size &&
-        (!recovery || expectedErrors.size == 1 && successful.size == 1) &&
-        (!permanent || expectedErrors.size == 1 && calls.size == 1) &&
-        (test.validatorVersion != "benchmark-validator-v5" || calls.size <= if (recovery || research) 2 else 1) &&
-        (!research || calls.map { it.name } == listOf("benchmark_search", "benchmark_read"))
+    fun passed(calls: List<ProviderEvent.ToolCall>, successful: Set<String>, expectedErrors: Set<String>): Boolean {
+        engineering?.let { return it.passed(calls, successful, expectedErrors) }
+        return calls.isNotEmpty() &&
+            (githubFixture == null || calls.size == 1) &&
+            calls.all(::valid) &&
+            successful.size + expectedErrors.size == calls.size &&
+            (!recovery || expectedErrors.size == 1 && successful.size == 1) &&
+            (!permanent || expectedErrors.size == 1 && calls.size == 1) &&
+            (test.validatorVersion != "benchmark-validator-v5" || calls.size <= if (recovery || research) 2 else 1) &&
+            (!research || calls.map { it.name } == listOf("benchmark_search", "benchmark_read"))
+    }
 }

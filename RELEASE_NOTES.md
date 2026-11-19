@@ -1,4 +1,85 @@
-# GPT Mobile 0.9.66.8
+# GPT Mobile 0.9.66.8 (build 142) and Windows Gateway 17.0.1
+
+## Getting started
+
+- For local inference on Windows, run the x64 setup executable, choose Standard Gateway or GitHub Engineering, select your listener and port, and check the local model connection. The desktop workspace shows jobs, schedules, analysis and diagnostics.
+- To control a PC from Android, pair the phone and confirm the request on Windows. Open the paired Gateway controls to allow engineering jobs from that phone. The app shows whether a change has taken effect or is waiting for the runtime.
+- In any chat, scroll to the bottom to resume following the answer. After a deliberate scroll stops away from the bottom, the return arrow stays visible for five seconds and fades over one second when animations are enabled.
+- New Chat offers a Privacy Mode checkbox. Under Settings → Privacy, select a saved OpenRouter profile to review account settings, apply the recommended changes and confirm default plugins. The app checks eligibility again before sending.
+
+## Engineering workspace
+
+The Windows repository validation settings offer Android/Kotlin, Python and Node/TypeScript environments. Prepare a profile against the approved repository mirror before starting work. Enable the offline task terminal for that repository to keep a working checkout across commands, page the output, stop background processes and query an installed language server.
+
+In an engineering conversation, open Plan, Changes, Tests or Activity to inspect the current job. The changes view pages retained diffs. From the Android GitHub proposal editor you can edit a file, exclude a hunk and add a review note. Remote profiles can use the paired repository graph after you authorize source sharing for that profile, repository and Gateway.
+
+For an Android-selected model, enable **Allow paired AI profiles to run approved checks** in Windows validation settings. On Android, authorize the selected model to receive check output for the repository. Its coding session then lists the approved commands. Each run uses the pinned branch revision and an optional candidate patch. Reopening the conversation can retrieve the same check receipt by request ID.
+
+The task timeline can open another local checkout from an earlier candidate, switch between attempts, or preview a corrective commit. The latter requires that each affected path still matches the published version. Use the same validation and review flow to publish the correction.
+
+The Windows benchmark dashboard accepts a development workspace qualification manifest for an exact model, profile, executor and environment digest. Generate a template with `python gateway/qualify_engineering.py --workspace-template OWNER/REPO --output workspace.json`. Each case records the job, source revision and observed results. The prepared-environment CI jobs separately check Python, Node and Android builds.
+
+## Native Gateway and paired owner controls
+
+Windows gains a rounded WPF dashboard for Overview, Chat, Saved, Jobs, Tools,
+Benchmarks, Android controls, Diagnostics and Settings. It uses the existing
+supervisor, saved conversation journal and benchmark services. The four-step
+native setup keeps Standard installation independent of Docker and accepts an
+offline model backend. Existing installation identity, data and repair behavior
+remain in the established installer flow.
+
+Android and Windows can edit one revisioned Gateway configuration through
+PC-approved device pairing. Engineering admission belongs to the selected
+paired owner; capacity, model, startup, update and diagnostic preferences belong
+to the PC. Desired, effective and pending values remain visible. Active work
+retains its execution binding, and uncertain settings changes recover their
+original receipts. The separate HTTPS listener pins the PC certificate, verifies
+device signatures and rejects revoked or unpaired access. The five-second
+jump-to-latest hold from the preceding chat fix is retained.
+
+Paired owners can select a repository validation snapshot already approved on
+Windows when their grant permits it. They can also leave a bounded request for
+local review of network access, Engineering setup or a pending restart. These
+requests retain waiting-for-PC and reviewed receipts without executing host
+actions. Offline Android controls show their last confirmation time and remain
+read-only until the original Gateway is verified again.
+
+Native Gateway and paired-owner controls require matching Android and Windows
+builds. Physical phone pairing, host firewall behavior, Windows accessibility
+and live selected-provider/GitHub execution require observed acceptance; source,
+host tests and build checks do not establish those outcomes.
+
+## Chat, projects and Gateway
+
+New Chat can select an eligible profile for Auto, Fast, Think or Research. Interactive answer blocks support sorting, chart views, navigable relationship diagrams, maps, source links and CSV export. Google chat accepts supported audio recordings and can preview or save a final image returned by the selected Gemini profile. In a chat, use **Attach to reply** in the image preview to edit or discuss it in the same conversation. Research history exposes captured passages and counterevidence. The Windows Gateway Chat page includes local schedules and an analysis workspace that runs Python in the configured offline container. Operators can also schedule a public Crossref search and inspect recently returned titles and DOIs, or run approved repository tests on the current local mirror revision. A changed validation policy requires a new schedule. Results from the analysis workspace can be exported as editable OpenDocument text, spreadsheets and presentations, JSON or an SVG bar chart. Saved answers show their recorded model when available. A connected-device check can compare a reopened Android answer with its original Gateway command and transcript. An unplugged, discharging phone can also report whole-device charge change across the observation.
+
+Answer streams can now display native metric cards as soon as the block is complete. Auto can match an optional first message locally and keep it as an unsent draft in the chosen chat. The Fast suggestion uses successful latency measurements, and Research keeps its tool prerequisites with every suggestion. Project chat copies keep their memory preferences. Scanned PDFs can reach a capable provider intact, and the composer can attach one selected PDF page as an image for a vision model.
+
+The Gateway keeps unread schedule alerts while the desktop window is closed. Editable analysis files retain code and input for a new run, and a result or revision can return to its original conversation. The connected-chat collector accepts a same-device baseline. The [18-step implementation and acceptance map](docs/quality/premium-experience-roadmap.md) lists the entry points and remaining live observations.
+
+Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.
+
+## Copilot with or without a Gateway
+
+GitHub settings now default cloud tasks to direct Android submission and offer an explicit standalone Gateway controller. GitHub runs an accepted cloud task even when Android closes. The Gateway adds durable host supervision and read-only task reconciliation across disconnects and restarts, using its own GitHub credentials. Selected AI inference profiles remain independent. Both global and per-chat Copilot consent remain off by default; known MCP Copilot writes retain exact approval even if a saved read grant is incorrect.
+
+Native Copilot cloud tasks use the public-preview Agent tasks API, currently requiring Copilot Business or Enterprise and a user token with Agent tasks permission. Live entitlement, installed Android-to-Gateway execution, and exact-PR CI/merge acceptance remain unqualified; remote task completion never supplies merge authorization.
+
+## Privacy Mode
+
+Privacy Mode is OFF by default with 11 individually configurable, default-ON sensitivity categories. Settings now includes a Privacy section; New Chat has a top-right Privacy Mode checkbox that greys out remote and free profiles unless the full endpoint and account policy is verified. Private local and self-hosted gateway inference is exempt from third-party ZDR requirements; ordinary cloud routes cannot inherit that exemption. Existing-chat generation, research and benchmark entry points now reject ineligible remote providers while the master switch is on. The free-model catalog is assessed provider by provider, including Kilo automatic routing, volunteer AI Horde, OVHcloud's documented policy and upstream gateways.
+
+Privacy Mode masks supported text locally and keeps each request’s replacement map in memory. Remote eligibility depends on the current profile, account, upstream endpoint and routing settings. Default-plugin confirmation comes from the account owner and expires within 24 hours. Live account behavior, third-party retention practices, and end-to-end operation on a paired phone and PC still require field verification.
+
+### Privacy and Gateway qualification follow-up
+
+The PR #1741 source continuation gives profiles actionable Checking, Available, Not verified and Incompatible states, with recheck and account-setup controls. Explicit OpenRouter account verification can cover multiple selected models while each concrete model and strict endpoint is independently checked. An ordinary inference key alone does not prove all account privacy settings, and an uncertain guardrail update is never automatically replayed.
+
+Gateway capability failures now retain bounded failure categories and decoder reasons without raw endpoints, response bodies, exception text or field paths. Explicit replay and continuation refusals remain restrictive, and a later preflight cannot make an earlier unknown outcome appear unsent.
+
+Gateway capability failure evidence requires a hosted reporter advertising GATEWAY_CAPABILITY_EVIDENCE_V1; an older host leaves the exact approved report pending. The observed connect-timeout chain does not establish its endpoint or service root cause, and #1768 requires matching installed Android/Gateway acceptance.
+
+The Windows package includes its installer smoke-test receipt. Physical Android, live selected-model GitHub and OpenRouter accounts, and recovery on a paired Android phone and Windows PC still require field verification.
 
 ## GitHub and Gateway delivery
 
@@ -24,7 +105,7 @@ Android and the Windows Gateway dashboard now share one normalized inventory of 
 
 Manual public issue reports can optionally include a previewed UTF-8 text, Markdown, or JSON evidence file. Selection is off by default, limited to 4 KiB, redacted and bounded before review, and sent only after the user enables the attachment in the final preview. Images and arbitrary binary uploads remain unsupported until the reporting service has a safe attachment contract.
 
-Physical-device voice latency, underruns, sustained throughput, thermals, CPU-thread comparisons, and word timing remain unverified. Captions remain readable but untimed; the app does not fabricate word synchronization.
+Voice captions highlight one word at a time using engine offsets when available and estimated timing for Kokoro. Physical-device latency, underruns, sustained throughput, thermals, CPU-thread comparisons and caption synchronization still require measurement.
 
 ## November 15 autonomous engineering workflow
 
@@ -399,3 +480,7 @@ Continue PR #1203 on PR #1299 with bounded reader, repeat, search, pagination an
 PR #1299 diagnostic additions require the corresponding hosted reporter capabilities; old approved payloads remain pending and unchanged on incompatible services. The partial 6ead4ca1 archive cannot reconstruct omitted history, and deterministic tests do not establish historical private-service causes, deployed companion updates, physical-device speech or memory performance, or GPU execution.
 
 The detailed findings, execution scope and diagnostic contracts are recorded in [the follow-up plan](docs/repairs/post-merge-report-diagnostics-2026-11-15.md). Final current-source CI and merge receipts are recorded in the PR.
+
+## Post-1534 selected-profile qualification
+
+- Archive-write root cause, live selected-profile context recovery and installed Android-to-Gateway acceptance still require fresh exact-build device evidence.

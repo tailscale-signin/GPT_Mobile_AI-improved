@@ -108,6 +108,20 @@ class AppPerformanceBenchmark {
         Thread.sleep(4500)
     }
 
+    @Test fun interactiveAnswer() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3), iterations = 8, setupBlock = { pressHome() }) {
+        startActivityAndWait(fixture().putExtra("screen", "interactive-answer"))
+        check(device.wait(Until.hasObject(By.text("View table")), 10_000))
+        device.findObject(By.text("View table")).click()
+        check(device.wait(Until.hasObject(By.text("Seconds")), 10_000))
+        device.findObject(By.text("Seconds")).click()
+        check(device.wait(Until.hasObject(By.text("Seconds ↑")), 10_000))
+        val warm = device.findObject(By.text("Warm")).visibleBounds
+        val cold = device.findObject(By.text("Cold")).visibleBounds
+        check(warm.top < cold.top)
+        device.findObject(By.text("View chart")).click()
+        check(device.wait(Until.hasObject(By.text("View table")), 10_000))
+    }
+
     @Test fun streamedResponse() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3), iterations = 8, setupBlock = { pressHome() }) {
         startActivityAndWait(fixture(true))
         // Deliberate device benchmark sampling interval, never an application delay.

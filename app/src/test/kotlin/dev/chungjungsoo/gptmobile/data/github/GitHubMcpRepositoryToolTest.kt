@@ -2,10 +2,17 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.PreparableAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -82,12 +89,174 @@ class GitHubMcpRepositoryToolTest {
         assertSame(global.definition, search.definition)
     }
 
+    @Test fun copilotCloudWritesDefaultOffBeforePreparationOrDispatch() = runTest {
+        for (operation in copilotWrites) {
+            val backend = Backend()
+            val tool = GitHubMcpRepositoryTool(backend, destination, operation, approvedReadOnly = true)
+            assertTrue(GitHubMcpRepositoryTool.requiresCopilotConsent(operation))
+            assertFalse(GitHubMcpRepositoryTool.isReadOnlyOperation(operation, approvedReadOnly = true))
+            assertSame(backend.definition, tool.definition)
+            val direct = tool.execute("direct-$operation", target("my-org", "project"))
+            val prepared = tool.prepareExecution("prepared-$operation", target("my-org", "project"))()
+            for (result in listOf(direct, prepared)) {
+                assertEquals("GITHUB_COPILOT_DISABLED", result.errorCode)
+                assertFalse(result.dispatched)
+            }
+            assertEquals(0, backend.prepared)
+            assertEquals(0, backend.executed)
+        }
+    }
+
+    @Test fun copilotDispatchRequiresLivePluginAndExactConversationConsent() = runTest {
+        val context = GitHubConversationContext("selected-account", "my-org", "project", "main", "a".repeat(40), "profile")
+        val backend = Backend()
+        var features = AppFeatureSettings(
+            conversationGitHub = mapOf(42 to context),
+            conversationIdentities = mapOf(42 to "saved-chat")
+        )
+        val tool = GitHubMcpRepositoryTool(
+            backend,
+            destination,
+            "create_pull_request_with_copilot",
+            copilotAllowed = { GitHubCopilotAgentMergePolicy.enabled(features, 42, context) }
+        )
+        val args = JsonObject(
+            target("my-org", "project") + mapOf(
+                "problem_statement" to JsonPrimitive("Implement the authorized change."),
+                "title" to JsonPrimitive("Implement the change"),
+                "base_ref" to JsonPrimitive("feature/mobile")
+            )
+        )
+        assertEquals("GITHUB_COPILOT_DISABLED", tool.execute("default-off", args).errorCode)
+        features = features.copy(pluginExecution = mapOf(ToolPluginId.GITHUB to PluginExecutionSettings(githubCopilotEnabled = true)))
+        assertEquals("GITHUB_COPILOT_DISABLED", tool.execute("plugin-only", args).errorCode)
+        features = features.copy(
+            githubCopilotConversations = mapOf(42 to GitHubCopilotConversationPreference("saved-chat", GitHubChatDecisions.workspaceKey(context), true))
+        )
+        assertFalse(tool.execute("enabled", args).isError)
+        assertEquals(args, backend.arguments)
+        features = features.copy(conversationIdentities = mapOf(42 to "replacement-chat"))
+        assertEquals("GITHUB_COPILOT_DISABLED", tool.execute("changed-chat", args).errorCode)
+        assertEquals(1, backend.executed)
+    }
+
+    @Test fun genericIssueAssignmentRequiresLiveConsentAndCannotUseAReadGrant() = runTest {
+        for ((operation, method) in listOf("create_issue" to null, "update_issue" to null, "issue_write" to "create", "issue_write" to "update")) {
+            val backend = Backend()
+            var allowed = false
+            val tool = GitHubMcpRepositoryTool(backend, destination, operation, approvedReadOnly = true, readSources = setOf("upstream/project"), copilotAllowed = { allowed })
+            val args = buildJsonObject {
+                put("owner", "my-org")
+                put("repo", "project")
+                method?.let { put("method", it) }
+                put("assignees", JsonArray(listOf(JsonPrimitive("copilot-swe-agent[bot]"))))
+            }
+            assertTrue(GitHubMcpRepositoryTool.requiresCopilotConsent(operation, args))
+            assertFalse(GitHubMcpRepositoryTool.isReadOnlyOperation(operation, approvedReadOnly = true))
+            assertEquals("GITHUB_COPILOT_DISABLED", tool.execute("off", args).errorCode)
+            assertEquals(0, backend.executed)
+            allowed = true
+            assertEquals("GITHUB_REPOSITORY_TARGET_MISMATCH", tool.execute("source", JsonObject(args + ("owner" to JsonPrimitive("upstream")))).errorCode)
+            val prepared = tool.prepareExecution("prepared", args)
+            assertEquals(1, backend.prepared)
+            allowed = false
+            assertEquals("GITHUB_COPILOT_DISABLED", prepared().errorCode)
+            assertEquals(0, backend.executed)
+            if (operation != "create_issue" && method != "create") {
+                val cleanup = JsonObject(args + ("assignees" to JsonArray(emptyList())))
+                assertFalse(GitHubMcpRepositoryTool.requiresCopilotConsent(operation, cleanup))
+                assertFalse(tool.execute("remove-assignees", cleanup).isError)
+                assertEquals(1, backend.executed)
+            }
+        }
+    }
+
+    @Test fun copilotConsentRevokedDuringExactApprovalPreventsPreparedDispatch() = runTest {
+        val backend = Backend()
+        var allowed = true
+        val tool = GitHubMcpRepositoryTool(backend, destination, "request_copilot_review", copilotAllowed = { allowed })
+        val prepared = tool.prepareExecution("review", JsonObject(target("my-org", "project") + ("pullNumber" to JsonPrimitive(7))))
+        assertEquals(1, backend.prepared)
+        allowed = false
+        val result = prepared()
+        assertEquals("GITHUB_COPILOT_DISABLED", result.errorCode)
+        assertFalse(result.dispatched)
+        assertEquals(0, backend.executed)
+    }
+
+    @Test fun copilotWritesCannotUseApprovedReadGrantToChangeSourceRepository() = runTest {
+        for (operation in copilotWrites) {
+            val backend = Backend()
+            val tool = GitHubMcpRepositoryTool(backend, destination, operation, approvedReadOnly = true, readSources = setOf("upstream/project"), copilotAllowed = { true })
+            val result = tool.prepareExecution("source-$operation", target("upstream", "project"))()
+            assertEquals("GITHUB_REPOSITORY_TARGET_MISMATCH", result.errorCode)
+            assertFalse(result.dispatched)
+            assertEquals(0, backend.prepared)
+            assertEquals(0, backend.executed)
+        }
+    }
+
+    @Test fun existingCopilotJobStatusRemainsReadOnlyWhenCloudWorkIsOff() = runTest {
+        val backend = Backend()
+        val tool = GitHubMcpRepositoryTool(
+            backend,
+            destination,
+            "get_copilot_job_status",
+            readSources = setOf("upstream/project"),
+            copilotAllowed = { error("Status observation must not require starting new work.") }
+        )
+        assertTrue(GitHubMcpRepositoryTool.isReadOnlyOperation("get_copilot_job_status"))
+        assertFalse(GitHubMcpRepositoryTool.requiresCopilotConsent("get_copilot_job_status"))
+        assertFalse(GitHubMcpRepositoryTool.isReadOnlyOperation("get_job_status"))
+        val args = target("upstream", "project")
+        assertFalse(tool.prepareExecution("status", args)().isError)
+        assertEquals(args, backend.arguments)
+        assertEquals(1, backend.executed)
+    }
+
+    @Test fun copilotConsentFailureStaysUndispatchedAndCancellationPropagates() = runTest {
+        val backend = Backend()
+        val failedConsent = GitHubMcpRepositoryTool(backend, destination, "create_pull_request_with_copilot", copilotAllowed = { error("Settings unavailable") })
+        val result = failedConsent.execute("unavailable", target("my-org", "project"))
+        assertEquals("GITHUB_COPILOT_DISABLED", result.errorCode)
+        assertFalse(result.dispatched)
+        val cancellation = CancellationException("Stopped before dispatch")
+        val cancelled = GitHubMcpRepositoryTool(backend, destination, "create_pull_request_with_copilot", copilotAllowed = { throw cancellation })
+        try {
+            cancelled.execute("cancelled", target("my-org", "project"))
+            throw AssertionError("Cancellation must propagate")
+        } catch (caught: CancellationException) {
+            assertSame(cancellation, caught)
+        }
+        assertEquals(0, backend.executed)
+    }
+
+    @Test fun budgetRebindingPreservesCopilotConsentAndDispatchOwner() = runTest {
+        for (owner in AgentToolExecutionOwner.entries) {
+            val backend = Backend(executionOwner = owner)
+            var allowed = true
+            val tool = GitHubMcpRepositoryTool(backend, destination, "create_pull_request_with_copilot", copilotAllowed = { allowed })
+                .withChildBudget { it }
+            assertEquals(owner, (tool as OwnedAgentTool).executionOwner)
+            assertFalse(tool.execute("enabled-$owner", target("my-org", "project")).isError)
+            allowed = false
+            assertEquals("GITHUB_COPILOT_DISABLED", tool.execute("revoked-$owner", target("my-org", "project")).errorCode)
+            assertEquals(1, backend.executed)
+        }
+    }
+
     private fun target(owner: String, repo: String) = buildJsonObject {
         put("owner", owner)
         put("repo", repo)
     }
 
-    private class Backend(ownerRepoSchema: Boolean = true) : PreparableAgentTool {
+    private val copilotWrites = listOf("create_pull_request_with_copilot", "assign_copilot_to_issue", "assign_copilot_to_issue_with_intent", "request_copilot_review")
+
+    private class Backend(
+        ownerRepoSchema: Boolean = true,
+        override val executionOwner: AgentToolExecutionOwner = AgentToolExecutionOwner.CLIENT
+    ) : PreparableAgentTool,
+        OwnedAgentTool {
         var prepared = 0
         var executed = 0
         var arguments: JsonObject? = null

@@ -10,14 +10,44 @@ import kotlinx.serialization.json.put
 
 /** Action-specific admission after schema validation, before any repository request. */
 internal object GitHubOperationArguments {
+    /**
+     * Model-facing schema guard: an issued local result cursor is a complete call,
+     * never an option mixed into a new GitHub read or write. The executor retains
+     * its defensive validation for older clients and already-queued tool calls.
+     */
+    fun exclusiveSavedViewAlternatives(properties: JsonObject): JsonArray {
+        require("view_cursor" in properties) { "Missing saved-view cursor schema" }
+        // Root properties already validate the values. These branches constrain field presence only.
+        val presence = buildJsonObject {}
+        return JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject { put("view_cursor", presence) })
+                    put("required", JsonArray(listOf(JsonPrimitive("view_cursor"))))
+                    put("additionalProperties", false)
+                },
+                buildJsonObject {
+                    put("type", "object")
+                    put("properties", JsonObject((properties - "view_cursor").mapValues { presence }))
+                    put("additionalProperties", false)
+                }
+            )
+        )
+    }
     val watchSelectors = listOf("pr_number", "run_id")
     val readRangeFields = setOf("path", "start_line", "end_line", "max_lines", "start_offset")
 
     /** Advertise the same conditional prerequisites enforced before dispatch. */
-    fun schemaAlternatives(operation: String): JsonArray? {
-        if (operation == "github_watch_checks") {
+    fun schemaAlternatives(operation: String, allowedActions: List<String>? = null): JsonArray? {
+        val selectors = when (operation) {
+            "github_watch_checks" -> watchSelectors
+            "github_read" -> listOf("ranges", "evidence_id")
+            else -> null
+        }
+        if (selectors != null) {
             return JsonArray(
-                (watchSelectors + "view_cursor").map { field ->
+                (selectors + "view_cursor").map { field ->
                     buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive(field)))) }
                 }
             )
@@ -37,7 +67,20 @@ internal object GitHubOperationArguments {
                 listOf("delete_fixture_branch") to listOf("branch", "expected_head_sha", "origin_head_sha"),
                 listOf("commit", "commit_staged_patch") to listOf("stage_id", "branch", "message", "expected_head_sha")
             )
-            "github_pr" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "reviews", "threads") to listOf("pull_number"), listOf("create") to listOf("title", "head", "base"), listOf("update", "merge", "review", "ready", "draft", "agent_merge_enable", "agent_merge_update", "agent_merge_disable") to listOf("pull_number", "expected_head_sha"), listOf("agent_merge_status") to listOf("pull_number"), listOf("comment") to listOf("pull_number", "body", "expected_head_sha"), listOf("reply") to listOf("pull_number", "comment_id", "body", "expected_head_sha"), dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toList() to listOf("pull_number", "expected_head_sha"))
+            "github_pr" -> listOf(
+                listOf("list", "copilot_tasks") to emptyList(),
+                listOf("headers", "context", "comments", "reviews", "threads") to listOf("pull_number"),
+                listOf("create") to listOf("title", "head", "base"),
+                listOf("update", "merge", "review", "ready", "draft", "agent_merge_enable", "agent_merge_update", "agent_merge_disable") to listOf("pull_number", "expected_head_sha"),
+                listOf("agent_merge_status") to listOf("pull_number"),
+                listOf("copilot_create_task") to listOf("request_id", "prompt", "base_ref", "expected_base_sha"),
+                listOf("copilot_task_status") to listOf("task_id"),
+                listOf("copilot_task_status") to listOf("request_id"),
+                listOf("copilot_task_status") to listOf("gateway_job_id"),
+                listOf("comment") to listOf("pull_number", "body", "expected_head_sha"),
+                listOf("reply") to listOf("pull_number", "comment_id", "body", "expected_head_sha"),
+                dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toList() to listOf("pull_number", "expected_head_sha")
+            )
             "github_issue" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "history") to listOf("issue_number"), listOf("create") to listOf("title"), listOf("update") to listOf("issue_number", "expected_updated_at"), dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.issueActions.toList() to listOf("issue_number", "expected_updated_at"))
             "github_ci" -> listOf(listOf("failure", "workflows", "definitions", "runs", "status") to emptyList(), listOf("run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "jobs") to listOf("run_id"), listOf("job", "logs", "jobs") to listOf("job_id"), listOf("dispatch") to listOf("workflow_id", "ref", "expected_head_sha"))
             else -> return null
@@ -51,7 +94,9 @@ internal object GitHubOperationArguments {
         }
         return JsonArray(
             listOf(buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive("view_cursor")))) }) +
-                listOfNotNull(prListAlternative(operation)) + alternatives.map { (actions, required) ->
+                listOfNotNull(prListAlternative(operation)) + alternatives.mapNotNull { (allActions, required) ->
+                    val actions = allowedActions?.let { allActions.filter(it::contains) } ?: allActions
+                    if (actions.isEmpty()) return@mapNotNull null
                     buildJsonObject {
                         put("properties", buildJsonObject { put("action", buildJsonObject { put("enum", JsonArray(actions.map(::JsonPrimitive))) }) })
                         put("required", JsonArray((required + if (default in actions) emptyList() else listOf("action")).map(::JsonPrimitive)))
@@ -276,7 +321,27 @@ internal object GitHubOperationArguments {
                 if (text("action") in dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions) required("pull_number", "expected_head_sha")
                 positive("pull_number")
                 positive("comment_id")
+                val copilotFields = arrayOf("request_id", "task_id", "gateway_job_id", "prompt", "base_ref", "head_ref", "model", "custom_agent", "create_pull_request")
+                if (text("action") !in dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.actions) {
+                    unused(*copilotFields)
+                } else {
+                    unused("pull_number", "title", "body", "head", "base", "state", "draft", "comment_id", "event", "comments", "allowed_actions", "reviewers", "team_reviewers", "labels", "assignees", "reaction", "lock_reason", "merge_method", "thread_id", "after", "review_id", "reaction_id", "label", "expected_comment_updated_at", "include_patches", "include_files", "include_checks", "include_health", "check_page")
+                }
                 when (text("action").ifBlank { "context" }) {
+                    "copilot_create_task" -> {
+                        required("request_id", "prompt", "base_ref", "expected_base_sha")
+                        unused("task_id", "gateway_job_id", "page", "per_page")
+                        if (!text("request_id").matches(Regex("[A-Za-z0-9_.:-]{1,80}"))) errors += "request_id must be a stable identifier of 1 to 80 characters"
+                        if ("head_ref" in args) required("expected_head_sha") else unused("expected_head_sha")
+                        runCatching { dev.chungjungsoo.gptmobile.data.github.GitHubCopilotTasks.creationBody(args) }.exceptionOrNull()?.message?.let(errors::add)
+                    }
+                    "copilot_task_status" -> {
+                        val selectors = listOf("task_id", "request_id", "gateway_job_id").filter { text(it).isNotBlank() }
+                        if (selectors.size != 1) errors += "copilot_task_status requires exactly one task_id, request_id or gateway_job_id from its saved receipt"
+                        selectors.forEach { if (text(it).length > 256 || text(it).any(Char::isISOControl)) errors += "$it must be a bounded opaque identifier from its saved receipt" }
+                        unused("prompt", "base_ref", "head_ref", "model", "custom_agent", "create_pull_request", "expected_base_sha", "expected_head_sha", "page", "per_page")
+                    }
+                    "copilot_tasks" -> unused(*copilotFields, "expected_base_sha", "expected_head_sha")
                     "create" -> {
                         required("title", "head", "base")
                         unused("pull_number", "comment_id", "event", "comments", "state")

@@ -46,7 +46,7 @@ class GatewayConversationRepositoryTest {
     private val client = mockk<GatewayJobClient>()
     private val jobs = mockk<GatewayJobRepository>()
     private val commands = mockk<GatewayConversationCommandClient>()
-    private val config = ProviderRequestConfig("http://192.168.1.9:8090", null, profileUid = "profile")
+    private val config = ProviderRequestConfig("http://192.168.1.9:8090", null, profileUid = "profile").withGatewayIdentity(GatewayScopeIdentity("gateway", "owner"))
     private val route = GatewayJobRoute("profile", config.apiUrl.trimEnd('/'), config)
     private val key = gatewayIdentityKey("gateway", "owner", "conversation")
     private val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "conversation", title = "Original server conversation", profileId = "profile", model = "model", revision = 2)

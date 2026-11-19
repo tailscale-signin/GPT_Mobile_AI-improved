@@ -1640,6 +1640,9 @@ interface AgentPersistenceDao :
         terminalError: String?
     )
 
+    @Query("INSERT INTO knowledge_project_chats(chatId, projectId) SELECT :duplicateId, projectId FROM knowledge_project_chats WHERE chatId = :sourceId")
+    suspend fun copyProjectMembership(sourceId: Int, duplicateId: Int)
+
     @Transaction
     suspend fun duplicateChatWithHistory(
         sourceChatId: Int,
@@ -1672,6 +1675,7 @@ interface AgentPersistenceDao :
             draftUpdatedAt = null
         ).let { it.copy(id = insertChatRoom(it).toInt()) }
 
+        if (!sourceChat.isTemporary) copyProjectMembership(sourceChatId, duplicate.id)
         val messageIdMap = sourceMessages.associate { source ->
             val insertedId = insertMessage(
                 source.copy(

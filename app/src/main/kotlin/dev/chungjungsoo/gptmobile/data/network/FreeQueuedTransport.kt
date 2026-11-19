@@ -254,6 +254,8 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                 if (failed.remoteTerminal == true) FreeCatalogState.recordTerminalFailure(provider, request.model, failed.message.orEmpty())
                 if (config.freeDiagnostics?.recorded != true) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, request.model, failed.message.orEmpty(), terminal = failed.remoteTerminal)
                 throw failed
+            } catch (rejected: QueueHttpRejection) {
+                throw rejected
             } catch (failed: FreeProviderException) {
                 throw failed
             } catch (failed: Exception) {
@@ -335,14 +337,14 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
     private suspend fun checkedJson(response: HttpResponse, config: ProviderRequestConfig, model: String): JsonObject {
         val provider = requireNotNull(config.freeProvider)
         if (!response.status.isSuccess()) {
-            val body = readFreeErrorBody(response)
+            val body = readProviderErrorBody(response)
             val retryAt = retainFreeHttpFailure(config, model, response.status.value, body) { response.headers[it] }
             val seconds = retryAt?.let { ((it - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(1) }
             val message = freeHttpErrorMessage(response.status.value, body, config.token)
             FreeCatalogState.recordHttpFailure(provider, response.status.value, message, retryAt, model, body)
             dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, model, message, response.status.value, body, { response.headers[it] }, retryAt)
             if (seconds != null) throw FreeAiRateLimitException(provider, seconds, cooldown = config.freeDiagnostics?.cooldown, localBlock = false)
-            error("${provider.displayName}: $message No automatic resubmission was attempted.")
+            throw QueueHttpRejection(dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, body))
         }
         return readQueueJson(response) as? JsonObject ?: error("Invalid queue response")
     }
@@ -418,7 +420,9 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
             val detail = gradioErrorDetails(envelope, config.token)
             val message = "Space generation failed: $detail This job cannot resume; start a new generation later or choose another Free provider."
             dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, model, message, body = envelope, event = event, terminal = true)
-            throw QueueTerminalFailure(message)
+            val record = runCatching { Json.parseToJsonElement(gradioErrorEnvelope(envelope)) as? JsonObject }.getOrNull()
+            val code = ((record?.get("error") as? JsonObject) ?: record)?.text("code")?.lowercase()
+            throw QueueTerminalFailure(message, quota = code in setOf("quotaexceeded", "insufficient_quota", "budget_exceeded"))
         }
         admitQueueRead()
         currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armQueuePoll("HUGGING_FACE:$id")
@@ -560,7 +564,8 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
     }
 }
 
-internal class QueueTerminalFailure(message: String, val remoteTerminal: Boolean? = true) : IllegalStateException((if (remoteTerminal == true) "HOSTED_GENERATION_FAILED: " else "") + "QUEUE_TERMINAL: $message")
+internal class QueueHttpRejection(val rejection: dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure) : IllegalStateException(rejection.message())
+internal class QueueTerminalFailure(message: String, val remoteTerminal: Boolean? = true, val quota: Boolean = false) : IllegalStateException((if (remoteTerminal == true) "HOSTED_GENERATION_FAILED: " else "") + "QUEUE_TERMINAL: $message")
 
 internal class QueuePendingFailure(val jobId: String, message: String) : FreeProviderException(FreeFailureCategory.QUEUE_JOB_PENDING, "QUEUE_JOB_PENDING: $message")
 

@@ -83,29 +83,32 @@ class GatewayEngineeringViewModelTest {
     }
 
     @Test fun queuedCandidateDetailsCannotPublishIntoAnotherChat() = runTest(dispatcher) {
-        coEvery { repository.candidateDetails(first.request.requestId, "candidate-1") } returns "first chat candidate"
-        coEvery { repository.candidateDetails(second.request.requestId, "candidate-2") } returns "second chat candidate"
+        coEvery { repository.candidatePage(first.request.requestId, "candidate-1", 0) } returns ("first chat candidate" to null)
+        coEvery { repository.candidatePage(second.request.requestId, "candidate-2", 0) } returns ("second chat candidate" to null)
         model.bind(first.chatId)
         runCurrent()
         assertEquals(listOf(first), model.state.value.bindings)
 
         model.inspectCandidate(first, "candidate-1")
         assertTrue(model.state.value.busy)
-        coVerify(exactly = 0) { repository.candidateDetails(any(), any()) }
+        coVerify(exactly = 0) { repository.candidatePage(any(), any(), any()) }
         model.bind(second.chatId)
         assertNull(model.state.value.evidencePreview)
+        assertNull(model.state.value.candidateCursor)
         runCurrent()
 
-        coVerify(exactly = 1) { repository.candidateDetails(first.request.requestId, "candidate-1") }
+        coVerify(exactly = 1) { repository.candidatePage(first.request.requestId, "candidate-1", 0) }
         assertEquals(listOf(second), model.state.value.bindings)
         assertNull(model.state.value.evidencePreview)
+        assertNull(model.state.value.candidateCursor)
         assertNull(model.state.value.error)
         assertFalse(model.state.value.busy)
 
         model.inspectCandidate(second, "candidate-2")
         runCurrent()
-        coVerify(exactly = 1) { repository.candidateDetails(second.request.requestId, "candidate-2") }
+        coVerify(exactly = 1) { repository.candidatePage(second.request.requestId, "candidate-2", 0) }
         assertEquals("second chat candidate", model.state.value.evidencePreview)
+        assertEquals(CandidatePageCursor(second, "candidate-2", 0, null), model.state.value.candidateCursor)
         assertEquals(listOf(second), model.state.value.bindings)
         assertFalse(model.state.value.busy)
     }

@@ -17,6 +17,8 @@ internal object GitHubIntegrationReport {
         val catalog = checklist.getValue("authorized_catalog") as JsonObject
         val fixtures = checklist.array("fixtures")
         val requirements = checklist.array("requirements")
+        val integration = GitHubTestChecklist.integration(task)
+        val catalogRequested = integration || requirements.any { GitHubAcceptanceDiagnostics.category(it.text("requirement")) == "AUTHORIZED_CATALOG" }
         val openFixtures = fixtures.filter { it["final_state_verified"] != JsonPrimitive(true) }
         val cleanupStoppedBeforeDispatch = openFixtures.isNotEmpty() && openFixtures.all { it["cleanup_dispatched"] == JsonPrimitive(false) }
         val pending = GitHubTestChecklist.pendingPages(receipts)
@@ -27,13 +29,15 @@ internal object GitHubIntegrationReport {
         val unindexedGraphInputs = unmet.count { it.text("repository_graph_observation") == "NOT_INDEXED" }
         val otherRepositoryInputs = unmet.count { !it.text("id").startsWith("repository_graph:") && it.text("blocker_code") == "REPOSITORY_INPUT_REQUIRED" }
         val reason = when {
-            GitHubTestChecklist.integration(task) && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
+            integration && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
+            receipts.values.lastOrNull()?.get("error_code") == JsonPrimitive("COMBINED_BUDGET_EXHAUSTED") ->
+                "COMBINED_BUDGET_EXHAUSTED" to "The shared Combined turn allowance blocked the next operation. Individual profile calls may remain. Completed checks and pending operations have been saved."
             remaining == 0 -> "TOOL_BUDGET_EXHAUSTED" to "The recorded authorized tool-call budget has no remaining calls. Resume requires a new authorized budget."
             remaining != null && remaining <= GitHubChecklistBudget.VERIFICATION_RESERVE -> "VERIFICATION_RESERVE_REACHED" to "The remaining $remaining calls are reserved for verification and cleanup; acquisition stopped before the hard ceiling."
             cleanupStoppedBeforeDispatch -> "FIXTURE_CLEANUP_UNVERIFIED" to "GitHub cleanup stopped during preflight. The fixture still needs a guarded cleanup and a fresh absence check."
             openFixtures.isNotEmpty() -> "FIXTURE_CLEANUP_UNVERIFIED" to "An owned fixture has unverified final state or cleanup. Reconcile its retained mutation receipt before further writes."
-            GitHubAuthorizedCatalog.required(tools, receipts) && catalog["complete"] != JsonPrimitive(true) -> "AUTHORIZED_CATALOG_INCOMPLETE" to "Authorized discovery is ${catalog.text("status").lowercase()}; ${catalog.text("blocker").ifBlank { "the retained version-bound continuation must complete before the denominator is final" }}."
+            catalogRequested && GitHubAuthorizedCatalog.required(tools, receipts) && catalog["complete"] != JsonPrimitive(true) -> "AUTHORIZED_CATALOG_INCOMPLETE" to "Authorized discovery is ${catalog.text("status").lowercase()}; ${catalog.text("blocker").ifBlank { "the retained version-bound continuation must complete before the denominator is final" }}."
             capabilities.any { it.text("status") in setOf("FAILED", "PREFLIGHT_REJECTED") } -> "RECORDED_OPERATION_BLOCKERS" to "Unresolved operation errors remain. The exact error codes, resources and receipt IDs identify the recovery prerequisites."
             pending.isNotEmpty() && exhaustiveInventory -> "INVENTORY_CONTINUATION_BLOCKED" to "Requested inventory traversal has ${pending.size} unfinished exact recipes; no executable authorized continuation was selected."
             unmet.isNotEmpty() -> "CAPABILITY_PREREQUISITES_MISSING" to buildString {
@@ -51,7 +55,12 @@ internal object GitHubIntegrationReport {
         }
         return buildJsonObject {
             put("code", reason.first)
-            put("detail", reason.second)
+            val preparation = checklist["preparation"] as? JsonObject
+            val readyReads = preparation?.takeIf {
+                it.text("schema") == "github.integration-preparation.v1" && it.text("status") == "BOUNDED_READS_PREPARED" && it.array("ready_reads").isNotEmpty()
+            }?.number("ready_read_count") ?: 0
+            val actionable = reason.first == "RECORDED_OPERATION_BLOCKERS" && readyReads > 0 && remaining != null && remaining > GitHubChecklistBudget.VERIFICATION_RESERVE
+            put("detail", if (actionable) "${reason.second} The retained preparation lists $readyReads candidate reads. Resume from its issued read recipes after rechecking current permissions and remaining allowance." else reason.second)
             if (reason.first == "AUTHORIZED_CATALOG_INCOMPLETE") {
                 put("blocker", catalog["blocker"] ?: JsonPrimitive("CATALOG_INCOMPLETE"))
                 put("affected_contracts", catalog["requested_contract_changes"] ?: JsonArray(emptyList()))
@@ -66,6 +75,7 @@ internal object GitHubIntegrationReport {
                     } else {
                         "RECONCILE_CATALOG_SNAPSHOT"
                     }
+                    "COMBINED_BUDGET_EXHAUSTED" -> "REVIEW_SHARED_COMBINED_ALLOWANCE"
                     "WAITING_FOR_APPROVAL" -> "RESOLVE_BOUND_APPROVAL"
                     "FIXTURE_CLEANUP_UNVERIFIED" -> if (cleanupStoppedBeforeDispatch) "RECHECK_OWNED_FIXTURE_PREFLIGHT" else "RECONCILE_OWNED_FIXTURE"
                     "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED" -> "REVIEW_REMAINING_SCOPE_AND_BUDGET"
@@ -95,7 +105,7 @@ internal object GitHubIntegrationReport {
         val passedCapabilities = requiredCapabilities.filter { it.text("acceptance_state") == "PASS" }
         val accepted = requiredCriteria.count { it.text("acceptance_state") == "PASS" }
         val complete = requiredCriteria.isNotEmpty() && accepted == requiredCriteria.size
-        val activeNames = tools.filter { it.modelVisible && (it.name.substringBefore("__").startsWith("github_") || it.name.substringBefore("__") == "repository_graph") }.map { it.name }.toSet()
+        val activeNames = tools.filter { it.modelVisible && (it.name.substringBefore("__").startsWith("github_") || it.name.isGatewayRepositoryTool()) }.map { it.name }.toSet()
         val activeFamilies = activeNames.map { it.githubOperationFamily() }.toSet()
         val observations = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
         val exercisedNames = observations.filter { GitHubEvidenceOrigin.of(it) == "LIVE" }.map { it.text("tool") }.toSet().intersect(activeNames)

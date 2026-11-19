@@ -606,6 +606,8 @@ class DebugMiddleware:
         self.now = getattr(store, 'now', time.time)
 
     async def __call__(self, scope, receive, send):
+        if scope.get("path") == "/gateway/privacy/inference":
+            return await self.app(scope, receive, send)
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
         started, arrived_at = time.monotonic(), int(self.now() * 1000)

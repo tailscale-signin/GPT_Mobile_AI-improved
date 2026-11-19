@@ -10,20 +10,15 @@ internal class VoiceSpeechBuffer {
     fun append(text: String, final: Boolean, earlyStart: Boolean = false, followUpWords: Int = 12): List<String>? {
         val end = minOf(text.length, 12000).let { if (it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
         val boundedText = text.substring(0, end)
-        // Persistence may trim the trailing whitespace of the terminal message.
-        // It does not revise any spoken word and must not cancel buffered audio.
-        // A change to actual content still invalidates the stream immediately.
-        if (!boundedText.startsWith(previous)) {
-            if (!final || boundedText.trimEnd() != previous.trimEnd()) return null
-        }
         if (!final && boundedText == previous) return emptyList()
-        previous = boundedText
-        // Beyond the speech cap, only captions grow. Keep a cut-off word/link pending.
         val visible = VoiceSpeechText.project(text, final = final)
-        if (!visible.startsWith(previousSpeech)) {
-            if (!final || visible.trimEnd() != previousSpeech.trimEnd()) return null
-            consumed = consumed.coerceAtMost(visible.length)
-        }
+        // Captions and unspoken words can be revised. Only the part already queued for
+        // playback is irrevocable, including a final persistence trim of trailing space.
+        val shared = minOf(consumed, visible.length)
+        if (!previousSpeech.regionMatches(0, visible, 0, shared)) return null
+        if (shared < consumed && (!final || previousSpeech.substring(shared, consumed).isNotBlank())) return null
+        consumed = shared
+        previous = boundedText
         previousSpeech = visible
         val speechEnd = visible.length
         if (earlyStart) {

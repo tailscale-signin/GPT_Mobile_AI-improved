@@ -6,6 +6,17 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AgentRunStatusBlockTest {
+    @Test fun actionableErrorMessagesNeverSuggestBlindWriteRetries() {
+        val unknown = "The remote connection failed in a new way"
+        assertEquals(null, agentRunUserFacingError(unknown))
+        val capacity = agentRunUserFacingError("CONTEXT_CAPACITY_EXCEEDED: 35977 > 32768")
+        org.junit.Assert.assertTrue(capacity.orEmpty().contains("verified larger window"))
+        val uncertain = agentRunUserFacingError("DISPATCH_OUTCOME_UNKNOWN: operation 77")
+        org.junit.Assert.assertTrue(uncertain.orEmpty().contains("Reconcile the original remote operation"))
+        org.junit.Assert.assertFalse(uncertain.orEmpty().contains("Retry the write"))
+        assertEquals(null, agentRunUserFacingError("COMPLETION"))
+    }
+
     @Test
     fun `duration clamps clock skew and requires terminal timing`() {
         val run = AgentRun(

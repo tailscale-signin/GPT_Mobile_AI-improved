@@ -1,9 +1,19 @@
+@file:kotlinx.serialization.UseSerializers(FrozenMessageSerializer::class)
+
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 
 /** Frozen synthesis input; output and continuation text can never become a new contribution. */
 @Serializable
@@ -74,4 +84,30 @@ data class CombinedInputSnapshot(
     companion object {
         private val SNAPSHOT_JSON = kotlinx.serialization.json.Json { encodeDefaults = true }
     }
+}
+
+/** Older snapshots omitted the creation time when it matched the wall-clock default.
+ * Reopening the same archived input must produce the same owner comparison on every retry.
+ */
+internal object FrozenMessageSerializer : KSerializer<MessageV2> {
+    private val message = MessageV2.serializer()
+    override val descriptor = message.descriptor
+
+    override fun serialize(encoder: Encoder, value: MessageV2) {
+        if (encoder !is JsonEncoder) {
+            encoder.encodeSerializableValue(message, value)
+            return
+        }
+        val fields = encoder.json.encodeToJsonElement(message, value).jsonObject
+        encoder.encodeJsonElement(withTimestamp(fields, value.createdAt))
+    }
+
+    override fun deserialize(decoder: Decoder): MessageV2 {
+        if (decoder !is JsonDecoder) return decoder.decodeSerializableValue(message)
+        val fields = decoder.decodeJsonElement().jsonObject
+        return decoder.json.decodeFromJsonElement(message, withTimestamp(fields, 0L))
+    }
+
+    private fun withTimestamp(fields: JsonObject, value: Long): JsonObject =
+        if ("createdAt" in fields) fields else JsonObject(fields + ("createdAt" to JsonPrimitive(value)))
 }

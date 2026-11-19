@@ -140,7 +140,10 @@ object ErrorTemplates {
             actionButtonLabel = null,
             autoRetry = false
         )
-        ErrorCategory.SERIALIZATION_ERROR, ErrorCategory.UNKNOWN -> UiErrorTemplate(
+        ErrorCategory.LOCAL_STORAGE_FAILURE -> UiErrorTemplate("Device Storage Unavailable", error.userMessage, null, false)
+        ErrorCategory.CONTENT_POLICY_REFUSAL -> UiErrorTemplate("Request Declined", error.userMessage, null, false)
+        ErrorCategory.SERIALIZATION_ERROR -> UiErrorTemplate("Unreadable Response", error.userMessage, "Review Details", false)
+        ErrorCategory.UNKNOWN -> UiErrorTemplate(
             title = "Something Went Wrong",
             description = error.userMessage,
             actionButtonLabel = "Retry",

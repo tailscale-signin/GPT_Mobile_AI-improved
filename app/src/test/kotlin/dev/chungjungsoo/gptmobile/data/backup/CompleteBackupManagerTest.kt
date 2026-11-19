@@ -612,6 +612,78 @@ class CompleteBackupManagerTest {
         assertEquals(null, vault.read(forgedProof))
     }
 
+    @Test fun privacyManagementKeyStaysLocalAndCredentialOnlyRestoreRevokesPersonalConfirmation() = runBlocking {
+        val reference = "privacy_openrouter_management"
+        vault.put(reference, "local-management-key".toByteArray())
+        vault.put("provider", "saved-provider".toByteArray())
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.CREDENTIALS))
+        val archive = File(context.cacheDir, "privacy-credential-exclusion.gptbackup")
+        val saved = backupFixture(archive, selected)
+        assertTrue(saved.message, saved.success)
+        val stage = File(context.cacheDir, "privacy-credential-inspection").apply { mkdirs() }
+        val manifest = CompleteBackupArchive.read(archive, stage, Long.MAX_VALUE)
+        assertFalse(reference in manifest.secrets)
+        val encoded = java.util.Base64.getEncoder().encodeToString("injected-management-key".toByteArray())
+        CompleteBackupArchive.write(archive, manifest.copy(secrets = manifest.secrets + (reference to encoded)), manifest.files.mapValues { (path, _) -> File(stage, path) })
+        val personal = context.getSharedPreferences("privacy_personal_setup_v1", Context.MODE_PRIVATE)
+        val revision = UUID.randomUUID().toString()
+        personal.edit().putString("revision", revision).putString("records", "local-confirmation").commit()
+        val authority = context.getSharedPreferences("privacy_authority", Context.MODE_PRIVATE)
+        authority.edit().putString("issuer", "local-issuer").putString("pending_guardrail_update", "unresolved-guardrail").commit()
+        val pending = context.getSharedPreferences("privacy_setup_mutations_v1", Context.MODE_PRIVATE)
+        pending.edit().putString("pending", "unresolved-setup").commit()
+
+        val restored = manager.restore(Uri.fromFile(archive), selection = selected)
+
+        assertTrue(restored.message, restored.success)
+        assertEquals("local-management-key", vault.read(reference)!!.decodeToString())
+        assertEquals("saved-provider", vault.read("provider")!!.decodeToString())
+        assertEquals(null, personal.getString("records", null))
+        assertFalse(personal.getString("revision", null) == revision)
+        assertEquals("local-issuer", authority.getString("issuer", null))
+        assertEquals("unresolved-guardrail", authority.getString("pending_guardrail_update", null))
+        assertEquals("unresolved-setup", pending.getString("pending", null))
+    }
+
+    @Test fun platformOnlyRestoreRevokesPersonalConfirmationWithoutImportingPreferences() = runBlocking {
+        database.platformDao().addPlatform(PlatformV2(uid = "privacy-profile", name = "Saved profile"))
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.PLATFORMS))
+        val archive = File(context.cacheDir, "privacy-platform-restore.gptbackup")
+        val saved = backupFixture(archive, selected)
+        assertTrue(saved.message, saved.success)
+        val personal = context.getSharedPreferences("privacy_personal_setup_v1", Context.MODE_PRIVATE)
+        val revision = UUID.randomUUID().toString()
+        personal.edit().putString("revision", revision).putString("records", "local-confirmation").commit()
+
+        val restored = manager.restore(Uri.fromFile(archive), selection = selected)
+
+        assertTrue(restored.message, restored.success)
+        assertEquals(null, personal.getString("records", null))
+        assertFalse(personal.getString("revision", null) == revision)
+    }
+
+    @Test fun failedCredentialRestoreCannotRevivePersonalConfirmationOrErasePendingPrivacyWrites() = runBlocking {
+        vault.put("provider", "saved-provider".toByteArray())
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.CREDENTIALS))
+        val archive = File(context.cacheDir, "privacy-restore-rollback.gptbackup")
+        assertTrue(backupFixture(archive, selected).success)
+        vault.put("provider", "current-provider".toByteArray())
+        val personal = context.getSharedPreferences("privacy_personal_setup_v1", Context.MODE_PRIVATE)
+        val revision = UUID.randomUUID().toString()
+        personal.edit().putString("revision", revision).putString("records", "local-confirmation").commit()
+        val pending = context.getSharedPreferences("privacy_setup_mutations_v1", Context.MODE_PRIVATE)
+        pending.edit().putString("pending", "unresolved-setup").commit()
+        vault.failNextReference = "provider"
+
+        val restored = manager.restore(Uri.fromFile(archive), selection = selected)
+
+        assertFalse(restored.success)
+        assertEquals("current-provider", vault.read("provider")!!.decodeToString())
+        assertEquals(null, personal.getString("records", null))
+        assertFalse(personal.getString("revision", null) == revision)
+        assertEquals("unresolved-setup", pending.getString("pending", null))
+    }
+
     @Test fun legacyGitHubCredentialsCannotReconnectWithoutPortableEncryptedMetadata() = runBlocking {
         database.toolConnectionDao().upsertConnection(dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection("github-account", "GitHub", "github", "GITHUB", null, "OAUTH", "connection_github-account", null))
         vault.put("connection_github-account", "ghu_private_access".toByteArray())
@@ -796,9 +868,11 @@ class CompleteBackupManagerTest {
     private class TestVault : SecretVault {
         private val values = mutableMapOf<String, ByteArray>()
         var failNextPut = false
+        var failNextReference: String? = null
         override suspend fun put(secretRef: String, secret: ByteArray) {
-            if (failNextPut) {
+            if (failNextPut || secretRef == failNextReference) {
                 failNextPut = false
+                failNextReference = null
                 error("Injected credential write failure")
             }
             values[secretRef] = secret.copyOf()

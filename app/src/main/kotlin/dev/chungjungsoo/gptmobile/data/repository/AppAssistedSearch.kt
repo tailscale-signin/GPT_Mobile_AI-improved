@@ -61,7 +61,19 @@ internal object AppAssistedSearch {
         state?.attempted = true
         val search = tools.firstOrNull { it.modelToolName == "web_search" }
         if (search == null) {
-            emit(ApiState.Error("The requested search could not run: no authorized search engine is assigned and available for this profile. Check its Tools → Effective search inventory."))
+            emit(
+                ApiState.Error(
+                    "Web search is unavailable for this profile. Open Tools → Effective search inventory to enable an authorized search engine, then retry.",
+                    errorCode = "TOOL_UNAVAILABLE",
+                    taskOutcome = "BLOCKED",
+                    failureDetails = buildJsonObject {
+                        put("failed_stage", "tool_readiness")
+                        put("operation", "web_search")
+                        put("dispatched", false)
+                        put("remote_acceptance", "NO")
+                    }
+                )
+            )
             return null
         }
         val task = question(messages)
@@ -86,7 +98,17 @@ internal object AppAssistedSearch {
         state?.sourceCount = usable.size
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Search", "APP_SEARCH_OUTCOME · run=$runId · dispatched=${result.dispatched} · sources=${usable.size} · task=${if (usable.isEmpty()) "UNAVAILABLE" else "EVIDENCE_ACQUIRED"}")
         if (usable.isEmpty()) {
-            emit(ApiState.Error("Search was attempted but no usable sources were returned. Verification is incomplete; inspect the search results for engine failures and retry after repair."))
+            emit(
+                ApiState.Error(
+                    "Web search returned no usable sources. Check the search result for engine errors before retrying.",
+                    errorCode = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.known(result.errorCode) ?: "SOURCE_UNAVAILABLE",
+                    failureDetails = buildJsonObject {
+                        put("failed_stage", if (result.dispatched) "tool_execution" else "tool_precheck")
+                        put("operation", "web_search")
+                        if (!result.dispatched) put("dispatched", false)
+                    }
+                )
+            )
             return null
         }
         emit(ApiState.Notice("App-assisted search returned ${usable.size} sources. Search snippets are evidence previews, not proof that full pages were read.", true))

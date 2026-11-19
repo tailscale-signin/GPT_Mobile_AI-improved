@@ -52,6 +52,7 @@ class GatewayEngineeringSubmissionTest {
     private val modelPreparation = mockk<GatewayModelPreparationRepository>()
     private val selected = PlatformV2(uid = "execution-profile", name = "Selected inference", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.8:8080/v1", model = "profile-default")
     private val originalGateway = PlatformV2(uid = "original-gateway", name = "Original gateway", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.9:8090/v1", model = "unused")
+    private val savedGatewayConfig = originalGateway.engineeringConfig().withGatewayIdentity(GatewayScopeIdentity("gateway", "owner"))
     private val capability = GatewayEngineeringCapabilities("engineering-gateway", 1, enabled = true, samplingPolicyProtocol = 1, principalId = "owner", gatewayId = "gateway", taskScopeProtocol = 1, taskScopes = listOf("read", "plan", "implement"), conversationSync = true, durableDetach = true, durationHours = listOf(3, 6, 12, 24, 0), executionBudgetLimits = GatewayEngineeringBudget(512, 8_388_608, 256, 256, 900))
     private fun repository() = GatewayEngineeringRepository(context, settings, client, mockk(), store, conversations, history, modelPreparation)
 
@@ -212,10 +213,11 @@ class GatewayEngineeringSubmissionTest {
         coEvery { conversations.boundSnapshot(8, selected.uid, selected.model) } returns (local to snapshot)
         coEvery { store.bindings(null) } returns emptyList()
         coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
-        coEvery { client.capabilities(originalGateway.engineeringConfig()) } returns capability
+        coEvery { client.capabilities(savedGatewayConfig) } returns capability
         coEvery { modelPreparation.prepareSelected(any(), any(), any(), any()) } returns GatewayModelPreparationState(originalGateway.uid, selected.model, GatewayModelPreparationPhase.BLOCKED, "The selected model is unavailable")
         val failure = runCatching { repository().submitBoundTurn(8, selected.uid, selected.model, "Inspect the parser", "command", 11, 12, "run", "read") }.exceptionOrNull()
         assertTrue(failure?.message?.contains("selected model") == true)
+        coVerify(exactly = 1) { history.identity(savedGatewayConfig) }
         coVerify(exactly = 1) { modelPreparation.prepareSelected(originalGateway.copy(model = selected.model), any(), true, any()) }
         coVerify(exactly = 0) {
             client.prepareBinding(any(), any())
@@ -231,12 +233,13 @@ class GatewayEngineeringSubmissionTest {
         coEvery { conversations.boundSnapshot(8, selected.uid, selected.model) } returns (local to snapshot)
         coEvery { store.bindings(null) } returns emptyList()
         coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
-        coEvery { client.capabilities(originalGateway.engineeringConfig()) } returns capability
-        coEvery { history.identity(any()) } returns GatewayScopeIdentity("replacement", "owner")
+        coEvery { client.capabilities(savedGatewayConfig) } returns capability
+        coEvery { history.identity(savedGatewayConfig) } returns GatewayScopeIdentity("replacement", "owner")
 
         val failure = runCatching { repository().submitBoundTurn(8, selected.uid, selected.model, "Inspect the parser", "command", 11, 12, "run", "read") }.exceptionOrNull()
 
         assertTrue(failure?.message?.contains("original gateway or account changed") == true)
+        coVerify(exactly = 1) { history.identity(savedGatewayConfig) }
         coVerify(exactly = 0) {
             modelPreparation.prepareSelected(any(), any(), any(), any())
             client.prepareBinding(any(), any())
@@ -248,13 +251,13 @@ class GatewayEngineeringSubmissionTest {
     @Test fun changedSavedBackendBlocksBeforeModelPreparationOrNewBindingAdmission() = runTest {
         val retained = savedExecutionConversation()
         val rejected = GatewayExecutionRejected("EXECUTION_CONFIGURATION_CHANGED", 409, retryable = false)
-        coEvery { client.bindingCapabilities(any(), retained.executionSelection!!, retained.executionAdmission!!.bindingId) } throws rejected
+        coEvery { client.bindingCapabilities(savedGatewayConfig, retained.executionSelection!!, retained.executionAdmission!!.bindingId) } throws rejected
 
         val failure = runCatching { submitSavedExecutionTurn() }.exceptionOrNull()
 
         assertSame(rejected, failure)
         coVerify(exactly = 1) {
-            client.bindingCapabilities(originalGateway.engineeringConfig().withGatewayIdentity(GatewayScopeIdentity("gateway", "owner")), retained.executionSelection!!, retained.executionAdmission!!.bindingId)
+            client.bindingCapabilities(savedGatewayConfig, retained.executionSelection!!, retained.executionAdmission!!.bindingId)
         }
         coVerify(exactly = 0) {
             modelPreparation.prepareSelected(any(), any(), any(), any())
@@ -304,10 +307,10 @@ class GatewayEngineeringSubmissionTest {
             CancellationException("The submitting observer detached")
         )
         for (rejected in failures) {
-            coEvery { client.bindingCapabilities(any(), retained.executionSelection!!, retained.executionAdmission!!.bindingId) } throws rejected
+            coEvery { client.bindingCapabilities(savedGatewayConfig, retained.executionSelection!!, retained.executionAdmission!!.bindingId) } throws rejected
             assertSame(rejected, runCatching { submitSavedExecutionTurn() }.exceptionOrNull())
         }
-        coVerify(exactly = failures.size) { client.bindingCapabilities(any(), any(), any()) }
+        coVerify(exactly = failures.size) { client.bindingCapabilities(savedGatewayConfig, retained.executionSelection!!, retained.executionAdmission!!.bindingId) }
         coVerify(exactly = 0) {
             modelPreparation.prepareSelected(any(), any(), any(), any())
             client.prepareBinding(any(), any())
@@ -321,7 +324,7 @@ class GatewayEngineeringSubmissionTest {
         val events = mutableListOf<String>()
         val rejected = GatewayExecutionRejected("EXECUTION_CONFIGURATION_CHANGED", 409, retryable = false)
         var reads = 0
-        coEvery { client.bindingCapabilities(any(), retained.executionSelection!!, retained.executionAdmission!!.bindingId) } answers {
+        coEvery { client.bindingCapabilities(savedGatewayConfig, retained.executionSelection!!, retained.executionAdmission!!.bindingId) } answers {
             events += "verify-original"
             if (++reads == 1) retained.executionAdmission!! else throw rejected
         }
@@ -348,7 +351,7 @@ class GatewayEngineeringSubmissionTest {
         coEvery { conversations.clientConversationId(8) } returns "local-stable-identity"
         coEvery { store.bindings(null) } returns emptyList()
         coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
-        coEvery { client.capabilities(originalGateway.engineeringConfig()) } returns capability
+        coEvery { client.capabilities(savedGatewayConfig) } returns capability
         return retained
     }
 
@@ -367,7 +370,7 @@ class GatewayEngineeringSubmissionTest {
         val retained = savedExecutionConversation()
         val events = mutableListOf<String>()
         var reads = 0
-        coEvery { client.bindingCapabilities(any(), retained.executionSelection!!, retained.executionAdmission!!.bindingId) } answers {
+        coEvery { client.bindingCapabilities(savedGatewayConfig, retained.executionSelection!!, retained.executionAdmission!!.bindingId) } answers {
             events += "verify-original"
             if (++reads == 1 && readinessCode != null) throw GatewayExecutionRejected(readinessCode, 503, retryable = true)
             retained.executionAdmission!!
@@ -388,6 +391,7 @@ class GatewayEngineeringSubmissionTest {
         assertEquals(retained.executionAdmission!!.bindingId, saved.captured.request.executionBindingId)
         assertEquals(retained.executionAdmission, saved.captured.executionAdmission)
         assertEquals(retained.executionSelection, saved.captured.executionSelection)
+        coVerify(exactly = 2) { client.bindingCapabilities(savedGatewayConfig, retained.executionSelection!!, retained.executionAdmission!!.bindingId) }
         coVerify(exactly = 1) { modelPreparation.prepareSelected(originalGateway.copy(model = selected.model), any(), true, any()) }
         coVerify(exactly = 0) {
             client.prepareBinding(any(), any())

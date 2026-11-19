@@ -114,6 +114,24 @@ class GitHubHandoffReconciliationEvidenceTest {
         assertFalse(details.toString().contains("PRIVATE_"))
     }
 
+    @Test fun matchingInvocationFromADifferentJournalCannotSettleTheSavedHandoff() = runTest {
+        val saved = handoff(call, savedBinding = "original")
+        val resumed = GitHubOutputContinuationSession(
+            session(ProviderEvent.TextDelta("Must not generate")),
+            toolCheckpointBinding = "other",
+            readCheckpoint = { saved },
+            durableToolReceipts = { listOf(durable(call)) },
+            saveCheckpoint = { error("A different journal cannot update this handoff") }
+        ) { _, _, _ -> error("Must not reopen") }
+        val replay = listOf(AgentToolExchange(listOf(call), listOf(result(call))))
+        resumed.observeToolResult(call, result(call))
+        resumed.restoreToolResults(replay)
+        val failed = resumed.streamRound(emptyList(), replay).toList().single() as ProviderEvent.Failed
+        assertTrue(failed.message.contains("different saved tool journal"))
+        assertEquals(JsonPrimitive(false), failed.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive(false), failed.failureDetails?.get("resume_allowed"))
+    }
+
     @Test fun matchingCountsDescribeOnlyTheRemainingUnresolvedInvocation() = runTest {
         val settled = call.copy(callId = "PRIVATE_SETTLED_CALL")
         var saved = handoff(settled, call)

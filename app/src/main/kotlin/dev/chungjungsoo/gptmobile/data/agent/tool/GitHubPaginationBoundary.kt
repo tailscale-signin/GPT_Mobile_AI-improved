@@ -42,7 +42,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                 return "$operation:$pinned"
             }
         }
-        return operation + dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(operation, args)
+        return operation + dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(operation, args, result?.get("commit_sha"))
     }
     private fun page(args: JsonObject) = (args["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
 
@@ -99,15 +99,15 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         return if (nested != null) mapOf("check_runs" to nested) else emptyMap()
     }
 
-    private fun identity(collection: String, row: JsonElement): String {
+    private fun identity(collection: String, row: JsonElement, branchList: Boolean): String {
         val objectRow = row as? JsonObject
         // The same blob SHA can occur at multiple changed filenames. A file
         // collection is identified by path, not by its shared content digest.
         val value = objectRow?.let {
-            if (collection == "files") {
-                it["filename"] ?: it["path"] ?: it["sha"] ?: it["id"]
-            } else {
-                it["id"] ?: it["node_id"] ?: it["sha"] ?: it["number"] ?: it["path"]
+            when {
+                branchList && collection == "items" -> (it["name"] as? JsonPrimitive)?.takeIf { name -> name.isString && name.content.isNotBlank() } ?: row
+                collection == "files" -> it["filename"] ?: it["path"] ?: it["sha"] ?: it["id"]
+                else -> it["id"] ?: it["node_id"] ?: it["sha"] ?: it["number"] ?: it["path"]
             }
         } ?: row
         return collection + ":" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(value.toString())
@@ -223,9 +223,9 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             return Assessment(JsonObject(withoutContinuations + failureBody), "GITHUB_PAGINATION_INCOMPLETE")
         }
         val key = key(operation, args, result)
-        if (page(args) == 1 && operation == "github_context" && args["action"] == JsonPrimitive("changed_since")) {
-            // A live page-one refresh starts a fresh epoch even when the
-            // resolved base/head are unchanged from the preceding traversal.
+        if (page(args) == 1 && operation == "github_context" && args["action"] in setOf(JsonPrimitive("changed_since"), JsonPrimitive("list_commits"))) {
+            // Page one can resolve a symbolic ref. Restart the traversal under
+            // its observed immutable key, which was unavailable before dispatch.
             ends.remove(key)
             traversals.remove(key)
         }
@@ -236,7 +236,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             state.changed = false
         }
         val number = page(args)
-        val identities = collections.flatMap { (collection, values) -> values.map { identity(collection, it) } }.toSet()
+        val branchList = operation == "github_context" && args["action"] == JsonPrimitive("list_branches")
+        val identities = collections.flatMap { (collection, values) -> values.map { identity(collection, it, branchList) } }.toSet()
         val earlier = state.pages.filterKeys { it < number }.values.flatMapTo(mutableSetOf()) { it.identities }
         val previous = state.pages[number]
         if (previous != null && previous.identities != identities) state.changed = true
@@ -252,6 +253,9 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         }
         val all = state.pages.values.flatMapTo(mutableSetOf()) { it.identities }
         val overlap = identities.count { it in earlier }
+        // Branch and PR lists have no reliable total. An overlap across offsets
+        // means a shifting collection may also have skipped unseen records.
+        if (overlap > 0 && (branchList || operation == "github_pr" && args["action"] == JsonPrimitive("list_pull_requests"))) state.changed = true
         val repeated = identities.isNotEmpty() && overlap == identities.size
         val emptyRemotePage = identities.isEmpty() && result["has_more"] == JsonPrimitive(true) && ((result["upstream_returned"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0) == 0
         val stalled = repeated || emptyRemotePage
@@ -287,7 +291,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                 value
             } else {
                 val seen = earlier.toMutableSet()
-                JsonArray(value.filter { seen.add(identity(name, it)) })
+                JsonArray(value.filter { seen.add(identity(name, it, branchList)) })
             }
         }
         val visibleCount = collections.keys.singleOrNull()?.takeIf { it != "upstream_record_ids" }?.let { (deduplicated[it] as? JsonArray)?.size }

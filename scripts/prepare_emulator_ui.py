@@ -181,7 +181,16 @@ def settle_display(run=subprocess.run, now=time.monotonic, wait=time.sleep, read
     # receivers or configuration callbacks. These platform barriers exist on
     # both API 34 and 36; they observe work without restarting any process.
     require_barrier(shell('am', 'wait-for-broadcast-idle', '--flush-broadcast-loopers', command_timeout=ready_timeout), BROADCAST_IDLE)
-    require_barrier(shell('am', 'wait-for-application-barrier', command_timeout=ready_timeout), APPLICATION_IDLE)
+    marker = shell('am', 'wait-for-application-barrier', command_timeout=ready_timeout)
+    application_attempts = 1
+    # Android ends its process-wide ping after 30 seconds. A cold system app can
+    # finish during the remaining display budget. Only a fully recognized Android
+    # progress/timeout response is eligible for one fresh read-only observation.
+    if re.fullmatch(r'(?:Waiting for application barriers, at [0-9]+ of [0-9]+\.\.\.\s+)+Gave up waiting for application barriers!', marker):
+        reject_process_errors(shell('dumpsys', 'activity', 'processes'))
+        application_attempts += 1
+        marker = shell('am', 'wait-for-application-barrier', command_timeout=ready_timeout)
+    require_barrier(marker, APPLICATION_IDLE)
     observed_home = shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME')
     if (observed_home.splitlines()[-1] if observed_home else '') != TEST_HOME:
         raise ValueError('The configured display no longer resolves to the instrumentation home')
@@ -214,7 +223,8 @@ def settle_display(run=subprocess.run, now=time.monotonic, wait=time.sleep, read
                     'display_size': actual_size, 'density_dpi': density, 'font_scale': actual_font,
                     'foreground_window': focus, 'readiness_attempts': attempts,
                     'readiness_seconds': round(now() - started, 3), 'broadcast_idle': True,
-                    'application_threads_drained': True, 'app_under_test_changed': False,
+                    'application_threads_drained': True, 'application_barrier_attempts': application_attempts,
+                    'app_under_test_changed': False,
                     'system_error_dialogs_suppressed': False}
         # Only observe a pending window/configuration transition. Never dismiss
         # dialogs, relaunch HOME or repeat instrumentation to obtain readiness.

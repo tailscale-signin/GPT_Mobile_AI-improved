@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -34,6 +35,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import kotlin.math.abs
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
 /** Follow intent has the same presentation after a button press or a deliberate bottom arrival. */
@@ -47,10 +49,27 @@ internal fun ChatBottomIndicator(
     onFollow: () -> Unit
 ) {
     if (!following) {
-        // Only a deliberate fast user scroll reveals the arrow. The optional
-        // input is omitted by legacy/test callers; production always supplies it.
-        val reveal = scrollInput == null || (scrollInput.scrollingFasterThanReading && listState.isScrollInProgress && listState.canScrollForward)
-        AnimatedVisibility(visible = reveal, enter = fadeIn(tween(1000)), exit = fadeOut(tween(1000))) {
+        // Do not infer reading speed from programmatic list movement. The shared
+        // input only reports real user gestures and already applies a speed gate.
+        // Keep the target available after release. Only another user gesture
+        // can extend the hold, so streaming layout changes do not reset it.
+        var heldVisible by remember(scrollInput, listState) { mutableStateOf(false) }
+        val fastUserScroll = scrollInput?.scrollingFasterThanReading == true
+        val userScrolling = listState.isScrollInProgress && scrollInput?.dragging == true
+        val hasOlderContent = listState.canScrollForward
+        LaunchedEffect(scrollInput, fastUserScroll, userScrolling, hasOlderContent) {
+            when {
+                !hasOlderContent -> heldVisible = false
+                fastUserScroll -> heldVisible = true
+                !userScrolling && heldVisible -> {
+                    delay(5_000L)
+                    heldVisible = false
+                }
+            }
+        }
+        val reveal = if (scrollInput == null) true else (fastUserScroll || heldVisible) && hasOlderContent
+        val fadeMillis = chatScrollArrowFadeMillis(animate)
+        AnimatedVisibility(visible = reveal, enter = fadeIn(tween(fadeMillis)), exit = fadeOut(tween(fadeMillis))) {
             ScrollToBottomButton(isGenerating = generating, onClick = onFollow)
         }
         return
@@ -64,12 +83,20 @@ internal fun ChatBottomIndicator(
         snapshotFlow { listState.isAtGitHubBottom() }.first { it }
         reachedBottom = true
     }
+    // Explicit arrow presses and manual arrivals share this visible entrance.
+    // Keep idle/detached indicators unmounted as before.
+    val dotsAlpha by animateFloatAsState(
+        targetValue = if (reachedBottom && generating) 1f else 0f,
+        animationSpec = tween(if (animate) 650 else 0),
+        label = "Bottom follow generation dots"
+    )
     if (!reachedBottom || !generating) return
     // The shared phase respects app/system motion preferences, lifecycle and frame pressure.
     val phase = rememberGitHubProgressMotion(animate)
     val color = MaterialTheme.colorScheme.primary
     Row(
         Modifier.size(width = 48.dp, height = 48.dp)
+            .graphicsLayer { alpha = dotsAlpha }
             .semantics { contentDescription = "Generating response" }
             .testTag("chat_bottom_generation"),
         horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
@@ -100,3 +127,6 @@ fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
         )
     }
 }
+
+/** Motion-off settings skip the jump arrow's entrance/exit tween. */
+internal fun chatScrollArrowFadeMillis(animate: Boolean): Int = if (animate) 1000 else 0

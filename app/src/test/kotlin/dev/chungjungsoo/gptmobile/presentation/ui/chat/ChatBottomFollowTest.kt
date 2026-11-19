@@ -5,6 +5,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatBottomFollowTest {
+    @Test fun actualUserReturnCanSettleAfterFingerRelease() {
+        val intent = ChatBottomReturnIntent()
+        assertFalse(intent.shouldFollow(true))
+        intent.recordMotion(-12f)
+        assertFalse(intent.shouldFollow(false))
+        assertTrue(intent.shouldFollow(true))
+        intent.finish()
+        assertFalse(intent.shouldFollow(true))
+    }
+
+    @Test fun readingHistoryOrLayoutOnlyUpdatesDoNotReattach() {
+        val intent = ChatBottomReturnIntent()
+        intent.recordMotion(-5f)
+        intent.recordMotion(3f)
+        assertFalse(intent.shouldFollow(true))
+        intent.recordMotion(-2f)
+        intent.finish()
+        assertFalse(intent.shouldFollow(true))
+        intent.recordMotion(Float.NaN)
+        assertFalse(intent.shouldFollow(true))
+    }
+
     @Test fun downwardBottomArrivalUsesTheSameFollowActionAsTheButton() {
         val intent = GitHubPromptAnchor(8f, GitHubScrollMode.USER_HISTORY)
         intent.move(-20f)

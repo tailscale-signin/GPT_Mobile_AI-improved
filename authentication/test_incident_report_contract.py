@@ -5,7 +5,7 @@ import re
 import unittest
 
 from authentication import incident_report_contract as capsule
-from authentication.issue_report_diagnostics import CORE_FIELDS, MAX_DIAGNOSTIC_BYTES, validate_diagnostics
+from authentication.issue_report_diagnostics import CORE_FIELDS, GATEWAY_CAPABILITY_DECODE_REASONS, GATEWAY_CAPABILITY_FAILURE_KINDS, GATEWAY_CAPABILITY_FIELDS, MAX_DIAGNOSTIC_BYTES, PRIVACY_ELIGIBILITY_REASONS, validate_diagnostics
 from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CONTEXT_FIELDS_V5, ReportError, issue_from_report
 
 
@@ -57,8 +57,31 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_remote_pagination_and_provider_limit_reports_survive_submission(self):
+        pagination = {
+            "remote_pagination_page": 6, "remote_pagination_pages_observed": 1, "remote_pagination_reported_total": 170,
+            "remote_pagination_unique_records": 20, "remote_pagination_duplicate_records": 0,
+            "remote_pagination_contiguous": False, "remote_pagination_changed": False, "remote_pagination_reason": "INCOMPLETE",
+        }
+        quota = {"provider_limit_source": "upstream_provider_shared_pool", "provider_cooldown_scope_hash": "a" * 64}
+        for area, fields in (("TOOL", pagination), ("PROVIDER", quota)):
+            with self.subTest(area=area):
+                report = self.report(self.capture(area, fields))
+                _, issue = issue_from_report(report)
+                for field in fields:
+                    self.assertIn(field, issue["body"])
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("APP", fields))
+        for area, key, invalid in (
+            ("TOOL", "remote_pagination_page", True), ("TOOL", "remote_pagination_reported_total", 16_000_001),
+            ("TOOL", "remote_pagination_reason", "private text"), ("TOOL", "remote_pagination_changed", 1),
+            ("PROVIDER", "provider_limit_source", "private text"), ("PROVIDER", "provider_cooldown_scope_hash", "private text"),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {key: invalid}))
+
     def test_interrupted_run_and_unavailable_continuation_keep_their_codes_in_approved_issues(self):
-        for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE"):
+        for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED"):
             with self.subTest(code=code):
                 report = self.report(self.capture())
                 report.pop("context")
@@ -66,6 +89,134 @@ class IncidentReportContractTest(unittest.TestCase):
                 _, issue = issue_from_report(report)
                 self.assertIn(code, issue["title"])
                 self.assertIn(code, issue["body"])
+
+    def test_new_provider_terminal_causes_are_accepted_as_closed_diagnostic_values(self):
+        for code in ("BUDGET_RESTRICTED", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED"):
+            with self.subTest(code=code):
+                capture = self.capture("PROVIDER", {"provider_failure_code": code})
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("PROVIDER", {"provider_failure_code": code + " private text"}))
+
+    def test_privacy_eligibility_reasons_roundtrip_without_reclassifying_unknown_dispatch(self):
+        code = "PRIVACY_PROVIDER_INELIGIBLE"
+        for reason in PRIVACY_ELIGIBILITY_REASONS:
+            for status in ("NOT_VERIFIED", "INCOMPATIBLE"):
+                with self.subTest(reason=reason, status=status):
+                    capture = self.capture("PROVIDER", {
+                        "provider_failure_code": code, "causal_failure_code": code,
+                        "privacy_reason_code": reason, "privacy_status": status,
+                    })
+                    self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                    report = self.report(capture)
+                    report.update(feature="chat", errorCode=code, events=["-0ms E chat " + code])
+                    report["context"].update(source="CHAT_FAILURE", stage="provider_generation", dispatched=True)
+                    report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                    before = copy.deepcopy(report)
+                    _, issue = issue_from_report(report)
+                    self.assertEqual(before, report)
+                    self.assertIn(code, issue["title"])
+                    self.assertIn(reason, issue["body"])
+                    self.assertIn(status, issue["body"])
+                    self.assertIn("remoteAcceptance", report["context"]["unavailableFields"])
+                    self.assertNotIn("remoteAcceptance", report["context"])
+
+    def test_privacy_eligibility_rejects_unknown_private_values_and_wrong_area(self):
+        for field, invalid in (
+            ("privacy_reason_code", "PRIVATE_KEY_OR_PROVIDER_MESSAGE"),
+            ("privacy_reason_code", "NO_STRICT_ZDR_ENDPOINT PRIVATE_DETAILS"),
+            ("privacy_reason_code", 1), ("privacy_reason_code", None),
+            ("privacy_status", "AVAILABLE"), ("privacy_status", "CHECKING"),
+            ("privacy_status", True), ("privacy_status", "PRIVATE_ACCOUNT"),
+            ("provider_failure_code", "PRIVACY_PROVIDER_INELIGIBLE PRIVATE_DETAILS"),
+        ):
+            with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {field: invalid}))
+        for area in ("TOOL", "INCIDENT", "VOICE", "APP", "GATEWAY", "ACCEPTANCE"):
+            with self.subTest(area=area), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {"privacy_reason_code": "VERIFICATION_UNAVAILABLE"}))
+
+    def test_privacy_reason_contract_matches_the_app_closed_eligibility_enum(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibility.kt").read_text()
+        enum = source.split("enum class Reason(", 1)[1].split("fun decision(", 1)[0]
+        reasons = set(re.findall(r'^\s*([A-Z][A-Z_]+)\(', enum, re.MULTILINE))
+        self.assertEqual(reasons, PRIVACY_ELIGIBILITY_REASONS)
+
+    def test_gateway_capability_evidence_roundtrips_without_changing_unknown_remote_outcome(self):
+        observations = [(kind, None) for kind in GATEWAY_CAPABILITY_FAILURE_KINDS]
+        observations += [("DECODE_REJECTED", reason) for reason in GATEWAY_CAPABILITY_DECODE_REASONS]
+        for kind, reason in observations:
+            with self.subTest(kind=kind, reason=reason):
+                code = "GATEWAY_ISOLATION_UNAVAILABLE" if kind == "ISOLATION_UNVERIFIED" else "GATEWAY_CAPABILITY_UNAVAILABLE"
+                fields = {
+                    "provider_failure_code": code, "causal_failure_code": code,
+                    "incident_phase": "connection_preflight", "gateway_capability_failure_kind": kind,
+                    "request_replay_allowed": False, "logical_continuation_allowed": False,
+                }
+                if reason is not None:
+                    fields["gateway_capability_decode_reason"] = reason
+                capture = self.capture("PROVIDER", fields)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report.update(feature="chat", errorCode=code)
+                report["context"].update(source="CHAT_FAILURE", provider="LLAMA", stage="connection_preflight", dispatched=True)
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                before = copy.deepcopy(report)
+                _, issue = issue_from_report(report)
+                self.assertEqual(before, report)
+                self.assertIn(f"| gateway_capability_failure_kind | `{kind}` |", issue["body"])
+                if reason is not None:
+                    self.assertIn(f"| gateway_capability_decode_reason | `{reason}` |", issue["body"])
+                self.assertIn("| logical_continuation_allowed | `false` |", issue["body"])
+                self.assertIn("remoteAcceptance", report["context"]["unavailableFields"])
+                self.assertNotIn("remoteAcceptance", report["context"])
+                self.assertTrue(report["context"]["dispatched"])
+
+    def test_gateway_capability_evidence_rejects_private_values_and_mismatched_code_or_kind(self):
+        valid = {"provider_failure_code": "GATEWAY_CAPABILITY_UNAVAILABLE", "gateway_capability_failure_kind": "DECODE_REJECTED",
+                 "gateway_capability_decode_reason": "EXPECTED_ARRAY"}
+        for field in GATEWAY_CAPABILITY_FIELDS:
+            for invalid in ("https://private.example/token", "$.private.account", "EXPECTED_ARRAY private response", "", True, 1, None, [], {}):
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("PROVIDER", {**valid, field: invalid}))
+        malformed = [
+            {key: value for key, value in valid.items() if key != "provider_failure_code"},
+            {key: value for key, value in valid.items() if key != "gateway_capability_failure_kind"},
+            {**valid, "provider_failure_code": "TRANSPORT_ERROR"},
+            {**valid, "provider_failure_code": "GATEWAY_ISOLATION_UNAVAILABLE"},
+            {**valid, "gateway_capability_failure_kind": "CONNECT_TIMEOUT"},
+            {**valid, "gateway_capability_failure_kind": "ISOLATION_UNVERIFIED"},
+            {**valid, "gateway_capability_field_path": "$.execution.private"},
+            {**valid, "gateway_capability_message": "private server response"},
+            {"provider_failure_code": "GATEWAY_CAPABILITY_UNAVAILABLE", "gateway_capability_failure_kind": "ISOLATION_UNVERIFIED"},
+            {"provider_failure_code": "GATEWAY_ISOLATION_UNAVAILABLE", "gateway_capability_failure_kind": "UNKNOWN"},
+        ]
+        for fields in malformed:
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", fields))
+        for area in ("TOOL", "INCIDENT", "VOICE", "APP", "GATEWAY", "ACCEPTANCE"):
+            with self.subTest(area=area), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, valid))
+
+    def test_gateway_capability_fields_remain_optional_and_explicitly_omitted_values_are_not_invented(self):
+        for code in ("GATEWAY_CAPABILITY_UNAVAILABLE", "GATEWAY_ISOLATION_UNAVAILABLE"):
+            legacy = self.capture("PROVIDER", {"provider_failure_code": code})
+            self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        omitted = self.capture("PROVIDER")
+        omitted["omittedFields"] = sorted(GATEWAY_CAPABILITY_FIELDS)
+        self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
+        for field in GATEWAY_CAPABILITY_FIELDS:
+            unavailable = self.capture("PROVIDER")
+            unavailable["unavailableFields"].append(field)
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(unavailable)
+        no_capture = {"schemaVersion": 1, "area": "PROVIDER", "capturedAtMillis": 1_800_000_000_000,
+                      "captureMode": "NO_CAPTURE", "values": {}, "unavailableFields": sorted(CORE_FIELDS["PROVIDER"])}
+        self.assertEqual(no_capture, validate_diagnostics(copy.deepcopy(no_capture)))
+        for field in GATEWAY_CAPABILITY_FIELDS:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics({**no_capture, "omittedFields": [field]})
 
     def test_voice_pronunciation_reason_is_closed_and_contains_no_spoken_word(self):
         values = {
@@ -100,7 +251,7 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_copilot_actions_and_tool_precheck_reasons_roundtrip_without_raw_tool_arguments(self):
         reasons = (
             "TOOL_ARGUMENT_SCHEMA_REJECTED",
-            "TOOL_ARGUMENT_CONSTRAINT_REJECTED",
+            "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED",
             "SAVED_VIEW_CURSOR_MALFORMED",
             "SAVED_VIEW_CONTEXT_MISMATCH",
         )
@@ -158,6 +309,7 @@ class IncidentReportContractTest(unittest.TestCase):
             "causal_failure_code": "GITHUB_TASK_INCOMPLETE",
             "incident_evidence_status": "TYPED_EVIDENCE",
             "claim_extraction_failure_kind": "SCHEMA_REJECTED",
+            "claim_extraction_validation_stage": "CLAIM_RECORD",
             "claim_extraction_response_characters": 1024,
             "claim_extraction_max_claims": 2,
             "claim_extraction_completed": True,
@@ -166,6 +318,7 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
         for key, invalid in (
             ("claim_extraction_failure_kind", "private-response"),
+            ("claim_extraction_validation_stage", "private-response"),
             ("claim_extraction_response_characters", -1),
             ("claim_extraction_max_claims", "8"),
             ("claim_extraction_completed", "true"),
@@ -177,6 +330,14 @@ class IncidentReportContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("TOOL", {"claim_extraction_failure_kind": "SCHEMA_REJECTED"}))
         self.assertNotIn("private-response", json.dumps(capture))
+
+    def test_prerequisite_observations_are_bounded_and_area_scoped(self):
+        for area, observation in (("INCIDENT", "STATUS_READ_FAILED"), ("ACCEPTANCE", "CATALOG_TOOL_NOT_EXPOSED")):
+            capture = self.capture(area, {"github_prerequisite_observation": observation})
+            self.assertEqual(validate_diagnostics(copy.deepcopy(capture)), capture)
+        for area, observation in (("TOOL", "STATUS_READ_FAILED"), ("ACCEPTANCE", "private raw error")):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {"github_prerequisite_observation": observation}))
 
     def test_pending_gateway_tool_results_accept_closed_handoff_diagnostics(self):
         capture = self.capture("PROVIDER", {
@@ -1034,6 +1195,7 @@ class IncidentReportContractTest(unittest.TestCase):
             "status_policy_rules_http_status": 403,
             "status_branch_protected": False, "status_policy_complete": False,
             "status_policy_recovery_hint": "CHECK_POLICY_READ_PERMISSIONS",
+            "status_missing_observations": ["COMMIT_CHECKS", "LATEST_WORKFLOW"],
         }
         capture = self.capture("ACCEPTANCE", values)
         original = copy.deepcopy(capture)
@@ -1051,6 +1213,7 @@ class IncidentReportContractTest(unittest.TestCase):
             ("acceptance_preparation_state", "private repository path"),
             ("acceptance_blocked_operation_families", ["private-owner/private-repo"]),
             ("status_policy_recovery_hint", "BYPASS_POLICY"),
+            ("status_missing_observations", ["private-observation"]),
         ):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("ACCEPTANCE", {key: bad}))
@@ -1134,6 +1297,7 @@ class IncidentReportContractTest(unittest.TestCase):
 
     def test_kokoro_pronunciation_focus_receipt_is_bounded_and_contains_no_spoken_text(self):
         values = {
+            "voice_playback_audio_mode": "IN_COMMUNICATION",
             "voice_playback_failure": "AUDIO_FOCUS_TIMEOUT",
             "voice_focus_last_transition": "PAUSE",
             "voice_focus_transition_count": 2,
@@ -1578,8 +1742,14 @@ class IncidentReportContractTest(unittest.TestCase):
                       "tool_execution_observation": "REMOTE_READ_SUCCEEDED", "tool_result_bytes_used": 24576,
                       "tool_result_bytes_limit": 24576}),
             ("TOOL", {"tool_permission_scope": "ANDROID_LOCATION"}),
+            ("TOOL", {"tool_budget_kind": "COMBINED_WORK", "tool_budget_phase": "BEFORE_DISPATCH"}),
+            ("PROVIDER", {"payload_contract": "OPENAI_RESPONSES", "provider_parameter": "input", "provider_rejection_category": "INVALID_REQUEST"}),
+            ("TOOL", {"mcp_failure_phase": "execution", "mcp_failure_category": "MCP_TOOL_ERROR"}),
+            ("TOOL", {"mcp_failure_phase": "execution", "mcp_failure_category": "MCP_OUTPUT_INVALID"}),
             ("PROVIDER", {"provider_rejection_category": "BILLING_UNAVAILABLE", "gateway_terminal_status": "failed"}),
-            ("INCIDENT", {"combined_requirement_gap": "TOPIC", "combined_issue_count": 1}),
+            ("INCIDENT", {"combined_requirement_gap": "TOPIC", "combined_issue_count": 84, "combined_failed_check_count": 3,
+                          "combined_unverified_check_count": 6, "combined_repair_rounds": 2,
+                          "combined_repair_stop": "CORRECTION_CAPACITY_UNAVAILABLE"}),
         ):
             with self.subTest(area=area, fields=fields):
                 report = self.report(self.capture(area, fields))
@@ -1638,6 +1808,7 @@ class IncidentReportContractTest(unittest.TestCase):
             ("TOOL", {"semantic_read_rules": ["LINE_WINDOW"], "validation_field_names": ["ranges", "end_line"],
                       "dependency_admission_reasons": ["CALL_ALLOWANCE"], "saved_view_restore_state": "BODY_MISSING_INDEX_PRESENT",
                       "url_reader_dns_state": "RECOVERY_COOLDOWN", "url_reader_availability": "NEGATIVE_CACHE"}),
+            ("TOOL", {"saved_view_restore_state": "CURSOR_INDEX_INVALID"}),
             ("INCIDENT", {"incident_capture_site": "CHAT_REPOSITORY_PREFLIGHT", "incident_origin": "APPLICATION",
                           "local_readiness_failure": "PENDING_CLEANUP", "pending_tool_count": 2,
                           "pending_tool_identity_hashes": ["a" * 64], "pending_tool_receipt_state": "SOME_TERMINAL_RECEIPTS_MISSING"}),

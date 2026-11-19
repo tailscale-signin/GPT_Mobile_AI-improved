@@ -36,9 +36,14 @@ def apply(window):
     window.option_add('*Font', (FONT, 10))
     window.option_add('*TCombobox*Listbox.background', PANEL)
     window.option_add('*TCombobox*Listbox.foreground', TEXT)
+    window.option_add('*Text.background', PANEL)
+    window.option_add('*Text.foreground', TEXT)
+    window.option_add('*Text.insertBackground', CYAN)
+    window.option_add('*Text.selectBackground', RAISED)
+    window.option_add('*Text.selectForeground', TEXT)
     style = ttk.Style(window)
     style.theme_use('clam')
-    style.configure('.', background=BG, foreground=TEXT, fieldbackground=PANEL, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE)
+    style.configure('.', font=(FONT, 10), background=BG, foreground=TEXT, fieldbackground=PANEL, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE)
     style.configure('TFrame', background=BG)
     style.configure('TLabel', background=BG, foreground=TEXT)
     style.configure('TNotebook', background=BG, borderwidth=0)
@@ -60,6 +65,23 @@ def apply(window):
     style.map('Treeview.Heading', background=[('active', RAISED)])
     style.configure('Vertical.TScrollbar', background=RAISED, troughcolor=PANEL, arrowcolor=MUTED, borderwidth=0)
     return style
+
+
+class RoundedPanel(tk.Frame):
+    """Native child controls retain their layout and focus inside a resizable outline."""
+    def __init__(self, parent):
+        super().__init__(parent, bg=BG)
+        surface = tk.Canvas(self, bg=BG, highlightthickness=0, bd=0, takefocus=False)
+        surface.place(relwidth=1, relheight=1)
+        shape = surface.create_polygon(0, 0, 0, 0, 0, 0, fill=PANEL, outline=LINE, smooth=True)
+        def resize(event):
+            w, h = event.width - 1, event.height - 1
+            r = min(14, w / 2, h / 2)
+            surface.coords(shape, r, 1, w-r, 1, w, 1, w, r, w, h-r, w, h, w-r, h,
+                           r, h, 1, h, 1, h-r, 1, r, 1, 1)
+        surface.bind('<Configure>', resize)
+        self.content = tk.Frame(self, bg=PANEL)
+        self.content.pack(fill='both', expand=True, padx=6, pady=6)
 
 
 def label(parent, content, size=10, color=TEXT, bold=False, bg=BG, **kwargs):

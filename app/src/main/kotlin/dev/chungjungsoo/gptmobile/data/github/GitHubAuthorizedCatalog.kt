@@ -241,7 +241,7 @@ internal object GitHubAuthorizedCatalog {
         }
     }
 
-    private fun github(name: String) = name.substringBefore("__").let { it.startsWith("github_") || it == "repository_graph" }
+    private fun github(name: String) = name.substringBefore("__").let { it.startsWith("github_") || it.isGatewayRepositoryTool() }
     private fun data(receipt: JsonObject) = (receipt["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
     private fun JsonObject?.text(key: String) = (this?.get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
     private fun JsonObject.number(key: String) = (get(key) as? JsonPrimitive)?.intOrNull

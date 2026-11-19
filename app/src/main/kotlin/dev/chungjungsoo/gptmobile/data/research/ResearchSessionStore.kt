@@ -981,7 +981,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         for (row in database.research().pendingIngestions()) {
             try {
                 if (!row.retryDue(System.currentTimeMillis())) {
-                    complete = false
+                    if (row.awaitsAutomaticRetry()) complete = false
                     continue
                 }
                 val payload = Json.parseToJsonElement(row.operation).jsonObject
@@ -1028,17 +1028,18 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 val reason = archiveIngestionFailure(error)
                 val now = System.currentTimeMillis()
                 val payload = runCatching { Json.parseToJsonElement(row.operation).jsonObject }.getOrNull()
-                if (payload != null) {
+                val failed = payload?.let { row.failedIngestion(now, reason) }
+                if (payload != null && failed != null) {
                     database.withTransaction {
                         if (database.research().outboxById(row.id) == row) {
-                            database.research().outbox(row.failedIngestion(now, reason))
+                            database.research().outbox(failed)
                             val sourceId = (payload["source"] as? JsonObject)?.text("id").orEmpty()
-                            database.research().saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(row.id.removePrefix("ingest:"), payload.text("runId"), sourceId, payload.number("chatId"), disposition = "SAVE_FAILED", reason = "$reason:${error.javaClass.simpleName}", updatedAt = now))
+                            database.research().saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(row.id.removePrefix("ingest:"), payload.text("runId"), sourceId, payload.number("chatId"), disposition = "SAVE_FAILED", reason = archiveIngestionReceiptReason(error, "RETRY_CAPTURE"), updatedAt = now))
                         }
                     }
                 }
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchArchive", "RETRY_FAILED · reason=$reason · exception=${error.javaClass.simpleName} · retry=durable_backoff", "W")
-                complete = false
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchArchive", "RETRY_FAILED · reason=$reason · phase=RETRY_CAPTURE · cause=${archiveIngestionCauseCode(error)} · site=${archiveIngestionFailureSite(error)} · retry=bounded_durable", "W")
+                if (failed == null || failed.awaitsAutomaticRetry()) complete = false
             }
         }
         complete

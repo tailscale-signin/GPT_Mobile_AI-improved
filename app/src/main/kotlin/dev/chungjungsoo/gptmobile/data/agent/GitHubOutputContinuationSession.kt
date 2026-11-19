@@ -52,9 +52,10 @@ internal class GitHubOutputContinuationSession(
     /** The runner calls this only after both its execution receipt and evidence observer are saved. */
     suspend fun observeToolResult(call: ProviderEvent.ToolCall, result: AgentToolResult) = checkpointMutex.withLock {
         val previous = readCheckpoint() ?: currentCheckpoint ?: return@withLock
-        if (previous["state"] !in GitHubToolHandoff.states) return@withLock
+        if (previous["state"] !in GitHubToolHandoff.states || GitHubToolHandoff.bindingChanged(previous, toolCheckpointBinding)) return@withLock
         val durable = durableToolReceipts(GitHubToolHandoff.pending(previous))
-        val receipt = durable.firstOrNull { it.callId == call.callId }
+        val fingerprint = ToolHandoffReceipt.fingerprint(call)
+        val receipt = durable.firstOrNull { it.callId == call.callId && it.invocationFingerprint == fingerprint }
             ?: ToolHandoffReceipt.from(call, result, originalAvailable = !result.sharedResult)
         val updated = GitHubToolHandoff.reconcile(previous, durable + receipt, reconciledCallIds())
         if (updated != previous) {
@@ -68,7 +69,7 @@ internal class GitHubOutputContinuationSession(
     /** Hydrate a saved turn with one handoff reconciliation and at most one write. */
     suspend fun restoreToolResults(exchanges: List<AgentToolExchange>) = checkpointMutex.withLock {
         val previous = readCheckpoint() ?: currentCheckpoint ?: return@withLock
-        if (previous["state"] !in GitHubToolHandoff.states) return@withLock
+        if (previous["state"] !in GitHubToolHandoff.states || GitHubToolHandoff.bindingChanged(previous, toolCheckpointBinding)) return@withLock
         val durable = durableToolReceipts(GitHubToolHandoff.pending(previous))
         val restored = exchanges.flatMap { exchange ->
             exchange.calls.mapNotNull { call ->
@@ -371,7 +372,11 @@ internal class GitHubOutputContinuationSession(
         val pendingReceipts = (handoff["completed_results"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             .filter { (it["invocation_fingerprint"] as? JsonPrimitive)?.contentOrNull in pending }
         return ProviderEvent.Failed(
-            "OUTPUT_CONTINUATION_PENDING_TOOLS: ${pending.size} saved invocation(s) still require a matching terminal receipt or outcome reconciliation. Completed actions were retained and were not dispatched again.",
+            if (GitHubToolHandoff.bindingChanged(handoff, toolCheckpointBinding)) {
+                "OUTPUT_CONTINUATION_PENDING_TOOLS: The pending call belongs to a different saved tool journal. Resume the original task to check its execution receipts before repeating an operation."
+            } else {
+                "OUTPUT_CONTINUATION_PENDING_TOOLS: ${pending.size} saved invocation(s) still require a matching terminal receipt or outcome reconciliation. Completed actions were retained and were not dispatched again."
+            },
             errorCode = "OUTPUT_CONTINUATION_PENDING_TOOLS",
             taskOutcome = "BLOCKED",
             failureDetails = buildJsonObject {
@@ -514,7 +519,7 @@ internal class GitHubOutputContinuationSession(
             LoadedCheckpoint(saved)
         } else {
             val durable = durableToolReceipts(GitHubToolHandoff.pending(saved))
-            val updated = GitHubToolHandoff.reconcile(saved, replayReceipts + durable, reconciledCallIds())
+            val updated = if (GitHubToolHandoff.bindingChanged(saved, toolCheckpointBinding)) saved else GitHubToolHandoff.reconcile(saved, replayReceipts + durable, reconciledCallIds())
             if (updated != saved) saveCheckpoint(updated)
             currentCheckpoint = updated
             LoadedCheckpoint(

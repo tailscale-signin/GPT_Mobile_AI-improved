@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -34,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -59,12 +61,14 @@ import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
 import dev.chungjungsoo.gptmobile.data.pricing.decimalRate
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelChip
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.PrivacyModePanel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 
@@ -99,11 +103,16 @@ internal fun NewChatProfileScreen(
 ) {
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val features by viewModel.features.collectAsStateWithLifecycle()
+    val privacy by viewModel.privacyState.collectAsStateWithLifecycle()
+    val privacyChecking by viewModel.privacyChecking.collectAsStateWithLifecycle()
     val selected by viewModel.selectedUids.collectAsStateWithLifecycle()
     val modelPreparation by viewModel.gatewayModelPreparation.collectAsStateWithLifecycle()
     val primary by viewModel.primaryUid.collectAsStateWithLifecycle()
     val researchDepth by viewModel.researchDepth.collectAsStateWithLifecycle()
     val creating by viewModel.creating.collectAsStateWithLifecycle()
+    val firstMessage by viewModel.firstMessage.collectAsStateWithLifecycle()
+    val suggestedMode = remember(firstMessage) { routeForFirstMessage(firstMessage) }
+    var showFirstMessage by rememberSaveable { mutableStateOf(false) }
     val approvingResearch by viewModel.approvingResearch.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val insights by insightViewModel.insights.collectAsStateWithLifecycle()
@@ -134,10 +143,26 @@ internal fun NewChatProfileScreen(
     var primaryOpen by rememberSaveable { mutableStateOf(false) }
     var researchExpanded by rememberSaveable { mutableStateOf(false) }
     var detailsUid by rememberSaveable { mutableStateOf<String?>(null) }
+    var privacySettingsOpen by rememberSaveable { mutableStateOf(false) }
+    var privacyRefresh by remember { mutableIntStateOf(0) }
     val filter = ProfileFilter.entries.firstOrNull { it.name == filterName } ?: ProfileFilter.ALL
     val sort = ProfileSort.entries.firstOrNull { it.name == sortName } ?: ProfileSort.FAVORITES
     val labels = remember(profiles) { collectReusableProfileLabels(profiles.map { it.labels }) }
-    val availableUids = remember(profiles) { profiles.filter { it.enabled }.mapTo(mutableSetOf()) { it.uid } }
+    val checkedProfiles by viewModel.checkedProfiles.collectAsStateWithLifecycle()
+    LaunchedEffect(profiles, privacy, windowFocused, privacyRefresh, privacySettingsOpen) {
+        if (windowFocused && !privacySettingsOpen) {
+            do {
+                viewModel.checkPrivacyProfiles(profiles)
+                if (privacy.enabled) delay(60_000)
+            } while (privacy.enabled)
+        }
+    }
+    val privacyDecisions = remember(profiles, privacy, checkedProfiles) {
+        profiles.filter { it.enabled }.associate { it.uid to viewModel.privacyDecision(it) }
+    }
+    val availableUids = remember(privacyDecisions) {
+        privacyDecisions.filterValues { it.eligible }.keys
+    }
     val currentSelection = remember(selected, availableUids) { selected.filter { it in availableUids } }
     val researchPolicy = remember(researchDepth) {
         MultiSearchResearchSelection(researchToggle = true, depth = researchDepth, scope = ResearchContentScope.WEB_ONLY)
@@ -219,12 +244,43 @@ internal fun NewChatProfileScreen(
                     navigationIcon = {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                     },
+                    actions = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Privacy Mode", style = MaterialTheme.typography.labelSmall)
+                            Checkbox(
+                                checked = privacy.enabled,
+                                onCheckedChange = viewModel::setPrivacyMode,
+                                modifier = Modifier.testTag("new_chat_privacy_mode")
+                            )
+                        }
+                    },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
                 )
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
+                    if (privacy.enabled) {
+                        Text("Privacy-Verified AI Profiles", style = MaterialTheme.typography.titleSmall)
+                        val counts = privacyDecisions.values.groupingBy { it.status }.eachCount()
+                        Text(
+                            listOf(
+                                "${counts[PrivacyProfileEligibility.Status.AVAILABLE] ?: 0} available",
+                                "${counts[PrivacyProfileEligibility.Status.CHECKING] ?: 0} checking",
+                                "${counts[PrivacyProfileEligibility.Status.NOT_VERIFIED] ?: 0} not verified",
+                                "${counts[PrivacyProfileEligibility.Status.INCOMPATIBLE] ?: 0} incompatible"
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("privacy_profile_counts")
+                        )
+                        Text("Unavailable profiles stay saved. Missing verification does not mean a provider retains your data.", style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { privacyRefresh++ }, enabled = !privacyChecking, modifier = Modifier.testTag("privacy_profiles_recheck")) {
+                                Text(if (privacyChecking) "Checking profiles…" else "Recheck profiles")
+                            }
+                            TextButton(onClick = { privacySettingsOpen = true }, modifier = Modifier.testTag("privacy_profile_settings")) { Text("Privacy settings") }
+                        }
+                    }
                     ProfileSearchField(query, { query = it }, Modifier.testTag("new_chat_search"))
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ProfileFilter.entries.forEach { option ->
@@ -280,6 +336,52 @@ internal fun NewChatProfileScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (kind == NewChatType.SINGLE || kind == NewChatType.RESEARCH) {
+                item(key = "profile_recommendations") {
+                    Column {
+                        TextButton(onClick = { showFirstMessage = !showFirstMessage }) {
+                            Text(
+                                if (showFirstMessage) {
+                                    "Hide first message"
+                                } else if (firstMessage.isBlank()) {
+                                    "Match a first message"
+                                } else {
+                                    "Edit first message"
+                                }
+                            )
+                        }
+                        if (showFirstMessage) {
+                            androidx.compose.material3.OutlinedTextField(
+                                value = firstMessage,
+                                onValueChange = viewModel::editFirstMessage,
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("First message") },
+                                supportingText = { Text("Kept in your draft until you send it.") },
+                                minLines = 2,
+                                maxLines = 4,
+                                enabled = !creating
+                            )
+                        }
+                        Row(Modifier.horizontalScroll(rememberScrollState())) {
+                            ChatRouteChoice.entries.forEach { choice ->
+                                val rank = if (choice == ChatRouteChoice.AUTO && kind == NewChatType.SINGLE) suggestedMode else choice
+                                val research = kind == NewChatType.RESEARCH || rank == ChatRouteChoice.RESEARCH
+                                val target = remember(rank, research, visible, availableUids, insights, gatewayAvailability, features, researchPolicy) {
+                                    recommendedChatProfile(rank, visible.filter { it.uid in availableUids }, insights, gatewayAvailability, research) { profile ->
+                                        features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                                            researchStartBlockReason(researchPolicy, features, profile.uid, !profile.disableAllTools && !profile.disableRemoteTools) == null
+                                    }
+                                }
+                                TextButton(onClick = {
+                                    target?.let { viewModel.chooseSuggestedProfile(it.uid, research) }
+                                }, enabled = target != null && !creating && !(research && privacy.enabled)) {
+                                    Text(if (choice == ChatRouteChoice.AUTO && rank != choice) "Auto · " + rank.label else choice.label)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if (accessibilityInteracting) {
                 item(key = "gateway_profile_order") {
                     TextButton(
@@ -305,13 +407,15 @@ internal fun NewChatProfileScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     SelectPlatformProfileCard(
                         profile = profile,
+                        privacyRestriction = viewModel.privacyDecision(profile).takeUnless { it.eligible }?.explanation,
+                        privacyStatus = privacyDecisions[profile.uid]?.status.takeIf { privacy.enabled },
                         selected = profile.uid in currentSelection,
                         insight = insights[profile.uid]?.takeIf { it.matches(profile) },
                         onToggle = viewModel::toggleProfile,
                         onFavorite = { viewModel.toggleFavorite(profile.uid) },
                         onInsights = { detailsUid = profile.uid },
                         gatewayAvailability = gatewayAvailability[profile.uid],
-                        animateGateway = profile.uid in visibleKeys && !optionsOpen && !sortOpen && !primaryOpen && detailsUid == null,
+                        animateGateway = profile.uid in visibleKeys && !optionsOpen && !sortOpen && !primaryOpen && !privacySettingsOpen && detailsUid == null,
                         onFocus = { focused ->
                             if (focused) {
                                 focusedUid = profile.uid
@@ -320,10 +424,26 @@ internal fun NewChatProfileScreen(
                             }
                         }
                     )
+                    if (privacy.enabled) {
+                        val decision = viewModel.privacyDecision(profile)
+                        Text(decision.explanation, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("privacy_profile_reason_${profile.uid}"))
+                        decision.policyUrl?.let { url ->
+                            val handler = androidx.compose.ui.platform.LocalUriHandler.current
+                            TextButton(onClick = { handler.openUri(url) }) { Text("Provider privacy terms") }
+                        }
+                    }
                     modelPreparation[profile.uid]?.takeIf { profile.uid in currentSelection }?.let { state ->
                         GatewayModelPreparationContent(state) { viewModel.recheckGatewayModel(profile.uid) }
                     }
                 }
+            }
+        }
+    }
+    if (privacySettingsOpen) {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet(onDismissRequest = { privacySettingsOpen = false }) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+                TextButton(onClick = { privacySettingsOpen = false }, modifier = Modifier.align(Alignment.End)) { Text("Done") }
+                PrivacyModePanel()
             }
         }
     }

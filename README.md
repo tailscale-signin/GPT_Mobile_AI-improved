@@ -127,7 +127,9 @@ For repeatable tasks, advanced users can save editable recipes and optionally sc
 | Using Ollama or a PC gateway | Requires access to that server. |
 | Viewing Health Connect data locally | Reads the phone's health store; separately authorised AI sharing may send results to a model, gateway or delegate. |
 
-Credentials and authoritative fact memory use protected encrypted storage. **Not every chat, attachment, database or search index is encrypted by the app.** App lock and screenshot protection are additional controls, not a replacement for storage encryption.
+The installed conversation database, including its message search index, is encrypted with SQLCipher. Its random key is wrapped by Android Keystore. On upgrade, the app copies legacy history into an encrypted database, checks its integrity and installs it atomically. Credentials and authoritative fact memory have their own protected storage. Standalone attachments, other databases, secondary indexes, exported files and recipient copies have separate storage policies. Privacy Mode and app lock protect screenshots and recent-app previews on protected screens.
+
+Saved chats stay on the device until you delete them. Remote providers and tools apply their own retention periods to the data they receive. Privacy Mode checks supported cloud routes before dispatch. The app uses HTTPS for public provider traffic and supports direct HTTP connections to a private local server. Chat sharing creates a file in the app cache and grants the selected recipient read access.
 
 Temporary conversations turn off memory capture and recall, avoid portable backups, and are removed when you leave or the app restarts. This is not guaranteed forensic erasure. Deleting local conversations cannot delete copies retained by an external provider.
 

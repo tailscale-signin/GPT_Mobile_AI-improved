@@ -721,7 +721,21 @@ class GitHubVerifiedSessionTest {
                 val call = requireNotNull(GitHubStatusRequest.nextCall(tools, receipts, 1000L, task = task))
                 actions += call.arguments.getValue("action").toString()
                 if (index == 1 || index == 3) assertEquals(JsonPrimitive("a".repeat(40)), call.arguments["commit_sha"])
-                receipts[index.toString()] = JsonObject(mapOf("tool" to JsonPrimitive(call.name), "arguments" to call.arguments, "observed_at_ms" to JsonPrimitive(1000L), "trusted" to JsonPrimitive(true), "success" to JsonPrimitive(true), "result" to JsonObject(mapOf("commit_sha" to JsonPrimitive("a".repeat(40))))))
+                val result = buildJsonObject {
+                    put("commit_sha", "a".repeat(40))
+                    if (call.arguments["action"] == JsonPrimitive("checks")) {
+                        put("checks", 0)
+                        put("statuses", 0)
+                    }
+                }
+                receipts[index.toString()] = buildJsonObject {
+                    put("tool", call.name)
+                    put("arguments", call.arguments)
+                    put("observed_at_ms", 1000L)
+                    put("trusted", true)
+                    put("success", true)
+                    put("result", result)
+                }
             }
             assertEquals(listOf("\"status\"", "\"checks\"", "\"list\"", "\"commits\""), actions)
             assertEquals(null, GitHubStatusRequest.nextCall(tools, receipts, 1000L, task = task))
@@ -765,6 +779,30 @@ class GitHubVerifiedSessionTest {
         assertEquals(JsonPrimitive(7), budget["remaining_calls"])
         assertFalse(budget.containsKey("effective_call_limit"))
         assertFalse(budget.containsKey("used_calls"))
+    }
+
+    @Test fun unrelatedExposedToolCannotStandInForTheIntegrationCatalog() = runTest {
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet())
+        val gate = GitHubVerifiedSession(answer("unused"), book, "Test GitHub tools and report.", { 8192 }, { error("No verifier without operation evidence") }, {}, {})
+        val events = gate.streamRound(listOf(AgentToolDefinition("weather", "", JsonObject(emptyMap()))), emptyList()).toList()
+        val terminal = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", terminal.errorCode)
+        assertEquals(JsonPrimitive("CATALOG_TOOL_NOT_EXPOSED"), terminal.failureDetails?.get("github_prerequisite_observation"))
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+    }
+
+    @Test fun unrelatedRoundToolsDoNotSatisfyTheIntegrationCatalog() = runTest {
+        val unrelated = AgentToolDefinition("weather", "Weather", buildJsonObject { put("type", "object") })
+        val deferred = unrelated.copy(name = "github_context")
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf(deferred.name))
+        val gate = GitHubVerifiedSession(
+            answer("unused"), book, "Test GitHub tools and report.", { 8192 }, { error("No verifier without receipts") },
+            {}, {}, authorizedTools = listOf(deferred), remainingToolCalls = { 256 }
+        )
+        val events = gate.streamRound(listOf(unrelated), emptyList()).toList()
+        assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertTrue(book.snapshot().first.isEmpty())
     }
 
     @Test fun absentIntegrationCatalogStopsBeforeProviderDenialCanBeDispatched() = runTest {

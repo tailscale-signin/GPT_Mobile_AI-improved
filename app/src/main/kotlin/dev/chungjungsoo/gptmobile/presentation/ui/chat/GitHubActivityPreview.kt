@@ -105,7 +105,8 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
                         Modifier.testTag(if (latest) "github_latest_preview" else "github_previous_preview")
                             // Text semantics retain the complete public description even
                             // when the visual preview is collapsed.
-                            .semantics { if (latest || counter) liveRegion = LiveRegionMode.Polite }
+                            // Rapid counters remain focus-readable without announcing every tick.
+                            .semantics { if (latest && !counter) liveRegion = LiveRegionMode.Polite }
                     } else {
                         Modifier
                     }

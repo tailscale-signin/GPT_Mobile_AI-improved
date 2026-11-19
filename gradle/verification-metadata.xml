@@ -5,6 +5,278 @@
       <verify-signatures>false</verify-signatures>
    </configuration>
    <components>
+
+      <component group="org.bitbucket.b_c" name="jose4j" version="0.9.6">
+         <artifact name="jose4j-0.9.6.jar">
+            <sha256 value="7314af50cde9c99e8eaf43eee617a23edcc6bb43036221064355094999d837ef" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="jose4j-0.9.6.pom">
+            <sha256 value="3fb7fa713e89d42784bdf4d192ece217400040bda7e933886a9f45ce8b9b557e" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.bouncycastle" name="bcpkix-jdk18on" version="1.86">
+         <artifact name="bcpkix-jdk18on-1.86.jar">
+            <sha256 value="8d8b41a4b149bdae8d331f059a578870954d1e3ff29f8269a9eb3ee19a7e4ef7" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="bcpkix-jdk18on-1.86.pom">
+            <sha256 value="44989844fb17b39eb08eabeaf81e1fd16ac50c994d5c02119f891220c3ac5878" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="org.bouncycastle" name="bcprov-jdk18on" version="1.86">
+         <artifact name="bcprov-jdk18on-1.86.jar">
+            <sha256 value="2af190b300cbb0b35e248ccf5f4a06b6072030aeb3da7a98ec73abe5b4cb371f" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="bcprov-jdk18on-1.86.pom">
+            <sha256 value="970b70cb75a184639b6fb9ba3c465aca6a4e1a5f3fff4d65ce8574b2fd79ef38" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="org.bouncycastle" name="bcutil-jdk18on" version="1.86">
+         <artifact name="bcutil-jdk18on-1.86.jar">
+            <sha256 value="1c268e15f785aafb1e4670d8d6e5f856f69475e96c162dadcd1ff9b350e9139f" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="bcutil-jdk18on-1.86.pom">
+            <sha256 value="2209b3e5d1eb2bb3c593b824c1b8f142b05dea8e9df7400b0f33f2b91a0741fa" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="org.jdom" name="jdom2" version="2.0.6.1">
+         <artifact name="jdom2-2.0.6.1.jar">
+            <sha256 value="0b20f45e3a0fd8f0d12cdc5316b06776e902b1365db00118876f9175c60f302c" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="jdom2-2.0.6.1.pom">
+            <sha256 value="55795e1018b8ae647b937967cf810a99b08582c2374e7873c128734c8c914bf3" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+
+      <component group="biz.aQute.bnd" name="biz.aQute.bnd.annotation" version="7.1.0">
+         <artifact name="biz.aQute.bnd.annotation-7.1.0.jar">
+            <sha256 value="f69c2de3a695c113d125ac8053c92a680a3ce9d02ea25845095cf2d4626a7663" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="biz.aQute.bnd.annotation-7.1.0.pom">
+            <sha256 value="5822df49183df922ba59ae773a2d8cceb86ae1e20f41f19873131dd182494f7a" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.osgi" name="org.osgi.annotation.bundle" version="2.0.0">
+         <artifact name="org.osgi.annotation.bundle-2.0.0.jar">
+            <sha256 value="b9c9546ec5be3ebc2e85ba4919150ad76d64594805282fc895133a47d264a7ae" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="org.osgi.annotation.bundle-2.0.0.pom">
+            <sha256 value="8b9cf8a4129ebf5278f2634d3509c372283961ad0fdcc85a245bb35d7a22a5c8" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.osgi" name="org.osgi.annotation.versioning" version="1.1.2">
+         <artifact name="org.osgi.annotation.versioning-1.1.2.jar">
+            <sha256 value="f51f235e80df8ffbc30ef1b557b6ea38a696632d675404ec117e952978b8b863" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="org.osgi.annotation.versioning-1.1.2.pom">
+            <sha256 value="b1d3012abffa2b7fc4a3d0baee8784494c073986b000d655a788fa617aaa2bc8" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.osgi" name="org.osgi.resource" version="1.0.0">
+         <artifact name="org.osgi.resource-1.0.0.jar">
+            <sha256 value="81fc50f1f1d38a4af28e131907d4afe213249aab05060484edca0e60c4af9b4a" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="org.osgi.resource-1.0.0.pom">
+            <sha256 value="83acdf225ffb9a4a7bc582f53a4145a1f2c3bdbb428e033c00966f63c610e820" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.osgi" name="org.osgi.service.serviceloader" version="1.0.0">
+         <artifact name="org.osgi.service.serviceloader-1.0.0.jar">
+            <sha256 value="8f876ce2a9aa4e95b1f1952950255103e2487425050a654f3285447ba601c154" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="org.osgi.service.serviceloader-1.0.0.pom">
+            <sha256 value="755751ab6c37a1a31afb5b9e4a595c0dd2efd2b50d703b21255b827c50ed6153" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="com.fasterxml" name="oss-parent" version="68">
+         <artifact name="oss-parent-68.pom">
+            <sha256 value="25eafd96dae242b6b5a7108f55b2c14015b828daa5abe234289fd6e774a1ce57" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.fasterxml.jackson" name="jackson-base" version="2.22.3">
+         <artifact name="jackson-base-2.22.3.pom">
+            <sha256 value="1991ff35885b389eb29c23ae318c8eca66562915205bdeea53c722a5bd1b3bcb" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.fasterxml.jackson" name="jackson-bom" version="2.19.1">
+         <artifact name="jackson-bom-2.19.1.pom">
+            <sha256 value="ba6d68eeab3a1cc13a77a8ade2197ff9a32aa1cffeac72847d49badd82e1b9ce" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.fasterxml.jackson" name="jackson-bom" version="2.22.3">
+         <artifact name="jackson-bom-2.22.3.pom">
+            <sha256 value="8f499c6a8c017bb987a1a73b91f705c22fe24ec2777e7055c7a2a913f14b5440" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.fasterxml.jackson" name="jackson-parent" version="2.19.2">
+         <artifact name="jackson-parent-2.19.2.pom">
+            <sha256 value="639a2b63dd05da4e381081303985caadfbb7ad9f85b1d2320638f6b11f208365" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.fasterxml.jackson.core" name="jackson-core" version="2.22.3">
+         <artifact name="jackson-core-2.22.3.jar">
+            <sha256 value="8a501126a385b25841915d839508f8a66e2a0dbc8a6709d055ef3b3e852b094c" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="jackson-core-2.22.3.module">
+            <sha256 value="59bea26ba4225920ed921223d1a8336647f9523f780aaef634ff9b28ac6ce227" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="jackson-core-2.22.3.pom">
+            <sha256 value="bc74c18b24f3ebbfd42741f2b29b37eca9b25e512e6fa7add77f6973cee50bf1" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.fasterxml.jackson.core" name="jackson-databind" version="2.22.3">
+         <artifact name="jackson-databind-2.22.3.jar">
+            <sha256 value="556db5439e206114346043f68d200497dc96a0bca62a360a81784092ebd0e0a9" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="jackson-databind-2.22.3.module">
+            <sha256 value="1e86866b42006af7a55f1f1808cfcbb87a3a292a22f390a15d39f8fffbb0b0ad" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="jackson-databind-2.22.3.pom">
+            <sha256 value="27a5c6657b955d088daf586f2be9769224e33618ab4f44682a1b36ed98f7b904" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.google.errorprone" name="error_prone_annotations" version="2.50.0">
+         <artifact name="error_prone_annotations-2.50.0.jar">
+            <sha256 value="4667724877f1d37a689202da191e23efa7657c62eef93ccdac406eccfe5cdd0a" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="error_prone_annotations-2.50.0.pom">
+            <sha256 value="71a0680d277324bab46bec4b00f6f111c1b794a931d0d8cda79bcb9246982f92" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.google.errorprone" name="error_prone_parent" version="2.50.0">
+         <artifact name="error_prone_parent-2.50.0.pom">
+            <sha256 value="abf45a019db125b50ff55134ec2af94ae3519761038adf0a60b9bd7b4b8b6254" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.google.guava" name="guava" version="33.7.2-jre">
+         <artifact name="guava-33.7.2-android.jar">
+            <sha256 value="b949fe975a32421c1a2633c07a4f1578b462f2f467668aa0a4023c5ff7c4a808" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="guava-33.7.2-jre.jar">
+            <sha256 value="b530942257fb935f8b2cfaa5f8eb5bd59c555fd8e8d01b8ce98912e077ea606c" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="guava-33.7.2-jre.module">
+            <sha256 value="7170b42bdc6a9cbfd78a2142d6dfb423473503c584bedbae85d24359dca5029f" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="guava-33.7.2-jre.pom">
+            <sha256 value="5d1501a97230f90df54ea33164831a61c6714a8b2a4c6a04e90bb729581bbabc" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.google.guava" name="guava-parent" version="33.7.2-jre">
+         <artifact name="guava-parent-33.7.2-jre.pom">
+            <sha256 value="a81570d53c8710355e0216a4405afa93834b17c4cdd0ed9aa8beede3a132bbbe" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="com.google.protobuf" name="protobuf-bom" version="4.28.2">
+         <artifact name="protobuf-bom-4.28.2.pom">
+            <sha256 value="43666cd072728c646cc45a614aeeead1e0b23f818f652982df279a0e5adaf316" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="com.google.protobuf" name="protobuf-javalite" version="4.28.2">
+         <artifact name="protobuf-javalite-4.28.2.jar">
+            <sha256 value="dcbac0ae7a6ff7a751ca426bc49008f80c7a5d4ecde9d84750ca86dd2f614db3" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="protobuf-javalite-4.28.2.pom">
+            <sha256 value="84266af59ff800beffffaf3edc0d1b646ab1ccaf3699b9588ff9c3a10d6f1ed5" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="com.google.protobuf" name="protobuf-parent" version="4.28.2">
+         <artifact name="protobuf-parent-4.28.2.pom">
+            <sha256 value="f7f23fc16ed463cf52579fffafa03940e8e653b33c6b4f106082c5bf15050f75" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache.commons" name="commons-lang3" version="3.18.0">
+         <artifact name="commons-lang3-3.18.0.jar">
+            <sha256 value="4eeeae8d20c078abb64b015ec158add383ac581571cddc45c68f0c9ae0230720" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="commons-lang3-3.18.0.pom">
+            <sha256 value="aa254b373b6f6d46bc9dca86331b072a8ab86eb25ea9921fd439618392e98a16" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache.commons" name="commons-parent" version="85">
+         <artifact name="commons-parent-85.pom">
+            <sha256 value="d189ff2c0027e96bb65d31e6f227ed2af966169b36af1e973dd5ba08926dc7b5" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache.groovy" name="groovy-bom" version="4.0.27">
+         <artifact name="groovy-bom-4.0.27.module">
+            <sha256 value="d6c2254c8347b84cda84caf74914a187c2f377e4284e8d8bb3f901521810aa8b" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="groovy-bom-4.0.27.pom">
+            <sha256 value="aa44eb52bfdfe61d27b3e450d2b348d88deaa3437ab4d9d49a84095348f9f6fb" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="org.apache.logging.log4j" name="log4j" version="2.25.5">
+         <artifact name="log4j-2.25.5.pom">
+            <sha256 value="00faeca1c624b9773a71b0fcff8fbd195e5101a4782aab085d74a6fb469881bd" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache.logging.log4j" name="log4j-api" version="2.25.5">
+         <artifact name="log4j-api-2.25.5.jar">
+            <sha256 value="64777f73ea0b3104c04eb82befbdccc30a425a19e83ad06cb2f93aa303511863" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="log4j-api-2.25.5.module">
+            <sha256 value="f517309a3a8a22c67a1627aa1c0b7b0e61ef67a0f06c6505de6e817b46eb6f2f" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+         <artifact name="log4j-api-2.25.5.pom">
+            <sha256 value="035b3e6057d26535cac74e5333403a797460ebef0b9313b844826140ed36de67" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.apache.logging.log4j" name="log4j-bom" version="2.25.5">
+         <artifact name="log4j-bom-2.25.5.pom">
+            <sha256 value="5b56489b405c305a2918eea9a4ac00fd26093d5535d1e7ee2f564ac35b4b5fa0" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
+      </component>
+      <component group="org.bouncycastle" name="bcpkix-jdk15to18" version="1.86">
+         <artifact name="bcpkix-jdk15to18-1.86.jar">
+            <sha256 value="cf70d32101e53c3f92d55ba5c5f1329af51a9a44057fd21e81e20cfd6cd64953" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="bcpkix-jdk15to18-1.86.pom">
+            <sha256 value="ece29ab41d3b510d94a7a9312c6a256c6efc5f227effffd90a6b00b341411713" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="org.bouncycastle" name="bcprov-jdk15to18" version="1.86">
+         <artifact name="bcprov-jdk15to18-1.86.jar">
+            <sha256 value="fc50334d4d87b4272e72fa95ca748ead05bdef02ef760a5b13f64ffee317cd81" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="bcprov-jdk15to18-1.86.pom">
+            <sha256 value="af3f44f2c8bd90d10d0ebbc3c2f26b5d9b54588543a57cd879465f3dc4f1eef0" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="org.bouncycastle" name="bcutil-jdk15to18" version="1.86">
+         <artifact name="bcutil-jdk15to18-1.86.jar">
+            <sha256 value="e72ef8a0fcad295207529b268ee02eb72acc7c83ec2e3a9df90cbed9380e3990" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="bcutil-jdk15to18-1.86.pom">
+            <sha256 value="0576bab3941c02ca38590878a27022b7a21f4b143855e3872323cd2ef04339e8" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="org.junit" name="junit-bom" version="5.13.1">
+         <artifact name="junit-bom-5.13.1.module">
+            <sha256 value="33c07ab9724790a6e5859ba07d69117ac530439724545a81c4179e3272c75de8" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="junit-bom-5.13.1.pom">
+            <sha256 value="fa68451ea830572ed43ffe51d75b6a05f7a5e665a602a51f49d6be02063a65f3" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="org.junit" name="junit-bom" version="5.13.2">
+         <artifact name="junit-bom-5.13.2.module">
+            <sha256 value="ed67e15221404ac42b5e598102edf762dd6a952dc95001e9c0c4ee74a04e8283" origin="Maven Central publisher SHA256"/>
+         </artifact>
+         <artifact name="junit-bom-5.13.2.pom">
+            <sha256 value="43b1104fb3fd4ef4b72a9751d41e09c29f001c8be00ff3972238dc169a734b49" origin="Maven Central publisher SHA256"/>
+         </artifact>
+      </component>
+      <component group="net.zetetic" name="sqlcipher-android" version="4.17.0">
+         <artifact name="sqlcipher-android-4.17.0.aar">
+            <sha256 value="44fc40c33d1de597c8339072a71fa0ff20e12d01ab352d6abe4ad5df668ead94" origin="Verified against Maven Central publisher SHA-256"/>
+         </artifact>
+         <artifact name="sqlcipher-android-4.17.0.module">
+            <sha256 value="d6a51f3d869179fb2ab5f1968a51884a127823bcd3ccb1f070d1f0ddeae62537" origin="Verified against Maven Central publisher SHA-256"/>
+         </artifact>
+         <artifact name="sqlcipher-android-4.17.0.pom">
+            <sha256 value="219809124475bc3550d31805146057bf230fc444e8a062d1ee0599bd7e163edb" origin="Verified against Maven Central publisher SHA-256"/>
+         </artifact>
+      </component>
       <component group="com.k2fsa.sherpa.onnx" name="sherpa-onnx-static-link-onnxruntime" version="2.0.1">
          <artifact name="sherpa-onnx-static-link-onnxruntime-2.0.1.aar">
             <sha256 value="07e042d97f3a6bd5b7fe74d4eef0513dc01a714b16c15a903250095aba43a575" origin="Verified against the upstream GitHub release asset digest"/>
@@ -5668,6 +5940,9 @@
          </artifact>
       </component>
       <component group="org.checkerframework" name="checker-qual" version="2.5.8">
+         <artifact name="checker-qual-2.5.8.jar">
+            <sha256 value="bd655da535df1eeb96fc8874d05d0f7029209de95096e4f84bd07c66688a210d" origin="Matching Maven Central and Google Central mirror bytes"/>
+         </artifact>
          <artifact name="checker-qual-2.5.8.pom">
             <sha256 value="33ac6a0f1341ae96647c7d4465f4aa3d24fe97d2697bcee2ceae6fc8b5ef2c3c" origin="Generated by Gradle"/>
          </artifact>
@@ -6995,7 +7270,9 @@
       </component>
       <component group="org.jetbrains.kotlin.plugin.compose" name="org.jetbrains.kotlin.plugin.compose.gradle.plugin" version="2.4.20">
          <artifact name="org.jetbrains.kotlin.plugin.compose.gradle.plugin-2.4.20.pom">
-            <sha256 value="9ed1b04a99d38243a15a42b37d4dc4ba84ca77f35d77c081a7c2208d439e1220" origin="Generated by Gradle"/>
+            <sha256 value="9ed1b04a99d38243a15a42b37d4dc4ba84ca77f35d77c081a7c2208d439e1220" origin="Maven Central; both marker POMs depend on the locked Compose compiler plugin">
+               <also-trust value="ad4bc062bf802e7b570ecf30467bb70a480d779502cf6be0700204c7c89e9d97"/>
+            </sha256>
          </artifact>
       </component>
       <component group="org.jetbrains.kotlin.plugin.parcelize" name="org.jetbrains.kotlin.plugin.parcelize.gradle.plugin" version="2.4.20">

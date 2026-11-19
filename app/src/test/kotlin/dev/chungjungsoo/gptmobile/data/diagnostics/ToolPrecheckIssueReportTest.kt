@@ -51,6 +51,40 @@ class ToolPrecheckIssueReportTest {
         IssueReportIncidents.clearRecent()
     }
 
+    @Test fun failedCompareReceiptKeepsItsRemoteReadStage() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val receipt = buildJsonObject {
+            put("schema", "github.dispatch.v1")
+            put("phase", "READ_FAILED")
+            put("http_status", 422)
+            put("mutation_requests", 0)
+            put("requires_reconciliation", false)
+        }
+        val result = ToolResultEnvelope.error("compare-call", "GITHUB_VALIDATION_FAILED", "private detail", dispatched = true).copy(executionReceipt = receipt)
+        val report = record("github_context", result, buildJsonObject { put("action", "changes") })
+        assertEquals("tool_execution", report.context?.stage)
+        assertEquals(422, report.context?.httpStatus)
+        assertEquals(true, report.context?.dispatched)
+        assertEquals(JsonPrimitive("READ_FAILED"), report.context?.diagnostics?.values?.get("tool_dispatch_phase"))
+    }
+
+    @Test fun combinedWorkPrecheckKeepsItsOwnBudgetDimension() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val result = ToolResultEnvelope.error("budget-check", "BUDGET_EXHAUSTED", "budget reached").copy(combinedWorkBudgetExhausted = true)
+        val report = record("github_ci", result)
+        assertEquals("TOOL_BUDGET_EXHAUSTED", report.errorCode)
+        assertEquals(JsonPrimitive("COMBINED_WORK"), report.context?.diagnostics?.values?.get("tool_budget_kind"))
+        assertEquals(JsonPrimitive("BEFORE_DISPATCH"), report.context?.diagnostics?.values?.get("tool_budget_phase"))
+    }
+
+    @Test fun unavailableToolAdmissionKeepsItsPublicCategory() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val result = AgentToolResult("absent-tool", ToolResultContent.Text("Private tool is unavailable"), isError = true, dispatched = false, errorCode = "TOOL_NOT_AVAILABLE")
+        val report = record("web_search", result)
+        assertEquals("TOOL_UNAVAILABLE", report.errorCode)
+        assertEquals(false, report.context?.dispatched)
+    }
+
     @Test fun budgetDuplicateAndCheckpointRejectionsRetainTheirExactLocalReason() = runBlocking {
         LocalDiagnosticsPolicy.setEnabled(true)
         for ((index, code) in listOf("BUDGET_EXHAUSTED", "DUPLICATE_INVOCATION", "BUDGET_CHECKPOINT_UNAVAILABLE").withIndex()) {

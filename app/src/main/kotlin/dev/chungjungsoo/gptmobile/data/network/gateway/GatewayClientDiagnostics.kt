@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.research.researchHash
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -203,7 +204,13 @@ internal object GatewayClientDiagnostics {
         ) {
             // A later successful read with this same identity can reconcile the
             // failed attempt. Headers alone never count as a completed body.
-            AppLogRecorder.record("Gateway", "METADATA_READ_OUTCOME · incident_id=${fields.diagnosticText("incident_id")} · operation_id=${fields.diagnosticText("operation_id")} · outcome=${if (fields.diagnosticText("error_code") == "CANCELLED") "CANCELLED" else "ATTEMPT_FAILED"} · error_code=${fields.diagnosticText("error_code")} · retry_attempt=${(fields["bounded_attributes"] as? JsonObject)?.get("retry_attempt")} · selectedModelReadiness=not_inferred")
+            val attempt = (fields["bounded_attributes"] as? JsonObject)?.get("retry_attempt")
+            val outcome = when {
+                fields.diagnosticText("error_code") == "CANCELLED" -> "CANCELLED"
+                attempt == JsonPrimitive(1) -> "RETRY_EXHAUSTED"
+                else -> "ATTEMPT_FAILED"
+            }
+            AppLogRecorder.record("Gateway", "METADATA_READ_OUTCOME · incident_id=${fields.diagnosticText("incident_id")} · operation_id=${fields.diagnosticText("operation_id")} · outcome=$outcome · error_code=${fields.diagnosticText("error_code")} · retry_attempt=$attempt · selectedModelReadiness=not_inferred")
         }
     }
 

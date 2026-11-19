@@ -1,0 +1,179 @@
+package dev.chungjungsoo.gptmobile.presentation.ui.setting
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyCategory
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+@HiltViewModel
+class PrivacyModeViewModel @Inject constructor(
+    private val store: PrivacyModeStore,
+    settings: SettingRepository
+) : ViewModel() {
+    val state = store.state
+    internal val authority get() = store.verifier.authority
+    internal val setup get() = store.verifier.accountSetup
+    internal val openRouterProfiles = settings.observePlatformV2s().map { profiles ->
+        profiles.filter {
+            it.enabled &&
+                it.compatibleType == ClientType.OPENROUTER &&
+                it.apiUrl.trimEnd('/') in OpenRouterIdentity.endpoints &&
+                !it.token.isNullOrBlank()
+        }.distinctBy { it.apiUrl.trimEnd('/') to it.token }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun setEnabled(enabled: Boolean) = store.setEnabled(enabled)
+
+    suspend fun privateTerms() = store.privateTerms().joinToString("\n")
+    suspend fun saveTerms(value: String) = store.savePrivateTerms(value)
+
+    fun setCategory(category: PrivacyCategory, enabled: Boolean) = store.setCategory(category, enabled)
+}
+
+/** Simple master switch; maximum safeguards when enabled, individual categories default ON. */
+@Composable
+internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel()) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val profiles by viewModel.openRouterProfiles.collectAsStateWithLifecycle()
+    var customize by remember { mutableStateOf(false) }
+    var details by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Privacy Mode", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (state.enabled) "ON · Strict privacy filtering" else "OFF · Standard profile availability",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = state.enabled,
+                onCheckedChange = viewModel::setEnabled,
+                modifier = Modifier.testTag("settings_privacy_mode")
+            )
+        }
+        Text(
+            "When on, Privacy Mode masks personal details on this device and checks cloud routes for no training, content logging or routine retention. Your private Gateway uses its installed model.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        ProviderVerificationSetup(viewModel.authority, viewModel.setup, profiles)
+        TextButton(onClick = { customize = !customize }, modifier = Modifier.testTag("privacy_customize")) {
+            Text(if (customize) "Hide custom protections" else "Customize protections")
+        }
+        if (customize) {
+            Text("Information to protect", style = MaterialTheme.typography.titleSmall)
+            Text("All categories are protected by default. Add names or other details as custom private terms.", style = MaterialTheme.typography.bodySmall)
+            PrivacyCategory.entries.forEach { category ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(category.title, style = MaterialTheme.typography.bodyMedium)
+                        Text(category.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = category in state.categories,
+                        onCheckedChange = { viewModel.setCategory(category, it) },
+                        modifier = Modifier.testTag("privacy_category_${category.name}")
+                    )
+                }
+            }
+            PrivateTermsEditor(viewModel)
+        }
+        TextButton(onClick = { details = !details }) {
+            Text(if (details) "Hide protection details" else "How protection works")
+        }
+        if (details) {
+            Text("Each cloud model and upstream is checked before sending text. Strict Zero Data Retention excludes routine Safety Retention; fallback, response caching and supported plugins are disabled. External tools, attachments and voice require separate verification.", style = MaterialTheme.typography.bodySmall)
+            Text("Available means the required checks passed. Not verified means a check is incomplete. Incompatible means the route conflicts with a privacy requirement. Free providers are checked individually and may remain unavailable.", style = MaterialTheme.typography.bodySmall)
+            Text("Automated masking recognizes common formats and your custom terms. Provider agreements may allow legally required exceptions and non-content usage metadata. Other cloud providers require their applicable account and endpoint approvals.", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun PrivateTermsEditor(viewModel: PrivacyModeViewModel) {
+    var terms by remember { mutableStateOf("") }
+    var saved by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
+    var saving by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(viewModel) {
+        try {
+            terms = viewModel.privateTerms()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            error = true
+        } finally {
+            loading = false
+        }
+    }
+    OutlinedTextField(
+        value = terms,
+        onValueChange = {
+            if (it.length <= 8192) terms = it
+            saved = false
+        },
+        enabled = !loading && !saving,
+        label = { Text("Custom private terms (one per line)") },
+        modifier = Modifier.fillMaxWidth()
+    )
+    TextButton(enabled = !loading && !saving, onClick = {
+        if (!saving) {
+            saving = true
+            val value = terms
+            scope.launch {
+                try {
+                    viewModel.saveTerms(value)
+                    saved = true
+                    error = false
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    error = true
+                } finally {
+                    saving = false
+                }
+            }
+        }
+    }) { Text(if (saved) "Terms saved" else "Save private terms") }
+    if (error) Text("Could not access the encrypted private terms.", color = MaterialTheme.colorScheme.error)
+}

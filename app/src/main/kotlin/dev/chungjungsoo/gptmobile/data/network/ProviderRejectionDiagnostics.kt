@@ -9,13 +9,23 @@ import kotlinx.serialization.json.put
 
 /** Closed categories and domain-separated hashes; response prose and rejected values never leave here. */
 internal object ProviderRejectionDiagnostics {
-    enum class Contract { CHAT_COMPLETIONS, ANTHROPIC_MESSAGES, GOOGLE_CONTENT, GATEWAY_GENERATION }
-    private val parameters = setOf("model", "messages", "max_tokens", "max_completion_tokens", "temperature", "top_p", "stop", "tools", "tool_choice", "stream", "response_format", "reasoning", "thinking", "metadata", "system")
+    enum class Contract { CHAT_COMPLETIONS, OPENAI_RESPONSES, ANTHROPIC_MESSAGES, GOOGLE_CONTENT, GATEWAY_GENERATION }
+    private val parameters = setOf("model", "messages", "max_tokens", "max_completion_tokens", "temperature", "top_p", "stop", "tools", "tool_choice", "stream", "response_format", "reasoning", "thinking", "metadata", "system", "input", "max_output_tokens", "previous_response_id", "instructions")
 
     fun response(status: Int, body: String, contract: Contract, endpoint: String? = null): JsonObject {
         val root = body.takeIf { it.length <= 256 * 1024 }?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
         val error = root?.get("error") as? JsonObject ?: root
-        fun text(key: String): String? = (error?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content
+        // OpenRouter can wrap an upstream error object in metadata.raw. Project only typed fields.
+        val nested = if (status == 400 && contract == Contract.CHAT_COMPLETIONS) {
+            when (val raw = (error?.get("metadata") as? JsonObject)?.get("raw")) {
+                is JsonObject -> raw
+                is JsonPrimitive -> raw.takeIf { it.isString }?.let { runCatching { Json.parseToJsonElement(it.content) as? JsonObject }.getOrNull() }
+                else -> null
+            }?.let { it["error"] as? JsonObject ?: it }
+        } else {
+            null
+        }
+        fun text(key: String): String? = ((nested?.get(key) as? JsonPrimitive)?.takeIf { it.isString } ?: (error?.get(key) as? JsonPrimitive)?.takeIf { it.isString })?.content
         val code = text("code")?.takeIf { it.any(Char::isLetter) }
         val billing = status == 402 ||
             status == 400 &&
@@ -23,12 +33,22 @@ internal object ProviderRejectionDiagnostics {
             text("type") == "invalid_request_error" &&
             text("message")?.startsWith("Your credit balance is too low to access the Anthropic API", ignoreCase = true) == true
         val fields = typed(status, text("type"), text("param") ?: text("parameter"), contract, code)
-        if (!billing && status != 410) return fields
+        val schemaRejected = status == 400 &&
+            contract == Contract.CHAT_COMPLETIONS &&
+            (
+                code in setOf("invalid_json_schema", "invalid_response_format") ||
+                    fields["provider_parameter"] == JsonPrimitive("response_format") ||
+                    text("message")?.startsWith("Invalid schema for response_format", ignoreCase = true) == true
+                )
+        val configurationRequired = billing || status == 401 || status == 410 || schemaRejected
+        if (!configurationRequired && status != 429) return fields
         return JsonObject(
             fields + buildJsonObject {
                 if (billing) put("provider_rejection_category", "BILLING_UNAVAILABLE")
-                put("retryable", false)
-                put("recovery_action", "RETRY_AFTER_CONFIGURATION_CHANGE")
+                if (configurationRequired) {
+                    put("retryable", false)
+                    put("recovery_action", "RETRY_AFTER_CONFIGURATION_CHANGE")
+                }
                 // Hash the route identity without credentials, query parameters or fragments.
                 val route = endpoint?.let { runCatching { java.net.URI(it) }.getOrNull() }
                 if (route != null && route.scheme in setOf("https", "http") && route.host != null) {

@@ -3,6 +3,7 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -22,6 +23,16 @@ from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 from v14.journal import backup_database
 
 RESTART = 75
+
+
+class ManagerRequestError(RuntimeError):
+    """A matching supervisor reply, optionally carrying a public control error."""
+    def __init__(self, response):
+        super().__init__(str(response.get('error') or 'Request refused')[:512])
+        code = response.get('error_code')
+        status = response.get('http_status')
+        self.code = code if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,95}', code) else None
+        self.status = status if type(status) is int and 400 <= status <= 599 else None
 
 
 def read_pointer(root):
@@ -58,18 +69,27 @@ def startup_registration(root, enabled):
                 pass
 
 
-def request(root, action, timeout=50):
+def request(root, action, timeout=50, *, payload=None, settings=None):
     """Local UI/installer control queue. A busy stop is refused, never forced."""
     root = Path(root)
     ident = uuid.uuid4().hex
-    atomic_json(root / 'request.json', {'id': ident, 'action': action})
+    command = {'id': ident, 'action': action}
+    if payload is not None:
+        if not isinstance(payload, dict) or len(json.dumps(payload)) > 32768:
+            raise ValueError('Manager command payload is invalid or oversized')
+        command['payload'] = payload
+    if settings is not None:
+        if not isinstance(settings, dict) or len(json.dumps(settings)) > 32768:
+            raise ValueError('Manager settings payload is invalid or oversized')
+        command['settings'] = settings
+    atomic_json(root / 'request.json', command, retry_windows_sharing=True)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             result = json.loads((root / 'response.json').read_text(encoding='utf-8'))
             if result.get('id') == ident:
                 if not result.get('accepted'):
-                    raise RuntimeError(result.get('error', 'Request refused'))
+                    raise ManagerRequestError(result)
                 if action == 'stop':
                     stop_lock = StateDirectoryLock(root / 'manager.sqlite3')
                     try:
@@ -93,11 +113,28 @@ def request(root, action, timeout=50):
         except StateDirectoryAlreadyOwned:
             pass
         else:
-            lock.release()
-            if action == 'stop':
-                (root / 'request.json').unlink(missing_ok=True)
-                return {'accepted': True}
-            raise RuntimeError('Start Gateway before requesting this action')
+            try:
+                if action != 'stop':
+                    raise RuntimeError('Start Gateway before requesting this action')
+                # The launcher may have published the matching response between
+                # our first read and acquiring its lock.
+                try:
+                    final = json.loads((root / 'response.json').read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    final = {}
+                if final.get('id') == ident:
+                    if not final.get('accepted'):
+                        raise ManagerRequestError(final)
+                    return final
+                try:
+                    pending = root / 'request.json'
+                    if json.loads(pending.read_text(encoding='utf-8')).get('id') == ident:
+                        pending.unlink()
+                except FileNotFoundError:
+                    pass
+                return {'accepted': True, 'supervisorAbsent': True}
+            finally:
+                lock.release()
         time.sleep(.2)
     try:
         if json.loads((root / 'request.json').read_text(encoding='utf-8')).get('id') == ident:
@@ -116,6 +153,10 @@ class Supervisor:
         self.http = requests.Session()
         self.http.trust_env = False
         self.child = None
+        self._request_claimed = self._request_busy = False
+        self._request_payload = {}
+        self._control_settings = None
+        self.owner_controls = None
         self.observer_stop = threading.Event()
         self.observer_thread = None
         self.tray = None
@@ -385,12 +426,57 @@ class Supervisor:
                 'Gateway update available', 0x40)
         threading.Thread(target=show, name='update-notification', daemon=True).start()
 
+    def take_control_request(self):
+        # Claim before reading so a newer command cannot be unlinked with the
+        # previous one. Only this live supervisor may act on its claimed file.
+        claimed = self.root / 'request.claimed.json'
+        try:
+            if not self._request_claimed:
+                (self.root / 'request.json').replace(claimed)
+                self._request_claimed = True
+            try:
+                command = json.loads(claimed.read_text(encoding='utf-8'))
+                action, ident = command['action'], command['id']
+                payload = command.get('payload', {})
+                if not isinstance(payload, dict) or len(json.dumps(payload)) > 32768:
+                    raise ValueError('Invalid control payload')
+                self._request_payload = payload
+                self._control_settings = command.get('settings')
+            except (ValueError, KeyError, TypeError):
+                self.log.warning('Ignored malformed local control request')
+                action, ident = None, None
+                self._request_payload = {}
+                self._control_settings = None
+            claimed.unlink()
+            self._request_claimed = False
+            self._request_busy = False
+            return action, ident
+        except FileNotFoundError:
+            self._request_claimed = False
+            self._request_busy = False
+        except PermissionError as error:
+            if sys.platform != 'win32':
+                raise
+            if not self._request_busy:
+                self.log.warning('Windows temporarily denied access to the control request; retrying on the next poll')
+            self._request_busy = True
+        return None, None
+
     def run(self):
         result = self.boot()
         if result:
             return result
+        from desktop.control_settings import Controller
+        from desktop.control_store import ControlError
+        self.owner_controls = Controller(self)
+        try:
+            self.owner_controls.start_saved()
+        except (OSError, ValueError, RuntimeError, ControlError):
+            # Ordinary chat survives an unavailable optional management port.
+            self.log.warning('Phone controls need attention on this PC')
         self.start_desktop_observer()
         next_check, next_activate, candidate = time.monotonic() + 30, 0, None
+        next_settings = 0
         crashes, retry_at = [], None
         while True:
             if self.child is None or self.child.poll() is not None:
@@ -417,19 +503,12 @@ class Supervisor:
                     retry_at = now + delay
                     self.publish(state='recovering', recoveryAttempt=len(crashes), recoveryRetryAt=time.time() + delay)
                     self.startup_reason = 'crash_recovery'
-            request_path = self.root / 'request.json'
-            action, ident = None, None
+            action, ident = self.take_control_request()
             try:
-                command = json.loads(request_path.read_text(encoding='utf-8'))
-                request_path.unlink()
-                action, ident = command['action'], command['id']
-            except FileNotFoundError:
-                pass
-            except (ValueError, KeyError, TypeError):
-                request_path.unlink(missing_ok=True)
-                self.log.warning('Ignored malformed local control request')
-                action, ident = None, None
-            try:
+                if action and action.startswith('control-'):
+                    result = self.owner_controls.local(action, self._request_payload)
+                    self.respond({'id': ident, 'accepted': True, 'result': result})
+                    action, ident = None, None
                 current_cfg = load(self.root)
                 if action in {'stop', 'restart'}:
                     accepted = self.stop()
@@ -437,6 +516,45 @@ class Supervisor:
                     if accepted:
                         self.publish(state='stopped')
                         return RESTART if action == 'restart' else 0
+                elif action == 'read-retained-work':
+                    job_id = self._request_payload.get('job_id')
+                    if set(self._request_payload) != {'job_id'} or not isinstance(job_id, str) or not re.fullmatch(r'(?:eng_|cp_)[a-f0-9]{32}', job_id):
+                        raise ValueError('Choose an original retained engineering or Copilot job.')
+                    url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/retained-work/' + job_id
+                    response = self.http.get(url, headers={'X-Gateway-Management': self.token}, timeout=(2, 8), allow_redirects=False)
+                    response.raise_for_status()
+                    self.respond({'id': ident, 'accepted': True, 'result': response.json()})
+                    ident = None
+                elif action in {'read-admission', 'change-admission'}:
+                    # Keep the compatibility account panel, but the local owner
+                    # uses the same revision and command ledger as native Settings.
+                    record = self._control_settings
+                    if action == 'change-admission' and isinstance(record, dict) and record.get('principal_id') == 'local:single-user':
+                        if set(record) != {'gateway_id', 'principal_id', 'revision', 'enabled'}:
+                            raise ValueError('Read this installation before editing.')
+                        result = self.owner_controls.local('control-settings-patch', {
+                            'installation_id': record['gateway_id'], 'expected_revision': record['revision'],
+                            'command_id': ident, 'changes': {'engineering_enabled': record['enabled']}})
+                        if result['status'] == 'rejected':
+                            raise ValueError(result['error']['message'])
+                        snapshot = result['snapshot']
+                        value = {'gateway_id': snapshot['installation_id'], 'principal_id': snapshot['principal_id'],
+                                 'revision': snapshot['revision'], 'enabled': snapshot['desired']['engineering_enabled']}
+                    else:
+                        url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/engineering-admission'
+                        response = self.http.request('POST' if action == 'change-admission' else 'GET', url,
+                            headers={'X-Gateway-Management': self.token}, json=record, timeout=(2, 8), allow_redirects=False)
+                        if response.status_code == 409:
+                            raise ValueError('The setting changed. Read the current value before editing again.')
+                        response.raise_for_status()
+                        value = response.json()
+                        if action == 'read-admission':
+                            snapshot = self.owner_controls.local('control-settings-read', {})
+                            for account in value['accounts']:
+                                if account['principal_id'] == 'local:single-user':
+                                    account.update(revision=snapshot['revision'], enabled=snapshot['desired']['engineering_enabled'])
+                    self.respond({'id': ident, 'accepted': True, 'settings': value})
+                    ident = None
                 elif action == 'export-debug':
                     self.export_diagnostics()
                     self.respond({'id': ident, 'accepted': True})
@@ -444,6 +562,19 @@ class Supervisor:
                     ident = None
                 elif action not in {None, 'check', 'install'}:
                     raise ValueError('Unknown manager command')
+                if self.child is not None and self.child.poll() is None and time.monotonic() >= next_settings:
+                    # Optional phone controls must never consume a stop/restart
+                    # request or prevent watchdog recovery if their journal or
+                    # listener is temporarily unavailable.
+                    next_settings = time.monotonic() + 3
+                    try:
+                        self.owner_controls.reconcile()
+                        self.publish(phoneControls=self.owner_controls.description())
+                        if self.owner_controls.restart_requested and self.stop():
+                            self.publish(state='stopped')
+                            return RESTART
+                    except (OSError, ValueError, RuntimeError, ControlError, requests.RequestException):
+                        self.log.warning('Owner settings could not be reconciled; retrying while Gateway continues')
                 if action == 'install' and retry_at is not None:
                     raise RuntimeError('Install is available when Gateway has recovered')
                 if action in {'check', 'install'} or current_cfg['update_mode'] != 'off' and time.monotonic() >= next_check:
@@ -468,7 +599,14 @@ class Supervisor:
                 next_check = time.monotonic() + 3600
                 next_activate = time.monotonic() + 3600
                 if ident:
-                    self.respond({'id': ident, 'accepted': False, 'error': str(exc)})
+                    rejection = {'id': ident, 'accepted': False, 'error': str(exc)}
+                    if isinstance(exc, ControlError):
+                        code = exc.code if isinstance(exc.code, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,95}', exc.code) else 'control_operation_failed'
+                        status = exc.status if type(exc.status) is int and 400 <= exc.status <= 599 else 500
+                        # Only a typed, bounded public code crosses this local
+                        # recovery boundary; arbitrary exception text is not proof.
+                        rejection.update(error=code, error_code=code, http_status=status)
+                    self.respond(rejection)
             time.sleep(.5)
 
 
@@ -489,6 +627,8 @@ def supervise(root, *, headless=False):
         return 1
     finally:
         if manager:
+            if manager.owner_controls:
+                manager.owner_controls.close()
             manager.close_desktop_observer()
             windows_job.close(manager.job)
         lock.release()

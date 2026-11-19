@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskHandle
 import dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore
 import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord
+import dev.chungjungsoo.gptmobile.data.workspace.mergeWith
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -38,6 +39,13 @@ class ModernMcpTaskTest {
             val task = secondArg<JsonObject>()
             WorkspaceRecord("remote-task", "remote", "task", Json.encodeToString(RemoteTaskHandle(config.connectionUid, RemoteTaskStore.identity(config), task, arg(3), arg(4))), 1, "run").also { saved = it }
         }
+    }
+
+    @Test fun terminalCheckpointRetainsAnsweredInputsAndCancellationAcrossLatePolls() {
+        val done = RemoteTaskHandle("a", "scope", obj("""{"taskId":"job","status":"completed","result":{"isError":true}}"""), setOf("form"), true, "attempt")
+        val poll = RemoteTaskHandle("a", "scope", obj("""{"taskId":"job","status":"working"}"""))
+        assertEquals(done, poll.mergeWith(done))
+        assertTrue(runCatching { poll.copy(identity = "other").mergeWith(done) }.isFailure)
     }
 
     @Test fun negotiatedTaskSurvivesDisconnectAndResumesWithoutReplayingOriginalAction() = runBlocking {

@@ -49,6 +49,7 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
     }
 
     private suspend fun execute(path: String, method: String, body: JSONObject?, readOnlyHealthQuery: Boolean = false): String = withContext(Dispatchers.IO) {
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         require(path.startsWith("/") && !path.startsWith("//") && '\r' !in path && '\n' !in path)
         val credential = requireNotNull(token()?.takeIf { it.isNotBlank() && '\r' !in it && '\n' !in it }) { "Reconnect the GitHub account" }
         if (method != "GET" && !readOnlyHealthQuery) {
@@ -139,6 +140,10 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
         // A lost response is an uncertain remote outcome, never permission to
         // replay an engineering mutation inside the HTTP transport.
         private val transport = OkHttpClient.Builder()
+            .addNetworkInterceptor { chain ->
+                if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) throw IOException("PRIVACY_SERVICE_UNVERIFIED")
+                chain.proceed(chain.request())
+            }
             .retryOnConnectionFailure(false)
             .followRedirects(false)
             .followSslRedirects(false)

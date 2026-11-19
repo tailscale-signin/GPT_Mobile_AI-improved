@@ -13,6 +13,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
@@ -22,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -38,6 +42,22 @@ class GitHubReducedMotionTest {
     }
 
     @get:Rule val compose = createComposeRule(effectContext = durationScale)
+
+    @Test fun liveCountersAreFocusReadableWithoutRepeatedTalkBackAnnouncements() {
+        var activity by mutableStateOf("Checks: 1 / 5")
+        compose.setContent {
+            MaterialTheme {
+                val phase = rememberGitHubProgressMotion(false)
+                GitHubActivityPreview(activity, latest = true, motion = phase, animateEntry = false)
+            }
+        }
+        val counter = compose.onNodeWithTag("github_latest_preview").fetchSemanticsNode().config
+        assertNull(counter.getOrNull(SemanticsProperties.LiveRegion))
+        compose.runOnIdle { activity = "Reviewing changed source files" }
+        compose.waitForIdle()
+        val milestone = compose.onNodeWithTag("github_latest_preview").fetchSemanticsNode().config
+        assertEquals(LiveRegionMode.Polite, milestone.getOrNull(SemanticsProperties.LiveRegion))
+    }
 
     @Test fun disabledAnimationsShowActivityImmediatelyAndEnablingMotionDoesNotReplayItsEntrance() {
         compose.mainClock.autoAdvance = false

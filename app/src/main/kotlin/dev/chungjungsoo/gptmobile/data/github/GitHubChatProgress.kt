@@ -21,6 +21,7 @@ import kotlinx.serialization.json.intOrNull
 internal class GitHubChatProgress(task: String = "", private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
     private val taskLabel = GitHubProgressPresentation.taskLabel(task)
     private val integrationCoverage = GitHubTaskCoverage.matches(task)
+    private val previewSequence = GitHubPreviewSequence(GitHubProgressPresentation.taskFocus(task))
     private var activity = "Locating the relevant repository evidence"
     private var nextStep = "connect the requested behavior to its implementation and choose the first useful check"
     private var completed = 0
@@ -182,7 +183,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         responseStarted = false
                         terminalKey?.let(blockedCalls::remove)
                         terminalKey?.takeUnless { it in terminalCalls }?.let(activeCalls::add)
-                        activity = operationSummary(name, progress.toolArgs)
+                        previewSequence.offer(previewEvent(name, progress.toolArgs, GitHubPreviewPhase.STARTED))
+                            ?.let { activity = it }
                         nextStep = nextFor(operation)
                         // Started is a public observation, not a successful completion.
                         rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} started; no result has been verified.")
@@ -227,7 +229,10 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         completed++
                         val observed = resultObservations.remove(progress.toolCallId)
                         if (observed != null || sourceFocus(progress.toolArgs).isNotBlank()) selectedAuthoredSummary = false
-                        activity = observed?.preview ?: milestone(name, false, false, progress.toolArgs)
+                        val nextPreview = observed?.preview ?: previewSequence.offer(
+                            previewEvent(name, progress.toolArgs, GitHubPreviewPhase.RESULT)
+                        )
+                        nextPreview?.let { activity = it }
                         nextStep = nextFor(operation)
                         if (observed?.problem == true) {
                             pendingSummary = null
@@ -416,6 +421,12 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 "fetch_webpage" -> Operation("Reading web source", "web source read", "check how the source supports the investigation before relying on its conclusions")
                 else -> Operation("Inspecting repository information", "repository operation", "connect the available result to the request and identify the next missing piece of evidence")
             }
+        }
+
+        private fun previewEvent(name: String, args: JsonObject?, phase: GitHubPreviewPhase): GitHubPreviewEvent {
+            val action = (GitHubActionIdentity.canonicalArguments(name, args ?: JsonObject(emptyMap()))["action"] as? JsonPrimitive)
+                ?.contentOrNull.orEmpty()
+            return GitHubPreviewEvent(name.githubOperationFamily(), action, sourceFocus(args), phase, operationSummary(name, args))
         }
 
         private fun operationSummary(name: String, args: JsonObject?): String =

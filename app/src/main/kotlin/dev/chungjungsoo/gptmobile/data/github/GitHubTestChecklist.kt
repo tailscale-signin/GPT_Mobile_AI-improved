@@ -17,6 +17,7 @@ internal object GitHubTestChecklist {
     private val capabilities = listOf(
         Capability("github_context", "status", "Repository status", true),
         Capability("repository_graph", "status", "Engineering gateway graph status", true),
+        Capability("repository_workspace", "catalog", "Host-approved offline workspace checks", true),
         Capability("github_context", "checks", "Checks for selected SHA", true),
         Capability("github_context", "branches", "Branch inventory", true),
         Capability("github_context", "commits", "Recent commits", true),
@@ -487,7 +488,7 @@ internal object GitHubTestChecklist {
 
     private fun catalog(tools: List<AgentToolDefinition>): List<Capability> {
         if (tools.isEmpty()) return capabilities
-        return tools.filter { it.modelVisible && (it.name.githubOperationFamily().startsWith("github_") || it.name.githubOperationFamily() == "repository_graph") }.flatMap { tool ->
+        return tools.filter { it.modelVisible && (it.name.githubOperationFamily().startsWith("github_") || it.name.isGatewayRepositoryTool()) }.flatMap { tool ->
             val name = tool.name.githubOperationFamily()
             val properties = tool.inputSchema["properties"] as? JsonObject
             val actions = ((properties?.get("action") as? JsonObject)?.get("enum") as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().ifEmpty { listOf(((properties?.get("action") as? JsonObject)?.get("const") as? JsonPrimitive)?.content.orEmpty()) }
@@ -500,6 +501,7 @@ internal object GitHubTestChecklist {
     internal fun requiresLiveTransport(tool: String, action: String): Boolean = when (tool.githubOperationFamily()) {
         "github_context" -> action !in setOf("status", "resolve", "index", "efficiency", "capabilities", "recovery")
         "github_repository" -> action != "capabilities"
+        "repository_workspace" -> true
         "github_search", "github_read", "github_stage_patch", "repository_graph" -> false
         else -> tool.startsWith("github_")
     }
@@ -516,7 +518,7 @@ internal object GitHubTestChecklist {
         val historical = receipts.values.filter { it["trusted"] == JsonPrimitive(true) || it["success"] == JsonPrimitive(false) && it["dispatched"] == JsonPrimitive(false) }
         val active = catalog(tools)
         val union = (
-            active + historical.filter { (it.text("tool").startsWith("github_") || it.text("tool").githubOperationFamily() == "repository_graph") && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
+            active + historical.filter { (it.text("tool").startsWith("github_") || it.text("tool").isGatewayRepositoryTool()) && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
                 val name = it.text("tool").githubOperationFamily()
                 val action = (it["arguments"] as? JsonObject)?.text("action").orEmpty()
                 Capability(name, action, "$name / ${action.ifBlank { "default" }}")
@@ -960,6 +962,19 @@ internal object GitHubTestChecklist {
         append("\n**Capability coverage:** ${rows.size} capabilities in the cumulative catalog (including historical operations). ")
         append(counts.entries.joinToString("; ") { "${it.key.lowercase().replace('_', ' ')}: ${it.value}" })
         append(". Endpoint success and complete search coverage are separate. **Overall integration health: Not measured.**\n\n")
+        if (receipts.values.any { "profile_workspace_check" in it || "direct_coding_observation" in it }) {
+            val measured = GitHubIntegrationAcceptance.evidenceClasses(receipts)
+            val paired = (measured["paired_coding_repairs"] as? JsonArray).orEmpty()
+            val direct = (measured["direct_coding_observations"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            append("**Coding session evidence**\n\n")
+            append("Paired Gateway checks: ${measured["profile_workspace_check_count"]}. Verified Kotlin test repairs: ${paired.size}.\n")
+            if (direct.isNotEmpty()) {
+                val native = direct.count { it.text("executor") == "github_api" }
+                val hosted = direct.count { it.text("executor") == "github_copilot" }
+                append("Recent Android-controlled observations: $native native GitHub operations and $hosted Copilot task operations.\n")
+            }
+            append('\n')
+        }
         append("| Capability | Result | Blocker / next action |\n| --- | --- | --- |\n")
         val detailed = Regex("(?i)\\b(?:detailed|full|complete|all)\\s+(?:report|results|receipts|coverage)\\b").containsMatchIn(task)
         val visible = if (detailed || rows.size <= 12) rows else rows.filter { (it as JsonObject)["blocker"] != null }.distinctBy { (it as JsonObject)["blocker"] }.take(6)
@@ -1037,10 +1052,13 @@ internal object GitHubTestChecklist {
     fun inventoryCoverage(receipts: Map<String, JsonObject>): JsonArray {
         val pending = pendingPages(receipts)
         val trusted = trusted(receipts)
-        fun filters(receipt: JsonObject): JsonObject {
+        fun filters(receipt: JsonObject, useObservedRevision: Boolean = true): JsonObject {
             val args = receipt["arguments"] as? JsonObject
-            val pageSize = args?.get("per_page") ?: data(receipt)?.get("per_page")
-            val query = GitHubInventoryQuery.arguments(receipt.text("tool"), JsonObject(args.orEmpty() + if (pageSize == null) emptyMap() else mapOf("per_page" to pageSize)))
+            val observation = receipt["inventory_observation"] as? JsonObject
+            val result = data(receipt)
+            val pageSize = args?.get("per_page") ?: observation?.get("per_page") ?: result?.get("per_page")
+            val observedCommit = if (useObservedRevision && receipt["success"] == JsonPrimitive(true)) observation?.get("commit_sha") ?: result?.get("commit_sha") else null
+            val query = GitHubInventoryQuery.arguments(receipt.text("tool"), JsonObject(args.orEmpty() + if (pageSize == null) emptyMap() else mapOf("per_page" to pageSize)), observedCommit)
             return JsonObject(query.filterKeys { it !in setOf("action", "owner", "repo") })
         }
         data class InventoryKey(val first: String, val second: String?, val third: JsonObject, val repository: String, val binding: String)
@@ -1105,7 +1123,10 @@ internal object GitHubTestChecklist {
                     // Failed reads may not reveal the default page size; keep their
                     // blocker for every otherwise matching inventory until recovered.
                     val expected = if ("per_page" in selected) key.third else JsonObject(key.third.filterKeys { it != "per_page" })
-                    return args.text("action") == key.second && selected == expected
+                    if (args.text("action") != key.second) return false
+                    if (selected == expected) return true
+                    // A failed refresh using the original symbolic ref has no observed SHA.
+                    return key.second == "commits" && "commit_sha" !in selected && traversal.any { filters(it, useObservedRevision = false) == selected }
                 }
                 val end = byPage.keys.maxOrNull() ?: 0L
                 val contiguous = end in 1..1000 &&

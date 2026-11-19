@@ -45,7 +45,7 @@ class GatewayGraphRepository @Inject constructor(
     }
 
     suspend fun execute(context: GitHubConversationContext, arguments: JsonObject): JsonObject {
-        val response = executeForMap(context, arguments, refreshReadiness = false)
+        val response = executeForMap(context, arguments, refreshReadiness = false, forModel = true)
         // This observation belongs to the local checkpoint, not the gateway payload.
         // A successful status read need not acknowledge an earlier index request.
         return JsonObject(
@@ -60,11 +60,37 @@ class GatewayGraphRepository @Inject constructor(
         )
     }
 
+    internal suspend fun workspaceCheck(context: GitHubConversationContext, arguments: JsonObject): JsonObject {
+        val admitted = admission(context, null, requirePersistentMemory = false)
+        val key = GatewayGraphSharing.key(admitted.profile, context.connectionUid, context.repository.fullName, admitted.gateway.uid)
+        fun verifyConsent() {
+            check(!dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() && admitted.preferences.workspaceCheckConsent == key) { "Authorize workspace checks for this model and repository." }
+        }
+        verifyConsent()
+        require(arguments.keys.all { it in setOf("action", "request_id", "check_index", "changes") })
+        val config = admitted.gateway.engineeringConfig()
+        val identity = client.capabilities(config)
+        val frozen = config.withGatewayIdentity(GatewayScopeIdentity(requireNotNull(identity.gatewayId), requireNotNull(identity.principalId)))
+        val bound = buildJsonObject {
+            arguments.forEach { (name, value) -> put(name, value) }
+            put("repository", context.repository.fullName)
+            put("branch", context.ref)
+            put("head_sha", context.commitSha)
+            put("profile_binding", key)
+        }
+        val result = client.profileCheck(frozen, bound)
+        check(admission(context, admitted.gateway.uid, requirePersistentMemory = false) == admitted) { "The workspace connection or permissions changed." }
+        verifyConsent()
+        require(result["profile_binding"] == JsonPrimitive(key) && result["head_sha"] == JsonPrimitive(context.commitSha) && result["repository"] == JsonPrimitive(context.repository.fullName)) { "The check receipt belongs to a different profile or revision." }
+        return result
+    }
+
     internal suspend fun executeForMap(
         context: GitHubConversationContext,
         arguments: JsonObject,
         expectedGatewayProfileUid: String? = null,
-        refreshReadiness: Boolean = true
+        refreshReadiness: Boolean = true,
+        forModel: Boolean = false
     ): GatewayGraphResponse = operations.withLock {
         var gateway: PlatformV2? = null
         var checkpoint: GatewayGraphIndexCheckpoint? = null
@@ -73,6 +99,12 @@ class GatewayGraphRepository @Inject constructor(
         var dispatched = false
         try {
             val admitted = admission(context, expectedGatewayProfileUid)
+            fun requireSharing() {
+                if (forModel && !GatewayGraphSharing.allowed(admitted.profile, admitted.preferences, context)) {
+                    throw GatewayGraphAdmissionException("GRAPH_SOURCE_SHARING_REQUIRED", "Enable repository map sharing for this repository and AI profile in GitHub settings.")
+                }
+            }
+            requireSharing()
             gateway = admitted.gateway
             val config = admitted.gateway.engineeringConfig()
             val capability = if (refreshReadiness) client.refreshCapabilities(config) else client.capabilities(config)
@@ -93,13 +125,28 @@ class GatewayGraphRepository @Inject constructor(
             val retained = GatewayGraphIndexCheckpoint(state, scope)
             checkpoint = retained
             observedCheckpoint = retained.observation()
-            var payload = boundRequest(context, arguments)
+            val expectedAttempt = arguments.text("expected_index_attempt_hash")
+            val previouslyConfirmed = expectedAttempt?.takeIf { retained.previouslyConfirmed(it) }
+            if (expectedAttempt != null) {
+                require(arguments["action"] == JsonPrimitive("status") && (expectedAttempt == observedCheckpoint.attemptHash || previouslyConfirmed != null)) {
+                    "The selected Gateway and revision do not own this pending index attempt."
+                }
+            }
+            var payload = boundRequest(context, JsonObject(arguments - setOf("expected_index_attempt_hash", "confirm_sync_index_request_id", "sync_index_request_id")))
             val action = payload.text("action") ?: error("Select a repository graph operation.")
+            val syncReceipts = capability.codeGraph?.syncIndexReceipts == true
+            if (action == "status" && syncReceipts) {
+                retained.pendingRequestId()?.let { id -> payload = JsonObject(payload + ("confirm_sync_index_request_id" to JsonPrimitive(id))) }
+            }
             val cancelJob = action == "index" && payload.text("job_action") == "cancel"
             val durableJobs = capability.codeGraph?.durableIndexJobs == true
             if (payload["background"] == JsonPrimitive(true) && !durableJobs) payload = JsonObject(payload - "background")
             val background = action == "index" && payload["background"] == JsonPrimitive(true)
-            val modelAccess = if (GitHubAutonomousEngineeringPolicy.supportsSavedJobs(admitted.profile)) "PRIVATE_PROFILE_ELIGIBLE" else "PRIVATE_PROFILE_REQUIRED"
+            val modelAccess = when {
+                !GatewayGraphSharing.allowed(admitted.profile, admitted.preferences, context) -> "SHARING_DISABLED"
+                GitHubAutonomousEngineeringPolicy.supportsSavedJobs(admitted.profile) -> "PRIVATE_PROFILE_ELIGIBLE"
+                else -> "REMOTE_PROFILE_AUTHORIZED"
+            }
             var previousStatus: JsonObject? = null
             verifyAdmission(context, expectedGatewayProfileUid, admitted)
             if (cancelJob) {
@@ -128,6 +175,8 @@ class GatewayGraphRepository @Inject constructor(
                 verifyResult(context, saved)
                 verifyAdmission(context, expectedGatewayProfileUid, admitted)
                 if (saved["has_more"] == JsonPrimitive(false) && arguments["retry_failed"] != JsonPrimitive(true)) {
+                    verifyAdmission(context, expectedGatewayProfileUid, admitted)
+                    requireSharing()
                     return@withLock GatewayGraphResponse(saved, "status", admitted.gateway.uid, admitted.gateway.name, durableIndexJobs = durableJobs, modelAccess = modelAccess)
                 }
                 if (saved["has_more"] == JsonPrimitive(true) && arguments["retry_failed"] != JsonPrimitive(true) && !background) {
@@ -137,8 +186,11 @@ class GatewayGraphRepository @Inject constructor(
                 }
             }
             if (action == "index" && !cancelJob) {
-                attempt = retained.begin(payload.text("index_cursor"), previousStatus)
-                if (background) payload = JsonObject(payload + ("request_id" to JsonPrimitive(attempt)))
+                attempt = retained.begin(payload.text("index_cursor"), previousStatus, requestIdentityRequired = background || syncReceipts)
+                if (background || syncReceipts) {
+                    val requestField = if (background) "request_id" else "sync_index_request_id"
+                    payload = JsonObject(payload + (requestField to JsonPrimitive(attempt)))
+                }
             }
             // Persistence and capability reads can suspend. Revalidate before the POST,
             // not only after a stale configuration could have changed host state.
@@ -178,26 +230,28 @@ class GatewayGraphRepository @Inject constructor(
                 throw IllegalStateException(changed.message, changed)
             }
             val confirmed = attempt?.let { retained.confirm(it) }
-            val observed = if (action == "status") retained.reconcileObserved(result) else retained.observation()
+            val observed = if (action == "status") retained.reconcileObserved(result, requireAttemptIdentity = expectedAttempt != null) else retained.observation()
+            verifyAdmission(context, expectedGatewayProfileUid, admitted)
+            requireSharing()
             GatewayGraphResponse(
-                result,
+                JsonObject(result - "confirmed_sync_request_id"),
                 action,
                 admitted.gateway.uid,
                 admitted.gateway.name,
                 observed.unresolved,
                 durableJobs,
                 modelAccess,
-                observed.attemptHash ?: confirmed ?: observed.confirmedAttemptHash,
-                confirmed ?: observed.confirmedAttemptHash
+                observed.attemptHash ?: confirmed ?: observed.confirmedAttemptHash ?: previouslyConfirmed,
+                confirmed ?: observed.confirmedAttemptHash ?: previouslyConfirmed
             )
         } catch (cancelled: CancellationException) {
-            if (!dispatched) attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token) } }
+            if (!dispatched) attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token, executed = false) } }
             throw cancelled
         } catch (failure: Exception) {
             // This typed prerequisite rejection is returned before graph execution.
             // Other HTTP failures can follow a saved batch and remain uncertain.
             if (!dispatched || failure is GatewayGraphUnavailableException) {
-                attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token) } }
+                attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token, executed = false) } }
             }
             val unavailable = when {
                 failure is GatewayGraphUnavailableException -> failure.atRevision(context)
@@ -240,7 +294,7 @@ class GatewayGraphRepository @Inject constructor(
 
     private data class Admission(val connection: ToolConnection, val profile: PlatformV2, val gateway: PlatformV2, val preferences: GitHubChatProfileOverride)
 
-    private suspend fun admission(context: GitHubConversationContext, expectedGatewayProfileUid: String?): Admission {
+    private suspend fun admission(context: GitHubConversationContext, expectedGatewayProfileUid: String?, requirePersistentMemory: Boolean = true): Admission {
         val connection = connections.getConnection(context.connectionUid)
             ?: throw GatewayGraphAdmissionException("PERMISSION_REVOKED", "The selected GitHub connection was removed. Reconnect or explicitly select an authorized connection.", "RESTORE_SELECTED_GITHUB_CONNECTION")
         val profiles = settings.fetchPlatformV2s()
@@ -254,7 +308,7 @@ class GatewayGraphRepository @Inject constructor(
         if (!features.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.GITHUB) || !features.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.connection(context.connectionUid)) || !preferences.githubTools) {
             throw GatewayGraphAdmissionException("PERMISSION_DENIED", "The GitHub plugin or tools are disabled for the selected profile.")
         }
-        if (preferences.engineeringMemory == GitHubEngineeringMemoryMode.SESSION_ONLY) throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "Enable persistent engineering memory for the selected profile to use its repository graph.", "ENABLE_ENGINEERING_MEMORY")
+        if (requirePersistentMemory && preferences.engineeringMemory == GitHubEngineeringMemoryMode.SESSION_ONLY) throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "Enable persistent engineering memory for the selected profile to use its repository graph.", "ENABLE_ENGINEERING_MEMORY")
         if (connection.type != "GITHUB") throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "The selected connection is not GitHub.")
         val gateway = engineeringGatewayProfile(profiles, preferences.engineeringGatewayProfileUid)
             ?: throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "Select an enabled private engineering gateway in GitHub settings. The AI connection remains separate.", "SELECT_CONFIGURED_ENGINEERING_SURFACE")

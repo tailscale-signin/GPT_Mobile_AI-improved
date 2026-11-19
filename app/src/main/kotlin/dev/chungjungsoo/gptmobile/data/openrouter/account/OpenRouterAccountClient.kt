@@ -22,6 +22,7 @@ class OpenRouterAccountClient internal constructor(private val connectionFactory
         val key = OpenRouterIdentity.credential(credential)
         require(
             resource in setOf("key", "models/user", "providers", "credits", "activity", "endpoints/zdr") ||
+                resource.matches(Regex("model/~?[A-Za-z0-9][A-Za-z0-9_.-]{0,80}/[A-Za-z0-9][A-Za-z0-9_.:-]{0,120}")) ||
                 resource.matches(Regex("models/[A-Za-z0-9_.%:-]+/[A-Za-z0-9_.%:-]+/endpoints")) ||
                 resource.matches(Regex("generation\\?id=[A-Za-z0-9_.%:-]+"))
         )

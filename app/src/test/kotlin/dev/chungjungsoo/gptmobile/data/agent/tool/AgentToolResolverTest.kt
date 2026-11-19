@@ -55,6 +55,142 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun officialMcpCopilotAssignmentIsOffInOrdinaryChatsWithoutARepositoryWrapper() = runBlocking {
+        val profile = PlatformV2(uid = "ordinary", name = "Ordinary")
+        val remote = connection("official", ToolConnectionType.MCP, "https://api.githubcopilot.com/mcp", authType = ToolConnectionAuthType.NONE)
+        val dao = ResolverFakeToolConnectionDao()
+        val names = listOf("issue_write", "create_pull_request_with_copilot")
+        names.forEach { dao.bind(remote, binding(profile.uid, remote.connectionUid, it)) }
+        val methods = mutableListOf<String>()
+        val client = io.ktor.client.HttpClient(
+            io.ktor.client.engine.mock.MockEngine { request ->
+                val body = NetworkClient.json.parseToJsonElement((request.body as io.ktor.http.content.TextContent).text).jsonObject
+                val method = body.getValue("method").jsonPrimitive.content
+                methods += method
+                val result = when (method) {
+                    "server/discover" -> NetworkClient.json.parseToJsonElement("""{"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""")
+                    "tools/list" -> buildJsonObject {
+                        put("resultType", "complete")
+                        put(
+                            "tools",
+                            JsonArray(
+                                names.map { name ->
+                                    buildJsonObject {
+                                        put("name", name)
+                                        put("inputSchema", buildJsonObject { put("type", "object") })
+                                    }
+                                }
+                            )
+                        )
+                    }
+                    "tools/call" -> NetworkClient.json.parseToJsonElement("""{"resultType":"complete","content":[{"type":"text","text":"Assignees cleared"}]}""")
+                    else -> error("Unexpected method: $method")
+                }
+                respond(
+                    buildJsonObject {
+                        put("jsonrpc", "2.0")
+                        put("id", body.getValue("id"))
+                        put("result", result)
+                    }.toString(),
+                    headers = io.ktor.http.headersOf("Content-Type", "application/json")
+                )
+            }
+        )
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+        try {
+            val resolver = resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile)), managerOverride = manager)
+            val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Use GitHub", platformType = null)
+            val resolved = resolver.resolve(profile.uid, ChatMcpToolConfig(allowAllByDefault = true), message)
+            val assignment = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("method", "update")
+                put("assignees", JsonArray(listOf(JsonPrimitive("copilot-swe-agent[bot]"))))
+            }
+            for (name in names) {
+                val selected = resolved.single { it.connectionUid == remote.connectionUid && it.realToolName == name }
+                val result = selected.tool.execute("off-$name", assignment)
+                assertEquals("GITHUB_COPILOT_DISABLED", result.errorCode)
+                assertFalse(result.dispatched)
+            }
+            assertEquals(0, methods.count { it == "tools/call" })
+            val cleanup = kotlinx.serialization.json.JsonObject(assignment + ("assignees" to JsonArray(emptyList())))
+            val issue = resolved.single { it.connectionUid == remote.connectionUid && it.realToolName == "issue_write" }
+            assertFalse(issue.tool.execute("cleanup", cleanup).isError)
+            assertEquals(1, methods.count { it == "tools/call" })
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
+    @Test fun gatewayCopilotAdmissionSurvivesExpiredPhoneAuthWithoutGrantingNativeOrCachedAuthority() = runBlocking {
+        val profile = PlatformV2(uid = "gateway-profile", name = "Remote profile")
+        val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        settings.features = settings.features.copy(
+            conversationGitHub = mapOf(7 to workspace),
+            conversationIdentities = mapOf(7 to "saved-chat"),
+            githubProfileOverrides = mapOf(
+                profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(
+                    copilotExecutionOwner = dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.GATEWAY,
+                    engineeringGatewayProfileUid = "host"
+                )
+            )
+        )
+        val connection = connection("github", ToolConnectionType.GITHUB, "https://api.github.com", "expired-phone")
+        val dao = ResolverFakeToolConnectionDao().also { it.upsertConnection(connection) }
+        val auth = mockk<dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator>()
+        coEvery { auth.accessToken(any()) } throws IllegalStateException("Phone OAuth expired")
+        val gateway = mockk<dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations>()
+        coEvery { gateway.execute(any(), any(), any(), any(), any(), any()) } returns buildJsonObject {
+            put("execution_owner", "GITHUB_CLOUD")
+            put("orchestration_owner", "GATEWAY")
+            put("status", "REMOTE_RUNNING")
+            put("gateway_job_id", "saved-job")
+        }
+        val resolver = resolver(dao = dao, settings = settings, githubAuth = auth, copilotGateway = gateway)
+        val selected = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace), settings.features, profile.uid)
+        val user = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Resume the existing Copilot cloud task", platformType = null)
+        val tools = resolver.resolve(profile.uid, selected, user)
+        val pr = tools.single { it.connectionUid == "github" && it.modelToolName == "github_pr__github" }
+        assertEquals(null, tools.single { it.connectionUid == "github" && it.modelToolName == "github_pr_inspect__github" }.canExecuteArguments)
+        val status = buildJsonObject {
+            put("action", "copilot_task_status")
+            put("gateway_job_id", "saved-job")
+        }
+        assertFalse(pr.nativeGitHubAuthenticated)
+        assertTrue(pr.requiresPrivateServiceConsent)
+        assertFalse(requireNotNull(pr.canReuseResult).invoke())
+        assertTrue(pr.executionAdmission(status)())
+        assertTrue(pr.executionAdmission(buildJsonObject { put("action", "copilot_create_task") })())
+        assertFalse(
+            pr.executionAdmission(
+                buildJsonObject {
+                    put("action", "context")
+                    put("pull_number", 1)
+                }
+            )()
+        )
+        assertFalse(pr.executionAdmission(buildJsonObject { put("action", "agent_merge_enable") })())
+        assertFalse(
+            pr.executionAdmission(
+                buildJsonObject {
+                    put("action", "copilot_task_status")
+                    put("view_cursor", "saved")
+                }
+            )()
+        )
+        assertTrue(tools.filter { it.nativeGitHub && it.realToolName !in setOf("github", "github_pr") }.all { it.canExecuteArguments == null })
+        assertFalse(pr.tool.execute("resume-through-host", status).isError)
+        coVerify(exactly = 1) { gateway.execute(profile.uid, "host", "github:saved-chat", "copilot_task_status", any(), any()) }
+        dao.upsertConnection(connection.copy(toolPolicy = "READ_ONLY"))
+        assertFalse(pr.executionAdmission(status)())
+        dao.upsertConnection(connection)
+        settings.features = settings.features.copy(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(copilotExecutionOwner = dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.ANDROID_DIRECT)))
+        assertFalse(pr.executionAdmission(status)())
+    }
+
     @Test fun githubOverrideEnablesSearchWithoutChangingOrdinaryProfileAndRevokesLive() = runBlocking {
         val profile = PlatformV2(uid = "github-profile", name = "GitHub", disableAllTools = true, disableRemoteTools = true)
         val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), profile.uid)
@@ -1389,14 +1525,16 @@ class AgentToolResolverTest {
             val plainTools = uninstrumented.resolve(profile.uid, userMessage = message)
             val plainCatalog = requireNotNull(plainTools.firstNotNullOfOrNull { it.progressiveCatalog })
             assertEquals("Telemetry must preserve the exact compact contracts", plainCatalog.selected(plainTools.map { it.tool.definition }), schemas)
+            val schemaCosts = schemas.map { it.name to dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) }
             val estimatedTokens = schemas.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) }
+            val budgetDiagnostic = "$task: estimatedTokens=$estimatedTokens, schemaCosts=$schemaCosts"
             if (task == "check repo status") {
-                assertTrue(estimatedTokens <= dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
+                assertTrue(budgetDiagnostic, estimatedTokens <= dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
             } else {
-                assertTrue(estimatedTokens < 2000)
+                assertTrue(budgetDiagnostic, estimatedTokens < 2000)
             }
             val allNative = tools.filter { it.nativeGitHub && it.tool.definition.modelVisible }.map { it.tool.definition }
-            assertTrue(estimatedTokens < allNative.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) })
+            assertTrue(budgetDiagnostic, estimatedTokens < allNative.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) })
         }
         settings.features = settings.features.withToolPluginEnabled(ToolPluginId.GITHUB, false)
         assertFalse(resolver.resolve(profile.uid).any { it.nativeGitHub })
@@ -1524,7 +1662,9 @@ class AgentToolResolverTest {
         healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null,
         gitHubState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
         statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
-        managerOverride: McpClientManager? = null
+        managerOverride: McpClientManager? = null,
+        githubAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null,
+        copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -1549,7 +1689,9 @@ class AgentToolResolverTest {
             healthReader = healthReader,
             healthConsent = healthConsent,
             gitHubRepositoryState = gitHubState,
-            statistics = statistics
+            statistics = statistics,
+            gitHubPublicAuth = githubAuth,
+            copilotGateway = copilotGateway
         )
     }
 

@@ -1,9 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 internal enum class GitHubFadeProfile(val label: String, val expandedExtra: Float) {
-    SUBTLE("Subtle", .20f),
-    ADAPTIVE("Adaptive", .36f),
-    CINEMATIC("Cinematic", .45f)
+    SUBTLE("Subtle", .26f),
+    ADAPTIVE("Adaptive", .44f),
+    CINEMATIC("Cinematic", .46f)
 }
 
 internal fun gitHubTopFadeHeight(

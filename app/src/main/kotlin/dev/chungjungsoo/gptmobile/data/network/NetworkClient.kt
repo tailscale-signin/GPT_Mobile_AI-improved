@@ -44,8 +44,12 @@ class NetworkClient @Inject constructor(
     internal fun gatewayReadClient(): HttpClient = gatewayReads
 
     private fun createClient(pool: ConnectionPool): HttpClient = HttpClient(httpEngine) {
+        install(PrivateMetadataGate)
         install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
-        if (httpEngine == OkHttp) install(ReadinessHttpPlugin)
+        if (httpEngine == OkHttp) {
+            install(ReadinessHttpPlugin)
+            install(OkHttpReadinessGrant)
+        }
         expectSuccess = false
         followRedirects = false
 
@@ -67,6 +71,23 @@ class NetworkClient @Inject constructor(
             engine {
                 (this as? OkHttpConfig)?.config {
                     addInterceptor(ReadinessHttpTrace.stripHeader)
+                    addInterceptor(PrivateGatewayMetadata.stripHeader)
+                    addNetworkInterceptor { chain ->
+                        val request = chain.request()
+                        if (!request.url.isHttps) {
+                            val route = chain.connection()?.route()
+                            if (route == null ||
+                                route.proxy.type() != java.net.Proxy.Type.DIRECT ||
+                                !isPrivateHttpPeer(route.socketAddress.address)
+                            ) {
+                                throw java.net.ProtocolException("Public provider connections require HTTPS.")
+                            }
+                        }
+                        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) {
+                            if (!PrivateGatewayMetadata.allows(request)) throw PrivateMetadataDenied()
+                        }
+                        chain.proceed(request)
+                    }
                     eventListenerFactory(ReadinessHttpTrace.listener)
                     retryOnConnectionFailure(false)
                     connectTimeout(60, TimeUnit.SECONDS)
@@ -139,15 +160,27 @@ class NetworkClient @Inject constructor(
 
         internal fun resolveNetworkLogLevel(): LogLevel = if (dev.chungjungsoo.gptmobile.BuildConfig.DEBUG) LogLevel.HEADERS else LogLevel.NONE
 
+        internal fun isPrivateHttpPeer(address: java.net.InetAddress?): Boolean {
+            if (address == null || address.isAnyLocalAddress || address.isMulticastAddress) return false
+            val bytes = address.address
+            return address.isLoopbackAddress ||
+                address.isSiteLocalAddress ||
+                address.isLinkLocalAddress ||
+                (bytes.size == 4 && bytes[0].toInt() == 100 && (bytes[1].toInt() and 255) in 64..127) ||
+                (bytes.size == 16 && (bytes[0].toInt() and 254) == 252)
+        }
+
+        // Profiles may supply arbitrary vendor-specific headers. Only retain header
+        // values with a defined, non-personal meaning in HTTP diagnostics.
         internal fun isSensitiveHeader(header: String): Boolean =
-            header.equals(HttpHeaders.Authorization, ignoreCase = true) ||
-                header.equals(HttpHeaders.ProxyAuthorization, ignoreCase = true) ||
-                header.equals(HttpHeaders.Cookie, ignoreCase = true) ||
-                header.equals(HttpHeaders.SetCookie, ignoreCase = true) ||
-                header.equals("x-goog-api-key", ignoreCase = true) ||
-                header.equals("x-api-key", ignoreCase = true) ||
-                header.equals("x-subscription-token", ignoreCase = true) ||
-                header.equals("X-Gateway-Admission-Error", ignoreCase = true) ||
-                header.equals("Mcp-Session-Id", ignoreCase = true)
+            header.lowercase(java.util.Locale.ROOT) !in diagnosticHeaders
+
+        private val diagnosticHeaders = setOf(
+            "content-length",
+            "transfer-encoding",
+            "connection",
+            "retry-after",
+            "content-type"
+        )
     }
 }

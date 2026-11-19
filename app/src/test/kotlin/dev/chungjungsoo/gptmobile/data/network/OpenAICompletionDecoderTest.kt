@@ -10,6 +10,17 @@ import org.junit.Test
 class OpenAICompletionDecoderTest {
     private val json = Json { ignoreUnknownKeys = true }
 
+    @Test fun modelIdentityComesFromTheResponseBodyOnly() {
+        val reported = decodeOpenAICompletion(json, """{"model":"vendor/served-2026","choices":[]}""").reportedModelId
+        assertEquals("vendor/served-2026", reported)
+        assertNull(decodeOpenAICompletion(json, """{"model":"https://host/path","choices":[]}""").reportedModelId)
+        assertNull(dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk(model = "request-alias").reportedModelId)
+        val assembler = dev.chungjungsoo.gptmobile.data.agent.provider.ChatCompletionsEventAssembler()
+        assembler.observeModel(reported)
+        val event = assembler.accept("model: request-alias", null, null, null).single() as dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.TextDelta
+        assertEquals(reported, event.lineage.reportedModelId)
+    }
+
     @Test fun successfulRepairRetainsBothAttemptReceiptsWithoutChangingFinalUsage() {
         val metadata = """{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED","text":"private reasoning"},{"attempt":2,"output_allowance":39,"finish_reason":"STOP","visible_output_bytes":9,"reasoning_output_bytes":0,"terminal_error_code":null,"terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"}],"attempt_usage":[{"completion_tokens":11},{"completion_tokens":7}]}"""
         val body = """{"choices":[{"message":{"content":"Recovered"},"finish_reason":"stop"}],"gateway_recovery":$metadata} """

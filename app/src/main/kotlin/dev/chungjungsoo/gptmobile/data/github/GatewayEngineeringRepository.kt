@@ -85,6 +85,12 @@ class GatewayEngineeringRepository @Inject constructor(
         check(!store.hasMigratedAdmission(chatId, profileUid)) { "A saved gateway submission from the earlier app still needs receipt reconciliation. Reconnect to its original job before sending another turn." }
     }
 
+    suspend fun queuePlanEdit(binding: GatewayEngineeringBinding, text: String, commandId: String) {
+        val current = bindings().single { it.request.requestId == binding.request.requestId }
+        check(current.job?.id == binding.job?.id && current.principalId == binding.principalId && current.gatewayId == binding.gatewayId && current.endpoint == binding.endpoint)
+        conversations.queuePlanEdit(current, text, commandId)
+    }
+
     suspend fun checkpoints(requestId: String): GatewayEngineeringCheckpoints {
         val binding = bindings().single { it.request.requestId == requestId }
         val config = config(binding)
@@ -93,11 +99,53 @@ class GatewayEngineeringRepository @Inject constructor(
         return client.checkpoints(config, job.id).also { check(it.jobId == job.id) }
     }
 
-    suspend fun candidateDetails(requestId: String, checkId: String): String {
+    suspend fun exportOutput(requestId: String, selected: JsonObject, stream: java.io.OutputStream) {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val job = requireNotNull(binding.job)
+        require(job.workspaceOutputs.contains(selected) && selected["state"]?.jsonPrimitive?.content == "RETAINED")
+        val config = config(binding)
+        val gateway = requireNotNull(binding.gatewayId)
+        val principal = requireNotNull(binding.principalId)
+        val frozen = config.withGatewayIdentity(GatewayScopeIdentity(gateway, principal))
+        check(principal == client.principal(frozen, requireReady = false))
+        val total = selected.getValue("bytes").jsonPrimitive.content.toInt()
+        require(total in 1..192 * 1024 * 1024)
+        val full = java.security.MessageDigest.getInstance("SHA-256")
+        fun hash(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
+        var written = 0
+        val parts = selected.getValue("parts") as kotlinx.serialization.json.JsonArray
+        require(parts.size in 1..12)
+        for (entry in parts) {
+            val part = entry as JsonObject
+            val artifact = part.getValue("result_ref").jsonPrimitive.content
+            val length = part.getValue("byte_length").jsonPrimitive.content.toInt()
+            require(length in 1..16 * 1024 * 1024 && part["job_id"]?.jsonPrimitive?.content == job.id && length <= total - written)
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            var offset = 0
+            while (offset < length) {
+                val page = client.artifactPage(frozen, job.id, artifact, offset)
+                val bytes = java.util.Base64.getDecoder().decode(page.getValue("content_base64").jsonPrimitive.content)
+                require(page["reference"] == part && bytes.size in 1..minOf(65536, length - offset))
+                require(page["offset"]?.jsonPrimitive?.content?.toIntOrNull() == offset && page["next_offset"]?.jsonPrimitive?.content?.toIntOrNull() == offset + bytes.size)
+                require(hash(java.security.MessageDigest.getInstance("SHA-256").digest(bytes)) == page["page_sha256"]?.jsonPrimitive?.content)
+                stream.write(bytes)
+                digest.update(bytes)
+                full.update(bytes)
+                written += bytes.size
+                offset += bytes.size
+            }
+            require(hash(digest.digest()) == part["sha256"]?.jsonPrimitive?.content)
+        }
+        require(written == total && hash(full.digest()) == selected["sha256"]?.jsonPrimitive?.content)
+    }
+
+    suspend fun candidateDetails(requestId: String, checkId: String): String = candidatePage(requestId, checkId, 0).first
+
+    suspend fun candidatePage(requestId: String, checkId: String, offset: Int, left: String? = null): Pair<String, Int?> {
         val binding = bindings().single { it.request.requestId == requestId }
         val config = config(binding)
         check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed." }
-        return client.candidateDetails(config, requireNotNull(binding.job).id, checkId)
+        return client.candidatePage(config, requireNotNull(binding.job).id, checkId, offset, left)
     }
 
     suspend fun restoreCandidate(requestId: String, expected: GatewayEngineeringJob, checkId: String) = synchronization.withLock {
@@ -125,7 +173,8 @@ class GatewayEngineeringRepository @Inject constructor(
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == binding.profileUid && it.enabled }
             ?: error("The saved engineering AI profile is unavailable. The gateway job is retained.")
         check(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile) && profile.apiUrl.trimEnd('/') == binding.endpoint) { "The saved job requires its original local Llama or Ollama engineering connection. Restore that profile to reconnect." }
-        return ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid)
+        val config = ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid)
+        return if (binding.gatewayId != null && binding.principalId != null) config.withGatewayIdentity(GatewayScopeIdentity(gatewayId = binding.gatewayId, principalId = binding.principalId)) else config
     }
 
     /** False means an explicitly unsupported protocol, never temporary capacity or transport failure. */
@@ -239,15 +288,16 @@ class GatewayEngineeringRepository @Inject constructor(
             settings.fetchPlatformV2s().singleOrNull { it.uid == savedBinding.connectionProfileUid && it.enabled && it.apiUrl.trimEnd('/') == savedBinding.endpoint }
                 ?: error("Restore the original gateway connection before replying to this saved conversation.")
         }
-        val capability = client.capabilities(gateway.engineeringConfig())
+        val frozenConfig = gateway.engineeringConfig()
+        val retainedConfig = savedBinding?.let { frozenConfig.withGatewayIdentity(GatewayScopeIdentity(gatewayId = it.gatewayId, principalId = it.principalId)) } ?: frozenConfig
+        val capability = client.capabilities(retainedConfig)
         if (runId != null) check(capability.supportsDurableChat) { "This gateway does not support durable chat admission. Update it before sending this saved turn." }
         capability.requireJobReadiness()
         val principal = requireNotNull(capability.principalId)
-        val frozenConfig = gateway.engineeringConfig()
-        val identity = if (capability.conversationSync) history.identity(frozenConfig) else null
+        val identity = if (capability.conversationSync) history.identity(retainedConfig) else null
         check(identity == null || identity.principalId == principal) { "The authenticated gateway account changed before binding admission." }
         if (savedBinding != null) check(savedBinding.principalId == principal && savedBinding.gatewayId == identity?.gatewayId) { "The original gateway or account changed. The saved conversation was retained." }
-        val admissionConfig = identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig
+        val admissionConfig = identity?.let { retainedConfig.withGatewayIdentity(it) } ?: retainedConfig
         val savedSnapshot = savedBinding?.snapshot?.let { Json { ignoreUnknownKeys = true }.decodeFromString<GatewayConversationSnapshot>(it) }
         val connection = profile.providerConnectionUid?.let { settings.getProviderConnection(it) }
         val originalExecution = savedSnapshot?.executionBinding

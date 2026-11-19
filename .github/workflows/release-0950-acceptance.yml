@@ -11,7 +11,8 @@ permissions:
   contents: read
 concurrency:
   group: acceptance-0950-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Finish the active PR revision. The concurrency group keeps the latest pending revision.
+  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
 env:
   ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
   ISSUE_REPORT_GITHUB_ENABLED: ${{ vars.ISSUE_REPORT_GITHUB_ENABLED || 'true' }}

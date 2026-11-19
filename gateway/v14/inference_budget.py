@@ -119,6 +119,8 @@ def fit_engineering_payload(payload, capability, counter):
             raise
     envelope = json.loads(original['messages'][-1]['content'])
     retained = {name: envelope.get(name) for name in ('evidence', 'historical_memory', 'code_graph')}
+    if 'repository_instructions' in envelope:
+        retained['repository_instructions'] = envelope['repository_instructions']
     # Bounded, strictly decreasing views. There is no identical oversized replay.
     source_digest = fingerprint(retained)
     for limit in (4096, 2048, 1024, 512, 256):
@@ -129,7 +131,7 @@ def fit_engineering_payload(payload, capability, counter):
         # container must not consume the entire traversal before graph context.
         graph_budget = min(4096, max(1024, limit))
         graph_view = project_graph(retained['code_graph'], graph_budget)
-        sources = {name: value for name, value in retained.items() if name != 'code_graph'}
+        sources = {name: value for name, value in retained.items() if name not in {'code_graph', 'repository_instructions'}}
         evidence = sources.get('evidence')
         windows = evidence.get('workspace_receipts') if isinstance(evidence, dict) else None
         if windows:
@@ -147,12 +149,28 @@ def fit_engineering_payload(payload, capability, counter):
         else:
             projected, omissions = compact_evidence(sources, limit, nodes=nodes)
         projected['code_graph'] = graph_view
+        if 'repository_instructions' in retained:
+            # Instruction identities are never abbreviated into unusable paths
+            # or blob IDs. Only their text is excerpted; the original remains
+            # in the pinned job workspace and can be paged with read.
+            rules = retained['repository_instructions']
+            count = min(len(rules), max(1, min(16, limit // 256)))
+            rule_views, rule_omissions = [], []
+            for index, rule in enumerate(rules[:count]):
+                text, missing = compact_evidence(rule['text'], max(128, limit // max(1, count)), nodes=1)
+                rule_views.append({'path': rule['path'], 'blob_sha': rule['blob_sha'], 'text': text})
+                rule_omissions.extend(dict(row, pointer='/repository_instructions/' + str(index) + '/text' + row['pointer']) for row in missing)
+            if count < len(rules):
+                rule_omissions.append({'pointer': '/repository_instructions', 'reason': 'VIEW_ITEM_LIMIT',
+                                       'retained_count': len(rules), 'visible_count': count})
+            projected['repository_instructions'] = rule_views
+            omissions = (rule_omissions + omissions)[:32]
         # Replace every retained source, including fields omitted at the root,
         # so exhaustion never restores the unbounded original into the view.
         projected = {name: projected.get(name, {'available_in_retained_evidence': True, 'view_omitted': True}) for name in retained}
         body.update(projected)
         body['evidence_view'] = {'complete': False, 'retained_digest': source_digest, 'omissions': omissions,
-                                 'instruction': 'Omitted evidence remains stored. Do not claim it was inspected or that uncovered requirements passed.'}
+                                 'instruction': 'Omitted evidence and repository instructions remain stored. Page their pinned paths with read before relying on missing content. Do not claim omitted guidance was reviewed or uncovered requirements passed.'}
         candidate['messages'][-1]['content'] = canonical(body)
         try:
             budget = plan_tokens(candidate, capability, counter, **reserves)

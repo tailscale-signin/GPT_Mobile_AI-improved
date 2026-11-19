@@ -87,6 +87,57 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+
+    @Test fun githubRemoteAdaptersPublishPortableContractsButKeepHostValidation() = runBlocking {
+        val definition = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_read")
+        val fullHostContract = definition.inputSchema
+        val invalid = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"end_line":12,"max_lines":12}]}"""
+        ) as JsonObject
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(invalid, fullHostContract).isNotEmpty())
+
+        val openai = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(emptyFlow())))
+        OpenAIResponsesAdapter(openai, attachmentEncoder())
+            .openSession(turns(), platform(ClientType.OPENAI))
+            .streamRound(listOf(definition), emptyList()).toList()
+        val wire = requireNotNull(openai.responseRequests.single().tools).single()
+        assertEquals(false, wire.strict)
+        assertEquals(definition.name, wire.name)
+        assertFalse(wire.parameters.toString().contains("oneOf"))
+        assertTrue(fullHostContract.toString().contains("oneOf"))
+
+        val compatible = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        OpenAICompatibleAdapter(compatible, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.OPENROUTER))
+            .streamRound(listOf(definition), emptyList()).toList()
+        assertFalse(requestJson(compatible.chatRequests.single()).toString().contains("oneOf"))
+    }
+
+    @Test fun openAiGitHubToolSchemaKeepsHostChecksButNeverPublishesUnsupportedOneOf() {
+        val original = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_read").inputSchema
+        val provider = modelCompatibleGitHubToolSchema(original)
+        assertTrue(original.toString().contains("oneOf"))
+        assertFalse(provider.toString().contains("oneOf"))
+        val beforeFields = (original["properties"] as kotlinx.serialization.json.JsonObject).keys
+        val afterFields = (provider["properties"] as kotlinx.serialization.json.JsonObject).keys
+        assertEquals(beforeFields, afterFields)
+        val invalid = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"end_line":20,"max_lines":10}]}"""
+        ) as kotlinx.serialization.json.JsonObject
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(invalid, original).isNotEmpty())
+        val serialized = kotlinx.serialization.json.Json.encodeToJsonElement(
+            dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionTool.serializer(),
+            dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionTool(
+                "github_read",
+                "Offline tools",
+                provider,
+                strict = false
+            )
+        ).jsonObject
+        assertEquals(JsonPrimitive(false), serialized["strict"])
+        assertFalse(serialized.toString().contains("oneOf"))
+    }
+
     @Test fun typedToolProtocolParserKindSurvivesProviderAdapterFailureProjection() {
         val valid = dev.chungjungsoo.gptmobile.data.agent.provider.toolCall("call", "weather", "{")
             .single() as ProviderEvent.Failed
@@ -1633,6 +1684,58 @@ class ProviderAdaptersTest {
         val events = OpenAIResponsesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI))
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(listOf(ProviderEvent.Failed(failure.message, errorCode = "CIRCUIT_BREAKER_OPEN", failureDetails = failure.failureDetails)), events)
+        assertEquals(1, api.responseRequests.size)
+    }
+
+    @Test fun linkedResponsesRoundReturnsOnlyTheOutputForTheCallThatTheProviderIssued() = runBlocking {
+        val api = FakeOpenAIAPI(
+            responseRounds = ArrayDeque(
+                listOf(
+                    flowOf<ResponsesStreamEvent>(
+                        dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputItemAddedEvent(0, dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputItem("function_call", "item", "call", "web_search", "{}")),
+                        dev.chungjungsoo.gptmobile.data.dto.openai.response.FunctionCallArgumentsDoneEvent("item", 0, "{}"),
+                        ResponseCompletedEvent(ResponseObject("original", "completed"))
+                    ),
+                    flowOf<ResponsesStreamEvent>(ResponseCompletedEvent(ResponseObject("second", "completed")))
+                )
+            )
+        )
+        val session = OpenAIResponsesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI))
+        val call = session.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>().single()
+        session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("found"), false))))).toList()
+        val wire = requestJson(api.responseRequests.last())
+        dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(wire.toString())
+        assertEquals(JsonPrimitive("original"), wire["previous_response_id"])
+        val item = wire.getValue("input").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("function_call_output"), item["type"])
+        assertEquals(JsonPrimitive(call.callId), item["call_id"])
+    }
+
+    @Test fun restoredResponsesRoundKeepsTheTaskAndSettledResultsWithoutAnOrphanOutput() = runBlocking {
+        val api = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(flowOf<ResponsesStreamEvent>(ResponseCompletedEvent(ResponseObject("fresh", "completed"))))))
+        val session = OpenAIResponsesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI))
+        val call = ProviderEvent.ToolCall("saved-call", "web_search", buildJsonObject { put("query", "private arguments") })
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("saved result"), false)
+        val exchange = AgentToolExchange(listOf(call), listOf(result))
+        session.streamRound(emptyList(), listOf(exchange)).toList()
+        val request = api.responseRequests.single()
+        assertNull(request.previousResponseId)
+        val wire = requestJson(request)
+        dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(wire.toString())
+        assertTrue(wire.getValue("input").jsonArray.size >= 2)
+        assertTrue(request.instructions.orEmpty().contains("untrusted evidence"))
+        assertTrue(wire.toString().contains("saved result"))
+        assertFalse(wire.toString().contains("private arguments"))
+        assertFalse(wire.toString().contains("function_call_output"))
+
+        for ((results, expected) in listOf(
+            listOf(result.copy(isError = true, errorCode = "DISPATCH_OUTCOME_UNKNOWN")) to "RECONCILIATION_REQUIRED",
+            listOf(result, result) to "CLIENT_TOOL_RESULT_IDENTITY_MISMATCH"
+        )) {
+            val failed = session.streamRound(emptyList(), listOf(exchange.copy(results = results))).toList().filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(expected, failed.errorCode)
+            assertEquals("BLOCKED", failed.taskOutcome)
+        }
         assertEquals(1, api.responseRequests.size)
     }
 

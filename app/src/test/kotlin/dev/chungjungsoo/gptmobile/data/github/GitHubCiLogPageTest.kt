@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import io.ktor.client.engine.mock.respond
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,6 +13,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubCiLogPageTest {
+    @org.junit.Test fun interruptedLogRestartsAtOriginalJobAndCachesOnlyDeliveredBody() = kotlinx.coroutines.test.runTest {
+        val paths = mutableListOf<String>()
+        val engine = io.ktor.client.engine.mock.MockEngine { request ->
+            paths += request.url.encodedPath
+            if (request.url.host == "api.github.com") {
+                respond("", io.ktor.http.HttpStatusCode.Found, io.ktor.http.headersOf("Location", "https://logs.githubusercontent.com/log-${paths.size}"))
+            } else {
+                org.junit.Assert.assertNull(request.headers["Authorization"])
+                if (paths.size == 2) throw java.io.EOFException("connection reset")
+                respond("complete log")
+            }
+        }
+        io.ktor.client.HttpClient(engine).use { client ->
+            val reader = GitHubCiLogReader(client, "test", GitHubRequestScheduler(), GitHubResponseCache())
+            val job = "/repos/example/project/actions/jobs/17/logs"
+            val expected = GitHubCiLogReader.Log("complete log", 12, true)
+            assertEquals(expected, reader.read(job, immutable = true))
+            assertEquals(expected, reader.read(job, immutable = true))
+            assertEquals(listOf(job, "/log-1", job, "/log-3"), paths)
+        }
+    }
+
     private fun args(raw: String) = Json.parseToJsonElement(raw).jsonObject
 
     @Test fun aLongUnicodeLineReassemblesWithoutLossAcrossPages() {

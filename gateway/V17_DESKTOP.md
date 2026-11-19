@@ -7,12 +7,12 @@ composition namespace. Existing v14, v15 and v16 API aliases remain available;
 
 ## Everyday navigation
 
-The dashboard presents **Overview, Chat, Saved, Jobs and Benchmarks**, with a
-prominent **New prompt** action and one **Settings** entry. Device, search and
-engineering observations remain available through Jobs filters. Advanced settings
-are hidden until requested. The palette follows the Android app's default Cyan
-theme; navigation artwork is exported from its versioned vector assets. Native
-controls retain text labels, keyboard focus and Windows font rendering.
+The Windows WPF dashboard presents **Overview, Chat, Saved, Jobs, Tools,
+Benchmarks, Android controls, Diagnostics and Settings**. Device, search and
+engineering observations remain available through the retained host utilities.
+The palette follows the Android app's default Cyan theme, with rounded panels,
+keyboard focus and Windows font rendering. The native shell is a presentation
+client of the existing supervisor and journals; closing it leaves work running.
 
 Chat sends to the selected model through the existing Gateway completion route.
 It is currently tool-free ordinary chat. Saved engineering conversations can be
@@ -36,6 +36,30 @@ Network mode continues to use the existing shared-network principal. The desktop
 shows that scope explicitly; a request arriving over loopback does not create a
 private account inside a shared network configuration. No supervisor management
 credential is exposed to these views.
+
+## Shared Windows and Android controls
+
+The separate paired-owner control channel lets Windows and Android edit the
+same revisioned settings. It uses PC-approved device pairing, pinned TLS,
+signed requests and durable command receipts. Windows can select a paired phone
+as the engineering owner. Worker, batch, model, startup, update and diagnostic
+settings retain explicit desired/effective/pending state. Running work is not
+cancelled to apply a preference. See [paired owner controls](OWNER_CONTROLS.md)
+for setup, scope and recovery behavior.
+
+## Legacy account-scoped engineering control
+
+Older clients can read **Allow new saved engineering jobs** for an authenticated
+engineering account. A shared identity reported by an older Gateway is read-only
+on Android. Windows **Host settings → GitHub → Job admission** retains controls
+for observed legacy accounts; paired owners use the shared revisioned Settings
+page. Key-free LAN access cannot grant engineering-owner authority. The host
+must already grant engineering access and have durable storage.
+Pausing leaves accepted jobs, their recovery work and their receipts accessible. Copilot cloud delegation has its own control.
+
+The client reads the host state before editing. Each change is bound to the observed installation, account and
+revision. If another device edited the setting or the connection drops during a change, read it again to see the
+current value. Hosts predating this control continue to use their existing admission rules.
 
 ## Additive conversation APIs
 

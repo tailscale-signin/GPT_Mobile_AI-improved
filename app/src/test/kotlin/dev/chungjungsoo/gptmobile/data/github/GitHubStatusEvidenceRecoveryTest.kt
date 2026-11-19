@@ -178,8 +178,26 @@ class GitHubStatusEvidenceRecoveryTest {
         )
         for (incomplete in incompleteRows) {
             val partial = JsonObject(original + ("check_details" to JsonObject(details + ("check_runs" to incomplete))))
-            val text = requireNotNull(GitHubEvidencePolicy.status(baseReceipts() + ("checks" to receipt("checks", partial)), now, 0)).first
+            val saved = baseReceipts() + ("checks" to receipt("checks", partial))
+            val text = requireNotNull(GitHubEvidencePolicy.status(saved, now, 0)).first
             assertFalse(text.contains("Observed check outcomes"))
+            val retry = requireNotNull(GitHubStatusRequest.nextCall(tools, saved, now, 0))
+            assertEquals(JsonPrimitive(sha), retry.arguments["commit_sha"])
+            assertEquals(JsonPrimitive("checks"), retry.arguments["action"])
+            assertEquals(null, GitHubStatusRequest.nextCall(tools, saved + ("retry" to receipt("checks", partial)), now, 0))
+        }
+    }
+
+    @Test fun unavailableLatestWorkflowGetsOneRefreshWhileAnObservedEmptyListIsFinal() {
+        for ((availability, retryExpected) in listOf("Workflow read was unavailable" to true, "No workflow run was returned for the selected ref" to false)) {
+            val base = baseReceipts()
+            val status = requireNotNull(GitHubStatusEvidence.data(base.getValue("status")))
+            val updated = JsonObject(status - "latest_workflow" + ("status_availability" to buildJsonObject { put("latest_workflow", availability) }))
+            val observed = receipt("status", updated)
+            val saved = base + mapOf("status" to observed, "checks" to receipt("checks", checks()))
+            val next = GitHubStatusRequest.nextCall(tools, saved, now, 0)
+            assertEquals(if (retryExpected) JsonPrimitive("status") else null, next?.arguments?.get("action"))
+            assertEquals(null, GitHubStatusRequest.nextCall(tools, saved + ("refresh" to observed), now, 0))
         }
     }
 

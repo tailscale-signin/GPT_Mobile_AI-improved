@@ -152,6 +152,48 @@ def current_junit_receipt(classes, errors):
             'report_count': len(reports), 'case_count': len(cases)}
 
 
+# Fixed, named app behaviors. Physical and remote observations have independent collectors.
+PREMIUM_JOURNEYS = {
+    'uncertain_github_write': 'data.agent.tool.GitHubSchemaRepairTest.unknownMergeOutcomeIsStillFencedAndNeverTreatedAsAnArgumentCorrection',
+    'model_capacity': 'data.context.CapacityReconciliationTest.verifiedDiscoveryDoesNotBypassTheSmallerProfileOrTransportOutputCeiling',
+    'chat_follow': 'presentation.ui.chat.ChatBottomIndicatorTest.manualBottomArrivalAndButtonHaveTheSameIndicatorAndFollowBehavior',
+    'reduced_motion': 'presentation.ui.chat.ChatBottomIndicatorTest.disablingAppOrSystemMotionKeepsVisibleStationaryDots',
+    'narration': 'presentation.ui.chat.UniversalChatActivityFeedTest.counterTicksCoalesceWithoutRewritingDistinctMilestones',
+    'grounded_chart': 'presentation.ui.chat.UniversalChatActivityFeedTest.receiptChartNeedsThreeRealToolCallsAndNeverParsesResultText',
+    'metric_card': 'data.model.AnswerDatasetTest.metricCardsRequireDistinctLabelsAndFiniteBoundedValues',
+    'reported_model_identity': 'data.network.OpenAICompletionDecoderTest.modelIdentityComesFromTheResponseBodyOnly',
+    'reported_model_stream_isolation': 'data.agent.provider.ProviderEventAssemblerTest.responsesModelIsLimitedToThePhysicalStreamThatReportedIt',
+    'first_message_route': 'presentation.ui.home.ChatRouteChoiceTest.firstMessageMatchesReasoningResearchAndQuickTasksLocally',
+    'first_message_draft': 'presentation.ui.home.SharedMultiChatCreationTest.creatingFromTheFirstMessageKeepsItAsAnUnsentDraft',
+    'fast_research_route': 'presentation.ui.home.ChatRouteChoiceTest.fastUsesSuccessfulLatencyAndPreservesResearchEligibility',
+    'project_copy': 'data.knowledge.WorkspaceIntegrationTest.copiesAndEditedBranchesKeepProjectMemoryAndItsPersonalOptOut',
+    'claim_grounding': 'data.research.delivery.ResearchNumericalGroundingTest.orderedGroupComparisonCannotBeReversed',
+    'resume_research': 'data.research.delivery.ResearchReportContinuationTest.transportFailureKeepsTheDraftAndReceiptWithoutStartingSemanticRepair',
+    'scan_attachment': 'util.DocumentTextExtractorTest.imageOnlyPdfKeepsTheOriginalOnANativeRouteAndRequiresVisionOnATextOnlyRoute',
+    'provider_context_recovery': 'data.network.FreeProviderBudgetRecoveryTest.conflictingContextEvidenceUsesTheSmallerVerifiedCeiling',
+    'image_output': 'data.agent.provider.GeminiImageOutputTest.blockedOrPrivateImagesNeverReachStorage',
+    'voice_interruption': 'data.voice.VoicePlaybackFailureReportingTest.kokoroWaitsForDelayedFocusAndStartsTheQueuedReplyOnce',
+    'caption_timing': 'presentation.ui.voice.VoiceCaptionTest.lateRangesInLongRepliesKeepSupplementaryLetters',
+    'privacy': 'data.privacy.PrivacyProfileEligibilityTest.masterOn_rejectsUnverifiedRemoteGateway',
+    'billing_recovery': 'data.accounting.InvocationLedgerTest.provenUnsentDnsAttemptRefundsReservationButAmbiguousDisconnectDoesNot',
+    'scoped_autonomy': 'data.github.GitHubAutonomousEngineeringPolicyTest.disabledChangedOrUnselectedProfilesCannotInheritLocalAutonomy',
+}
+
+
+def premium_journeys(classes, receipt):
+    results = {}
+    for scenario, path in PREMIUM_JOURNEYS.items():
+        owner, method = ('dev.chungjungsoo.gptmobile.' + path).rsplit('.', 1)
+        cases = [case for case in classes.get(owner, []) if case['name'] == method]
+        record = {'case': owner + '.' + method, 'outcome': 'NOT_RUN'}
+        if cases:
+            record['outcome'] = 'UNVERIFIED'
+            if len(cases) == 1 and receipt:
+                record.update(outcome=cases[0]['outcome'], report_sha256=cases[0]['report_sha256'])
+        results[scenario] = record
+    return results
+
+
 def checkout_identity(root, environment):
     def git(*args):
         return subprocess.check_output(['git', *args], cwd=root, text=True)
@@ -284,6 +326,7 @@ def collect(root, reports, since, now, coverage_path=None):
         'historical_audit_mutation': False, 'grants_execution': False, 'promotes_audit_score': False,
         'scope': 'Only listed named assertions reported in the current execution window. Area PASS is not complete subsystem, live-service, model or device qualification.',
         'report_errors': errors, 'areas': areas, 'junit_receipt': junit_receipt,
+        'premium_jvm_journeys': premium_journeys(classes, junit_receipt),
         'coverage': instrumented_coverage(coverage_path, since, now, junit_receipt is not None),
     }
 

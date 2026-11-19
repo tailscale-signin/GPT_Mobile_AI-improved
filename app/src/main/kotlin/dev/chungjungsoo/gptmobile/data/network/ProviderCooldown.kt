@@ -238,7 +238,7 @@ internal object ProviderCooldown {
             }
         }
         while (true) {
-            val remaining = identities.maxOf { registry.remainingMillis(it) }
+            val remaining = registry.remainingMillis(identities)
             if (remaining <= 0) return
             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]
                 ?.transportWait(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.PROVIDER_COOLDOWN, remaining)

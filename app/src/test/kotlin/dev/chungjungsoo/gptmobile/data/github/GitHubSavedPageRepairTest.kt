@@ -35,6 +35,10 @@ class GitHubSavedPageRepairTest {
         val page = result(source)
         val args = (page.getValue("continuation_call") as JsonObject).getValue("arguments") as JsonObject
         val cursor = (args.getValue("view_cursor") as JsonPrimitive).content
+        val wrongAlias = views.read("selected-scope", "github_context", "github_context__other_api", cursor, "wrong-alias")
+        assertEquals("SAVED_VIEW_WRONG_OPERATION", wrongAlias.errorCode)
+        assertEquals(JsonPrimitive(modelName), (result(wrongAlias)["correction_call"] as JsonObject)["tool"])
+        assertFalse(wrongAlias.dispatched)
         val rejectedArgs = JsonObject(args + json("""{"action":"resolve","commit_sha":"${"b".repeat(40)}"}"""))
         val rejected = views.read("selected-scope", "github_context", modelName, cursor, "rejected", JsonObject(rejectedArgs - "view_cursor"))
         assertTrue(rejected.isError)
@@ -137,6 +141,189 @@ class GitHubSavedPageRepairTest {
         assertEquals(JsonPrimitive("github.saved-view.v1"), store.loadWithDiagnostics(id)["schema"])
         state.remove("test-scope", "saved-view-body:$id")
         assertEquals("BODY_MISSING_INDEX_PRESENT", reason())
+    }
+
+    @Test fun liveScopedBodyRecoversMissingFileAndSurvivesRestart() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("github-saved-view-body-").toFile()
+        try {
+            val scope = "selected-scope"
+            val id = UUID.randomUUID().toString()
+            val store = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), scope)
+            val snapshot = buildJsonObject {
+                put("body", "captured read")
+                put("issued_cursors", JsonArray(listOf(JsonPrimitive("$id:0:2048"))))
+                put("failed_persistence_cursors", JsonArray(emptyList()))
+            }
+            store.save(id, snapshot)
+            val record = java.io.File(directory, "saved-results/" + GitHubRepositoryStateStore.digest("$scope:saved-view-body:$id") + ".record")
+            assertTrue(record.delete())
+            assertEquals(snapshot, store.loadWithDiagnostics(id))
+            assertTrue(record.isFile)
+            val restarted = GitHubRepositoryStateStore(directory)
+            assertEquals(snapshot, GitHubSavedViewStore(restarted, scope).loadWithDiagnostics(id))
+            assertEquals(null, GitHubSavedViewStore(restarted, "other-scope").load(id))
+            record.writeText("corrupt")
+            assertEquals("BODY_UNREADABLE", (runCatching { store.loadWithDiagnostics(id) }.exceptionOrNull() as GitHubSavedViewStore.MissingSavedView).reason)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun durableBootstrapRestoresOnlyInitiallyIssuedHandleAfterIndexLoss() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("github-saved-view-test-").toFile()
+        try {
+            val state = GitHubRepositoryStateStore(directory)
+            val scope = "restart-scope"
+            val id = UUID.randomUUID().toString()
+            val cursor = "$id:0:2048"
+            val store = GitHubSavedViewStore(state, scope)
+            val original = buildJsonObject {
+                put("schema", "github.saved-view.v1")
+                put("issued_cursors", JsonArray(listOf(JsonPrimitive(cursor))))
+                put("failed_persistence_cursors", JsonArray(emptyList()))
+            }
+            store.save(id, original)
+            state.remove(scope, "saved-view-access:$id")
+            val reopened = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), scope)
+            val restored = reopened.loadWithDiagnostics(id)
+            assertEquals(JsonArray(listOf(JsonPrimitive(cursor))), restored["issued_cursors"])
+            assertEquals(JsonArray(emptyList()), restored["failed_persistence_cursors"])
+            assertFalse((restored["issued_cursors"] as JsonArray).contains(JsonPrimitive("$id:1:2048")))
+            assertFalse("bootstrap_issued_cursors" in restored)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun mutableCursorIndexCannotReplaceTheBodyOrRestoreForeignHandles() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("saved-index-integrity").toFile()
+        try {
+            val state = GitHubRepositoryStateStore(directory)
+            val store = GitHubSavedViewStore(state, "scope")
+            val id = UUID.randomUUID().toString()
+            val issued = JsonArray(listOf(JsonPrimitive("$id:0:2048")))
+            store.save(
+                id,
+                buildJsonObject {
+                    put("issued_cursors", issued)
+                    put("schema", "original")
+                }
+            )
+            state.write(
+                "scope",
+                "saved-view-access:$id",
+                buildJsonObject {
+                    put("issued_cursors", issued)
+                    put("schema", "wrong")
+                }
+            )
+            assertEquals(JsonPrimitive("original"), store.loadWithDiagnostics(id)["schema"])
+            state.write("scope", "saved-view-access:$id", buildJsonObject { put("issued_cursors", JsonArray(listOf(JsonPrimitive("other:0:2048")))) })
+            val error = runCatching { store.loadWithDiagnostics(id) }.exceptionOrNull()
+            assertEquals("CURSOR_INDEX_INVALID", (error as GitHubSavedViewStore.MissingSavedView).reason)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun laterPageSavePreservesInitialHandleWhenMutableIndexWasLost() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("github-saved-bootstrap-recovery-").toFile()
+        try {
+            val scope = "bootstrap-recovery"
+            val id = UUID.randomUUID().toString()
+            val first = "$id:0:2048"
+            val later = "$id:1:2048"
+            val state = GitHubRepositoryStateStore(directory)
+            val store = GitHubSavedViewStore(state, scope)
+            fun snapshot(cursor: String) = buildJsonObject {
+                put("schema", "github.saved-view.v1")
+                put("issued_cursors", JsonArray(listOf(JsonPrimitive(cursor))))
+                put("failed_persistence_cursors", JsonArray(emptyList()))
+            }
+            store.save(id, snapshot(first))
+            state.remove(scope, "saved-view-access:$id")
+            store.save(id, snapshot(later))
+            val reopened = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), scope)
+            val restored = reopened.loadWithDiagnostics(id)
+            assertEquals(
+                JsonArray(listOf(JsonPrimitive(first), JsonPrimitive(later))),
+                restored["issued_cursors"]
+            )
+            assertEquals(JsonArray(emptyList()), restored["failed_persistence_cursors"])
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun savingALaterPageAfterFileLossPreservesTheOriginalBootstrapProof() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("github-saved-bootstrap-").toFile()
+        try {
+            val scope = "scope"
+            val id = UUID.randomUUID().toString()
+            val first = JsonPrimitive("$id:0:2048")
+            val later = JsonPrimitive("$id:1:2048")
+            val state = GitHubRepositoryStateStore(directory)
+            val store = GitHubSavedViewStore(state, scope)
+            fun page(cursor: JsonPrimitive) = buildJsonObject { put("issued_cursors", JsonArray(listOf(cursor))) }
+            store.save(id, page(first))
+            val path = java.io.File(directory, "saved-results/" + GitHubRepositoryStateStore.digest("$scope:saved-view-body:$id") + ".record")
+            assertTrue(path.delete())
+            store.save(id, page(later))
+            assertEquals(JsonArray(listOf(first, later)), store.loadWithDiagnostics(id)["issued_cursors"])
+            assertTrue(runCatching { store.save(id, page(JsonPrimitive("foreign:1:2048"))) }.isFailure)
+            state.remove(scope, "saved-view-access:$id")
+            val reopened = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), scope)
+            assertEquals(JsonArray(listOf(first)), reopened.loadWithDiagnostics(id)["issued_cursors"])
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun savedBodyAndIndexSurviveOrdinaryCachePruningAndRestart() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("github-saved-result-retention-").toFile()
+        try {
+            val scope = "durable-read"
+            val state = GitHubRepositoryStateStore(directory)
+            val id = UUID.randomUUID().toString()
+            val cursor = "$id:0:2048"
+            GitHubSavedViewStore(state, scope).save(
+                id,
+                buildJsonObject {
+                    put("schema", "github.saved-view.v1")
+                    put("issued_cursors", JsonArray(listOf(JsonPrimitive(cursor))))
+                    put("failed_persistence_cursors", JsonArray(emptyList()))
+                }
+            )
+            val payload = JsonPrimitive("x".repeat(5 * 1024 * 1024))
+            repeat(10) { index ->
+                state.write(scope, "ordinary-cache-$index", buildJsonObject { put("payload", payload) })
+            }
+            assertFalse(state.containsRetainedBody(scope, "ordinary-cache-0"))
+            val reopened = GitHubSavedViewStore(GitHubRepositoryStateStore(directory), scope)
+            val retained = reopened.loadWithDiagnostics(id)
+            assertEquals(JsonArray(listOf(JsonPrimitive(cursor))), retained["issued_cursors"])
+            assertEquals(JsonPrimitive("github.saved-view.v1"), retained["schema"])
+            assertEquals(
+                2,
+                java.io.File(directory, "saved-results").listFiles { file -> file.extension == "record" }?.size
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun legacyBodyWithoutInitialHandlesCannotInventRecoveryWhenIndexIsMissing() = runBlocking {
+        val state = GitHubRepositoryStateStore()
+        val scope = "legacy-scope"
+        val id = UUID.randomUUID().toString()
+        state.write(scope, "saved-view-body:$id", buildJsonObject { put("schema", "github.saved-view.v1") })
+        val reason = try {
+            GitHubSavedViewStore(state, scope).loadWithDiagnostics(id)
+            "RESTORED"
+        } catch (missing: GitHubSavedViewStore.MissingSavedView) {
+            missing.reason
+        }
+        assertEquals("CURSOR_INDEX_MISSING", reason)
     }
 
     private fun assertNoRepair(call: dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall?) {

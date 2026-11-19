@@ -277,7 +277,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         val captureFailure = failure.cause as? LocalVoiceCaptureException
         // A focus handoff can settle after playback stops. Retry at the session's
         // bounded backoff, never by immediately recreating the same denied request.
-        val focusRetry = failureCode == "MICROPHONE_FOCUS_DENIED" &&
+        val retryInput = failureCode in setOf("MICROPHONE_FOCUS_DENIED", "MICROPHONE_CAPTURE_SILENCED") &&
             captureFailure?.retryable == true &&
             captureFailure.capturedSamples == 0L &&
             run.capturedChunks.get() == 0
@@ -298,14 +298,14 @@ internal class MoonshineVoiceRecognizer internal constructor(
         run.listener.failure(
             failure.message,
             code,
-            retryMillis = if (focusRetry) {
+            retryMillis = if (retryInput) {
                 1_000
             } else if (failureCode == "NO_SPEECH") {
                 500
             } else {
                 0
             },
-            retryable = focusRetry || failureCode == "NO_SPEECH",
+            retryable = retryInput || failureCode == "NO_SPEECH",
             recoveryAction = repair,
             cause = failure.cause
         )

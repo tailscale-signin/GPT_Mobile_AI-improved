@@ -100,6 +100,7 @@ fun SettingScreen(
     val featureSettings by settingViewModel.featureSettings.collectAsStateWithLifecycle()
     var showResearch by rememberSaveable { mutableStateOf(false) }
     var showDelegation by rememberSaveable { mutableStateOf(false) }
+    var showGateway by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
     var showHome by rememberSaveable { mutableStateOf(false) }
@@ -230,6 +231,17 @@ fun SettingScreen(
                             SettingsCategory("AI", "Profiles and models") {
                                 SettingsDestination(Icons.Rounded.SmartToy, "AI Profiles", onNavigateToAiPlatforms)
                                 SettingsDestination(Icons.Rounded.Storage, "Local Models", onNavigateToLocalModels)
+                                SettingsDestination(Icons.Rounded.Storage, "Windows Gateways", { showGateway = true })
+                            }
+                        }
+                        item {
+                            SettingsCategory("Gateway", "Paired PC controls and saved engineering work") {
+                                SettingsDestination(Icons.Rounded.Storage, "Gateway settings", { showGateway = true })
+                            }
+                        }
+                        item {
+                            SettingsCategory("Privacy", "Privacy Mode and sensitive-information protection") {
+                                PrivacyModePanel()
                             }
                         }
                         item {
@@ -269,6 +281,7 @@ fun SettingScreen(
     }
 
     if (showResearch) ResearchFeatureScreen(onClose = { showResearch = false })
+    if (showGateway) GatewayControlSettingsDialog(onDismiss = { showGateway = false })
 
     if (showDelegation) {
         LocalToolConfigurationDialog(section = "delegation", onDismiss = { showDelegation = false })

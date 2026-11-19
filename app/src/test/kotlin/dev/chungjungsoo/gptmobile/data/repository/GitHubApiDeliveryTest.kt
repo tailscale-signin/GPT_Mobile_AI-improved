@@ -12,6 +12,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubApiDeliveryTest {
+    @Test fun streamWithoutTerminalRetainsDeliveryStage() = runTest {
+        val states = flowOf<ApiState>(ApiState.Success("partial")).withGitHubApiDelivery(true).toList()
+        val failure = states.filterIsInstance<ApiState.Error>().single()
+        assertEquals("GITHUB_RUN_INTERRUPTED", failure.errorCode)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("delivery"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(ApiState.Done, states.last())
+    }
+
     @Test fun repositoryPrecheckKeepsRepairAndDoesNotInventAnUncertainMutation() = runTest {
         val failure = ApiState.Error(
             "Repository unavailable or inaccessible. Refresh access or change repository.",

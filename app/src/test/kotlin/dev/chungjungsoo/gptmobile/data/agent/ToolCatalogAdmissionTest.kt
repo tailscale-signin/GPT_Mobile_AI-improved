@@ -171,6 +171,15 @@ class ToolCatalogAdmissionTest {
         )
     }
 
+    @Test fun ordinaryChatStagesGitHubIntegrationAndKeepsTheAuthorizedCatalog() {
+        val task = "Test all GitHub integration tools"
+        val tools = GitHubTool().operations().map { tool -> ResolvedAgentTool(tool, null, "GitHub", tool.definition.name, tool.definition.name) }
+        val turn = ConversationTurn(MessageV2(content = task, platformType = null), null, true)
+        val plan = planAuthorizedToolContext(listOf(turn), "Verify with receipts.", tools, TokenBudgetSettings(contextTokens = 5632, outputTokens = 768), externalTools = true)
+        assertTrue(plan.tools.any { it.name == ProgressiveToolCatalog.NAME })
+        assertTrue(plan.authorizedTools.map { it.name }.containsAll(tools.map { it.modelToolName }))
+    }
+
     @Test fun providerRoundDefersLargeOptionalGithubSchema() {
         val recovery = AgentToolDefinition("read_recovery_context", "Recover task receipts", buildJsonObject {})
         val context = AgentToolDefinition("github_context", "Inspect repository", buildJsonObject {})

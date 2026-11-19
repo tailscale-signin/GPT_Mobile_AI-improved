@@ -7,6 +7,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.GatewayJobRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayPairedRequestSource
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
@@ -21,13 +23,15 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Singleton
-class GatewayJobRepository @Inject constructor(
+class GatewayJobRepository internal constructor(
     private val database: ChatDatabaseV2,
     private val settings: SettingRepository,
     private val client: GatewayJobClient,
     private val engineeringStore: GatewayEngineeringStore,
-    private val verifiedScopes: GatewayVerifiedScopeStore
+    private val verifiedScopes: GatewayVerifiedScopeStore,
+    private val pairedRequests: GatewayPairedRequestSource? = null
 ) {
+    @Inject internal constructor(database: ChatDatabaseV2, settings: SettingRepository, client: GatewayJobClient, engineeringStore: GatewayEngineeringStore, verifiedScopes: GatewayVerifiedScopeStore, control: GatewayControlRepository) : this(database, settings, client, engineeringStore, verifiedScopes, pairedRequests = control)
     private val json = Json { ignoreUnknownKeys = true }
     private val dao get() = database.gatewayJobDao()
     private val savedWorkContracts = RouteCapabilityCache<GatewaySavedWorkContract>({ System.nanoTime() / 1_000_000 }, positiveTtl = 30_000)
@@ -199,7 +203,11 @@ class GatewayJobRepository @Inject constructor(
         check(!requireEnabled || profile.enabled) { "The gateway profile is disabled. Enable its original connection to reconnect." }
         check(profile.apiUrl.isNotBlank()) { "The original gateway address is unavailable." }
         check(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile.copy(enabled = true))) { "Select a private Llama or Ollama gateway connection for saved jobs." }
-        return GatewayJobRoute(profile.uid, profile.apiUrl.trimEnd('/'), ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid), verifiedScopes.configurationRevision(profile))
+        val config = ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, gatewayOwnerControl = useEngineeringGateway)
+        val originalRevision = verifiedScopes.configurationRevision(profile)
+        val pairedIdentity = pairedRequests?.identity(config)
+        val revision = if (pairedIdentity == null || originalRevision == null) originalRevision else dev.chungjungsoo.gptmobile.data.research.researchHash("$originalRevision|$pairedIdentity")
+        return GatewayJobRoute(profile.uid, profile.apiUrl.trimEnd('/'), config, revision)
     }
 
     internal suspend fun originalRoute(profileUid: String, endpoint: String): GatewayJobRoute = route(profileUid, useEngineeringGateway = false).also {
@@ -212,4 +220,8 @@ class GatewayJobRepository @Inject constructor(
 }
 
 internal data class GatewayJobRoute(val profileUid: String, val endpoint: String, val config: ProviderRequestConfig, val configurationRevision: String? = null)
+internal fun GatewayJobRoute.withIdentity(gatewayId: String, principalId: String): GatewayJobRoute = copy(config = config.withGatewayIdentity(GatewayScopeIdentity(gatewayId = gatewayId, principalId = principalId)))
+internal suspend fun GatewayJobRepository.originalRoute(profileUid: String, endpoint: String, gatewayId: String?, principalId: String?): GatewayJobRoute = originalRoute(profileUid, endpoint).let {
+    if (gatewayId != null && principalId != null) it.withIdentity(gatewayId, principalId) else it
+}
 internal data class GatewayCachedConversations(val page: GatewayConversationPage, val lastSyncedAtMillis: Long?)

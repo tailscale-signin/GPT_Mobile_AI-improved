@@ -95,8 +95,10 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
@@ -169,17 +171,18 @@ fun UserChatBubble(
         BubbleAction(stringResource(R.string.copy_text), ImageVector.vectorResource(R.drawable.ic_copy), invoke = onCopyClick),
         BubbleAction(stringResource(R.string.edit), Icons.Rounded.Edit, canEdit, onEditClick)
     )
+    val senderLabel = stringResource(R.string.user_message)
     BubbleActionHost(identity = timestamp ?: "user", actions = actions) {
         Column(horizontalAlignment = Alignment.End) {
             Card(
-                modifier = modifier,
+                modifier = modifier.semantics { stateDescription = senderLabel },
                 shape = RoundedCornerShape(32.dp),
                 colors = cardColor
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                     Text(
                         text = text,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 1f),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                         style = MaterialTheme.typography.bodyMedium.copy(
                             platformStyle = PlatformTextStyle(includeFontPadding = false),
                             lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)
@@ -193,7 +196,7 @@ fun UserChatBubble(
                         text = formattedTime,
                         modifier = Modifier.padding(end = 8.dp),
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Light),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -298,6 +301,10 @@ fun OpponentChatBubble(
         if (githubTask != null) gitHubResponsePresentation(text, timeline, holdGitHubAnswer) else null
     }
     val displayedText = githubPresentation?.text ?: text
+    var showedLiveAnswer by remember(contentIdentity) { mutableStateOf(false) }
+    LaunchedEffect(holdGitHubAnswer, displayedText.isNotBlank()) {
+        if (holdGitHubAnswer && displayedText.isNotBlank()) showedLiveAnswer = true
+    }
     val hasFinalGitHubAnswer =
         githubTask != null &&
             !holdGitHubAnswer &&
@@ -313,7 +320,7 @@ fun OpponentChatBubble(
         identity = contentIdentity,
         inProgress = holdGitHubAnswer,
         hasFinalAnswer = hasFinalGitHubAnswer,
-        animate = debugSettings.responseAnimation,
+        animate = debugSettings.responseAnimation && !showedLiveAnswer,
         accent = MaterialTheme.colorScheme.primary,
         settled = finalGitHubColor
     )
@@ -434,8 +441,9 @@ fun OpponentChatBubble(
         add(BubbleAction(retryLabel ?: stringResource(R.string.retry), Icons.Rounded.Refresh, canRetry && !isLoading && !holdGitHubAnswer, onRetryClick))
         if (effectiveExecutionTrace && hasDetails) add(BubbleAction(stringResource(R.string.details), Icons.Rounded.HelpOutline) { activityExpanded = !activityExpanded })
     }
+    val senderLabel = stringResource(R.string.assistant_message)
     BubbleActionHost(identity = contentIdentity, actions = actions) {
-        Column(modifier = modifier) {
+        Column(modifier = modifier.semantics { stateDescription = senderLabel }) {
             AnimatedVisibility(
                 visible = shouldShowBubble,
                 enter = fadeIn(animationSpec = tween(1500)),
@@ -482,6 +490,7 @@ fun OpponentChatBubble(
                     if (completionReveal.showAnswer) {
                         Box(Modifier.alpha(completionReveal.answerAlpha)) {
                             AssistantChronologicalContent(
+                                selectedModel = agentRun?.modelSnapshot,
                                 outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
                                 animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
                                 proseColor = if (hasFinalGitHubAnswer) {
@@ -560,7 +569,7 @@ fun OpponentChatBubble(
                             text = if (isError) "The response failed before displayable content was returned." else "The model finished without returning displayable text.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp).semantics { liveRegion = LiveRegionMode.Polite }
                         )
                     }
 

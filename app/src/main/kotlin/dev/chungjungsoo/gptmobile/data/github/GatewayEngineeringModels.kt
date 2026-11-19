@@ -10,6 +10,19 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
+internal data class GatewayAdmissionSetting(
+    val enabled: Boolean,
+    val revision: Long,
+    @SerialName("gateway_id") val gatewayId: String,
+    @SerialName("principal_id") val principalId: String
+) {
+    init {
+        require(revision >= 0)
+        requireGatewayIdentity(gatewayId, principalId)
+    }
+}
+
+@Serializable
 data class GatewayEngineeringCapabilities(
     val service: String,
     @SerialName("protocol_version") val protocolVersion: Int,
@@ -118,7 +131,8 @@ data class GatewayRepositoryCapability(
 data class GatewayGraphCapability(
     @SerialName("schema_version") val schemaVersion: Int = 0,
     val enabled: Boolean = false,
-    @SerialName("durable_index_jobs") val durableIndexJobs: Boolean = false
+    @SerialName("durable_index_jobs") val durableIndexJobs: Boolean = false,
+    @SerialName("sync_index_receipts") val syncIndexReceipts: Boolean = false
 )
 
 @Serializable
@@ -262,7 +276,14 @@ data class GatewayEngineeringJob(
     @SerialName("recovery_job_id") val recoveryJobId: String? = null,
     @SerialName("qualified_revision") val qualifiedRevision: String? = null,
     @SerialName("provider_retry_source") val providerRetrySource: String? = null,
-    @SerialName("provider_retry_attempts") val providerRetryAttempts: Int? = null
+    @SerialName("provider_retry_attempts") val providerRetryAttempts: Int? = null,
+    @SerialName("workspace_plan") val workspacePlan: String = "",
+    @SerialName("active_instruction_files") val activeInstructionFiles: List<String> = emptyList(),
+    @SerialName("workspace_next_action") val workspaceNextAction: String? = null,
+    @SerialName("workspace_workers") val workspaceWorkers: List<JsonObject> = emptyList(),
+    @SerialName("workspace_outputs") val workspaceOutputs: List<JsonObject> = emptyList(),
+    @SerialName("workspace_tests") val workspaceTests: List<JsonObject> = emptyList(),
+    @SerialName("workspace_steps") val workspaceSteps: List<JsonObject> = emptyList()
 ) {
     val ownershipLabel: String get() = if (detachSafe && acceptedAt != null && id.isNotBlank()) {
         when {

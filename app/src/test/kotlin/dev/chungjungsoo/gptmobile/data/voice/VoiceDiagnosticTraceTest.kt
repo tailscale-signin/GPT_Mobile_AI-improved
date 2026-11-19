@@ -53,6 +53,7 @@ class VoiceDiagnosticTraceTest {
         val first = trace.advance(1, reset = true)
         first.engine(VoiceDiagnosticTrace.Engine.KOKORO)
         first.pronunciationFailure(Int.MAX_VALUE, 4, audioQueued = true, firstAudioObserved = true, failure = KokoroPronunciationFailure.UNKNOWN_WORD)
+        first.playbackFocus(VoiceDiagnosticTrace.Focus.DENIED, 2, VoiceDiagnosticTrace.PlaybackAudioMode.IN_CALL)
         first.playbackFocusTransition("PAUSE")
         first.playbackFocusTransition("RESTORE")
         first.playbackFocusTransition("private-unknown-event")
@@ -62,6 +63,7 @@ class VoiceDiagnosticTraceTest {
         assertEquals("UNKNOWN_WORD", observed["voice_pronunciation_failure_kind"])
         assertEquals(true, observed["voice_pronunciation_audio_queued"])
         assertEquals(true, observed["voice_pronunciation_first_audio_observed"])
+        assertEquals("IN_CALL", observed["voice_playback_audio_mode"])
         assertEquals("RESTORE", observed["voice_focus_last_transition"])
         assertEquals(2L, observed["voice_focus_transition_count"])
         val approved = requireNotNull(VoiceDiagnosticTrace.manualSnapshot()).values
@@ -74,6 +76,7 @@ class VoiceDiagnosticTraceTest {
         assertFalse("voice_pronunciation_unknown_words" in trace.incidentFields())
         assertFalse("voice_pronunciation_failure_kind" in trace.incidentFields())
         assertFalse("voice_focus_transition_count" in trace.incidentFields())
+        assertFalse("voice_playback_audio_mode" in trace.incidentFields())
         first.playbackFocusTransition("STOP")
         assertFalse("voice_focus_last_transition" in trace.incidentFields())
     }

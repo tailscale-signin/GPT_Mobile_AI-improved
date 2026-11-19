@@ -574,6 +574,14 @@ class VoiceSessionTest {
         assertEquals(VoicePhase.ERROR, rejecting.state.phase)
     }
 
+    @Test fun speechChunksPreferWholeWordsAtTheEngineLimit() {
+        val original = "Speak these phrases clearly."
+        val chunks = speechChunks(original, 14)
+        assertEquals("Speak these ", chunks.first())
+        assertEquals(original, chunks.joinToString(""))
+        assertTrue(chunks.all { it.length <= 14 })
+    }
+
     @Test fun `chunking preserves all text and unicode boundaries`() {
         val original = "ab😀cd".repeat(2000)
         val chunks = speechChunks(original, 7)

@@ -35,6 +35,9 @@ enum class ProviderFinishCategory { STOP, TOOL_CALLS, LENGTH, CONTENT_FILTER, OT
 @Serializable
 enum class FailureDomain { PROVIDER, APPROVAL, APPLICATION_VERIFICATION, TOOL_EXECUTION, UNKNOWN }
 
+private val ProviderEvent.Failed.localBudgetRefusal: Boolean
+    get() = errorCode == "BUDGET_RESTRICTED" && failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)
+
 /** Fixed fields only: no prompt, endpoint, token, raw model/profile name or exception text. */
 @Serializable
 data class ProviderFailureReceipt(
@@ -67,7 +70,11 @@ data class ProviderFailureReceipt(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val engineeringRejection: JsonObject? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val recoveryAction: String? = null
+    val recoveryAction: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val privacyReasonCode: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val privacyStatus: String? = null
 ) {
     internal fun valid(): Boolean = provider in setOf("OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OPENROUTER", "OLLAMA", "CUSTOM", "LITERT_LM", "LLAMA", "FREE", "NVIDIA") &&
         listOf(profileHash, modelHash).all { it.matches(Regex("[a-f0-9]{64}")) } &&
@@ -78,6 +85,8 @@ data class ProviderFailureReceipt(
         (gatewayAttemptEvidence == null || dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(gatewayAttemptEvidence) == gatewayAttemptEvidence) &&
         (engineeringRejection == null || errorCode == "ENGINEERING_STATE_OR_INPUT_CHANGED" && GatewayInputRejectionDetails.retained(engineeringRejection) == engineeringRejection) &&
         (recoveryAction == null || recoveryAction == GatewayEngineeringPrerequisites.recoveryAction(errorCode)) &&
+        (privacyReasonCode == null || errorCode == PrivacyFailureEvidence.CODE && privacyReasonCode in PrivacyFailureEvidence.reasonCodes) &&
+        (privacyStatus == null || errorCode == PrivacyFailureEvidence.CODE && privacyStatus in PrivacyFailureEvidence.statuses) &&
         listOfNotNull(invocationId, usageInvocationId).all { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) } &&
         (outputTokenSource == null || safeUsageSource(outputTokenSource) != null) &&
         listOfNotNull(serverRequestId, generationId).all { dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity(it) != null } &&
@@ -92,7 +101,7 @@ data class ProviderFailureReceipt(
         // Provider error strings are untrusted content, even when they look like an enum.
         private val ERROR_CODES = setOf(
             "MODEL_PREPARATION_INCOMPLETE", "MODEL_PREPARATION_REJECTED", "MODEL_PREPARATION_STORAGE_UNAVAILABLE", "MODEL_PREPARATION_CONNECTION_FAILED",
-            "UNCLASSIFIED_PROVIDER_FAILURE", "HTTP_ERROR", "TRANSPORT_ERROR", "OUTPUT_LIMIT", "CONTEXT_CAPACITY_EXCEEDED",
+            "UNCLASSIFIED_PROVIDER_FAILURE", "BUDGET_RESTRICTED", "HTTP_ERROR", "TRANSPORT_ERROR", "OUTPUT_LIMIT", "CONTEXT_CAPACITY_EXCEEDED",
             "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED",
             "DISPATCH_POLICY_CHANGED", "SAVED_EVIDENCE_REVOKED", "REPLAY_EVIDENCE_REQUIRED", "NOT_DISPATCHED",
             "GITHUB_REVIEW_INCOMPATIBLE", "GITHUB_REVIEW_INVALID_VERDICT", "GITHUB_REVIEW_INDETERMINATE",
@@ -104,7 +113,7 @@ data class ProviderFailureReceipt(
             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_DISABLED", "OUTPUT_CONTINUATION_NO_PROGRESS",
             "OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_PROTOCOL_INVALID",
             "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "CLIENT_TOOL_RESULTS_REQUIRED", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED",
-            "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED"
+            "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", PrivacyFailureEvidence.CODE
         ) + GatewayEngineeringPrerequisites.codes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES +
             dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES +
             dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes +
@@ -113,12 +122,12 @@ data class ProviderFailureReceipt(
 
         fun from(profile: PlatformV2, role: String, failure: ProviderEvent.Failed, usage: ProviderEvent.Usage? = null): ProviderFailureReceipt {
             val status = ((failure.failureDetails?.get("http_status") as? JsonPrimitive)?.intOrNull ?: failure.errorCode?.toIntOrNull())?.takeIf { it in 100..599 }
-            val code = failure.errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf { it in ERROR_CODES } ?: if (status != null) "HTTP_ERROR" else "UNCLASSIFIED_PROVIDER_FAILURE"
+            val code = failure.errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf { it in ERROR_CODES } ?: if (status != null && status >= 400) "HTTP_ERROR" else "UNCLASSIFIED_PROVIDER_FAILURE"
             val failedStage = (failure.failureDetails?.get("failed_stage") as? JsonPrimitive)?.content
             val reviewStage = (failure.failureDetails?.get("review_stage") as? JsonPrimitive)?.content
             val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             val invocationId = failure.invocationId ?: classified.invocationId
-            val matchingUsage = usage?.takeIf {
+            val matchingUsage = usage?.takeUnless { failure.localBudgetRefusal }?.takeIf {
                 if (invocationId != null || it.invocationId != null) invocationId != null && invocationId == it.invocationId else role != "github-delivery"
             }
             val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)
@@ -145,10 +154,11 @@ data class ProviderFailureReceipt(
             val capacityAdmissionRejected = code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES &&
                 failedStage == "provider_admission" &&
                 classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
+            val privacyAdmissionRejected = code == PrivacyFailureEvidence.CODE && failedStage == "provider_admission"
             val stage = when {
                 // The failed preparation stage does not establish whether prior
                 // work in this run was dispatched or has an uncertain outcome.
-                profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected -> ProviderFailureStage.ADMISSION
+                profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected || privacyAdmissionRejected || failure.localBudgetRefusal -> ProviderFailureStage.ADMISSION
                 classified.isUserInputRequired || classified.isEngineeringSetup || code.startsWith("MODEL_PREPARATION_") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" && failedStage in setOf("request_validation", "provider_admission", "binding_admission", "message_admission", "conversation_admission", "execution_admission") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProviderFailureStage.ENGINEERING_GUARD
@@ -194,7 +204,7 @@ data class ProviderFailureReceipt(
                 generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
                 causeTypes = classified.causeTypes,
                 failureDomain = when {
-                    profileSelectionRejected || githubCooldownActive -> FailureDomain.APPLICATION_VERIFICATION
+                    profileSelectionRejected || githubCooldownActive || code == PrivacyFailureEvidence.CODE || failure.localBudgetRefusal -> FailureDomain.APPLICATION_VERIFICATION
                     githubRateResponse -> FailureDomain.TOOL_EXECUTION
                     classified.isUserInputRequired || classified.isEngineeringSetup || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
@@ -210,7 +220,9 @@ data class ProviderFailureReceipt(
                 causeStage = classified.phase.takeUnless { it.isBlank() || it == "stage_not_recorded" },
                 gatewayAttemptEvidence = attemptEvidence,
                 engineeringRejection = classified.engineeringRejection,
-                recoveryAction = GatewayEngineeringPrerequisites.recoveryAction(code)
+                recoveryAction = GatewayEngineeringPrerequisites.recoveryAction(code),
+                privacyReasonCode = PrivacyFailureEvidence.reason(failure.failureDetails?.get("privacy_reason_code")).takeIf { code == PrivacyFailureEvidence.CODE },
+                privacyStatus = PrivacyFailureEvidence.status(failure.failureDetails?.get("privacy_status")).takeIf { code == PrivacyFailureEvidence.CODE }
             )
         }
     }
@@ -254,19 +266,19 @@ internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: 
                     val retainedInvocationId = (event.failureDetails?.get("invocation_id") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
                         ?.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) }
                     val identifiedFailure = event.copy(invocationId = event.invocationId ?: retainedInvocationId ?: invocationId.takeUnless { role == "github-delivery" })
-                    val ownsStream = role != "github-delivery" && invocationId != null && identifiedFailure.invocationId == invocationId
+                    val ownsStream = role != "github-delivery" && invocationId != null && identifiedFailure.invocationId == invocationId && !identifiedFailure.localBudgetRefusal
                     val ownedFailure = if (ownsStream) observedFailure(identifiedFailure, usage, metadata) else identifiedFailure
                     val receipt = ProviderFailureReceipt.from(profile, role, ownedFailure, usage)
                     RunDiagnostics.journal?.record(runId, RunDiagnosticKind.FAILURE_RECEIPT, invocationId = receipt.invocationId, successful = false, providerFailure = receipt)
                     // Delivery can wrap review, extraction, approval or a retained verdict. It
                     // cannot replace the original producer's profile or borrow its last usage.
-                    if (role != "github-delivery" && (receipt.failureDomain == FailureDomain.PROVIDER || event.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) && (invocationId == null || receipt.invocationId == invocationId) && event.failureDetails?.get("diagnostic_area") == null) {
+                    if (role != "github-delivery" && (receipt.failureDomain == FailureDomain.PROVIDER || receipt.errorCode == PrivacyFailureEvidence.CODE || event.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) && (invocationId == null || receipt.invocationId == invocationId) && event.failureDetails?.get("diagnostic_area") == null) {
                         val fields = ProviderFailureReport.fields(
                             runId,
                             ownedFailure,
                             receipt,
                             configured = configured.takeIf { ownsStream },
-                            usage = usage,
+                            usage = usage.takeUnless { identifiedFailure.localBudgetRefusal },
                             visibleBytes = visibleBytes.takeIf { ownsStream },
                             reasoningBytes = reasoningBytes.takeIf { ownsStream },
                             metadata = metadata.takeIf { ownsStream }

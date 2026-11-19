@@ -5,6 +5,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OutputPublicationTest {
+    @Test fun mixedModelNamesRetainTheInvocationAndClearOnlyTheUncertainName() {
+        val first = OutputLineage(OutputOrigin.MODEL_TEXT, "call", "served-model")
+        val evidence = OutputLineageAccumulator()
+        evidence.append(first)
+        evidence.append(first.copy(reportedModelId = "other-model"))
+        evidence.append(first)
+        assertEquals(first.copy(reportedModelId = null), evidence.lineage)
+    }
+
     @Test fun progressAndSystemErrorsDoNotConsumeTheFirstAnswerMilestone() {
         val tracker = OutputPublicationTracker()
         tracker.observe(OutputLineage(OutputOrigin.PROGRESS_NOTICE), 10)

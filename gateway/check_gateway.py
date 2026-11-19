@@ -59,7 +59,7 @@ def main():
     # deadline even when every individual test continues making progress.
     suites = [p.name for p in sorted((root / 'tests').glob('test_gateway_*.py'))
               if p.name != STRESS_SUITE]
-    suites.append(STRESS_SUITE)
+    suites.extend(["test_private_inference.py", STRESS_SUITE])
     for pattern in suites:
         # Both endurance workloads retain finite, platform-appropriate watchdogs.
         # Ordinary suites still fail if they run longer than 120 seconds.

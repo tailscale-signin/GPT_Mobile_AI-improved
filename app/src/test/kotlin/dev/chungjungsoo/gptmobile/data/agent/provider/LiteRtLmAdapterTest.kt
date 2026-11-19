@@ -723,7 +723,7 @@ class LiteRtLmAdapterTest {
                 ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING),
                 configuredLocalRequest(),
                 ProviderEvent.PhaseChanged(LocalInferencePhase.PREFILL),
-                ProviderEvent.TextDelta("answer", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ProviderEvent.TextDelta("answer", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ProviderEvent.Completed
             ),
             events
@@ -751,8 +751,8 @@ class LiteRtLmAdapterTest {
                 ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING),
                 configuredLocalRequest(),
                 ProviderEvent.ThinkingDelta("plan"),
-                ProviderEvent.TextDelta("hel", OutputLineage(OutputOrigin.MODEL_TEXT)),
-                ProviderEvent.TextDelta("lo", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ProviderEvent.TextDelta("hel", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
+                ProviderEvent.TextDelta("lo", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ProviderEvent.Completed
             ),
             events
@@ -777,7 +777,7 @@ class LiteRtLmAdapterTest {
 
         assertEquals(
             listOf(
-                ProviderEvent.TextDelta("<progress_update>Checking the result.", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ProviderEvent.TextDelta("<progress_update>Checking the result.", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ProviderEvent.TextDelta("</progress_update>", OutputLineage(OutputOrigin.APPLICATION_REPORT))
             ),
             events.filterIsInstance<ProviderEvent.TextDelta>()
@@ -1151,7 +1151,7 @@ class LiteRtLmAdapterTest {
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(
-            listOf(ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING), configuredLocalRequest(images = 1), ProviderEvent.TextDelta("a cat", OutputLineage(OutputOrigin.MODEL_TEXT)), ProviderEvent.Completed),
+            listOf(ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING), configuredLocalRequest(images = 1), ProviderEvent.TextDelta("a cat", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = visionPlatform().model)), ProviderEvent.Completed),
             events
         )
         assertEquals(listOf("describe this"), runtime.sendMessageCalls)
@@ -1202,7 +1202,7 @@ class LiteRtLmAdapterTest {
                 ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING),
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS, persistent = true),
                 configuredLocalRequest(),
-                ProviderEvent.TextDelta("ok", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ProviderEvent.TextDelta("ok", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = visionPlatform().model)),
                 ProviderEvent.Completed
             ),
             events
@@ -1228,7 +1228,7 @@ class LiteRtLmAdapterTest {
                 ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING),
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS, persistent = true),
                 configuredLocalRequest(images = 1),
-                ProviderEvent.TextDelta("ok", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ProviderEvent.TextDelta("ok", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = visionPlatform().model)),
                 ProviderEvent.Completed
             ),
             events
@@ -1305,7 +1305,7 @@ class LiteRtLmAdapterTest {
                 ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING),
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_TOO_MANY_IMAGES, persistent = true),
                 configuredLocalRequest(images = 10, effectiveOutputTokens = 880),
-                ProviderEvent.TextDelta("ok", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ProviderEvent.TextDelta("ok", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = visionPlatform().model)),
                 ProviderEvent.Completed
             ),
             events
@@ -1478,7 +1478,7 @@ class LiteRtLmAdapterTest {
         second.join()
 
         assertEquals(
-            listOf(ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING), configuredLocalRequest(), ProviderEvent.TextDelta("one", OutputLineage(OutputOrigin.MODEL_TEXT)), ProviderEvent.Completed),
+            listOf(ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING), configuredLocalRequest(), ProviderEvent.TextDelta("one", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)), ProviderEvent.Completed),
             firstEvents
         )
         assertEquals(
@@ -1487,7 +1487,7 @@ class LiteRtLmAdapterTest {
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_WAITING_FOR_ENGINE),
                 ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING),
                 configuredLocalRequest(),
-                ProviderEvent.TextDelta("two", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ProviderEvent.TextDelta("two", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ProviderEvent.Completed
             ),
             secondEvents
@@ -2081,13 +2081,13 @@ class LiteRtLmAdapterTest {
                 ProviderEvent.PhaseChanged(LocalInferencePhase.LOADING),
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
                 configuredLocalRequest(),
-                ProviderEvent.TextDelta("one", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ProviderEvent.TextDelta("one", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ProviderEvent.Completed
             ),
             coldEvents
         )
         assertEquals(
-            listOf(ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING), configuredLocalRequest(), ProviderEvent.TextDelta("two", OutputLineage(OutputOrigin.MODEL_TEXT)), ProviderEvent.Completed),
+            listOf(ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING), configuredLocalRequest(), ProviderEvent.TextDelta("two", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)), ProviderEvent.Completed),
             warmEvents
         )
     }
@@ -3003,7 +3003,7 @@ class LiteRtLmAdapterTest {
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_WAITING_FOR_ENGINE),
                 ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING),
                 configuredLocalRequest(),
-                ProviderEvent.TextDelta("ok", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ProviderEvent.TextDelta("ok", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ProviderEvent.Completed
             ),
             events

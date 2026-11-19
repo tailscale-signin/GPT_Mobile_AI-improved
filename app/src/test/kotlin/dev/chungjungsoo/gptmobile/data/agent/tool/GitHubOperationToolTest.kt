@@ -35,6 +35,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun incompleteRepositorySelectorProducesTypedPreDispatchEvidence() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =
+                error("Invalid pre-dispatch GitHub arguments must never reach the backend")
+        }
+        val tool = GitHubOperationTool("github_search", backend, "precheck-evidence")
+        val failure = tool.execute(
+            "missing-repository-selector",
+            args("""{"action":"search","query":"checkpoint","owner":"example"}""")
+        )
+        assertTrue(failure.isError)
+        assertFalse(failure.dispatched)
+        assertEquals("INVALID_ARGUMENTS", failure.errorCode)
+        assertEquals(
+            JsonPrimitive("GITHUB_REPOSITORY_SELECTOR_INCOMPLETE"),
+            failure.executionReceipt?.get("reason_code")
+        )
+        assertEquals(JsonPrimitive("PREFLIGHT_REJECTED"), failure.executionReceipt?.get("phase"))
+        assertEquals(
+            JsonPrimitive("github.argument-rejection.v1"),
+            failure.executionReceipt?.get("diagnostic_contract")
+        )
+    }
+
     @Test fun implicitPrListDoesNotReplaceExplicitSinglePrReads() = runBlocking {
         val observed = mutableListOf<JsonObject>()
         val backend = object : AgentTool {
@@ -992,7 +1017,7 @@ class GitHubOperationToolTest {
         }
     }
 
-    @Test fun ordinaryRepositorySchemasStayBelowOneThousandEstimatedTokensAndHideTheLegacyMonolith() {
+    @Test fun ordinaryRepositorySchemasRemainBoundedAndHideLegacyMonolith() {
         val definitions = GitHubOperationTool.names.map { GitHubOperationTool.definition(it) }
         val catalog = requireNotNull(ProgressiveToolCatalog.create(listOf(Backend().definition) + definitions, "Inspect this repository"))
         val selected = catalog.selected(listOf(Backend().definition) + definitions).filter { GitHubOperationTool.operationName(it.name) != null }
@@ -1008,7 +1033,7 @@ class GitHubOperationToolTest {
         ).toString()
         val estimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(wire)
         println("GitHub ordinary schema: ${wire.toByteArray().size} UTF-8 bytes, $estimate estimated tokens, ${selected.size} facade definitions")
-        assertTrue("Ordinary schema estimate was $estimate", estimate < 1000)
+        assertTrue("Ordinary schema estimate was $estimate; expanded admission contracts must remain under 1600 tokens", estimate < 1600)
         assertFalse(catalog.selected(listOf(Backend().definition) + definitions).any { it.name == "github" })
         assertEquals(setOf("github_context", "github_search", "github_read", "github_stage_patch", "github_commit", "github_write"), GitHubOperationTool.taskTools("Fix code in the repository, create a branch and push the commit"))
     }

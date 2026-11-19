@@ -106,7 +106,9 @@ class GitHubIncidentRegressionTest {
         assertEquals(JsonPrimitive("a".repeat(40)), next.arguments["commit_sha"])
         assertEquals(next, GitHubTestChecklist.nextCall("test all tools", tools, records.toMap()))
         val report = GitHubTestChecklist.render(records)
-        assertTrue(report.contains("19 capabilities in the cumulative catalog"))
+        val rows = GitHubTestChecklist.rows(records).map { it.jsonObject }
+        assertTrue(rows.any { it["id"] == JsonPrimitive("repository_workspace:catalog") })
+        assertTrue(report.contains("${rows.size} capabilities in the cumulative catalog"))
         assertTrue(report.contains("passed: 1"))
         assertTrue(report.contains("Overall integration health: Not measured"))
         assertTrue(report.contains("Solutions / next actions"))

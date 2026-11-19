@@ -51,6 +51,83 @@ class VoicePlaybackFailureReportingTest {
         VoiceDiagnosticTrace.clearAll()
     }
 
+    @Test fun kokoroWaitsForDelayedFocusAndStartsTheQueuedReplyOnce() {
+        val manager = shadowOf(requireNotNull(context.getSystemService(AudioManager::class.java)))
+        manager.setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_DELAYED)
+        val models = mockk<LocalVoiceModelStore>()
+        val starts = AtomicInteger()
+        val started = CountDownLatch(1)
+        every { models.acquireUse() } answers {
+            starts.incrementAndGet()
+            started.countDown()
+            throw IllegalStateException("fixture")
+        }
+        val output = createKokoroVoiceOutput(context, models, ::attributes, { 1f })
+        try {
+            val reply = requireNotNull(output.openReplyWithFailure(KokoroVoice.HEART, {}, { _, _ -> }))
+            reply.enqueue("A queued reply.")
+            reply.finish()
+            val requested = manager.lastAudioFocusRequest
+            val request = requireNotNull(requested.audioFocusRequest)
+            assertTrue(request.acceptsDelayedFocusGain())
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            assertEquals(0, starts.get())
+            repeat(2) { requireNotNull(requested.listener).onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN) }
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            assertEquals(1, starts.get())
+        } finally {
+            output.close()
+        }
+    }
+
+    @Test fun repeatedFocusDenialKeepsTheReplyAvailableForManualReplay() {
+        val manager = shadowOf(requireNotNull(context.getSystemService(AudioManager::class.java)))
+        manager.setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
+        val models = mockk<LocalVoiceModelStore>()
+        val output = createKokoroVoiceOutput(context, models, ::attributes, { 1f })
+        val failures = mutableListOf<String>()
+        try {
+            val reply = requireNotNull(
+                output.openReplyWithFailure(KokoroVoice.HEART, {}) { failure, fallback ->
+                    assertFalse(fallback)
+                    failures += failure.message
+                }
+            )
+            reply.enqueue("A retained reply.")
+            reply.finish()
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            assertTrue(failures.single().contains("tap replay"))
+            io.mockk.verify(exactly = 0) { models.acquireUse() }
+        } finally {
+            output.close()
+        }
+    }
+
+    @Test fun expiredDelayedFocusIgnoresLateGainAndKeepsTheReplyReplayable() {
+        val manager = shadowOf(requireNotNull(context.getSystemService(AudioManager::class.java)))
+        manager.setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_DELAYED)
+        val models = mockk<LocalVoiceModelStore>()
+        val output = createKokoroVoiceOutput(context, models, ::attributes, { 1f })
+        val failures = mutableListOf<String>()
+        try {
+            val reply = output.openReplyWithFailure(KokoroVoice.HEART, {}) { failure, canFallback ->
+                assertFalse(canFallback)
+                failures += failure.message
+            }
+            requireNotNull(reply).enqueue("A queued reply.")
+            reply.finish()
+            val requested = manager.lastAudioFocusRequest
+            val request = requireNotNull(requested.audioFocusRequest)
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(KOKORO_FOCUS_PAUSE_MAX_MS))
+            assertEquals(listOf("Audio output is still in use. You can replay the reply."), failures)
+            assertEquals(request, manager.lastAbandonedAudioFocusRequest)
+            requireNotNull(requested.listener).onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+            io.mockk.verify(exactly = 0) { models.acquireUse() }
+        } finally {
+            output.close()
+        }
+    }
+
     @Test fun actualKokoroCatchKeepsCauseThroughStreamingAndTerminalReportsWithoutPrivateText() {
         for (complete in listOf(false, true)) {
             reset()

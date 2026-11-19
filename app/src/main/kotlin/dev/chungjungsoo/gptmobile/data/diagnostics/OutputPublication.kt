@@ -11,7 +11,13 @@ internal class OutputLineageAccumulator {
     val lineage: OutputLineage get() = observed ?: OutputLineage()
 
     fun append(value: OutputLineage) {
-        observed = observed?.let { if (it == value) it else OutputLineage() } ?: value
+        val previous = observed
+        observed = when {
+            previous == null -> value
+            previous.origin != value.origin || previous.invocationId != value.invocationId -> OutputLineage()
+            previous.reportedModelId != value.reportedModelId -> previous.copy(reportedModelId = null)
+            else -> previous
+        }
     }
 
     fun reset() {

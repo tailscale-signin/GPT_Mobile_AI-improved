@@ -53,15 +53,18 @@ class RepositoryValidationUiTests(unittest.TestCase):
         self.assertFalse(self.panel.advanced_visible.get())
         self.assertEqual(str(self.panel.commands.cget('state')), 'disabled')
         self.assertFalse((self.root / 'data/validation-settings.json').exists())
-        self.assertEqual(set(CONTRACT_FIELDS), set(json.loads(self.panel.contract.get('1.0', 'end'))))
+        contract = json.loads(self.panel.contract.get('1.0', 'end'))
+        self.assertEqual(set(CONTRACT_FIELDS) | {'workspace_hooks', 'workspace_environment'}, set(contract))
+        self.assertEqual({}, contract['workspace_hooks'])
+        self.assertEqual({}, contract['workspace_environment'])
 
-    def test_git_hub_settings_contains_two_real_subtabs_and_no_external_policy_field(self):
+    def test_git_hub_settings_contains_all_three_subtabs_and_no_external_policy_field(self):
         from desktop.ui import build_window
         settings = build_window(self.root, self.window, section='GitHub')
         try:
             settings.update()
             notebooks = [w for w in descendants(settings) if isinstance(w, ttk.Notebook)]
-            inner = next(w for w in notebooks if [w.tab(t, 'text') for t in w.tabs()] == ['Connection', 'Repository Validation'])
+            inner = next(w for w in notebooks if [w.tab(t, 'text') for t in w.tabs()] == ['Connection', 'Repository Validation', 'Job admission'])
             inner.select(inner.tabs()[1])
             settings.update()
             self.assertTrue(settings.repository_validation_panel.frame.winfo_ismapped())
@@ -153,7 +156,7 @@ class RepositoryValidationUiTests(unittest.TestCase):
         try:
             settings.geometry('660x500')
             inner = next(w for w in descendants(settings) if isinstance(w, ttk.Notebook)
-                         and [w.tab(t, 'text') for t in w.tabs()] == ['Connection', 'Repository Validation'])
+                         and [w.tab(t, 'text') for t in w.tabs()] == ['Connection', 'Repository Validation', 'Job admission'])
             inner.select(inner.tabs()[1])
             settings.update()
             panel = settings.repository_validation_panel

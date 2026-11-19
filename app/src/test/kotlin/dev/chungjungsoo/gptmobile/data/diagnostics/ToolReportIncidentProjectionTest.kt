@@ -281,6 +281,12 @@ class ToolReportIncidentProjectionTest {
         assertFalse(report.toString().contains("private-upstream-response"))
         assertFalse(ToolReportDiagnostics.fields(event.copy(callId = "different-call"), result).containsKey("remote_pagination_reason"))
         assertFalse(ToolReportDiagnostics.fields(event, result.copy(executionReceipt = JsonObject(receipt + ("traversal_state" to JsonPrimitive("COMPLETE"))))).containsKey("remote_pagination_reason"))
+        for ((tool, action) in listOf("github_context_inspect__selected" to "commits", "github_context__selected" to "branches", "github_context_inspect__selected" to "checks", "github_pr_inspect__selected" to "list", "github_pr__selected" to "checks", "github_issue" to "list")) {
+            val source = event.copy(modelToolName = tool, arguments = buildJsonObject { put("action", action) }.toString())
+            val projected = ToolReportDiagnostics.fields(source, result)
+            assertEquals(fields["remote_pagination_reason"], projected["remote_pagination_reason"])
+            assertEquals(fields["remote_pagination_unique_records"], projected["remote_pagination_unique_records"])
+        }
         assertFalse(ToolReportDiagnostics.fields(event.copy(modelToolName = "github_issue"), result).containsKey("remote_pagination_reason"))
     }
 
@@ -360,6 +366,9 @@ class ToolReportIncidentProjectionTest {
         assertTrue(IssueReportIncidentCapsule.GITHUB_PR_CONTEXT_RACE_FEATURE in report.requiredServiceFeatures())
         assertFalse(report.toString().contains("never-expose-this"))
         assertFalse(report.toString().contains("private-error-body"))
+        val inspection = ToolReportDiagnostics.fields(event.copy(modelToolName = "github_pr_inspect__selected"), result)
+        assertEquals(true, inspection["pr_context_revision_changed"])
+        assertEquals(fields["pr_context_read_requests"], inspection["pr_context_read_requests"])
         assertFalse(ToolReportDiagnostics.fields(event.copy(callId = "wrong"), result).containsKey("pr_context_revision_changed"))
         assertFalse(ToolReportDiagnostics.fields(event.copy(modelToolName = "github_ci"), result).containsKey("pr_context_revision_changed"))
         assertFalse(ToolReportDiagnostics.fields(event, result.copy(dispatched = false)).containsKey("pr_context_revision_changed"))

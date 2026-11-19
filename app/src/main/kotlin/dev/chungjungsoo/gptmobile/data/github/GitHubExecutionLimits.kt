@@ -14,6 +14,8 @@ internal object GitHubExecutionLimits {
             put("failed_stage", "task_budget")
             put("failure_domain", "APPLICATION_VERIFICATION")
             put("stop_reason", "ACCEPTED_TASK_DEADLINE_REACHED")
+            put("recovery_action", "NEW_TASK_REQUIRED")
+            put("resume_allowed", false)
             put("dispatched", false)
             put("retryable", false)
         }

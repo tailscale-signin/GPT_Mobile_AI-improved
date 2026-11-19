@@ -1,5 +1,6 @@
 """Exercise automatic release selection through its actual Git/Actions interface."""
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -31,11 +32,12 @@ class ReleaseTriggerTests(unittest.TestCase):
             ["git", *args], cwd=self.root, text=True, stderr=subprocess.STDOUT
         )
 
-    def run_trigger(self, event="push", before=None):
+    def run_trigger(self, event="push", before=None, ref="refs/heads/main"):
         output = self.root / "outputs"
         env = {
             **os.environ,
             "GITHUB_EVENT_NAME": event,
+            "GITHUB_REF": ref,
             "PUSH_BEFORE_SHA": self.before if before is None else before,
             "GITHUB_OUTPUT": str(output),
         }
@@ -45,6 +47,33 @@ class ReleaseTriggerTests(unittest.TestCase):
         )
         contents = output.read_text() if output.exists() else ""
         return result, contents
+
+    def test_reviewed_version_pair_triggers_once_on_main_and_requires_both_versions(self):
+        gateway = self.root / "gateway/v14/__init__.py"
+        gateway.parent.mkdir(parents=True)
+        gateway.write_text('VERSION = "17.0.1"\n')
+        scope = self.root / "release-scope.json"
+        request = dict(android="0.9.53.0", versionCode=122, gateway="17.0.1")
+        manifest = dict(version="0.9.53.0", versionCode=122, publicationRequest=request)
+        scope.write_text(json.dumps(manifest))
+        result, output = self.run_trigger(ref="refs/heads/feature")
+        self.assertEqual((0, "publish=false\n"), (result.returncode, output))
+        (self.root / "outputs").unlink()
+        result, output = self.run_trigger()
+        self.assertEqual((0, "publish=true\npublish_gateway=true\n"), (result.returncode, output))
+        self.git("add", "release-scope.json")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Reviewed pair")
+        before = self.git("rev-parse", "HEAD").strip()
+        (self.root / "outputs").unlink()
+        scope.write_text(json.dumps(dict(manifest, description="Editor update")))
+        result, output = self.run_trigger(before=before)
+        self.assertEqual((0, "publish=false\n"), (result.returncode, output))
+        (self.root / "outputs").unlink()
+        request["gateway"] = "17.0.2"
+        scope.write_text(json.dumps(manifest))
+        result, output = self.run_trigger(before=before)
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual("", output)
 
     def test_gpu_configuration_change_does_not_republish_existing_version(self):
         self.config.write_text(BASE_CONFIG + 'val ggufVulkan = true\n', encoding="utf-8")

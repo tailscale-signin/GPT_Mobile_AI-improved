@@ -1,0 +1,55 @@
+name: Locked dependency audit
+on:
+  schedule:
+    - cron: '23 8 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'app/*.lockfile'
+      - 'buildscript-gradle.lockfile'
+      - '**/package-lock.json'
+      - '**/requirements*.txt'
+      - 'scripts/audit_locked_dependencies.py'
+      - '.github/workflows/dependency-audit.yml'
+permissions:
+  contents: read
+concurrency:
+  group: dependency-audit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  advisories:
+    name: Audit locked Android, build plugin, npm and Python versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: python3 scripts/audit_locked_dependencies.py
+
+  generated_cleanup:
+    name: Prepare cleanup for stale generated sources
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Regenerate the source and architecture indexes
+        id: indexes
+        run: |
+          python3 scripts/generate_app_audit_inventory.py
+          python3 scripts/generate_architecture_index.py
+          git diff --binary > "$RUNNER_TEMP/generated-cleanup.patch"
+          if test -s "$RUNNER_TEMP/generated-cleanup.patch"; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+            git diff --stat >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Generated sources are current.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retain the cleanup patch
+        if: steps.indexes.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: generated-cleanup
+          path: ${{ runner.temp }}/generated-cleanup.patch
+          retention-days: 14

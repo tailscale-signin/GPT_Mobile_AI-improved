@@ -82,7 +82,13 @@ class CombinedOwnershipTest {
             val answer = MessageV2(id = 3, chatId = 1, content = "Saved chapter", platformType = "primary", currentRunId = "combined-synthesis:old", ownershipFence = 3)
             val snapshot = dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(userMessage = user, history = emptyList(), replies = emptyList(), sources = listOf(dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("primary", "Primary", content = "Original contribution")), prompt = "Full frozen prompt", profileUid = "primary", model = "test", systemPrompt = "", configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform))
             val json = kotlinx.serialization.json.Json
-            val raw = json.encodeToString(dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot.serializer(), snapshot)
+            val serializer = dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot.serializer()
+            val encoded = json.encodeToJsonElement(serializer, snapshot) as kotlinx.serialization.json.JsonObject
+            val event = encoded.getValue("userMessage") as kotlinx.serialization.json.JsonObject
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(user.createdAt), event["createdAt"])
+            // Reproduce an older snapshot which omitted the wall-clock creation time.
+            val legacy = kotlinx.serialization.json.JsonObject(event - "createdAt")
+            val raw = kotlinx.serialization.json.JsonObject(encoded + ("userMessage" to legacy)).toString()
             val oldRun = AgentRun("combined-synthesis:old", 1, 2, 3, "primary", "CUSTOM", "test", "INTERRUPTED", ownershipFence = 3, synthesisKey = dev.chungjungsoo.gptmobile.data.research.researchHash(raw), synthesisSnapshot = raw)
             db.chatRoomDao().addChatRoom(ChatRoomV2(id = 1, title = "Combined", combinedPrimaryUid = "primary"))
             db.messageDao().addMessages(user, answer)
@@ -90,7 +96,8 @@ class CombinedOwnershipTest {
             val dao = db.agentPersistenceDao()
             dao.preserveCombinedPrefix(answer)
             val resumed = dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(oldRun, answer, "primary", platform, dao.answerSegments(oldRun.runId))
-            val frozen = json.encodeToString(dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot.serializer(), resumed)
+            assertEquals(0L, resumed.userMessage.createdAt)
+            val frozen = json.encodeToString(serializer, resumed)
             val next = dao.persistAgentRetry(PersistAgentRetryRequest(user, answer, AgentRunDraft("combined-synthesis:new", "primary", "CUSTOM", "test", synthesisKey = dev.chungjungsoo.gptmobile.data.research.researchHash(frozen), synthesisSnapshot = frozen), resumeCombinedFrom = oldRun.runId))
             assertEquals("Saved chapter", next.assistantMessage.content)
             assertEquals(4L, next.assistantMessage.ownershipFence)

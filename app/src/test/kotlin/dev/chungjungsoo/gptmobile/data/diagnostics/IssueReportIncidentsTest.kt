@@ -458,6 +458,37 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun rejectedProviderResponsesWithoutLegacyStageKeepOnlyTheObservedCause() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf<String, Any?>(
+            "provider" to "OPENROUTER",
+            "diagnostic_area" to "PROVIDER",
+            "provider_failure_domain" to "PROVIDER",
+            "provider_failure_stage" to "GENERATION",
+            "provider_failure_code" to "HTTP_ERROR",
+            "dispatched" to true,
+            "remote_acceptance" to "NO"
+        )
+        val cases = listOf(
+            mapOf("http_status" to 401) to "AUTHENTICATION_FAILED",
+            mapOf("http_status" to 400) to "SOURCE_HTTP_ERROR",
+            mapOf("http_status" to 404, "provider_rejection_category" to "NOT_FOUND") to "SOURCE_UNAVAILABLE",
+            mapOf("http_status" to 404, "provider_rejection_category" to "MODEL_UNAVAILABLE") to "SELECTED_MODEL_NOT_AVAILABLE",
+            mapOf("failed_stage" to "claim_extraction", "provider_failure_stage" to "CLAIM_VERIFICATION", "http_status" to 400, "provider_rejection_category" to "INVALID_REQUEST") to "PROVIDER_PAYLOAD_ERROR",
+            mapOf("failed_stage" to "claim_extraction", "provider_failure_domain" to "APPLICATION_VERIFICATION", "provider_failure_stage" to "CLAIM_VERIFICATION", "http_status" to 400) to "CHAT_FAILED",
+            mapOf("http_status" to 404, "remote_acceptance" to "UNKNOWN") to "CHAT_FAILED",
+            mapOf("http_status" to 422, "provider_rejection_category" to "INVALID_REQUEST") to "PROVIDER_PAYLOAD_ERROR",
+            mapOf("http_status" to 401, "remote_acceptance" to "UNKNOWN", "requires_reconciliation" to true) to "CHAT_FAILED"
+        )
+        for ((index, case) in cases.withIndex()) {
+            IssueReportIncidents.chatFailure("HTTP_ERROR", false, null, fields + case.first + ("run_id" to "rejection-$index"))
+            val incident = IssueReportIncidents.pending.value.last()
+            assertEquals(case.second, incident.errorCode)
+            if (case.second == "AUTHENTICATION_FAILED") assertEquals(false, incident.context?.retryable)
+        }
+    }
+
+    @Test
     fun rejectedProviderRateLimitKeepsItsCauseWithoutAResumableWait() {
         LocalDiagnosticsPolicy.setEnabled(true)
         IssueReportIncidents.chatFailure(
@@ -652,6 +683,43 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun privacyEligibilityFailuresKeepTypedReasonsOnlyWhenCaptureIsPermitted() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf(
+            "run_id" to "PRIVATE_RUN",
+            "failed_stage" to "provider_generation",
+            "provider_kind" to "OPENROUTER",
+            "privacy_reason_code" to "VERIFICATION_UNAVAILABLE",
+            "privacy_status" to "NOT_VERIFIED",
+            "dispatched" to true,
+            "remote_acceptance" to "UNKNOWN",
+            "request_replay_allowed" to false,
+            "logical_continuation_allowed" to false,
+            "message" to "PRIVATE_PROVIDER_BODY"
+        )
+        IssueReportIncidents.privacyChanged(true)
+        IssueReportIncidents.chatFailure(PrivacyFailureEvidence.CODE, false, null, fields)
+        assertTrue(IssueReportIncidents.pending.value.isEmpty())
+        assertTrue(IssueReportIncidents.recentEvents().isEmpty())
+        assertNull(IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
+
+        IssueReportIncidents.privacyChanged(false)
+        IssueReportIncidents.chatFailure(PrivacyFailureEvidence.CODE, false, null, fields)
+        val report = IssueReportIncidents.pending.value.single()
+        val context = requireNotNull(report.context)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals(PrivacyFailureEvidence.CODE, report.errorCode)
+        assertEquals("provider_generation", context.stage)
+        assertEquals(true, context.dispatched)
+        assertEquals("UNKNOWN", context.remoteAcceptance)
+        assertEquals(JsonPrimitive("GENERATION"), diagnostic.values["provider_failure_stage"])
+        assertEquals(JsonPrimitive("VERIFICATION_UNAVAILABLE"), diagnostic.values["privacy_reason_code"])
+        assertEquals(JsonPrimitive("NOT_VERIFIED"), diagnostic.values["privacy_status"])
+        assertTrue(PrivacyFailureEvidence.FEATURE in diagnostic.requiredServiceFeatures())
+        assertFalse(report.approvedPayload().contains("PRIVATE_"))
+    }
+
+    @Test
     fun toolTransportCodesSurviveTheRecorderAndRepeatedMcpFailureIsOneIncident() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val codes = listOf("DNS_RESOLUTION_FAILED", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "NETWORK_TIMEOUT", "TLS_FAILURE")
@@ -712,7 +780,7 @@ class IssueReportIncidentsTest {
     @Test
     fun interruptedRunAndUnavailableContinuationKeepTheirDistinctPublicCodes() {
         LocalDiagnosticsPolicy.setEnabled(true)
-        for (code in listOf("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE")) {
+        for (code in listOf("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED")) {
             IssueReportIncidents.chatFailure(code, false)
             val report = IssueReportIncidents.pending.value.single { it.errorCode == code }
             assertEquals("chat", report.feature)

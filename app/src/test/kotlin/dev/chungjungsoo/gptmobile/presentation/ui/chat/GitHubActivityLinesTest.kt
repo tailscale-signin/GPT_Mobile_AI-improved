@@ -10,6 +10,26 @@ import org.junit.Test
 class GitHubActivityLinesTest {
     private fun line(text: String, summary: Boolean = false) = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, text, progressCheckpoint = true, statusSummary = summary)
 
+    @Test fun publishesOnlyMatchingPrimaryTextDuringAnActiveTurn() {
+        val segment = AssistantTimelineItem(AssistantTimelineItemType.TEXT, "A result.", outputLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, "request"))
+        assertEquals(segment.content, gitHubResponsePresentation(segment.content, listOf(segment), true).text)
+        assertEquals("", gitHubResponsePresentation("Uncommitted", listOf(segment), true).text)
+        assertEquals("", gitHubResponsePresentation(segment.content, listOf(segment.copy(delegationInvocationId = "private")), true).text)
+    }
+
+    @Test fun repeatedSavedCommitHistoryPairsCollapseIntoOneUpdatedRow() {
+        val snapshots = (1..5).flatMap { index ->
+            listOf(
+                line("Reading recent changes").copy(progressSequence = (index * 2 - 1).toLong()),
+                line("Commit history result received").copy(progressSequence = (index * 2).toLong())
+            )
+        }
+        val rendered = gitHubActivityLines(snapshots, "Test the integration", active = false)
+        assertEquals(1, rendered.count { !it.statusSummary })
+        assertEquals("Commit-history data retrieved for inspection", rendered.last().content)
+        assertEquals(10L, rendered.last().progressSequence)
+    }
+
     @Test fun summariesStayAboveTheNewestPreviewPair() {
         val lines = gitHubActivityLines(listOf(line("Preparing"), line("First summary", true), line("Reading"), line("Next summary", true), line("Checking")), "fix")
         assertEquals(listOf("First summary", "Preparing", "Next summary", "Reading", "Checking"), lines.map { it.content })

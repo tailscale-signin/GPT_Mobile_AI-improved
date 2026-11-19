@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,6 +48,16 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
     val lastPage = (bindings.size - 1).coerceAtLeast(0) / 20
     val visible = bindings.asReversed().drop(page.coerceAtMost(lastPage) * 20).take(20)
     var details by remember { mutableStateOf<GatewayEngineeringBinding?>(null) }
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    var wantedRequest by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    var wantedOutput by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val saveOutput = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")) { destination ->
+        val binding = state.bindings.firstOrNull { it.request.requestId == wantedRequest }
+        val output = binding?.job?.workspaceOutputs?.singleOrNull { it.toString() == wantedOutput }
+        wantedRequest = null
+        wantedOutput = null
+        if (binding != null && output != null && destination != null) model.exportOutput(binding, output, appContext, destination)
+    }
     val uri = LocalUriHandler.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -96,7 +107,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(onClick = { details = binding }) {
                                     val unread = binding.updates.count { it.revision > binding.seenRevision }
-                                    Text(if (unread > 0) "Evidence ($unread new)" else "Evidence")
+                                    Text(if (unread > 0) "Workspace ($unread new)" else "Workspace")
                                 }
                                 TextButton(onClick = { model.checkpoints(binding) }, enabled = !state.busy) { Text("Checkpoints") }
                                 job.prUrl?.takeIf { it.startsWith("https://") }?.let { url -> TextButton(onClick = { uri.openUri(url) }) { Text("Review PR") } }
@@ -115,6 +126,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
     details?.let { selected ->
         val current = state.bindings.firstOrNull { it.request.requestId == selected.request.requestId } ?: selected
         val recovery = gatewayRecoveryPresentation(current)
+        var tab by remember(current.request.requestId) { mutableStateOf("Activity") }
         var updatePage by remember(current.request.requestId) { androidx.compose.runtime.mutableIntStateOf(0) }
         val lastUpdatePage = (current.updates.size - 1).coerceAtLeast(0) / 20
         AlertDialog(
@@ -122,27 +134,84 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                 model.markSeen(current)
                 details = null
             },
-            title = { Text("Engineering updates") },
+            title = { Text("Coding workspace") },
             text = {
                 Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Job ${current.job?.id ?: current.request.requestId}", style = MaterialTheme.typography.bodySmall)
-                    Text("Owner: ${current.principalId ?: "Not recorded"}\nProfile: ${recovery.profileUid}\nRepository: ${current.request.repository}\nHead: ${current.job?.headSha ?: "Not observed"}", style = MaterialTheme.typography.bodySmall)
-                    Text("Execution identity: ${recovery.executionIdentity}\nHardware: ${recovery.hardware}", style = MaterialTheme.typography.bodySmall)
-                    GatewayEngineeringBudgetStatus(current)
-                    Text("Check saved job retrieves retained progress on the original route. Confirmed operations and partial output are preserved.")
-                    if (lastUpdatePage > 0) {
-                        Row {
-                            TextButton(onClick = { updatePage-- }, enabled = updatePage > 0) { Text("Newer evidence") }
-                            TextButton(onClick = { updatePage++ }, enabled = updatePage < lastUpdatePage) { Text("Earlier evidence") }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("Plan", "Changes", "Tests", "Activity").forEach { section ->
+                            androidx.compose.material3.FilterChip(selected = tab == section, onClick = { tab = section }, label = { Text(section) })
                         }
                     }
-                    current.updates.asReversed().drop(updatePage.coerceAtMost(lastUpdatePage) * 20).take(20).forEach { update ->
-                        Text("${java.time.Instant.ofEpochSecond(update.createdAt.toLong())}\n${update.message}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (current.updates.isEmpty()) Text(current.job?.message ?: "Connecting to saved request")
-                    current.job?.completionVerification?.let { Text("Requirement verification\n$it", style = MaterialTheme.typography.bodySmall) }
-                    current.job?.latestEvidence?.get("receipt_id")?.jsonPrimitive?.content?.let { receipt ->
-                        TextButton(onClick = { model.evidence(current, receipt) }, enabled = !state.busy) { Text("Inspect latest evidence") }
+                    Text("${current.request.taskScope.replaceFirstChar { it.uppercase() }} · ${current.request.repository} · ${current.job?.headSha?.take(12) ?: "Awaiting revision"}")
+                    when (tab) {
+                        "Plan" -> {
+                            Text(current.request.objective)
+                            current.job?.workspacePlan?.takeIf(String::isNotBlank)?.let { Text(it) }
+                            current.job?.workspaceSteps.orEmpty().forEach { step ->
+                                Text("${if (step["done"]?.jsonPrimitive?.content == "true") "✓" else "○"} ${step["name"]?.jsonPrimitive?.content.orEmpty()}")
+                            }
+                            current.request.acceptance.forEach { item -> Text("${item.id} · ${item.checks.joinToString()}") }
+                            current.job?.workspaceNextAction?.let { Text("Next action · $it") }
+                            if (current.job?.conversationId != null && current.job?.terminal == false && current.job?.mergeReady == false) {
+                                var edit by remember(current.request.requestId) { mutableStateOf("") }
+                                val command = androidx.compose.runtime.saveable.rememberSaveable(current.request.requestId, edit) { java.util.UUID.randomUUID().toString() }
+                                androidx.compose.material3.OutlinedTextField(edit, { edit = it.take(16000) }, label = { Text("Update the plan or acceptance criteria") })
+                                TextButton(enabled = edit.isNotBlank() && !state.busy, onClick = { model.queuePlanEdit(current, edit.trim(), command) }) { Text("Queue instruction") }
+                            }
+                        }
+                        "Changes" -> {
+                            val changed = current.job?.changedFiles.orEmpty()
+                            if (changed.isEmpty()) Text("No changed files recorded yet.")
+                            changed.forEach { Text(it) }
+                            TextButton(onClick = { model.checkpoints(current) }, enabled = !state.busy) { Text("Inspect candidate diffs and checkpoints") }
+                            current.job?.activeInstructionFiles.orEmpty().forEach { Text("Instructions · $it") }
+                        }
+                        "Tests" -> {
+                            val checks = current.job?.tests.orEmpty() + current.job?.workspaceTests.orEmpty()
+                            if (checks.isEmpty()) Text("No test receipts recorded yet.")
+                            checks.forEach { check ->
+                                Text("${check["name"]?.jsonPrimitive?.content.orEmpty()} · ${check["status"]?.jsonPrimitive?.content.orEmpty()}")
+                                check["revision"]?.jsonPrimitive?.content?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            }
+                            current.job?.workspaceOutputs.orEmpty().forEach { output ->
+                                val path = output["path"]?.jsonPrimitive?.content.orEmpty()
+                                val status = output["state"]?.jsonPrimitive?.content
+                                Text("$path · $status", style = MaterialTheme.typography.bodySmall)
+                                output["sha256"]?.jsonPrimitive?.content?.let { Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                                if (status == "RETAINED") {
+                                    TextButton(enabled = !state.busy, onClick = {
+                                        wantedRequest = current.request.requestId
+                                        wantedOutput = output.toString()
+                                        saveOutput.launch(path.substringAfterLast('/'))
+                                    }) { Text("Save ${path.substringAfterLast('/')}") }
+                                }
+                            }
+                            current.job?.completionVerification?.let { Text(it.toString()) }
+                        }
+                        else -> {
+                            current.job?.workspaceWorkers.orEmpty().forEach { worker ->
+                                Text("${worker["role"]?.jsonPrimitive?.content} · ${worker["id"]?.jsonPrimitive?.content} · ${worker["state"]?.jsonPrimitive?.content} (${worker["calls"]}/${worker["budget"]})")
+                            }
+                            Text("Job ${current.job?.id ?: current.request.requestId}", style = MaterialTheme.typography.bodySmall)
+                            Text("Owner: ${current.principalId ?: "Not recorded"}\nProfile: ${recovery.profileUid}\nRepository: ${current.request.repository}\nHead: ${current.job?.headSha ?: "Not observed"}", style = MaterialTheme.typography.bodySmall)
+                            Text("Execution identity: ${recovery.executionIdentity}\nHardware: ${recovery.hardware}", style = MaterialTheme.typography.bodySmall)
+                            GatewayEngineeringBudgetStatus(current)
+                            Text("Check saved job retrieves retained progress on the original route. Confirmed operations and partial output are preserved.")
+                            if (lastUpdatePage > 0) {
+                                Row {
+                                    TextButton(onClick = { updatePage-- }, enabled = updatePage > 0) { Text("Newer evidence") }
+                                    TextButton(onClick = { updatePage++ }, enabled = updatePage < lastUpdatePage) { Text("Earlier evidence") }
+                                }
+                            }
+                            current.updates.asReversed().drop(updatePage.coerceAtMost(lastUpdatePage) * 20).take(20).forEach { update ->
+                                Text("${java.time.Instant.ofEpochSecond(update.createdAt.toLong())}\n${update.message}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (current.updates.isEmpty()) Text(current.job?.message ?: "Connecting to saved request")
+                            current.job?.completionVerification?.let { Text("Requirement verification\n$it", style = MaterialTheme.typography.bodySmall) }
+                            current.job?.latestEvidence?.get("receipt_id")?.jsonPrimitive?.content?.let { receipt ->
+                                TextButton(onClick = { model.evidence(current, receipt) }, enabled = !state.busy) { Text("Inspect latest evidence") }
+                            }
+                        }
                     }
                 }
             },
@@ -155,6 +224,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
         )
     }
     state.checkpoints?.let { (binding, history) ->
+        var baseline by remember(history.jobId, history.revision) { mutableStateOf<String?>(null) }
         var selected by remember(history.jobId, history.revision) { mutableStateOf<String?>(null) }
         AlertDialog(
             onDismissRequest = model::closeCheckpoints,
@@ -168,6 +238,13 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                         }
                     }
                     TextButton(onClick = { selected?.let { model.inspectCandidate(binding, it) } }, enabled = selected != null && !state.busy) { Text("Inspect patch and test output") }
+                    if (history.candidates.size >= 2) {
+                        TextButton(enabled = selected != null && !state.busy, onClick = { baseline = selected }) { Text("Use selected candidate as baseline") }
+                        baseline?.let { first ->
+                            Text("Baseline · ${first.take(12)}")
+                            TextButton(enabled = selected != null && selected != first && !state.busy, onClick = { selected?.let { model.inspectCandidate(binding, it, left = first) } }) { Text("Compare selected candidate with baseline") }
+                        }
+                    }
                     if (history.candidates.isEmpty()) Text("No retained patch attempts yet.")
                     Text("Restore reruns validation and review. Published history remains unchanged.")
                 }
@@ -185,7 +262,19 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
         AlertDialog(
             onDismissRequest = model::closeEvidence,
             title = { Text("Gateway evidence receipt") },
-            text = { Text(receipt, Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall) },
+            text = {
+                Column {
+                    state.candidateCursor?.let { cursor ->
+                        Row {
+                            TextButton(enabled = !state.busy && cursor.offset > 0, onClick = { model.inspectCandidate(cursor.binding, cursor.checkId, (cursor.offset - 16000).coerceAtLeast(0), cursor.left) }) { Text("Previous page") }
+                            TextButton(enabled = !state.busy && cursor.next != null, onClick = { cursor.next?.let { model.inspectCandidate(cursor.binding, cursor.checkId, it, cursor.left) } }) { Text("Next page") }
+                        }
+                    }
+                    androidx.compose.runtime.key(state.candidateCursor?.offset) {
+                        Text(receipt, Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
             confirmButton = { TextButton(onClick = model::closeEvidence) { Text("Close") } }
         )
     }

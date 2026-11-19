@@ -382,6 +382,18 @@ class DiagnosticDatabaseSourceTest {
                 put("recovery_action", "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT")
                 put("tested_sha", "a".repeat(40))
                 put(
+                    "execution_ledger",
+                    buildJsonObject {
+                        put(
+                            "pending_graph_index",
+                            buildJsonObject {
+                                put("operation", "repository_graph:index")
+                                put("attempt_hash", "b".repeat(64))
+                            }
+                        )
+                    }
+                )
+                put(
                     "acceptance_ledger",
                     buildJsonObject {
                         put(
@@ -404,6 +416,8 @@ class DiagnosticDatabaseSourceTest {
         )
 
         val summary = source.latestFailureSummary(chat, "0.9.test", 999, "build-sha", {}, {})
+        assertEquals("repository_graph:index", summary.getValue("pending_operation").jsonPrimitive.content)
+        assertEquals("b".repeat(64), summary.getValue("graph_index_attempt_hash").jsonPrimitive.content)
         assertEquals("run-summary", summary.getValue("run_id").jsonPrimitive.content)
         assertEquals("0.9.test", summary.getValue("app_version").jsonPrimitive.content)
         assertEquals(999, summary.getValue("app_build").jsonPrimitive.int)

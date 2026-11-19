@@ -28,6 +28,105 @@ from requests import HTTPError, Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
+    def test_supervisor_can_edit_observed_account_and_network_clients_cannot(self):
+        app = FastAPI()
+        app.add_middleware(Admission, config=Config(mode='open_network', host='0.0.0.0',
+            allowed_hosts=('testserver',), allowed_origins=(), remote_engineering=True, management_token='local-control'))
+        install_engineering_routes(app, self.service)
+        remote = TestClient(app, client=('192.0.2.10', 9000))
+        local = TestClient(app, client=('127.0.0.1', 9001))
+        admin = '/gateway/admin/engineering-admission'
+        manager = {'X-Gateway-Management': 'local-control'}
+        self.assertEqual(401, remote.get(admin, headers=manager).status_code)
+        self.assertEqual(401, local.get(admin).status_code)
+        seen = local.get(admin, headers=manager).json()
+        account = next(row for row in seen['accounts'] if row['principal_id'] == 'local:single-user')
+        update = dict(account, enabled=False, gateway_id=seen['gateway_id'])
+        self.assertEqual(409, local.post(admin, headers=manager, json=dict(update, gateway_id='other')).status_code)
+        self.assertEqual(403, local.post(admin, headers=manager, json=dict(update, principal_id='unknown')).status_code)
+        self.assertEqual(200, local.post(admin, headers=manager, json=update).status_code)
+        changed = next(row for row in local.get(admin, headers=manager).json()['accounts']
+                       if row['principal_id'] == account['principal_id'])
+        self.assertFalse(changed['enabled'])
+        self.assertEqual(409, local.post(admin, headers=manager, json=update).status_code)
+        self.assertTrue(local.post(admin, headers=manager, json=dict(changed, gateway_id=seen['gateway_id'], enabled=True)).json()['enabled'])
+        self.assertEqual(403, remote.post('/gateway/engineering/admission-settings', json=update).status_code)
+
+    def test_phone_can_pause_new_jobs_with_owned_revision_and_recover_an_accepted_command(self):
+        path = '/gateway/engineering/admission-settings'
+        initial = self.client.get(path, headers=self.headers).json()
+        self.assertTrue(initial['enabled'])
+        accepted = self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers)
+        self.assertEqual(202, accepted.status_code, accepted.text)
+        edit = {'enabled': False, 'revision': initial['revision']}
+        self.assertEqual(400, self.client.post(path, headers=self.headers, json=edit).status_code)
+        headers = dict(self.headers, **{'X-Gateway-Installation-ID': initial['gateway_id'],
+                                        'X-Gateway-Principal-ID': initial['principal_id']})
+        paused = self.client.post(path, headers=headers, json=edit)
+        self.assertEqual(200, paused.status_code, paused.text)
+        self.assertFalse(paused.json()['enabled'])
+        self.assertEqual(1, paused.json()['revision'])
+        self.assertEqual(paused.json(), self.client.get(path, headers=headers).json())
+        self.assertEqual(409, self.client.post(path, headers=headers, json=edit).status_code)
+        self.assertEqual(403, self.client.get(path, headers={'Tailscale-User-Login': 'reader@example.test'}).status_code)
+        other = dict(headers, **{'Tailscale-User-Login': 'other@example.test'})
+        self.assertEqual(409, self.client.post(path, headers=other, json=edit).status_code)
+        self.assertTrue(self.client.get(path, headers=other).json()['enabled'])
+        blocked = self.client.post('/gateway/engineering/jobs', headers=self.headers, json=dict(self.request, request_id='paused-job'))
+        self.assertEqual(412, blocked.status_code, blocked.text)
+        self.assertEqual('ENGINEERING_JOBS_PAUSED', blocked.json()['error']['code'])
+        replay = self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers)
+        self.assertEqual(accepted.json()['id'], replay.json()['id'])
+        enabled = self.client.post(path, headers=headers, json={'enabled': True, 'revision': 1})
+        self.assertTrue(enabled.json()['enabled'])
+        self.assertEqual(2, enabled.json()['revision'])
+
+    def test_paired_phone_gate_controls_real_job_route_and_preserves_accepted_job(self):
+        import base64
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from desktop.control_store import ControlStore
+        from desktop.configuration import DEFAULTS, atomic_json
+        from uuid import uuid4
+        root = Path(self.temp.name) / 'phone-installation'
+        root.mkdir()
+        atomic_json(root / 'settings.json', DEFAULTS)
+        controls = ControlStore(root)
+        controls.path = Path(self.temp.name) / 'jobs.db'
+        installation = self.store.conversations.gateway_id()
+        key = ec.generate_private_key(ec.SECP256R1())
+        public = base64.b64encode(key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+        invite = controls.pairing_create({'repositories': ['owner/repo']})
+        claim = controls.pairing_claim(invite['code'], {'installation_id': installation, 'device_name': 'Android', 'public_key': public})
+        controls.pairing_confirm(claim['pairing_id'], True)
+        grant, status = controls.pairing_finish(invite['code'], {'pairing_id': claim['pairing_id'], 'public_key': public}, b's' * 32)
+        self.assertEqual(200, status)
+        owner = grant['principal_id']
+        fixtures.DurableEngineeringTests.admit(self, owner)
+        app = FastAPI()
+        app.add_middleware(Admission, config=Config(mode='open_network', allowed_hosts=('testserver',), allowed_origins=(),
+            management_token='local-control', control_journal=str(controls.path)))
+        install_engineering_routes(app, self.service)
+        client = TestClient(app, client=('127.0.0.1', 12001))
+        self.addCleanup(client.close)
+        client.headers.update({'X-Gateway-Management': 'local-control', 'X-Gateway-Control-Principal': owner})
+        def switch(value):
+            snapshot = controls.snapshot(owner)
+            receipt = controls.patch(owner, dict(command_id=uuid4().hex, expected_revision=snapshot['revision'],
+                installation_id=installation, changes={'engineering_enabled': value}))
+            self.assertNotEqual('rejected', receipt['status'])
+        path = '/gateway/engineering/jobs'
+        self.assertEqual('ENGINEERING_JOBS_PAUSED', client.post(path, json=dict(self.request, request_id='before-enable')).json()['error']['code'])
+        switch(True)
+        accepted = client.post(path, json=self.request)
+        self.assertEqual(202, accepted.status_code, accepted.text)
+        switch(False)
+        replay = client.post(path, json=self.request)
+        self.assertEqual(accepted.json()['id'], replay.json()['id'])
+        rejected = client.post(path, json=dict(self.request, request_id='new-paired-request'))
+        self.assertNotEqual(202, rejected.status_code)
+        self.assertIn('PAUSED', rejected.text.upper())
+
     def test_graph_unexpected_500_is_classified_without_private_error_text(self):
         cases = [
             (sqlite3.OperationalError('private database location'), 'graph_internal_storage_error'),
@@ -627,3 +726,40 @@ class EngineeringHTTPTests(unittest.TestCase):
         self.assertEqual([job['id']], self.store.due())
         self.assertEqual('CI', self.store.get(job['id'])['state'])
         self.assertNotIn('merge', self.backend.calls)
+
+
+class SharedNetworkEngineeringAdmissionRegressionTests(unittest.TestCase):
+    def test_legacy_network_engineering_flag_does_not_grant_unpaired_clients_owner_controls(self):
+        # A reachable LAN listener and the old remote flag are not pairing evidence.
+        # An old phone can still chat and inspect its existing shared jobs.
+        for legacy_remote_flag in (False, True):
+            with self.subTest(remote_engineering=legacy_remote_flag):
+                app = FastAPI()
+
+                @app.get('/gateway/capabilities')
+                def ordinary_capabilities():
+                    return {'available': True}
+
+                @app.get('/gateway/engineering/capabilities')
+                def privileged_capabilities():
+                    return {'unexpected': 'engineering authorization'}
+
+                app.add_middleware(
+                    Admission,
+                    config=Config(
+                        mode='open_network', host='0.0.0.0',
+                        allowed_hosts=('testserver',), allowed_origins=(),
+                        remote_engineering=legacy_remote_flag,
+                    ),
+                )
+                for ip in ('192.0.2.10', '192.0.2.11'):
+                    with TestClient(app, client=(ip, 42933)) as client:
+                        available = client.get('/gateway/capabilities')
+                        self.assertEqual(200, available.status_code, available.text)
+                        self.assertTrue(available.json()['available'])
+                        blocked = client.get('/gateway/engineering/capabilities')
+                        self.assertEqual(403, blocked.status_code, blocked.text)
+                        self.assertEqual('engineering_scope_required', blocked.json()['error']['code'])
+                        denied_write = client.post('/gateway/engineering/jobs', json={})
+                        self.assertEqual(403, denied_write.status_code, denied_write.text)
+                        self.assertEqual('engineering_scope_required', denied_write.json()['error']['code'])

@@ -61,6 +61,22 @@ class GatewayGraphRepositoryTest {
     private val notIndexed = """{"status":"NOT_INDEXED","repository":"owner/repo","commit_sha":"${context.commitSha}"}"""
     private fun status(cursor: String) = """{"has_more":true,"index_cursor":"$cursor","graph":{"repository":"owner/repo","branch":"main","commit_sha":"${context.commitSha}"}}"""
 
+    private fun authorizeGraphSharing() {
+        val preferences = features.githubProfileOverrides.getValue(ai.uid)
+        features = features.copy(githubProfileOverrides = mapOf(ai.uid to preferences.copy(graphSharingConsent = GatewayGraphSharing.key(ai, context.connectionUid, context.repository.fullName, host.uid))))
+    }
+
+    @Test fun sourceSharingIsScopedToModelRepositoryConnectionAndHost() {
+        authorizeGraphSharing()
+        val preferences = features.githubProfileOverrides.getValue(ai.uid)
+        assertTrue(GatewayGraphSharing.allowed(ai, preferences, context))
+        assertFalse(GatewayGraphSharing.allowed(ai, preferences, context, "other-model"))
+        assertFalse(GatewayGraphSharing.allowed(ai.copy(apiUrl = "https://elsewhere.example"), preferences, context))
+        assertFalse(GatewayGraphSharing.allowed(ai, preferences, context.copy(repo = "elsewhere")))
+        assertFalse(GatewayGraphSharing.allowed(ai, preferences, context.copy(connectionUid = "other")))
+        assertFalse(GatewayGraphSharing.allowed(ai, preferences.copy(engineeringGatewayProfileUid = "other"), context))
+    }
+
     private fun repository(http: HttpClient, state: GitHubRepositoryStateStore = GitHubRepositoryStateStore()): GatewayGraphRepository {
         coEvery { settings.fetchPlatformV2s() } coAnswers { profiles }
         coEvery { settings.getFeatureSettings() } coAnswers { features }
@@ -88,7 +104,7 @@ class GatewayGraphRepositoryTest {
             val result = repository(http).executeForMap(context, action("status"), host.uid)
             assertEquals(host.uid, result.gatewayProfileUid)
             assertEquals(host.name, result.gatewayName)
-            assertEquals("PRIVATE_PROFILE_REQUIRED", result.modelAccess)
+            assertEquals("SHARING_DISABLED", result.modelAccess)
             assertEquals(1, graphRequests)
         }
     }
@@ -374,14 +390,16 @@ class GatewayGraphRepositoryTest {
     @Test fun toolCallbackRetainsUnresolvedIndexAcrossBlockedIndexAndSuccessfulUnchangedStatus() = runTest {
         var saved = notIndexed
         var writes = 0
+        var requestId: JsonPrimitive? = null
         HttpClient(
             MockEngine { request ->
                 if (request.url.encodedPath.endsWith("capabilities")) {
-                    respond(ready, HttpStatusCode.OK, headers)
+                    respond(ready.replace("\"schema_version\":1", "\"schema_version\":1,\"sync_index_receipts\":true"), HttpStatusCode.OK, headers)
                 } else {
                     val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                     if (body["action"] == JsonPrimitive("index")) {
                         writes++
+                        requestId = body.getValue("sync_index_request_id").jsonPrimitive
                         throw IOException("private lost index response")
                     }
                     respond(saved, HttpStatusCode.OK, headers)
@@ -389,6 +407,7 @@ class GatewayGraphRepositoryTest {
             }
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http)
+            authorizeGraphSharing()
             val tool = RepositoryGraphTool("repository_graph__selected") { repo.execute(context, it) }
             val savedEvidence = linkedMapOf<String, JsonObject>()
             fun book() = GitHubEvidenceBook(
@@ -508,7 +527,11 @@ class GatewayGraphRepositoryTest {
             assertEquals("GRAPH_INDEX_OUTCOME_UNKNOWN", tool.execute("still-blocked", action("index")).errorCode)
             assertEquals(1, writes)
 
-            saved = status("acknowledged-next-page")
+            saved = status("another-clients-next-page")
+            val unrelated = tool.execute("unrelated-progress", action("status"))
+            assertEquals(JsonPrimitive(true), unrelated.executionReceipt?.get("index_outcome_unknown"))
+            assertEquals(null, unrelated.executionReceipt?.get("confirmed_index_attempt_hash"))
+            saved = JsonObject(Json.parseToJsonElement(status("acknowledged-next-page")).jsonObject + ("confirmed_sync_request_id" to requireNotNull(requestId))).toString()
             val observed = tool.execute("reconciled-status", action("status"))
             assertFalse(observed.isError)
             assertEquals(JsonPrimitive(false), (observed.content as ToolResultContent.Json).value.jsonObject.getValue("index_checkpoint").jsonObject["index_outcome_unknown"])
@@ -549,6 +572,7 @@ class GatewayGraphRepositoryTest {
             }
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http)
+            authorizeGraphSharing()
             val tool = RepositoryGraphTool(
                 "repository_graph__selected",
                 nativeStatus = {
@@ -587,6 +611,7 @@ class GatewayGraphRepositoryTest {
             }
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http)
+            authorizeGraphSharing()
             val tool = RepositoryGraphTool(
                 "repository_graph__selected",
                 nativeStatus = {
@@ -715,6 +740,7 @@ class GatewayGraphRepositoryTest {
             }
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http, store)
+            authorizeGraphSharing()
             val tool = RepositoryGraphTool("repository_graph__selected") { repo.execute(context, it) }
             val failed = tool.execute("interposed-index", action("index"))
             assertTrue(failed.isError)
@@ -753,6 +779,7 @@ class GatewayGraphRepositoryTest {
             }
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http)
+            authorizeGraphSharing()
             val tool = RepositoryGraphTool("repository_graph__selected") { repo.execute(context, it) }
             val result = tool.execute("remote-checkpoint-fields", action("status"))
             assertFalse(result.isError)

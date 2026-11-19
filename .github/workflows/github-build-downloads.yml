@@ -71,7 +71,7 @@ jobs:
       - name: Run APK catalog and download tests
         timeout-minutes: 30
         run: >-
-          ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace --console=plain --max-workers=1
+          python3 scripts/gradle_retry.py -- :app:testDebugUnitTest --no-daemon --stacktrace --console=plain --max-workers=1
           --tests 'dev.chungjungsoo.gptmobile.data.github.GitHubBuildCatalogTest'
           --tests 'dev.chungjungsoo.gptmobile.data.github.GitHubApkFilesTest'
           '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'

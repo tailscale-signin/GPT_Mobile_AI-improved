@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+# Each matching line is a single filename-to-digest entry produced by the
+# Gateway manifest or a source inventory. Other fields and rules still scan.
+[[rules.allowlists]]
+condition = "AND"
+paths = ['''^gateway/manifest-v14\.json$''', '''^docs/(engineering|repairs)/.*\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"[^"]+\.(py|kt)":\s*"[0-9a-f]{40}([0-9a-f]{24})?",?\s*$''']

@@ -103,6 +103,9 @@ interface ChatRoomV2Dao : RunPolicySnapshotAccess {
     @Query("UPDATE chats_v2 SET draft_text = :text, draft_attachments = :attachments, draft_updated_at = :timestamp WHERE chat_id = :chatId")
     suspend fun saveComposerDraft(chatId: Int, text: String?, attachments: String, timestamp: Long?)
 
+    @Query("SELECT chat_id FROM chats_v2 WHERE last_share_token = :token LIMIT 1")
+    suspend fun findDeliveredShare(token: String): Int?
+
     @Query("UPDATE chats_v2 SET last_share_token = :token WHERE chat_id = :chatId")
     suspend fun markShareDelivered(chatId: Int, token: String)
 

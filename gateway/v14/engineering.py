@@ -65,6 +65,10 @@ def record_verified_mutation_reconciliation(job, phase, recovered):
 
 
 def principal_authorized(config, principal, devices):
+    if principal.startswith('paired:'):
+        from v14.identity import control_grant
+        grant = control_grant(config, principal)
+        return bool(grant and grant['role'] == 'owner' and json.loads(grant['repositories']))
     if config.mode == 'open_network':
         return config.remote_engineering and principal == 'network:shared'
     if config.mode == 'loopback':
@@ -223,10 +227,43 @@ class EngineeringStore:
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_model_attempts ('
                                'id TEXT PRIMARY KEY, job_id TEXT NOT NULL, binding_id TEXT NOT NULL, revision INTEGER NOT NULL, '
                                'state TEXT NOT NULL, dispatched INTEGER NOT NULL, reserved_tokens INTEGER NOT NULL, payload TEXT NOT NULL)')
+                    db.execute('CREATE TABLE IF NOT EXISTS engineering_admission_settings ('
+                               'principal TEXT PRIMARY KEY, enabled INTEGER NOT NULL, revision INTEGER NOT NULL)')
                     self.conversations.schema(db)
                     return operation(db)
             finally:
                 db.close()
+
+    @staticmethod
+    def admission_settings(db, principal):
+        row = db.execute('SELECT enabled, revision FROM engineering_admission_settings WHERE principal=?',
+                         (principal,)).fetchone()
+        return {'enabled': bool(row[0]), 'revision': row[1]} if row else {'enabled': not principal.startswith(('paired:', 'phone:')), 'revision': 0}
+
+    def change_admission_settings(self, principal, payload):
+        if (set(payload) != {'enabled', 'revision'} or type(payload['enabled']) is not bool or
+                type(payload['revision']) is not int or payload['revision'] < 0):
+            raise ExecutionBindingError('ENGINEERING_SETTINGS_INVALID', 'Read the current setting before changing it.', 400)
+        def change(db):
+            current = self.admission_settings(db, principal)
+            if current['revision'] != payload['revision']:
+                raise ExecutionBindingError('ENGINEERING_SETTINGS_CHANGED', 'Refresh the Gateway setting before editing.')
+            if current['enabled'] != payload['enabled']:
+                db.execute('INSERT OR REPLACE INTO engineering_admission_settings VALUES (?,?,?)',
+                           (principal, payload['enabled'], current['revision'] + 1))
+            return self.admission_settings(db, principal)
+        return self.tx(change)
+
+    def require_new_jobs(self, db, principal):
+        if principal.startswith('paired:'):
+            from desktop.control_store import ControlStore
+            grant = ControlStore.device(db, principal)
+            if not grant or grant['role'] != 'owner' or not json.loads(grant['repositories']):
+                raise ExecutionBindingError('PAIRED_OWNER_REQUIRED', 'Pair an owner with repository permission on this PC.', 403)
+            if not db.execute('SELECT 1 FROM engineering_admission_settings WHERE principal=?', (principal,)).fetchone():
+                raise ExecutionBindingError('ENGINEERING_JOBS_PAUSED', 'Enable new saved jobs for this paired owner.', 412)
+        if not self.admission_settings(db, principal)['enabled']:
+            raise ExecutionBindingError('ENGINEERING_JOBS_PAUSED', 'Enable new saved jobs in the Gateway settings for this account.', 412)
 
     def accept_webhook(self, principal, delivery, body_digest):
         """Durable replay filter. A delivery identifier cannot be rebound to another payload."""
@@ -325,6 +362,8 @@ class EngineeringStore:
                 if old[3] != request_hash:
                     raise ValueError('Request identity was reused with different settings')
                 return self.decode(old[:3])
+            if recovery_of is None:
+                self.require_new_jobs(db, principal)
             if db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED','FAILED')").fetchone()[0] >= 32:
                 raise ValueError('Engineering job capacity reached')
             if db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0] >= 4096:
@@ -704,7 +743,11 @@ class EngineeringStore:
                 self.event(db, job, phase, job['revision'] + 1, self.now())
             db.execute("UPDATE engineering_receipts SET status='CONFIRMED',output_json=? WHERE job_id=? AND revision=?", (output_json, job['id'], job['revision']))
             return True
-        return self.tx(save)
+        committed = self.tx(save)
+        if committed and job['data'].get('terminal_session') and phase in {'COMPLETED', 'CANCELLED', 'FAILED'}:
+            from v14.workspace_terminal import dispose
+            dispose(job)
+        return committed
 
     def assert_claim(self, job):
         def read(db):
@@ -784,6 +827,7 @@ class EngineeringStore:
                 raise ValueError('Cancellation is still pending')
             job['updated_at'] = self.now()
             job.pop('provider_wait', None)
+            job['data']['operator_controls'] = job['data'].get('operator_controls', 0) + 1
             if action == 'approve':
                 if job['state'] != 'MERGE_READY':
                     raise ValueError('The job is not merge-ready')
@@ -837,7 +881,11 @@ class EngineeringStore:
                     if not found:
                         break
             return dict(job, state=state, revision=job['revision'] + 1)
-        return self.tx(update)
+        updated = self.tx(update)
+        if action == 'cancel' and updated['data'].get('terminal_session'):
+            from v14.workspace_terminal import dispose
+            dispose(updated)
+        return updated
 
     def _confirm_cancellation(self, db, job_id=None, owner_epoch=None, *, recovering=False):
         if not recovering and owner_epoch is None:
@@ -952,6 +1000,8 @@ class EngineeringService:
         self.wake = threading.Event()
         self.thread = None
         self.authorized = lambda job: True
+        from v14.copilot_tasks import CopilotTasks
+        self.copilot = CopilotTasks(self)
         backend.model_executor = self.execute_model
         backend.save_specialists = self.store.save_specialists
         backend.save_adaptive_planning = self.store.save_adaptive_planning
@@ -986,6 +1036,7 @@ class EngineeringService:
         return binding
 
     def preflight_submission(self, principal, request):
+        self.store.tx(lambda db: self.store.require_new_jobs(db, principal))
         self.validate_submission(principal, request)
         from v14.engineering_preflight import preflight
         value = validate_request(request)
@@ -1538,6 +1589,7 @@ class EngineeringService:
             return
         self.store.recover()
         self.stop.clear()
+        self.copilot.start()
         for graph in (self.graph, self.public_graph):
             if graph is not None:
                 graph.start_jobs()
@@ -1596,6 +1648,7 @@ class EngineeringService:
                     self.stop.set()
                     self.wake.set()
                     self.backend.cancel()
+                    await asyncio.to_thread(self.copilot.close)
                     if self.thread:
                         await asyncio.to_thread(self.thread.join, 15)
                     for graph in (self.graph, self.public_graph):
@@ -1644,6 +1697,18 @@ def public_job(job):
             'acceptance': job['request'].get('acceptance', []), 'admission': data.get('admission'),
             'execution_owner': 'GATEWAY' if job.get('detach_safe') else 'NOT_CONFIRMED',
             'completion_verification': data.get('completion_verification'), 'evidence_policy': 'github.evidence.v1',
+            'workspace_plan': str((data.get('plan') or {}).get('plan', ''))[:8000] if isinstance(data.get('plan'), dict) else '',
+            'active_instruction_files': data.get('active_instructions', []),
+            'workspace_next_action': (data.get('progress_notes') or {}).get('next_action'),
+            'workspace_outputs': [dict(item, revision=(data.get('local_validation') or {}).get('source_sha'),
+                                       patch_identity=(data.get('local_validation') or {}).get('patch_identity'), command_index=cmd.get('command_index'))
+                                  for cmd in (data.get('local_validation') or {}).get('commands', []) for item in cmd.get('build_outputs', [])][:96],
+            'workspace_workers': [{'id': name, 'role': value['role'], 'state': value['state'],
+                                   'calls': value['calls'], 'budget': value['budget']} for name, value in (data.get('workspace_workers') or {}).items()],
+            'workspace_tests': [{'name': str(value.get('check_id', ''))[:12], 'status': value.get('status'),
+                                 'revision': value.get('source_sha'), 'exit_code': value.get('exit_code')} for value in (data.get('workspace_checks') or {}).values()],
+            'workspace_steps': [{'name': step, 'done': i < len((data.get('workflow') or {}).get('completed', []))}
+                                for i, step in enumerate((data.get('workflow') or {}).get('steps', []))],
             'latest_evidence': data.get('latest_evidence'),
             'execution_binding_id': job['request'].get('execution_binding_id'),
             'execution_binding': job.get('execution_binding'),

@@ -4,8 +4,10 @@ import android.app.Application
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringRunRow
@@ -42,12 +44,21 @@ class GitHubCommitApprovalDialogTest {
                 "Base aaaaaaaaaaaa · Patch frozen-diges\n" +
                 "Risk: build and CI are not verified by this approval."
         ).assertIsDisplayed()
-        compose.onNodeWithText("@@ changed text @@\n- 41\n+ 42").assertDoesNotExist()
+        compose.onNodeWithTag("github_approval_details").assertDoesNotExist()
+        compose.onNodeWithTag("github_review_diff").assertDoesNotExist()
         compose.onNodeWithText("Details").performClick()
-        compose.onNodeWithText("@@ changed text @@\n- 41\n+ 42").assertIsDisplayed()
+        compose.onNodeWithTag("github_approval_details").assertIsDisplayed()
+        compose.onNodeWithTag("github_review_diff").assertIsDisplayed().assertTextEquals(
+            "--- a/A.kt\n+++ b/A.kt\n@@ -1 +1 @@\n" +
+                "-41\n\\ No newline at end of file\n" +
+                "+42\n\\ No newline at end of file\n"
+        )
         verify(exactly = 0) { model.approveCommit(any(), any(), any()) }
         compose.onNodeWithText("Close").performClick()
         compose.waitForIdle()
+        compose.onNodeWithTag("github_approval_details").assertDoesNotExist()
+        compose.onNodeWithTag("github_review_diff").assertDoesNotExist()
+        verify(exactly = 0) { model.approveCommit(any(), any(), any()) }
         compose.onNodeWithText("Commit").performClick()
         verify(exactly = 1) { model.approveCommit("task", "frozen-digest", any()) }
         verify(atLeast = 1) { model.recordApprovalEvent("task", "approval_card_shown") }

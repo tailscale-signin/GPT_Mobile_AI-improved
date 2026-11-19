@@ -1,0 +1,145 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "326683b484f9fea4dfc585fc9732f4b3b97d9068",
+  "start_sha": "f3ce4a79bee75682f375fead0dc52bc313d547bd",
+  "working_branch": "fix/post-1534-runtime-continuation-and-acceptance-2026-11-18",
+  "existing_pr": 1741,
+  "intent": "Complete the missing five-second chat arrow hold, native Windows Gateway setup/dashboard, and paired Android-to-Gateway settings from the November 19 recap and saved Gateway rebuild design; preserve concurrent branch work and qualify the actual integration.",
+  "state": "SOURCE_COMPLETE_VALIDATION_IN_PROGRESS",
+  "source_design": "Gateway-Rebuild-Design.pdf, November 19 2026, ten pages, baseline 8c83ef1801fa",
+  "observed_concurrent_work": {
+    "arrow_hold": "Already implemented at f3ce4a79 with a Compose regression; preserve and check edge cases.",
+    "legacy_admission_control": "f3ce4a79 adds account-scoped saved-job admission; it does not authorize paired owner management on shared network connections.",
+    "native_setup": "Retained the canonical four-step WPF setup, extracted theme and installed three-tab GitHub settings smoke from 5ed26061c/dcf1adea7. Route workspace compatibility commands to the full native dashboard instead of packaging competing workspaces.",
+    "other_updates": "Retained the concurrent BouncyCastle 1.86 alignment, Hilt mirror metadata, provider stream bounds, PDF viewport and stale-source cleanup changes.",
+    "legacy_owner_panel": "Preserved the new PC Job admission panel and its identity/revision checks. Paired owners use canonical shared settings; legacy local-owner edits advance the same canonical revision.",
+    "owner_control_consolidation": {
+      "source_commit": "d8d71fa5ec47084b7ef357e9617e032de8ffbbfb",
+      "preserved_snapshot": "58b9dc463 (local safety snapshot before final ancestry integration)",
+      "decision": "Use one supervisor-owned revisioned control plane. Consolidate the unreleased alternative mTLS owner store/listener into the signed paired-owner implementation; preserve the incoming commit in ancestry.",
+      "retained_features": [
+        "Pairing deep-link activity and compact chat control entry point",
+        "Installation-specific control-port firewall rule and cleanup",
+        "Useful owner/viewer, invitation, revocation and activation regressions",
+        "Host-approved immutable validation selection with repository scope and guarded activation",
+        "Bounded host-review notes with durable waiting/reviewed receipts and no privileged execution",
+        "Exact approved model-backend choices; host approval probes without switching the active route",
+        "Persisted last-confirmed Android snapshot with explicit offline read-only state",
+        "Windows DPAPI API signatures and unmanaged-buffer cleanup in the canonical key protector"
+      ],
+      "reason": "Two independent settings journals and principal namespaces cannot provide one confirmed revision or coherent ownership. The retained protocol includes local claim confirmation, scoped fields/repositories, durable rejected/superseded command receipts and original-owner routing.",
+      "migration": "Do not infer grants or transfer accepted jobs from the superseded prototype. Leave existing data files untouched; require explicit canonical pairing and retain host-only inspection of historical receipts.",
+      "latest_source_commit": "d261c0b03ba1d8ea3d509760d3b90a08f96c13ea"
+    },
+    "provider_recovery": "Retained the privacy-safe interrupted, rejected and unsent provider recovery changes in 98d934e8e7b26650cf32ff2d8946fd3e0dd34311, including their Android regressions and reporter error codes.",
+    "latest_repairs": "Preserved encrypted chat upgrade repairs, exact-main Android/Windows release-pair verification, emulator reproducibility and dependency publisher metadata through d261c0b03. Do not execute publication or weaken required checks. Preserved the separate bounded KSP/KAPT release-generation stages in 019a1186770093574e289a260586efc6de804f7a."
+  },
+  "acceptance": {
+    "native_setup_and_dashboard": "PASS at 7110434b: retained canonical setup, native win-x64 builds and all 13 installed smoke scenarios, including nine loaded WPF views at 900x600.",
+    "paired_revisioned_controls": "IMPLEMENTED: 29 canonical settings/policy/host-request/real-TLS tests, 29 engineering HTTP tests and 2 companion TLS compatibility tests pass before final broad verification.",
+    "identity_revocation_conflict_and_recovery": "PASS: host control regressions and real loopback TLS pairing, original receipt, stale edit, replay and revocation integration; final integrated full suite pending.",
+    "android_behavior": "PARTIAL VERIFICATION: actual production/instrumentation compilation, API34/API36 device acceptance and Android Lint pass on a3cdc7a. Its unit-test compiler errors are corrected in 7110434b; later full unit execution remains pending. The separate 22-test supplemental harness uses scaffolded framework boundaries.",
+    "windows_build_and_install": "PASS at 7110434b: workflow 44483771672 completed native cross-build, 187 desktop tests, 15 network tests, 15 dashboard tests, 23 C# assertions, packaging and all 13 installed smoke scenarios. Artifact 14510390907 SHA256 fd019f515ea357cc84393b90cc31bb06b2ad599a0fe46eb9bfc2ea9e5219c214.",
+    "exact_commit_ci": "PENDING",
+    "physical_android_windows": "NOT_RUN",
+    "live_provider_copilot": "NOT_RUN",
+    "authentication_and_reporting": "PASS: 175 tests on the inherited provider-recovery and reporter changes.",
+    "host_fast_validation": "PASS on the 7110434b source tree: canonical fast validation, 554 host tests plus architecture/source inventory, CI policy, dependency catalog, metadata, resource, regex, secret scan and whitespace gates.",
+    "gateway_full_validation": "PASS for 7110434b in both Ubuntu Python3.12/3.13 jobs of workflow44483771424: 113 isolated suites, 1517 Python cases (1489 passed,28 platform/UI skips), 7 browser checks and 175 authentication tests per job. Later concurrent development-workspace changes require fresh qualification.",
+    "capability_contract": "PASS: canonical v17 and byte-identical Android fixture captured from actual standalone HTTP response; all 4 capability route/identity/full-response tests pass. Historical fixtures retained.",
+    "native_pairing_roles": "PASS: explicit Owner/Viewer selection, Viewer sends zero writable fields, native compilation and 19 bridge plus 2 targeted permission/confirmation tests pass."
+  },
+  "publication": "Use only the existing PR branch, reconcile concurrent head changes, preserve all release and required-check gates.",
+  "integration_base_sha": "b586ef73562aced744ef4d39138cb05b0ef1ba69",
+  "review_findings": [
+    "Reject legacy admission-setting writes through the paired proxy so revisions cannot be bypassed.",
+    "Constrain repository lifecycle operations to approved repository scope; new destinations require host approval.",
+    "Recover only matching installation/owner/command receipts; definite rejected and superseded receipts resolve uncertainty.",
+    "Expose matching device key fingerprints on Windows and Android for local pairing confirmation.",
+    "Reject backend self-routing against the actual running listener, including a custom port; never probe or activate the Gateway as its own backend.",
+    "Bind saved-job cancellation and recovery approval reads to the retained installation and principal before any mutation.",
+    "Retain the full original settings request and allow an explicit retry only after definitive absent-receipt and unchanged-target checks.",
+    "Preserve saved chat model identity even when the current model catalogue does not contain it; chart measured benchmark distributions without inventing a score."
+  ],
+  "integration_followup": {
+    "base_sha": "9a31804b786beaf169c8773d2ffff1fb533d75d0",
+    "working_branch": "completion-ci-8c562e6",
+    "intent": "Complete concrete CI and repository-guidance integration failures while preserving concurrent fixes and the existing release gates.",
+    "concurrent_fixes_retained": {
+      "12f177c7d37b4ff2b918d1e9bd126b1a1b7bbe3d": "Pinned plugin and transitive dependency mirror recovery, with existing locks and checksum verification.",
+      "42aee0d8a6256dfc228798ff60294ea6ee7a0438": "Architecture inventory includes paired Gateway transport tests.",
+      "9a31804b786beaf169c8773d2ffff1fb533d75d0": "Paged GitHub diff renderer formatting and regenerated source inventory."
+    },
+    "changes": [
+      "Project oversized repository guidance within the existing context budget, retaining exact path/blob identities and original recoverable content; mark incomplete instruction views explicitly.",
+      "Preserve the affected source directory rules when paging an already-active parent instruction file; ordinary source reads continue to update scope.",
+      "Include repository-guidance regressions in the canonical platform suite by using its test_gateway_ filename convention.",
+      "Run architecture and production-source inventory checks in canonical fast validation so stale indexes fail before Android CI."
+    ],
+    "observed_verification": {
+      "host_fast": "PASS:554 tests, CI policy, architecture and production source inventories, dependency catalog, schema/metadata, resource/regex, secrets and whitespace checks on the final integrated follow-up. Package manifest validates.",
+      "windows": "Gateway Windows installer run44483771672 at7110434b passed native builds,187 desktop tests,15 network tests,15 dashboard tests,23 C# assertions and13 installed smoke scenarios. This retained success does not qualify later source revisions.",
+      "android": "At a3cdc7a, both API34 and API36 acceptance jobs fully passed, including actual production/instrumentation compilation, APK packaging and device regressions; Android Lint also passed. Unit-test compilation exposed three call-site mismatches, corrected in7110434b. Later full unit execution remains pending; cancelled runs are not passing evidence.",
+      "mirror": "KSP marker POM and plugin JAR/module downloaded from the existing Central mirror match all3 existing SHA256 entries. Local configuration-only Gradle remains blocked resolving com.android.legacy-kapt9.4.1 before compilation; do not qualify that attempt.",
+      "guidance": "PASS:142 tests across7 isolated suites on the integrated source: guidance6, selected execution26, reliability27, completion16, backend30, workspace checks12 and source authority25. Exact path/blob recovery, nested-rule retention, selected-model budgets and paired owner/repository boundaries remain covered."
+    },
+    "remaining": "Exact final-head checks, physical Android-to-Windows enrollment and live selected-provider acceptance remain evidence gates; no merge or release is claimed.",
+    "test_compilation_followup": {
+      "source_base": "262f6e28dd881bf506225bedcd7d0c7e0e4b6a49",
+      "evidence": "At a3cdc7a, PR Validation job135412752796 compiled production Kotlin and Java successfully, then reported four Kotlin unit-test compiler errors at three call sites.",
+      "repairs": [
+        "Supply the required chatId in the paired-owner model-preparation integration request.",
+        "Name evictIdleConnections in the two existing read-retry tests so their trailing lambdas cannot bind to pairedRequests."
+      ],
+      "validation": "Scoped ktlint, canonical fast validation (554 host tests plus architecture/source-inventory and repository checks), and diff checks pass. Assertions and production APIs are unchanged; complete hosted unit-test compilation/execution remains required."
+    }
+  },
+  "workspace_integration_followup": {
+    "source_base": "c917afa436bad8619615622c1d91244b34215ed5",
+    "working_branch": "completion-ci-d1803bc",
+    "intent": "Finish the concrete workspace integration regressions while preserving all concurrent source, isolation and qualification requirements.",
+    "concurrent_fixes_retained": "The read-only Docker staging failure at d1803bc is repaired by upstream 1daf4e9 using the verified checkout archive and docker exec stdin. The c917afa workspace timelines and repository graph read checks remain intact.",
+    "repairs": [
+      "Match the Android partial-diff regression to the current visible warning while retaining both truncated and complete response assertions.",
+      "Clean up a newly created terminal container when staging, identity inspection or readiness is cancelled or expires. Use a separate 30-second cleanup deadline, recheck exact container ID and workspace label, preserve the original failure and restore normal-work cancellation.",
+      "Preserve existing terminal sessions when a readiness read is cancelled; unavailable Docker and mismatched ownership never authorize deleting a different container."
+    ],
+    "verification": {
+      "focused": "PASS: terminal4, lifecycle2, validation18 and timeline2 tests. The cancellation regression exercises all three setup phases, cancellation and expiry, cleanup availability/ownership/deadline outcomes, and preservation of existing sessions.",
+      "android_style": "PASS: scoped ktlint and diff checks for the single Android test correction.",
+      "host_fast": "PASS:554 canonical host tests plus architecture/source inventories, CI policy, dependency catalog, schema/metadata, resources/regex, secrets and whitespace checks after final regeneration. Gateway source manifest validates.",
+      "integrated_linux": "PASS for c917afa in both Ubuntu Python3.12/3.13 jobs of run44485793338:117 suites,1525 Python cases (1497 passed,28 platform/UI skips),7 browser checks and175 authentication tests per job.",
+      "real_docker": "PASS: run44485793338/job135428920173 on PR merge checkout8d35e5ccadb48ebfad4fe35ac957d1911c7c9a22 (c917afa into326683b4). Offline terminal execution and same-process retry identity pass. Managed validation covers source checks, not device acceptance."
+    },
+    "remaining": "Fresh final-source CI, physical Android-to-Windows enrollment and live selected-provider acceptance; no merge or release is claimed."
+  },
+  "paired_workspace_followup": {
+    "source_base": "91db0c6d4ee9bca134b0faf2215bd622ae15a86b",
+    "working_branch": "completion-ci-91db0c6",
+    "intent": "Admit the reviewed exact profile-check endpoint through canonical paired transport while preserving owner and repository authorization; retain the concurrently repaired development environment.",
+    "evidence": "The new Android profileCheck request reaches /gateway/engineering/profile-checks, but the paired control proxy rejects that route with control_route_not_admitted even for a granted owner and repository.",
+    "inherited_environment_repairs": "Retain 296953a's vendor download entry point and 4cc04af's build-essential toolchain. Independently verified complete vendor archives: Kotlin 405725670 bytes, SHA256 c004242158f4b5e1d917ddd848e6f6a279484fa58a3e2bce8846b807d1ad16b1; Google SDK 164760899 bytes, SHA256 7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee. Actual Android image CI passed both downloads/checksums, SDK packages, native Vulkan/SPIR-V preparation and model/Robolectric provisioning before a concurrent push cancelled Gradle compilation.",
+    "android_compilation": "PASS: preserved c917afa PR job 135428986245 completed actual production and unit-test Kotlin compilation, qualifying the earlier constructor-call corrections. Full execution later finished with 11660 cases, 19 failures and 5 skips; see android_runtime_followup. Later Android additions require fresh qualification.",
+    "concurrent_provenance_repair": "Preserve ab892726's exact accepted GITHUB_SHA for archived image preparation, validation and terminal processes. Build-only ARG avoids persisting the preparation head into images reused for later checkouts; current accepted head overrides requested environment values.",
+    "prior_integrated_gateway": "PASS on fdae380 in both Ubuntu jobs of run 44489855967: 119 isolated suites, 1533 Python cases (1505 passed, 28 platform/UI skips), 7 browser tests and 175 authentication tests per run. Both ran all 4 terminal cases, including the cancellation cleanup regression.",
+    "repair": "Add only POST /gateway/engineering/profile-checks to the reviewed proxy route set. Retain the existing owner-role check, repository grant checks, supervisor-bound principal forwarding and all host policy/command-index checks. Preserve the concurrently added RepositoryWorkspaceTool statistics policy in 9a1dd5f without claiming runtime coverage.",
+    "verification": "PASS on the integrated 91db0c6 source: 20 control-settings tests and 2 inherited profile-check tests. The new signed HTTPS ASGI proxy regression verifies the original request body and owner reach the runtime under the supervisor credential, while viewers, ungranted repositories, GET and adjacent/admin routes are rejected before dispatch. All 554 canonical host tests and inventory, metadata, resource/regex, dependency and secret checks pass. All 39 tool producers have reviewed policies; this does not claim runtime execution coverage. Package manifest and diff checks pass. All 3 inherited timeline tests also pass, including complete candidate comparison paging."
+  },
+  "android_runtime_followup": {
+    "source_base": "91db0c6d4ee9bca134b0faf2215bd622ae15a86b",
+    "working_branch": "completion-ci-91db0c6",
+    "intent": "Repair every concrete Android runtime regression reported by the preserved full unit run while retaining exact saved-owner identity, command and UI confirmation assertions.",
+    "evidence": "PR Validation run 44485793137/job 135428986245 at c917afa completed production and unit compilation, then executed 11,660 tests: 11,636 passed, 19 failed, 5 skipped. The partial-diff warning failure is already corrected in 4e8e218. Remaining failures are submission 9, recovery 6, paired transport 1, candidate ViewModel 1 and commit approval dialog 1.",
+    "repairs": [
+      "Bind submission and recovery fixtures to the exact retained installation/principal config; retain changed-route, changed-credential, ancestry/depth, original-receipt and no-mutation guards, and strengthen identity/readiness call assertions.",
+      "Use candidatePage at offset zero in the candidate ViewModel regression, retaining stale-chat rejection and additionally verifying the paging cursor cannot cross chats.",
+      "Run the paired transport test on a real coroutine clock because stale-socket cleanup correctly crosses Dispatchers.IO; preserve every fresh-proof, exact-body, route and single-write assertion.",
+      "Assert the actual unified diff in the commit approval dialog, including no-newline markers; verify opening and closing Details never approves, while Commit still approves the exact frozen digest once."
+    ],
+    "positive_android_evidence": "Verified completed JUnit XML: GatewayControlRepository 12, GatewayOwnerControl 10, GatewayControlNegotiation 30, model-preparation integration 3/repository 22/API 4, GatewayJobControl 11 and GatewayConversationRepository 45 all passed with zero skips (137 cases). Android Lint also passed on c917afa.",
+    "scheduler_reproduction": "With pinned Kotlin 2.4.20, coroutines 1.11.0 and JDK 21, the IO retry sequence hit a virtual 30-second timeout in all 20 runTest repetitions but passed all 3 runBlocking repetitions, for both empty and 75 ms cleanup. The failed CI method took 0.016 s, corroborating virtual-time advancement rather than a real network timeout.",
+    "verification": "All five changed test files pass scoped ktlint and diff checks. After reconciliation onto 91db0c6, all 554 canonical host tests, inventory/metadata, dependency, resource/regex and secret checks pass; all 20 control-settings 2 profile-check tests and 3 timeline tests pass in isolated unittest processes. Package manifest validates. This follow-up changes no Android production behavior. Execution of the corrected Android cases still requires the fresh hosted gate.",
+    "reconciliation": "Preserve concurrent ae463479 workspace evidence routing, exact-source Android environment qualification and published build-plugin marker resolution. None overlaps the five corrected test files or canonical paired proxy. Also preserve 91db0c6 candidate comparisons and their optional left candidate; the corrected candidatePage fixture retains the exact default null comparison."
+  }
+}

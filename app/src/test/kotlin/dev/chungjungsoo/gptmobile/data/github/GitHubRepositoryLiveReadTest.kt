@@ -122,7 +122,17 @@ class GitHubRepositoryLiveReadTest {
         }
     }
 
-    private class Fixture(private val content: String = "name: bounded fixture match\non: [push]\njobs: {}\n") {
+    @Test fun readLoadsAncestorInstructionsInOrderFromTheSameCommit() = runTest {
+        val rules = listOf("CLAUDE.md", "AGENTS.md", ".github/AGENTS.md")
+        val fixture = Fixture(rules = rules)
+        val row = fixture.execute("read_ranges", buildJsonObject { put("path", ".github/workflows/build.yml") })
+        val guidance = row.getValue("active_instructions").jsonObject
+        assertEquals(fixture.commitSha, guidance.getValue("commit_sha").jsonPrimitive.content)
+        assertEquals(rules, guidance.getValue("files").jsonArray.map { it.jsonObject.getValue("path").jsonPrimitive.content })
+        assertEquals(rules.map { "Rules for $it" }, guidance.getValue("files").jsonArray.map { it.jsonObject.getValue("text").jsonPrimitive.content })
+    }
+
+    private class Fixture(private val content: String = "name: bounded fixture match\non: [push]\njobs: {}\n", private val rules: List<String> = emptyList()) {
         val commitSha = "a".repeat(40)
         private val treeSha = "b".repeat(40)
         private val blobSha = "c".repeat(40)
@@ -155,14 +165,24 @@ class GitHubRepositoryLiveReadTest {
                                         put("type", "blob")
                                         put("size", content.encodeToByteArray().size)
                                     }
-                                )
+                                ) + rules.mapIndexed { index, rule ->
+                                    buildJsonObject {
+                                        put("path", rule)
+                                        put("sha", (index + 1).toString().repeat(40))
+                                        put("type", "blob")
+                                        put("mode", "100644")
+                                        put("size", "Rules for $rule".encodeToByteArray().size)
+                                    }
+                                }
                             )
                         )
                     }
                     "/git/blobs/" in path -> buildJsonObject {
-                        put("sha", blobSha)
+                        val sha = path.substringAfterLast('/')
+                        val body = rules.firstOrNull { (rules.indexOf(it) + 1).toString().repeat(40) == sha }?.let { "Rules for $it" } ?: content
+                        put("sha", sha)
                         put("encoding", "base64")
-                        put("content", Base64.getEncoder().encodeToString(content.encodeToByteArray()))
+                        put("content", Base64.getEncoder().encodeToString(body.encodeToByteArray()))
                     }
                     else -> error("Unexpected request $path")
                 }

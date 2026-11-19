@@ -271,6 +271,14 @@
       "configuration": "Existing GitHub connection and private Llama/Ollama profile, GitHub tools and persistent engineering memory enabled"
     },
     {
+      "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryWorkspaceTool.kt",
+      "canonicalOwner": "Selected profile and paired Gateway workspace",
+      "capture": "AgentToolResolver observes execution. The Gateway retains encrypted request results by stable request ID.",
+      "outcome": "Catalog, confirmed check result, denied source scope, stale revision, unavailable host or cancellation",
+      "probe": "Explicit catalog and result lookup for the selected repository revision",
+      "configuration": "Selected model source-sharing consent and paired Gateway per-repository check setting"
+    },
+    {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SharedToolCallBroker.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
       "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",

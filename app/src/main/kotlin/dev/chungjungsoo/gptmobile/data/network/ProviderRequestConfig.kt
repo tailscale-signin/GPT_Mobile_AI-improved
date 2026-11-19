@@ -49,7 +49,9 @@ data class ProviderRequestConfig(
     /** Actual request model, including when the selected route is not locked. */
     val selectedModel: String? = null,
     /** A provider allowlist containing one route, resolved from the outgoing request. */
-    internal val openRouterPinnedProvider: String? = null
+    internal val openRouterPinnedProvider: String? = null,
+    /** Explicit engineering selection only. Ordinary inference never acquires paired owner authority. */
+    internal val gatewayOwnerControl: Boolean = false
 ) {
     /**
      * Resolves an API endpoint path against the base apiUrl, normalizing any

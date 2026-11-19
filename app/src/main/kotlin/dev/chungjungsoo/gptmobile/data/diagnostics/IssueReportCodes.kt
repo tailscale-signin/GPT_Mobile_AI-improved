@@ -9,6 +9,7 @@ internal object IssueReportCodes {
         "REVIEW_INPUT_REQUIRED",
         "GITHUB_REVIEW_COMPARISON_REQUIRED",
         "PRIVACY_CONFIGURATION",
+        "PRIVACY_PROVIDER_INELIGIBLE",
         "VOICE_MICROPHONE_FOCUS_DENIED",
         "VOICE_MICROPHONE_FOCUS_LOST",
         "VOICE_MICROPHONE_FORMAT_UNSUPPORTED",
@@ -74,6 +75,7 @@ internal object IssueReportCodes {
         "TOOL_PRECHECK_FAILED",
         "TOOL_PROTOCOL_INVALID_FRAME",
         "TOOL_BUDGET_EXHAUSTED",
+        "COMBINED_BUDGET_EXHAUSTED",
         "OUTPUT_LIMIT",
         "INCOMPLETE_PROVIDER_STREAM",
         "CONNECTION_REFUSED",
@@ -90,6 +92,8 @@ internal object IssueReportCodes {
         "GITHUB_TASK_INCOMPLETE",
         "GITHUB_RUN_INTERRUPTED",
         "OUTPUT_CONTINUATION_UNAVAILABLE",
+        "OUTPUT_CONTINUATION_NO_PROGRESS",
+        "PROVIDER_INVOCATION_FAILED",
         "GITHUB_TOOL_CONTEXT_BUDGET",
         "GITHUB_PROFILE_LOCKED",
         "GITHUB_COOLDOWN_ACTIVE",
@@ -229,6 +233,8 @@ internal object IssueReportCodes {
         "REQUEST_REJECTED",
         "RESOURCE_DEADLINE",
         "SAVED_POLICY_UNAVAILABLE",
+        "LOCAL_STORAGE_FAILURE",
+        "CONTENT_POLICY_REFUSAL",
         "SERIALIZATION_ERROR",
         "SERVICE_UNAVAILABLE",
         "TERMINAL_JOB_NOT_RESUMABLE",
@@ -276,7 +282,7 @@ internal object IssueReportCodes {
         "DNS_FAILED", "DNS_RECOVERY" -> "DNS_RESOLUTION_FAILED"
         "GITHUB_PR_VALIDATION_FAILED" -> "GITHUB_VALIDATION_FAILED"
         "GITHUB_SEARCH_CURSOR_UNAVAILABLE" -> "SAVED_VIEW_UNAVAILABLE"
-        "UNKNOWN_TOOL", "UNSUPPORTED_TOOL_CONTRACT", "MCP_CONNECTION_UNAVAILABLE", "STALE_INVENTORY" -> "TOOL_UNAVAILABLE"
+        "TOOL_NOT_AVAILABLE", "UNKNOWN_TOOL", "UNSUPPORTED_TOOL_CONTRACT", "MCP_CONNECTION_UNAVAILABLE", "STALE_INVENTORY" -> "TOOL_UNAVAILABLE"
         // Preserve only bounded native causes for the context-gated classifier; these are
         // still projected to supported public categories before approved bytes are built.
         else -> known(code) ?: code.takeIf { nativeGitHubPrecheckCategory(it) != null }

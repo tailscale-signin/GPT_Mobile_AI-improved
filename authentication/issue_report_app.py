@@ -49,6 +49,7 @@ def create_app(public_url, reporter, rate_key):
         # clients negotiating the bounded extended view receive newer features.
         if capabilities == "extended":
             response["reportDiagnosticFeatures"].extend([
+                "CLAIM_EXTRACTION_SCHEMA_HASH_V1",
                 "ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
                 "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1",
                 "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1",
@@ -59,7 +60,10 @@ def create_app(public_url, reporter, rate_key):
                 "REPORT_TEXT_ATTACHMENT_V1",
                 "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1",
                 "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1",
-                "TERMINAL_DELIVERY_CODES_V1",
+                "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1",
+                "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1",
+                "PRIVACY_ELIGIBILITY_EVIDENCE_V1",
+                "GATEWAY_CAPABILITY_EVIDENCE_V1", "STATUS_COVERAGE_EVIDENCE_V1", "AUDIO_FOCUS_MODE_V1", "GITHUB_VALIDATION_CONTEXT_V1",
             ])
         return response
 

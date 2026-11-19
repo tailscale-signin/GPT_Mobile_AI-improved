@@ -11,13 +11,27 @@ import kotlinx.serialization.json.put
 
 /** Observations from the selected policy receipt, never authority or inferred absence. */
 internal object GitHubStatusPolicyEvidence {
+    fun completeRuleRows(rules: JsonObject): Boolean = rules["available"] == JsonPrimitive(true) &&
+        rules["complete"] != JsonPrimitive(false) &&
+        (rules["data"] as? JsonArray)?.all { rule ->
+            rule is JsonObject &&
+                rule.text("type").isNotBlank() &&
+                (
+                    rule.text("type") != "required_status_checks" ||
+                        ((rule["parameters"] as? JsonObject)?.get("required_status_checks") as? JsonArray)?.all {
+                            val context = (it as? JsonObject)?.get("context") as? JsonPrimitive
+                            context != null && context.isString && context.content.isNotBlank()
+                        } == true
+                    )
+        } == true
+
     fun snapshot(policy: JsonObject?): JsonObject = buildJsonObject {
         fun sourceState(key: String, expectsArray: Boolean): String {
             val observation = policy?.get(key) as? JsonObject ?: return "UNOBSERVED"
             if (observation["available"] == JsonPrimitive(true)) {
                 val data = observation["data"]
                 val valid = if (expectsArray) {
-                    (data as? JsonArray)?.all { it is JsonObject && it.text("type").isNotBlank() } == true
+                    completeRuleRows(observation)
                 } else {
                     data is JsonObject
                 }

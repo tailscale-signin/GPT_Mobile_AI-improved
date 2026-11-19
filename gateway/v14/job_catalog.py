@@ -40,8 +40,9 @@ def engineering_summary(job, lease, now):
     data = job.get('data', {})
     recovery = data.get('post_merge') or {}
     provider_retry_at = (job.get('provider_wait') or {}).get('retry_at')
+    awaiting_provider = type(provider_retry_at) in (float, int) and provider_retry_at > now
     state = ('completed' if phase == 'COMPLETED' else 'cancelled' if phase == 'CANCELLED' else 'failed' if phase == 'FAILED' else
-             'needs_attention' if phase in {'NEEDS_INPUT', 'MERGE_READY', 'CANCELLING'} else 'running' if lease else 'queued')
+             'needs_attention' if phase in {'NEEDS_INPUT', 'MERGE_READY', 'CANCELLING'} else 'running' if lease and not awaiting_provider else 'queued')
     return {'job_id': job['id'], 'job_kind': 'engineering', 'conversation_id': job.get('conversation_id'),
             'title': job.get('title') or short_title(request.get('objective')), 'profile_id': request.get('profile_id'), 'profile_name': request.get('profile_name'),
             'model': request.get('model'), 'repository': request['repository'], 'branch': request['branch'], 'base': request['base'],
@@ -154,7 +155,7 @@ def install_routes(app, conversations, engineering, service, ownership):
         return await execute(lambda: {'schema_version': 1, 'protocol_version': 1, 'gateway_id': conversations.gateway_id(),
             'instance_id': service.instance_id, 'principal_id': principal, 'server_now': conversations.now(),
             'server_time_ms': int(conversations.now() * 1000),
-            'identity_scope': 'shared-network' if principal == 'network:shared' else 'user' if principal.startswith('tailnet:') else 'local-machine'})
+            'identity_scope': 'shared-network' if principal == 'network:shared' else 'paired-device' if principal.startswith('paired:') else 'user' if principal.startswith('tailnet:') else 'local-machine'})
 
     @app.get('/gateway/job-catalog')
     @app.get('/v1/gateway/job-catalog')

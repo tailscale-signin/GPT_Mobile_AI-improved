@@ -231,3 +231,22 @@ Supported Android clients can send GitHub chat turns through the same supervisor
 ## Draft repair admission
 
 A repair request carries `draft_repair` with the original PR number, repository, head SHA, source branch, base branch and optional workflow run/attempt pair. The Gateway verifies the draft and attempt against GitHub before admission. Configure the repository validation policy's `draft_repair_requirements` as a list of approved acceptance requirements if Android does not supply a reviewed contract. Each requirement must map to `allowed_checks` and an exact behavior case in `acceptance_map`.
+
+## Reusable development procedures
+
+Choose a procedure in the Windows task composer, or begin a Gateway engineering task on Android or Windows with `/repair-ci`, `/diagnose-android-crash`, `/gateway-readiness`, `/implement-issue`, `/review-changes`, or `/prepare-release`. Include the objective after the command. Direct requests such as “Fix this CI failure in PR #42” also select the corresponding procedure. The Plan view shows its saved steps. Completing a step requires evidence from the current revision.
+
+A repository can supply instructions at `.agents/skills/<name>/SKILL.md` or `.claude/skills/<name>/SKILL.md`. An optional sibling `requirements.json` declares which workspace tools and executor capabilities the procedure needs. For example, a procedure that navigates Kotlin references can declare the following requirements.
+
+```json
+{"tools": ["read", "code_intelligence"], "executor_capabilities": ["language-server-kotlin"]}
+```
+
+The Gateway reports missing requirements when opening the procedure. Execution still uses the repository policy and the job's accepted scope.
+
+
+## Coding qualification
+
+Create a local Gateway benchmark manifest with `python gateway/qualify_engineering.py --workspace-template OWNER/REPO --workspace-profile local --output workspace.json`. Specify `remote` for the remote-profile scenario. Each template has eight scenarios and names the required execution route. Bind the manifest to the installed profile, model, endpoint, environment digest, and designated test repository.
+
+For Android-directed checks, configure the host's acceptance mapping to the named test and its JUnit report. Android records a repair when the original candidate fails that test and a different candidate passes it on the same source revision, check, environment, and observed model. The two test reports are identified by SHA-256. The conversation export records the controller and execution owner for native GitHub operations and Copilot tasks.

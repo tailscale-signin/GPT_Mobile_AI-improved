@@ -134,6 +134,21 @@ class AppAuditQualificationEvidenceTest(unittest.TestCase):
                     self.assertEqual(2, result["junit_receipt"]["report_count"])
                     self.assertEqual(2, result["junit_receipt"]["case_count"])
 
+    def test_product_journeys_bind_exact_current_case_and_preserve_missing_or_ambiguous_results(self):
+        route_class, route_method = (PACKAGE + '.' + COLLECTOR.PREMIUM_JOURNEYS['fast_research_route']).rsplit('.', 1)
+        route = (route_class, route_method, 'PASS')
+        report = self.junit([route, (PACKAGE + '.AlphaTest', 'another', 'PASS')])
+        def scenarios(paths):
+            return self.collect(paths)['premium_jvm_journeys']
+        exact = scenarios([report])
+        self.assertEqual('PASS', exact['fast_research_route']['outcome'])
+        self.assertEqual('NOT_RUN', exact['project_copy']['outcome'])
+        self.assertIn('report_sha256', exact['fast_research_route'])
+        self.assertEqual('UNVERIFIED', scenarios([report, self.junit([route], name='TEST-duplicate.xml')])['fast_research_route']['outcome'])
+        self.assertEqual('UNVERIFIED', scenarios([self.junit([route], observed=self.since - timedelta(seconds=1))])['fast_research_route']['outcome'])
+        cases = [(route_class, route_method, 'SKIPPED'), (PACKAGE+'.AlphaTest', 'ran', 'PASS')]
+        self.assertEqual('SKIPPED', scenarios([self.junit(cases)])['fast_research_route']['outcome'])
+
     def test_named_class_is_required_and_an_unobserved_harness_keeps_area_partial(self):
         self.write_catalog({"connections": [ALPHA, BETA]})
         result = self.collect([self.junit()])

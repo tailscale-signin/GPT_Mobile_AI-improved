@@ -35,7 +35,34 @@ def act(backend, job, action):
         raise ValueError('Workspace action must name the current pinned head_sha')
     kind = action.get('action')
     receipt = {'action': kind, 'head_sha': job['data']['head_sha']}
-    if kind == 'requirements':
+    if kind == 'revert_preview':
+        from v14.workspace_timeline import preview
+        receipt.update(preview(backend, job, action))
+    elif kind == 'worker':
+        from v14.workspace_workers import advance
+        receipt.update(advance(backend, job, action))
+    elif kind in {'terminal_open', 'terminal_start', 'terminal_poll', 'terminal_cancel', 'terminal_close', 'terminal_fork', 'terminal_switch', 'terminal_timeline', 'code_intelligence'}:
+        from v14.workspace_terminal import act as terminal
+        receipt.update(terminal(backend, job, action))
+    elif kind in {'workflow_batch', 'workflow_batch_status', 'workflow_batch_step'}:
+        from v14.workspace_guidance import batch_workflow
+        receipt.update(batch_workflow(job, action))
+    elif kind in {'skills', 'skill', 'workflow_step'}:
+        from v14.workspace_guidance import workflow
+        receipt.update(workflow(backend, job, action))
+    elif kind == 'progress':
+        fields = {key: action.get(key, '') for key in ('hypothesis', 'next_action', 'tried')}
+        if any(not isinstance(value, str) or len(value) > 1000 for value in fields.values()) or not fields['next_action'].strip():
+            raise ValueError('Record a next action and up to 1000 characters per working note')
+        job['data']['progress_notes'] = dict(fields, head_sha=job['data']['head_sha'])
+        receipt.update(job['data']['progress_notes'])
+    elif kind == 'instructions':
+        from v14.workspace_guidance import activate
+        paths = action.get('paths')
+        if not isinstance(paths, list) or not 1 <= len(paths) <= 60:
+            raise ValueError('Select 1–60 paths for instruction resolution')
+        receipt.update(active_instructions=activate(backend, job, paths))
+    elif kind == 'requirements':
         offset = action.get('offset', 0)
         if type(offset) is not int or offset < 0:
             raise ValueError('Invalid acceptance requirement offset')
@@ -57,6 +84,11 @@ def act(backend, job, action):
         receipt.update(paths=paths[offset:offset + 80], total=len(paths), next_offset=offset + 80 if offset + 80 < len(paths) else None)
     elif kind == 'read':
         path = action.get('path')
+        from v14.workspace_guidance import activate
+        active = job['data'].get('active_instructions', [])
+        # Paging a parent instruction recovers guidance for the affected source;
+        # it must not replace that source's more specific directory rules.
+        receipt['active_instructions'] = list(active) if path in active else activate(backend, job, [path])
         original = load_file(backend, job, path)
         start, count = action.get('start_line', 1), action.get('line_count', 80)
         if type(start) is not int or type(count) is not int or start < 1 or not 1 <= count <= 200:
@@ -107,7 +139,8 @@ def view(data):
         content = value['content'][:min(max(limit, 0), 2400)]
         files[path] = {'sha': value['sha'], 'content': content,
                        'partial': len(content) < len(value['content']), 'total_lines': len(value['content'].splitlines())}
-    return {'head_sha': data['head_sha'], 'workspace_receipts': windows, 'plan': data['plan'],
+    return {'head_sha': data['head_sha'], 'progress_notes': data.get('progress_notes'), 'workflow': data.get('workflow'),
+            'active_instructions': data.get('active_instructions', []), 'workspace_receipts': windows, 'plan': data['plan'],
             'repair_feedback': repair_feedback(data), 'files': files, 'iteration': data.get('workspace_iterations', 0),
             'ci': data.get('ci'), 'review': data.get('review')}
 

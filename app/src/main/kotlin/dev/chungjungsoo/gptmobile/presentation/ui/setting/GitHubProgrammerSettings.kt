@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,8 +24,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
+import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -54,8 +59,10 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
 }
 
 @Composable
-internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}, onCopilotEnabled: (Boolean) -> Unit = {}) {
+internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}, onCopilotEnabled: (Boolean) -> Unit = {}, onBatchModes: suspend (String, String) -> Set<String> = { _, _ -> emptySet() }, onAdmissionSetting: (suspend (String, String, GatewayAdmissionSetting?) -> GatewayAdmissionSetting)? = null) {
     var inspection by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var controlGateway by remember { mutableStateOf<String?>(null) }
+    controlGateway?.let { uid -> GatewayControlSettingsDialog(onDismiss = { controlGateway = null }, initialProfileUid = uid) }
     inspection?.let { (profileUid, engineering) ->
         ConnectionDoctorDialog(onDismiss = { inspection = null }, initialProfileUid = profileUid, engineeringGateway = engineering)
     }
@@ -88,10 +95,48 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 }
                 Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
                 Text("Gateway execution mode", style = MaterialTheme.typography.titleSmall)
-                var batchModeOpen by remember { mutableStateOf(false) }
+                val gateway = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)
+                val inference = state.profiles.singleOrNull { it.enabled && it.uid == state.profileUid }
+                val account = workspace.connection?.connectionUid
+                val repository = workspace.selection?.fullName
+                if (inference != null && gateway != null && account != null && repository != null && !dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(inference)) {
+                    val consentKey = dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.key(inference, account, repository, gateway.uid)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Share repository map results from $repository with ${inference.model}", Modifier.weight(1f))
+                        Switch(
+                            checked = state.profileSettings.graphSharingConsent == consentKey,
+                            onCheckedChange = { enabled -> onSettings(state.profileSettings.copy(graphSharingConsent = consentKey.takeIf { enabled })) }
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Run approved Gateway checks and share the output with ${inference.model}", Modifier.weight(1f))
+                        Switch(
+                            checked = state.profileSettings.workspaceCheckConsent == consentKey,
+                            onCheckedChange = { enabled -> onSettings(state.profileSettings.copy(workspaceCheckConsent = consentKey.takeIf { enabled })) }
+                        )
+                    }
+                }
+                val androidContext = androidx.compose.ui.platform.LocalContext.current
+                androidx.compose.material3.TextButton(onClick = { androidContext.startActivity(android.content.Intent(androidContext, OwnerPairingActivity::class.java)) }) { Text("Pair a Windows Gateway") }
+                OutlinedButton(onClick = { controlGateway = gateway?.uid }, enabled = gateway != null, modifier = Modifier.testTag("github_gateway_controls")) { Text("Engineering & Gateway settings") }
+                Text("Shares the confirmed PC settings with Settings › Gateway. Pair this phone and confirm the target before enabling owner Engineering.", style = MaterialTheme.typography.bodySmall)
+                var batchModeOpen by remember(state.profileUid, gateway) { mutableStateOf(false) }
+                var availableModes by remember(batchModeOpen, state.profileUid, gateway) { mutableStateOf<Set<String>?>(null) }
+                androidx.compose.runtime.LaunchedEffect(batchModeOpen, state.profileUid, gateway) {
+                    val profile = state.profileUid
+                    if (batchModeOpen && profile != null && gateway != null) {
+                        availableModes = try {
+                            onBatchModes(profile, gateway.uid)
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            emptySet()
+                        }
+                    }
+                }
                 OutlinedButton(
                     onClick = { batchModeOpen = true },
-                    enabled = state.profileUid != null && state.profileSettings.engineeringGatewayProfileUid != null,
+                    enabled = state.profileUid != null && gateway != null,
                     modifier = Modifier.testTag("github_batch_mode")
                 ) {
                     Text(
@@ -103,9 +148,13 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     )
                 }
                 DropdownMenu(expanded = batchModeOpen, onDismissRequest = { batchModeOpen = false }) {
+                    if (availableModes == null || availableModes?.isEmpty() == true) {
+                        Text(if (availableModes == null) "Checking Gateway modes…" else "Couldn’t verify Gateway modes. Reopen to retry.", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+                    }
                     listOf("standard" to "Standard", "smart" to "Smart Batch", "full" to "Full Integration Batch").forEach { (mode, name) ->
                         DropdownMenuItem(
                             text = { Text(name) },
+                            enabled = mode == "standard" || availableModes?.contains(mode) == true,
                             onClick = {
                                 batchModeOpen = false
                                 onSettings(state.profileSettings.copy(executionBatchMode = mode))
@@ -114,7 +163,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     }
                 }
                 Text(
-                    "Full Batch requires an explicitly enabled Windows Gateway. This changes only newly admitted jobs, not saved work. GitHub permissions and merge approvals are unchanged.",
+                    "Smart and Full Batch availability follows the selected Gateway. Your choice applies to new jobs.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -125,9 +174,9 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         }
         OutlinedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("GitHub Copilot · Agent Merge", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                Text("GitHub Copilot · Cloud work", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                 Text(
-                    "Let Copilot help with failed CI and merge conflicts for this conversation's pull requests. Works with remote AI profiles; no Windows Gateway required.",
+                    "Run cloud tasks, request reviews, and let Agent Merge help with failed CI or conflicts. Works with your selected local or remote AI profile.",
                     style = MaterialTheme.typography.bodySmall
                 )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -145,8 +194,41 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     } else if (state.chatId == null) {
                         "Start or open a GitHub conversation to configure its consent."
                     } else {
-                        "Off for new chats. The toggle controls new calls, not existing PR enrollments; use agent_merge_disable to stop a watched PR. Automatic merging stays off."
+                        "Off for new chats. Turning this off blocks new Copilot calls; accepted cloud tasks continue on GitHub. Use agent_merge_disable to stop a watched PR. Automatic merging stays off."
                     },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text("Cloud task controller", style = MaterialTheme.typography.titleSmall)
+                var copilotOwnerMenu by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    onClick = { copilotOwnerMenu = true },
+                    enabled = state.profileUid != null,
+                    modifier = Modifier.testTag("github_copilot_execution_owner")
+                ) {
+                    Text(if (state.profileSettings.copilotExecutionOwner == GitHubCopilotExecutionOwner.GATEWAY) "Standalone Gateway" else "Direct from this app")
+                }
+                DropdownMenu(copilotOwnerMenu, { copilotOwnerMenu = false }) {
+                    GitHubCopilotExecutionOwner.entries.forEach { owner ->
+                        DropdownMenuItem(
+                            text = { Text(if (owner == GitHubCopilotExecutionOwner.GATEWAY) "Standalone Gateway" else "Direct from this app") },
+                            onClick = {
+                                copilotOwnerMenu = false
+                                onSettings(state.profileSettings.copy(copilotExecutionOwner = owner))
+                            }
+                        )
+                    }
+                }
+                Text(
+                    if (state.profileSettings.copilotExecutionOwner == GitHubCopilotExecutionOwner.GATEWAY) {
+                        "The selected engineering gateway saves and monitors cloud tasks while this app is closed. Enable Copilot in the Gateway's GitHub settings and connect its own GitHub account. An unavailable Gateway pauses this route."
+                    } else {
+                        "No Gateway is required. The app submits directly to GitHub and saves the task ID. GitHub continues accepted tasks while the app is closed; reopen this chat to check progress."
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "This choice applies to native cloud tasks. Existing tasks retain their original controller and account. The task API preview requires Copilot Business or Enterprise and Agent tasks permission; separately configured GitHub MCP cloud tools support paid Copilot plans. Agent Merge and review permissions remain separate.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -273,7 +355,7 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
                 Text("Engineering budget", style = MaterialTheme.typography.titleSmall)
                 OutlinedButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.testTag("github_engineering_budget")) { Text(engineeringLabel(value.engineeringMode)) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    listOf(dev.chungjungsoo.gptmobile.data.context.EngineeringMode.ULTRA_MAX, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.ENGINEERING_MAX, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.DEEP, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.STANDARD, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.QUICK).forEach { mode ->
+                    listOf(dev.chungjungsoo.gptmobile.data.context.EngineeringMode.OFF, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.ULTRA_MAX, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.ENGINEERING_MAX, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.DEEP, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.STANDARD, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.QUICK).forEach { mode ->
                         DropdownMenuItem(text = { Text(engineeringLabel(mode)) }, onClick = {
                             menu = false
                             onChange(value.copy(engineeringMode = mode))
@@ -300,5 +382,50 @@ private fun GitHubOverrideSwitch(title: String, description: String, checked: Bo
             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(checked, onChange, enabled = enabled)
+    }
+}
+
+@Composable
+private fun GatewayAdmissionControl(loadOrToggle: suspend (GatewayAdmissionSetting?) -> GatewayAdmissionSetting) {
+    val scope = rememberCoroutineScope()
+    var observed by remember { mutableStateOf<GatewayAdmissionSetting?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
+    fun request(previous: GatewayAdmissionSetting?) {
+        if (busy) return
+        busy = true
+        failed = false
+        scope.launch {
+            try {
+                observed = loadOrToggle(previous)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                observed = null
+                failed = true
+            } finally {
+                busy = false
+            }
+        }
+    }
+    val current = observed
+    if (current != null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Allow new saved engineering jobs")
+                Text(
+                    if (current.principalId == "network:shared") "Read-only on a shared network. Change admission in Windows Gateway Settings." else "Applies to your account on this Gateway.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = current.enabled, enabled = !busy && current.principalId != "network:shared", onCheckedChange = { request(current) })
+        }
+    } else {
+        OutlinedButton(onClick = { request(null) }, enabled = !busy) {
+            Text(if (busy) "Reading Gateway setting…" else "Check saved-job setting")
+        }
+        if (failed) {
+            Text("Current setting unknown. Check the connection, host version and engineering access, then read it again.", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }

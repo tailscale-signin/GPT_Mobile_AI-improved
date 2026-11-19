@@ -14,6 +14,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedTurnBudgetTest {
+    @Test fun githubIntegrationUsesOneAcceptedAllowanceAcrossProfilesAtLowEffort() = runBlocking {
+        val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(effort = 0), listOf("a", "b"), emptyMap(), "Test all GitHub tools")
+        val plan = CombinedPolicyResolver.resolve(requested, hardLimits = CombinedHardLimits(toolOperations = 9), githubIntegrationCalls = 9)
+        val context = CombinedExecutionContext(requested, plan, "integration", profileUid = "a")
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        repeat(9) { index ->
+            val worker = context.forRole(CombinedRunRole.CONTRIBUTOR, if (index % 2 == 0) "a" else "b")
+            assertTrue(budget.reserve(worker, "read-$index", CombinedResourceQuota(toolOperations = 1)) is CombinedBudgetAdmission.Granted)
+        }
+        assertTrue(budget.reserve(context, "overflow", CombinedResourceQuota(toolOperations = 1)) is CombinedBudgetAdmission.Denied)
+        assertEquals(2L, CombinedPolicyResolver.resolve(requested).optionalAllowance.toolOperations)
+        assertEquals(0L, CombinedPolicyResolver.resolve(requested, toolsAllowed = false, githubIntegrationCalls = 9).optionalAllowance.toolOperations)
+    }
+
     @Test fun appraisalAndStudyReviewHaveProtectedStageBudgetsIndependentOfVerification() = runBlocking {
         val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(effort = 0), listOf("a"), mapOf("a" to "model"), "Examine the studies", acceptedResearch = CombinedResearchRequirement(1, 1, "WEB_AND_PAPERS", examinationRequested = true, independentReviewRequested = true))
         val plan = CombinedPolicyResolver.resolve(requested, estimatedInputTokens = 1024)

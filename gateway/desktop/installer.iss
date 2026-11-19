@@ -15,6 +15,7 @@ MinVersion=10.0.17763
 WizardStyle=modern dark
 WizardImageBackColor=#001219
 DisableProgramGroupPage=yes
+DisableDirPage=no
 OutputDir=..\..\dist\windows
 OutputBaseFilename=Gateway-{#GatewayVersion}-windows-x64-setup
 Compression=lzma2
@@ -26,6 +27,7 @@ SetupLogging=yes
 SetupIconFile=assets\gateway.ico
 
 [Files]
+Source: "..\..\dist\windows\setup-ui\GatewaySetup.exe"; Flags: dontcopy
 Source: "..\..\dist\windows\Gateway\*"; DestDir: "{app}\releases\{#GatewayVersion}"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "Start-Gateway.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -63,7 +65,7 @@ Type: filesandordirs; Name: "{app}\releases"
 var
   ConnectionPage, PerformancePage, NetworkPage: TInputQueryWizardPage;
   SetupPage, UpdatePage, EngineeringPage: TInputOptionWizardPage;
-  RuntimePrepared: Boolean;
+  RuntimePrepared, NativePlan: Boolean;
 
 function J(Value: String): String;
 begin
@@ -119,6 +121,33 @@ begin
   Result := EngineeringPage.SelectedValueIndex = 1;
 end;
 
+function ReadSetupPlan: Boolean;
+var PlanFile: String; Code: Integer;
+begin
+  Result := False;
+  PlanFile := ExpandConstant('{tmp}\gateway-setup.ini');
+  DeleteFile(PlanFile);
+  ExtractTemporaryFile('GatewaySetup.exe');
+  if not Exec(ExpandConstant('{tmp}\GatewaySetup.exe'), '--plan "' + PlanFile + '"', '',
+              SW_SHOW, ewWaitUntilTerminated, Code) then begin
+    MsgBox('Windows could not open Gateway Setup. Check the install log and try again.', mbError, MB_OK);
+    Exit;
+  end;
+  if Code <> 0 then Exit;
+  if not FileExists(PlanFile) then begin
+    MsgBox('Gateway Setup did not return an installation plan.', mbError, MB_OK);
+    Exit;
+  end;
+  ConnectionPage.Values[0] := GetIniString('setup', 'backend', '', PlanFile);
+  ConnectionPage.Values[1] := GetIniString('setup', 'port', '', PlanFile);
+  NetworkPage.Values[0] := GetIniString('setup', 'bind', '', PlanFile);
+  EngineeringPage.SelectedValueIndex := GetIniInt('setup', 'engineeringSetup', 0, 0, 1, PlanFile);
+  SetupPage.SelectedValueIndex := GetIniInt('setup', 'advanced', 0, 0, 1, PlanFile);
+  DeleteFile(PlanFile);
+  NativePlan := True;
+  Result := True;
+end;
+
 function ShouldSkipPage(PageID: Integer): Boolean;
 var AdvancedPage, Upgrade: Boolean;
 begin
@@ -126,13 +155,19 @@ begin
     (PageID = NetworkPage.ID) or (PageID = UpdatePage.ID);
   Upgrade := FileExists(ExpandConstant('{app}\settings.json'));
   Result := (AdvancedPage and ((SetupPage.SelectedValueIndex = 0) or Upgrade)) or
-    ((PageID = SetupPage.ID) and Upgrade) or ((PageID = EngineeringPage.ID) and Upgrade);
+    (((PageID = SetupPage.ID) or (PageID = EngineeringPage.ID)) and (Upgrade or NativePlan));
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var P, W, A, G: Integer;
 begin
   Result := True;
+  if (CurPageID = wpSelectDir) and not WizardSilent then begin
+    NativePlan := False;
+    if not FileExists(ExpandConstant('{app}\settings.json')) then
+      Result := ReadSetupPlan;
+    Exit;
+  end;
   if (CurPageID = SetupPage.ID) and (SetupPage.SelectedValueIndex = 0) then begin
     ConnectionPage.Values[0] := 'http://127.0.0.1:8080';
     ConnectionPage.Values[1] := '8090';
@@ -220,7 +255,7 @@ var Code: Integer;
 begin
   Result := StopInstalled(ExpandConstant('{app}'));
   if not Result then MsgBox('Gateway has active work or could not stop. Finish the work and retry uninstall.', mbError, MB_OK);
-  if Result and FileExists(ExpandConstant('{app}\firewall.json')) then begin
+  if Result and (FileExists(ExpandConstant('{app}\firewall.json')) or FileExists(ExpandConstant('{app}\phone-firewall.json'))) then begin
     Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\Start-Gateway.ps1') + '" -Command remove-firewall', '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
     if not Result then MsgBox('Could not remove this installation''s firewall rule. Allow the administrator prompt or remove the rule in Gateway Settings, then retry uninstall.', mbError, MB_OK);
   end;

@@ -35,6 +35,28 @@ class GitHubIntegrationStopReasonTest {
         }
     }
 
+    @Test fun discoveryOnlyBlocksWorkWhoseScopeRequiresTheAuthorizedCatalog() {
+        val tools = listOf(branches.copy(name = GitHubAuthorizedCatalog.TOOL))
+        val checkpoint = json("""{"authorized_catalog":{"complete":false},"requirements":[{"requirement":"Summarize the latest commit","acceptance_state":"NOT_TESTED"}]}""")
+        val bounded = GitHubIntegrationReport.stopReason("Summarize the latest commit", emptyMap(), tools, 510, checkpoint)
+        assertEquals(JsonPrimitive("ACCEPTANCE_EVIDENCE_MISSING"), bounded["code"])
+        val integration = GitHubIntegrationReport.stopReason("Test all tools read only", emptyMap(), tools, 510, checkpoint)
+        assertEquals(JsonPrimitive("AUTHORIZED_CATALOG_INCOMPLETE"), integration["code"])
+        val explicit = JsonObject(checkpoint + ("requirements" to JsonArray(listOf(json("""{"requirement":"Exhaust the authorized catalog"}""")))))
+        assertEquals(JsonPrimitive("AUTHORIZED_CATALOG_INCOMPLETE"), GitHubIntegrationReport.stopReason("Inspect catalog", emptyMap(), tools, 510, explicit)["code"])
+    }
+
+    @Test fun preparedReadsAreVisibleWithObservedErrorsAndUsableBudget() {
+        val checkpoint = json("""{"authorized_catalog":{"complete":true},"capabilities":[{"id":"github_ci","status":"PREFLIGHT_REJECTED"}],"preparation":{"schema":"github.integration-preparation.v1","status":"BOUNDED_READS_PREPARED","ready_read_count":11,"ready_reads":[{"tool":"github_read","plan_only":true}]}}""")
+        val stop = GitHubIntegrationReport.stopReason("Test all tools", emptyMap(), emptyList(), 100, checkpoint)
+        assertEquals(JsonPrimitive("RECORDED_OPERATION_BLOCKERS"), stop["code"])
+        assertTrue(stop["detail"].toString().contains("11 candidate reads"))
+        assertEquals(JsonPrimitive("RESUME_UNVERIFIED_REQUIREMENTS"), stop["recovery_action"])
+        val reserve = GitHubIntegrationReport.stopReason("Test all tools", emptyMap(), emptyList(), 2, checkpoint)
+        assertEquals(JsonPrimitive("VERIFICATION_RESERVE_REACHED"), reserve["code"])
+        assertFalse(reserve["detail"].toString().contains("candidate reads"))
+    }
+
     @Test fun optionalInventoryCannotHideRequiredFixtureApprovalPrerequisites() {
         val task = "Test all tools and exercise permitted writes in an owned disposable fixture with verified cleanup."
         val tools = listOf(branches, commits)
@@ -106,6 +128,17 @@ class GitHubIntegrationStopReasonTest {
             assertNull(GitHubTestChecklist.nextCall(task, tools, receipts, remainingToolCalls = remaining))
             assertEquals(JsonPrimitive(reason), GitHubIntegrationReport.stopReason(task, receipts, tools, remaining)["code"])
         }
+    }
+
+    @Test fun sharedCombinedDenialPreservesTheRemainingProfileAllowance() {
+        val task = "Test all tools read only and all branches"
+        val denial = json("""{"error_code":"COMBINED_BUDGET_EXHAUSTED","dispatched":false,"success":false}""")
+        val receipts = sampled() + ("shared-denial" to denial)
+        val stop = GitHubIntegrationReport.stopReason(task, receipts, listOf(branches), 91)
+        assertEquals(JsonPrimitive("COMBINED_BUDGET_EXHAUSTED"), stop["code"])
+        assertEquals(JsonPrimitive("REVIEW_SHARED_COMBINED_ALLOWANCE"), stop["recovery_action"])
+        assertEquals(JsonPrimitive(91), stop["remaining_tool_calls"])
+        assertEquals(JsonPrimitive(false), stop["budget_exhausted"])
     }
 
     @Test fun requiredLocalFragmentAtBudgetExhaustionIsNotLabeledAsOptionalSampling() {

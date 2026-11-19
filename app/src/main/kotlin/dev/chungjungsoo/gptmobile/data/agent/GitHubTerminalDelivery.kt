@@ -1,10 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** A terminal delivery boundary, after recovery; it never invokes a model or a tool. */
 internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): Flow<AgentRunEvent> {
@@ -69,7 +72,11 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
                         if (detail != null) {
                             ProviderEvent.Failed(detail.message, errorCode = detail.code, providerLimit = detail.providerLimit, failureDetails = detail.failureDetails)
                         } else {
-                            ProviderEvent.Failed("The GitHub workflow was interrupted. Saved receipts remain available for inspection.", errorCode = "GITHUB_RUN_INTERRUPTED")
+                            ProviderEvent.Failed(
+                                "The GitHub workflow was interrupted. Saved receipts remain available for inspection.",
+                                errorCode = "GITHUB_RUN_INTERRUPTED",
+                                failureDetails = IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.AGENT_FAILED_EVENT)
+                            )
                         }
                     )
                 )
@@ -110,7 +117,15 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
                 else -> emit(event)
             }
         }
-        if (!terminal) finish(ProviderEvent.Failed("The workflow ended before a terminal result was delivered.", errorCode = "GITHUB_RUN_INTERRUPTED"))
+        if (!terminal) {
+            finish(
+                ProviderEvent.Failed(
+                    "The workflow ended before a terminal result was delivered.",
+                    errorCode = "GITHUB_RUN_INTERRUPTED",
+                    failureDetails = buildJsonObject { put("failed_stage", "delivery") }
+                )
+            )
+        }
     }
 }
 

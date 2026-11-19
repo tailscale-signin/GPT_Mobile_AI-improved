@@ -36,7 +36,8 @@ internal class GitHubEvidenceBook(
     authorizationRevision: String? = null,
     internal val fixtureDecisionMode: GitHubDecisionMode? = null,
     private val approvalResolution: suspend (JsonObject) -> List<JsonObject> = { emptyList() },
-    private val sourceRunId: String? = null
+    private val sourceRunId: String? = null,
+    private val inferenceProfile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2? = null
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -169,7 +170,7 @@ internal class GitHubEvidenceBook(
         }
         val operation = GitHubOperationTool.operationName(call.name) ?: "github".takeIf { call.name.substringBefore("__") == it }
         val authorizedTool = call.name in trustedTools
-        val trusted = authorizedTool && (operation != null || call.name == "discover_available_tools" || call.name.substringBefore("__") == "repository_graph")
+        val trusted = authorizedTool && (operation != null || call.name == "discover_available_tools" || call.name.isGatewayRepositoryTool())
         val effectiveArguments = (result.executionReceipt?.get("corrected_arguments") as? JsonObject) ?: call.arguments
         val owner = (effectiveArguments["owner"] as? JsonPrimitive)?.contentOrNull
         val repo = (effectiveArguments["repo"] as? JsonPrimitive)?.contentOrNull
@@ -243,6 +244,20 @@ internal class GitHubEvidenceBook(
                 }
             )
             put("runtime_identity", runtimeIdentity())
+            if (trustedTarget && call.name.githubOperationFamily() == "repository_workspace" && !result.isError && !result.sharedResult) {
+                workspaceCheckObservation(inferenceProfile, call, root, repository, branch, sourceRunId)?.let { put("profile_workspace_check", it) }
+            }
+            if (selected &&
+                trustedTarget &&
+                origin == "LIVE" &&
+                !result.isError &&
+                !result.sharedResult &&
+                call.name.startsWith("github_") &&
+                inferenceProfile != null &&
+                sourceRunId != null
+            ) {
+                directCodingObservation(inferenceProfile, call, action, root, result.executionReceipt, head, sourceRunId)?.let { put("direct_coding_observation", it) }
+            }
             authorizationDigest?.let { put(GitHubPolicyReadRecovery.AUTHORITY, it) }
             put("branch", targetBranch)
             put("workspace_branch", branch)

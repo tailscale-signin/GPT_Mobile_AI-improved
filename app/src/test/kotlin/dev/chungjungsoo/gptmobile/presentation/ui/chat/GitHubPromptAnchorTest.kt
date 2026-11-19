@@ -6,6 +6,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPromptAnchorTest {
+    @Test fun eachNewHistoryGestureReportsOneDetachAfterTheButtonRestoresFollow() {
+        val input = GitHubPromptAnchor(8f, GitHubScrollMode.FOLLOW_BOTTOM)
+        var following = true
+        repeat(2) {
+            assertFalse(input.move(3f))
+            if (input.move(5f)) following = false
+            assertFalse(following)
+            assertFalse(input.move(20f))
+            input.finishScroll()
+            // The chat's jump button restores following outside the input detector.
+            following = true
+        }
+    }
+
     @Test fun followStopsOnceHistoryDragPassesTouchSlop() {
         val anchor = GitHubPromptAnchor(8f, GitHubScrollMode.FOLLOW_BOTTOM)
         anchor.move(4f)

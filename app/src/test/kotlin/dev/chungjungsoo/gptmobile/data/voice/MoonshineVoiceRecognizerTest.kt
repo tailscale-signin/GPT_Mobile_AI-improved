@@ -115,6 +115,32 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
+    @Test fun persistentSystemSilencingDuringReadStopsAfterOneRecorderReplacement() {
+        val failure = LocalVoiceCaptureException("Input silenced", "MICROPHONE_CAPTURE_SILENCED", "capture_read", retryable = true)
+        val first = FakeCapture(readFailure = failure)
+        val second = FakeCapture(readFailure = failure)
+        val calls = AtomicInteger()
+        val decoder = FakeDecoder()
+        val fixture = Fixture(decoder, capture = first, captureFactory = {
+            if (calls.incrementAndGet() == 1) first else second.also { assertTrue(first.closed) }
+        })
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(2, calls.get())
+            assertEquals(listOf("VOICE_MICROPHONE_BUSY"), fixture.codes)
+            assertEquals(listOf(1_000L), fixture.retryDelays)
+            assertEquals(1, fixture.retryableErrors.size)
+            assertTrue(fixture.finals.isEmpty())
+            assertEquals(1, second.closeCount.get())
+        } finally {
+            fixture.close()
+        }
+    }
+
     @Test fun deniedAudioFocusKeepsItsCauseAndDefersRetryUntilTheSessionBackoff() {
         val failure = LocalVoiceCaptureException(
             "Another audio session holds focus",

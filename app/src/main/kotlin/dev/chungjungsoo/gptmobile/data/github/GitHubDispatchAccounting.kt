@@ -291,8 +291,16 @@ internal class GitHubDispatchAccounting(
                 put("rejected_mutations", rejected)
                 put("unknown_mutations", unknown)
                 put("requires_reconciliation", uncertain || result.isError && accepted > 0)
-                lastStatus?.let { put("http_status", it) }
+                // A redirect or metadata response cannot identify the HTTP status of an unanswered transport read.
+                if (result.errorCode != "GITHUB_TRANSIENT_NETWORK" || pending.values.none { !it.mutation }) {
+                    lastStatus?.let { put("http_status", it) }
+                }
                 result.errorCode?.let { put("error_code", it) }
+                if (phase == "READ_FAILED" && lastStatus == 422 && result.errorCode == "GITHUB_VALIDATION_FAILED") {
+                    for (key in dev.chungjungsoo.gptmobile.data.agent.tool.GitHubToolErrorDiagnostics.validationKeys) {
+                        result.executionReceipt?.get(key)?.let { put(key, it) }
+                    }
+                }
                 result.executionReceipt?.get("retry_not_before_ms")?.let { put("retry_not_before_ms", it) }
                 for (key in listOf(
                     "github_transport_kind", "github_transport_wait_ms", "cause_types", "exception_fingerprint",

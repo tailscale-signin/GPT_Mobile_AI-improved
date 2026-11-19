@@ -73,6 +73,53 @@ class GitHubInventoryObservationTest {
         assertTrue(broken["coverage"] != JsonPrimitive("retrieval complete at observation"))
     }
 
+    @Test fun commitCoverageRetainsTheObservedRevisionAcrossProjectionAndRejectsAFailedBranchRefresh() {
+        val sha = "a".repeat(40)
+        val branch = buildJsonObject {
+            put("action", "commits")
+            put("ref", "main")
+            put("per_page", 1)
+        }
+        fun page(number: Int, revision: String) = buildJsonObject {
+            put("items", JsonArray(listOf(buildJsonObject { put("sha", "commit-$number") })))
+            put("commit_sha", revision)
+            put("per_page", 1)
+            put("page", number)
+            put("has_more", number == 1)
+        }
+        fun saved(number: Int, revision: String): JsonObject {
+            val result = page(number, revision)
+            val args = if (number == 1) {
+                branch
+            } else {
+                buildJsonObject {
+                    put("action", "commits")
+                    put("ref", revision)
+                    put("commit_sha", revision)
+                    put("per_page", 1)
+                    put("page", number)
+                }
+            }
+            return JsonObject(
+                receipt(result, "commits") + mapOf(
+                    "arguments" to args,
+                    "result" to JsonObject(result - "commit_sha")
+                )
+            )
+        }
+        val records = linkedMapOf("first" to saved(1, sha), "last" to saved(2, sha))
+        val row = GitHubTestChecklist.inventoryCoverage(records).single().jsonObject
+        assertEquals(JsonPrimitive("retrieval complete at observation"), row["coverage"])
+        assertEquals(JsonPrimitive(sha), row.getValue("filters").jsonObject["commit_sha"])
+        assertEquals(JsonPrimitive(2), row["fetched"])
+
+        val moved = records + ("last" to saved(2, "b".repeat(40)))
+        assertTrue(GitHubTestChecklist.inventoryCoverage(moved).all { it.jsonObject["coverage"] != JsonPrimitive("retrieval complete at observation") })
+        val failed = JsonObject(records.getValue("first") - "result" - "inventory_observation" + ("success" to JsonPrimitive(false)))
+        val afterFailure = GitHubTestChecklist.inventoryCoverage(records + ("failed" to failed)).single().jsonObject
+        assertEquals(JsonPrimitive("incomplete or pending pagination"), afterFailure["coverage"])
+    }
+
     @Test fun legacyDispatchCountsRemainQualifiedWithoutInventingMissingRowsOrConsumption() {
         val legacy = Json.parseToJsonElement("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs","page":1,"per_page":30},"result":{"observationTruncated":true,"excerpt":{"workflow_runs":[{"id":7}],"total_count":67}},"execution":{"schema":"github.dispatch.v1","parent_result_successful":true,"pagination_progress":{"schema":"github.pagination-progress.v1","remote_page":1,"upstream_rows_returned":30,"reported_total":67}},"retained_remote_continuations":[{"call":{"tool":"github_ci","arguments":{"action":"runs","page":2,"per_page":30}}}]}""").jsonObject
         val row = GitHubTestChecklist.inventoryCoverage(mapOf("legacy" to legacy)).single().jsonObject

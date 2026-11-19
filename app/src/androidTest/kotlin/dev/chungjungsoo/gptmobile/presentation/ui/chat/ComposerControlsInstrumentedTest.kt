@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -18,12 +20,21 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.decodeMediaPreview
+import java.io.File
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -32,6 +43,118 @@ import org.junit.Test
 class ComposerControlsInstrumentedTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test fun largeFontConversationRetainsSenderLabelsAndAnnouncesTerminalFailureAfterRestoration() {
+        val restoration = androidx.compose.ui.test.junit4.StateRestorationTester(composeRule)
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        restoration.setContent {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 2f)
+            ) {
+                androidx.compose.foundation.layout.Column {
+                    UserChatBubble(text = "Question")
+                    OpponentChatBubble(canRetry = true, isLoading = false, isError = true, isLastMessage = true, text = "")
+                }
+            }
+        }
+        restoration.emulateSavedInstanceStateRestore()
+        for (sender in listOf(R.string.user_message, R.string.assistant_message)) {
+            composeRule.onNode(
+                androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, context.getString(sender)),
+                useUnmergedTree = true
+            ).assertExists()
+        }
+        composeRule.onNode(
+            androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.LiveRegion, androidx.compose.ui.semantics.LiveRegionMode.Polite) and
+                androidx.compose.ui.test.hasText("The response failed before displayable content was returned."),
+            useUnmergedTree = true
+        ).assertExists()
+    }
+
+    @Test fun selectedPdfPageRendersAsABoundedImageForTheVisionComposer() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val pdf = File.createTempFile("scanned-pages-", ".pdf", context.cacheDir)
+        try {
+            val doc = android.graphics.pdf.PdfDocument()
+            try {
+                for (number in 1..2) {
+                    val page = doc.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(200, 100, number).create())
+                    page.canvas.drawColor(if (number == 1) android.graphics.Color.RED else android.graphics.Color.BLUE)
+                    doc.finishPage(page)
+                }
+                pdf.outputStream().use(doc::writeTo)
+            } finally {
+                doc.close()
+            }
+            val image = renderScanPage(context, android.net.Uri.fromFile(pdf), 2)
+            try {
+                val bitmap = requireNotNull(android.graphics.BitmapFactory.decodeFile(image.absolutePath))
+                try {
+                    assertEquals(1800, bitmap.width)
+                    assertEquals(900, bitmap.height)
+                    assertEquals(android.graphics.Color.BLUE, bitmap.getPixel(900, 450))
+                } finally {
+                    bitmap.recycle()
+                }
+            } finally {
+                image.delete()
+            }
+            assertTrue(runCatching { renderScanPage(context, android.net.Uri.fromFile(pdf), 3) }.isFailure)
+        } finally {
+            pdf.delete()
+        }
+    }
+
+    @Test
+    fun previewedImageReturnsToItsOriginalComposer() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val media = File(context.cacheDir, "mcp-media").apply { mkdirs() }
+        val original = File(media, "${UUID.randomUUID()}.png")
+        val bitmap = android.graphics.Bitmap.createBitmap(4096, 32, android.graphics.Bitmap.Config.ARGB_8888)
+        try {
+            original.outputStream().use { check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) }
+        } finally {
+            bitmap.recycle()
+        }
+        val attached = AtomicReference<File?>()
+        val room = MutableStateFlow(ChatRoomV2(id = 7, title = "Image conversation"))
+        val uri = android.net.Uri.parse("gptmobile://media/${original.name}")
+        try {
+            val previewBitmap = requireNotNull(decodeMediaPreview(original))
+            try {
+                assertEquals(2048, previewBitmap.width)
+                assertEquals(16, previewBitmap.height)
+            } finally {
+                previewBitmap.recycle()
+            }
+            composeRule.setContent {
+                val preview = rememberChatMediaPreview(room, { attached.set(File(it)) }, { error("Could not attach the preview") })
+                Button(onClick = { preview(uri) }) { Text("Open test image") }
+            }
+            composeRule.onNodeWithText("Open test image").performClick()
+            composeRule.waitUntil(10_000) { composeRule.onAllNodesWithText("Attach to reply").fetchSemanticsNodes().isNotEmpty() }
+            composeRule.onNodeWithText("Attach to reply").performClick()
+            composeRule.waitUntil(10_000) { attached.get() != null }
+            val draft = requireNotNull(attached.get())
+            assertEquals(File(context.filesDir, "attachments").canonicalFile, draft.parentFile?.canonicalFile)
+            assertTrue(original.readBytes().contentEquals(draft.readBytes()))
+            assertTrue(draft.delete())
+            attached.set(null)
+            composeRule.onNodeWithText("Open test image").performClick()
+            composeRule.waitUntil(10_000) { composeRule.onAllNodesWithText("Attach to reply").fetchSemanticsNodes().isNotEmpty() }
+            composeRule.onNodeWithText("Attach to reply").assertIsDisplayed()
+            room.value = ChatRoomV2(id = 8, title = "Another conversation")
+            composeRule.onNodeWithText("Attach to reply").performClick()
+            composeRule.waitUntil(10_000) { composeRule.onAllNodesWithText("Attach to reply").fetchSemanticsNodes().isEmpty() }
+            composeRule.onNodeWithText("Open test image").assertIsDisplayed()
+            composeRule.runOnIdle { assertEquals(null, attached.get()) }
+            assertTrue(original.exists())
+        } finally {
+            attached.get()?.delete()
+            original.delete()
+        }
+    }
 
     @Test
     fun glassComposerKeepsSendStopAndLatestActionsIndependent() {

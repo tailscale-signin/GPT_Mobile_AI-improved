@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -24,6 +25,20 @@ internal object ProviderFailureReport {
         metadata: GatewayResponseMetadata? = null
     ): JsonObject = buildJsonObject {
         put("diagnostic_area", "PROVIDER")
+        if (failure.errorCode == "BUDGET_RESTRICTED" && failure.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) put("failure_origin", "APPLICATION")
+        GatewayCapabilityFailureEvidence.retained(receipt.errorCode, failure.failureDetails).forEach { (key, value) -> put(key, value) }
+        if (receipt.errorCode == PrivacyFailureEvidence.CODE) {
+            receipt.privacyReasonCode?.let { put("privacy_reason_code", it) }
+            receipt.privacyStatus?.let { put("privacy_status", it) }
+        }
+        if (failure.errorCode == "PROVIDER_RATE_LIMITED" || receipt.httpStatus == 429) {
+            val details = failure.failureDetails
+            when ((details?.get("retry_source") as? JsonPrimitive)?.contentOrNull) {
+                "RETRY_AFTER", "RATE_LIMIT_RESET" -> put("retry_delay_source", "PROVIDER_HEADER")
+                "APP_BACKOFF" -> put("retry_delay_source", "LOCAL_BACKOFF")
+            }
+            details?.number("consecutive_rejections")?.takeIf { it in 1..MAX_COUNT }?.let { put("provider_consecutive_rejections", it) }
+        }
         // Closed, content-free rate-limit evidence for future provider incident triage.
         for (key in listOf("provider_limit_source", "provider_cooldown_scope_hash")) {
             failure.failureDetails?.get(key)?.let { put(key, it) }

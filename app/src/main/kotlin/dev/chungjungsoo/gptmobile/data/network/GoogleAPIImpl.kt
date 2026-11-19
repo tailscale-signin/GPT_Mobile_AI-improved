@@ -5,7 +5,6 @@ import dev.chungjungsoo.gptmobile.data.dto.google.request.GenerateContentRequest
 import dev.chungjungsoo.gptmobile.data.dto.google.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.dto.google.response.GenerateContentResponse
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
-import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -17,7 +16,6 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readLine
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -28,6 +26,7 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.Serializable
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 class GoogleAPIImpl @Inject constructor(
     private val networkClient: NetworkClient
@@ -50,21 +49,22 @@ class GoogleAPIImpl @Inject constructor(
             header("X-Goog-Upload-Command", "start")
             header("X-Goog-Upload-Header-Content-Length", file.length().toString())
             header("X-Goog-Upload-Header-Content-Type", mimeType)
-            setBody("""{"file":{"display_name":"$fileName"}}""")
+            setBody(kotlinx.serialization.json.buildJsonObject { put("file", kotlinx.serialization.json.buildJsonObject { put("display_name", kotlinx.serialization.json.JsonPrimitive(fileName)) }) }.toString())
         }.execute { response ->
             if (!response.status.isSuccess()) {
-                throw IllegalStateException(response.body<String>())
+                throw IllegalStateException("Google file upload failed (HTTP ${response.status.value}).")
             }
             response.headers["x-goog-upload-url"] ?: response.headers["X-Goog-Upload-URL"]
         } ?: throw IllegalStateException("Failed to obtain Google upload URL")
 
+        requireSameUploadOrigin(startEndpoint, uploadUrl)
         val responseBody = networkClient().preparePost(uploadUrl) {
             header("X-Goog-Upload-Offset", "0")
             header("X-Goog-Upload-Command", "upload, finalize")
             header(HttpHeaders.ContentLength, file.length().toString())
             contentType(ContentType.parse(mimeType))
-            setBody(file.readBytes())
-        }.body<String>()
+            setBody(io.ktor.client.content.LocalFileContent(file, ContentType.parse(mimeType)))
+        }.execute { it.boundedResponseText() }
 
         val uploadResponse = NetworkClient.json.decodeFromString<GoogleFileUploadResponse>(responseBody)
         return UploadedProviderFile(
@@ -85,10 +85,12 @@ class GoogleAPIImpl @Inject constructor(
                 if (!response.status.isSuccess()) {
                     false
                 } else {
-                    val metadata = NetworkClient.json.decodeFromString<GoogleFileMetadata>(response.body<String>())
+                    val metadata = NetworkClient.json.decodeFromString<GoogleFileMetadata>(response.boundedResponseText())
                     metadata.state == null || metadata.state == "ACTIVE"
                 }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             false
         }
@@ -122,7 +124,7 @@ class GoogleAPIImpl @Inject constructor(
                     onRetry = { attempt, delayMs, reason ->
                         AppLogRecorder.record(
                             "Network",
-                            "Gemini stream retry · model=$model · attempt=$attempt · delayMs=$delayMs · reason=${reason.javaClass.simpleName}: ${reason.message.orEmpty().take(180)}",
+                            "Gemini stream retry · model=$model · attempt=$attempt · delayMs=$delayMs · reason=${reason.javaClass.simpleName}",
                             "W"
                         )
                     }
@@ -137,7 +139,7 @@ class GoogleAPIImpl @Inject constructor(
                             setBody(admittedPayload)
                         }.execute { response ->
                             if (!response.status.isSuccess()) {
-                                val errorBody = response.body<String>()
+                                val errorBody = readProviderErrorBody(response, 256 * 1024)
                                 throwIfToolDefinitionsRejected(
                                     response.status.value,
                                     !request.tools.isNullOrEmpty(),
@@ -153,16 +155,10 @@ class GoogleAPIImpl @Inject constructor(
                                     )
                                 }
 
-                                val errorMessage = try {
-                                    val errorList = NetworkClient.json.decodeFromString<List<GoogleErrorResponse>>(errorBody)
-                                    errorList.firstOrNull()?.error?.message ?: "Unknown error"
-                                } catch (_: Exception) {
-                                    try {
-                                        val errorResponse = NetworkClient.json.decodeFromString<GoogleErrorResponse>(errorBody)
-                                        errorResponse.error.message
-                                    } catch (_: Exception) {
-                                        "HTTP ${response.status.value}: $errorBody"
-                                    }
+                                val errorMessage = if (response.status.value == 400 && !request.tools.isNullOrEmpty() && "function_declarations" in errorBody && "parameters" in errorBody) {
+                                    "HTTP 400: provider rejected the tool parameter schema."
+                                } else {
+                                    dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
                                 }
 
                                 receivedPayload = true
@@ -180,8 +176,9 @@ class GoogleAPIImpl @Inject constructor(
 
                             ProviderCooldown.observeQuota(config) { response.headers[it] }
                             val channel = response.bodyAsChannel()
+                            val events = ProviderEventReader(channel)
                             while (!channel.isClosedForRead) {
-                                val line = channel.readLine() ?: break
+                                val line = events.readLine() ?: break
                                 val data = SseUtils.extractSseData(line) ?: continue
 
                                 val chunk = try {
@@ -217,7 +214,7 @@ class GoogleAPIImpl @Inject constructor(
                 if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
                 if (e is ProviderHttpFailure && e.status == 429 && ProviderCooldown.durableRateLimits()) throw e
                 if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e, completed)) {
-                    AppLogRecorder.record("Network", "Gemini stream closed after completion · model=$model · ${e.message.orEmpty().take(180)}", "W")
+                    AppLogRecorder.record("Network", "Gemini stream closed after completion · model=$model · cause=${e.javaClass.simpleName}", "W")
                     return@catch
                 }
                 val errorMessage = when (e) {
@@ -227,11 +224,11 @@ class GoogleAPIImpl @Inject constructor(
                     is HttpRequestTimeoutException -> "Request timed out."
                     is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
                     is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
-                    else -> e.message ?: "Unknown network error"
+                    else -> dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(e).userMessage
                 }
                 AppLogRecorder.record(
                     "Network",
-                    "Gemini stream failed · model=$model · receivedPayload=$receivedPayload · completed=$completed · ${e.javaClass.simpleName}: ${e.message.orEmpty().take(240)}",
+                    "Gemini stream failed · model=$model · receivedPayload=$receivedPayload · completed=$completed · ${e.javaClass.simpleName}",
                     "E"
                 )
                 emit(
@@ -254,18 +251,6 @@ class GoogleAPIImpl @Inject constructor(
 }
 
 @Serializable
-private data class GoogleErrorResponse(
-    val error: GoogleError
-)
-
-@Serializable
-private data class GoogleError(
-    val code: Int? = null,
-    val message: String,
-    val status: String? = null
-)
-
-@Serializable
 private data class GoogleFileUploadResponse(
     val file: GoogleFileMetadata
 )
@@ -278,3 +263,19 @@ private data class GoogleFileMetadata(
     val mimeType: String? = null,
     val state: String? = null
 )
+
+/** A resumable upload URL is supplied by the server and will receive the entire attachment. */
+internal fun requireSameUploadOrigin(start: String, destination: String) {
+    val origin = start.toHttpUrlOrNull()
+    val upload = destination.toHttpUrlOrNull()
+    require(
+        origin != null &&
+            upload != null &&
+            upload.scheme == origin.scheme &&
+            upload.host == origin.host &&
+            upload.port == origin.port &&
+            upload.username.isEmpty() &&
+            upload.password.isEmpty() &&
+            upload.fragment == null
+    ) { "The provider returned an invalid file upload destination." }
+}

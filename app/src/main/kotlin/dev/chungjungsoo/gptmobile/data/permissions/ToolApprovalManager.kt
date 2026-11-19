@@ -147,9 +147,11 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         )
     }
     suspend fun authorizeOrThrow(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null, nativeGitHub: Boolean = false, executionAllowed: (suspend () -> Boolean)? = null): Boolean {
-        if (tool.substringBefore("__") == "repository_graph" && connections.getConnection(connectionId)?.type == "GITHUB") {
-            val graphAction = arguments["action"] ?: return false
-            val native = JsonObject(arguments + mapOf("action" to kotlinx.serialization.json.JsonPrimitive("repository_graph"), "graph_action" to graphAction))
+        if (tool.substringBefore("__") in setOf("repository_graph", "repository_workspace") && connections.getConnection(connectionId)?.type == "GITHUB") {
+            val family = tool.substringBefore("__")
+            val actionKey = if (family == "repository_graph") "graph_action" else "workspace_action"
+            val requested = arguments["action"] ?: return false
+            val native = JsonObject(arguments + mapOf("action" to kotlinx.serialization.json.JsonPrimitive(family), actionKey to requested))
             return authorizeOrThrow(connectionId, runId, callId, "github", native, schema, nativeGitHub, executionAllowed)
         }
         if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null && connections.getConnection(connectionId)?.type == "GITHUB") {
@@ -175,9 +177,11 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     }
 
     suspend fun authorize(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null, nativeGitHub: Boolean = false, executionAllowed: (suspend () -> Boolean)? = null): Boolean {
-        if (tool.substringBefore("__") == "repository_graph" && connections.getConnection(connectionId)?.type == "GITHUB") {
-            val graphAction = arguments["action"] ?: return false
-            val native = JsonObject(arguments + mapOf("action" to kotlinx.serialization.json.JsonPrimitive("repository_graph"), "graph_action" to graphAction))
+        if (tool.substringBefore("__") in setOf("repository_graph", "repository_workspace") && connections.getConnection(connectionId)?.type == "GITHUB") {
+            val family = tool.substringBefore("__")
+            val actionKey = if (family == "repository_graph") "graph_action" else "workspace_action"
+            val requested = arguments["action"] ?: return false
+            val native = JsonObject(arguments + mapOf("action" to kotlinx.serialization.json.JsonPrimitive(family), actionKey to requested))
             return authorize(connectionId, runId, callId, "github", native, schema, nativeGitHub, executionAllowed)
         }
         if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null && connections.getConnection(connectionId)?.type == "GITHUB") {
@@ -232,7 +236,9 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
             GitHubAuthorizationBoundary.isLocalPatchStaging(tool, arguments)
         val replayableRead = connection.type == "GITHUB" && GitHubAuthorizationBoundary.isReplayableRead(tool, arguments)
         val branchSelection = github && GitHubAuthorizationBoundary.isBranchSelection(tool, arguments)
-        val readOnly = !lifecycle && githubRead && tool in connection.approvedReadTools.lines().map(String::trim)
+        // A stale or mistaken read grant must not silently authorize paid cloud work.
+        val copilotWrite = github && connection.type == "MCP" && dev.chungjungsoo.gptmobile.data.github.GitHubMcpRepositoryTool.requiresCopilotConsent(tool, arguments)
+        val readOnly = !lifecycle && !copilotWrite && githubRead && tool in connection.approvedReadTools.lines().map(String::trim)
         if (!workspaceApproved && policy == ToolPolicy.READ_ONLY && !readOnly) return false
         if (readOnly && !branchSelection) return true
         val exactApproval = lifecycle || collaborationWrite || github && !workspaceApproved && (branchSelection || !(if (tool == "github") githubRead else readOnly))

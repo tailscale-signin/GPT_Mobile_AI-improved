@@ -22,7 +22,9 @@ sealed interface ProviderEvent {
         /** Runner-owned identity before authorized routing; never part of the model's arguments. */
         val originalInvocationFingerprint: String? = null,
         /** Original provider envelope; execution may resolve a trusted alias or default separately. */
-        val originalInvocation: ProviderToolInvocation? = null
+        val originalInvocation: ProviderToolInvocation? = null,
+        /** Present only when this provider response supplied a model identifier. */
+        val reportedModelId: String? = null
     ) : ProviderEvent
     data class ToolResult(val call: ToolCall, val result: AgentToolResult) : ProviderEvent
     data class Failed(val message: String, val progressDeadline: ProgressDeadlineOutcome? = null, val errorCode: String? = null, val transportComplete: Boolean = false, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val taskOutcome: String? = null, val failureDetails: JsonObject? = null, val invocationId: String? = null) : ProviderEvent

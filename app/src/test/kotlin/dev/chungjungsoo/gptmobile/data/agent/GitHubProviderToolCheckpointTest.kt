@@ -2,11 +2,13 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint
 import java.security.MessageDigest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,6 +58,28 @@ class GitHubProviderToolCheckpointTest {
 
     @Test fun ordinaryRequestDoesNotAdoptRetainedWaitWithoutItsTypedAuthority() {
         assertEquals("$scope:current", GitHubProviderToolCheckpoint.binding(scope, "current", null, checkpoint()))
+    }
+
+    @Test fun recoveredHandoffRequiresEveryOriginalReceiptAndRejectsUnknownOrUnrelatedResults() {
+        val prior = ToolHandoffReceipt("prior", "a".repeat(64), "b".repeat(64), "c".repeat(64), true, null, false)
+        val pending = prior.copy(callId = "pending", invocationFingerprint = "d".repeat(64))
+        val saved = buildJsonObject {
+            put("state", "TOOL_HANDOFF")
+            put("pending_calls", JsonArray(listOf(JsonPrimitive(pending.invocationFingerprint))))
+            put("completed_results", JsonArray(listOf(prior.json())))
+        }
+        assertEquals(GitHubProviderReplayEvidence.journalDigest(listOf(prior, pending)), GitHubProviderReplayEvidence.settledHandoffDigest(saved, listOf(pending, prior)))
+        for (receipts in listOf(
+            listOf(prior),
+            listOf(pending),
+            listOf(prior, pending.copy(requiresReconciliation = true)),
+            listOf(prior.copy(sourceResultSha256 = "e".repeat(64)), pending),
+            listOf(prior, pending.copy(callId = prior.callId)),
+            listOf(prior, pending.copy(sourceResultSha256 = null)),
+            listOf(prior, pending, pending.copy(callId = "extra"))
+        )) {
+            assertNull(GitHubProviderReplayEvidence.settledHandoffDigest(saved, receipts))
+        }
     }
 
     @Test fun legacyWaitStillRequiresTheExactCheckpointAndUsesItsCurrentJournalKey() {

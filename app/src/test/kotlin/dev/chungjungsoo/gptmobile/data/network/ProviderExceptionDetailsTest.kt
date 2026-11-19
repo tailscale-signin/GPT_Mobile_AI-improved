@@ -191,8 +191,20 @@ class ProviderExceptionDetailsTest {
         assertEquals("GATEWAY_CAPABILITY_UNAVAILABLE", failure.code)
         assertEquals(JsonPrimitive("connection_preflight"), failure.failureDetails?.get("failed_stage"))
         assertEquals(JsonPrimitive(403), failure.failureDetails?.get("http_status"))
-        assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+        assertNull(failure.failureDetails?.get("attempt_dispatch_state"))
         assertNull(failure.failureDetails?.get("dispatched"))
+    }
+
+    @Test fun capabilityDecodeCauseReachesTheProviderFailureWithoutItsRawPath() {
+        val error = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityDiscoveryException("Capability document rejected", decodeReason = "EXPECTED_BOOLEAN", fieldPath = "PRIVATE_PATH")
+        val failure = requireNotNull(providerExceptionDetails(error, partialOutput = true))
+        assertEquals(JsonPrimitive("DECODE_REJECTED"), failure.failureDetails?.get("gateway_capability_failure_kind"))
+        assertEquals(JsonPrimitive("EXPECTED_BOOLEAN"), failure.failureDetails?.get("gateway_capability_decode_reason"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+        assertNull(failure.failureDetails?.get("dispatched"))
+        assertNull(failure.failureDetails?.get("remote_acceptance"))
+        org.junit.Assert.assertFalse(failure.failureDetails.toString().contains("PRIVATE"))
     }
 
     @Test fun typedReasoningAdmissionRetainsItsPhaseWithoutErasingEarlierUncertainty() {

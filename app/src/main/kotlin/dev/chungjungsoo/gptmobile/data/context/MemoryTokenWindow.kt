@@ -7,6 +7,45 @@ import dev.langchain4j.model.TokenCountEstimator
 
 /** Budget complete turns as atomic entries so user/assistant/attachment context stays together. */
 internal object MemoryTokenWindow {
+    private val terms = Regex("""[\p{L}\p{N}_-]{4,64}""")
+    private fun keywords(text: String): Set<String> {
+        fun excerpt(value: String) = terms.findAll(value.lowercase()).map { it.value }.filterNot { it in commonWords }.distinct().take(64).toSet()
+        if (text.length <= 2048) return excerpt(text)
+        return excerpt(text.take(1024)) + excerpt(text.takeLast(1024))
+    }
+
+    private val commonWords = setOf("that", "this", "with", "what", "have", "from", "were", "would", "please", "could", "about", "there", "your", "which")
+
+    /** Spend history headroom on complete, chronological turns within this conversation. */
+    fun forQuestion(history: List<ConversationTurn>, available: Int, question: String, cost: (ConversationTurn) -> Int): List<ConversationTurn> {
+        if (available <= 0 || history.isEmpty()) return emptyList()
+        val costs = history.map(cost)
+        if (costs.sumOf { it.toLong() } <= available) return history
+        var remaining = available
+        val selected = BooleanArray(history.size)
+        fun keep(index: Int) {
+            if (!selected[index] && costs[index] in 0..remaining) {
+                selected[index] = true
+                remaining -= costs[index]
+            }
+        }
+        keep(history.lastIndex)
+        keep(0)
+        val query = keywords(question)
+        if (query.isNotEmpty() && remaining > 0) {
+            // Inspect only bounded excerpts. Reserve one slot for a relevant older exchange.
+            val match = history.indices.reversed().asSequence().filter { !selected[it] && costs[it] <= remaining }
+                .map { index ->
+                    val turn = history[index]
+                    val overlap = (keywords(turn.userMessage.content) + keywords(turn.assistantMessage?.content.orEmpty())).count { it in query }
+                    index to overlap
+                }.filter { it.second > 0 }.maxByOrNull { it.second }
+            match?.let { keep(it.first) }
+        }
+        for (index in history.indices.reversed()) keep(index)
+        return history.filterIndexed { index, _ -> selected[index] }
+    }
+
     fun select(history: List<ConversationTurn>, availableTokens: Int, cost: (ConversationTurn) -> Int): List<ConversationTurn> {
         if (availableTokens <= 0 || history.isEmpty()) return emptyList()
         val costs = history.mapIndexed { index, turn -> index.toString() to cost(turn) }.toMap()

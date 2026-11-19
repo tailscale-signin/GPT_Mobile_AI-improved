@@ -265,6 +265,86 @@ class GitHubIntegrationAcceptanceTest {
         assertNull(GitHubAuthorizedCatalog.next(tools, records))
     }
 
+    @Test fun routeProofRequiresCompletedCheckAndUsesTheModelReturnedByThisProviderCall() {
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(name = "Remote", model = "selected", uid = "profile")
+        val id = "a".repeat(64)
+        val result = json("""{"repository":"owner/repo","branch":"feature","head_sha":"${"b".repeat(40)}","request_id":"check","state":"PASSED","scope":"exploratory","check_index":1,"exit_code":0,"executor":"gateway","image":"sha256:$id","output_sha256":"$id","policy_sha256":"$id","patch_identity":"$id","profile_binding":"$id"}""")
+        val call = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall("call", "repository_workspace", json("""{"action":"status","request_id":"check"}"""))
+        fun observe(model: String?, receipt: JsonObject = result) = workspaceCheckObservation(profile, call.copy(reportedModelId = model), receipt, "owner/repo", "feature", "run")
+        assertEquals(JsonPrimitive("UNOBSERVED"), observe(null)?.get("model_identity"))
+        assertEquals(JsonPrimitive("DIFFERENT"), observe("another")?.get("model_identity"))
+        assertEquals(JsonPrimitive("MATCH"), observe("selected")?.get("model_identity"))
+        assertNull(observe("selected", JsonObject(result + ("exit_code" to JsonPrimitive(5)))))
+        assertNull(observe("selected", JsonObject(result + ("repository" to JsonPrimitive("other/repo")))))
+    }
+
+    @Test fun repairedAndroidTestNeedsTwoNamedObservationsOnTheSameModelAndSource() {
+        val keys = json("""{"source_run_id":"run","profile_uid":"profile","provider":"OPENAI","observed_model":"selected","profile_binding":"binding","repository":"owner/repo","branch":"branch","source_sha":"head","policy_sha256":"policy","image":"image","check_index":0,"environment_profile":"Android / Kotlin","model_identity":"MATCH"}""")
+        fun receipt(id: String, status: String, time: Long, case: String): JsonObject = JsonObject(
+            keys + buildJsonObject {
+                for (name in listOf("receipt_id", "request_id", "patch_identity")) put(name, id)
+                put("state", status)
+                put("started_at", time)
+                put("finished_at", time + 1)
+                put(
+                    "case_results",
+                    JsonArray(
+                        listOf(
+                            buildJsonObject {
+                                put("name", case)
+                                put("status", status)
+                                put("report_sha256", id)
+                            }
+                        )
+                    )
+                )
+            }
+        )
+        val failed = receipt("first", "FAILED", 1, "Example.sum")
+        val repaired = receipt("second", "PASSED", 3, "Example.sum")
+        val proof = pairedCodingRepairs(listOf(failed, repaired)).single().jsonObject
+        assertEquals(repaired["receipt_id"], proof["after_receipt"])
+        assertEquals(failed["receipt_id"], proof["before_receipt"])
+        for (wrong in listOf(
+            receipt("second", "PASSED", 3, "Example.unrelated"),
+            receipt("second", "PASSED", 0, "Example.sum"),
+            JsonObject(repaired + ("model_identity" to JsonPrimitive("DIFFERENT"))),
+            JsonObject(repaired + ("source_sha" to JsonPrimitive("new head"))),
+            JsonObject(repaired + ("patch_identity" to failed.getValue("patch_identity")))
+        )) {
+            assertTrue(pairedCodingRepairs(listOf(failed, wrong)).isEmpty())
+        }
+    }
+
+    @Test fun directGitHubAndCopilotEvidenceNeedsMeasuredTransportAndExactRevision() {
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(name = "Remote", model = "selected", uid = "profile")
+        val head = "a".repeat(40)
+        val call = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall("id", "github_pr", json("""{"expected_base_sha":"$head"}""")).copy(reportedModelId = "selected")
+        val api = json("""{"read_requests":1}""")
+        val cloud = json("""{"schema":"github.copilot-task.v1","task_id":"opaque","orchestration_owner":"ANDROID_DIRECT","execution_owner":"GITHUB_CLOUD","status":"REMOTE_ACCEPTED"}""")
+        assertNull(directCodingObservation(profile, call, "status", null, null, head, "run"))
+        val read = requireNotNull(directCodingObservation(profile, call, "status", null, api, head, "run"))
+        assertEquals(JsonPrimitive("github_api"), read["executor"])
+        assertEquals(JsonPrimitive("RETURNED"), read["source_binding"])
+        assertNull(directCodingObservation(profile, call, "copilot_create_task", null, api, null, "run"))
+        assertNull(directCodingObservation(profile, call, "copilot_create_task", cloud, api, null, "run"))
+        val accepted = json("""{"mutation_requests":1,"accepted_mutations":1}""")
+        val hosted = requireNotNull(directCodingObservation(profile, call, "copilot_create_task", cloud, accepted, null, "run"))
+        assertEquals(JsonPrimitive("github_copilot"), hosted["executor"])
+        assertEquals(JsonPrimitive("REQUESTED"), hosted["source_binding"])
+        assertEquals(JsonPrimitive("opaque"), hosted["task_id"])
+    }
+
+    @Test fun workspaceCheckReceiptBelongsToGatewayAndParticipatesInCatalogDiscovery() {
+        val invocation = tool("repository_workspace__selected", "catalog", "run", "status")
+        val catalog = GitHubAuthorizedCatalog.snapshot(emptyMap(), listOf(invocation))
+        val gateway = json("""{"tool":"repository_workspace__selected","evidence_origin":"LIVE","receipt_id":"check","success":true,"trusted":true}""")
+        val classes = GitHubIntegrationAcceptance.evidenceClasses(mapOf("check" to gateway))
+        assertEquals(JsonPrimitive(1), (classes["APP_GATEWAY"] as JsonObject)["count"])
+        assertEquals(JsonPrimitive(0), (classes["LIVE_ACCOUNT"] as JsonObject)["count"])
+        assertEquals(JsonPrimitive(false), catalog["complete"])
+    }
+
     @Test fun mockedReadCannotSatisfyRepresentativeLiveReads() {
         val records = receipts()
         records["source"] = JsonObject(records.getValue("source") + ("evidence_origin" to JsonPrimitive("MOCKED")))

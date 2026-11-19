@@ -31,7 +31,7 @@ class AttachmentUploadCoordinator @Inject constructor(
         val preparationResult = FileUtils.prepareAttachmentForUpload(context, filePath) ?: return@withContext null
         val preparedFilePath = preparationResult.preparedFilePath
         val dimensions = FileUtils.getImageDimensionsForDisplay(context, preparedFilePath)
-        val document = if (FileUtils.isImage(preparationResult.mimeType)) {
+        val document = if (FileUtils.isImage(preparationResult.mimeType) || FileUtils.isAudioUpload(preparationResult.mimeType)) {
             null
         } else {
             // PDFs can still use native visual understanding when no text layer is present.

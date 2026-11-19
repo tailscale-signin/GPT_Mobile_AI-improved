@@ -8,7 +8,10 @@ import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -103,6 +106,104 @@ class ModernMcpTransportTest {
             manager.callTool(config, "echo", obj("""{"region":"東京"}"""))
             assertEquals(listOf("server/discover", "tools/list", "tools/call"), methods)
             manager.closeAll()
+        }
+    }
+
+    @Test fun argumentConsentIsRecheckedAfterModernDiscoveryBeforeToolsCall() = runBlocking {
+        val methods = mutableListOf<String>()
+        var allowed = true
+        HttpClient(
+            MockEngine { request ->
+                val body = obj((request.body as TextContent).text)
+                val method = body.getValue("method").jsonPrimitive.content
+                methods += method
+                val result = when (method) {
+                    "server/discover" -> obj("""{"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""")
+                    "tools/list" -> {
+                        allowed = false
+                        obj("""{"resultType":"complete","tools":[{"name":"issue_write","inputSchema":{"type":"object"}}]}""")
+                    }
+                    else -> error("Revoked consent must prevent tools/call")
+                }
+                respond(
+                    buildJsonObject {
+                        put("jsonrpc", "2.0")
+                        put("id", body.getValue("id"))
+                        put("result", result)
+                    }.toString(),
+                    headers = headersOf("Content-Type", "application/json")
+                )
+            }
+        ).use { client ->
+            val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+            try {
+                val tool = McpAgentTool(
+                    definition = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("issue_write", "Test", obj("""{"type":"object"}""")),
+                    authType = dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType.NONE,
+                    config = { _, _ -> config },
+                    remoteToolName = "issue_write",
+                    clientManager = manager,
+                    argumentAdmission = { if (!allowed) throw McpLocalToolRejection("GITHUB_COPILOT_DISABLED", "Consent revoked.", "arguments") }
+                )
+                val result = tool.execute("revoked", JsonObject(emptyMap()))
+                assertEquals("GITHUB_COPILOT_DISABLED", result.errorCode)
+                assertFalse(result.dispatched)
+                assertEquals(listOf("server/discover", "tools/list"), methods)
+                assertTrue(manager.healthSnapshot(config.connectionUid).toolsReady)
+            } finally {
+                manager.closeAll()
+            }
+        }
+    }
+
+    @Test fun consentRevokedDuringElicitationBlocksContinuationWithoutClaimingTheOriginalWasUnsent() = runBlocking {
+        val methods = mutableListOf<String>()
+        val allowed = java.util.concurrent.atomic.AtomicBoolean(true)
+        val interactions = McpInteractions()
+        HttpClient(
+            MockEngine { request ->
+                val body = obj((request.body as TextContent).text)
+                val method = body.getValue("method").jsonPrimitive.content
+                methods += method
+                val result = when (method) {
+                    "server/discover" -> obj("""{"resultType":"complete","supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""")
+                    "tools/list" -> obj("""{"resultType":"complete","tools":[{"name":"issue_write","inputSchema":{"type":"object"}}]}""")
+                    "tools/call" -> obj("""{"resultType":"input_required","requestState":{"operation":"existing"},"inputRequests":{"choice":{"method":"elicitation/create","params":{"message":"Continue?","requestedSchema":{"type":"object","properties":{"answer":{"type":"string"}}}}}}}""")
+                    else -> error("Unexpected method: $method")
+                }
+                respond(
+                    buildJsonObject {
+                        put("jsonrpc", "2.0")
+                        put("id", body.getValue("id"))
+                        put("result", result)
+                    }.toString(),
+                    headers = headersOf("Content-Type", "application/json")
+                )
+            }
+        ).use { client ->
+            val manager = McpClientManager(client, modern = ModernMcpTransport(client, interactions))
+            try {
+                val tool = McpAgentTool(
+                    definition = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("issue_write", "Test", obj("""{"type":"object"}""")),
+                    authType = dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType.NONE,
+                    config = { _, _ -> config },
+                    remoteToolName = "issue_write",
+                    clientManager = manager,
+                    argumentAdmission = { if (!allowed.get()) throw McpLocalToolRejection("GITHUB_COPILOT_DISABLED", "Consent revoked.", "arguments") }
+                )
+                val running = async { tool.execute("original", JsonObject(emptyMap())) }
+                val input = withTimeout(5000) { interactions.pending.first { it.isNotEmpty() }.single() }
+                allowed.set(false)
+                interactions.respond(input.id, buildJsonObject { put("answer", "yes") })
+                val result = withTimeout(5000) { running.await() }
+                assertEquals("DISPATCH_OUTCOME_UNKNOWN", result.errorCode)
+                assertTrue(result.dispatched)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("GITHUB_COPILOT_DISABLED"), result.executionReceipt?.get("cause_code"))
+                assertEquals(1, methods.count { it == "tools/call" })
+                assertTrue(interactions.pending.value.isEmpty())
+            } finally {
+                manager.closeAll()
+            }
         }
     }
 

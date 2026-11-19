@@ -21,6 +21,70 @@ import org.junit.Test
 class GitHubPaginationBoundaryTest {
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
 
+    @Test fun commitHistoryUsesTheObservedRevisionAcrossIssuedPagesAndFreshReads() {
+        val boundary = GitHubPaginationBoundary()
+        val head = "a".repeat(40)
+        val moved = "b".repeat(40)
+        val first = json("""{"action":"list_commits","owner":"O","repo":"R","ref":"main"}""")
+        fun next(sha: String, page: Int) =
+            json("""{"action":"list_commits","owner":"o","repo":"r","ref":"$sha","commit_sha":"$sha","per_page":30,"page":$page}""")
+        fun result(sha: String, id: Int, more: Boolean) =
+            json("""{"commit_sha":"$sha","items":[{"sha":"row-$id"}],"has_more":$more}""")
+
+        boundary.assessPage("github_context", first, result(head, 1, true))
+        val second = boundary.assessPage("github_context", next(head, 2), result(head, 2, false))
+        assertEquals(null, second.errorCode)
+        assertEquals(JsonPrimitive(2), second.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+        assertEquals(2, boundary.completedPage("github_context", next(head, 3)))
+
+        val foreign = boundary.assessPage("github_context", next(moved, 2), result(moved, 3, false))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", foreign.errorCode)
+        val firstAgain = boundary.assessPage("github_context", first, result(head, 4, true))
+        assertEquals(JsonPrimitive(1), firstAgain.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+        assertEquals(null, boundary.completedPage("github_context", next(head, 3)))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", boundary.assessPage("github_context", next(head, 3), result(head, 5, false)).errorCode)
+    }
+
+    @Test fun pullRequestListDefaultsMatchItsIssuedContinuationButDifferentFiltersStaySeparate() {
+        val boundary = GitHubPaginationBoundary()
+        val first = json("""{"action":"list_pull_requests","owner":"o","repo":"r"}""")
+        fun next(state: String, size: Int) =
+            json("""{"action":"list_pull_requests","owner":"o","repo":"r","state":"$state","per_page":$size,"page":2}""")
+        val last = json("""{"pull_requests":[{"number":21}],"has_more":false}""")
+        boundary.assessPage("github_pr", first, json("""{"pull_requests":[{"number":1}],"has_more":true}"""))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", boundary.assessPage("github_pr", next("open", 20), last).errorCode)
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", boundary.assessPage("github_pr", next("all", 50), last).errorCode)
+        assertEquals(null, boundary.assessPage("github_pr", next("all", 20), last).errorCode)
+    }
+
+    @Test fun branchPageCannotCountTheSameNameAgainWhenItsHeadMoves() {
+        val boundary = GitHubPaginationBoundary()
+        fun args(page: Int) = json("""{"action":"list_branches","owner":"o","repo":"r","page":$page,"per_page":1}""")
+        fun result(sha: String, more: Boolean) = json("""{"items":[{"name":"main","commit":{"sha":"$sha"}}],"has_more":$more}""")
+        boundary.assessPage("github_context", args(1), result("old", true))
+        val repeated = boundary.assessPage("github_context", args(2), result("new", false))
+        assertEquals("GITHUB_PAGINATION_STALLED", repeated.errorCode)
+        assertEquals(JsonPrimitive(1), repeated.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+    }
+
+    @Test fun overlappingMutableListPagesCannotCertifyCoverageWithoutATotal() {
+        for ((operation, action, field) in listOf(
+            Triple("github_context", "list_branches", "items"),
+            Triple("github_pr", "list_pull_requests", "pull_requests")
+        )) {
+            val boundary = GitHubPaginationBoundary()
+            fun args(page: Int) = json("""{"action":"$action","owner":"o","repo":"r","page":$page,"per_page":2}""")
+            fun page(first: Int, last: Int, more: Boolean) = json(
+                """{"$field":[{"name":"b$first","number":$first},{"name":"b$last","number":$last}],"has_more":$more}"""
+            )
+            boundary.assessPage(operation, args(1), page(1, 2, true))
+            boundary.assessPage(operation, args(2), page(2, 3, true))
+            val terminal = boundary.assessPage(operation, args(3), page(4, 5, false))
+            assertEquals("GITHUB_PAGINATION_INCOMPLETE", terminal.errorCode)
+            assertEquals(JsonPrimitive(true), terminal.data.getValue("pagination_progress").jsonObject["upstream_changed_during_traversal"])
+        }
+    }
+
     @Test fun singletonContextsPreserveNestedExpansionWithoutRemotePagination() {
         val boundary = GitHubPaginationBoundary()
         val source = json("""{"has_more":true,"pull_request":{"number":1349},"branch":{"name":"main"}}""")

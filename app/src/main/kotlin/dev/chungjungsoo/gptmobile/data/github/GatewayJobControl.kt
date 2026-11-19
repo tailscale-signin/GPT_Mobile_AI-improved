@@ -137,7 +137,7 @@ class GatewayJobControl @Inject constructor(
     private suspend fun mutationConfig(record: GatewayJobRecord, frozen: ProviderRequestConfig, forApproval: Boolean = false): ProviderRequestConfig {
         val identity = history.identity(frozen)
         check(identity.gatewayId == record.gatewayId && identity.principalId == record.principalId) { if (forApproval) "Restore the original gateway and account before confirming merge approval." else "Restore the original gateway and account before confirming Stop." }
-        check(repository.originalRoute(record.connectionProfileUid, record.endpoint).config == frozen) { if (forApproval) "The gateway connection changed while merge approval was being reviewed." else "The gateway connection changed while Stop was being reviewed." }
+        check(repository.originalRoute(record.connectionProfileUid, record.endpoint, record.gatewayId, record.principalId).config == frozen) { if (forApproval) "The gateway connection changed while merge approval was being reviewed." else "The gateway connection changed while Stop was being reviewed." }
         currentCoroutineContext().ensureActive()
         return frozen.withGatewayIdentity(identity)
     }
@@ -146,7 +146,7 @@ class GatewayJobControl @Inject constructor(
         requireGatewayIdentity(record.gatewayId, record.principalId)
         check(record.kind in setOf("engineering", "generation", "ordinary") && record.key == gatewayIdentityKey(record.gatewayId, record.principalId, record.kind, record.remoteJobId)) { "The saved job identity is unavailable." }
         val original = repository.summary(record)
-        val route = repository.originalRoute(record.connectionProfileUid, record.endpoint)
+        val route = repository.originalRoute(record.connectionProfileUid, record.endpoint, record.gatewayId, record.principalId)
         var cursor: String? = null
         val cursors = mutableSetOf<String>()
         repeat(20) {

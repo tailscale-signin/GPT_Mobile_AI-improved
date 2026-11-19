@@ -70,7 +70,9 @@ class GitHubWorkspaceClient(
     refAvailability: GitHubRefAvailability? = null,
     private val engineeringStatus: (suspend (String, String) -> JsonObject?)? = null,
     private val repositoryGateway: (suspend (JsonObject) -> JsonObject)? = null,
-    private val sharedCredentialAdmission: Boolean = client === sharedClient
+    private val sharedCredentialAdmission: Boolean = client === sharedClient,
+    private val copilotWriteAdmission: (suspend () -> Unit)? = null,
+    private val copilotConsentAdmission: (suspend () -> Unit)? = null
 ) {
     private val responseCache = responseCache ?: if (client === sharedClient) GitHubSessionCaches.forCredential(token, apiOrigins.hostIdentity) else GitHubResponseCache()
     private val rateLimits = rateLimits ?: if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token, apiOrigins.hostIdentity) else GitHubRateLimitManager()
@@ -86,6 +88,7 @@ class GitHubWorkspaceClient(
         private val sharedClient by lazy {
             HttpClient(OkHttp) {
                 install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+                install(dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate)
                 followRedirects = false
                 engine { config { retryOnConnectionFailure(false) } }
                 install(HttpTimeout) {
@@ -96,7 +99,7 @@ class GitHubWorkspaceClient(
             }
         }
         private val json = Json { ignoreUnknownKeys = true }
-        val readActions = GitHubCollaboration.reads + GitHubInspection.actions + (GitHubRepositoryLifecycle.actions - GitHubRepositoryLifecycle.writes) + setOf(
+        val readActions = GitHubCollaboration.reads + GitHubInspection.actions + GitHubCopilotTasks.reads + (GitHubRepositoryLifecycle.actions - GitHubRepositoryLifecycle.writes) + setOf(
             "list_commits", "list_open_pull_requests", "get_commit_detail", "get_commit_status_summary",
             "get_account", "list_repositories", "list_installations", "list_installation_repositories", "get_repository", "list_branches", "browse_files",
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
@@ -106,7 +109,7 @@ class GitHubWorkspaceClient(
             "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status", "get_pull_request_comments", "pull_request_reviews",
             "resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "ci_failure_digest", "efficiency", "recovery_context"
         )
-        val writeActions = GitHubCollaboration.writes + GitHubRepositoryLifecycle.writes + setOf(
+        val writeActions = GitHubCollaboration.writes + GitHubRepositoryLifecycle.writes + GitHubCopilotTasks.writes + setOf(
             "commit_files", "stage_patch", "commit_staged_patch",
             "create_tag", "create_issue", "update_issue", "delete_branch", "delete_fixture_branch",
             "create_release",
@@ -166,7 +169,7 @@ class GitHubWorkspaceClient(
     // A missing/evicted receipt remains UNKNOWN, never a recent-run guess.
     private val dispatchedRuns = java.util.concurrent.ConcurrentHashMap<Long, ReleaseDispatchReceipt>()
 
-    private class Invocation(val identity: String) : AbstractCoroutineContextElement(Key) {
+    private class Invocation(val identity: String, val copilotConsentRequired: Boolean = false) : AbstractCoroutineContextElement(Key) {
         companion object Key : CoroutineContext.Key<Invocation>
     }
 
@@ -185,7 +188,7 @@ class GitHubWorkspaceClient(
     suspend fun execute(action: String, args: JsonObject): JsonElement {
         refreshCredential()
         val attempts = GitHubMutationAttempts(currentCoroutineContext()[GitHubMutationAttempts])
-        return withContext(Invocation(GitHubRepositoryStateStore.digest("$action|${GitHubExecutionJournal.canonical(args)}")) + attempts) {
+        return withContext(Invocation(GitHubRepositoryStateStore.digest("$action|${GitHubExecutionJournal.canonical(args)}"), GitHubCopilotAgentMergePolicy.requiresConsent(action, args)) + attempts) {
             try {
                 executeInvocation(action, args)
             } catch (failure: Exception) {
@@ -291,6 +294,21 @@ class GitHubWorkspaceClient(
             "Invalid repository owner or name."
         }
         val root = "/repos/${segment(owner)}/${segment(repo)}"
+        if (action in GitHubCopilotTasks.actions) {
+            require(apiOrigins == GitHubApiOrigins.GITHUB_COM && token.isNotBlank()) {
+                "Copilot tasks require an authorized github.com user connection. Creation uses the preview Agent tasks API for Copilot Business or Enterprise."
+            }
+            require(!token.startsWith("ghs_")) { "GitHub App installation tokens cannot access Copilot Agent tasks. Select a fine-grained personal access token or GitHub App user access token with Agent tasks permission." }
+            require(connectionUid.isNotBlank() && conversationId.isNotBlank() && durableIdentity.isNotBlank()) {
+                "Bind Copilot work to the selected GitHub connection and conversation before dispatch."
+            }
+            return GitHubCopilotTasks(
+                repositoryState,
+                listOf(durableIdentity, connectionUid, conversationId, "copilot-tasks").joinToString(":"),
+                read = { requestUntracked(it, HttpMethod.Get, null, true, forceLiveRead = true).jsonObject },
+                write = { path, body -> requestUntracked(path, HttpMethod.Post, body, true, beforeMutation = copilotWriteAdmission).jsonObject }
+            ).execute(root, action, args)
+        }
         if (action == "resolve_context" && args["refresh"] == JsonPrimitive(true)) {
             refAvailability.revalidateRepository(root)
             val selectedRef = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch").ifBlank { repositorySession.context()?.ref.orEmpty() } } }
@@ -384,8 +402,8 @@ class GitHubWorkspaceClient(
             return repositorySession.execute(action, owner, repo, args)
         }
         if (action in GitHubInspection.actions) {
-            val issueQuery: (suspend (String, JsonObject) -> JsonObject)? = if (action == "list_issues" && requestCredential().token.isNotBlank()) ::graphQlIssuePage else null
-            return GitHubInspection { request(it) }.execute(action, root, args, page, issueQuery)
+            val inspectionQuery: (suspend (String, JsonObject) -> JsonObject)? = if (action in setOf("list_issues", "branch_context") && requestCredential().token.isNotBlank()) ::graphQlInspection else null
+            return GitHubInspection { request(it) }.execute(action, root, args, page, inspectionQuery)
         }
         val refQuery = ref.takeIf { it.isNotBlank() }?.let { "?ref=${segment(it)}" }.orEmpty()
 
@@ -2257,7 +2275,7 @@ class GitHubWorkspaceClient(
         if (items.size == perPage) put("next_page", page + 1)
     }
 
-    private suspend fun graphQlIssuePage(query: String, variables: JsonObject): JsonObject = graphQl(query, variables)
+    private suspend fun graphQlInspection(query: String, variables: JsonObject): JsonObject = graphQl(query, variables)
 
     private suspend fun graphQl(query: String, variables: JsonObject, reconcile: (suspend () -> JsonElement?)? = null): JsonObject {
         if (query == gitHubPullRequestHealthQuery && "cursor" !in variables) {
@@ -2735,7 +2753,8 @@ class GitHubWorkspaceClient(
         body: JsonObject?,
         authenticated: Boolean,
         forceLiveRead: Boolean = false,
-        expectedOwnedRefAbsence: Boolean = false
+        expectedOwnedRefAbsence: Boolean = false,
+        beforeMutation: (suspend () -> Unit)? = null
     ): JsonElement {
         refreshCredential()
         val credential = requestCredential()
@@ -2773,6 +2792,13 @@ class GitHubWorkspaceClient(
                         }
                     }
                     throw rejected
+                }
+                if (method != HttpMethod.Get) {
+                    if (beforeMutation != null) {
+                        beforeMutation()
+                    } else if (currentCoroutineContext()[Invocation]?.copilotConsentRequired == true) {
+                        copilotConsentAdmission?.invoke()
+                    }
                 }
                 scheduler.recordRequest()
                 if (method != HttpMethod.Get) GitHubMutationAttempts.dispatched()
@@ -2865,6 +2891,8 @@ class GitHubWorkspaceClient(
                                 reportedOAuthScopes = response.headers["X-OAuth-Scopes"],
                                 acceptedOAuthScopes = response.headers["X-Accepted-OAuth-Scopes"]
                             )
+                        } else if (category == "GITHUB_VALIDATION_FAILED" && method == HttpMethod.Get) {
+                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubToolErrorDiagnostics.validationResponse(text, response.headers["X-GitHub-Request-Id"], path)
                         } else {
                             GitHubRateLimitResponseEvidence.fromResponse(response.status.value, category, response.headers, responseObservedAtMillis)
                         },

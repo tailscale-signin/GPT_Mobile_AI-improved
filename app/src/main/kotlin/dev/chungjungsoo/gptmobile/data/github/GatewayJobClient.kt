@@ -7,7 +7,9 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobPollCoordinator
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayPairedRequestSource
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayJobObservationIdentity
@@ -38,9 +40,10 @@ import kotlinx.serialization.json.intOrNull
 class GatewayJobClient internal constructor(
     private val http: HttpClient,
     private val evictIdleConnections: suspend () -> Unit = {},
-    private val now: () -> Long = { System.nanoTime() / 1_000_000 }
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val pairedRequests: GatewayPairedRequestSource? = null
 ) {
-    @Inject constructor(network: NetworkClient) : this(network.gatewayReadClient(), network::evictIdleConnections)
+    @Inject internal constructor(network: NetworkClient, control: GatewayControlRepository) : this(network.gatewayReadClient(), network::evictIdleConnections, pairedRequests = control)
     private val json = Json { ignoreUnknownKeys = true }
     private data class CommandObservation(val receipt: GatewayCommandReceipt?, val interval: Long, val runtime: String)
     private val commandMisses = linkedMapOf<String, Int>()
@@ -48,12 +51,15 @@ class GatewayJobClient internal constructor(
     private data class IdentityObservation(val identity: GatewayScopeIdentity, val runtime: String)
     private val identityReads = RouteCapabilityCache<IdentityObservation>(now, positiveTtl = 1_000)
 
+    internal suspend fun pairedIdentity(config: ProviderRequestConfig): String? = pairedRequests?.identity(config)
+
     private suspend fun read(config: ProviderRequestConfig, path: String, maxBytes: Int = 2_000_000): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
         val endpoint = config.buildEndpoint("gateway/$path")
         val surface = surface(path)
+        val authority = pairedIdentity(config)?.let { "${GatewaySurfacePolicy.identity(config)}|$it" } ?: GatewaySurfacePolicy.identity(config)
         if (surface == GatewayAdmissionSurface.CAPABILITIES) {
-            GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES)?.let { status ->
+            GatewaySurfacePolicy.shared.rememberedStatus(authority, GatewaySurfacePolicy.Surface.CAPABILITIES)?.let { status ->
                 throw GatewayHistoryUnsupported(surface, status)
             }
         }
@@ -63,10 +69,11 @@ class GatewayJobClient internal constructor(
             withTimeout(deadline) {
                 LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
                     gatewayClientExchange(diagnostic, diagnosticRoute(surface), safeRead = true) { headers ->
-                        http.prepareRequest(endpoint) {
+                        val paired = pairedRequests?.prepare(config, "GET", "/gateway/$path")
+                        (paired?.http ?: http).prepareRequest(paired?.endpoint ?: endpoint) {
                             method = HttpMethod.Get
-                            config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                            headers.forEach { (key, value) -> header(key, value) }
+                            (paired?.token ?: config.token)?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                            (paired?.requestHeaders(headers) ?: headers).forEach { (key, value) -> header(key, value) }
                             if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                             timeout {
                                 connectTimeoutMillis = 10_000
@@ -76,7 +83,7 @@ class GatewayJobClient internal constructor(
                         }.execute { response ->
                             GatewayClientDiagnostics.observe(diagnostic, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                             if (surface == GatewayAdmissionSurface.CAPABILITIES) {
-                                GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES, response.status.value)
+                                GatewaySurfacePolicy.shared.observe(authority, GatewaySurfacePolicy.Surface.CAPABILITIES, response.status.value)
                             }
                             if (!response.status.isSuccess()) {
                                 val directModelServer = response.headers[HttpHeaders.Server]?.substringBefore('/')?.equals("llama.cpp", ignoreCase = true) == true &&
@@ -175,7 +182,7 @@ class GatewayJobClient internal constructor(
 
     /** Canonical journal identity; the inference installation identifier may be different. */
     internal suspend fun identity(config: ProviderRequestConfig): GatewayScopeIdentity {
-        val key = gatewayJobObservationIdentity(config)
+        val key = "${gatewayJobObservationIdentity(config)}|${pairedRequests?.identity(config).orEmpty()}"
         // Each sequential admission still observes the server. Only overlapping
         // reads of the same authenticated route share their in-flight response.
         return requireNotNull(
@@ -201,7 +208,7 @@ class GatewayJobClient internal constructor(
 
     private suspend fun lookupCommand(config: ProviderRequestConfig, commandId: String, forceRefresh: Boolean): GatewayCommandReceipt? {
         pathId(commandId)
-        val key = gatewayIdentityKey(gatewayJobObservationIdentity(config), commandId)
+        val key = gatewayIdentityKey("${gatewayJobObservationIdentity(config)}|${pairedRequests?.identity(config).orEmpty()}", commandId)
         return commandObservations.getOrLoad(key, forceRefresh = forceRefresh, isCurrent = { it?.runtime == GatewaySurfacePolicy.identity(config) }) {
             val receipt = readCommand(config, commandId)
             val misses = synchronized(commandMisses) {

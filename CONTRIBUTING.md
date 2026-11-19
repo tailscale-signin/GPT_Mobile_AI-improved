@@ -15,7 +15,7 @@ Before contributing, make sure your development environment matches the project 
   - Build Tools: `37.0.0`
 - **Gradle**: `9.8.0` (use `./gradlew` wrapper)
 - **Kotlin**: `2.4.20` / KSP `2.3.12`
-- **IDE**: Android Studio Ladybug (or newer) recommended
+- Android Studio Rabbit 1 (2026.2.1) supports the project’s Android Gradle Plugin 9.4.1. To choose another IDE release, check the [Android Studio compatibility table](https://developer.android.com/build/releases/about-agp#android_gradle_plugin_and_android_studio_compatibility).
 
 ---
 

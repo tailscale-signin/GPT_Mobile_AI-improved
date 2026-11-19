@@ -9,6 +9,7 @@ import json
 import sqlite3
 import copy
 import hashlib
+import time
 import importlib.metadata
 from pathlib import Path
 
@@ -62,7 +63,9 @@ from v14.engineering_backend import GitHubEngineeringBackend
 from v14.engineering_routes import install_engineering_routes
 from v14.usage import install_usage
 from v14.conversations import admission_context, ConversationConflict, QueueFull, FEATURES
+from v14.operator_schedule import schedule_lifespan
 from v14.job_catalog import install_routes as install_conversation_routes
+from v14.private_inference import install_private_inference
 from v14.profile_metadata import profile_metadata
 from v14.conversation_policy import conversation_retention, verify_mutation_identity, MUTATION_IDENTITY_HEADERS, ORDINARY_RETENTION_POLICY
 from v14.execution_binding import ExecutionBindingError, configured_route, fingerprint
@@ -137,12 +140,13 @@ debug_log.configure_identity(gatewayVersion=VERSION, sourceCommit=build_identity
 model_preparation = ModelPreparationService(engineering.capabilities)
 benchmarks = BenchmarkService(runtime, engineering)
 runtime.gateway_benchmarks = benchmarks
-app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=benchmarks.lifecycle(model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))))),
+app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=schedule_lifespan(benchmarks.lifecycle(model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))))), os.getenv("GATEWAY_DESKTOP_ROOT"), runtime.GATEWAY_JOB_DB_PATH),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)
 app.add_middleware(Admission, config=config)
 app.add_middleware(DebugMiddleware, store=debug_log, instance_id=service.instance_id)
+install_private_inference(app, runtime)
 install_debug_routes(app, debug_log)
 install_engineering_routes(app, engineering)
 install_conversation_routes(app, runtime.gateway_conversations, engineering, service, lambda: runtime.device_store)
@@ -150,6 +154,8 @@ install_model_preparation_routes(app, model_preparation, runtime.gateway_convers
 install_benchmark_routes(app, benchmarks)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
+from v14.control_settings import install_control_settings
+install_control_settings(app, runtime, service, engineering, config)
 
 
 @app.get("/gateway/admin/dashboard")
@@ -185,6 +191,8 @@ async def chat(request: Request):
         return JSONResponse({"error": error}, status_code=status)
     try:
         payload = await request.json()
+        if isinstance(payload, dict) and not payload.get('model') and getattr(runtime, 'gateway_default_model', ''):
+            payload['model'] = runtime.gateway_default_model
         runtime.validate_chat_request(payload)
         verify_mutation_identity(request.headers, request.state.principal.id, runtime.gateway_conversations.gateway_id)
         presentation = profile_metadata(request.headers)
@@ -335,14 +343,29 @@ def capabilities(model=""):
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True,
                                     selectedModelLimits=True, model_preparation_v1=True, mutation_identity_preconditions_v1=True,
+                                    copilot_cloud_tasks_v1=gateway_id is not None,
                                     ordinary_conversation_retention_v1=True, durable_benchmarks_v1=gateway_id is not None, **{key: gateway_id is not None for key in FEATURES})})
     result['accepted_request_headers'].extend(['X-Gateway-Profile-ID', 'X-Gateway-Profile-Name-Base64', 'X-Gateway-Conversation-Retention', *MUTATION_IDENTITY_HEADERS])
     result['endpoints'].update(identity='/gateway/identity', job_catalog='/gateway/job-catalog', conversations='/gateway/conversations', conversation_messages='/gateway/conversations/{conversation_id}/messages', command='/gateway/commands/{command_id}', model_prepare='/gateway/models/prepare', conversation_metadata='/gateway/conversations/{conversation_id}/metadata', saved_messages='/gateway/saved-messages', message_bookmark='/gateway/conversations/{conversation_id}/bookmarks/{message_id}', benchmarks='/gateway/benchmarks')
+    result['endpoints'].update(copilot_capabilities='/gateway/engineering/copilot/capabilities', copilot_tasks='/gateway/engineering/copilot/tasks', copilot_task='/gateway/engineering/copilot/tasks/{task_id}')
     result['headers'].update(gateway_id='X-Gateway-ID', principal_id='X-Gateway-Principal-ID', conversation_id='X-Gateway-Conversation-ID', command_id='X-Gateway-Command-ID', detach_safe='X-Gateway-Detach-Safe')
     result['contracts'].update(gatewayJobCatalog=['gptmobile.gateway.job-catalog.v1'], gatewayConversations=['gptmobile.gateway.conversations.v1'])
     result['contracts']['modelPreparation'] = ['gptmobile.gateway.model-preparation.v1']
     result['contracts']['conversationMetadata'] = ['gptmobile.gateway.conversation-metadata.v1']
     result['contracts']['benchmarks'] = ['gateway.benchmark.v1']
+    # Phone controls have a separate authenticated TLS listener. Publishing its
+    # existence never gives the legacy/shared-network principal an owner grant.
+    try:
+        root = os.environ.get('GATEWAY_DESKTOP_ROOT')
+        status = json.loads((Path(root) / 'status.json').read_text(encoding='utf-8')) if root else {}
+        control = status.get('phoneControls', {})
+        enabled = control.get('enabled') is True and time.time() - status.get('updatedAt', 0) <= 30
+    except (OSError, ValueError, TypeError):
+        control, enabled = {}, False
+    result['features']['controlSettings.v1'] = enabled
+    result['controlSettings'] = {'protocol': 'controlSettings.v1', 'enabled': enabled,
+                                 'endpoint': control.get('endpoint') if enabled else None,
+                                 'pairing_required': True}
     if model:
         result['selectedModel'] = engineering.capabilities.selected_model(model)
         model_preparation.observe_loaded(model, result['selectedModel'])

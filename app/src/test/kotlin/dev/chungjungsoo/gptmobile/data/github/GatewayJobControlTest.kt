@@ -122,6 +122,23 @@ class GatewayJobControlTest {
     }
 
     @Test
+    fun savedPairedAndSharedJobsRetainTheirOriginalPrincipalForReviewAndStop() = runTest {
+        for (principal in listOf("paired:" + "a".repeat(32), "network:shared")) {
+            val fixture = Fixture(engineeringJob = true, principal = principal)
+            val latest = fixture.engineeringJob()
+            coEvery { fixture.engineering.get(fixture.config, latest.id, -1) } returns latest
+            coEvery { fixture.engineering.control(fixture.mutationConfig, latest, "cancel") } returns latest.copy(state = "CANCELLING", revision = latest.revision + 1)
+
+            assertEquals(GatewayJobStopOutcome.REQUESTED, fixture.control.stop(fixture.review).outcome)
+
+            coVerify(exactly = 1) { fixture.history.catalog(match { it.extraHeaders["X-Gateway-Principal-ID"] == principal && !it.gatewayOwnerControl }, null) }
+            coVerify(exactly = 1) { fixture.history.identity(fixture.config) }
+            coVerify(exactly = 1) { fixture.engineering.control(fixture.config, latest, "cancel") }
+            coVerify(exactly = 0) { fixture.history.catalog(fixture.originalConfig, any()) }
+        }
+    }
+
+    @Test
     fun engineeringCompletionRaceAndMismatchedIdentityNeverDispatchStop() = runTest {
         val finished = Fixture(engineeringJob = true)
         coEvery { finished.engineering.get(finished.config, finished.record.remoteJobId, -1) } returns finished.engineeringJob().copy(state = "COMPLETED")
@@ -163,13 +180,14 @@ class GatewayJobControlTest {
         }
     }
 
-    private class Fixture(engineeringJob: Boolean = false) {
+    private class Fixture(engineeringJob: Boolean = false, private val principal: String = "owner") {
         val repository = mockk<GatewayJobRepository>()
         val history = mockk<GatewayJobClient>()
         val gateway = mockk<GatewayAPI>()
         val engineering = mockk<GatewayEngineeringClient>()
-        val config = ProviderRequestConfig("http://original-gateway:8090/v1", "original-credential", profileUid = "original-connection")
-        val identity = GatewayScopeIdentity("gateway", "owner")
+        val originalConfig = ProviderRequestConfig("http://original-gateway:8090/v1", "original-credential", profileUid = "original-connection")
+        val identity = GatewayScopeIdentity("gateway", principal)
+        val config = originalConfig.withGatewayIdentity(identity)
         val mutationConfig = config.withGatewayIdentity(identity)
         val summary = GatewayJobSummary(
             jobId = if (engineeringJob) "eng_" + "a".repeat(32) else "job",
@@ -185,21 +203,21 @@ class GatewayJobControlTest {
             acceptedAt = 1.0,
             allowedActions = listOf("open", "cancel")
         )
-        val record = GatewayJobRecord(gatewayIdentityKey("gateway", "owner", summary.jobKind, summary.jobId), "gateway", "owner", summary.jobKind, summary.jobId, gatewayIdentityKey("gateway", "owner", "conversation"), "original-connection", config.apiUrl, "original-profile", "snapshot", 1000)
+        val record = GatewayJobRecord(gatewayIdentityKey("gateway", principal, summary.jobKind, summary.jobId), "gateway", principal, summary.jobKind, summary.jobId, gatewayIdentityKey("gateway", principal, "conversation"), "original-connection", config.apiUrl, "original-profile", "snapshot", 1000)
         val review = GatewayJobStopReview(record, summary)
         val control = GatewayJobControl(repository, history, gateway, engineering)
 
         init {
             every { repository.summary(record) } returns summary
-            coEvery { repository.originalRoute("original-connection", config.apiUrl) } returns GatewayJobRoute("original-connection", config.apiUrl, config)
+            coEvery { repository.originalRoute("original-connection", config.apiUrl) } returns GatewayJobRoute("original-connection", config.apiUrl, originalConfig)
             coEvery { history.catalog(config, null) } returns page()
             coEvery { history.identity(config) } returns identity
             coEvery { gateway.getCapabilities(config, true) } returns GatewayCapabilities(supportsCancellation = true)
         }
 
-        fun page(items: List<GatewayJobSummary> = listOf(summary)) = GatewayJobCatalog(gatewayId = "gateway", principalId = "owner", serverNow = 2.0, items = items, complete = true)
+        fun page(items: List<GatewayJobSummary> = listOf(summary)) = GatewayJobCatalog(gatewayId = "gateway", principalId = principal, serverNow = 2.0, items = items, complete = true)
 
-        fun engineeringJob(revision: Int = 8) = GatewayEngineeringJob(summary.jobId, "owner/repository", "work", state = "RUNNING", revision = revision, createdAt = 1.0, deadline = 1000.0, message = "Working", gatewayId = "gateway", principalId = "owner", conversationId = "conversation")
+        fun engineeringJob(revision: Int = 8) = GatewayEngineeringJob(summary.jobId, "owner/repository", "work", state = "RUNNING", revision = revision, createdAt = 1.0, deadline = 1000.0, message = "Working", gatewayId = "gateway", principalId = principal, conversationId = "conversation")
 
         fun verifyNoStop() {
             coVerify(exactly = 0) { gateway.cancelJob(any(), any()) }

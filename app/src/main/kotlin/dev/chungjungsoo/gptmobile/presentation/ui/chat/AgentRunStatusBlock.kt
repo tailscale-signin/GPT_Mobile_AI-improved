@@ -156,7 +156,33 @@ private fun formatElapsedDuration(seconds: Long): String {
 @Composable
 private fun agentRunTerminalErrorText(error: String): String = when (error) {
     AgentRunTerminalError.SERVICE_STOPPED -> stringResource(R.string.agent_run_error_service_stopped)
-    else -> error
+    else -> agentRunUserFacingError(error) ?: error
+}
+
+/** Recovery guidance never claims an unknown remote write was safely retried. */
+internal fun agentRunUserFacingError(error: String): String? {
+    val code = error.trim().substringBefore(':').substringBefore(' ').substringBefore('\n')
+    return when (code) {
+        "CONTEXT_CAPACITY_EXCEEDED", "INPUT_CAPACITY_EXCEEDED" ->
+            "This request exceeds the selected model's input capacity. Reduce optional context or choose a route with a verified larger window."
+        "OUTPUT_CAPACITY_EXCEEDED" ->
+            "The requested reply is larger than the model allows. Reduce the output allowance or select a compatible model."
+        "PROVIDER_RATE_LIMITED" ->
+            "The selected provider is rate limited. Retry after its recorded cooldown; other model routes may still work."
+        "GITHUB_TASK_INCOMPLETE", "COMBINED_REQUIREMENTS_UNMET" ->
+            "The task has not met all requirements. Review the saved progress and continue from verified checkpoints."
+        "GITHUB_EVIDENCE_REQUIRED" ->
+            "The requested verification evidence is incomplete. Inspect the missing checks before marking this task done."
+        "DISPATCH_OUTCOME_UNKNOWN" ->
+            "The tool outcome is unconfirmed. Reconcile the original remote operation before attempting another write."
+        "INVALID_ARGUMENTS" ->
+            "A tool rejected the request parameters. Review the tool's supported fields before retrying."
+        "GATEWAY_ENGINEERING_GITHUB_REQUIRED" ->
+            "The selected Gateway cannot access GitHub. Connect and verify GitHub on that Gateway before resuming."
+        "COMPLETION_REPAIR_BUDGET_EXHAUSTED" ->
+            "The answer could not be completed within this model's output budget. Continue from the saved partial result."
+        else -> null
+    }
 }
 
 internal fun agentRunDurationSeconds(run: AgentRun): Long? {

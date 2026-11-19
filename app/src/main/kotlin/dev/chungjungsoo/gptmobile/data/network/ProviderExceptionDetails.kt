@@ -135,6 +135,7 @@ internal fun providerExceptionDetails(
                 error.outputTokens?.let { put("admission_output_tokens", it) }
                 error.capacityTokens?.let { put("admission_capacity_tokens", it) }
                 put("admission_measurement", error.measurement.name)
+                error.planningToolResultReserveTokens?.let { put("admission_tool_result_reserve_tokens", it) }
                 capacityAdmissionEvidence(error, monotonicMillis).forEach { (key, value) -> put(key, value) }
                 error.budget?.let { budget ->
                     put("admission_tool_result_reserve_tokens", budget.toolResultReserveTokens)
@@ -219,15 +220,7 @@ internal fun providerExceptionDetails(
             type = "gateway_capability",
             code = error.code,
             retryable = false,
-            failureDetails = buildJsonObject {
-                put("code", error.code)
-                put("failed_stage", "connection_preflight")
-                put("attempt_dispatch_state", "NOT_DISPATCHED")
-                put("repair", "CHECK_CONNECTION")
-                put("retryable", false)
-                put("partial_output_preserved", partialOutput)
-                error.httpStatus?.let { put("http_status", it) }
-            }
+            failureDetails = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence.failureDetails(error, partialOutput)
         )
     }
     if (error is dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationException) {

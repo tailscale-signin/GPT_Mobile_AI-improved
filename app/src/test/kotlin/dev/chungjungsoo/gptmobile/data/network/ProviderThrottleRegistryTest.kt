@@ -113,6 +113,20 @@ class ProviderThrottleRegistryTest {
         assertEquals(30_000L to 1, registry.reject("account", null))
     }
 
+    @Test fun waitingForAnUpstreamPoolDoesNotConsumeTheReadyModelPermit() {
+        var now = 0L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        registry.defer("model", 500)
+        registry.defer("pool", 700)
+        now = 500
+        assertEquals(200L, registry.remainingMillis(listOf("model", "pool")))
+        now = 700
+        assertEquals(0L, registry.remainingMillis(listOf("model", "pool")))
+        assertEquals(1000L, registry.remainingMillis("model"))
+        assertEquals(1000L, registry.remainingMillis("pool"))
+        assertEquals(0L, registry.remainingMillis("unrelated"))
+    }
+
     @Test fun cooledRequestsArePacedWhileOtherCredentialsRemainImmediate() {
         var now = 0L
         val registry = ProviderThrottleRegistry({ now }, { 0 })

@@ -34,14 +34,36 @@ COUNTS = {"voice_reply_characters",
     "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms",
 }
 FINISH_REASONS = {"STOP", "TOOL_CALLS", "LENGTH", "CONTENT_FILTER", "OTHER", "UNKNOWN"}
+PRIVACY_ELIGIBILITY_REASONS = {
+    "BATCH_UNSUPPORTED", "MODEL_ROUTER_UNSUPPORTED", "ENDPOINT_UNSUPPORTED", "CREDENTIAL_MISSING",
+    "ROUTING_UNSUPPORTED", "ACCOUNT_PRIVACY_UNVERIFIED", "ACCOUNT_APPROVAL_EXPIRED",
+    "ACCOUNT_APPROVAL_INVALID", "ACCOUNT_APPROVAL_AMBIGUOUS", "PUBLISHED_POLICY_CHANGED",
+    "MODEL_RESOLUTION_UNVERIFIED", "CATALOG_MALFORMED", "MODEL_NOT_LISTED",
+    "NO_STRICT_ZDR_ENDPOINT", "PROVIDER_RESTRICTIONS", "AMBIGUOUS_ENDPOINT",
+    "MANAGEMENT_KEY_MISSING", "GUARDRAIL_UNVERIFIED", "GUARDRAIL_UPDATE_UNCONFIRMED", "GUARDRAIL_ASSIGNMENT_UNVERIFIED",
+    "KEY_UNAVAILABLE", "VERIFICATION_RATE_LIMITED", "VERIFICATION_UNAVAILABLE",
+}
+GATEWAY_CAPABILITY_FIELDS = {"gateway_capability_failure_kind", "gateway_capability_decode_reason"}
+GATEWAY_CAPABILITY_FAILURE_KINDS = {
+    "CONNECT_TIMEOUT", "TIMEOUT", "DNS", "TLS", "CONNECTION", "CONNECTION_CLOSED",
+    "HTTP_REJECTED", "DECODE_REJECTED", "ISOLATION_UNVERIFIED", "UNKNOWN",
+}
+GATEWAY_CAPABILITY_DECODE_REASONS = {
+    "MALFORMED_JSON", "SCHEMA_MISMATCH", "NULL_NOT_ALLOWED", "EXPECTED_BOOLEAN", "EXPECTED_INTEGER",
+    "EXPECTED_STRING", "EXPECTED_OBJECT", "MISSING_REQUIRED_FIELD", "EXPECTED_ARRAY",
+}
 ENUMS = {
     "provider_failure_stage": {"ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"},
     "provider_failure_domain": {"PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"},
-    "provider_failure_code": {"HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION"},
+    "provider_failure_code": {"BUDGET_RESTRICTED", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE"},
+    "privacy_reason_code": PRIVACY_ELIGIBILITY_REASONS,
+    "privacy_status": {"NOT_VERIFIED", "INCOMPATIBLE"},
+    "gateway_capability_failure_kind": GATEWAY_CAPABILITY_FAILURE_KINDS,
+    "gateway_capability_decode_reason": GATEWAY_CAPABILITY_DECODE_REASONS,
     "voice_reply_state": {"FAILED_WITHOUT_DETAILS", "EMPTY_REPLY"},
     "tool_action": {"agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable", "status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch"},
     "tool_error_code": {"APP_ERROR", "DNS_RESOLUTION_FAILED", "TOOL_FAILURE", "TOOL_PRECHECK_FAILED", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PR_HEAD_CHANGED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED"},
-    "tool_reason_code": {"BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "TOOL_PRECHECK_FAILED", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED"},
+    "tool_reason_code": {"BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "TOOL_PRECHECK_FAILED", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED"},
     "tool_dispatch_phase": {"PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED"},
     "chat_failure_code_state": {"ABSENT", "KNOWN", "UNRECOGNIZED"},
 
@@ -91,7 +113,7 @@ FIELDS_BY_AREA = {
         "original_error_code_hash", "server_request_id_hash", "generation_id_hash", "response_format", "finish_reason", "configured_output_limit", "effective_output_limit", "backend_output_limit",
         "input_tokens", "output_tokens", "reasoning_tokens", "visible_output_bytes", "reasoning_output_bytes", "backend_attempts", "backend_completed_attempts", "backend_failed_attempt",
         "repair_attempts", "repair_attempt_limit", "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "usage_source", "output_byte_scope",
-        "privacy_policy_hash", "privacy_zdr_required", "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "privacy_fallbacks_allowed", "privacy_observation",
+        "privacy_policy_hash", "privacy_zdr_required", "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "privacy_fallbacks_allowed", "privacy_observation", "privacy_reason_code", "privacy_status",
         "backend_terminal_code_hash", "backend_terminal_status", "backend_finish_reason", "backend_status",
     },
     "TOOL": COMMON_HASHES | {"tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "original_reason_code_hash", "argument_shape_hash", "missing_field_count", "invalid_field_count", "validation_error_count", "invalid_field_classes"},
@@ -105,6 +127,8 @@ FIELDS_BY_AREA = {
     "APP": COMMON_HASHES | {"original_error_code_hash", "app_exit_kind", "chat_failure_code_state"},
     "INCIDENT": COMMON_HASHES | {"original_error_code_hash", "chat_failure_code_state"},
 }
+FIELDS_BY_AREA["PROVIDER"].update(GATEWAY_CAPABILITY_FIELDS)
+ENUMS["provider_failure_code"].update({"GATEWAY_CAPABILITY_UNAVAILABLE", "GATEWAY_ISOLATION_UNAVAILABLE"})
 # Bounded diagnostic additions for open issue recovery.
 ENUMS["tool_reason_code"].update({"SAVED_VIEW_CONTEXT_MISMATCH", "SAVED_VIEW_CURSOR_MALFORMED", "GITHUB_PATH_NOT_FOUND"})
 # Only the app's bound repository-graph receipt may produce these public categories.
@@ -193,6 +217,10 @@ FIELDS_BY_AREA["PROVIDER"].update(CAPACITY_DETAIL_FIELDS)
 FIELDS_BY_AREA["TOOL"].update(TRANSPORT_FIELDS)
 FIELDS_BY_AREA["ACCEPTANCE"].add("acceptance_pending_remote_continuations")
 
+ENUMS["provider_limit_source"] = {"upstream_provider_shared_pool", "openrouter_free_tier_per_minute", "openrouter_free_tier_daily"}
+HASH_FIELDS.add("provider_cooldown_scope_hash")
+FIELDS_BY_AREA["PROVIDER"].update({"provider_limit_source", "provider_cooldown_scope_hash"})
+
 # Numeric request components and actual capacity provenance. No raw prompt,
 # endpoint, model name or provider payload is part of this contract.
 CAPACITY_CEILING_FIELDS = {
@@ -233,9 +261,10 @@ ENUMS["voice_install_failure_kind"] = {"DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK
 COUNTS.add("voice_install_elapsed_ms")
 FIELDS_BY_AREA["VOICE"].update(VOICE_INSTALL_EVIDENCE_FIELDS)
 
-VOICE_CAPTURE_PLAYBACK_FIELDS = {"voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed"}
+VOICE_CAPTURE_PLAYBACK_FIELDS = {"voice_playback_audio_mode", "voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed"}
 ENUMS["voice_playback_failure"] = {"AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "AUDIO_FOCUS_TIMEOUT", "AUDIO_FOCUS_RESUME_FAILED", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED", "PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE"}
 ENUMS["voice_pronunciation_failure_kind"] = {"UNKNOWN_WORD", "UNSUPPORTED_SCRIPT", "MISSING_LETTER"}
+ENUMS["voice_playback_audio_mode"] = {"NORMAL", "RINGTONE", "IN_CALL", "IN_COMMUNICATION", "OTHER"}
 ENUMS["voice_capture_silenced_stage"] = {"CAPTURE_START", "CAPTURE_READ"}
 ENUMS["voice_caption_alignment"] = {"NO_TIMING", "EXACT_RANGE", "TEXT_UNMAPPED"}
 ENUMS["voice_focus_last_transition"] = {"RESTORE", "PAUSE", "DUCK", "STOP"}
@@ -267,10 +296,11 @@ ACCEPTANCE_RECOVERY_FIELDS = {
     "acceptance_preparation_state", "acceptance_ready_read_count", "acceptance_additional_ready_read_count",
     "acceptance_fixture_creation_admissible", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count",
     "status_policy_protection_http_status", "status_policy_rules_http_status",
-    "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint",
+    "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint", "status_missing_observations",
 }
 ENUMS["acceptance_preparation_state"] = {"CLEANUP_RESERVE_ACTIVE", "OWNED_FIXTURE_STEP_PREPARED", "BOUNDED_READS_PREPARED", "NO_PENDING_CAPABILITY_PREREQUISITES", "PREREQUISITES_REQUIRED"}
 ENUMS["status_policy_recovery_hint"] = {"CHECK_AUTHENTICATION", "CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION", "CHECK_POLICY_READ_PERMISSIONS", "WAIT_RATE_LIMIT", "REFRESH_POLICY_OBSERVATIONS"}
+ENUM_LISTS["status_missing_observations"] = {"BRANCH_HEAD", "COMMITS", "OPEN_PULLS", "COMMIT_CHECKS", "LATEST_WORKFLOW", "REQUIRED_POLICY", "RECENT_FAILURES", "REVIEW_DECISIONS"}
 ENUM_LISTS["acceptance_blocked_operation_families"] = {"github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_decide", "github_review", "github_engineering", "github_repository", "repository_graph"}
 COUNTS.update({"acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_additional_blocked_family_count"})
 FLAGS.update({"acceptance_fixture_creation_admissible", "status_branch_protected", "status_policy_complete"})
@@ -379,6 +409,13 @@ def validate_diagnostics(value):
     values = value["values"]
     if not isinstance(values, dict) or set(values) - allowed or not all(_valid_value(key, item) for key, item in values.items()):
         raise ValueError("invalid diagnostic values")
+    if GATEWAY_CAPABILITY_FIELDS & values.keys():
+        kind = values.get("gateway_capability_failure_kind")
+        expected_code = "GATEWAY_ISOLATION_UNAVAILABLE" if kind == "ISOLATION_UNVERIFIED" else "GATEWAY_CAPABILITY_UNAVAILABLE"
+        if kind not in GATEWAY_CAPABILITY_FAILURE_KINDS or values.get("provider_failure_code") != expected_code:
+            raise ValueError("invalid gateway capability evidence scope")
+        if "gateway_capability_decode_reason" in values and kind != "DECODE_REJECTED":
+            raise ValueError("invalid gateway capability decoder evidence")
     if not _aligned_composer(values):
         raise ValueError("unaligned composer observations")
     if area != "INCIDENT" and values.get("incident_capture_site") == "CHAT_FLOW_EMPTY_ANSWER":

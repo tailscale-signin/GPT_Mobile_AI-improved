@@ -23,6 +23,81 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressiveToolCatalogTest {
+
+    @Test fun discoveryActionRequiresOneToolBeforeColdAcquisition() = runTest {
+        var acquisitions = 0
+        val catalog = ProgressiveToolCatalog(emptyList(), "continue", acquireCold = { _, _ ->
+            acquisitions++
+            emptyList()
+        })
+        val query = buildJsonObject { put("query", "workflow logs") }
+        val action = JsonPrimitive("logs")
+        val mixed = JsonObject(query + ("action" to action))
+        val exact = buildJsonObject {
+            put("action", action)
+            put("names", JsonArray(listOf(JsonPrimitive("github_ci"))))
+        }
+        val schema = catalog.definition.inputSchema
+        assertTrue(ToolArgumentValidator.errors(query, schema).isEmpty())
+        assertTrue(ToolArgumentValidator.errors(exact, schema).isEmpty())
+        assertTrue(ToolArgumentValidator.errors(JsonObject(emptyMap()), schema).isEmpty())
+        val noNames = JsonObject(exact + ("names" to JsonArray(emptyList())))
+        val multipleNames = JsonObject(exact + ("names" to JsonArray(listOf(JsonPrimitive("github_ci"), JsonPrimitive("github_pr")))))
+        for (invalid in listOf(mixed, noNames, multipleNames)) {
+            assertTrue(ToolArgumentValidator.errors(invalid, schema).isNotEmpty())
+            val result = catalog.execute("discovery", invalid)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertFalse(result.dispatched)
+        }
+        assertEquals(0, acquisitions)
+    }
+
+    @Test fun oversizedFullContextStillAllowsItsFittingInspectContract() {
+        val full = GitHubOperationTool.definition("github_context", "github_context__native").copy(description = "long schema ".repeat(2000))
+        val inspect = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__native")
+        val definitions = listOf(full, inspect)
+        for (ceiling in listOf(4096, null)) {
+            val catalog = ProgressiveToolCatalog(definitions, "continue", githubMode = true, contextCeilingTokens = ceiling)
+            val selected = catalog.selected(definitions + catalog.definition)
+            assertTrue(selected.contains(inspect))
+            assertFalse(selected.contains(full))
+            assertTrue(selected.contains(catalog.definition))
+        }
+    }
+
+    @Test fun smallObservedProviderContextNeverAdmitsOversizedSingleGitHubSchema() {
+        val original = GitHubOperationTool.definition("github_pr", "github_pr__native")
+        val oversized = original.copy(description = original.description + "oversized contract ".repeat(500))
+        val catalog = ProgressiveToolCatalog(
+            listOf(oversized),
+            "Inspect the latest PR and verify CI",
+            githubMode = true,
+            contextCeilingTokens = 4096
+        )
+        val selected = catalog.selected(listOf(oversized, catalog.definition))
+        val advertised = selected.filter { it.name != ProgressiveToolCatalog.NAME }
+        assertTrue(advertised.sumOf { ProgressiveToolCatalog.schemaTokens(it) } <= 4096 / 3)
+        assertFalse(advertised.any { it.name == oversized.name })
+        assertTrue(selected.any { it.name == ProgressiveToolCatalog.NAME })
+        val inventory = catalog.selectionOmissions(selected)
+        assertTrue(inventory[oversized.name] in setOf("SCHEMA_TOO_LARGE", "SCHEMA_WINDOW_BUDGET"))
+    }
+
+    @Test fun routeCapacityIsOptInAndLargeVerifiedModelsRetainNormalSchemaWindow() {
+        val original = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__native")
+        val defaults = ProgressiveToolCatalog(listOf(original), "Check the repository", githubMode = true)
+        val full = ProgressiveToolCatalog(
+            listOf(original),
+            "Check the repository",
+            githubMode = true,
+            contextCeilingTokens = 1_048_576
+        )
+        assertEquals(
+            defaults.selected(listOf(original, defaults.definition)).map { it.name },
+            full.selected(listOf(original, full.definition)).map { it.name }
+        )
+    }
+
     @Test fun fullFirstGitHubDefinitionsPreferCompactInitialContracts() {
         val requests = mapOf(
             "check repo status" to setOf("github_context_inspect", "github_pr_inspect"),

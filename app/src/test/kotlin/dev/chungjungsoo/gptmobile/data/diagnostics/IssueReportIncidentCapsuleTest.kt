@@ -648,6 +648,7 @@ class IssueReportIncidentCapsuleTest {
                 "diagnostic_area" to "PROVIDER",
                 "failed_stage" to "claim_extraction",
                 "claim_extraction_failure_kind" to "SCHEMA_REJECTED",
+                "claim_extraction_validation_stage" to "CLAIM_RECORD",
                 "claim_extraction_response_characters" to 1024,
                 "claim_extraction_max_claims" to 2,
                 "claim_extraction_completed" to true,
@@ -656,6 +657,7 @@ class IssueReportIncidentCapsuleTest {
         )
         val values = requireNotNull(context.diagnostics).values
         assertEquals(JsonPrimitive("SCHEMA_REJECTED"), values["claim_extraction_failure_kind"])
+        assertEquals(JsonPrimitive("CLAIM_RECORD"), values["claim_extraction_validation_stage"])
         assertEquals(JsonPrimitive(1024), values["claim_extraction_response_characters"])
         assertEquals(JsonPrimitive(2), values["claim_extraction_max_claims"])
         assertEquals(JsonPrimitive(true), values["claim_extraction_completed"])
@@ -670,6 +672,19 @@ class IssueReportIncidentCapsuleTest {
                 mapOf("diagnostic_area" to "TOOL", "claim_extraction_failure_kind" to "SCHEMA_REJECTED")
             ).diagnostics?.values?.get("claim_extraction_failure_kind")
         )
+    }
+
+    @Test fun chatAcceptanceCanReportTheSharedBudgetWithoutClaimingToolDispatch() {
+        val context = capture(
+            ReportFeature.CHAT,
+            "CHAT_FAILURE",
+            "CHAT_FAILED",
+            mapOf("failed_stage" to "acceptance_verification", "reason_code" to "COMBINED_BUDGET_EXHAUSTED")
+        )
+        val encoded = IssueReport.json.encodeToJsonElement(IssueReportContext.serializer(), context).jsonObject
+        assertEquals("COMBINED_BUDGET_EXHAUSTED", context.reasonCode)
+        assertTrue(IssueReportContext.validDiagnosticsIn(encoded))
+        assertFalse(IssueReportContext.validDiagnosticsIn(JsonObject(encoded + ("stage" to JsonPrimitive("tool_precheck")))))
     }
 
     @Test fun toolPrecheckReportsSafeSchemaReasonsAndCopilotActionsWithoutPrivateArguments() {

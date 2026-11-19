@@ -80,6 +80,7 @@ class OpenRouterBatchClient(
         model: String,
         requests: List<NativeBatchRequest>
     ): BatchMeta = withContext(Dispatchers.IO) {
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         val payload = buildBatchPayload(endpoint, model, requests)
         val requestBody = payload.toRequestBody("application/json".toMediaTypeOrNull())
 
@@ -250,6 +251,7 @@ class OpenRouterBatchClient(
             .addHeader("X-OpenRouter-Cache", "false")
             .build()
 
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         val response = client.newCall(requestObj).awaitBoundedText()
         if (!response.successful) throw BatchHttpException(response.code)
         withContext(kotlinx.coroutines.NonCancellable) { runCatching { onRemoteResponse(response.text) } }

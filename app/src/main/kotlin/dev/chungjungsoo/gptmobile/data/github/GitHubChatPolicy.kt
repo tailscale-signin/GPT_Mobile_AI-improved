@@ -8,6 +8,9 @@ import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 @Serializable
 data class GitHubChatProfileOverride(
@@ -22,8 +25,15 @@ data class GitHubChatProfileOverride(
     val engineeringGatewayProfileUid: String? = null,
     // Independent of creativity/effort and only accepted by a capable Windows host.
     val executionBatchMode: String = "standard",
-    val sampling: GitHubSamplingSettings = GitHubSamplingSettings()
+    val sampling: GitHubSamplingSettings = GitHubSamplingSettings(),
+    val copilotExecutionOwner: GitHubCopilotExecutionOwner = GitHubCopilotExecutionOwner.ANDROID_DIRECT,
+    val graphSharingConsent: String? = null,
+    val workspaceCheckConsent: String? = null
 )
+
+/** Selects the task controller. GitHub executes accepted cloud work in either mode. */
+@Serializable
+enum class GitHubCopilotExecutionOwner { ANDROID_DIRECT, GATEWAY }
 
 /** Persisted conversation consent; an unrelated workspace cannot inherit it. */
 @Serializable
@@ -33,8 +43,24 @@ data class GitHubCopilotConversationPreference(
     val enabled: Boolean
 )
 
-/** Copilot Cloud Agent Merge is a separate paid service, off for all conversations by default. */
+/** Copilot cloud work is a separate paid service, off for all conversations by default. */
 internal object GitHubCopilotAgentMergePolicy {
+    /** Canonical native actions only. Ordinary collaboration can also enroll a Copilot bot. */
+    fun requiresConsent(action: String, arguments: JsonObject): Boolean = when (action) {
+        "agent_merge_enable", "agent_merge_update", "copilot_create_task" -> true
+        "pr_request_reviewers" -> hasLogin(arguments, "reviewers", "copilot-pull-request-reviewer[bot]")
+        "issue_add_assignees", "pr_add_assignees", "create_issue", "update_issue" ->
+            // GitHub exposes the suffixed REST login and the unsuffixed GraphQL Bot login.
+            hasLogin(arguments, "assignees", "copilot-swe-agent[bot]", "copilot-swe-agent")
+        else -> false
+    }
+
+    private fun hasLogin(arguments: JsonObject, field: String, vararg accepted: String): Boolean =
+        (arguments[field] as? JsonArray).orEmpty().any { value ->
+            val login = (value as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()
+            login != null && accepted.any { it.equals(login, ignoreCase = true) }
+        }
+
     fun enabled(features: AppFeatureSettings, chatId: Int?, context: GitHubConversationContext?): Boolean {
         if (chatId == null || chatId <= 0 || context == null) return false
         if (features.pluginExecution[ToolPluginId.GITHUB]?.githubCopilotEnabled != true) return false

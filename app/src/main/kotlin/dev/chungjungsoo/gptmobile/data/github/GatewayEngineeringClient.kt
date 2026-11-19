@@ -8,6 +8,8 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayPairedRequestSource
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import io.ktor.client.HttpClient
@@ -44,9 +46,10 @@ import kotlinx.serialization.json.put
 class GatewayEngineeringClient internal constructor(
     private val http: HttpClient,
     private val readHttp: HttpClient = http,
-    private val evictIdleConnections: suspend () -> Unit = {}
+    private val evictIdleConnections: suspend () -> Unit = {},
+    private val pairedRequests: GatewayPairedRequestSource? = null
 ) {
-    @Inject constructor(network: NetworkClient) : this(network(), network.gatewayReadClient(), network::evictIdleConnections)
+    @Inject internal constructor(network: NetworkClient, control: GatewayControlRepository) : this(network(), network.gatewayReadClient(), network::evictIdleConnections, control)
     private val json = Json { ignoreUnknownKeys = true }
 
     // The gateway requires the complete selected authority, including the
@@ -54,7 +57,7 @@ class GatewayEngineeringClient internal constructor(
     private val selectionJson = Json(json) { encodeDefaults = true }
     private data class CapabilityAttempt(val capability: GatewayEngineeringCapabilities? = null, val failure: GatewayAdmissionException? = null)
     private val capabilityCache = RouteCapabilityCache<CapabilityAttempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
-    private fun capabilityKey(config: ProviderRequestConfig) = "${selectionDigest(JsonPrimitive(config.buildEndpoint("gateway/engineering/capabilities")))}|${GatewaySurfacePolicy.identity(config)}"
+    private suspend fun capabilityKey(config: ProviderRequestConfig) = "${selectionDigest(JsonPrimitive(config.buildEndpoint("gateway/engineering/capabilities")))}|${GatewaySurfacePolicy.identity(config)}|${pairedRequests?.identity(config).orEmpty()}"
 
     private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false, root: String = "gateway/engineering", operationId: String? = null, userAction: String? = null): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
@@ -62,12 +65,14 @@ class GatewayEngineeringClient internal constructor(
         val bindingRead = body == null && path.startsWith("bindings/") && path.endsWith("/capabilities")
         val exchange: suspend () -> String = {
             gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST", operationId = operationId) { headers ->
+                // A safe GET retry gets a fresh nonce. Writes are never automatically replayed.
+                val paired = pairedRequests?.prepare(config, if (body == null) "GET" else "POST", "/$root/$path", body.orEmpty())
                 val repositoryRequest = path == "repository-operations" || path.startsWith("repository-operations/")
                 val repositoryRequestId = if (repositoryRequest) GitHubDispatchAccounting.started(body != null) else null
-                (if (body == null) readHttp else http).prepareRequest(endpoint) {
+                (paired?.http ?: if (body == null) readHttp else http).prepareRequest(paired?.endpoint ?: endpoint) {
                     method = if (body == null) HttpMethod.Get else HttpMethod.Post
-                    config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                    headers.forEach { (key, value) -> header(key, value) }
+                    (paired?.token ?: config.token)?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                    (paired?.requestHeaders(headers) ?: headers).forEach { (key, value) -> header(key, value) }
                     if ((body == null || path in setOf("bindings", "preflight")) && LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     if (approval) header("X-Gateway-User-Action", "approve-and-merge")
                     if (userAction == "restore-local-candidate") header("X-Gateway-User-Action", userAction)
@@ -166,15 +171,19 @@ class GatewayEngineeringClient internal constructor(
                             detail["dispatch_state"] == JsonPrimitive("not_dispatched") &&
                             detail["inference_attempted"] == JsonPrimitive(false)
                         if (body != null && (response.status.value in 400..499 && response.status.value !in setOf(408, 499) || confirmedRejection)) {
-                            val message = when (response.status.value) {
-                                401, 403 -> "Gateway engineering access was rejected. Restore the original account and engineering permission before submitting a new command."
-                                409, 412 -> if (code == "engineering_state_or_input_changed") {
-                                    "The gateway rejected an input or state prerequisite. Review the saved draft and exact task; this response alone does not establish that the conversation changed."
-                                } else {
-                                    "The conversation or job prerequisite changed. Refresh Jobs and review the original task before sending another command."
+                            val message = if (code == "ENGINEERING_JOBS_PAUSED") {
+                                "New saved jobs are paused for this Gateway account. Enable them in GitHub settings."
+                            } else {
+                                when (response.status.value) {
+                                    401, 403 -> "Gateway engineering access was rejected. Restore the original account and engineering permission before submitting a new command."
+                                    409, 412 -> if (code == "engineering_state_or_input_changed") {
+                                        "The gateway rejected an input or state prerequisite. Review the saved draft and exact task; this response alone does not establish that the conversation changed."
+                                    } else {
+                                        "The conversation or job prerequisite changed. Refresh Jobs and review the original task before sending another command."
+                                    }
+                                    429 -> "The gateway did not admit this command because its queue or request limit is full."
+                                    else -> "The gateway rejected this command (HTTP ${response.status.value}). Review it before sending another command."
                                 }
-                                429 -> "The gateway did not admit this command because its queue or request limit is full."
-                                else -> "The gateway rejected this command (HTTP ${response.status.value}). Review it before sending another command."
                             }
                             val safeCode = safeEngineeringRejectionCode(code)
                             if (code == "engineering_state_or_input_changed") {
@@ -357,10 +366,12 @@ class GatewayEngineeringClient internal constructor(
         require(jobId.matches(Regex("diag_[a-f0-9]{32}")) && after in 0..3)
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
         gatewayClientExchange(diagnostic, "engineering", safeRead = true) { headers ->
-            http.prepareRequest(config.buildEndpoint("gateway/engineering/diagnostics/jobs/$jobId/events?after=$after")) {
+            val path = "gateway/engineering/diagnostics/jobs/$jobId/events?after=$after"
+            val paired = pairedRequests?.prepare(config, "GET", "/$path")
+            (paired?.http ?: http).prepareRequest(paired?.endpoint ?: config.buildEndpoint(path)) {
                 method = HttpMethod.Get
-                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                headers.forEach { (key, value) -> header(key, value) }
+                (paired?.token ?: config.token)?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                (paired?.requestHeaders(headers) ?: headers).forEach { (key, value) -> header(key, value) }
                 header("Accept", "text/event-stream")
                 timeout {
                     connectTimeoutMillis = 10_000
@@ -407,6 +418,10 @@ class GatewayEngineeringClient internal constructor(
         return json.decodeFromString(response)
     }
 
+    suspend fun profileCheck(config: ProviderRequestConfig, arguments: kotlinx.serialization.json.JsonObject): kotlinx.serialization.json.JsonObject =
+        json.parseToJsonElement(request(config, "profile-checks", arguments.toString())) as? kotlinx.serialization.json.JsonObject
+            ?: error("The Gateway returned an invalid workspace check receipt.")
+
     suspend fun graph(config: ProviderRequestConfig, arguments: kotlinx.serialization.json.JsonObject): kotlinx.serialization.json.JsonObject =
         json.parseToJsonElement(request(config, "graph", arguments.toString())) as? kotlinx.serialization.json.JsonObject
             ?: error("The gateway returned an invalid repository graph response.")
@@ -421,6 +436,42 @@ class GatewayEngineeringClient internal constructor(
             ?: error("The gateway returned an invalid repository operation status.")
     }
 
+    internal suspend fun admissionSetting(config: ProviderRequestConfig, previous: GatewayAdmissionSetting?): GatewayAdmissionSetting {
+        val path = "admission-settings"
+        if (previous == null) return json.decodeFromString(request(config, path))
+        require(previous.principalId != "network:shared") { "Change shared network admission on the Gateway PC." }
+        val bound = config.withGatewayIdentity(GatewayScopeIdentity(previous.gatewayId, previous.principalId))
+        val update = buildJsonObject {
+            put("enabled", !previous.enabled)
+            put("revision", previous.revision)
+        }
+        val receipt = json.decodeFromString<GatewayAdmissionSetting>(request(bound, path, update.toString()))
+        check(receipt.gatewayId == previous.gatewayId && receipt.principalId == previous.principalId)
+        check(receipt.enabled != previous.enabled && receipt.revision == previous.revision + 1)
+        return receipt
+    }
+
+    internal suspend fun copilotCapabilities(config: ProviderRequestConfig): JsonObject =
+        json.parseToJsonElement(request(config, "copilot/capabilities")) as? JsonObject
+            ?: error("The gateway returned invalid Copilot capabilities.")
+
+    internal suspend fun copilotCreate(config: ProviderRequestConfig, payload: JsonObject): JsonObject =
+        json.parseToJsonElement(request(config, "copilot/tasks", payload.toString(), operationId = payload["request_id"]?.jsonPrimitive?.content)) as? JsonObject
+            ?: error("The gateway returned an invalid Copilot receipt. Reconcile the saved request before continuing.")
+
+    internal suspend fun copilotTasks(config: ProviderRequestConfig, repository: String, requestId: String? = null, page: Int = 1, perPage: Int = 30): JsonObject {
+        require(page in 1..1000 && perPage in 1..100) { "Choose a bounded Copilot task page." }
+        val query = "repository=${repository.encodeURLParameter()}&page=$page&per_page=$perPage" + requestId?.let { "&request_id=${it.encodeURLParameter()}" }.orEmpty()
+        return json.parseToJsonElement(request(config, "copilot/tasks?$query")) as? JsonObject
+            ?: error("The gateway returned an invalid Copilot task list.")
+    }
+
+    internal suspend fun copilotTask(config: ProviderRequestConfig, jobId: String): JsonObject {
+        require(jobId.matches(Regex("cp_[a-f0-9]{32}"))) { "Choose the saved Gateway Copilot job identity." }
+        return json.parseToJsonElement(request(config, "copilot/tasks/$jobId")) as? JsonObject
+            ?: error("The gateway returned an invalid Copilot task status.")
+    }
+
     suspend fun get(config: ProviderRequestConfig, id: String, afterRevision: Int): GatewayEngineeringJob {
         require(id.matches(Regex("eng_[a-f0-9]{32}")))
         return json.decodeFromString(request(config, "jobs/$id?after_revision=${afterRevision.coerceAtLeast(-1)}"))
@@ -431,12 +482,31 @@ class GatewayEngineeringClient internal constructor(
         return json.decodeFromString(request(config, "jobs/$jobId/checkpoints"))
     }
 
-    suspend fun candidateDetails(config: ProviderRequestConfig, jobId: String, checkId: String): String {
-        require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && checkId.matches(Regex("[a-f0-9]{64}")))
-        val value = json.parseToJsonElement(request(config, "jobs/$jobId/checkpoints/$checkId")).jsonObject
+    suspend fun artifactPage(config: ProviderRequestConfig, jobId: String, artifactId: String, offset: Int): JsonObject {
+        require(jobId.matches(Regex("[A-Za-z0-9_-]+")) && artifactId.matches(Regex("artifact_[a-f0-9]{40}")) && offset >= 0)
+        return json.parseToJsonElement(request(config, "jobs/$jobId/artifacts/$artifactId?offset=$offset&length=65536")).jsonObject
+    }
+
+    suspend fun candidateDetails(config: ProviderRequestConfig, jobId: String, checkId: String): String = candidatePage(config, jobId, checkId, 0).first
+
+    suspend fun candidatePage(config: ProviderRequestConfig, jobId: String, checkId: String, offset: Int, left: String? = null): Pair<String, Int?> {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && checkId.matches(Regex("[a-f0-9]{64}")) && offset >= 0)
+        require(left == null || left != checkId && left.matches(Regex("[a-f0-9]{64}")))
+        val comparison = left?.let { "&left_check_id=$it" }.orEmpty()
+        val value = json.parseToJsonElement(request(config, "jobs/$jobId/checkpoints/$checkId?offset=$offset$comparison")).jsonObject
+        if (left != null) check(value["left_check_id"] == JsonPrimitive(left) && value["scope"] == JsonPrimitive("candidate_comparison")) { "The Gateway did not return the selected comparison." }
         check(value["job_id"]?.jsonPrimitive?.content == jobId && value["check_id"]?.jsonPrimitive?.content == checkId)
-        val truncation = if (value["truncated"] == JsonPrimitive(true)) "\n[Diff truncated]" else ""
-        return value["diff"]?.jsonPrimitive?.content.orEmpty() + truncation + "\n\nTest output:\n" + value["output"]?.jsonPrimitive?.content.orEmpty()
+        check((value["offset"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0) == offset)
+        val next = value["next_offset"]?.jsonPrimitive?.content?.toIntOrNull()
+        check(next == null || next > offset)
+        val text = buildString {
+            if (left != null) append("Baseline: ${value["left_status"]?.jsonPrimitive?.content} · Compared candidate: ${value["status"]?.jsonPrimitive?.content}\n")
+            append(value["diff"]?.jsonPrimitive?.content.orEmpty())
+            if (next == null && value["truncated"] == JsonPrimitive(true)) append("\nThe Gateway returned a partial diff. Update it to enable paging.")
+            val output = value["output"]?.jsonPrimitive?.content.orEmpty()
+            if (output.isNotEmpty()) append("\n\nTest output\n").append(output)
+        }
+        return text to next
     }
 
     suspend fun restoreCandidate(config: ProviderRequestConfig, job: GatewayEngineeringJob, checkId: String): GatewayEngineeringJob {

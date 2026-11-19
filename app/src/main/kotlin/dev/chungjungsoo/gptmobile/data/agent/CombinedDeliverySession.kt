@@ -602,6 +602,11 @@ private fun combinedRequirementEvidence(report: CombinedQualityReport): JsonObje
     put("failed_stage", "final_synthesis")
     put("failure_origin", "LOCAL_RECOVERY")
     put("combined_issue_count", report.issues.size)
+    put("combined_failed_check_count", report.checks.count { it.result == "FAIL" })
+    put("combined_unverified_check_count", report.checks.count { it.result == "NEEDS_VERIFICATION" })
+    put("combined_repair_rounds", report.repairRounds)
+    report.repairSkippedReason?.substringBefore(':')?.takeIf { it in dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.combinedRepairStops }
+        ?.let { put("combined_repair_stop", it) }
     put(
         "combined_requirement_gap",
         when {

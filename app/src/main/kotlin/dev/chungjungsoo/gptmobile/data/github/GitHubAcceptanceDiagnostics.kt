@@ -13,7 +13,7 @@ internal object GitHubAcceptanceDiagnostics {
     private const val SCHEMA = "github.acceptance-diagnostics.v1"
     private const val LIMIT = 64
     private val classes = setOf("LIVE_ACCOUNT", "CACHED", "LOCAL", "MOCKED", "HISTORICAL_CI_OBSERVATION", "CURRENT_DEVICE_EXECUTION", "APP_GATEWAY", "NOT_TESTED")
-    private val tools = setOf("github_context", "github_repository", "github_read", "github_search", "github_stage_patch", "github_write", "github_commit", "github_pr", "github_issue", "github_release", "github_ci", "github_watch_checks", "github_decide", "repository_graph")
+    private val tools = setOf("github_context", "github_repository", "github_read", "github_search", "github_stage_patch", "github_write", "github_commit", "github_pr", "github_issue", "github_release", "github_ci", "github_watch_checks", "github_decide", "repository_graph", "repository_workspace")
     private val lifecycleActions = mapOf("create_repository" to "create", "fork_repository" to "fork", "import_repository" to "import", "clone_repository" to "clone", "repository_lifecycle_status" to "status", "repository_lifecycle_capabilities" to "capabilities")
     private val actions = setOf("default", "status", "resolve", "branch", "branches", "branch_dependencies", "commits", "commit", "commit_search", "checks", "changes", "list", "get", "search", "search_code", "search_repository", "ranges", "files", "history", "headers", "context", "comments", "reviews", "create", "update", "close", "comment", "reply", "review", "merge", "write", "delete_branch", "delete_fixture_branch", "commit_staged_patch", "definitions", "workflows", "runs", "run", "jobs", "job", "logs", "artifacts", "failure", "dispatch", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "index", "query", "node", "callers", "callees", "path", "impact", "architecture", "diff", "diagnose", "contracts", "prs", "symbols", "neighbors", "note", "notes", "requirements", "wiki", "metrics", "federated", "provider", "publish", "create_tag", "tags", "tag", "detail", "by_tag", "repository", "repositories", "capabilities", "efficiency", "recovery")
     private val repositoryActions = setOf("fork", "import", "clone")
@@ -273,7 +273,7 @@ internal object GitHubAcceptanceDiagnostics {
         return buildSet {
             add(
                 when (GitHubEvidenceOrigin.of(receipt)) {
-                    "LIVE" -> if (tool == "repository_graph") "APP_GATEWAY" else "LIVE_ACCOUNT"
+                    "LIVE" -> if (tool.isGatewayRepositoryTool()) "APP_GATEWAY" else "LIVE_ACCOUNT"
                     "CACHED" -> "CACHED"
                     "LOCAL" -> "LOCAL"
                     "MOCKED" -> "MOCKED"

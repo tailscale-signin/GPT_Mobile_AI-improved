@@ -4,6 +4,8 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayPairedRequestSource
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
@@ -33,8 +35,8 @@ internal data class GatewayInstructionCommand(
 
 /** Explicit user commands only; reconnect and transcript observers never call this client. */
 @Singleton
-class GatewayConversationCommandClient internal constructor(private val http: HttpClient) {
-    @Inject constructor(network: NetworkClient) : this(network())
+class GatewayConversationCommandClient internal constructor(private val http: HttpClient, private val pairedRequests: GatewayPairedRequestSource? = null) {
+    @Inject internal constructor(network: NetworkClient, control: GatewayControlRepository) : this(network(), control)
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -44,13 +46,16 @@ class GatewayConversationCommandClient internal constructor(private val http: Ht
         require(conversationId.isNotBlank() && conversationId.length <= 256 && conversationId.none(Char::isISOControl))
         require(command.commandId.length in 1..128 && command.content.isNotBlank() && command.content.length <= 16000 && command.expectedRevision >= 0)
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
+        val path = "gateway/conversations/${conversationId.encodeURLParameter()}/messages"
+        val body = json.encodeToString(command)
         return gatewayClientExchange(diagnostic, "commands", safeRead = false, method = "POST") { headers ->
-            http.prepareRequest(config.buildEndpoint("gateway/conversations/${conversationId.encodeURLParameter()}/messages")) {
+            val paired = pairedRequests?.prepare(config, "POST", "/$path", body)
+            (paired?.http ?: http).prepareRequest(paired?.endpoint ?: config.buildEndpoint(path)) {
                 method = HttpMethod.Post
-                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                headers.forEach { (key, value) -> header(key, value) }
+                (paired?.token ?: config.token)?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                (paired?.requestHeaders(headers) ?: headers).forEach { (key, value) -> header(key, value) }
                 contentType(ContentType.Application.Json)
-                setBody(json.encodeToString(command))
+                setBody(body)
                 timeout {
                     connectTimeoutMillis = 10_000
                     requestTimeoutMillis = 30_000

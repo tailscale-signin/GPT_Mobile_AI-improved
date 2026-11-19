@@ -230,7 +230,11 @@ internal fun RepositoryGraphStatusContent(
             }
             if (state.modelAccess != "NOT_CHECKED") {
                 Text(
-                    if (state.modelAccess == "PRIVATE_PROFILE_ELIGIBLE") "Your private AI profile is eligible to use this map. Actual use is recorded with each retrieval." else "Map browsing is available, but the selected AI profile cannot receive private graph context. Select a private profile to use the map in AI requests.",
+                    when (state.modelAccess) {
+                        "PRIVATE_PROFILE_ELIGIBLE" -> "Your private AI profile can use this repository map."
+                        "REMOTE_PROFILE_AUTHORIZED" -> "Your selected remote model can receive map results for this repository."
+                        else -> "Map browsing is available. Check repository sharing and Privacy Mode in settings to enable model access."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant,
                     modifier = Modifier.testTag("github_repository_map_model_access")

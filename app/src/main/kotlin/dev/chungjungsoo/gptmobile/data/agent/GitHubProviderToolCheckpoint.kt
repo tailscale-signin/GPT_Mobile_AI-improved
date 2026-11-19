@@ -11,9 +11,25 @@ internal object GitHubProviderToolCheckpoint {
     data class Resolved(val binding: String, val evidenceDigest: String?, val journalDigest: String? = null)
 
     /** Preserve the original journal and fence its first restoration against the saved provider evidence. */
-    suspend fun resolve(directory: File, chatId: Int, scope: String, authorityRevision: String, expected: GitHubProviderCheckpoint?, checkpoint: JsonObject?, persistent: Boolean): Resolved {
+    suspend fun resolve(directory: File, chatId: Int, scope: String, authorityRevision: String, expected: GitHubProviderCheckpoint?, checkpoint: JsonObject?, persistent: Boolean, handoffTaskBinding: String? = null): Resolved {
         val retained = binding(scope, authorityRevision, expected, checkpoint)
-        if (expected == null) return Resolved(retained, null)
+        if (expected == null) {
+            if (!persistent || handoffTaskBinding == null || checkpoint?.get("state") != JsonPrimitive("TOOL_HANDOFF")) return Resolved(retained, null)
+            val context = checkpoint["context"] as? JsonObject
+            val original = (context?.get("tool_checkpoint_binding") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+            if (context?.get("task_binding") != JsonPrimitive(handoffTaskBinding) ||
+                original == null ||
+                original == retained ||
+                !original.startsWith("$scope:") ||
+                original.length !in (scope.length + 2)..4096 ||
+                !scope.startsWith("$chatId:")
+            ) {
+                return Resolved(retained, null)
+            }
+            val journal = ToolBatchCheckpoint.forTurn(directory, chatId, original, persistent = true)
+            val digest = journal.settledHandoffDigest(checkpoint) ?: return Resolved(retained, null)
+            return Resolved(original, null, digest)
+        }
         val saved = requireNotNull(checkpoint)
         val context = saved["context"] as? JsonObject
         val digest = (saved["provider_evidence_digest"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull

@@ -206,6 +206,13 @@ class FreeProviderBudgetRecoveryTest {
         }
     }
 
+    @Test fun conflictingContextEvidenceUsesTheSmallerVerifiedCeiling() {
+        val rejection = """{"error":{"code":"context_length_exceeded","context_window":32768,"context_length":16384,"message":"maximum context length of 8,192 tokens; you requested 30,000 tokens"}}"""
+        assertEquals(8192, rejectedFreeContextLimit(400, rejection))
+        assertNull(rejectedFreeContextLimit(400, rejection.replace("8,192", "8,19").replace("32768", "0").replace("16384", "-1")))
+        assertNull(rejectedFreeContextLimit(400, rejection + " ".repeat(65536)))
+    }
+
     @Test fun outputOnlyRejectionCannotPoisonTotalContext() {
         assertNull(rejectedFreeContextLimit(400, """{"error":{"code":"max_tokens_exceeded","message":"maximum output tokens 8000"}}"""))
         assertNull(rejectedFreeContextLimit(403, """{"code":"context_window_exceeded","context_window":8000}"""))

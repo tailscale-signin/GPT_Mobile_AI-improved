@@ -60,7 +60,8 @@ data class ChatCompletionChunk(
     @Transient val serializedOutputTokens: Int? = null,
     @Transient val observedFinishReason: String? = null,
     @Transient val reasoningControlReceipt: dev.chungjungsoo.gptmobile.data.network.ReasoningControlReceipt? = null,
-    @Transient val gatewayRecovery: JsonObject? = null
+    @Transient val gatewayRecovery: JsonObject? = null,
+    @Transient val reportedModelId: String? = null
 )
 
 @Serializable

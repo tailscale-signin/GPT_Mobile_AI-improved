@@ -56,6 +56,15 @@ class VoiceCaptionTest {
         assertNull(caption.highlightRange(5..5))
     }
 
+    @Test fun lateRangesInLongRepliesKeepSupplementaryLetters() {
+        val prefix = "testing ".repeat(1000)
+        val word = String(Character.toChars(0x10400))
+        val caption = VoiceCaption(prefix + word + "!", "AI reply", true)
+        val words = caption.wordRanges()
+        assertEquals(prefix.length until prefix.length + word.length, caption.highlightRange(prefix.length until prefix.length + word.length, words))
+        assertNull(caption.highlightRange(caption.text.lastIndex..caption.text.lastIndex, words))
+    }
+
     @Test fun timedRangesNeverSplitASurrogatePair() {
         val caption = VoiceCaption("Say 👋 hello", "AI reply", true)
         assertEquals(4..5, caption.highlightRange(4..5))

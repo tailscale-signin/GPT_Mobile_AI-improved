@@ -79,6 +79,18 @@ class AppAuditInventoryTest(unittest.TestCase):
         self.write(str(inventory.ASSET), '{}\n')
         self.assertEqual(expected, inventory.document(self.root))
 
+    def test_native_gateway_source_is_bound_but_dotnet_generated_files_are_excluded(self):
+        window = self.write('gateway/desktop/native/MainWindow.cs', 'class MainWindow {}\n')
+        self.write('gateway/desktop/native/App.xaml', '<Application/>\n')
+        self.write('gateway/desktop/native/obj/Release/App.g.cs', 'generated binding\n')
+        self.write('gateway/desktop/native/bin/Release/App.xaml', 'compiled output\n')
+        self.write('gateway/desktop/native/tests/ContractTest.cs', 'test fixture\n')
+        first = inventory.document(self.root)
+        self.assertEqual(2, first['file_count'])
+        self.assertEqual({'gateway_software'}, {row['area_id'] for row in first['files']})
+        window.write_text('class MainWindow { public bool Enabled; }\n')
+        self.assertNotEqual(first['source_digest'], inventory.document(self.root)['source_digest'])
+
     def test_refuses_linked_files_and_directories(self):
         outside = self.root / 'outside.kt'
         outside.write_text('not production\n')

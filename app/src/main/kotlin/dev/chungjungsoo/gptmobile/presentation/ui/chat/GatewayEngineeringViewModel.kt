@@ -22,12 +22,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+data class CandidatePageCursor(val binding: GatewayEngineeringBinding, val checkId: String, val offset: Int, val next: Int?, val left: String? = null)
+
 data class GatewayEngineeringUiState(
     val bindings: List<GatewayEngineeringBinding> = emptyList(),
     val options: GatewayEngineeringSettings = GatewayEngineeringSettings(),
     val busy: Boolean = false,
     val error: String? = null,
     val evidencePreview: String? = null,
+    val candidateCursor: CandidatePageCursor? = null,
     val checkpoints: Pair<GatewayEngineeringBinding, dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringCheckpoints>? = null
 )
 
@@ -51,7 +54,7 @@ class GatewayEngineeringViewModel @Inject constructor(
             if (chat == chatId) return
             chat = chatId
             epoch.incrementAndGet().also {
-                mutable.update { it.copy(bindings = emptyList(), evidencePreview = null, checkpoints = null, error = null) }
+                mutable.update { it.copy(bindings = emptyList(), evidencePreview = null, candidateCursor = null, checkpoints = null, error = null) }
             }
         }
         polling?.cancel()
@@ -127,7 +130,23 @@ class GatewayEngineeringViewModel @Inject constructor(
 
     fun evidence(binding: GatewayEngineeringBinding, receiptId: String) = action { selectedEpoch ->
         val text = repository.evidence(binding.request.requestId, receiptId)
-        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text) }
+        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text, candidateCursor = null) }
+    }
+
+    fun exportOutput(binding: GatewayEngineeringBinding, output: kotlinx.serialization.json.JsonObject, context: android.content.Context, uri: android.net.Uri) = action {
+        val temporary = java.io.File.createTempFile("gateway-output-", null, context.cacheDir)
+        try {
+            temporary.outputStream().use { repository.exportOutput(binding.request.requestId, output, it) }
+            requireNotNull(context.contentResolver.openOutputStream(uri, "wt")) { "The selected document could not be opened for writing." }.use { destination ->
+                temporary.inputStream().use { it.copyTo(destination) }
+            }
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    fun queuePlanEdit(binding: GatewayEngineeringBinding, text: String, commandId: String) = action {
+        repository.queuePlanEdit(binding, text, commandId)
     }
 
     fun checkpoints(binding: GatewayEngineeringBinding) = action { selectedEpoch ->
@@ -135,9 +154,9 @@ class GatewayEngineeringViewModel @Inject constructor(
         updateForEpoch(selectedEpoch) { it.copy(checkpoints = binding to result) }
     }
 
-    fun inspectCandidate(binding: GatewayEngineeringBinding, checkId: String) = action { selectedEpoch ->
-        val text = repository.candidateDetails(binding.request.requestId, checkId)
-        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text) }
+    fun inspectCandidate(binding: GatewayEngineeringBinding, checkId: String, offset: Int = 0, left: String? = null) = action { selectedEpoch ->
+        val (text, next) = repository.candidatePage(binding.request.requestId, checkId, offset, left)
+        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text, candidateCursor = CandidatePageCursor(binding, checkId, offset, next, left)) }
     }
 
     fun restoreCandidate(binding: GatewayEngineeringBinding, checkId: String) = action { selectedEpoch ->
@@ -154,7 +173,7 @@ class GatewayEngineeringViewModel @Inject constructor(
     }
 
     fun closeEvidence() {
-        mutable.update { it.copy(evidencePreview = null) }
+        mutable.update { it.copy(evidencePreview = null, candidateCursor = null) }
     }
 
     private fun updateForEpoch(selectedEpoch: Long, update: (GatewayEngineeringUiState) -> GatewayEngineeringUiState) {

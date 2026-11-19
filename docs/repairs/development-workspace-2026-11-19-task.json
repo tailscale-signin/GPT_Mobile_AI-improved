@@ -1,0 +1,102 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "326683b484f9fea4dfc585fc9732f4b3b97d9068",
+  "working_branch": "fix/post-1534-runtime-continuation-and-acceptance-2026-11-18",
+  "start_sha": "8023a17b0dc961e57d51fe4c94f384dc0d34ed3e",
+  "existing_pr": 1741,
+  "intent": "Deliver and qualify the persistent development workspace on the shared release branch.",
+  "state": "IN_PROGRESS",
+  "implementation": [
+    "Remote profile graph sharing, path instructions, reusable procedures, native hunk review",
+    "Offline per-task processes, dependency-prepared environment profiles, language server requests, resumable specialists, configurable validation hooks and Android plan, activity and test views",
+    "Corrective commits and alternate workspace checkouts, dependency-ordered issue workflows, custom environment recipes and per-route qualification",
+    "Android-selected model workspace check tool, per-repository host approval, revision and profile-bound consent, encrypted idempotent check receipts and reconnect lookup.",
+    "Retained private APK and test output, checksummed Android and desktop export, and hierarchical instructions for Android-native source reads and edits.",
+    "The Android checkpoint timeline compares any two retained candidates at the same source and policy, pages the entire diff and shows both test results.",
+    "Android records the model identifier supplied on the actual provider tool call alongside signed-in host results, candidate, environment, source and check outcome. An unobserved or different model stays explicitly identified.",
+    "The Windows composer and explicit or direct engineering requests select a revision-bound procedure before planning. Repository skills can declare their required tools and executor capabilities.",
+    "Qualification now distinguishes local and remote inference, attaches direct GitHub and Copilot transport evidence, and matches fresh named JUnit failures and passes on the same route and source before reporting a Kotlin repair."
+  ],
+  "remaining": [
+    "Complete end-to-end prepared Android image and installed profile, recovery and source-sharing qualification",
+    "Verify head checks, merge, verify main checks and confirm release assets"
+  ],
+  "verified": [
+    {
+      "commit": "d1803bcddd2a089b5062d093952dd2be8a8cc097",
+      "scope": "Full host Gateway suite and fast checks, 554 repository tests"
+    },
+    {
+      "commit": "c917afa436bad8619615622c1d91244b34215ed5",
+      "scope": "GitHub Actions managed repository validation with real Docker, non-root checkout and process retry"
+    },
+    {
+      "commit": "296953a9e7b30d6b388558982daef5e285266290",
+      "scope": "Real hosted offline Python and Node profile runs passed. Android environment reached native preparation and identified missing host compiler/make."
+    },
+    {
+      "scope": "The checksum-verified Kotlin LSP and installed pylsp resolved definitions across files in separate local language projects."
+    },
+    {
+      "commit": "ab89272640a0c005852b4d22474954d2409e02fc",
+      "scope": "Hosted real Docker validation and offline Python and Node profiles passed."
+    },
+    {
+      "commit": "9a1dd5f111fe354255384fd6a6b922f6745a3ae9",
+      "scope": "Immutable local fast suite (554 repository tests) and full Gateway suite passed, as did hosted managed Docker, offline Node and Python. The hosted paired check dispatcher reproduced and repaired a fixture against real Docker. Its model identity was a fixture."
+    },
+    {
+      "commit": "ae463479441607d5efeadf98547d39897efa0cd6",
+      "scope": "Full local Gateway tests and 554 fast tests passed. The Android Gradle project configured successfully with the AboutLibraries plugin restricted to its verified Plugin Portal coordinates."
+    },
+    {
+      "commit": "acae1a76549d8df2a452142d2f072d265990b61a",
+      "scope": "The prepared Android Docker build reported a Java heap exhaustion during Kotlin annotation stub generation. The Windows installer build and hosted Docker check passed for this revision."
+    },
+    {
+      "commit": "4fbb586ad211d4dfed62ddd1fa565dabef3b17cd",
+      "scope": "Hosted preparation successfully compiled Android and produced its prepared image. Offline Room KSP then failed loading sqlite-jdbc from noexec /tmp. The same pinned sqlite-jdbc jar loaded natively and executed a database query from the chosen workspace location in an independent Java 21 check."
+    },
+    {
+      "commit": "86c3e1ab2a52f8a2a5cdc775bd30c26fd4c9b63e",
+      "scope": "The hosted Gateway stability matrix, Windows installer and GitHub APK catalog/download workflows passed."
+    },
+    {
+      "commit": "1d406225aa633db4d53b2a82f35c1f2f09494653",
+      "scope": "Hosted GenieX preview ran 11,665 Android unit tests. The single failure was an obsolete assertion expecting 19 catalog entries after the workspace tool was added. The regression now verifies the new entry and the displayed total against all report rows."
+    },
+    {
+      "commit": "1d406225aa633db4d53b2a82f35c1f2f09494653",
+      "scope": "Signed-release validation also exposed an intermittent frozen-input mismatch during recovery of a Combined answer. Compiling the corrected production serializer with the Kotlin serialization plugin verified retained timestamps and deterministic recovery across a real clock change for the user message, history, and nested replies."
+    },
+    {
+      "commit": "1d406225aa633db4d53b2a82f35c1f2f09494653",
+      "scope": "The hosted isolated Android build passed the earlier SQLite native-loader step. The next failure was missing debugUnitTestRuntimeClasspath packages before JUnit, including Espresso, Conscrypt and Robolectric. The revised preparation resolves runtime and lint artifacts and invokes test discovery during setup. A separate real Gradle 9.8 and JUnit 4 fixture verified runtime dependency resolution and reproduced and repaired its exact named assertion after that preparation."
+    },
+    {
+      "commit": "001348f36f833759c7d144c4bd4da902100bbedf",
+      "scope": "Using the actual Android project and Gradle 9.8, preparation exposed an ambiguous artifact variant for the local GGUF project. The revised cache step selects external components while Android chooses project variants. The full project test runtime and lint dependencies resolved online, then :app:mergeDebugUnitTestManifest passed offline, the exact step that previously failed on hosted Android."
+    },
+    {
+      "commit": "b1199ba4752a062692e51056721d42980567d1f2",
+      "scope": "Two independent hosted runners timed out fetching the Ubuntu package index over HTTP. Verified Android setup can fall back between HTTPS mirrors, fails on exhausted mirrors, and preserves native repository configuration on other distributions. Both HTTPS mirrors served release metadata with valid signatures from the Ubuntu archive key."
+    },
+    {
+      "commit": "b1199ba4752a062692e51056721d42980567d1f2",
+      "scope": "The real Kotlin language server resolved a String extension across files and previewed the exact definition and caller edits. Applying the preview in memory preserved a same-named Int extension and its caller."
+    },
+    {
+      "commit": "d4ceaa408e573ad37bc16ba42677706f8eb50437",
+      "scope": "The pinned TypeScript server exposed an asynchronous diagnostic delivery race. The corrected client reported compiler error TS2322 at the affected source line, then an explicitly clean result after correcting the type. Its call hierarchy reported the cross-file caller. The Kotlin overload-sensitive cross-file rename still passed. Both HTTPS mirrors also served Git, curl and Python packages matching their signed Ubuntu index."
+    },
+    {
+      "commit": "d4ceaa408e573ad37bc16ba42677706f8eb50437",
+      "scope": "Hosted run 44524629663 recorded CheckoutExampleTest.sumsItems failing, the same test passing after the patch, and the existing GatewayGraphTest passing in the offline Android workspace. Fresh APK assembly then attempted to fetch OpenCL headers. Reusing the prepared original FetchContent downloads resolved this step: real Android NDK 29 and CMake 3.22.1 configured the production OpenCL/Vulkan module for ARM64 and x86_64 with HTTP(S) connections directed to a closed port. CMake verified each archive against the candidate, including ARM KleidiAI. Full hosted APK assembly remains pending."
+    },
+    {
+      "commit": "d18caf1f0acf89cd08426a14a6313a7ae5a97e26",
+      "scope": "The actual production native GGUF libraries built with the network blocked for both ARM64 and x86_64. Android acceptance, native smoke, Windows installer and the review APK passed on GitHub. GenieX unit tests passed, but debug packaging reached :app:packageDebug and exceeded its deadline. Debug packaging now uses the same separate audited signing process as the minified preview. Real Java 21/AGP 9.4.1 signing reports and SDK tools checked the build modes, explicit temporary debug keystore, 16-KiB native alignment and v2/v3 signatures on a 110 MB preview fixture containing the production ARM64 library."
+    }
+  ]
+}

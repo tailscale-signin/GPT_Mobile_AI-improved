@@ -17,7 +17,7 @@ from v14.state_lock import StateDirectoryLock
 
 def main():
     parser = argparse.ArgumentParser(description='GPT Mobile Gateway desktop manager')
-    parser.add_argument('command', choices=['supervise', 'settings', 'github-settings', 'engineering-setup', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard', 'benchmark-settings'])
+    parser.add_argument('command', choices=['supervise', 'settings', 'github-settings', 'engineering-setup', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard', 'benchmark-settings', 'native-bridge', 'schedules', 'workspace', 'phone-settings'])
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--version')
     parser.add_argument('--headless', action='store_true', help='Run the supervisor without desktop UI')
@@ -25,14 +25,60 @@ def main():
     parser.add_argument('--error-file', type=Path)
     parser.add_argument('--settings-file', type=Path)
     parser.add_argument('--smoke-ui', action='store_true')
+    parser.add_argument('--legacy-ui', action='store_true', help='Open the validated host utility inside the existing runtime')
+    parser.add_argument('--view', choices=['Overview', 'Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks', 'Android controls', 'Diagnostics', 'Settings'])
+    parser.add_argument('--page', choices=['Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks'], help='Compatibility alias for a workspace view')
     args = parser.parse_args()
     if args.headless and args.command != 'supervise':
         parser.error('--headless requires the supervise command')
     root = args.root.resolve()
+    # Retain earlier launcher commands without a second workspace or owner UI.
+    phone_settings = args.command == 'phone-settings'
+    if args.command == 'workspace':
+        args.command, args.view = 'dashboard', args.view or args.page or 'Chat'
+    elif phone_settings:
+        args.command, args.view, args.legacy_ui = 'dashboard', 'Android controls', False
+    if args.command == 'native-bridge':
+        # Native prompts and receipts use redirected pipes, never command-line text.
+        sys.stdin.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding='utf-8')
+        from desktop.native_bridge import serve
+        return serve(root)
+    if args.command in {'dashboard', 'settings', 'github-settings'} and not args.legacy_ui:
+        from desktop.native_launch import show
+        view = args.view or {'dashboard': 'Overview', 'settings': 'Settings', 'github-settings': 'Tools'}[args.command]
+        result = show(root, view=view, smoke=args.smoke_ui)
+        if result is not None:
+            return result
+        if phone_settings:
+            raise ValueError('Open Android controls in the installed Windows Gateway app to pair an owner device.')
+    if args.command == 'schedules':
+        import tkinter as tk
+        from desktop import theme
+        from desktop.schedule_panel import show_schedules
+        from desktop.window_lifecycle import watch
+        lock = StateDirectoryLock(root / 'schedules-ui' / 'owner')
+        lock.acquire()
+        try:
+            owner = tk.Tk()
+            theme.apply(owner)
+            owner.withdraw()
+            show_schedules(owner, root)
+            windows = [window for window in owner.winfo_children() if isinstance(window, tk.Toplevel)]
+            for window in windows:
+                window.bind('<Destroy>', lambda event, dialog=window: owner.quit() if event.widget is dialog else None, add='+')
+            watch(owner, root, owner.quit)
+            owner.mainloop()
+            owner.destroy()
+        finally:
+            lock.release()
+        return 0
     if args.command in {'firewall', 'remove-firewall'}:
         from desktop.firewall import apply
         if args.command == 'firewall' or (root / 'firewall.json').exists():
             apply(root, remove=args.command == 'remove-firewall')
+        if args.command == 'remove-firewall' and (root / 'phone-firewall.json').exists():
+            apply(root, remove=True, phone=True)
         return 0
     if args.command in {'serve-engine', 'validate-engine'}:
         if args.command == 'validate-engine':
@@ -92,7 +138,7 @@ def main():
         return 0
     if args.command == 'dashboard':
         from desktop.dashboard import show
-        show(root, smoke=args.smoke_ui)
+        show(root, smoke=args.smoke_ui, view=args.view or 'Overview')
         return 0
     if args.command == 'engineering-setup':
         from desktop.engineering_setup_panel import show
@@ -117,10 +163,14 @@ def main():
             assert window.winfo_width() >= 660
             window.lift()
             github_tabs = window.github_tabs
-            assert [github_tabs.tab(tab, 'text') for tab in github_tabs.tabs()] == ['Connection', 'Repository Validation']
+            labels = [github_tabs.tab(tab, 'text') for tab in github_tabs.tabs()]
+            assert labels == ['Connection', 'Repository Validation', 'Job admission'], f'Unexpected GitHub settings tabs: {labels}'
             for tab in github_tabs.tabs():
                 github_tabs.select(tab)
                 window.update()
+                assert github_tabs.nametowidget(tab).winfo_viewable(), github_tabs.tab(tab, 'text')
+            github_tabs.select(github_tabs.tabs()[labels.index('Repository Validation')])
+            window.update()
             panel = window.repository_validation_panel
             assert not panel.advanced_visible.get()
             # Child mapping can survive a hidden ancestor; check actual viewability.

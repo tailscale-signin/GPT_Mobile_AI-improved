@@ -10,6 +10,21 @@ import kotlinx.serialization.json.put
 
 /** Public server categories only: never copy validation messages, rejected values or request IDs. */
 internal object GitHubToolErrorDiagnostics {
+    val validationKeys = setOf("github_error_resources", "github_error_fields", "github_error_codes", "server_request_id_hash", "github_validation_endpoint")
+    private val repoEndpoint = Regex("^/repos/[^/]+/[^/]+/(commits|git/trees|compare)/[^?]+$")
+
+    fun validationResponse(body: String, requestId: String?, path: String): JsonObject {
+        val route = repoEndpoint.matchEntire(path.substringBefore('?'))?.groupValues?.get(1)
+        val endpoint = when (route) {
+            "commits" -> "COMMIT_LOOKUP"
+            "git/trees" -> "TREE_READ"
+            "compare" -> "REVISION_COMPARE"
+            else -> null
+        }
+        val fields = response(body, requestId)
+        return if (endpoint == null) fields else JsonObject(fields + ("github_validation_endpoint" to JsonPrimitive(endpoint)))
+    }
+
     private val resources = setOf("PullRequest", "Issue", "Repository", "Commit", "Reference", "Release", "Workflow", "WorkflowRun", "CheckRun", "CheckSuite", "ReviewComment", "Comment", "Label", "Milestone", "Project", "User", "Team")
     private val fields = setOf("head", "base", "title", "body", "ref", "sha", "name", "state", "number", "issue_number", "pull_number", "owner", "repo", "repository", "labels", "assignees", "milestone", "draft", "maintainer_can_modify", "tag_name", "target_commitish", "path", "position", "line", "side", "event", "commit_id", "workflow_id", "run_id", "inputs")
     private val codes = setOf("missing", "missing_field", "invalid", "already_exists", "unprocessable", "custom", "not_found", "forbidden", "unauthorized")

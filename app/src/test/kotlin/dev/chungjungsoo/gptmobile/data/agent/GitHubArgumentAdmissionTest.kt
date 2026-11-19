@@ -174,6 +174,56 @@ class GitHubArgumentAdmissionTest {
         assertEquals(1, backend.calls.size)
     }
 
+    @Test fun savedViewCursorIsExclusiveInFullProjectedAndInspectSchemas() {
+        val cases = listOf(
+            Triple("github_context", "branches", """{"action":"branches","page":1}"""),
+            Triple("github_pr", "list", """{"action":"list","state":"open"}"""),
+            Triple("github_issue", "list", """{"action":"list","state":"open"}"""),
+            Triple("github_ci", "runs", """{"action":"runs","page":1}"""),
+            Triple("github_read", "ranges", """{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"max_lines":10}]}"""),
+            Triple("github_search", "search", """{"action":"search","query":"README"}""")
+        )
+        for ((operation, action, freshSource) in cases) {
+            val full = GitHubOperationTool.definition(operation, "${operation}__selected")
+            val projected = requireNotNull(GitHubActionSchema.project(full, action))
+            val variants = if (operation in setOf("github_context", "github_pr")) {
+                listOf(full, projected, GitHubOperationTool.definition("${operation}_inspect", "${operation}_inspect__selected"))
+            } else {
+                listOf(full, projected)
+            }
+            val cursor = args("""{"view_cursor":"saved:1:2048"}""")
+            val fresh = args(freshSource)
+            for (definition in variants) {
+                val schema = definition.inputSchema
+                for (branch in schema.getValue("oneOf") as kotlinx.serialization.json.JsonArray) {
+                    val declared = (branch as JsonObject).getValue("properties") as JsonObject
+                    assertTrue("Branch only needs field names", declared.values.all { it == buildJsonObject {} })
+                }
+                assertTrue(ToolArgumentValidator.errors(args("""{"view_cursor":42}"""), schema).isNotEmpty())
+                if (operation == "github_read") {
+                    assertTrue(ToolArgumentValidator.errors(args("""{"action":"ranges"}"""), schema).isNotEmpty())
+                    assertTrue(ToolArgumentValidator.errors(args("""{"evidence_id":" "}"""), schema).isNotEmpty())
+                    assertTrue(ToolArgumentValidator.errors(args("""{"evidence_id":"saved-source"}"""), schema).isEmpty())
+                }
+                if (definition.name.startsWith("github_pr_inspect")) {
+                    assertTrue(ToolArgumentValidator.errors(args("""{"action":"headers"}"""), schema).isNotEmpty())
+                    assertTrue(ToolArgumentValidator.errors(args("""{"action":"context","pull_number":2}"""), schema).isEmpty())
+                    assertTrue(ToolArgumentValidator.errors(args("""{"state":"open","page":1}"""), schema).isEmpty())
+                }
+                val cursorField = ((schema["properties"] as JsonObject)["view_cursor"] as JsonObject)
+                val guidance = (cursorField["description"] as? JsonPrimitive)?.content.orEmpty()
+                assertTrue("${definition.name} documents exact issued cursors", guidance.contains("exact issued"))
+                assertTrue("${definition.name} documents exclusive continuation", guidance.contains("ONLY field"))
+                assertTrue("${definition.name} accepts issued cursor", ToolArgumentValidator.errors(cursor, schema).isEmpty())
+                assertTrue("${definition.name} rejects mixed cursor", ToolArgumentValidator.errors(JsonObject(fresh + cursor), schema).isNotEmpty())
+                assertTrue("${definition.name} rejects cursor with repository", ToolArgumentValidator.errors(args("""{"view_cursor":"saved:1:2048","owner":"team","repo":"project"}"""), schema).isNotEmpty())
+                if (!definition.name.contains("_inspect") || action == "branches" || action == "list") {
+                    assertTrue("${definition.name} accepts ordinary action", ToolArgumentValidator.errors(fresh, schema).isEmpty())
+                }
+            }
+        }
+    }
+
     private fun args(value: String) = Json.parseToJsonElement(value) as JsonObject
 
     private class RecordingBackend : AgentTool {

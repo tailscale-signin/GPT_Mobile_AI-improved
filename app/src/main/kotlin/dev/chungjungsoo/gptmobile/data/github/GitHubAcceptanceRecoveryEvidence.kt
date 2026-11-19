@@ -14,9 +14,20 @@ internal object GitHubAcceptanceRecoveryEvidence {
     val preparationStates = setOf("CLEANUP_RESERVE_ACTIVE", "OWNED_FIXTURE_STEP_PREPARED", "BOUNDED_READS_PREPARED", "NO_PENDING_CAPABILITY_PREREQUISITES", "PREREQUISITES_REQUIRED")
     val operationFamilies = setOf("github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_decide", "github_review", "github_engineering", "github_repository", "repository_graph")
     val policyRecoveryHints = setOf("CHECK_AUTHENTICATION", "CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION", "CHECK_POLICY_READ_PERMISSIONS", "WAIT_RATE_LIMIT", "REFRESH_POLICY_OBSERVATIONS")
+    private val statusObservations = mapOf(
+        "Selected branch and current commit" to "BRANCH_HEAD",
+        "Recent commits" to "COMMITS",
+        "Open pull requests (draft/ready)" to "OPEN_PULLS",
+        "Checks and statuses for the current commit" to "COMMIT_CHECKS",
+        "Latest workflow" to "LATEST_WORKFLOW",
+        "Required-check policy" to "REQUIRED_POLICY",
+        "Recent failures" to "RECENT_FAILURES",
+        "Outstanding review decisions" to "REVIEW_DECISIONS"
+    )
+    val statusObservationCodes = statusObservations.values.toSet()
     val fields = setOf(
         "acceptance_preparation_state", "acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_fixture_creation_admissible", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count",
-        "status_policy_protection_http_status", "status_policy_rules_http_status", "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint"
+        "status_missing_observations", "status_policy_protection_http_status", "status_policy_rules_http_status", "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint"
     )
 
     fun fields(verdict: JsonObject): JsonObject = buildJsonObject {
@@ -37,17 +48,19 @@ internal object GitHubAcceptanceRecoveryEvidence {
             put("acceptance_blocked_operation_families", JsonArray(families.take(8).map(::JsonPrimitive)))
             put("acceptance_additional_blocked_family_count", (families.size - 8).coerceAtLeast(0))
         }
-        (verdict["status_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-            .firstOrNull { it.text("item") == "Required-check policy" }?.let { policy ->
-                for (key in listOf("status_policy_protection_http_status", "status_policy_rules_http_status")) {
-                    policy.number(key)?.takeIf { it in 100..599 }?.let { put(key, it) }
-                }
-                for (key in listOf("status_branch_protected", "status_policy_complete")) {
-                    (policy[key] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put(key, it) }
-                }
-                policy.text("status_policy_recovery_hint").takeIf { it in policyRecoveryHints }?.let { put("status_policy_recovery_hint", it) }
-                GitHubPolicyResponseObservation.coverageFields(policy).forEach { (key, value) -> put(key, value) }
+        val coverage = (verdict["status_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        val missing = coverage.filter { it["observed"] == JsonPrimitive(false) }.mapNotNull { statusObservations[it.text("item")] }.distinct()
+        if (missing.isNotEmpty()) put("status_missing_observations", JsonArray(missing.map(::JsonPrimitive)))
+        coverage.firstOrNull { it.text("item") == "Required-check policy" }?.let { policy ->
+            for (key in listOf("status_policy_protection_http_status", "status_policy_rules_http_status")) {
+                policy.number(key)?.takeIf { it in 100..599 }?.let { put(key, it) }
             }
+            for (key in listOf("status_branch_protected", "status_policy_complete")) {
+                (policy[key] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put(key, it) }
+            }
+            policy.text("status_policy_recovery_hint").takeIf { it in policyRecoveryHints }?.let { put("status_policy_recovery_hint", it) }
+            GitHubPolicyResponseObservation.coverageFields(policy).forEach { (key, value) -> put(key, value) }
+        }
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull.orEmpty()

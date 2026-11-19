@@ -74,9 +74,17 @@ if (packagingRequested && !reportingAvailable && (!allowUnconfiguredIssueReporti
 
 // Separate preview APK: the two QAIRT distributions must never be merged with pickFirst.
 val geniexRuntime = providers.gradleProperty("geniexRuntime").orNull == "true"
+// Standard and GenieX releases ship different native runtimes.
+dependencyLocking {
+    lockFile.set(layout.projectDirectory.file(if (geniexRuntime) "geniex-release.lockfile" else "release.lockfile"))
+}
+configurations.matching { it.name in setOf("releaseRuntimeClasspath", "kspReleaseKotlinProcessorClasspath") }.configureEach {
+    resolutionStrategy.activateDependencyLocking()
+}
+
 val geniexSeparateSigning = providers.gradleProperty("geniexSeparateSigning").orNull == "true"
-require(!geniexSeparateSigning || geniexRuntime && providers.gradleProperty("nativeMemorySmoke").orNull == "true") {
-    "Separate preview signing is only supported for the GenieX native-smoke build."
+require(!geniexSeparateSigning || geniexRuntime) {
+    "Separate preview signing requires a GenieX build."
 }
 
 /** Keep on-device embeddings while removing the SDK's remote statistics implementation. */
@@ -260,6 +268,7 @@ extensions.configure<ApplicationExtension> {
 
     buildTypes {
         debug {
+            if (geniexSeparateSigning) signingConfig = null
             enableUnitTestCoverage = true
         }
         release {
@@ -620,6 +629,18 @@ dependencies {
 
     // Room
     implementation(libs.room)
+    constraints {
+        implementation(libs.secure.jackson.core)
+        implementation(libs.secure.jackson.databind)
+        implementation(libs.secure.guava)
+        add("ksp", libs.secure.guava)
+        implementation(libs.secure.protobuf.lite)
+        implementation(libs.secure.commons.lang)
+        implementation(libs.secure.log4j.api)
+        implementation(libs.secure.bcprov)
+        implementation(libs.secure.bcpkix)
+    }
+    implementation(libs.sqlcipher)
     ksp(libs.room.compiler)
     implementation(libs.room.ktx)
 

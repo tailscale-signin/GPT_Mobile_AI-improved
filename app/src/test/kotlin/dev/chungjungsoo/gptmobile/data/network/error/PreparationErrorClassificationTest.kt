@@ -6,6 +6,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PreparationErrorClassificationTest {
+    @Test fun privateExceptionTextIsNeverCopiedIntoUnknownOrMalformedResponseMessages() {
+        for (cause in listOf(IllegalStateException("private canary"), kotlinx.serialization.SerializationException("private canary"))) {
+            val result = ErrorClassification.classify(cause)
+            assertFalse(result.userMessage.contains("private canary"))
+            assertFalse(result.isRetryable)
+        }
+        val refusal = ProviderFailure.parse(400, """{"error":{"code":"content_policy_violation","message":"private canary"}}""")
+        val error = ErrorClassification.classify(IllegalStateException(refusal.message()))
+        assertEquals(ErrorCategory.CONTENT_POLICY_REFUSAL, error.category)
+        assertFalse(ErrorTemplates.getTemplateFor(error).autoRetry)
+    }
+
     @Test fun changedRecoveryCheckpointsRetainTheirCauseAndRequireReconciliation() {
         for (code in listOf("PROVIDER_WAIT_CHECKPOINT_CHANGED", "RESEARCH_RECOVERY_ACTION_CHANGED")) {
             val result = ErrorClassification.classify(IllegalStateException("Request failed", IllegalStateException(code)))

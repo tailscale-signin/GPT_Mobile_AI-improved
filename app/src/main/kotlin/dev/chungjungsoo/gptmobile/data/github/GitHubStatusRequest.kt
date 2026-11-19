@@ -66,7 +66,19 @@ internal object GitHubStatusRequest {
                 val retryable = attempts.last()["error_code"] in setOf("NETWORK_ERROR", "HTTP_502", "HTTP_503", "HTTP_504", "TOOL_TIMEOUT").map(::JsonPrimitive)
                 val successful = attempts.filter { it["success"] == JsonPrimitive(true) }
                 val truncatedSource = successful.isNotEmpty() && successful.all { (it["result"] as? JsonObject)?.get("observationTruncated") == JsonPrimitive(true) }
-                if (successful.isNotEmpty() && !truncatedSource || attempts.size >= 2 || !retryable && !truncatedSource) return null
+                if (attempts.size >= 2) return null
+                val incompleteChecks = action == "checks" &&
+                    head != null &&
+                    arguments["page"] == JsonPrimitive(1) &&
+                    successful.isNotEmpty() &&
+                    GitHubStatusEvidence.checks(selectedReceipts, head, now, epoch).let {
+                        it.receiptIds.size == 1 && !it.complete && it.nextPage == null
+                    }
+                val workflowUnavailable = action == "status" &&
+                    successful.lastOrNull()?.let(GitHubStatusEvidence::data)
+                        ?.get("status_availability")?.let { it as? JsonObject }?.get("latest_workflow") == JsonPrimitive("Workflow read was unavailable")
+                val recoverableObservation = truncatedSource || incompleteChecks || workflowUnavailable
+                if (!recoverableObservation && (successful.isNotEmpty() || !retryable)) return null
             }
             return ProviderEvent.ToolCall(
                 "status-$action-${receipts.size}" + if (attempts.isEmpty()) "" else "-recovery",

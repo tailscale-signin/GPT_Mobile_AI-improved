@@ -34,7 +34,8 @@ class PrincipalResolver:
         except ValueError:
             local_peer = False
         path = scope.get('path', '').removeprefix('/v1')
-        if path in {"/gateway/admin/maintenance", "/gateway/admin/dashboard"} or (
+        paired = headers.get('x-gateway-control-principal')
+        if paired or path.startswith('/gateway/admin/retained-work/') or path in {"/gateway/admin/maintenance", "/gateway/admin/dashboard", "/gateway/admin/settings", "/gateway/admin/engineering-admission"} or (
                 path == '/gateway/admin/debug/export' and 'x-gateway-management' in headers):
             # A specific-interface listener is reached through that interface on
             # the same PC. The independent supervisor secret is still mandatory.
@@ -45,14 +46,20 @@ class PrincipalResolver:
             forwarded = any(k.startswith("tailscale-") or k in {"forwarded", "x-forwarded-for", "x-forwarded-host", "origin", "cookie", "sec-fetch-site"} for k in headers)
             if not local_control or forwarded or not token or not hmac.compare_digest(headers.get("x-gateway-management", "").encode(), token.encode()):
                 return None
+            if paired:
+                grant = control_grant(self.config, paired)
+                if not grant:
+                    return None
+                scopes = {'chat', 'jobs', 'tools'}
+                if grant['role'] == 'owner' and grant['repositories'] != '[]':
+                    scopes.add('engineering')
+                return Principal(paired, frozenset(scopes))
             return Principal("local:manager", frozenset({"chat"}), True)
         if self.config.mode == "open_network":
-            # Explicit key-free network mode has one shared identity. Client
-            # headers never select a user, job owner or administrative privilege.
-            scopes = {"chat", "jobs", "tools"}
-            if self.config.remote_engineering:
-                scopes.add("engineering")
-            return Principal("network:shared", frozenset(scopes))
+            # A key-free shared listener does not authenticate an owner. Saved
+            # engineering mutations require the separate paired grant or an
+            # established authenticated local/trusted account.
+            return Principal("network:shared", frozenset({"chat", "jobs", "tools"}))
         if not local_peer:
             return None
         if self.config.legacy_bearer and headers.get("authorization", "").lower().startswith("bearer "):
@@ -69,8 +76,17 @@ class PrincipalResolver:
         return Principal("tailnet:" + grant["principalId"], frozenset(grant["scopes"]))
 
 
+def control_grant(config, principal):
+    if not config.control_journal or not principal.startswith('paired:'):
+        return None
+    from desktop.control_store import retained_device_grant
+    return retained_device_grant(config.control_journal, principal)
+
+
 def principal_can_graph(config, principal, devices):
     """Recheck tools admission for a retained public-map indexing job."""
+    if principal.startswith('paired:'):
+        return control_grant(config, principal) is not None
     if config.mode == 'open_network':
         return principal == 'network:shared'
     if config.mode == 'loopback':
@@ -80,6 +96,8 @@ def principal_can_graph(config, principal, devices):
 
 def principal_can_chat(config, principal, devices):
     """Revalidate a retained admission immediately before first execution."""
+    if principal.startswith('paired:'):
+        return control_grant(config, principal) is not None
     if config.mode == 'open_network':
         return principal == 'network:shared'
     if config.mode == 'loopback':
@@ -105,7 +123,7 @@ class Admission:
         pairs = [(k.decode("latin1").lower(), v.decode("latin1")) for k, v in scope.get("headers", [])]
         sensitive = {"host", "origin", "authorization", "tailscale-user-login", "x-gateway-csrf", "x-gateway-management",
                      "x-gateway-profile-id", "x-gateway-profile-name-base64", "x-gateway-conversation-retention",
-                     "x-gateway-installation-id", "x-gateway-principal-id", "idempotency-key"}
+                     "x-gateway-installation-id", "x-gateway-principal-id", "idempotency-key", "x-gateway-control-principal"}
         if any(sum(k == name for k, _ in pairs) > 1 for name in sensitive):
             return await deny("duplicate_admission_header", 400)
         headers = dict(pairs)
@@ -151,13 +169,13 @@ class Admission:
         if engineering_path and not principal.engineering_allowed and not (public_map_path and 'tools' in principal.scopes):
             return await deny("engineering_scope_required")
         if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
-            public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/v17", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
+            public_reads = {"/gateway/privacy/inference", "/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/v17", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
                 landing_page = self.config.mode == "open_network" and request_path in LANDING_PATHS
                 if not landing_page and path not in public_reads and not job_path and not engineering_path and not diagnostics_path and not conversation_path and not catalog_path and not benchmark_path:
                     return await deny("remote_surface_not_admitted")
-            elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not metadata_write and not benchmark_write and not diagnostics_write and not model_preparation_write and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
+            elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not metadata_write and not benchmark_write and not diagnostics_write and not model_preparation_write and path not in {"/chat/completions", "/gateway/privacy/inference"} and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
                 return await deny("local_admin_required")
         required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") or conversation_path or catalog_path or benchmark_path else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
         if public_map_path and not principal.engineering_allowed:

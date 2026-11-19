@@ -36,7 +36,13 @@ internal object VoiceSpeechText {
                 val line = text.substring(content, lineEnd)
                 val fence = fenceStart.find(line)?.value
                 if (fence != null) {
-                    codeNotice()
+                    // Defer an incomplete language tag so streamed and saved speech agree.
+                    if (lineEnd == text.length && !completed) break
+                    if (line.drop(fence.length).trim().equals("gpt-ui", ignoreCase = true)) {
+                        spoken.append("Data is available in the chat. ")
+                    } else {
+                        codeNotice()
+                    }
                     val close = fenceEnd(text, lineEnd, fence, final)
                     if (close < 0) break
                     spoken.append('\n')

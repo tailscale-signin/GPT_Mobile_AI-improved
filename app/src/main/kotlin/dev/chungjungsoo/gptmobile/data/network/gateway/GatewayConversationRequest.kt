@@ -10,6 +10,12 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** The command ID is frozen together with the metadata that will be sent on this attempt. */
+internal class GatewayReservationFailure(cause: Throwable? = null) :
+    IllegalStateException(
+        "Local reservation failed and no model request was sent. Reopen the chat and retry.",
+        cause
+    )
+
 internal data class GatewayConversationRequest(val payload: String, val commandId: String? = null) {
     suspend fun armDispatch(config: ProviderRequestConfig) {
         if (commandId == null) return
@@ -19,9 +25,7 @@ internal data class GatewayConversationRequest(val payload: String, val commandI
     suspend fun beforeDispatch(config: ProviderRequestConfig) {
         if (commandId == null) return
         currentCoroutineContext().ensureActive()
-        val reserve = checkNotNull(config.onGatewayCommandPrepared) {
-            "The gateway request could not be saved locally. Reopen the chat and retry; no model request was sent."
-        }
+        val reserve = config.onGatewayCommandPrepared ?: throw GatewayReservationFailure()
         try {
             reserve(commandId)
             // A local reservation may finish under a non-cancellable database transaction.
@@ -33,7 +37,8 @@ internal data class GatewayConversationRequest(val payload: String, val commandI
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                 runCatching { config.onGatewayCommandNotDispatched?.invoke(commandId) }
             }
-            throw failure
+            if (failure is kotlinx.coroutines.CancellationException || failure !is Exception) throw failure
+            throw GatewayReservationFailure(failure)
         }
     }
 }

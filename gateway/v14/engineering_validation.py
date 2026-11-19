@@ -94,6 +94,19 @@ def capture_behavior_reports(coverage, checkout):
     return reports
 
 
+def named_test_results(command):
+    """Only named cases in freshly captured reports can attest an individual test."""
+    cases = []
+    for snapshot in command.get('report_snapshots', {}).values():
+        report_hash = snapshot.get('sha256')
+        if not re.fullmatch(r'[a-f0-9]{64}', str(report_hash)):
+            continue
+        for case, status in snapshot.get('cases', {}).items():
+            if status in {'PASSED', 'FAILED', 'SKIPPED'}:
+                cases.append(dict(name=case, status=status, report_sha256=report_hash))
+    return dict(case_results=cases[:32], case_results_truncated=len(cases) > 32)
+
+
 def behavior_receipts(coverage, results, source_sha, image):
     """Only a mapped command's fresh report snapshot can verify its behavior cases."""
     evidence = []

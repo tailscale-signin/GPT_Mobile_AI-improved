@@ -209,6 +209,13 @@ internal object GitHubIntegrationAcceptance {
                     JsonObject(check + ("receipt_id" to id))
                 }
             }.distinctBy { listOf(it["profile_binding"], it["source_sha"], it["request_id"]) }
+            val direct = observed.filter { GitHubEvidenceOrigin.of(it) == "LIVE" }.mapNotNull { row ->
+                val observation = row["direct_coding_observation"] as? JsonObject ?: return@mapNotNull null
+                JsonObject(observation + row.filterKeys { it in setOf("receipt_id", "repository", "branch", "source_result_sha256", "runtime_identity") })
+            }
+            put("direct_coding_observation_count", direct.size)
+            put("direct_coding_observations", JsonArray(direct.takeLast(32)))
+            put("paired_coding_repairs", pairedCodingRepairs(workspaceChecks))
             put("profile_workspace_check_count", workspaceChecks.size)
             put("profile_workspace_checks", JsonArray(workspaceChecks.takeLast(32)))
             put("semantics", "CI provenance overlaps its transport class. Counts describe evidence, not interchangeable test passes.")

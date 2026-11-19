@@ -9,7 +9,7 @@ import re
 from v14.engineering_artifacts import CHUNK
 from v14.adaptive_validation import capabilities, discover
 
-from v14.engineering_validation import load_policy, patch_identity, validate
+from v14.engineering_validation import load_policy, named_test_results, patch_identity, validate
 
 
 def catalog(job):
@@ -180,6 +180,7 @@ def act(backend, job, action):
         saved_checks[check_id] = {
             'check_id': check_id, 'source_sha': data['head_sha'], 'patch_identity': identity,
             'policy_sha256': policy_sha, 'check_index': index, 'scope': 'exploratory',
+            **named_test_results(command),
             'candidate_ref': candidate_ref, 'output_ref': command.get('output_ref'), 'attempt_id': attempt,
             'status': result['status'], 'reason': result.get('reason'), 'exit_code': command.get('exit_code'),
             'output_tail': command.get('output_tail', ''), 'output_sha256': command.get('output_sha256'),

@@ -278,6 +278,63 @@ class GitHubIntegrationAcceptanceTest {
         assertNull(observe("selected", JsonObject(result + ("repository" to JsonPrimitive("other/repo")))))
     }
 
+    @Test fun repairedAndroidTestNeedsTwoNamedObservationsOnTheSameModelAndSource() {
+        val keys = json("""{"source_run_id":"run","profile_uid":"profile","provider":"OPENAI","observed_model":"selected","profile_binding":"binding","repository":"owner/repo","branch":"branch","source_sha":"head","policy_sha256":"policy","image":"image","check_index":0,"environment_profile":"Android / Kotlin","model_identity":"MATCH"}""")
+        fun receipt(id: String, status: String, time: Long, case: String): JsonObject = JsonObject(
+            keys + buildJsonObject {
+                for (name in listOf("receipt_id", "request_id", "patch_identity")) put(name, id)
+                put("state", status)
+                put("started_at", time)
+                put("finished_at", time + 1)
+                put(
+                    "case_results",
+                    JsonArray(
+                        listOf(
+                            buildJsonObject {
+                                put("name", case)
+                                put("status", status)
+                                put("report_sha256", id)
+                            }
+                        )
+                    )
+                )
+            }
+        )
+        val failed = receipt("first", "FAILED", 1, "Example.sum")
+        val repaired = receipt("second", "PASSED", 3, "Example.sum")
+        val proof = pairedCodingRepairs(listOf(failed, repaired)).single().jsonObject
+        assertEquals(repaired["receipt_id"], proof["after_receipt"])
+        assertEquals(failed["receipt_id"], proof["before_receipt"])
+        for (wrong in listOf(
+            receipt("second", "PASSED", 3, "Example.unrelated"),
+            receipt("second", "PASSED", 0, "Example.sum"),
+            JsonObject(repaired + ("model_identity" to JsonPrimitive("DIFFERENT"))),
+            JsonObject(repaired + ("source_sha" to JsonPrimitive("new head"))),
+            JsonObject(repaired + ("patch_identity" to failed.getValue("patch_identity")))
+        )) {
+            assertTrue(pairedCodingRepairs(listOf(failed, wrong)).isEmpty())
+        }
+    }
+
+    @Test fun directGitHubAndCopilotEvidenceNeedsMeasuredTransportAndExactRevision() {
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(name = "Remote", model = "selected", uid = "profile")
+        val head = "a".repeat(40)
+        val call = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall("id", "github_pr", json("""{"expected_base_sha":"$head"}""")).copy(reportedModelId = "selected")
+        val api = json("""{"read_requests":1}""")
+        val cloud = json("""{"schema":"github.copilot-task.v1","task_id":"opaque","orchestration_owner":"ANDROID_DIRECT","execution_owner":"GITHUB_CLOUD","status":"REMOTE_ACCEPTED"}""")
+        assertNull(directCodingObservation(profile, call, "status", null, null, head, "run"))
+        val read = requireNotNull(directCodingObservation(profile, call, "status", null, api, head, "run"))
+        assertEquals(JsonPrimitive("github_api"), read["executor"])
+        assertEquals(JsonPrimitive("RETURNED"), read["source_binding"])
+        assertNull(directCodingObservation(profile, call, "copilot_create_task", null, api, null, "run"))
+        assertNull(directCodingObservation(profile, call, "copilot_create_task", cloud, api, null, "run"))
+        val accepted = json("""{"mutation_requests":1,"accepted_mutations":1}""")
+        val hosted = requireNotNull(directCodingObservation(profile, call, "copilot_create_task", cloud, accepted, null, "run"))
+        assertEquals(JsonPrimitive("github_copilot"), hosted["executor"])
+        assertEquals(JsonPrimitive("REQUESTED"), hosted["source_binding"])
+        assertEquals(JsonPrimitive("opaque"), hosted["task_id"])
+    }
+
     @Test fun workspaceCheckReceiptBelongsToGatewayAndParticipatesInCatalogDiscovery() {
         val invocation = tool("repository_workspace__selected", "catalog", "run", "status")
         val catalog = GitHubAuthorizedCatalog.snapshot(emptyMap(), listOf(invocation))

@@ -247,6 +247,17 @@ internal class GitHubEvidenceBook(
             if (trustedTarget && call.name.githubOperationFamily() == "repository_workspace" && !result.isError && !result.sharedResult) {
                 workspaceCheckObservation(inferenceProfile, call, root, repository, branch, sourceRunId)?.let { put("profile_workspace_check", it) }
             }
+            if (selected &&
+                trustedTarget &&
+                origin == "LIVE" &&
+                !result.isError &&
+                !result.sharedResult &&
+                call.name.startsWith("github_") &&
+                inferenceProfile != null &&
+                sourceRunId != null
+            ) {
+                directCodingObservation(inferenceProfile, call, action, root, result.executionReceipt, head, sourceRunId)?.let { put("direct_coding_observation", it) }
+            }
             authorizationDigest?.let { put(GitHubPolicyReadRecovery.AUTHORITY, it) }
             put("branch", targetBranch)
             put("workspace_branch", branch)

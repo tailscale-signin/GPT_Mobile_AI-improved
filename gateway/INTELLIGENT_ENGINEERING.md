@@ -243,3 +243,10 @@ A repository can supply instructions at `.agents/skills/<name>/SKILL.md` or `.cl
 ```
 
 The Gateway reports missing requirements when opening the procedure. Execution still uses the repository policy and the job's accepted scope.
+
+
+## Coding qualification
+
+Create a local Gateway benchmark manifest with `python gateway/qualify_engineering.py --workspace-template OWNER/REPO --workspace-profile local --output workspace.json`. Specify `remote` for the remote-profile scenario. Each template has eight scenarios and names the required execution route. Bind the manifest to the installed profile, model, endpoint, environment digest, and designated test repository.
+
+For Android-directed checks, configure the host's acceptance mapping to the named test and its JUnit report. Android records a repair when the original candidate fails that test and a different candidate passes it on the same source revision, check, environment, and observed model. The two test reports are identified by SHA-256. The conversation export records the controller and execution owner for native GitHub operations and Copilot tasks.

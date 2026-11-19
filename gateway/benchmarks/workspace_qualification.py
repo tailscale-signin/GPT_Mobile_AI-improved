@@ -14,6 +14,37 @@ CASES = {
 }
 
 
+LOCAL_PROFILE = 'workspace_local_profile'
+LOCAL_CASES = {LOCAL_PROFILE if case == 'workspace_remote_profile' else case:
+               'Use the selected local profile with authorized Gateway source' if case == 'workspace_remote_profile' else title
+               for case, title in CASES.items()}
+ALL_CASES = {**CASES, **LOCAL_CASES}
+
+
+def manifest_cases(manifest):
+    # Existing manifests exercise a remote profile. A local model must demonstrate
+    # the same graph use and independently observed identity on its own route.
+    cases = manifest.get('cases')
+    if isinstance(cases, list) and any(isinstance(case, dict) and case.get('scenario') == LOCAL_PROFILE for case in cases):
+        return LOCAL_CASES
+    return CASES
+
+
+def observed_cases(check, status):
+    named = {}
+    for case in check.get('case_results', []):
+        name = case.get('name')
+        if not isinstance(name, str) or not re.fullmatch(r'[a-f0-9]{64}', str(case.get('report_sha256'))):
+            continue
+        named[name] = None if name in named else case
+    return {name: row['report_sha256'] for name, row in named.items() if row and row.get('status') == status}
+
+
+def same_test_repaired(before, after):
+    failed, passed = observed_cases(before, 'FAILED'), observed_cases(after, 'PASSED')
+    return any(name in passed and passed[name] != report for name, report in failed.items())
+
+
 def measurements(job, scenario, attempts, completed, duplicates, lost_write):
     data = job['data']
     binding = job.get('execution_binding') or {}
@@ -32,11 +63,13 @@ def measurements(job, scenario, attempts, completed, duplicates, lost_write):
                  and b.get('status') == 'PASSED' and b.get('exit_code') == 0 and tested(b)
                  and a.get('source_sha') == b.get('source_sha') and a.get('check_index') == b.get('check_index')
                  and a.get('patch_identity') != b.get('patch_identity') and b.get('patch_identity') == validation.get('patch_identity')
+                 and same_test_repaired(a, b)
                  for a in checks for b in checks)
     restore_ids = {r['check_id'] for r in data.get('checkpoint_history', []) if r.get('action') == 'restore_candidate' and r.get('check_id')}
     boots = {a.get('boot_id') for a in attempts if a.get('boot_id')}
     graph = [a.get('graph_retrieval') or {} for a in attempts]
     kind = str(binding.get('provider_kind', '')).upper()
+    used_graph = any(g.get('dispatched') and g.get('included_nodes', 0) > 0 for g in graph)
     evidence = {
         'workspace_kotlin_repair': environment.get('profile') == 'Android / Kotlin' and repair,
         'workspace_multi_file': len(set(data.get('changed_paths', []))) >= 2 and validation.get('status') == 'PASSED',
@@ -44,7 +77,8 @@ def measurements(job, scenario, attempts, completed, duplicates, lost_write):
         'workspace_host_restart': len(boots) >= 2,
         'workspace_branch_advance': bool(verdict),  # requires the named observed-head reconciliation behavior
         'workspace_lost_write': duplicates == 0 and lost_write,
-        'workspace_remote_profile': kind not in {'', 'LLAMA', 'OLLAMA'} and any(g.get('dispatched') and g.get('included_nodes', 0) > 0 for g in graph),
+        'workspace_remote_profile': kind not in {'', 'LLAMA', 'OLLAMA'} and used_graph,
+        LOCAL_PROFILE: kind in {'LLAMA', 'OLLAMA'} and used_graph,
         'workspace_restore': validation.get('status') == 'PASSED' and any(c.get('check_id') in restore_ids and c.get('patch_identity') == validation.get('patch_identity') for c in checks),
     }
     if scenario == 'workspace_phone_reconnect':

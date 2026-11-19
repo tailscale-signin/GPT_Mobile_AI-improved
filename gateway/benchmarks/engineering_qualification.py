@@ -90,7 +90,7 @@ def continuous_signals(job, accepted, completed, lost_mutation_proven, duplicate
 
 def snapshot(service, principal, job_id, scenario):
     continuous = scenario in CONTINUOUS_SCENARIOS
-    scenarios = workspace.CASES if scenario in workspace.CASES else CONTINUOUS_SCENARIOS if continuous else SCENARIOS
+    scenarios = workspace.ALL_CASES if scenario in workspace.ALL_CASES else CONTINUOUS_SCENARIOS if continuous else SCENARIOS
     if scenario not in scenarios:
         raise ValueError('Unknown engineering qualification scenario')
     job = service.evidence_access(principal, job_id)
@@ -152,12 +152,12 @@ def snapshot(service, principal, job_id, scenario):
     attempts_measured = complete_records and bool(dispatched)
     passed = signals.get(scenario, False) and attempts_measured and not false_completion
     workspace_details = {}
-    if scenario in workspace.CASES:
+    if scenario in workspace.ALL_CASES:
         workspace_details = workspace.measurements(job, scenario, dispatched, completed, duplicates, lost_mutation_proven)
         signals[scenario] = workspace_details['passed']
         passed = signals.get(scenario, False) and attempts_measured and not false_completion
     latest = dispatched[-1] if dispatched else {}
-    return {**workspace_details, 'schema': workspace.SCHEMA if scenario in workspace.CASES else CONTINUOUS_SCHEMA if continuous else PRODUCTION_SCHEMA, 'scenario': scenario, 'title': scenarios[scenario],
+    return {**workspace_details, 'schema': workspace.SCHEMA if scenario in workspace.ALL_CASES else CONTINUOUS_SCHEMA if continuous else PRODUCTION_SCHEMA, 'scenario': scenario, 'title': scenarios[scenario],
             'job_id': job_id, 'repository': job['request']['repository'], 'source_sha': job['request'].get('source_sha'),
             'head_sha': data.get('head_sha'), 'model': job['request']['model'],
             'model_revision': latest.get('model_revision'), 'quantization': latest.get('hardware', {}).get('quantization'),
@@ -185,7 +185,7 @@ def run_manifest(client, manifest, *, execute=False, progress=lambda _: None):
     schema = manifest.get('schema') if isinstance(manifest, dict) else None
     if schema not in (PRODUCTION_SCHEMA, CONTINUOUS_SCHEMA, workspace.SCHEMA):
         raise ValueError('Use a production or continuous engineering qualification manifest')
-    scenarios = workspace.CASES if schema == workspace.SCHEMA else CONTINUOUS_SCENARIOS if schema == CONTINUOUS_SCHEMA else SCENARIOS
+    scenarios = workspace.manifest_cases(manifest) if schema == workspace.SCHEMA else CONTINUOUS_SCENARIOS if schema == CONTINUOUS_SCHEMA else SCENARIOS
     if schema == workspace.SCHEMA:
         workspace.validate_route(manifest.get('route'))
     repository, cases = manifest.get('test_repository'), manifest.get('cases')

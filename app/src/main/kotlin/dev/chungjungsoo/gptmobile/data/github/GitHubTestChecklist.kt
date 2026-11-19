@@ -962,6 +962,19 @@ internal object GitHubTestChecklist {
         append("\n**Capability coverage:** ${rows.size} capabilities in the cumulative catalog (including historical operations). ")
         append(counts.entries.joinToString("; ") { "${it.key.lowercase().replace('_', ' ')}: ${it.value}" })
         append(". Endpoint success and complete search coverage are separate. **Overall integration health: Not measured.**\n\n")
+        if (receipts.values.any { "profile_workspace_check" in it || "direct_coding_observation" in it }) {
+            val measured = GitHubIntegrationAcceptance.evidenceClasses(receipts)
+            val paired = (measured["paired_coding_repairs"] as? JsonArray).orEmpty()
+            val direct = (measured["direct_coding_observations"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            append("**Coding session evidence**\n\n")
+            append("Paired Gateway checks: ${measured["profile_workspace_check_count"]}. Verified Kotlin test repairs: ${paired.size}.\n")
+            if (direct.isNotEmpty()) {
+                val native = direct.count { it.text("executor") == "github_api" }
+                val hosted = direct.count { it.text("executor") == "github_copilot" }
+                append("Recent Android-controlled observations: $native native GitHub operations and $hosted Copilot task operations.\n")
+            }
+            append('\n')
+        }
         append("| Capability | Result | Blocker / next action |\n| --- | --- | --- |\n")
         val detailed = Regex("(?i)\\b(?:detailed|full|complete|all)\\s+(?:report|results|receipts|coverage)\\b").containsMatchIn(task)
         val visible = if (detailed || rows.size <= 12) rows else rows.filter { (it as JsonObject)["blocker"] != null }.distinctBy { (it as JsonObject)["blocker"] }.take(6)

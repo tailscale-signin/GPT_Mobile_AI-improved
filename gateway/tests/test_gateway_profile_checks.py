@@ -55,10 +55,13 @@ class ProfileCheckTests(TestCase):
             self.api.boot = 'boot'
             self.backend.api.return_value={'tree':{'sha':'tree'}}
             with patch('v14.profile_checks.prepare_source'), patch('v14.profile_checks.validate',return_value={
-                    'status':'PASSED','commands':[dict(exit_code=0, output_sha256='d'*64,output_tail='private-output')]}):
+                    'status':'PASSED','commands':[dict(exit_code=0, output_sha256='d'*64,output_tail='private-output',
+                        report_snapshots={'result.xml': {'sha256': 'e'*64, 'cases': {'AppTest.repair': 'PASSED', 'AppTest.unsupported': 'UNAVAILABLE'}}})]}):
                 self.api.run(*thread.call_args.kwargs['args'])
             self.backend.api.return_value={'object':{'sha':'b'*40}}
             result=self.api.execute('user',dict(self.args,action='status',request_id='case1'))
             self.assertEqual('private-output', result['output'])
             self.assertEqual('PASSED', result['state'])
+            self.assertEqual([dict(name='AppTest.repair', status='PASSED', report_sha256='e'*64)], result['case_results'])
+            self.assertEqual(0, result['changed_path_count'])
             self.assertNotIn('private-output',self.db.execute('SELECT receipt FROM engineering_profile_checks').fetchone()[0])

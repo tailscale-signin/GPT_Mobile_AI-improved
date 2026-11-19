@@ -10,7 +10,7 @@ from desktop.repository_validation import repository_name
 from v14.engineering_backend import safe_path
 from v14.engineering_crypto import EngineeringCipher
 from v14.engineering_source import prepare_source
-from v14.engineering_validation import load_policy, patch_identity, validate
+from v14.engineering_validation import load_policy, named_test_results, patch_identity, validate
 from v14.execution_binding import fingerprint
 
 
@@ -26,7 +26,7 @@ class ProfileChecks:
         policy, _, image, commands, _ = load_policy(repository)
         if policy.get('remote_profile_checks') is not True:
             raise PermissionError('Enable model-requested offline checks for this repository on the host')
-        return hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), image, commands
+        return hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), image, commands, (policy.get('prepared_environment') or {}).get('profile', 'Custom repository')
 
     @staticmethod
     def schema(db):
@@ -40,7 +40,7 @@ class ProfileChecks:
         if (not isinstance(branch, str) or not 1 <= len(branch) <= 240 or any(ord(c)<32 for c in branch)
                 or not re.fullmatch('[0-9a-f]{40}', str(head)) or not re.fullmatch('[0-9a-f]{64}', str(binding))):
             raise ValueError('Specify the bound repository, branch, revision and profile')
-        policy, image, commands = self.admitted(owner, repo)
+        policy, image, commands, environment = self.admitted(owner, repo)
         common = dict(repository=repo, branch=branch, head_sha=head, profile_binding=binding, executor='gateway', image=image, policy_sha256=policy)
         backend = self.service.backend
         api = '/repos/' + repo
@@ -88,7 +88,7 @@ class ProfileChecks:
                 raise ValueError('Two host checks are active. Resume after one finishes.')
             if db.execute('SELECT COUNT(*) FROM engineering_profile_checks WHERE owner=?', (owner,)).fetchone()[0] >= 512:
                 raise ValueError('Workspace check retention allowance reached')
-            receipt = dict(common, state='RUNNING', request_id=name, check_index=index, started_at=time.time())
+            receipt = dict(common, environment_profile=environment, state='RUNNING', request_id=name, check_index=index, started_at=time.time())
             db.execute('INSERT INTO engineering_profile_checks VALUES(?,?,?,?,?,?,?)',(owner,name,signature,self.boot,'RUNNING',time.time(),EngineeringCipher.encrypt(db,key,json.dumps(receipt))))
             return True,receipt
         start,receipt = self.store.tx(claim)
@@ -137,7 +137,7 @@ class ProfileChecks:
                     changes.append(dict(edit, mode=entry.get('mode','100644')))
             result = validate(job, changes, cancel=cancel, command_index=receipt['check_index'])
             cmd = next(iter(result.get('commands', [])), {})
-            receipt.update(state=result['status'], patch_identity=patch_identity(head, changes),
+            receipt.update(**named_test_results(cmd), changed_path_count=len(changes), state=result['status'], patch_identity=patch_identity(head, changes),
                            exit_code=cmd.get('exit_code'), output_sha256=cmd.get('output_sha256'),
                            output=cmd.get('output_tail','')[-6000:], scope='exploratory')
         except Exception as error:

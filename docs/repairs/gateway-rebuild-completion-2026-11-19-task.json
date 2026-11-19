@@ -84,6 +84,15 @@
       "mirror": "KSP marker POM and plugin JAR/module downloaded from the existing Central mirror match all3 existing SHA256 entries. Local configuration-only Gradle remains blocked resolving com.android.legacy-kapt9.4.1 before compilation; do not qualify that attempt.",
       "guidance": "PASS:142 tests across7 isolated suites on the integrated source: guidance6, selected execution26, reliability27, completion16, backend30, workspace checks12 and source authority25. Exact path/blob recovery, nested-rule retention, selected-model budgets and paired owner/repository boundaries remain covered."
     },
-    "remaining": "Exact final-head checks, physical Android-to-Windows enrollment and live selected-provider acceptance remain evidence gates; no merge or release is claimed."
+    "remaining": "Exact final-head checks, physical Android-to-Windows enrollment and live selected-provider acceptance remain evidence gates; no merge or release is claimed.",
+    "test_compilation_followup": {
+      "source_base": "262f6e28dd881bf506225bedcd7d0c7e0e4b6a49",
+      "evidence": "At a3cdc7a, PR Validation job135412752796 compiled production Kotlin and Java successfully, then reported four Kotlin unit-test compiler errors at three call sites.",
+      "repairs": [
+        "Supply the required chatId in the paired-owner model-preparation integration request.",
+        "Name evictIdleConnections in the two existing read-retry tests so their trailing lambdas cannot bind to pairedRequests."
+      ],
+      "validation": "Scoped ktlint, canonical fast validation (554 host tests plus architecture/source-inventory and repository checks), and diff checks pass. Assertions and production APIs are unchanged; complete hosted unit-test compilation/execution remains required."
+    }
   }
 }

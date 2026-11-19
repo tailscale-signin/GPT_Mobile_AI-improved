@@ -62,7 +62,7 @@ class GatewayRepositoryClientTest {
                     respond("""{"operation_id":"$operationId"}""")
                 }
             ).use { read ->
-                val client = GatewayEngineeringClient(write, read) { evictions++ }
+                val client = GatewayEngineeringClient(write, read, evictIdleConnections = { evictions++ })
                 assertTrue(runCatching { client.repositoryOperation(config, arguments) }.exceptionOrNull() is EOFException)
                 assertEquals(1, writes)
                 assertEquals(JsonPrimitive(operationId), client.repositoryOperationStatus(config, operationId)["operation_id"])

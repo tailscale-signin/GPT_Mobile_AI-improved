@@ -136,7 +136,7 @@ class GatewayModelPreparationIntegrationTest {
                 assertTrue(runCatching { engineering.capabilities(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid)) }.isFailure)
                 assertEquals(GatewayModelPreparationPhase.READY, fixture.repository.prepareSelected(profile, ReasoningMode.OFF)?.phase)
                 assertEquals(owner, engineering.capabilities(profile.engineeringConfig()).principalId)
-                val request = GatewayEngineeringRequest("owner/repository", "work", "main", "Review the selected repository", profile.model, requestId = "owner-command", taskScope = "read")
+                val request = GatewayEngineeringRequest("owner/repository", "work", "main", "Review the selected repository", profile.model, chatId = 4, requestId = "owner-command", taskScope = "read")
                 val job = engineering.create(profile.engineeringConfig().withGatewayIdentity(GatewayScopeIdentity("pc", owner)), request)
                 assertEquals(owner, job.principalId)
                 assertEquals(1, pairedPosts)

@@ -509,7 +509,7 @@ class GatewayEngineeringClientTest {
                     respond(Json.encodeToString(job))
                 }
             ).use { read ->
-                val client = GatewayEngineeringClient(write, read) { evictions++ }
+                val client = GatewayEngineeringClient(write, read, evictIdleConnections = { evictions++ })
                 assertEquals(job.id, client.get(config, job.id, 0).id)
                 assertEquals(2, reads)
                 assertEquals(listOf("0", "1"), readAttempts)

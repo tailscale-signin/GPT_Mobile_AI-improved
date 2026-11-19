@@ -39,13 +39,16 @@ gradle.beforeProject { project ->
     if (project.path == ":app") {
         project.tasks.register("gatewayPrepareAndroidDependencies") {
             doLast {
-                def required = project.configurations.getByName("debugUnitTestRuntimeClasspath")
-                required.incoming.artifacts.artifactFiles.files
+                def configurations = [project.configurations.getByName("debugUnitTestRuntimeClasspath")]
                 for (def name : ["jacocoAgent", "lintClassPath", "lintChecks"]) {
                     def optional = project.configurations.findByName(name)
-                    if (optional != null && optional.canBeResolved) {
-                        optional.incoming.artifacts.artifactFiles.files
-                    }
+                    if (optional != null && optional.canBeResolved) configurations.add(optional)
+                }
+                for (def configuration : configurations) {
+                    // Android selects project artifact transforms in its own test tasks.
+                    configuration.incoming.artifactView {
+                        componentFilter { id -> !(id instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier) }
+                    }.files.files
                 }
             }
         }

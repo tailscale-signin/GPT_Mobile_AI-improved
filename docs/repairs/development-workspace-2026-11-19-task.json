@@ -73,6 +73,10 @@
     {
       "commit": "1d406225aa633db4d53b2a82f35c1f2f09494653",
       "scope": "The hosted isolated Android build passed the earlier SQLite native-loader step. The next failure was missing debugUnitTestRuntimeClasspath packages before JUnit, including Espresso, Conscrypt and Robolectric. The revised preparation resolves runtime and lint artifacts and invokes test discovery during setup. A separate real Gradle 9.8 and JUnit 4 fixture verified runtime dependency resolution and reproduced and repaired its exact named assertion after that preparation."
+    },
+    {
+      "commit": "001348f36f833759c7d144c4bd4da902100bbedf",
+      "scope": "Using the actual Android project and Gradle 9.8, preparation exposed an ambiguous artifact variant for the local GGUF project. The revised cache step selects external components while Android chooses project variants. The full project test runtime and lint dependencies resolved online, then :app:mergeDebugUnitTestManifest passed offline, the exact step that previously failed on hosted Android."
     }
   ]
 }

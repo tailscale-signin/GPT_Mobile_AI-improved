@@ -97,6 +97,8 @@ def main():
         assert settings['access'] == 'loopback' and settings['backend'] == 'http://127.0.0.1:1'
         assert plan['setup']['engineeringSetup'] == '0' and plan['setup']['advanced'] == '1'
         assert [plan.getint('setup', key) for key in ('workers', 'chats', 'grace', 'updates')] == [7, 11, 42, 1]
+        for name in ('edition', 'connection', 'checks', 'advanced'):
+            shutil.copy2(Path(temp) / f'setup-{name}.png', output / f'setup-{name}.png')
         results.append('native four-step setup rejects invalid ports and accepts an offline model on loopback')
         cmd=[str(installer),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=',f'/DIR={root}']
         subprocess.run(cmd,check=True,timeout=120)

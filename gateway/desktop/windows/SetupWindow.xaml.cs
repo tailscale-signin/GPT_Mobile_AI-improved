@@ -15,6 +15,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace GatewayDesktop;
 
@@ -87,8 +88,12 @@ public partial class SetupWindow : Window
             if (!smoke) return;
             try
             {
+                Width = MinWidth;
+                Height = MinHeight;
+                CapturePage("edition");
                 // Exercise actual controls and validation. No installation or host changes occur.
                 NextPage(this, new RoutedEventArgs());
+                CapturePage("connection");
                 Port.Text = "1";
                 NextPage(this, new RoutedEventArgs());
                 if (page != 1 || Problem.Text.Length == 0) throw new InvalidOperationException();
@@ -97,6 +102,7 @@ public partial class SetupWindow : Window
                 NextPage(this, new RoutedEventArgs());
                 if (page != 2) throw new InvalidOperationException();
                 await (activeCheck ?? Task.CompletedTask);
+                CapturePage("checks");
                 if (!Checks.Text.Contains("Model catalog")) throw new InvalidOperationException();
                 NextPage(this, new RoutedEventArgs());
                 if (page != 3 || !Summary.Text.Contains("127.0.0.1:8090")) throw new InvalidOperationException();
@@ -111,10 +117,27 @@ public partial class SetupWindow : Window
                 Chats.Text = "11";
                 Grace.Text = "42";
                 Updates.SelectedIndex = 1;
+                Grace.BringIntoView();
+                CapturePage("advanced");
                 NextPage(this, new RoutedEventArgs());
             }
             catch { result = 3; Close(); }
         };
+    }
+
+    private void CapturePage(string name)
+    {
+        UpdateLayout();
+        if (!Next.IsVisible || Next.ActualWidth < 60 || PageScroll.ViewportHeight < 100)
+            throw new InvalidOperationException("Setup controls clipped at minimum window size.");
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(ActualWidth * dpi.DpiScaleX),
+            (int)Math.Ceiling(ActualHeight * dpi.DpiScaleY), dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+        bitmap.Render(this);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var file = File.Create(Path.Combine(Path.GetDirectoryName(planPath)!, $"setup-{name}.png"));
+        encoder.Save(file);
     }
 
     private void RestorePlan()

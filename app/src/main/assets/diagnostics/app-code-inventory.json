@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "afde7c38cbfbc8e3a59f3ec9b3e54c27810b759f0db98599ca8f8dba6bc37156",
+  "source_digest": "816ea41adbde952b8330ded908013dc236170c592a84fd6e9bde1e600ac7137a",
   "file_count": 2755,
-  "indexed_line_count": 454322,
+  "indexed_line_count": 454347,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 215,
-      "indexed_line_count": 84775
+      "indexed_line_count": 84800
     },
     {
       "id": "authentication_service",
@@ -18252,8 +18252,8 @@
       "path": "gateway/desktop/smoke_windows.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "498b7e05d82a58965ee3959a105a6bdd38104ac87a78eb3fa73e7b16ea61841f",
-      "indexed_lines": 266
+      "sha256": "352dea11041c6f39191454b1d5c8e9ce1169b05155c1f9784b88f208c501be0c",
+      "indexed_lines": 268
     },
     {
       "path": "gateway/desktop/theme.py",
@@ -18301,7 +18301,7 @@
       "path": "gateway/desktop/windows/Build-SetupArtwork.ps1",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "ab7003edfa9bbfda4fb388ea2107e246722c5115ef3cbaee4d756891267cd634",
+      "sha256": "c8943f3f11e03d5468aff5f4b3ddc7439c73f4a32906f5296b657fd82cd831a8",
       "indexed_lines": 20
     },
     {
@@ -18315,8 +18315,8 @@
       "path": "gateway/desktop/windows/SetupWindow.xaml.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "6d11fbbfb735097095710887d82f4c2138775f5c91b7ee887414d692a5b31769",
-      "indexed_lines": 292
+      "sha256": "d0cc4d2ec4b257063198dcb20564f72b42272cd60c36ba8f08329408f11fdf52",
+      "indexed_lines": 315
     },
     {
       "path": "gateway/desktop/windows/Theme.xaml",

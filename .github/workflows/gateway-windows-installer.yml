@@ -67,6 +67,7 @@ jobs:
             dist/windows/v17-transition/*
             dist/windows/SHA256SUMS.txt
             dist/windows/smoke-results.json
+            dist/windows/setup-*.png
             dist/windows/dashboard-*.png
             dist/windows/settings-*.png
             dist/windows/native-*.png

@@ -6,7 +6,7 @@ $bitmap = [Drawing.Bitmap]::new(492, 942)
 $graphics = [Drawing.Graphics]::FromImage($bitmap)
 $bounds = [Drawing.Rectangle]::new(0, 0, $bitmap.Width, $bitmap.Height)
 $gradient = [Drawing.Drawing2D.LinearGradientBrush]::new($bounds,
-    [Drawing.ColorTranslator]::FromHtml('#001219'), [Drawing.ColorTranslator]::FromHtml('#103239'), 70)
+    [Drawing.ColorTranslator]::FromHtml('#001219'), [Drawing.ColorTranslator]::FromHtml('#103239'), [single]70)
 try {
     $graphics.FillRectangle($gradient, $bounds)
     $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic

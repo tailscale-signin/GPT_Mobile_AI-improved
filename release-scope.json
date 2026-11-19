@@ -3272,6 +3272,7 @@
     "gateway/tests/test_gateway_desktop_control_integration.py",
     "docs/repairs/development-workspace-2026-11-19-task.json",
     "gateway/tests/test_workspace_guidance.py",
+    "gateway/tests/test_gateway_workspace_guidance.py",
     "gateway/v14/workspace_guidance.py",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ReviewDiff.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubCodeDiff.kt"

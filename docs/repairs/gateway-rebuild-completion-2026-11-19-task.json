@@ -61,5 +61,29 @@
     "Bind saved-job cancellation and recovery approval reads to the retained installation and principal before any mutation.",
     "Retain the full original settings request and allow an explicit retry only after definitive absent-receipt and unchanged-target checks.",
     "Preserve saved chat model identity even when the current model catalogue does not contain it; chart measured benchmark distributions without inventing a score."
-  ]
+  ],
+  "integration_followup": {
+    "base_sha": "9a31804b786beaf169c8773d2ffff1fb533d75d0",
+    "working_branch": "completion-ci-8c562e6",
+    "intent": "Complete concrete CI and repository-guidance integration failures while preserving concurrent fixes and the existing release gates.",
+    "concurrent_fixes_retained": {
+      "12f177c7d37b4ff2b918d1e9bd126b1a1b7bbe3d": "Pinned plugin and transitive dependency mirror recovery, with existing locks and checksum verification.",
+      "42aee0d8a6256dfc228798ff60294ea6ee7a0438": "Architecture inventory includes paired Gateway transport tests.",
+      "9a31804b786beaf169c8773d2ffff1fb533d75d0": "Paged GitHub diff renderer formatting and regenerated source inventory."
+    },
+    "changes": [
+      "Project oversized repository guidance within the existing context budget, retaining exact path/blob identities and original recoverable content; mark incomplete instruction views explicitly.",
+      "Preserve the affected source directory rules when paging an already-active parent instruction file; ordinary source reads continue to update scope.",
+      "Include repository-guidance regressions in the canonical platform suite by using its test_gateway_ filename convention.",
+      "Run architecture and production-source inventory checks in canonical fast validation so stale indexes fail before Android CI."
+    ],
+    "observed_verification": {
+      "host_fast": "PASS:554 tests, CI policy, architecture and production source inventories, dependency catalog, schema/metadata, resource/regex, secrets and whitespace checks on the final integrated follow-up. Package manifest validates.",
+      "windows": "Gateway Windows installer run44479098369 at8023a17b passed native builds,187 desktop tests,15 network tests,15 dashboard tests,23 C# assertions and13 installed smoke scenarios. Later runs were cancelled by concurrent pushes.",
+      "android": "At a3cdc7a, both API34 and API36 acceptance jobs passed production and instrumentation compilation. PR Validation unit and lint jobs passed production compilation; unit-test compilation and lint remain active. Later-source qualification remains pending.",
+      "mirror": "KSP marker POM and plugin JAR/module downloaded from the existing Central mirror match all3 existing SHA256 entries. Local configuration-only Gradle remains blocked resolving com.android.legacy-kapt9.4.1 before compilation; do not qualify that attempt.",
+      "guidance": "PASS:142 tests across7 isolated suites on the integrated source: guidance6, selected execution26, reliability27, completion16, backend30, workspace checks12 and source authority25. Exact path/blob recovery, nested-rule retention, selected-model budgets and paired owner/repository boundaries remain covered."
+    },
+    "remaining": "Exact final-head checks, physical Android-to-Windows enrollment and live selected-provider acceptance remain evidence gates; no merge or release is claimed."
+  }
 }

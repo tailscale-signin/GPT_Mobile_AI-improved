@@ -547,6 +547,7 @@ class GitHubEngineeringBackend:
         if active_rules:
             system += (' Apply repository_instructions only to paths within each instruction file directory. '
                        'More specific directories take precedence; AGENTS.md wins over CLAUDE.md at equal depth. '
+                       'Incomplete instruction excerpts are not a complete review: page the original pinned paths with read before proposing affected edits. '
                        'Explicit user instructions and host permissions take precedence over repository guidance.')
         payload = {'model': job['request']['model'], 'stream': False, 'cache_prompt': False,
                    'response_format': {'type': 'json_object'},

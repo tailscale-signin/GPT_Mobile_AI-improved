@@ -73,7 +73,10 @@ def act(backend, job, action):
     elif kind == 'read':
         path = action.get('path')
         from v14.workspace_guidance import activate
-        receipt['active_instructions'] = activate(backend, job, [path])
+        active = job['data'].get('active_instructions', [])
+        # Paging a parent instruction recovers guidance for the affected source;
+        # it must not replace that source's more specific directory rules.
+        receipt['active_instructions'] = list(active) if path in active else activate(backend, job, [path])
         original = load_file(backend, job, path)
         start, count = action.get('start_line', 1), action.get('line_count', 80)
         if type(start) is not int or type(count) is not int or start < 1 or not 1 <= count <= 200:

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ad58671c8d39a0df39517eb4a66720bfc74e960bae5f5521297c293a703ac7ba",
+  "source_digest": "50f04677a4ca046794b59273bc7cc17376038c86dd96969b96278414f6672e89",
   "file_count": 2739,
-  "indexed_line_count": 451039,
+  "indexed_line_count": 451061,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 201,
-      "indexed_line_count": 82501
+      "indexed_line_count": 82523
     },
     {
       "id": "authentication_service",
@@ -18651,8 +18651,8 @@
       "path": "gateway/v14/engineering_backend.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "7a1d8e952d1adf56de372a709991a73f82ba7fbb591b726b63a8202922079927",
-      "indexed_lines": 1076
+      "sha256": "6feff6818e836f58a9c2ee0e077c5e4b95bda1c467e85866348cd49ff03d361a",
+      "indexed_lines": 1077
     },
     {
       "path": "gateway/v14/engineering_backup.py",
@@ -18826,8 +18826,8 @@
       "path": "gateway/v14/engineering_workspace.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "c1e74460a2b2e631ec0ff30c2dab972b06f58cf790af39d0c4c9f4542aae896b",
-      "indexed_lines": 233
+      "sha256": "c1d4a88c0fc4446728bcf424a70b934d25b06bc489333b692f2316f517eb1105",
+      "indexed_lines": 236
     },
     {
       "path": "gateway/v14/engineering_workspace_checks.py",
@@ -18910,8 +18910,8 @@
       "path": "gateway/v14/inference_budget.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "9c49c4d7b965954cd37e3d59dfa3638a9e4fa51000f174d3997e85d0705eed07",
-      "indexed_lines": 167
+      "sha256": "5a2a5820afe1ac4ee5ea6fba0f6bba85ff57a22915ae07712d072928ae191ae7",
+      "indexed_lines": 185
     },
     {
       "path": "gateway/v14/inference_capabilities.py",

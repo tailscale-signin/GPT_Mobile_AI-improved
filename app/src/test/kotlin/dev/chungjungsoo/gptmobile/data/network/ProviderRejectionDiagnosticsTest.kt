@@ -30,6 +30,13 @@ class ProviderRejectionDiagnosticsTest {
         assertFalse("private" in result.toString())
     }
 
+    @Test fun responsesRejectionsRetainOnlyTheParameterRootAndTheWireContract() {
+        val result = ProviderRejectionDiagnostics.response(400, """{"error":{"param":"input[3].private_field","message":"private text"}}""", ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES)
+        assertEquals(JsonPrimitive("OPENAI_RESPONSES"), result["payload_contract"])
+        assertEquals(JsonPrimitive("input"), result["provider_parameter"])
+        assertFalse(result.toString().contains("private"))
+    }
+
     @Test fun notFoundDistinguishesOnlyExplicitModelUnavailability() {
         val explicit = ProviderRejectionDiagnostics.response(404, """{"error":{"code":"model_not_found","message":"private model identifier"}}""", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS)
         assertEquals(JsonPrimitive("MODEL_UNAVAILABLE"), explicit["provider_rejection_category"])

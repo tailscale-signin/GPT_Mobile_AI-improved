@@ -1729,6 +1729,8 @@ class IncidentReportContractTest(unittest.TestCase):
                       "tool_execution_observation": "REMOTE_READ_SUCCEEDED", "tool_result_bytes_used": 24576,
                       "tool_result_bytes_limit": 24576}),
             ("TOOL", {"tool_permission_scope": "ANDROID_LOCATION"}),
+            ("TOOL", {"tool_budget_kind": "COMBINED_WORK", "tool_budget_phase": "BEFORE_DISPATCH"}),
+            ("PROVIDER", {"payload_contract": "OPENAI_RESPONSES", "provider_parameter": "input", "provider_rejection_category": "INVALID_REQUEST"}),
             ("TOOL", {"mcp_failure_phase": "execution", "mcp_failure_category": "MCP_TOOL_ERROR"}),
             ("TOOL", {"mcp_failure_phase": "execution", "mcp_failure_category": "MCP_OUTPUT_INVALID"}),
             ("PROVIDER", {"provider_rejection_category": "BILLING_UNAVAILABLE", "gateway_terminal_status": "failed"}),

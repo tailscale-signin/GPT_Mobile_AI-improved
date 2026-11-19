@@ -48,6 +48,25 @@ internal object AgentFailureEvidence {
     /** A typed binding rejection preserves server facts without logging its response body. */
     fun exception(error: Throwable, partialOutput: Boolean = false): ProviderEvent.Failed? {
         if (error is ProviderRecoveryFailure) return error.event()
+        if (error is GitHubTargetSelectionRequired) {
+            return ProviderEvent.Failed(
+                error.message.orEmpty(),
+                errorCode = "REPOSITORY_TARGET_UNVERIFIED",
+                taskOutcome = if (partialOutput) "PARTIAL" else "BLOCKED",
+                failureDetails = buildJsonObject {
+                    put("failed_stage", "repository_admission")
+                    put("failure_origin", "APPLICATION")
+                    put("recovery_action", "CHANGE_REPOSITORY")
+                    put("partial_output_preserved", partialOutput)
+                    put("retryable", false)
+                    put("request_replay_allowed", false)
+                    if (!partialOutput) {
+                        put("dispatched", false)
+                        put("remote_acceptance", "NO")
+                    }
+                }
+            )
+        }
         if (error is dev.chungjungsoo.gptmobile.data.context.GitHubProfileSelectionRejected ||
             error is dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive ||
             error is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected

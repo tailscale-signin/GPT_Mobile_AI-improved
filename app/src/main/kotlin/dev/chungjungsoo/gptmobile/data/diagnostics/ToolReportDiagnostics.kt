@@ -245,7 +245,10 @@ internal object ToolReportDiagnostics {
             (arguments?.get("per_page") as? JsonPrimitive)?.takeUnless { it.isString }?.content?.toIntOrNull()
                 ?.takeIf { it in 0..16_000_000 }?.let { put("argument_page_size", it) }
         }
-        if (result.outputBudgetExhausted || result.toolCallBudgetExhausted) {
+        if (result.combinedWorkBudgetExhausted && !result.dispatched && result.errorCode == "BUDGET_EXHAUSTED") {
+            put("tool_budget_kind", "COMBINED_WORK")
+            put("tool_budget_phase", "BEFORE_DISPATCH")
+        } else if (result.outputBudgetExhausted || result.toolCallBudgetExhausted) {
             put(
                 "tool_budget_kind",
                 when {

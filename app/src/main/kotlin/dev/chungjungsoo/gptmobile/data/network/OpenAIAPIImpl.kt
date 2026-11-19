@@ -905,7 +905,19 @@ class OpenAIAPIImpl @Inject constructor(
                                         "E"
                                     )
 
-                                    emit(ResponseErrorEvent(message = if (response.status.value in setOf(401, 402, 403)) errorMessage else effectiveConfig.readableProviderError(errorMessage, response.status.value.toString()), code = response.status.value.toString()))
+                                    val rejection = ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint)
+                                    emit(
+                                        ResponseErrorEvent(
+                                            message = if (response.status.value in setOf(401, 402, 403)) errorMessage else effectiveConfig.readableProviderError(errorMessage, response.status.value.toString()),
+                                            code = response.status.value.toString(),
+                                            failureDetails = JsonObject(
+                                                rejection + kotlinx.serialization.json.buildJsonObject {
+                                                    put("http_status", response.status.value)
+                                                    put("failed_stage", "model_invocation")
+                                                }
+                                            )
+                                        )
+                                    )
                                     return@execute
                                 }
 

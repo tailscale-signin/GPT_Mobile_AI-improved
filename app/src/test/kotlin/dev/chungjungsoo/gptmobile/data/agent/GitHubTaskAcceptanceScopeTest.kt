@@ -19,6 +19,12 @@ class GitHubTaskAcceptanceScopeTest {
     }
 
     @Test fun repositoryWorkRequiresOneBoundTargetBeforeAcceptanceCanBeExpected() {
+        for (count in listOf(0, 2)) {
+            val error = requireNotNull(runCatching { requireNativeGitHubTarget(true, count) }.exceptionOrNull())
+            val rejection = requireNotNull(AgentFailureEvidence.exception(error))
+            assertTrue(rejection.errorCode == "REPOSITORY_TARGET_UNVERIFIED" && rejection.taskOutcome == "BLOCKED")
+            assertTrue(rejection.failureDetails?.get("dispatched") == kotlinx.serialization.json.JsonPrimitive(false))
+        }
         requireNativeGitHubTarget(true, 1)
         requireNativeGitHubTarget(false, 0)
         requireNativeGitHubTarget(false, 2)

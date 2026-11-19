@@ -51,7 +51,12 @@ internal object GitHubIntegrationReport {
         }
         return buildJsonObject {
             put("code", reason.first)
-            put("detail", reason.second)
+            val preparation = checklist["preparation"] as? JsonObject
+            val readyReads = preparation?.takeIf {
+                it.text("schema") == "github.integration-preparation.v1" && it.text("status") == "BOUNDED_READS_PREPARED" && it.array("ready_reads").isNotEmpty()
+            }?.number("ready_read_count") ?: 0
+            val actionable = reason.first == "RECORDED_OPERATION_BLOCKERS" && readyReads > 0 && remaining != null && remaining > GitHubChecklistBudget.VERIFICATION_RESERVE
+            put("detail", if (actionable) "${reason.second} The retained preparation lists $readyReads candidate reads. Resume from its issued read recipes after rechecking current permissions and remaining allowance." else reason.second)
             if (reason.first == "AUTHORIZED_CATALOG_INCOMPLETE") {
                 put("blocker", catalog["blocker"] ?: JsonPrimitive("CATALOG_INCOMPLETE"))
                 put("affected_contracts", catalog["requested_contract_changes"] ?: JsonArray(emptyList()))

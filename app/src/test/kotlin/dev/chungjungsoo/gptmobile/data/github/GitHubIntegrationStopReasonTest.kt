@@ -35,6 +35,17 @@ class GitHubIntegrationStopReasonTest {
         }
     }
 
+    @Test fun preparedReadsAreVisibleWithObservedErrorsAndUsableBudget() {
+        val checkpoint = json("""{"authorized_catalog":{"complete":true},"capabilities":[{"id":"github_ci","status":"PREFLIGHT_REJECTED"}],"preparation":{"schema":"github.integration-preparation.v1","status":"BOUNDED_READS_PREPARED","ready_read_count":11,"ready_reads":[{"tool":"github_read","plan_only":true}]}}""")
+        val stop = GitHubIntegrationReport.stopReason("Test all tools", emptyMap(), emptyList(), 100, checkpoint)
+        assertEquals(JsonPrimitive("RECORDED_OPERATION_BLOCKERS"), stop["code"])
+        assertTrue(stop["detail"].toString().contains("11 candidate reads"))
+        assertEquals(JsonPrimitive("RESUME_UNVERIFIED_REQUIREMENTS"), stop["recovery_action"])
+        val reserve = GitHubIntegrationReport.stopReason("Test all tools", emptyMap(), emptyList(), 2, checkpoint)
+        assertEquals(JsonPrimitive("VERIFICATION_RESERVE_REACHED"), reserve["code"])
+        assertFalse(reserve["detail"].toString().contains("candidate reads"))
+    }
+
     @Test fun optionalInventoryCannotHideRequiredFixtureApprovalPrerequisites() {
         val task = "Test all tools and exercise permitted writes in an owned disposable fixture with verified cleanup."
         val tools = listOf(branches, commits)

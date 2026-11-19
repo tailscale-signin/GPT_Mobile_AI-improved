@@ -200,7 +200,7 @@ internal object IssueReportIncidents {
                 evidence
             }
             val capturedBudgetKind = toolContext?.diagnostics?.values?.get("tool_budget_kind") != null
-            val sourceBudgetKind = reportSource == "TOOL_RESULT" && evidence["tool_budget_kind"] in setOf("CALLS", "RESULT_BYTES", "BOTH")
+            val sourceBudgetKind = reportSource == "TOOL_RESULT" && evidence["tool_budget_kind"] in setOf("CALLS", "RESULT_BYTES", "BOTH", "COMBINED_WORK")
             val toolBudget = toolPrecheck && (capturedBudgetKind || sourceBudgetKind)
             // Exhaustion can accompany the last admitted call's specific failure; it is not its cause.
             val fallbackCode = if (toolBudget) {
@@ -266,11 +266,13 @@ internal object IssueReportIncidents {
                 is JsonPrimitive -> value.contentOrNull
                 else -> null
             }
+            val rawPhase = fields["phase"]
             val reportFields = if (
                 feature == ReportFeature.TOOLS &&
                 reportSource == "TOOL_RESULT" &&
                 toolDispatchPhase in setOf("READ_FAILED", "OBSERVED", "FAILED") &&
-                listOf("failed_stage", "failedStage", "failurePhase", "phase", "stage").none { it in fields }
+                listOf("failed_stage", "failedStage", "failurePhase", "stage").none { it in fields } &&
+                (rawPhase == null || rawPhase == toolDispatchPhase || (rawPhase as? JsonPrimitive)?.contentOrNull == toolDispatchPhase)
             ) {
                 fields + ("failed_stage" to "tool_execution")
             } else {

@@ -91,7 +91,12 @@ private fun githubSchemaBudgetMessage(requiredSchemaTokens: Long, availableSchem
         budget.toolResults?.let { append(", plus $it for tool results") }
         append(" (token estimates).")
         if (requiredSchemaTokens in 0L..16_000_000L && availableSchemaTokens in 0L..16_000_000L && requiredSchemaTokens > availableSchemaTokens) {
-            val shortfall = requiredSchemaTokens - availableSchemaTokens
+            val baseOverrun = if (budget.available == availableSchemaTokens) {
+                (budget.input + budget.output + budget.safety + (budget.toolResults ?: 0) - budget.capacity).coerceAtLeast(0)
+            } else {
+                0
+            }
+            val shortfall = requiredSchemaTokens - availableSchemaTokens + baseOverrun
             append(" The required schemas are short by $shortfall tokens.")
             if (budget.available == availableSchemaTokens && shortfall > budget.output) {
                 append(" Reducing the reply allowance alone cannot cover this shortfall.")

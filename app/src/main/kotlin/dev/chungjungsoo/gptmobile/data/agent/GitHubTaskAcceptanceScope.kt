@@ -27,9 +27,14 @@ internal fun requireNativeGitHubTarget(required: Boolean, targetCount: Int, requ
     // Creation/import selects a destination in its own schema. Requiring an
     // already accessible open repository would prevent that workflow entirely.
     if (!required || targetCount == 1 || dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryLifecycle.intent(request) != null) return
-    if (targetCount == 0) {
-        error("GITHUB_REPOSITORY_TARGET_REQUIRED: Select the exact repository and connection for this task before dependent work. No repository operation was dispatched.")
-    } else {
-        error("GITHUB_REPOSITORY_TARGET_AMBIGUOUS: More than one repository target is selected. Select the exact repository and connection for this task before dependent work. No repository operation was dispatched.")
-    }
+    throw GitHubTargetSelectionRequired(targetCount)
 }
+
+internal class GitHubTargetSelectionRequired(targetCount: Int) :
+    IllegalStateException(
+        if (targetCount == 0) {
+            "GITHUB_REPOSITORY_TARGET_REQUIRED: Select the exact repository and connection for this task before dependent work. No repository operation was dispatched."
+        } else {
+            "GITHUB_REPOSITORY_TARGET_AMBIGUOUS: More than one repository target is selected. Select the exact repository and connection for this task before dependent work. No repository operation was dispatched."
+        }
+    )

@@ -9,8 +9,8 @@ import kotlinx.serialization.json.put
 
 /** Closed categories and domain-separated hashes; response prose and rejected values never leave here. */
 internal object ProviderRejectionDiagnostics {
-    enum class Contract { CHAT_COMPLETIONS, ANTHROPIC_MESSAGES, GOOGLE_CONTENT, GATEWAY_GENERATION }
-    private val parameters = setOf("model", "messages", "max_tokens", "max_completion_tokens", "temperature", "top_p", "stop", "tools", "tool_choice", "stream", "response_format", "reasoning", "thinking", "metadata", "system")
+    enum class Contract { CHAT_COMPLETIONS, OPENAI_RESPONSES, ANTHROPIC_MESSAGES, GOOGLE_CONTENT, GATEWAY_GENERATION }
+    private val parameters = setOf("model", "messages", "max_tokens", "max_completion_tokens", "temperature", "top_p", "stop", "tools", "tool_choice", "stream", "response_format", "reasoning", "thinking", "metadata", "system", "input", "max_output_tokens", "previous_response_id", "instructions")
 
     fun response(status: Int, body: String, contract: Contract, endpoint: String? = null): JsonObject {
         val root = body.takeIf { it.length <= 256 * 1024 }?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }

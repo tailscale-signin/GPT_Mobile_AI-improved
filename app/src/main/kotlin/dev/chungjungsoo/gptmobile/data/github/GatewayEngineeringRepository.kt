@@ -99,6 +99,46 @@ class GatewayEngineeringRepository @Inject constructor(
         return client.checkpoints(config, job.id).also { check(it.jobId == job.id) }
     }
 
+    suspend fun exportOutput(requestId: String, selected: JsonObject, stream: java.io.OutputStream) {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val job = requireNotNull(binding.job)
+        require(job.workspaceOutputs.contains(selected) && selected["state"]?.jsonPrimitive?.content == "RETAINED")
+        val config = config(binding)
+        val gateway = requireNotNull(binding.gatewayId)
+        val principal = requireNotNull(binding.principalId)
+        val frozen = config.withGatewayIdentity(GatewayScopeIdentity(gateway, principal))
+        check(principal == client.principal(frozen, requireReady = false))
+        val total = selected.getValue("bytes").jsonPrimitive.content.toInt()
+        require(total in 1..192 * 1024 * 1024)
+        val full = java.security.MessageDigest.getInstance("SHA-256")
+        fun hash(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
+        var written = 0
+        val parts = selected.getValue("parts") as kotlinx.serialization.json.JsonArray
+        require(parts.size in 1..12)
+        for (entry in parts) {
+            val part = entry as JsonObject
+            val artifact = part.getValue("result_ref").jsonPrimitive.content
+            val length = part.getValue("byte_length").jsonPrimitive.content.toInt()
+            require(length in 1..16 * 1024 * 1024 && part["job_id"]?.jsonPrimitive?.content == job.id && length <= total - written)
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            var offset = 0
+            while (offset < length) {
+                val page = client.artifactPage(frozen, job.id, artifact, offset)
+                val bytes = java.util.Base64.getDecoder().decode(page.getValue("content_base64").jsonPrimitive.content)
+                require(page["reference"] == part && bytes.size in 1..minOf(65536, length - offset))
+                require(page["offset"]?.jsonPrimitive?.content?.toIntOrNull() == offset && page["next_offset"]?.jsonPrimitive?.content?.toIntOrNull() == offset + bytes.size)
+                require(hash(java.security.MessageDigest.getInstance("SHA-256").digest(bytes)) == page["page_sha256"]?.jsonPrimitive?.content)
+                stream.write(bytes)
+                digest.update(bytes)
+                full.update(bytes)
+                written += bytes.size
+                offset += bytes.size
+            }
+            require(hash(digest.digest()) == part["sha256"]?.jsonPrimitive?.content)
+        }
+        require(written == total && hash(full.digest()) == selected["sha256"]?.jsonPrimitive?.content)
+    }
+
     suspend fun candidateDetails(requestId: String, checkId: String): String = candidatePage(requestId, checkId, 0).first
 
     suspend fun candidatePage(requestId: String, checkId: String, offset: Int): Pair<String, Int?> {

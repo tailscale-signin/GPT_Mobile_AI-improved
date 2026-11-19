@@ -281,6 +281,7 @@ data class GatewayEngineeringJob(
     @SerialName("active_instruction_files") val activeInstructionFiles: List<String> = emptyList(),
     @SerialName("workspace_next_action") val workspaceNextAction: String? = null,
     @SerialName("workspace_workers") val workspaceWorkers: List<JsonObject> = emptyList(),
+    @SerialName("workspace_outputs") val workspaceOutputs: List<JsonObject> = emptyList(),
     @SerialName("workspace_tests") val workspaceTests: List<JsonObject> = emptyList(),
     @SerialName("workspace_steps") val workspaceSteps: List<JsonObject> = emptyList()
 ) {

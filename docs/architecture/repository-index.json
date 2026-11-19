@@ -645,6 +645,7 @@
         "gateway/benchmark_selected_model.py",
         "gateway/build_v14_package.py",
         "gateway/check_gateway.py",
+        "gateway/export_workspace_output.py",
         "gateway/gateway.py",
         "gateway/gateway_multisearch.py",
         "gateway/gateway_security.py",

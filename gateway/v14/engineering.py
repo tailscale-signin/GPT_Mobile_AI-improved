@@ -1700,6 +1700,9 @@ def public_job(job):
             'workspace_plan': str((data.get('plan') or {}).get('plan', ''))[:8000] if isinstance(data.get('plan'), dict) else '',
             'active_instruction_files': data.get('active_instructions', []),
             'workspace_next_action': (data.get('progress_notes') or {}).get('next_action'),
+            'workspace_outputs': [dict(item, revision=(data.get('local_validation') or {}).get('source_sha'),
+                                       patch_identity=(data.get('local_validation') or {}).get('patch_identity'), command_index=cmd.get('command_index'))
+                                  for cmd in (data.get('local_validation') or {}).get('commands', []) for item in cmd.get('build_outputs', [])][:96],
             'workspace_workers': [{'id': name, 'role': value['role'], 'state': value['state'],
                                    'calls': value['calls'], 'budget': value['budget']} for name, value in (data.get('workspace_workers') or {}).items()],
             'workspace_tests': [{'name': str(value.get('check_id', ''))[:12], 'status': value.get('status'),

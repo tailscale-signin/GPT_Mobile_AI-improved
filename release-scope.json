@@ -3298,7 +3298,12 @@
     "gateway/v14/workspace_environment.py",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryWorkspaceTool.kt",
     "gateway/tests/test_gateway_profile_checks.py",
-    "gateway/v14/profile_checks.py"
+    "gateway/v14/profile_checks.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCodeContext.kt",
+    "docs/audits/tool-statistics-coverage.json",
+    "gateway/export_workspace_output.py",
+    "gateway/tests/test_gateway_workspace_outputs.py",
+    "gateway/v14/workspace_outputs.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.8",

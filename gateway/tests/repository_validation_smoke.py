@@ -24,6 +24,60 @@ from desktop.validation_policy import SETTING
 from v14.engineering_validation import validate
 
 
+def verify_profile_checks(root, mirror, head):
+    """Use the paired check dispatcher and real Docker with a local identity fixture."""
+    from types import SimpleNamespace
+    import sqlite3
+    import threading
+    import time
+    from v14.profile_checks import ProfileChecks
+    source_tree = subprocess.check_output(['git', '--git-dir=' + str(mirror), 'rev-parse', head + '^{tree}'], text=True).strip()
+    def api(path, *, read_only):
+        assert read_only
+        if '/git/ref/heads/' in path:
+            return {'object': {'sha':head}}
+        if '/git/commits/' in path:
+            return {'tree':{'sha':source_tree}}
+        if '/git/trees/' in path:
+            return {'tree': [], 'truncated':False}  # the temporary fixture adds one new file
+        raise AssertionError('Unexpected GitHub action')
+    def tx(operation):
+        db = sqlite3.connect(root/'profile-checks.sqlite', timeout=15, isolation_level=None)
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            result = operation(db)
+            db.commit()
+            return result
+        finally:
+            db.close()
+    backend = SimpleNamespace(api=api, token=lambda **kwargs:'', stopping=threading.Event())
+    store = SimpleNamespace(tx=tx, admission_settings=lambda db, owner:{'enabled':True})
+    service = SimpleNamespace(store=store, bindings=SimpleNamespace(boot_id='host-smoke'), backend=backend)
+    checks = ProfileChecks(service)
+    args = dict(repository=setup.DEFAULT_REPOSITORY, branch='fixture', head_sha=head, profile_binding='f'*64)
+    catalog = checks.execute('fixture-owner', dict(args, action='catalog'))
+    def check(key, edits):
+        run = dict(args, action='run', request_id=key, check_index=0, changes=edits)
+        submitted = checks.execute('fixture-owner',run)
+        assert submitted['request_id'] == checks.execute('fixture-owner',run)['request_id']
+        deadline = time.monotonic()+120
+        while time.monotonic() < deadline:
+            result = ProfileChecks(service).execute('fixture-owner',dict(args,action='status',request_id=key))
+            if result['state'] != 'RUNNING':
+                return result
+            time.sleep(.4)
+        raise TimeoutError('Profile workspace check did not finish')
+    def edit(content):
+        return [dict(path='gateway/workspace_ci_probe.py', expected_blob_sha=None, content=content)]
+    before = check('before',edit('def broken(:\n'))
+    after = check('after',edit('def answer():\n    return 42\n'))
+    assert before['state'] == 'FAILED' and before['exit_code'] != 0 and before['output_sha256']
+    assert after['state'] == 'PASSED' and after['exit_code'] == 0 and after['output_sha256']
+    assert before['patch_identity'] != after['patch_identity'] and before['head_sha'] == after['head_sha']
+    return dict(source_sha=head, check_index=0, before=before['output_sha256'], after=after['output_sha256'],
+                image=catalog['image'], executor='real Docker', inference='not exercised')
+
+
 def verify_terminal(mirror, head, policy):
     import hashlib
     import time
@@ -109,7 +163,7 @@ def main():
             setup.save_snapshot(root, setup.DEFAULT_REPOSITORY, {
                 'mirror': str(mirror), 'image': options['image'], 'commands': options['commands'],
                 'timeout_seconds': options['timeout_seconds'], 'allowed_checks': options['allowed_checks'],
-                'workspace_terminal': True, 'acceptance_map': []}, revision)
+                'workspace_terminal': True, 'remote_profile_checks': True, 'acceptance_map': []}, revision)
             first = environment(root, validate_configuration({}))
             previous = os.environ.get(SETTING)
             os.environ[SETTING] = first[SETTING]
@@ -117,6 +171,7 @@ def main():
                 result = validate({'request': {'repository': setup.DEFAULT_REPOSITORY}, 'data': {'head_sha': head}}, [])
                 receipt.update(readiness=readiness, validation=result)
                 if result['status'] == 'PASSED':
+                    receipt['paired_workspace_check'] = verify_profile_checks(root, mirror, head)
                     receipt['offline_terminal'] = verify_terminal(mirror, head, setup.read_settings(root)[0][setup.DEFAULT_REPOSITORY])
                     receipt['operator_work'] = verify_operator_work(root, options['image'], head)
             finally:

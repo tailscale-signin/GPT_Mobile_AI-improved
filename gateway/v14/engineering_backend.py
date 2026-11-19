@@ -842,7 +842,9 @@ class GitHubEngineeringBackend:
                 return {'source_preparation': {'status': 'BLOCKED', 'head_sha': data['head_sha'], 'reason': 'PINNED_SOURCE_PREPARATION_FAILED'},
                         'local_validation': {'status': 'BLOCKED', 'reason': 'Pinned source preparation failed. Check the approved mirror and GitHub access; no test ran.'},
                         'review': {'approved': False, 'issues': ['Pinned source preparation unavailable']}}
-            validation = validate_checkout(job, data['changes'], cancel=self.cancellation(job))
+            output_store = getattr(self, 'private_artifacts', None)
+            retain = {'retain_build_output': lambda blocks: output_store.put(job, blocks, purpose='workspace-build-output')} if output_store is not None else {}
+            validation = validate_checkout(job, data['changes'], cancel=self.cancellation(job), **retain)
             from v14.engineering_specialists import investigate
             specialists = investigate(self, job, [{'role': role, 'evidence': {'diff': patches, 'validation': validation,
                 'focus': focus}} for role, focus in (('security reviewer', 'Check authorization, secrets, injection and unsafe changes'),

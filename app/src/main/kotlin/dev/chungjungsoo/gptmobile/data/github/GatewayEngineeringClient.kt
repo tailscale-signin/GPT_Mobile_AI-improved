@@ -482,6 +482,11 @@ class GatewayEngineeringClient internal constructor(
         return json.decodeFromString(request(config, "jobs/$jobId/checkpoints"))
     }
 
+    suspend fun artifactPage(config: ProviderRequestConfig, jobId: String, artifactId: String, offset: Int): JsonObject {
+        require(jobId.matches(Regex("[A-Za-z0-9_-]+")) && artifactId.matches(Regex("artifact_[a-f0-9]{40}")) && offset >= 0)
+        return json.parseToJsonElement(request(config, "jobs/$jobId/artifacts/$artifactId?offset=$offset&length=65536")).jsonObject
+    }
+
     suspend fun candidateDetails(config: ProviderRequestConfig, jobId: String, checkId: String): String = candidatePage(config, jobId, checkId, 0).first
 
     suspend fun candidatePage(config: ProviderRequestConfig, jobId: String, checkId: String, offset: Int): Pair<String, Int?> {

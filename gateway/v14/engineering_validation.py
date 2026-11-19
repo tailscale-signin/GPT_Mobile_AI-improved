@@ -346,7 +346,7 @@ def materialize_checkout(job, mirror, changes, root, cancel):
     return checkout
 
 
-def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, retain_output=None):
+def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, retain_output=None, retain_build_output=None):
     identity = patch_identity(job['data']['head_sha'], changes)
     try:
         policy, mirror, image, commands, coverage = load_policy(job['request']['repository'])
@@ -388,6 +388,9 @@ def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, r
         _, public_env, limits = read_environment(policy)
         def run_command(index, command, command_checkout):
             command_coverage = [item for item in coverage if item['command_index'] == index]
+            from v14 import workspace_outputs
+            output_patterns = workspace_outputs.patterns(policy) if retain_build_output else ()
+            baseline = workspace_outputs.files(command_checkout, output_patterns)
             prepare_behavior_reports(command_coverage, command_checkout)
             cidfile = root / ('container-' + str(index))
             argv = ['docker', 'run', '--rm', '--pull=never', '--cidfile=' + str(cidfile), '--network=none', '--cap-drop=ALL',
@@ -413,6 +416,8 @@ def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, r
                         with host_command(['docker', 'rm', '-f', container]) as cleanup:
                             subprocess.run(cleanup, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                            stderr=subprocess.DEVNULL, timeout=15, check=False, env=host_environment(root))
+            if output_patterns:
+                result['build_outputs'] = workspace_outputs.capture(command_checkout, output_patterns, baseline, retain_build_output)
             return dict(result, command=command, command_index=index, report_snapshots=capture_behavior_reports(command_coverage, command_checkout))
 
         index = 0

@@ -113,7 +113,7 @@ internal object GitHubCodeContext {
                     }
                 )
             )
-            put("guidance_paths", JsonArray(treePaths.filter { it.substringAfterLast('/') in setOf("AGENTS.md", "CONTRIBUTING.md", "DEVELOPMENT.md") }.take(12).map(::JsonPrimitive)))
+            put("guidance_paths", JsonArray(treePaths.filter { it.substringAfterLast('/') in setOf("AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "DEVELOPMENT.md") }.take(12).map(::JsonPrimitive)))
         }
     }
 }

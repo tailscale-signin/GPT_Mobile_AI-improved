@@ -48,6 +48,16 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
     val lastPage = (bindings.size - 1).coerceAtLeast(0) / 20
     val visible = bindings.asReversed().drop(page.coerceAtMost(lastPage) * 20).take(20)
     var details by remember { mutableStateOf<GatewayEngineeringBinding?>(null) }
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    var wantedRequest by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    var wantedOutput by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val saveOutput = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")) { destination ->
+        val binding = state.bindings.firstOrNull { it.request.requestId == wantedRequest }
+        val output = binding?.job?.workspaceOutputs?.singleOrNull { it.toString() == wantedOutput }
+        wantedRequest = null
+        wantedOutput = null
+        if (binding != null && output != null && destination != null) model.exportOutput(binding, output, appContext, destination)
+    }
     val uri = LocalUriHandler.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -162,6 +172,19 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                             checks.forEach { check ->
                                 Text("${check["name"]?.jsonPrimitive?.content.orEmpty()} · ${check["status"]?.jsonPrimitive?.content.orEmpty()}")
                                 check["revision"]?.jsonPrimitive?.content?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            }
+                            current.job?.workspaceOutputs.orEmpty().forEach { output ->
+                                val path = output["path"]?.jsonPrimitive?.content.orEmpty()
+                                val status = output["state"]?.jsonPrimitive?.content
+                                Text("$path · $status", style = MaterialTheme.typography.bodySmall)
+                                output["sha256"]?.jsonPrimitive?.content?.let { Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                                if (status == "RETAINED") {
+                                    TextButton(enabled = !state.busy, onClick = {
+                                        wantedRequest = current.request.requestId
+                                        wantedOutput = output.toString()
+                                        saveOutput.launch(path.substringAfterLast('/'))
+                                    }) { Text("Save ${path.substringAfterLast('/')}") }
+                                }
                             }
                             current.job?.completionVerification?.let { Text(it.toString()) }
                         }

@@ -133,6 +133,18 @@ class GatewayEngineeringViewModel @Inject constructor(
         updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text, candidateCursor = null) }
     }
 
+    fun exportOutput(binding: GatewayEngineeringBinding, output: kotlinx.serialization.json.JsonObject, context: android.content.Context, uri: android.net.Uri) = action {
+        val temporary = java.io.File.createTempFile("gateway-output-", null, context.cacheDir)
+        try {
+            temporary.outputStream().use { repository.exportOutput(binding.request.requestId, output, it) }
+            requireNotNull(context.contentResolver.openOutputStream(uri, "wt")) { "The selected document could not be opened for writing." }.use { destination ->
+                temporary.inputStream().use { it.copyTo(destination) }
+            }
+        } finally {
+            temporary.delete()
+        }
+    }
+
     fun queuePlanEdit(binding: GatewayEngineeringBinding, text: String, commandId: String) = action {
         repository.queuePlanEdit(binding, text, commandId)
     }

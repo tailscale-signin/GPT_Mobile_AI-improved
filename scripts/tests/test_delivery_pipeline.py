@@ -29,6 +29,12 @@ def write_png(path, color, width=1, filter_mode=0):
 class PipelineTest(unittest.TestCase):
     def test_geniex_packaging_has_bounded_parallelism_and_stall_evidence(self):
         workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/geniex-preview.yml').read_text()
+        debug = workflow.split('- name: Build isolated preview APK', 1)[1].split('- name: Validate release shrinker', 1)[0]
+        self.assertIn(':app:validateSigningDebug', workflow.split('- name: Build isolated preview APK', 1)[0])
+        self.assertIn('ForkJoinPool.common.parallelism=2', debug)
+        self.assertLess(debug.index('-PgeniexSeparateSigning=true'), debug.index('scripts/sign_preview_apks.py'))
+        self.assertIn('app/build/outputs/apk/debug --apksigner', debug)
+        self.assertEqual(2, workflow.count('--keystore "$ANDROID_USER_HOME/debug.keystore"'))
         package = workflow.split('- name: Package the minified GenieX APK in a fresh process', 1)[1]
         package = package.split('- name: Audit minified GenieX native stack', 1)[0]
         self.assertIn('timeout-minutes: 90', package)

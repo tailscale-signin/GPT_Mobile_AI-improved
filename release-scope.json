@@ -306,6 +306,7 @@
     ".github/workflows/gateway-stability.yml",
     ".github/workflows/gateway-windows-installer.yml",
     ".github/workflows/geniex-preview.yml",
+    "scripts/tests/test_delivery_pipeline.py",
     ".github/workflows/github-build-downloads.yml",
     ".github/workflows/integration-test.yml",
     ".github/workflows/marketplace-contracts.yml",

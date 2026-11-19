@@ -52,6 +52,10 @@ jobs:
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Select the preview signing directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/geniex-android-user"
+          echo "ANDROID_USER_HOME=$RUNNER_TEMP/geniex-android-user" >> "$GITHUB_ENV"
       - name: Provision verified memory model outside Gradle
         run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend
@@ -92,7 +96,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          python3 scripts/build_metrics.py --label geniex-unit-tests --output build/geniex-validation/unit-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:testDebugUnitTest --no-daemon --console=plain --stacktrace --profile 2>&1 | tee build/geniex-validation/unit.log
+          python3 scripts/build_metrics.py --label geniex-unit-tests --output build/geniex-validation/unit-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:validateSigningDebug :app:testDebugUnitTest --no-daemon --console=plain --stacktrace --profile 2>&1 | tee build/geniex-validation/unit.log
       - name: Save GenieX unit reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -101,13 +105,17 @@ jobs:
           name: geniex-unit-results
           path: app/build/test-results/testDebugUnitTest/*.xml
           if-no-files-found: warn
+      # Keep ApkFlinger compression and debug signing in separate processes for both previews.
       - name: Build isolated preview APK
-        timeout-minutes: 25
+        timeout-minutes: 50
         shell: bash
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          python3 scripts/build_metrics.py --label geniex-debug --output build/geniex-validation/debug-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:assembleDebug --no-daemon --console=plain --stacktrace --profile 2>&1 | tee build/geniex-validation/debug.log
+          python3 scripts/build_metrics.py --label geniex-debug --output build/geniex-validation/debug-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 2820 -- -PgeniexRuntime=true -PgeniexSeparateSigning=true :app:assembleDebug --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/debug.log
+      - name: Sign and verify debug GenieX preview APKs
+        timeout-minutes: 15
+        run: python3 scripts/sign_preview_apks.py app/build/outputs/apk/debug --apksigner "$ANDROID_HOME/build-tools/37.0.0/apksigner" --keystore "$ANDROID_USER_HOME/debug.keystore"
       - name: Validate release shrinker for the GenieX runtime
         timeout-minutes: 25
         shell: bash
@@ -154,7 +162,7 @@ jobs:
       - name: Sign and verify minified GenieX preview APKs
         timeout-minutes: 15
         run: |
-          python3 scripts/sign_preview_apks.py app/build/outputs/apk/nativeSmoke --apksigner "$ANDROID_HOME/build-tools/37.0.0/apksigner" --keystore "$HOME/.android/debug.keystore"
+          python3 scripts/sign_preview_apks.py app/build/outputs/apk/nativeSmoke --apksigner "$ANDROID_HOME/build-tools/37.0.0/apksigner" --keystore "$ANDROID_USER_HOME/debug.keystore"
       - name: Audit minified GenieX native stack
         run: |
           python3 scripts/check_local_runtime_apk.py --native-stack geniex app/build/outputs/apk/nativeSmoke/*.apk

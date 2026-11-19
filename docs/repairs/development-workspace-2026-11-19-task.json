@@ -93,6 +93,10 @@
     {
       "commit": "d4ceaa408e573ad37bc16ba42677706f8eb50437",
       "scope": "Hosted run 44524629663 recorded CheckoutExampleTest.sumsItems failing, the same test passing after the patch, and the existing GatewayGraphTest passing in the offline Android workspace. Fresh APK assembly then attempted to fetch OpenCL headers. Reusing the prepared original FetchContent downloads resolved this step: real Android NDK 29 and CMake 3.22.1 configured the production OpenCL/Vulkan module for ARM64 and x86_64 with HTTP(S) connections directed to a closed port. CMake verified each archive against the candidate, including ARM KleidiAI. Full hosted APK assembly remains pending."
+    },
+    {
+      "commit": "d18caf1f0acf89cd08426a14a6313a7ae5a97e26",
+      "scope": "The actual production native GGUF libraries built with the network blocked for both ARM64 and x86_64. Android acceptance, native smoke, Windows installer and the review APK passed on GitHub. GenieX unit tests passed, but debug packaging reached :app:packageDebug and exceeded its deadline. Debug packaging now uses the same separate audited signing process as the minified preview. Real Java 21/AGP 9.4.1 signing reports and SDK tools checked the build modes, explicit temporary debug keystore, 16-KiB native alignment and v2/v3 signatures on a 110 MB preview fixture containing the production ARM64 library."
     }
   ]
 }

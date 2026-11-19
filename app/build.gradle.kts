@@ -83,8 +83,8 @@ configurations.matching { it.name in setOf("releaseRuntimeClasspath", "kspReleas
 }
 
 val geniexSeparateSigning = providers.gradleProperty("geniexSeparateSigning").orNull == "true"
-require(!geniexSeparateSigning || geniexRuntime && providers.gradleProperty("nativeMemorySmoke").orNull == "true") {
-    "Separate preview signing is only supported for the GenieX native-smoke build."
+require(!geniexSeparateSigning || geniexRuntime) {
+    "Separate preview signing requires a GenieX build."
 }
 
 /** Keep on-device embeddings while removing the SDK's remote statistics implementation. */
@@ -268,6 +268,7 @@ extensions.configure<ApplicationExtension> {
 
     buildTypes {
         debug {
+            if (geniexSeparateSigning) signingConfig = null
             enableUnitTestCoverage = true
         }
         release {

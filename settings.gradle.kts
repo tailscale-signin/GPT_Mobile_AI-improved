@@ -8,6 +8,8 @@ pluginManagement {
                     includeGroup("org.jetbrains.kotlin")
                     includeGroup("io.objectbox")
                     includeModule("com.google.dagger", "hilt-android-gradle-plugin")
+                    // Hilt inherits this POM. A rate-limited primary must not strand its metadata.
+                    includeModule("org.sonatype.oss", "oss-parent")
                 }
             }
         }

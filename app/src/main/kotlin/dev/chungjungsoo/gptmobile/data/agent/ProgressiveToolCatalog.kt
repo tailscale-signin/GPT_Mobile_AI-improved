@@ -231,6 +231,33 @@ class ProgressiveToolCatalog(
                     )
                 }
             )
+            // Discovery by query needs no selector. Action projection needs one named tool.
+            put(
+                "anyOf",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("properties", JsonObject(listOf("query", "names", "inventory_cursor", "inventory_version").associateWith { JsonObject(emptyMap()) }))
+                            put("additionalProperties", false)
+                        },
+                        buildJsonObject {
+                            put("required", JsonArray(listOf(JsonPrimitive("action"), JsonPrimitive("names"))))
+                            put(
+                                "properties",
+                                buildJsonObject {
+                                    put(
+                                        "names",
+                                        buildJsonObject {
+                                            put("minItems", 1)
+                                            put("maxItems", 1)
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                )
+            )
             put("additionalProperties", false)
         }
     )
@@ -325,6 +352,9 @@ class ProgressiveToolCatalog(
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
         if (("inventory_cursor" in arguments || "inventory_version" in arguments) && (query.isNotBlank() || names.isNotEmpty() || "action" in arguments)) {
             return AgentToolResult(callId, ToolResultContent.Text("Use inventory_cursor alone to continue the tool inventory; query/names start a separate discovery."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        }
+        if ("action" in arguments && names.size != 1) {
+            return AgentToolResult(callId, ToolResultContent.Text("Search with query alone. To select an action, pass exactly one returned tool in names together with action."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
         if (acquireCold != null && "inventory_cursor" !in arguments) {
             // Cache exact unknown names per catalog version. Broad/empty discovery remains retryable.

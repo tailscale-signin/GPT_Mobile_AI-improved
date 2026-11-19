@@ -24,6 +24,34 @@ import org.junit.Test
 
 class ProgressiveToolCatalogTest {
 
+    @Test fun discoveryActionRequiresOneToolBeforeColdAcquisition() = runTest {
+        var acquisitions = 0
+        val catalog = ProgressiveToolCatalog(emptyList(), "continue", acquireCold = { _, _ ->
+            acquisitions++
+            emptyList()
+        })
+        val query = buildJsonObject { put("query", "workflow logs") }
+        val action = JsonPrimitive("logs")
+        val mixed = JsonObject(query + ("action" to action))
+        val exact = buildJsonObject {
+            put("action", action)
+            put("names", JsonArray(listOf(JsonPrimitive("github_ci"))))
+        }
+        val schema = catalog.definition.inputSchema
+        assertTrue(ToolArgumentValidator.errors(query, schema).isEmpty())
+        assertTrue(ToolArgumentValidator.errors(exact, schema).isEmpty())
+        assertTrue(ToolArgumentValidator.errors(JsonObject(emptyMap()), schema).isEmpty())
+        val noNames = JsonObject(exact + ("names" to JsonArray(emptyList())))
+        val multipleNames = JsonObject(exact + ("names" to JsonArray(listOf(JsonPrimitive("github_ci"), JsonPrimitive("github_pr")))))
+        for (invalid in listOf(mixed, noNames, multipleNames)) {
+            assertTrue(ToolArgumentValidator.errors(invalid, schema).isNotEmpty())
+            val result = catalog.execute("discovery", invalid)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertFalse(result.dispatched)
+        }
+        assertEquals(0, acquisitions)
+    }
+
     @Test fun oversizedFullContextStillAllowsItsFittingInspectContract() {
         val full = GitHubOperationTool.definition("github_context", "github_context__native").copy(description = "long schema ".repeat(2000))
         val inspect = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__native")

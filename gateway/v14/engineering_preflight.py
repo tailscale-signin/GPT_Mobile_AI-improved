@@ -56,6 +56,8 @@ def preflight(request, *, runner=None):
         return result
     result['checks']['validation_policy'] = 'ready'
     result['validation_policy_state'] = 'VALIDATED'
+    result['workspace_hooks_enabled'] = bool(policy.get('workspace_hooks'))
+    result['workspace_terminal_enabled'] = policy.get('workspace_terminal') is True
     result['policy_sha256'] = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     from v14.engineering_release_checks import contract
     result['post_merge_contract'] = contract(policy.get('post_merge'), len(commands))

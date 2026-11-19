@@ -253,6 +253,8 @@ def validate_policy_entry(policy, *, allow_unprepared_image=False):
         raise ValueError('Validation image must be pinned by digest')
     if not isinstance(commands, list) or not 1 <= len(commands) <= 10 or any(not isinstance(command, list) or not command or len(command) > 32 or any(not isinstance(arg, str) or not arg or len(arg) > 1024 or '\0' in arg for arg in command) for command in commands):
         raise ValueError('Validation commands must be a bounded host-approved argv list')
+    from v14.workspace_hooks import settings as hook_settings
+    hook_settings(policy, commands)
     groups = policy.get('parallel_command_groups', [])
     if not isinstance(groups, list) or len(groups) > 5:
         raise ValueError('Parallel validation groups exceed their host-approved bound')
@@ -273,6 +275,13 @@ def validate_policy_entry(policy, *, allow_unprepared_image=False):
             raise ValueError('Acceptance report must be a bounded checkout-relative path')
     from v14.engineering_release_checks import contract
     contract(policy.get('post_merge'), len(commands))
+    prepared = policy.get('prepared_environment')
+    if prepared is not None:
+        if (not isinstance(prepared, dict) or prepared.get('base_image') != image or
+                not re.fullmatch(r'sha256:[a-f0-9]{64}', str(prepared.get('image_id'))) or
+                not re.fullmatch(r'[a-f0-9]{40}', str(prepared.get('source_sha')))):
+            raise ValueError('Prepared environment does not match its approved source and base image')
+        image = prepared['image_id']
     return policy, mirror, image, commands, coverage
 
 
@@ -285,6 +294,38 @@ def _validation_workers(job):
     if type(workers) is not int or not 1 <= workers <= 4:
         raise ValueError('The retained Full Batch validation worker limit is invalid')
     return workers
+
+
+def materialize_checkout(job, mirror, changes, root, cancel):
+    # Archive is bounded while streaming, before extraction. No network fetch or credentials.
+    head = job['data']['head_sha']
+    archive = root / 'source.tar'
+    with archive.open('wb') as output, cancellation_scope(cancel, job.get('deadline')):
+        archive_result = run_bounded(['git', '--git-dir=' + str(mirror), 'archive', '--format=tar', head], root, 60, 128 * 1024 * 1024, output)
+    if archive_result['exit_code'] != 0:
+        raise ValueError('Pinned revision is not available in the approved repository mirror')
+    checkout = root / 'checkout'
+    checkout.mkdir()
+    with tarfile.open(archive) as source:
+        members = source.getmembers()
+        if len(members) > 100000 or sum(member.size for member in members) > 256 * 1024 * 1024:
+            raise ValueError('Expanded repository exceeds the validation budget')
+        for member in members:
+            path = Path(member.name)
+            if path.is_absolute() or '..' in path.parts or '.git' in path.parts or not (member.isfile() or member.isdir()):
+                raise ValueError('Validation archive contains an unsafe path or link')
+        source.extractall(checkout, members=members, filter='data')
+    for change in changes:
+        path = Path(change['path'])
+        if path.is_absolute() or '..' in path.parts or '.git' in path.parts:
+            raise ValueError('Unsafe patch path')
+        target = checkout / path
+        if change['content'] is None:
+            target.unlink()
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(change['content'].encode('utf-8'))
+    return checkout
 
 
 def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, retain_output=None):
@@ -310,33 +351,7 @@ def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, r
     groups_by_start = {group[0]: group for group in parallel_groups}
     with tempfile.TemporaryDirectory(prefix='engineering-validation-') as directory:
         root = Path(directory)
-        # Archive is bounded while streaming, before extraction. No network fetch or credentials.
-        archive = root / 'source.tar'
-        with archive.open('wb') as output, cancellation_scope(cancel, job.get('deadline')):
-            archive_result = run_bounded(['git', '--git-dir=' + str(mirror), 'archive', '--format=tar', head], root, 60, 128 * 1024 * 1024, output)
-        if archive_result['exit_code'] != 0:
-            raise ValueError('Pinned revision is not available in the approved repository mirror')
-        checkout = root / 'checkout'
-        checkout.mkdir()
-        with tarfile.open(archive) as source:
-            members = source.getmembers()
-            if len(members) > 100000 or sum(member.size for member in members) > 256 * 1024 * 1024:
-                raise ValueError('Expanded repository exceeds the validation budget')
-            for member in members:
-                path = Path(member.name)
-                if path.is_absolute() or '..' in path.parts or '.git' in path.parts or not (member.isfile() or member.isdir()):
-                    raise ValueError('Validation archive contains an unsafe path or link')
-            source.extractall(checkout, members=members, filter='data')
-        for change in changes:
-            path = Path(change['path'])
-            if path.is_absolute() or '..' in path.parts or '.git' in path.parts:
-                raise ValueError('Unsafe patch path')
-            target = checkout / path
-            if change['content'] is None:
-                target.unlink()
-            else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(change['content'].encode('utf-8'))
+        checkout = materialize_checkout(job, mirror, changes, root, cancel)
         if artifacts:
             if (not isinstance(artifacts, dict) or len(artifacts) > 8
                     or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,103}', name)
@@ -356,8 +371,9 @@ def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, r
             prepare_behavior_reports(command_coverage, command_checkout)
             cidfile = root / ('container-' + str(index))
             argv = ['docker', 'run', '--rm', '--pull=never', '--cidfile=' + str(cidfile), '--network=none', '--cap-drop=ALL',
-                    '--security-opt=no-new-privileges', '--read-only', '--pids-limit=128', '--memory=2g', '--cpus=2', '--user=65534:65534',
-                    '--tmpfs=/tmp:rw,nosuid,nodev,size=512m', '--mount=type=bind,source=' + str(command_checkout) + ',target=/workspace',
+                    '--security-opt=no-new-privileges', '--read-only', '--pids-limit=256' if policy.get('prepared_environment') else '--pids-limit=128',
+                    '--memory=8g' if policy.get('prepared_environment') else '--memory=2g', '--cpus=2', '--user=65534:65534',
+                    '--tmpfs=/tmp:rw,nosuid,nodev,size=2g' if policy.get('prepared_environment') else '--tmpfs=/tmp:rw,nosuid,nodev,size=512m', '--mount=type=bind,source=' + str(command_checkout) + ',target=/workspace',
                     '--workdir=/workspace', '--env=HOME=/tmp', image, *command]
             try:
                 with cancellation_scope(cancel, job.get('deadline')):

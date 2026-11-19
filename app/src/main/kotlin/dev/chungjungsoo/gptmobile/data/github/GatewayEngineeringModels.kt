@@ -276,7 +276,13 @@ data class GatewayEngineeringJob(
     @SerialName("recovery_job_id") val recoveryJobId: String? = null,
     @SerialName("qualified_revision") val qualifiedRevision: String? = null,
     @SerialName("provider_retry_source") val providerRetrySource: String? = null,
-    @SerialName("provider_retry_attempts") val providerRetryAttempts: Int? = null
+    @SerialName("provider_retry_attempts") val providerRetryAttempts: Int? = null,
+    @SerialName("workspace_plan") val workspacePlan: String = "",
+    @SerialName("active_instruction_files") val activeInstructionFiles: List<String> = emptyList(),
+    @SerialName("workspace_next_action") val workspaceNextAction: String? = null,
+    @SerialName("workspace_workers") val workspaceWorkers: List<JsonObject> = emptyList(),
+    @SerialName("workspace_tests") val workspaceTests: List<JsonObject> = emptyList(),
+    @SerialName("workspace_steps") val workspaceSteps: List<JsonObject> = emptyList()
 ) {
     val ownershipLabel: String get() = if (detachSafe && acceptedAt != null && id.isNotBlank()) {
         when {

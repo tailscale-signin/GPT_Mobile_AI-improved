@@ -85,6 +85,12 @@ class GatewayEngineeringRepository @Inject constructor(
         check(!store.hasMigratedAdmission(chatId, profileUid)) { "A saved gateway submission from the earlier app still needs receipt reconciliation. Reconnect to its original job before sending another turn." }
     }
 
+    suspend fun queuePlanEdit(binding: GatewayEngineeringBinding, text: String, commandId: String) {
+        val current = bindings().single { it.request.requestId == binding.request.requestId }
+        check(current.job?.id == binding.job?.id && current.principalId == binding.principalId && current.gatewayId == binding.gatewayId && current.endpoint == binding.endpoint)
+        conversations.queuePlanEdit(current, text, commandId)
+    }
+
     suspend fun checkpoints(requestId: String): GatewayEngineeringCheckpoints {
         val binding = bindings().single { it.request.requestId == requestId }
         val config = config(binding)
@@ -93,11 +99,13 @@ class GatewayEngineeringRepository @Inject constructor(
         return client.checkpoints(config, job.id).also { check(it.jobId == job.id) }
     }
 
-    suspend fun candidateDetails(requestId: String, checkId: String): String {
+    suspend fun candidateDetails(requestId: String, checkId: String): String = candidatePage(requestId, checkId, 0).first
+
+    suspend fun candidatePage(requestId: String, checkId: String, offset: Int): Pair<String, Int?> {
         val binding = bindings().single { it.request.requestId == requestId }
         val config = config(binding)
         check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed." }
-        return client.candidateDetails(config, requireNotNull(binding.job).id, checkId)
+        return client.candidatePage(config, requireNotNull(binding.job).id, checkId, offset)
     }
 
     suspend fun restoreCandidate(requestId: String, expected: GatewayEngineeringJob, checkId: String) = synchronization.withLock {

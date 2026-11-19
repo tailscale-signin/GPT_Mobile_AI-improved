@@ -24,6 +24,38 @@ from desktop.validation_policy import SETTING
 from v14.engineering_validation import validate
 
 
+def verify_terminal(mirror, head, policy):
+    import hashlib
+    import time
+    from types import SimpleNamespace
+    from v14.workspace_terminal import act
+    checkout_tree = subprocess.check_output(['git', '--git-dir=' + str(mirror), 'rev-parse', head + '^{tree}'], text=True).strip()
+    backend = SimpleNamespace(cancellation=lambda job: Event(), token=lambda: '', root=lambda job: '',
+                              api=lambda *args, **kwargs: {'tree': {'sha': checkout_tree}})
+    policy_sha = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    job = {'id': 'managed-smoke', 'principal': 'fixture', 'deadline': time.time() + 120,
+           'request': {'repository': setup.DEFAULT_REPOSITORY}, 'data': {'head_sha': head, 'admission': {'policy_sha256': policy_sha}}}
+    def call(kind, **args):
+        return act(backend, job, dict(action=kind, session_id='smoke', **args))
+    opened = call('terminal_open')
+    try:
+        cmd = ['python3', '-c', 'import os; from pathlib import Path; assert os.geteuid() == 65534; assert Path("AGENTS.md").is_file(); print("pinned workspace")']
+        started = call('terminal_start', process_id='inspect', argv=cmd)
+        replay = call('terminal_start', process_id='inspect', argv=cmd)
+        assert replay['pid'] == started['pid']
+        until = time.monotonic() + 15
+        while time.monotonic() < until:
+            result = call('terminal_poll', process_id='inspect')
+            if result['exit_code'] is not None:
+                if result['exit_code'] != 0 or 'pinned workspace' not in result['output']:
+                    raise ValueError('Offline terminal failed its pinned source / unprivileged process check')
+                return {'head_sha': head, 'image': opened['image'], 'exit_code': 0, 'same_pid_after_retry': True}
+            time.sleep(.15)
+        raise TimeoutError('Offline workspace smoke did not finish')
+    finally:
+        call('terminal_close')
+
+
 def verify_operator_work(root, pinned_image, head):
     initial = load_settings(root)
     save_settings(root, dict(initial, sandbox_image=pinned_image), expected=initial)
@@ -77,7 +109,7 @@ def main():
             setup.save_snapshot(root, setup.DEFAULT_REPOSITORY, {
                 'mirror': str(mirror), 'image': options['image'], 'commands': options['commands'],
                 'timeout_seconds': options['timeout_seconds'], 'allowed_checks': options['allowed_checks'],
-                'acceptance_map': []}, revision)
+                'workspace_terminal': True, 'acceptance_map': []}, revision)
             first = environment(root, validate_configuration({}))
             previous = os.environ.get(SETTING)
             os.environ[SETTING] = first[SETTING]
@@ -85,6 +117,7 @@ def main():
                 result = validate({'request': {'repository': setup.DEFAULT_REPOSITORY}, 'data': {'head_sha': head}}, [])
                 receipt.update(readiness=readiness, validation=result)
                 if result['status'] == 'PASSED':
+                    receipt['offline_terminal'] = verify_terminal(mirror, head, setup.read_settings(root)[0][setup.DEFAULT_REPOSITORY])
                     receipt['operator_work'] = verify_operator_work(root, options['image'], head)
             finally:
                 if previous is None:

@@ -59,25 +59,32 @@ def rewind(service, principal, job_id, revision, check_id):
     return result
 
 
-def candidate_details(service, principal, job_id, check_id):
+def candidate_details(service, principal, job_id, check_id, offset=0):
     import difflib
     job = service.evidence_access(principal, job_id)
     service.artifacts.restore_stage(job)
     changes = retained_candidate(service.backend, job, check_id)
-    parts, size, truncated = [], 0, False
+    if type(offset) is not int or offset < 0:
+        raise ValueError('Select a positive diff offset or zero')
+    parts, position = [], 0
+    end = offset + 16000
     for change in changes:
         before = job['data'].get('files', {}).get(change['path'], {}).get('content', '')
         for line in difflib.unified_diff(before.splitlines(True), (change['content'] or '').splitlines(True),
                                          fromfile=change['path'], tofile=change['path']):
-            if size + len(line) > 16000:
-                truncated = True
+            after = position + len(line)
+            if after > offset and position < end:
+                parts.append(line[max(0, offset - position):end - position])
+            position = after
+            if position > end:
                 break
-            parts.append(line)
-            size += len(line)
-        if truncated:
+        if position > end:
             break
+    if offset > position:
+        raise ValueError('Diff offset exceeds the candidate')
+    truncated = position > end
     saved = job['data']['workspace_checks'][check_id]
     service.evidence_access(principal, job_id)
     return {'job_id': job_id, 'check_id': check_id, 'head_sha': job['data']['head_sha'],
-            'diff': ''.join(parts), 'truncated': truncated, 'status': saved['status'],
-            'output': saved.get('output_tail', '')[-16000:], 'scope': 'retained_candidate'}
+            'diff': ''.join(parts), 'truncated': truncated, 'offset': offset, 'next_offset': end if truncated else None, 'status': saved['status'],
+            'output': saved.get('output_tail', '')[-16000:] if offset == 0 else '', 'scope': 'retained_candidate'}

@@ -743,7 +743,11 @@ class EngineeringStore:
                 self.event(db, job, phase, job['revision'] + 1, self.now())
             db.execute("UPDATE engineering_receipts SET status='CONFIRMED',output_json=? WHERE job_id=? AND revision=?", (output_json, job['id'], job['revision']))
             return True
-        return self.tx(save)
+        committed = self.tx(save)
+        if committed and job['data'].get('terminal_session') and phase in {'COMPLETED', 'CANCELLED', 'FAILED'}:
+            from v14.workspace_terminal import dispose
+            dispose(job)
+        return committed
 
     def assert_claim(self, job):
         def read(db):
@@ -876,7 +880,11 @@ class EngineeringStore:
                     if not found:
                         break
             return dict(job, state=state, revision=job['revision'] + 1)
-        return self.tx(update)
+        updated = self.tx(update)
+        if action == 'cancel' and updated['data'].get('terminal_session'):
+            from v14.workspace_terminal import dispose
+            dispose(updated)
+        return updated
 
     def _confirm_cancellation(self, db, job_id=None, owner_epoch=None, *, recovering=False):
         if not recovering and owner_epoch is None:
@@ -1688,6 +1696,15 @@ def public_job(job):
             'acceptance': job['request'].get('acceptance', []), 'admission': data.get('admission'),
             'execution_owner': 'GATEWAY' if job.get('detach_safe') else 'NOT_CONFIRMED',
             'completion_verification': data.get('completion_verification'), 'evidence_policy': 'github.evidence.v1',
+            'workspace_plan': str((data.get('plan') or {}).get('plan', ''))[:8000] if isinstance(data.get('plan'), dict) else '',
+            'active_instruction_files': data.get('active_instructions', []),
+            'workspace_next_action': (data.get('progress_notes') or {}).get('next_action'),
+            'workspace_workers': [{'id': name, 'role': value['role'], 'state': value['state'],
+                                   'calls': value['calls'], 'budget': value['budget']} for name, value in (data.get('workspace_workers') or {}).items()],
+            'workspace_tests': [{'name': str(value.get('check_id', ''))[:12], 'status': value.get('status'),
+                                 'revision': value.get('source_sha'), 'exit_code': value.get('exit_code')} for value in (data.get('workspace_checks') or {}).values()],
+            'workspace_steps': [{'name': step, 'done': i < len((data.get('workflow') or {}).get('completed', []))}
+                                for i, step in enumerate((data.get('workflow') or {}).get('steps', []))],
             'latest_evidence': data.get('latest_evidence'),
             'execution_binding_id': job['request'].get('execution_binding_id'),
             'execution_binding': job.get('execution_binding'),

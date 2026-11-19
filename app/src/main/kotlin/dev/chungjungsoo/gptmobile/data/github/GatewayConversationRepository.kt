@@ -505,6 +505,15 @@ class GatewayConversationRepository @Inject constructor(
     }
 
     /** Persist the exact instruction command before dispatch; only an explicit UI action calls this. */
+    suspend fun queuePlanEdit(binding: GatewayEngineeringBinding, text: String, commandId: String) {
+        requireSavedSelection(binding)
+        val job = requireNotNull(binding.job)
+        val gateway = requireNotNull(job.gatewayId)
+        val key = gatewayIdentityKey(gateway, requireNotNull(binding.principalId), "engineering", job.id)
+        if (dao.job(key) == null) jobs.refresh(binding.profileUid)
+        queueInstruction(key, text, commandId)
+    }
+
     suspend fun queueInstruction(jobKey: String, content: String, commandId: String) = attachmentLock.withLock {
         require(content.isNotBlank() && content.length <= 16000 && commandId.length in 1..128)
         val record = requireNotNull(dao.job(jobKey)) { "Refresh the gateway jobs before adding an instruction." }

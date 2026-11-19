@@ -478,12 +478,22 @@ class GatewayEngineeringClient internal constructor(
         return json.decodeFromString(request(config, "jobs/$jobId/checkpoints"))
     }
 
-    suspend fun candidateDetails(config: ProviderRequestConfig, jobId: String, checkId: String): String {
-        require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && checkId.matches(Regex("[a-f0-9]{64}")))
-        val value = json.parseToJsonElement(request(config, "jobs/$jobId/checkpoints/$checkId")).jsonObject
+    suspend fun candidateDetails(config: ProviderRequestConfig, jobId: String, checkId: String): String = candidatePage(config, jobId, checkId, 0).first
+
+    suspend fun candidatePage(config: ProviderRequestConfig, jobId: String, checkId: String, offset: Int): Pair<String, Int?> {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && checkId.matches(Regex("[a-f0-9]{64}")) && offset >= 0)
+        val value = json.parseToJsonElement(request(config, "jobs/$jobId/checkpoints/$checkId?offset=$offset")).jsonObject
         check(value["job_id"]?.jsonPrimitive?.content == jobId && value["check_id"]?.jsonPrimitive?.content == checkId)
-        val truncation = if (value["truncated"] == JsonPrimitive(true)) "\n[Diff truncated]" else ""
-        return value["diff"]?.jsonPrimitive?.content.orEmpty() + truncation + "\n\nTest output:\n" + value["output"]?.jsonPrimitive?.content.orEmpty()
+        check((value["offset"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0) == offset)
+        val next = value["next_offset"]?.jsonPrimitive?.content?.toIntOrNull()
+        check(next == null || next > offset)
+        val text = buildString {
+            append(value["diff"]?.jsonPrimitive?.content.orEmpty())
+            if (next == null && value["truncated"] == JsonPrimitive(true)) append("\nThe Gateway returned a partial diff. Update it to enable paging.")
+            val output = value["output"]?.jsonPrimitive?.content.orEmpty()
+            if (output.isNotEmpty()) append("\n\nTest output\n").append(output)
+        }
+        return text to next
     }
 
     suspend fun restoreCandidate(config: ProviderRequestConfig, job: GatewayEngineeringJob, checkId: String): GatewayEngineeringJob {

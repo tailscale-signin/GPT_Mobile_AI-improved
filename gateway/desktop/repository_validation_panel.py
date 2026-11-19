@@ -72,7 +72,7 @@ class RepositoryValidationPanel:
             self.fields[key] = var
             control = ttk.Combobox(basic, textvariable=var)
             if key == 'profile':
-                control.configure(state='readonly', values=[validation.SOURCE_PROFILE, validation.CUSTOM_PROFILE])
+                control.configure(state='readonly', values=[*validation.PROFILES, validation.CUSTOM_PROFILE])
                 control.bind('<<ComboboxSelected>>', self.profile_changed)
                 self.profile_box = control
                 var.trace_add('write', lambda *_: self.edited())
@@ -82,6 +82,10 @@ class RepositoryValidationPanel:
                 control.bind('<Return>', lambda _: self.load_repository())
             control.grid(row=row, column=1, sticky='ew', pady=3)
             self.inputs.append(control)
+        self.terminal_enabled = tk.BooleanVar(master=frame)
+        terminal = ttk.Checkbutton(basic, text='Allow offline task terminal', variable=self.terminal_enabled, command=self.edited)
+        terminal.grid(row=2, column=1, sticky='w')
+        self.inputs.append(terminal)
         choose = ttk.Button(basic, text='Load / add', command=self.load_repository)
         choose.grid(row=0, column=2, padx=(6, 0))
         self.inputs.append(choose)
@@ -315,16 +319,17 @@ class RepositoryValidationPanel:
         self.loading = True
         try:
             self.loaded = copy.deepcopy(options)
+            self.terminal_enabled.set(options.get('workspace_terminal', False))
             for key, var in self.fields.items():
                 var.set(str(options[key]))
             self.commands.configure(state='normal')
             self.commands.delete('1.0', 'end')
             self.commands.insert('1.0', json.dumps(options['commands'], indent=2))
             self.commands.edit_modified(False)
-            self.commands.configure(state='disabled' if options['profile'] == validation.SOURCE_PROFILE else 'normal')
+            self.commands.configure(state='disabled' if options['profile'] in validation.PROFILES else 'normal')
             self.contract.configure(state='normal')
             self.contract.delete('1.0', 'end')
-            self.contract.insert('1.0', json.dumps({key: options.get(key, []) for key in CONTRACT_FIELDS}, indent=2))
+            self.contract.insert('1.0', json.dumps(dict({key: options.get(key, []) for key in CONTRACT_FIELDS}, workspace_hooks=options.get('workspace_hooks', {})), indent=2))
             self.contract.edit_modified(False)
             self.digest.set('Pinned image: ' + options['image'] if options['image'] else 'Image not prepared yet — Prepare & save resolves the real registry digest.')
             self.editor_dirty = False
@@ -405,7 +410,7 @@ class RepositoryValidationPanel:
     def profile_changed(self, _=None):
         if self.busy:
             return
-        if self.fields['profile'].get() == validation.SOURCE_PROFILE:
+        if self.fields['profile'].get() in validation.PROFILES:
             try:
                 contract = self.read_json(self.contract)
                 mapped = not isinstance(contract, dict) or contract.get('acceptance_map') or contract.get('parallel_command_groups')
@@ -417,7 +422,13 @@ class RepositoryValidationPanel:
                 return
             self.commands.configure(state='normal')
             self.commands.delete('1.0', 'end')
-            self.commands.insert('1.0', json.dumps(validation.SOURCE_COMMANDS, indent=2))
+            profile = self.fields['profile'].get()
+            if profile in validation.development_profiles.IMAGES:
+                self.fields['image_source'].set(validation.development_profiles.IMAGES[profile])
+                self.fields['timeout_seconds'].set('1800')
+            elif profile == validation.SOURCE_PROFILE:
+                self.fields['image_source'].set(validation.DEFAULT_IMAGE)
+            self.commands.insert('1.0', json.dumps(validation.PROFILES[profile], indent=2))
             self.commands.configure(state='disabled')
         else:
             self.commands.configure(state='normal')
@@ -466,14 +477,15 @@ class RepositoryValidationPanel:
         if validation.repository_name(options['repository']) != self.loaded['repository']:
             raise ValueError('Use Load / add after changing repositories, then review its mirror and commands.')
         try:
+            options['workspace_terminal'] = self.terminal_enabled.get()
             options['timeout_seconds'] = int(options['timeout_seconds'])
             options['commands'] = self.read_json(self.commands)
             contract = self.read_json(self.contract)
-            if not isinstance(contract, dict) or set(contract) != set(CONTRACT_FIELDS):
-                raise ValueError('Acceptance and CI fields must retain the five displayed keys.')
+            if not isinstance(contract, dict) or not set(CONTRACT_FIELDS) <= set(contract) <= set(CONTRACT_FIELDS) | {'workspace_hooks'}:
+                raise ValueError('Acceptance and CI fields must retain the displayed contract fields.')
             options.update(contract)
         except (ValueError, TypeError, RecursionError):
-            raise ValueError('Enter a whole-number timeout and valid command / contract JSON bounded to 64 KiB, retaining all five contract keys.') from None
+            raise ValueError('Enter a whole-number timeout and valid command / contract JSON bounded to 64 KiB, retaining the displayed contract keys.') from None
         if options['image_source'] != self.loaded['image_source']:
             options['image'] = ''
         try:
@@ -540,7 +552,7 @@ class RepositoryValidationPanel:
             widget.configure(state='disabled' if value else 'normal')
         if not value:
             self.profile_box.configure(state='readonly')
-            if self.fields['profile'].get() == validation.SOURCE_PROFILE:
+            if self.fields['profile'].get() in validation.PROFILES:
                 self.commands.configure(state='disabled')
             if self.conflicted or self.revision is None:
                 for control in (self.prepare_button, self.check_button, self.save_button, self.reset_button, self.behavior_button, self.discovery_button, self.release_button):

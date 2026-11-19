@@ -6,5 +6,14 @@
   "start_sha": "8023a17b0dc961e57d51fe4c94f384dc0d34ed3e",
   "existing_pr": 1741,
   "intent": "Deliver and qualify the persistent development workspace on the shared release branch.",
-  "state": "IN_PROGRESS"
+  "state": "IN_PROGRESS",
+  "implementation": [
+    "Remote profile graph sharing, path instructions, reusable procedures, native hunk review",
+    "Offline per-task processes, dependency-prepared environment profiles, language server requests, resumable specialists, configurable validation hooks and Android plan, activity and test views"
+  ],
+  "remaining": [
+    "Qualify Android, Windows and live model routes",
+    "Complete workspace timeline and qualification scenarios",
+    "Green PR and main checks followed by published release"
+  ]
 }

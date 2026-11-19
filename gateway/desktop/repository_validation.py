@@ -14,6 +14,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+from desktop import development_profiles
 from desktop.validation_policy import (
     PolicyConflictError, load_policy_snapshot, save_policy_snapshot, validate_policy_fields, validated_policy_bytes,
 )
@@ -33,6 +34,8 @@ SOURCE_COMMANDS = [
     ['python3', 'scripts/generate_diagnostic_schema.py', '--check'],
     ['python3', 'scripts/check_ci_policy.py'],
 ]
+
+PROFILES = {SOURCE_PROFILE: SOURCE_COMMANDS, **development_profiles.COMMANDS}
 
 
 class SetupCancelled(ValueError):
@@ -104,7 +107,7 @@ def defaults(root, repository=DEFAULT_REPOSITORY):
               mirrors / repository.split('/')[0] / (repository.split('/')[1] + '.git'))
     return {'repository': repository, 'mirror': str(mirror),
             'image_source': DEFAULT_IMAGE, 'image': '', 'timeout_seconds': 600,
-            'profile': SOURCE_PROFILE, 'commands': copy.deepcopy(SOURCE_COMMANDS),
+            'workspace_terminal': False, 'profile': SOURCE_PROFILE, 'commands': copy.deepcopy(SOURCE_COMMANDS),
             'acceptance_map': [], 'parallel_command_groups': [],
             'allowed_checks': ['Required verification', 'Analyze (java-kotlin)'] if repository == DEFAULT_REPOSITORY else [],
             'post_merge': {'artifacts': [], 'installation_checks': [], 'smoke_checks': []},
@@ -166,6 +169,9 @@ def options_for(root, repository, document):
             repairs.append('saved policy fields')
         result['profile'] = (SOURCE_PROFILE if not repairs and saved.get('commands') == SOURCE_COMMANDS
                              and not saved.get('acceptance_map') and not saved.get('parallel_command_groups') else CUSTOM_PROFILE)
+        saved_profile = meta.get('profile')
+        if not repairs and saved_profile in development_profiles.COMMANDS and saved.get('commands') == PROFILES[saved_profile] and not saved.get('acceptance_map') and not saved.get('parallel_command_groups'):
+            result['profile'] = saved_profile
         if repairs:
             result['repair_notice'] = ('Saved entry needs repair: ' + ', '.join(dict.fromkeys(repairs)) +
                                        '. Review these unsaved fields before saving.')
@@ -180,12 +186,14 @@ def validate_options(options):
     result['repository'] = repository_name(result.get('repository'))
     result['mirror'] = str(mirror_path(result.get('mirror')))
     result['image_source'] = image_source(result.get('image_source', DEFAULT_IMAGE))
-    if result.get('profile') not in {SOURCE_PROFILE, CUSTOM_PROFILE}:
+    if result.get('profile') not in (*PROFILES, CUSTOM_PROFILE):
         raise ValueError('Choose a validation profile.')
-    if result['profile'] == SOURCE_PROFILE:
-        if result['repository'] != DEFAULT_REPOSITORY:
+    if type(result.get('workspace_terminal', False)) is not bool:
+        raise ValueError('Choose whether this repository permits offline workspace commands')
+    if result['profile'] in PROFILES:
+        if result['profile'] == SOURCE_PROFILE and result['repository'] != DEFAULT_REPOSITORY:
             raise ValueError('The recommended checks target GPT Mobile. Choose Custom for a different repository.')
-        result['commands'] = copy.deepcopy(SOURCE_COMMANDS)
+        result['commands'] = copy.deepcopy(PROFILES[result['profile']])
         if result.get('acceptance_map') or result.get('parallel_command_groups'):
             raise ValueError('Existing acceptance mappings require the Custom profile; they are never silently removed.')
     commands = result.get('commands')
@@ -210,6 +218,9 @@ def validate_options(options):
     if pin and (image_repository(pin) != image_repository(result['image_source']) or
                 PIN.fullmatch(result['image_source']) and pin.split('@')[1] != result['image_source'].split('@')[1]):
         raise ValueError('Image source changed. Use Refresh image to approve a new digest.')
+    prepared = result.get('prepared_environment') or {}
+    if (prepared.get('base_image') != pin or result['profile'] not in (prepared.get('profile'), CUSTOM_PROFILE)):
+        result.pop('prepared_environment', None)
     validate_policy_fields(dict(result, image=pin), allow_unprepared_image=True)
     return result
 
@@ -229,6 +240,15 @@ def entry_from_options(options, existing=None):
     for key in ('mirror', 'image', 'commands', 'timeout_seconds', 'acceptance_map', 'parallel_command_groups',
                 'allowed_checks', 'acceptance_templates', 'draft_repair_requirements'):
         entry[key] = copy.deepcopy(options.get(key, [] if key not in {'mirror', 'image', 'timeout_seconds'} else ''))
+    if options.get('workspace_hooks') or 'workspace_hooks' in entry:
+        entry['workspace_hooks'] = copy.deepcopy(options.get('workspace_hooks', {}))
+    if options.get('workspace_terminal') or 'workspace_terminal' in entry:
+        entry['workspace_terminal'] = options.get('workspace_terminal', False)
+    prepared = options.get('prepared_environment') or {}
+    if (prepared.get('profile') == options.get('profile') or options.get('profile') == CUSTOM_PROFILE) and prepared.get('base_image') == options.get('image') and prepared:
+        entry['prepared_environment'] = copy.deepcopy(prepared)
+    else:
+        entry.pop('prepared_environment', None)
     entry['post_merge'] = copy.deepcopy(options.get('post_merge', {'artifacts': [], 'installation_checks': [], 'smoke_checks': []}))
     entry['desktop_setup'] = dict(metadata, schema=1, image_source=options['image_source'], profile=options['profile'])
     return entry
@@ -472,12 +492,22 @@ def setup(root, options, revision, *, prepare, token=None, cancel=None, progress
                 else check_mirror(git, repository, mirror, cancel=cancel))
         progress('Preparing the digest-pinned image…' if prepare else 'Checking the pinned image…')
         pinned = pin_image(docker, options['image_source'], options.get('image', ''), prepare=prepare, cancel=cancel)
+        if options['profile'] in development_profiles.COMMANDS:
+            if prepare:
+                progress('Preparing the repository toolchain and dependencies in a local image…')
+                options['prepared_environment'] = development_profiles.prepare_image(options['profile'], pinned, mirror, head, cancel)
+            else:
+                retained = options.get('prepared_environment') or {}
+                if retained.get('base_image') != pinned or retained.get('profile') != options['profile'] or not re.fullmatch(r'sha256:[a-f0-9]{64}', retained.get('image_id', '')):
+                    raise ValueError('Choose Prepare & save to build the selected development profile')
+                docker_run(['image', 'inspect', retained['image_id']], cancel=cancel, label='Inspect prepared environment')
         entry = entry_from_options(dict(options, image=pinned, mirror=str(mirror)),
                                    observed['repositories'].get(repository, {}))
         snapshot = None
         if prepare:
             snapshot = save_snapshot(root, repository, entry, revision, cancel=cancel, enabled=enabled)
-        return {'repository': repository, 'image': pinned, 'mirror_head': head, 'saved': prepare,
+        return {'repository': repository, 'image': entry.get('prepared_environment', {}).get('image_id', pinned),
+                'base_image': pinned, 'mirror_head': head, 'saved': prepare,
                 'state': 'PREREQUISITES_READY', 'tests_executed': False,
                 'acceptance_mappings': len(entry['acceptance_map']), 'snapshot': snapshot, 'entry': entry}
     finally:

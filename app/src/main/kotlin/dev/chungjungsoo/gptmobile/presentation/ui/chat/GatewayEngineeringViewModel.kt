@@ -22,12 +22,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+data class CandidatePageCursor(val binding: GatewayEngineeringBinding, val checkId: String, val offset: Int, val next: Int?)
+
 data class GatewayEngineeringUiState(
     val bindings: List<GatewayEngineeringBinding> = emptyList(),
     val options: GatewayEngineeringSettings = GatewayEngineeringSettings(),
     val busy: Boolean = false,
     val error: String? = null,
     val evidencePreview: String? = null,
+    val candidateCursor: CandidatePageCursor? = null,
     val checkpoints: Pair<GatewayEngineeringBinding, dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringCheckpoints>? = null
 )
 
@@ -51,7 +54,7 @@ class GatewayEngineeringViewModel @Inject constructor(
             if (chat == chatId) return
             chat = chatId
             epoch.incrementAndGet().also {
-                mutable.update { it.copy(bindings = emptyList(), evidencePreview = null, checkpoints = null, error = null) }
+                mutable.update { it.copy(bindings = emptyList(), evidencePreview = null, candidateCursor = null, checkpoints = null, error = null) }
             }
         }
         polling?.cancel()
@@ -127,7 +130,11 @@ class GatewayEngineeringViewModel @Inject constructor(
 
     fun evidence(binding: GatewayEngineeringBinding, receiptId: String) = action { selectedEpoch ->
         val text = repository.evidence(binding.request.requestId, receiptId)
-        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text) }
+        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text, candidateCursor = null) }
+    }
+
+    fun queuePlanEdit(binding: GatewayEngineeringBinding, text: String, commandId: String) = action {
+        repository.queuePlanEdit(binding, text, commandId)
     }
 
     fun checkpoints(binding: GatewayEngineeringBinding) = action { selectedEpoch ->
@@ -135,9 +142,9 @@ class GatewayEngineeringViewModel @Inject constructor(
         updateForEpoch(selectedEpoch) { it.copy(checkpoints = binding to result) }
     }
 
-    fun inspectCandidate(binding: GatewayEngineeringBinding, checkId: String) = action { selectedEpoch ->
-        val text = repository.candidateDetails(binding.request.requestId, checkId)
-        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text) }
+    fun inspectCandidate(binding: GatewayEngineeringBinding, checkId: String, offset: Int = 0) = action { selectedEpoch ->
+        val (text, next) = repository.candidatePage(binding.request.requestId, checkId, offset)
+        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text, candidateCursor = CandidatePageCursor(binding, checkId, offset, next)) }
     }
 
     fun restoreCandidate(binding: GatewayEngineeringBinding, checkId: String) = action { selectedEpoch ->
@@ -154,7 +161,7 @@ class GatewayEngineeringViewModel @Inject constructor(
     }
 
     fun closeEvidence() {
-        mutable.update { it.copy(evidencePreview = null) }
+        mutable.update { it.copy(evidencePreview = null, candidateCursor = null) }
     }
 
     private fun updateForEpoch(selectedEpoch: Long, update: (GatewayEngineeringUiState) -> GatewayEngineeringUiState) {

@@ -488,6 +488,9 @@ class GitHubEngineeringBackend:
                   'Return one JSON object, no markdown. Include protocol_version:1 and head_sha matching the evidence revision. Never claim a test ran without an execution receipt. ')
         if role in {'design options', 'architecture options', 'decision options'}:
             system += OPTIONS_INSTRUCTION
+        elif role == 'workspace specialist':
+            system += ('Work only on worker_objective. Return {"workspace_action":{...}} naming the pinned head_sha and one of permitted_tools, or {"findings":"bounded conclusion with evidence"}. '
+                       'Read exact source before editing; check accepts check_index and a proposal with changes and expected_blob_sha. Only the supervisor can integrate or publish a candidate.')
         elif role in {'repository answerer', 'repository planner'}:
             system += 'Return {"answer":"a complete user-facing answer or plan with cited file paths", "paths":["exact inspected source paths supporting it"], "limitations":["unverified points"]}. No changes, commits, PRs or other writes are authorized. Answer the actual user request using only inspected source; never claim tests were run.'
         elif role == 'planner':
@@ -521,6 +524,9 @@ class GitHubEngineeringBackend:
                        'Use candidates to list retained patches and candidate_files with candidate_check_id to inspect changed paths. '
                        'Finalize an unchanged candidate with {"candidate_check_id":"exact retained check ID","summary":"..."}. '
                        'Only host-approved commands execute; a selected check never replaces complete final validation. '
+                       'An opted-in offline workspace supports terminal_open with session_id and optional candidate_check_id, terminal_start with session_id, unique process_id, argv, cwd, env and timeout_seconds, terminal_poll with process_id and byte offset, terminal_cancel and terminal_close. Reuse IDs to reconcile. Commands and files stay in this checkout. Propose and validate publication changes through the normal changes contract. '
+                       'Use code_intelligence in the open session with process_id, language (kotlin/python/typescript), path, one-based line and UTF-16 column, operation (definition/references/diagnostics/callers/supertypes/rename_preview), and new_name for rename. Poll the process to read results. An unavailable server requires lexical fallback. '
+                       'Use worker with worker_id, objective, role (investigator/test worker/implementation worker/reviewer) and budget to run one isolated step. Repeat worker_id to continue; select its candidate_check_id for normal review. '
                        'Use skills to list procedures, skill with name to start one, workflow_step with step (zero-based) and receipt_sha256 to record a step. '
                        'Use progress with hypothesis, next_action and tried to retain working notes. Use instructions with paths before a new edit. '
                        'Read relevant ranges before editing large files. Each action resumes this same task with bounded fresh context.')
@@ -643,6 +649,8 @@ class GitHubEngineeringBackend:
             # These are freshly observed selection facts, not a completed PLAN.
             # Recall and model admission need them before selecting source paths.
             # The supervisor alone records successful stage completion.
+            if data.get('head_sha') != head:
+                data.pop('active_instructions', None)
             data.update(actor_id=actor['id'], head_sha=head, tree=tree)
             from v14.engineering_specialists import investigate
             selection = {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'head_sha': head}
@@ -776,12 +784,17 @@ class GitHubEngineeringBackend:
                         'workspace_checks': data.get('workspace_checks', {}),
                         'workspace_check_executions': data.get('workspace_check_executions', 0),
                         'active_instructions': data.get('active_instructions', []), 'workflow': data.get('workflow'),
-                        'progress_notes': data.get('progress_notes')}
+                        'progress_notes': data.get('progress_notes'), 'terminal_session': data.get('terminal_session'),
+                        'closed_terminal_sessions': data.get('closed_terminal_sessions', []), 'workspace_workers': data.get('workspace_workers', {})}
             if 'candidate_check_id' in proposal:
                 from v14.engineering_workspace_checks import retained_candidate
                 if set(proposal) - {'candidate_check_id', 'summary'}:
                     raise ValueError('Final candidate selection cannot also change the patch')
                 changes = retained_candidate(self, job, proposal['candidate_check_id'])
+                from v14.engineering_workspace import load_file
+                for change in changes:
+                    if change['path'] in data['tree']:
+                        load_file(self, job, change['path'])
             else:
                 try:
                     changes = prepare_changes(proposal, data['files'], data['tree'], head_sha=data['head_sha'])
@@ -795,7 +808,9 @@ class GitHubEngineeringBackend:
                     self.record_evidence(job, {'workspace_receipt': receipt})
                     return {'workspace_continue': True, 'workspace_iterations': data.get('workspace_iterations', 0) + 1,
                             'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:]}
-            return {'workspace_continue': False, 'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
+            from v14.workspace_hooks import after_edit
+            changes, hook = after_edit(job, changes)
+            return {'workspace_continue': False, 'after_edit_hook': hook, 'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
         if phase == 'REVIEW':
             patches = []
             for change in data['changes']:
@@ -824,9 +839,13 @@ class GitHubEngineeringBackend:
                 raise ValueError('Reviewer did not return a complete review')
             if validation['status'] != 'PASSED':
                 review['issues'].append('Pre-publication validation: ' + validation.get('reason', validation['status']))
+            from v14.workspace_hooks import before_publish
+            hook = before_publish(job, validation)
+            if not hook['passed']:
+                review['issues'].append('The configured pre-publication checks have incomplete candidate evidence.')
             if review['issues']:
                 review['approved'] = False
-            return {'review': review, 'local_validation': validation}
+            return {'review': review, 'local_validation': validation, 'before_publish_hook': hook}
         if phase == 'COMMIT':
             if data.get('review', {}).get('approved') is not True:
                 raise ValueError('A selected-model review pass is required before publishing changes')

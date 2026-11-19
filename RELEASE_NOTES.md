@@ -7,6 +7,12 @@
 - In any chat, scroll to the bottom to resume following the answer. After a deliberate scroll stops away from the bottom, the return arrow stays visible for five seconds and fades over one second when animations are enabled.
 - New Chat offers a Privacy Mode checkbox. Under Settings → Privacy, select a saved OpenRouter profile to review account settings, apply the recommended changes and confirm default plugins. The app checks eligibility again before sending.
 
+## Engineering workspace
+
+The Windows repository validation settings offer Android/Kotlin, Python and Node/TypeScript environments. Prepare a profile against the approved repository mirror before starting work. Enable the offline task terminal for that repository to keep a working checkout across commands, page the output, stop background processes and query an installed language server.
+
+In an engineering conversation, open Plan, Changes, Tests or Activity to inspect the current job. The changes view pages retained diffs. From the Android GitHub proposal editor you can edit a file, exclude a hunk and add a review note. Remote profiles can use the paired repository graph after you authorize source sharing for that profile, repository and Gateway.
+
 ## Native Gateway and paired owner controls
 
 Windows gains a rounded WPF dashboard for Overview, Chat, Saved, Jobs, Tools,

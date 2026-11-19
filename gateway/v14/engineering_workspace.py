@@ -35,7 +35,13 @@ def act(backend, job, action):
         raise ValueError('Workspace action must name the current pinned head_sha')
     kind = action.get('action')
     receipt = {'action': kind, 'head_sha': job['data']['head_sha']}
-    if kind in {'skills', 'skill', 'workflow_step'}:
+    if kind == 'worker':
+        from v14.workspace_workers import advance
+        receipt.update(advance(backend, job, action))
+    elif kind in {'terminal_open', 'terminal_start', 'terminal_poll', 'terminal_cancel', 'terminal_close', 'code_intelligence'}:
+        from v14.workspace_terminal import act as terminal
+        receipt.update(terminal(backend, job, action))
+    elif kind in {'skills', 'skill', 'workflow_step'}:
         from v14.workspace_guidance import workflow
         receipt.update(workflow(backend, job, action))
     elif kind == 'progress':

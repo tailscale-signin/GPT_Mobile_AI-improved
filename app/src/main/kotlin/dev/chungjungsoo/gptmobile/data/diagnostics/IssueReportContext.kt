@@ -248,8 +248,11 @@ internal data class IssueReportContext(
                 dispatchState == "DISPATCHED" -> true
                 else -> null
             }
-            val stage = text("failed_stage", "failedStage", "failurePhase", "phase", "stage")?.lowercase(Locale.ROOT)
-                ?.takeIf { it in stages || it in acceptanceStages || it in reviewStages || it in admissionStages }
+            val observedStage = text("failed_stage", "failedStage", "failurePhase", "phase", "stage")?.lowercase(Locale.ROOT)
+            val stage = when (observedStage) {
+                "saved_evidence_dispatch" -> "provider_admission"
+                else -> observedStage?.takeIf { it in stages || it in acceptanceStages || it in reviewStages || it in admissionStages }
+            }
             val recoveryAction = text("recovery_action", "next_action", "recoveryAction", "nextAction")?.uppercase(Locale.ROOT)
                 ?.takeIf { it in recoveryActions || it in acceptanceRecoveryActions || it in reviewRecoveryActions || it in lifecycleRecoveryActions }
             val localRecovery = localRecoveryCode(fields)

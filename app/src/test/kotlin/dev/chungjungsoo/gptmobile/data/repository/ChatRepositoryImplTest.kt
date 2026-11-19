@@ -1389,7 +1389,9 @@ class ChatRepositoryImplTest {
                 assertEquals(0, api.streamCalls)
                 val denial = states.filterIsInstance<ApiState.Error>().single { it.recoveryBlock?.code == "SOURCE_PERMISSION_REVOKED" }
                 assertEquals("PERMISSION_REVOKED", denial.errorCode)
-                assertEquals(JsonPrimitive(false), denial.failureDetails?.get("dispatched"))
+                val report = IssueReportContext.fromFields("CHAT_FAILURE", requireNotNull(denial.failureDetails))
+                assertEquals("provider_admission", report.stage)
+                assertEquals(false, report.dispatched)
             } else {
                 assertEquals(1, api.streamCalls)
                 assertEquals(mode == "allowed", api.lastRequest!!.messages.first().content.toString().contains(evidence))

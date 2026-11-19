@@ -172,8 +172,9 @@ class GoogleAPIImpl @Inject constructor(
 
                             ProviderCooldown.observeQuota(config) { response.headers[it] }
                             val channel = response.bodyAsChannel()
+                            val events = ProviderEventReader(channel)
                             while (!channel.isClosedForRead) {
-                                val line = channel.readProviderLine() ?: break
+                                val line = events.readLine() ?: break
                                 val data = SseUtils.extractSseData(line) ?: continue
 
                                 val chunk = try {

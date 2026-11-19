@@ -197,8 +197,9 @@ class AnthropicAPIImpl @Inject constructor(
                                 return@execute
                             }
                             val channel = response.bodyAsChannel()
+                            val events = ProviderEventReader(channel)
                             while (!channel.isClosedForRead) {
-                                val line = channel.readProviderLine() ?: break
+                                val line = events.readLine() ?: break
                                 val data = SseUtils.extractSseData(line) ?: continue
 
                                 var chunk = try {

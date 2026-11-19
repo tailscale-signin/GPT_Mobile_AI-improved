@@ -3185,6 +3185,7 @@
     "scripts/scan_secrets.py",
     "scripts/tests/test_locked_dependency_audit.py",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/FileUtilsTest.kt",
-    "settings-gradle.lockfile"
+    "settings-gradle.lockfile",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/SseUtilsTest.kt"
   ]
 }

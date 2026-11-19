@@ -477,13 +477,14 @@ class OpenAIAPIImpl @Inject constructor(
 
                         // Success - read SSE stream
                         val channel = response.bodyAsChannel()
+                        val events = ProviderEventReader(channel)
                         val terminalDrain = TerminalStreamDrain()
                         while (!channel.isClosedForRead) {
                             val remaining = terminalDrain.remainingMillis()
                             val line = if (remaining == null) {
-                                channel.readProviderLine()
+                                events.readLine()
                             } else {
-                                withTimeoutOrNull(remaining) { channel.readProviderLine() }
+                                withTimeoutOrNull(remaining) { events.readLine() }
                             } ?: break
                             val data = SseUtils.extractSseData(line) ?: continue
 
@@ -929,8 +930,9 @@ class OpenAIAPIImpl @Inject constructor(
                                 emit(ResponseGatewayMetadataEvent(gatewayResponseMetadata { response.headers[it] } ?: GatewayResponseMetadata()))
                                 // Success - read SSE stream
                                 val channel = response.bodyAsChannel()
+                                val events = ProviderEventReader(channel)
                                 while (!channel.isClosedForRead) {
-                                    val line = channel.readProviderLine() ?: break
+                                    val line = events.readLine() ?: break
                                     val data = SseUtils.extractSseData(line) ?: continue
 
                                     if (data == "[DONE]") {

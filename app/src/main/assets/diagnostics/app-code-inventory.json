@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "62557fff05383b816060f6ee940a9e4bd222d7096893e9b29069f388ac697e19",
+  "source_digest": "2dd871bc880e30afd9238861655ff7c4440b79ebc744bf4f2c5117c4a2b538d5",
   "file_count": 2706,
-  "indexed_line_count": 445037,
+  "indexed_line_count": 445052,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -100,7 +100,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 101,
-      "indexed_line_count": 10169
+      "indexed_line_count": 10184
     },
     {
       "id": "github",
@@ -9404,8 +9404,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/AnthropicAPIImpl.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "c0c65a317093accc1d8398fffc2a9537add51bfbf67771f002eece6f37d3e3f8",
-      "indexed_lines": 326
+      "sha256": "ef8ab99e1d669fe1daa6d17187e9057bd72cc91db1975c3b138607e9d0f58f3c",
+      "indexed_lines": 327
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/AnthropicCompleteResponse.kt",
@@ -9551,8 +9551,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GoogleAPIImpl.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "dd2315b03fa9693bd48f7da0b0fab1cea926eec213a7fef3976256a50b3e2cc9",
-      "indexed_lines": 276
+      "sha256": "7e41a5685ed9c843f361b4556dcdd13fb7c913ee695dc9fb6f5a64920b6a1c5c",
+      "indexed_lines": 277
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GradioInputContract.kt",
@@ -9572,8 +9572,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GroqAPIImpl.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "a4a0a8e0a322398713b7e46987aa744bc97002191813986b2732bbb7098636e3",
-      "indexed_lines": 153
+      "sha256": "3f6830520d80d565983499de98aec9541b4ed949538439338009ab06010e2422",
+      "indexed_lines": 154
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/HordeTextPolicy.kt",
@@ -9663,8 +9663,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "229a7f70a76dbb4107f445dfc69eaf392b271f7eff57e6284756b7ad05eab7e2",
-      "indexed_lines": 1209
+      "sha256": "194636d608207ebaffab1e132361e34f46121932cdad242051767a6aad9b90de",
+      "indexed_lines": 1211
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAICompletionDecoder.kt",
@@ -9873,8 +9873,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/SseUtils.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "56fd8be53827c2e55f7ba17091e280b1efb40bd43e2576bd489b2ea3c7573cd4",
-      "indexed_lines": 90
+      "sha256": "26ceb89af78953bcd4574e0e4a1f385a7b35b4c57571a3108119f5fed55a8f74",
+      "indexed_lines": 100
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/TerminalStreamDrain.kt",

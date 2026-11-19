@@ -14,6 +14,18 @@ private data class SampleChunk(val id: String, val content: String? = null)
 
 class SseUtilsTest {
 
+    @Test
+    fun streamBudgetCountsAllLinesAndResetsForEachResponse() = kotlinx.coroutines.test.runTest {
+        val stream = ProviderEventReader(io.ktor.utils.io.ByteReadChannel("ab\n\nc\n"), 4)
+        assertEquals("ab", stream.readLine())
+        assertEquals("", stream.readLine())
+        val failure = runCatching { stream.readLine() }.exceptionOrNull()
+        assertTrue(failure is kotlinx.serialization.SerializationException)
+        val next = ProviderEventReader(io.ktor.utils.io.ByteReadChannel("c\n"), 2)
+        assertEquals("c", next.readLine())
+        assertNull(next.readLine())
+    }
+
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test

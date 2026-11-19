@@ -126,6 +126,7 @@ internal object OwnerGateway {
                 if (res.code == 409 || res.code == 400) throw RejectedChange("Gateway rejected this change. Refresh its current settings.")
                 check(res.isSuccessful) {
                     when (res.code) {
+                        428 -> "Confirm this device on Windows · code ${entry?.device?.removePrefix("phone:")?.take(12)?.uppercase()}."
                         403 -> "The device grant or invitation is unavailable."
                         else -> "Gateway returned HTTP ${res.code}."
                     }

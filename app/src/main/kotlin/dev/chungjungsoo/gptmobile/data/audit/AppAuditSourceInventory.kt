@@ -9,13 +9,13 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "ef3b4a3e679474e9bfe9cd90b89c54354ece543df0d80c285adf774476414bef"
+    val sourceDigest: String = "67a706e918451a50aecb4d2f3c6b6aab36776f6e22e1a92c9c1e8804d8d6f0f4"
     val fileCount: Int = 2716
-    val lineCount: Int = 446792
+    val lineCount: Int = 446850
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
-        AppAuditSourceArea("android_shell", "Android application and lifecycle", 76, 8959),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 569, 100776),
+        AppAuditSourceArea("android_shell", "Android application and lifecycle", 76, 8960),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 569, 100777),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 200, 9296),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 234, 40361),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 101, 23105),
@@ -36,7 +36,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("voice_and_media", "Voice and media", 31, 6220),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
-        AppAuditSourceArea("gateway_software", "Companion gateway software", 181, 79279),
+        AppAuditSourceArea("gateway_software", "Companion gateway software", 181, 79335),
         AppAuditSourceArea("authentication_service", "Authentication broker software", 9, 2638),
         AppAuditSourceArea("external_integrations", "External integration servers", 63, 6513),
         AppAuditSourceArea("other_production", "Additional production source", 62, 2857)

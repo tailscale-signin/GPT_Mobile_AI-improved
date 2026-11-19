@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ef3b4a3e679474e9bfe9cd90b89c54354ece543df0d80c285adf774476414bef",
+  "source_digest": "67a706e918451a50aecb4d2f3c6b6aab36776f6e22e1a92c9c1e8804d8d6f0f4",
   "file_count": 2716,
-  "indexed_line_count": 446792,
+  "indexed_line_count": 446850,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -34,13 +34,13 @@
       "id": "android_shell",
       "label": "Android application and lifecycle",
       "file_count": 76,
-      "indexed_line_count": 8959
+      "indexed_line_count": 8960
     },
     {
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 569,
-      "indexed_line_count": 100776
+      "indexed_line_count": 100777
     },
     {
       "id": "accessibility_and_localization",
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 181,
-      "indexed_line_count": 79279
+      "indexed_line_count": 79335
     },
     {
       "id": "authentication_service",
@@ -10405,8 +10405,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/pairing/OwnerGateway.kt",
       "area_id": "android_shell",
       "kind": "source",
-      "sha256": "ad1589053cbb7367771b2bb6645d6e75df5db221e0b31404f5aa7c20eb57d536",
-      "indexed_lines": 231
+      "sha256": "fc57d369b7328a57a9cfe1635e819c69271a76dfde66a6b51ea708d21f381d7c",
+      "indexed_lines": 232
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/pairing/PairedGatewayEngine.kt",
@@ -15466,8 +15466,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/OwnerPairingActivity.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "23326400a7e48d48dffad82398623237bfa5636ffb44eb28e386cbc773f5376e",
-      "indexed_lines": 90
+      "sha256": "3079710c132dfa0cdd381f2990c7a3f4002063ff3e023831e1d8d3e84653b10d",
+      "indexed_lines": 91
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformMaxToolCallsSettingHost.kt",
@@ -18021,22 +18021,22 @@
       "path": "gateway/desktop/phone_access.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "7612733db396dfe565b4f310aa251439dfc493c4176c52e18bd380b0935b989a",
-      "indexed_lines": 167
+      "sha256": "2e80dbe8cde92fba7f2108bb62e429a1e472be25695cc7a8e22c65d006a3c58c",
+      "indexed_lines": 174
     },
     {
       "path": "gateway/desktop/phone_listener.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "949118c7d6234f32e2ace47c8e8e0858f92bfb901d8f9c7bf817e9f8067a80ed",
-      "indexed_lines": 152
+      "sha256": "bd7ee8303a784c275456d050e0c0389526c4b62254fc20052e2085b4bc12c359",
+      "indexed_lines": 171
     },
     {
       "path": "gateway/desktop/phone_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "b4ba45806a6576f71b0cb6f5c9fc85ea0f2d84251bd7c8cfcc2c44067bf9eebe",
-      "indexed_lines": 238
+      "sha256": "3d64d8284be7e0157fca9ded23f43dab5bf183be3a392ad4955be5ffa7d16bee",
+      "indexed_lines": 268
     },
     {
       "path": "gateway/desktop/phone_policies.py",

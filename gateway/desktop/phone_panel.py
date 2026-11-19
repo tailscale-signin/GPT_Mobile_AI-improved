@@ -88,7 +88,7 @@ def show(parent, root):
                 entries = db.execute('SELECT id,label,role,revoked FROM grants ORDER BY rowid DESC LIMIT 64').fetchall()
             listed = set(devices.get_children())
             for ident, label, grant, revoked in entries:
-                values = (label, grant, 'Revoked' if revoked else 'Paired')
+                values = (label, grant, {0:'Paired', 1:'Revoked', 2:'Confirm on PC'}.get(revoked, 'Unavailable'))
                 if ident in listed:
                     devices.item(ident, values=values)
                     listed.remove(ident)
@@ -117,7 +117,18 @@ def show(parent, root):
             toggle.configure(state='disabled')
             detail.set('Gateway settings unavailable. Start the installed runtime and refresh.')
 
+    listener_state = tk.StringVar()
+    ttk.Label(content, textvariable=listener_state, wraplength=450).grid(row=13, column=0, columnspan=2, sticky='w', padx=12, pady=8)
+
     def tick():
+        try:
+            configured = json.loads(cfg_path.read_text())
+            seen = json.loads(cfg_path.with_name('listener-status.json').read_text())
+            fresh = time.time() - seen['observed'] < 25 and (seen['host'], seen['port']) == (configured['host'], configured['port'])
+            label = seen['state'] if fresh else 'awaiting Gateway'
+            listener_state.set(f"Phone listener · {label} · {configured['host']}:{configured['port']}")
+        except (OSError, KeyError, ValueError):
+            listener_state.set('Phone listener · awaiting Gateway' if cfg_path.exists() else 'Phone listener · disabled')
         refresh()
         callbacks.schedule(3000, tick)
 
@@ -164,6 +175,24 @@ def show(parent, root):
             refresh()
         except (ValueError, KeyError, sqlite3.Error, OSError) as error:
             status.set(str(error))
+
+    def confirm_device():
+        selection = devices.selection()
+        if not selection:
+            return
+        ident = selection[0]
+        with phone_access.database(root) as db:
+            row = db.execute('SELECT label,role FROM grants WHERE id=? AND revoked=2', (ident,)).fetchone()
+        if not row:
+            status.set('Select a device marked Confirm on PC.')
+            return
+        code = ident.removeprefix('phone:')[:12].upper()
+        if messagebox.askyesno('Confirm device', f'{row[0]} requests {row[1]} access. Approve only if the phone displays {code}?', parent=window):
+            try:
+                phone_access.approve(root, ident)
+                refresh()
+            except (ValueError, OSError, sqlite3.Error) as error:
+                status.set(str(error))
 
     def revoke():
         selected = devices.selection()
@@ -231,6 +260,7 @@ def show(parent, root):
     ttk.Button(bar, text='Create pairing invitation', style='Accent.TButton', command=invitation).pack(pady=8)
     toggle = ttk.Button(actions, text='Toggle engineering', command=switch)
     toggle.pack(side='left', padx=3)
+    ttk.Button(actions, text='Confirm device', command=confirm_device).pack(side='left', padx=3)
     ttk.Button(actions, text='Revoke device', command=revoke).pack(side='left', padx=3)
     ttk.Button(content, text='Approve backend', command=approve_backend).grid(row=10, column=1, sticky='e', padx=12, pady=8)
     devices.bind('<<TreeviewSelect>>', lambda _: refresh())

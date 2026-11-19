@@ -70,7 +70,8 @@ class OwnerPairingActivity : ProtectedActivity() {
                                         settings.addPlatformV2(PlatformV2(name = name.trim(), compatibleType = ClientType.LLAMA, apiUrl = endpoint, model = model.trim(), enabled = true))
                                     }
                                     devices = OwnerGateway.pairedDevices()
-                                    message = if (entry.role == "owner" && model.isNotBlank()) "Paired. Select this connection under GitHub settings → Engineering gateway." else "Paired as ${entry.role}. Gateway settings are available above."
+                                    val code = entry.device.removePrefix("phone:").take(12).uppercase()
+                                    message = "On Windows, choose Confirm device and compare code $code. Grant: ${entry.role}."
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (failure: Exception) {

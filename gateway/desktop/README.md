@@ -174,7 +174,7 @@ The dashboard now has Overview, Chat, Saved, Jobs and Benchmarks. New prompt ope
 
 ## Manage the Gateway from Android
 
-Open **Android controls** in the Windows dashboard. Select the PC’s private IPv4 interface, a separate HTTPS port (8443 by default), and an Owner or Viewer grant. Create an invitation and scan it on the intended phone. You can also paste the invitation under **Settings → Windows Gateways**. Compare the displayed certificate fingerprints. Each invitation expires after five minutes and can pair one device. The optional Windows firewall button allows only the selected port and interface on a Private network for the local subnet.
+Open **Android controls** in the Windows dashboard. Select the PC’s private IPv4 interface, a separate HTTPS port (8443 by default), and an Owner or Viewer grant. Create an invitation and scan it on the intended phone. You can also paste the invitation under **Settings → Windows Gateways**. Compare the displayed certificate fingerprints. Select the waiting phone on Windows, choose **Confirm device**, and compare its 12-character code before granting access. Each invitation expires after five minutes and can pair one device. The optional Windows firewall button allows only the selected port and interface on a Private network for the local subnet.
 
 In GitHub settings select the paired PC as the engineering Gateway for the desired inference profile. On first binding the app can apply that profile’s Engineering preference to the PC. The phone and Windows both show the per-device job admission state. Turning Engineering off leaves already accepted jobs in their original journal. A viewer can inspect settings. Shared-LAN traffic and ordinary inference credentials have no owner privileges.
 

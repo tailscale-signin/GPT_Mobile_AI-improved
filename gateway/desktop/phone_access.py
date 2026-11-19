@@ -143,13 +143,13 @@ def redeem(root, body):
         grant = db.execute('SELECT role FROM invitations WHERE hash=? AND expires>?', (ident, time.time())).fetchone()
         if not grant:
             raise PermissionError('Expired or consumed invitation.')
-        if db.execute('SELECT COUNT(*) FROM grants WHERE revoked=0').fetchone()[0] >= 32:
+        if db.execute('SELECT COUNT(*) FROM grants WHERE revoked IN (0,2)').fetchone()[0] >= 32:
             raise ValueError('Revoke an unused device before pairing another.')
         ca, signer = _authority(directory(root))
         device = 'phone:' + secrets.token_hex(16)
         cert = _cert(device, ca.subject, key, signer, usages=[ExtendedKeyUsageOID.CLIENT_AUTH])
         data_cert = _cert(device + '-data', ca.subject, key, signer, usages=[ExtendedKeyUsageOID.CLIENT_AUTH])
-        db.execute('INSERT INTO grants VALUES (?,?,?,?,0,?)', (device, cert.fingerprint(hashes.SHA256()).hex(), name, grant[0], data_cert.fingerprint(hashes.SHA256()).hex()))
+        db.execute('INSERT INTO grants VALUES (?,?,?,?,2,?)', (device, cert.fingerprint(hashes.SHA256()).hex(), name, grant[0], data_cert.fingerprint(hashes.SHA256()).hex()))
         db.execute('DELETE FROM invitations WHERE hash=?', (ident,))
         return dict(device=device, role=grant[0], certificate=base64.b64encode(cert.public_bytes(serialization.Encoding.DER)).decode(),
                     data_certificate=base64.b64encode(data_cert.public_bytes(serialization.Encoding.DER)).decode())
@@ -160,6 +160,13 @@ def authorized(root, device):
         return False
     with database(root) as db:
         return db.execute("SELECT 1 FROM grants WHERE id=? AND revoked=0 AND role='owner'", (device,)).fetchone() is not None
+
+
+def approve(root, device):
+    """A Windows operator verifies the code displayed on the intended phone."""
+    with database(root) as db:
+        if db.execute('UPDATE grants SET revoked=0 WHERE id=? AND revoked=2', (device,)).rowcount != 1:
+            raise ValueError('This device is no longer waiting for approval.')
 
 
 def revoke(root, device):

@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 import ssl
+import time
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -13,7 +14,7 @@ from uvicorn import Config, Server
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
 from desktop import phone_access, phone_settings
-from desktop.configuration import load
+from desktop.configuration import atomic_json, load
 from v14.identity import Principal
 
 
@@ -40,7 +41,7 @@ def protocol(root, cfg, store, effective, readiness=None):
                 path = scope['path'].removeprefix('/v1')
                 def grant():
                     with phone_access.database(root) as db:
-                        return db.execute('SELECT id,role,cert_hash=? FROM grants WHERE (cert_hash=? OR data_cert=?) AND revoked=0', (fingerprint, fingerprint, fingerprint)).fetchone()
+                        return db.execute('SELECT id,role,cert_hash=?,revoked FROM grants WHERE (cert_hash=? OR data_cert=?) AND revoked!=1', (fingerprint, fingerprint, fingerprint)).fetchone()
                 async def reply(data, status=200):
                     await JSONResponse(data, status_code=status, headers={'Cache-Control': 'no-store'})(scope, receive, send)
                 if request.headers.getlist('host') != [endpoint] or any(k in request.headers for k in ('origin','cookie','forwarded','x-forwarded-for','sec-fetch-site','x-gateway-management')):
@@ -51,7 +52,9 @@ def protocol(root, cfg, store, effective, readiness=None):
                     device = await asyncio.to_thread(grant) if fingerprint else None
                     if not device:
                         return await reply({'error': 'paired_device_required'}, 403)
-                    ident, role, management = device
+                    ident, role, management, status = device
+                    if status == 2:
+                        return await reply({'error':'awaiting_windows_approval'}, 428)
                     if path.startswith('/gateway/owner/') and not management:
                         return await reply({'error': 'management_grant_required'}, 403)
                     if path == '/gateway/owner/settings' and request.method in {'GET','POST'}:
@@ -104,8 +107,16 @@ def companion_lifespan(base, root, store, readiness=None):
                 server = None
                 owner = None
                 active = None
+                heartbeat = 0
+                def report(state, config):
+                    try:
+                        atomic_json(config_path.with_name('listener-status.json'),
+                                    {'state': state, 'host': config['host'], 'port': config['port'], 'observed': time.time()})
+                    except OSError:
+                        logging.getLogger(__name__).warning('Could not save phone listener status')
                 try:
                     while True:
+                        cfg = None
                         try:
                             cfg = json.loads(config_path.read_text()) if config_path.exists() else None
                             if cfg != active:
@@ -131,11 +142,19 @@ def companion_lifespan(base, root, store, readiness=None):
                                     server = await loop.create_server(lambda: uv.http_protocol_class(config=uv, server_state=owner.server_state, app_state={}),
                                         host=cfg['host'], port=cfg['port'], ssl=ctx, ssl_handshake_timeout=5)
                                     active = cfg
+                                    heartbeat = 0
+                            if server and active and time.monotonic() >= heartbeat:
+                                report('listening', active)
+                                heartbeat = time.monotonic() + 10
                         except (OSError, ValueError, KeyError):
+                            if isinstance(cfg, dict) and 'port' in cfg and 'host' in cfg:
+                                report('unavailable', cfg)
                             logging.getLogger(__name__).warning('Phone listener configuration or bind unavailable')
                         await asyncio.sleep(5)
                 finally:
                     if server:
+                        if active:
+                            report('stopped', active)
                         server.close()
                         await server.wait_closed()
                         for connection in list(owner.server_state.connections):

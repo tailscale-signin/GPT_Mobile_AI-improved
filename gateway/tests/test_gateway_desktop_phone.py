@@ -116,6 +116,9 @@ class PairedControls(unittest.IsolatedAsyncioTestCase):
             ctx = ssl.create_default_context(cafile=str(phone_access.directory(self.root) / 'authority.pem'))
             ctx.load_cert_chain(str(target))
             contexts.append(ctx)
+        self.assertEqual(428, (await self.call('/gateway/owner/settings', ctx=contexts[0]))[0])
+        self.assertFalse(phone_access.authorized(self.root, grant['device']))
+        phone_access.approve(self.root, grant['device'])
         return grant['device'], *contexts
 
     async def test_owner_scopes_replay_stale_changes_deferred_worker_and_revocation(self):

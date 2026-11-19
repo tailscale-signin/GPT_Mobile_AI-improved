@@ -356,8 +356,18 @@ internal class KokoroVoiceOutput(
         val playbackAttributes = attributes()
         val speed = rate().takeIf(Float::isFinite)?.coerceIn(.5f, 2f) ?: 1f
         lateinit var playback: Playback
+        var delayedAttempt: Int? = null
+        fun startSynthesis(attempt: Int) {
+            delayedAttempt = null
+            playback.diagnostics?.playbackFocus(VoiceDiagnosticTrace.Focus.GRANTED, attempt)
+            playback.lastProgress = SystemClock.elapsedRealtime()
+            main.removeCallbacks(playback.watchdog)
+            main.postDelayed(playback.watchdog, 1_000)
+            synthesis.execute { synthesize(playback, speed, playbackAttributes) }
+        }
         val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(playbackAttributes)
+            .setAcceptsDelayedFocusGain(true)
             .setOnAudioFocusChangeListener({ change ->
                 if (active === playback) {
                     val focusAction = kokoroFocusAction(change)
@@ -375,6 +385,8 @@ internal class KokoroVoiceOutput(
                             }.exceptionOrNull()
                             if (failed != null) {
                                 fail(playback, "audio_focus_resume_failed", "Audio could not resume. Your reply is available in chat.", canFallback = false, cause = failed)
+                            } else {
+                                delayedAttempt?.let(::startSynthesis)
                             }
                         }
                         KokoroFocusAction.PAUSE -> {
@@ -405,6 +417,10 @@ internal class KokoroVoiceOutput(
         val watchdog = object : Runnable {
             override fun run() {
                 if (active !== playback) return
+                if (delayedAttempt != null) {
+                    fail(playback, "audio_focus_timeout", "Audio output is still in use. You can replay the reply.", canFallback = false)
+                    return
+                }
                 if (playback.focusState.paused) {
                     if (playback.focusState.pauseExpired(SystemClock.elapsedRealtime())) {
                         fail(playback, "audio_focus_timeout", "Playback was interrupted by another app. You can replay the reply.", canFallback = false)
@@ -428,23 +444,21 @@ internal class KokoroVoiceOutput(
         fun acquireFocus(attempt: Int) {
             if (active !== playback) return
             val focusResult = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull()
-            playback.diagnostics?.playbackFocus(
-                when (focusResult) {
-                    AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
-                    null -> VoiceDiagnosticTrace.Focus.ERROR
-                    else -> VoiceDiagnosticTrace.Focus.DENIED
-                },
-                attempt
-            )
-            when {
-                focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> {
-                    playback.lastProgress = SystemClock.elapsedRealtime()
-                    main.postDelayed(watchdog, 1_000)
-                    synthesis.execute { synthesize(playback, speed, playbackAttributes) }
+            when (focusResult) {
+                AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> startSynthesis(attempt)
+                AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> {
+                    delayedAttempt = attempt
+                    playback.diagnostics?.playbackFocus(null, attempt)
+                    main.postDelayed(watchdog, KOKORO_FOCUS_PAUSE_MAX_MS)
                 }
-                focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && attempt == 1 ->
-                    main.postDelayed({ acquireFocus(attempt + 1) }, 250)
-                else -> main.post { fail(playback, "audio_focus_denied", "Audio output is unavailable. Your answer remains in chat.", canFallback = false) }
+                else -> {
+                    playback.diagnostics?.playbackFocus(if (focusResult == null) VoiceDiagnosticTrace.Focus.ERROR else VoiceDiagnosticTrace.Focus.DENIED, attempt)
+                    if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && attempt == 1) {
+                        main.postDelayed({ acquireFocus(attempt + 1) }, 250)
+                    } else {
+                        main.post { fail(playback, "audio_focus_denied", "Audio output is unavailable. Your answer remains in chat.", canFallback = false) }
+                    }
+                }
             }
         }
         acquireFocus(1)

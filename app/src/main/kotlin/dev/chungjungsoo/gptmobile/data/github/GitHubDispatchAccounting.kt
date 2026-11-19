@@ -291,7 +291,10 @@ internal class GitHubDispatchAccounting(
                 put("rejected_mutations", rejected)
                 put("unknown_mutations", unknown)
                 put("requires_reconciliation", uncertain || result.isError && accepted > 0)
-                lastStatus?.let { put("http_status", it) }
+                // A redirect or metadata response cannot identify the HTTP status of an unanswered transport read.
+                if (result.errorCode != "GITHUB_TRANSIENT_NETWORK" || pending.values.none { !it.mutation }) {
+                    lastStatus?.let { put("http_status", it) }
+                }
                 result.errorCode?.let { put("error_code", it) }
                 result.executionReceipt?.get("retry_not_before_ms")?.let { put("retry_not_before_ms", it) }
                 for (key in listOf(

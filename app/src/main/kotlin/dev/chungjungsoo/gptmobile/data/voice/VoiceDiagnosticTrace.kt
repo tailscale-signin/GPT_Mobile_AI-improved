@@ -153,8 +153,8 @@ class VoiceDiagnosticTrace internal constructor(
         fun permission(granted: Boolean) = owner.record(this) { owner.values["voice_permission_granted"] = granted }
         fun muted(muted: Boolean) = owner.record(this) { owner.values["voice_muted"] = muted }
         fun focus(result: Focus) = owner.record(this) { owner.values["voice_focus_result"] = result.name }
-        fun playbackFocus(result: Focus, attempt: Int) = owner.record(this) {
-            owner.values["voice_focus_result"] = result.name
+        fun playbackFocus(result: Focus?, attempt: Int) = owner.record(this) {
+            if (result == null) owner.values.remove("voice_focus_result") else owner.values["voice_focus_result"] = result.name
             owner.values["voice_playback_focus_attempts"] = attempt
         }
 

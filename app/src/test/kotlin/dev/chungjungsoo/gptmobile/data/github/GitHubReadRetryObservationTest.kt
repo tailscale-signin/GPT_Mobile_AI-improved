@@ -38,6 +38,20 @@ class GitHubReadRetryObservationTest {
         assertEquals(1, events.count { "state=READ_RETRY_RECOVERED" in it && "responseForOriginalAttempt=NOT_OBSERVED" in it })
     }
 
+    @Test fun unansweredCiLogDownloadDoesNotInheritTheRedirectStatus() = runTest {
+        val accounting = GitHubDispatchAccounting(record = {})
+        withContext(accounting) {
+            val redirect = GitHubDispatchAccounting.started(false, "/repos/owner/repo/actions/jobs/1/logs")
+            GitHubDispatchAccounting.responded(false, 302, redirect)
+            GitHubDispatchAccounting.started(false, "/download")
+        }
+        val failure = success().copy(isError = true, errorCode = "GITHUB_TRANSIENT_NETWORK")
+        val receipt = requireNotNull(accounting.finish(failure, false).executionReceipt)
+        assertFalse(receipt.containsKey("http_status"))
+        assertEquals(JsonPrimitive(1), receipt["read_response_observations"])
+        assertEquals(JsonPrimitive(1), receipt["unobserved_read_requests"])
+    }
+
     @Test fun aDifferentPageCannotReplaceTheUnansweredRead() = runTest {
         val accounting = GitHubDispatchAccounting(forceLiveReads = true, record = {})
         var attempts = 0

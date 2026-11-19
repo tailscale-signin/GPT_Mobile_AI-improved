@@ -1950,6 +1950,18 @@ class ChatRepositoryImpl(
         )
     }
 
+    private fun localAdmissionError(code: String, message: String, stage: String) = ApiState.Error(
+        message,
+        errorCode = code,
+        taskOutcome = "BLOCKED",
+        failureDetails = kotlinx.serialization.json.buildJsonObject {
+            put("failed_stage", stage)
+            put("failure_origin", "APPLICATION")
+            put("dispatched", false)
+            put("requires_reconciliation", false)
+        }
+    )
+
     private fun preparedCompleteChat(
         userMessages: List<MessageV2>,
         assistantMessages: List<List<MessageV2>>,
@@ -1960,7 +1972,7 @@ class ChatRepositoryImpl(
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = channelFlow {
         if (chatToolConfig?.github?.let { it.mainProfileUid != platform.uid } == true) {
-            send(ApiState.Error("GitHub chat can dispatch only its selected AI profile."))
+            send(localAdmissionError("GITHUB_PROFILE_LOCKED", "GitHub chat can dispatch only its selected AI profile.", "provider_admission"))
             return@channelFlow
         }
         val greeting = userMessages.lastOrNull()
@@ -2004,7 +2016,7 @@ class ChatRepositoryImpl(
                 acceptedRecovery
             }
             if (recovery == null) {
-                emit(ApiState.Error("There is no saved task to resume. Send the original request before using Continue or Retry."))
+                emit(localAdmissionError("OUTPUT_CONTINUATION_UNAVAILABLE", "There is no saved task to resume. Send the original request before using Continue or Retry.", "planning"))
                 return@authorizedRun
             }
             val savedUserTurns = recovery.savedUserTurns
@@ -4135,7 +4147,13 @@ class ChatRepositoryImpl(
             } else {
                 failure.blockedMessage()
             }
-            emit(ApiState.Error(message))
+            val code = when (failure.status) {
+                401 -> "AUTH_REQUIRED"
+                402 -> "BUDGET_RESTRICTED"
+                403 -> "ACCESS_FORBIDDEN"
+                else -> if (failure.code == "model_load_failed") "SELECTED_MODEL_NOT_AVAILABLE" else "PROVIDER_INVOCATION_FAILED"
+            }
+            emit(localAdmissionError(code, message, "provider_admission"))
             return null
         }
         var contextTurns = measurePreparation(runId, PreparationPhase.NORMALIZATION) {

@@ -210,15 +210,13 @@ internal fun planAuthorizedToolContext(
         scopedGitHubStatus -> advertised.filter {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.requiredOperations(task)
         }
-        fullGitHubCatalog -> advertised.filter {
-            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_context"
-        }.take(1)
+        fullGitHubCatalog -> dev.chungjungsoo.gptmobile.data.github.githubFamilyTools(advertised, "github_context")
         else -> advertised.filter { definition ->
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
         }
     }
     val immediateGitHubSchemas = requiredGitHubSchemas.groupBy {
-        it.name.replace("_inspect__", "__").removeSuffix("_inspect")
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) to it.name.substringAfter("__", "")
     }.values.map { alternatives -> alternatives.firstOrNull { it.name.substringBefore("__").endsWith("_inspect") } ?: alternatives.first() }
     // The staged inventory is still authorized only while its discovery path
     // survives initial planning. Charge that path before optional schemas rather

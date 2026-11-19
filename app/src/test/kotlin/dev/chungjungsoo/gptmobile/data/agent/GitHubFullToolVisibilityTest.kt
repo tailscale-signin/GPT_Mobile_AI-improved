@@ -134,6 +134,27 @@ class GitHubFullToolVisibilityTest {
         assertTrue(failure?.message.orEmpty().startsWith("GITHUB_TOOL_CONTEXT_BUDGET:"))
     }
 
+    @Test fun fullCatalogAdmissionUsesOnlyTheFirstConnectionsCompactContextSchema() {
+        val full = schema("github_context__first_inspect").copy(description = "Oversized required tool ".repeat(3000))
+        val other = schema("github_context_inspect__first")
+        val compact = schema("github_context_inspect__first_inspect")
+        val task = "Continue"
+        val turns = listOf(ConversationTurn(MessageV2(content = task, platformType = null), null, true))
+        fun plan(definitions: List<AgentToolDefinition>) = planAuthorizedToolContext(
+            turns,
+            "Use the selected connection.",
+            definitions.map { ResolvedAgentTool(tool(it), null, "GitHub", it.name, it.name) },
+            TokenBudgetSettings(contextTokens = 5632, outputTokens = 512),
+            externalTools = false,
+            githubMode = true
+        )
+        val tools = plan(listOf(full, other, compact)).tools
+        assertTrue(compact in tools)
+        assertFalse(full in tools)
+        val failure = runCatching { plan(listOf(full, other)) }.exceptionOrNull()
+        assertTrue(failure.toString(), failure is GitHubToolContextBudgetException)
+    }
+
     @Test fun requiredRecoveryAndDiscoveryHavePriorityOverLargeOptionalSchemas() {
         val recovery = schema("read_recovery_context")
         val github = schema("github_read")

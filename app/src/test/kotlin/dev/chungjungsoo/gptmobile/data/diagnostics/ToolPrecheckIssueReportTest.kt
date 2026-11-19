@@ -51,6 +51,14 @@ class ToolPrecheckIssueReportTest {
         IssueReportIncidents.clearRecent()
     }
 
+    @Test fun unavailableToolAdmissionKeepsItsPublicCategory() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val result = AgentToolResult("absent-tool", ToolResultContent.Text("Private tool is unavailable"), isError = true, dispatched = false, errorCode = "TOOL_NOT_AVAILABLE")
+        val report = record("web_search", result)
+        assertEquals("TOOL_UNAVAILABLE", report.errorCode)
+        assertEquals(false, report.context?.dispatched)
+    }
+
     @Test fun budgetDuplicateAndCheckpointRejectionsRetainTheirExactLocalReason() = runBlocking {
         LocalDiagnosticsPolicy.setEnabled(true)
         for ((index, code) in listOf("BUDGET_EXHAUSTED", "DUPLICATE_INVOCATION", "BUDGET_CHECKPOINT_UNAVAILABLE").withIndex()) {

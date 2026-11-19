@@ -2052,12 +2052,23 @@ internal class McpAgentTool(
             replaySafe = approvedReadOnly
         )
 
-    private fun dispatchedFailure(result: AgentToolResult, cause: String): AgentToolResult = dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(
-        result.copy(isError = true, dispatched = true, errorCode = if (approvedReadOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"),
-        definition.name,
-        diagnosticCode = cause,
-        replaySafe = approvedReadOnly
-    )
+    private fun dispatchedFailure(result: AgentToolResult, cause: String): AgentToolResult {
+        val recorded = dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(
+            result.copy(isError = true, dispatched = true, errorCode = if (approvedReadOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"),
+            definition.name,
+            diagnosticCode = cause,
+            replaySafe = approvedReadOnly
+        )
+        if (cause !in setOf("MCP_TOOL_ERROR", "MCP_OUTPUT_INVALID")) return recorded
+        return recorded.copy(
+            executionReceipt = JsonObject(
+                recorded.executionReceipt.orEmpty() + buildJsonObject {
+                    put("mcp_failure_phase", "execution")
+                    put("mcp_failure_category", cause)
+                }
+            )
+        )
+    }
 }
 
 private fun Tool.isSafelyShareableReadOnly(): Boolean {

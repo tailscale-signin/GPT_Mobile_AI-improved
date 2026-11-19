@@ -69,7 +69,8 @@ internal object IssueReportIncidentCapsule {
     val toolFailureFields = setOf("url_reader_dns_state", "url_reader_availability", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
     val providerExecutionFields = setOf("tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection", "tool_protocol_frame_kind", "tool_protocol_recovery_outcome", "claim_extraction_failure_kind", "claim_extraction_response_characters", "claim_extraction_max_claims", "claim_extraction_completed")
-    val combinedDeliveryFields = setOf("combined_requirement_gap", "combined_issue_count")
+    val combinedRepairStops = setOf("CORRECTION_CAPACITY_UNAVAILABLE", "LEGACY_REVISION_REQUIRES_NEW_OWNER", "LEGACY_REPAIR_ALLOWANCE_REACHED", "NO_PROGRESS_AFTER_REQUIRED_REVISIONS", "NO_PROGRESS_AFTER_REQUIRED_REVISION", "NEWER_REVISION_OR_UNAVAILABLE_REPLACEMENT_OWNER", "REPAIR_REJECTED", "NO_REMAINING_REQUIRED_CORRECTION", "REPAIR_PREPARATION_FAILED", "REPLACEMENT_MADE_NO_TEXT_PROGRESS", "REPLACEMENT_OWNER_COMPARE_AND_SET_REJECTED")
+    val combinedDeliveryFields = setOf("combined_requirement_gap", "combined_issue_count", "combined_failed_check_count", "combined_unverified_check_count", "combined_repair_rounds", "combined_repair_stop")
     private val handoffReconciliationCounts = setOf("handoff_replay_receipt_count", "handoff_replay_matched_count", "handoff_durable_receipt_count", "handoff_durable_matched_count", "handoff_retained_matched_count")
     private val handoffReconciliationHashes = setOf("handoff_tool_binding_hash", "handoff_saved_tool_binding_hash", "handoff_evidence_digest_hash", "handoff_journal_digest_hash")
     val handoffReconciliationFields = handoffReconciliationCounts + handoffReconciliationHashes + setOf("handoff_checkpoint_state", "handoff_durable_lookup")
@@ -138,7 +139,7 @@ internal object IssueReportIncidentCapsule {
     private val hashLists = setOf("validation_path_hashes", "unknown_field_hashes", "evidence_ref_hashes", "exception_type_hashes", "dependency_call_id_hashes", "pending_tool_identity_hashes")
     private val flags = failedEventFields + setOf("tls_response_started", "provider_local_budget_block", "saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed", "dispatch_policy_resume_required", "chat_delivery_counts_capped", "tool_event_write_attempted", "inventory_restart_offered", "claim_extraction_completed", "remote_pagination_contiguous", "remote_pagination_changed", "pr_context_revision_changed", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed")
     private val counts = setOf("recovery_attempt_count", "unknown_field_count", "eligible_receipt_count", "excluded_receipt_count", "required_capability_count", "verified_capability_count", "blocked_capability_count", "untested_capability_count", "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count", "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "claim_extraction_response_characters", "claim_extraction_max_claims", "dependency_count", "dependency_failed_count", "pending_tool_count", "remote_pagination_page", "remote_pagination_pages_observed", "remote_pagination_reported_total", "remote_pagination_unique_records", "remote_pagination_duplicate_records", "pr_context_read_requests", "pr_context_read_responses", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms") + policyCounts
-    private val executionCounts = setOf("tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "combined_issue_count") + acceptanceBlockerFields
+    private val executionCounts = setOf("tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "combined_issue_count", "combined_failed_check_count", "combined_unverified_check_count", "combined_repair_rounds") + acceptanceBlockerFields
     private val types = setOf("STRING", "NUMBER", "BOOLEAN", "OBJECT", "ARRAY", "NULL")
     private val mcpHealth = setOf("DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "CONNECTION_REFUSED", "AUTHENTICATION_FAILED", "TLS_FAILED", "CONNECT_TIMEOUT", "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT", "HEALTHY", "UNKNOWN")
     private val enums = mapOf(
@@ -202,7 +203,7 @@ internal object IssueReportIncidentCapsule {
         "saved_view_owner_operation" to IssueReportContext.operations,
         "saved_view_restore_state" to setOf("NOT_FOUND", "LOAD_FAILED", "IDENTITY_REJECTED", "RESTORED", "BODY_MISSING", "BODY_MISSING_INDEX_PRESENT", "BODY_UNREADABLE", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID"),
         "mcp_failure_phase" to setOf("configuration", "catalog", "discovery", "initialization", "execution", "connection", "dns", "tls", "oauth_refresh", "local_validation"),
-        "mcp_failure_category" to mcpHealth - "HEALTHY",
+        "mcp_failure_category" to (mcpHealth - "HEALTHY" + setOf("MCP_TOOL_ERROR", "MCP_OUTPUT_INVALID")),
         "mcp_connection_health" to mcpHealth,
         "mcp_connection_state" to setOf("CONNECTED", "DEGRADED", "UNREACHABLE", "AUTHENTICATION_REQUIRED", "RECOVERING"),
         "mcp_readiness_state" to setOf("NOT_DISCOVERED", "DISCOVERING", "READY", "STALE"),
@@ -219,6 +220,7 @@ internal object IssueReportIncidentCapsule {
         "reasoning_probe_observation" to setOf("GATEWAY_OBSERVATION_AVAILABLE", "DEADLINE_WITHOUT_GATEWAY_OBSERVATION", "NO_GATEWAY_OBSERVATION"),
         "gateway_terminal_status" to setOf("completed", "failed", "cancelled", "canceled", "interrupted"),
         "gateway_result_quality" to setOf("complete", "partial"),
+        "combined_repair_stop" to combinedRepairStops,
         "combined_requirement_gap" to setOf("CURRENT_ARTICLE", "LENGTH", "TOPIC", "OTHER"),
         "search_cursor_state" to setOf("RETAINED_SEARCH_MISSING", "PAGE_BOUNDARY_UNOBSERVED"),
         "expected_operation" to IssueReportContext.operations,

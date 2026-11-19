@@ -19,6 +19,8 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent as OpenAITe
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatFunction
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatToolCall
+import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent
+import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -78,6 +80,25 @@ internal fun AgentToolExchange.toGeminiContents(modelParts: List<Part>?): List<C
             }
         )
     )
+}
+
+/** Restored or shared tools have no parent on this Responses session. Carry their results as source data. */
+internal fun restoredResponsesEvidence(exchanges: List<AgentToolExchange>): ResponseInputMessage {
+    val rows = exchanges.flatMap { exchange ->
+        val calls = exchange.calls.associateBy { it.callId }
+        exchange.results.map { result ->
+            val call = calls.getValue(result.callId)
+            buildJsonObject {
+                put("call_id", call.callId)
+                put("name", call.providerInvocation().name)
+                put("is_error", result.isError)
+                put("dispatched", result.dispatched)
+                put("output", result.modelText())
+            }
+        }
+    }
+    val evidence = buildJsonObject { put("historical_tool_results", JsonArray(rows)) }
+    return ResponseInputMessage("user", ResponseInputContent.text(evidence.toString()))
 }
 
 internal fun AgentToolResult.modelText(): String = if (assistMetadata.isNotEmpty()) {

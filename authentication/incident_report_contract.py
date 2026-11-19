@@ -327,7 +327,7 @@ ACCEPTANCE_FIELDS = {
     'verified_capability_count',
 }
 
-COMBINED_FIELDS = {'combined_requirement_gap', 'combined_issue_count', 'pending_tool_count', 'pending_tool_identity_hashes', 'pending_tool_receipt_state', 'local_readiness_failure'}
+COMBINED_FIELDS = {'combined_requirement_gap', 'combined_issue_count', 'combined_failed_check_count', 'combined_unverified_check_count', 'combined_repair_rounds', 'combined_repair_stop', 'pending_tool_count', 'pending_tool_identity_hashes', 'pending_tool_receipt_state', 'local_readiness_failure'}
 HANDOFF_RECONCILIATION_COUNTS = {'handoff_replay_receipt_count', 'handoff_replay_matched_count', 'handoff_durable_receipt_count', 'handoff_durable_matched_count', 'handoff_retained_matched_count'}
 HANDOFF_RECONCILIATION_HASHES = {'handoff_tool_binding_hash', 'handoff_saved_tool_binding_hash', 'handoff_evidence_digest_hash', 'handoff_journal_digest_hash'}
 HANDOFF_RECONCILIATION_FIELDS = HANDOFF_RECONCILIATION_COUNTS | HANDOFF_RECONCILIATION_HASHES | {'handoff_checkpoint_state', 'handoff_durable_lookup'}
@@ -395,7 +395,7 @@ FLAGS = FAILED_EVENT_FIELDS | REMOTE_PAGINATION_FLAGS | {
 }
 
 COUNTS = {
-    'tool_result_bytes_used', 'tool_result_bytes_limit', 'tool_budget_calls_used', 'tool_budget_calls_limit', 'combined_issue_count',
+    'tool_result_bytes_used', 'tool_result_bytes_limit', 'tool_budget_calls_used', 'tool_budget_calls_limit', 'combined_issue_count', 'combined_failed_check_count', 'combined_unverified_check_count', 'combined_repair_rounds',
     'dependency_count', 'dependency_failed_count', 'pending_tool_count',
     'claim_extraction_response_characters', 'claim_extraction_max_claims',
     'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count',
@@ -558,10 +558,11 @@ ENUMS = {
     'reasoning_probe_observation': {'GATEWAY_OBSERVATION_AVAILABLE', 'DEADLINE_WITHOUT_GATEWAY_OBSERVATION', 'NO_GATEWAY_OBSERVATION'},
     'gateway_terminal_status': {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'},
     'gateway_result_quality': {'complete', 'partial'},
+    'combined_repair_stop': {'CORRECTION_CAPACITY_UNAVAILABLE', 'LEGACY_REVISION_REQUIRES_NEW_OWNER', 'LEGACY_REPAIR_ALLOWANCE_REACHED', 'NO_PROGRESS_AFTER_REQUIRED_REVISIONS', 'NO_PROGRESS_AFTER_REQUIRED_REVISION', 'NEWER_REVISION_OR_UNAVAILABLE_REPLACEMENT_OWNER', 'REPAIR_REJECTED', 'NO_REMAINING_REQUIRED_CORRECTION', 'REPAIR_PREPARATION_FAILED', 'REPLACEMENT_MADE_NO_TEXT_PROGRESS', 'REPLACEMENT_OWNER_COMPARE_AND_SET_REJECTED'},
     'combined_requirement_gap': {'CURRENT_ARTICLE', 'LENGTH', 'TOPIC', 'OTHER'},
     'search_cursor_state': {'RETAINED_SEARCH_MISSING', 'PAGE_BOUNDARY_UNOBSERVED'},
     'mcp_failure_phase': {'configuration', 'catalog', 'discovery', 'initialization', 'execution', 'connection', 'dns', 'tls', 'oauth_refresh', 'local_validation'},
-    'mcp_failure_category': MCP_HEALTH - {'HEALTHY'},
+    'mcp_failure_category': (MCP_HEALTH - {'HEALTHY'}) | {'MCP_TOOL_ERROR', 'MCP_OUTPUT_INVALID'},
     'mcp_connection_health': MCP_HEALTH,
     'mcp_connection_state': {'CONNECTED', 'DEGRADED', 'UNREACHABLE', 'AUTHENTICATION_REQUIRED', 'RECOVERING'},
     'mcp_readiness_state': {'NOT_DISCOVERED', 'DISCOVERING', 'READY', 'STALE'},

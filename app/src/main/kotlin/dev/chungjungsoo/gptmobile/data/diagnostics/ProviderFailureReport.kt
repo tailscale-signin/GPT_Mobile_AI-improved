@@ -25,6 +25,7 @@ internal object ProviderFailureReport {
         metadata: GatewayResponseMetadata? = null
     ): JsonObject = buildJsonObject {
         put("diagnostic_area", "PROVIDER")
+        if (failure.errorCode == "BUDGET_RESTRICTED" && failure.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) put("failure_origin", "APPLICATION")
         GatewayCapabilityFailureEvidence.retained(receipt.errorCode, failure.failureDetails).forEach { (key, value) -> put(key, value) }
         if (receipt.errorCode == PrivacyFailureEvidence.CODE) {
             receipt.privacyReasonCode?.let { put("privacy_reason_code", it) }

@@ -567,6 +567,7 @@ class ProviderFailureReportTest {
         assertEquals(32, events.filterIsInstance<ProviderEvent.Usage>().single().outputTokens)
         val fields = requireNotNull(events.filterIsInstance<ProviderEvent.Failed>().single().failureDetails)
         assertEquals(JsonPrimitive("BUDGET_RESTRICTED"), fields["provider_failure_code"])
+        assertEquals(JsonPrimitive("APPLICATION"), fields["failure_origin"])
         assertEquals(JsonPrimitive("ADMISSION"), fields["provider_failure_stage"])
         assertEquals(JsonPrimitive("APPLICATION_VERIFICATION"), fields["provider_failure_domain"])
         assertEquals(JsonPrimitive(false), fields["request_replay_allowed"])

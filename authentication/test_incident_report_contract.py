@@ -251,7 +251,7 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_copilot_actions_and_tool_precheck_reasons_roundtrip_without_raw_tool_arguments(self):
         reasons = (
             "TOOL_ARGUMENT_SCHEMA_REJECTED",
-            "TOOL_ARGUMENT_CONSTRAINT_REJECTED",
+            "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED",
             "SAVED_VIEW_CURSOR_MALFORMED",
             "SAVED_VIEW_CONTEXT_MISMATCH",
         )
@@ -1729,8 +1729,12 @@ class IncidentReportContractTest(unittest.TestCase):
                       "tool_execution_observation": "REMOTE_READ_SUCCEEDED", "tool_result_bytes_used": 24576,
                       "tool_result_bytes_limit": 24576}),
             ("TOOL", {"tool_permission_scope": "ANDROID_LOCATION"}),
+            ("TOOL", {"mcp_failure_phase": "execution", "mcp_failure_category": "MCP_TOOL_ERROR"}),
+            ("TOOL", {"mcp_failure_phase": "execution", "mcp_failure_category": "MCP_OUTPUT_INVALID"}),
             ("PROVIDER", {"provider_rejection_category": "BILLING_UNAVAILABLE", "gateway_terminal_status": "failed"}),
-            ("INCIDENT", {"combined_requirement_gap": "TOPIC", "combined_issue_count": 1}),
+            ("INCIDENT", {"combined_requirement_gap": "TOPIC", "combined_issue_count": 84, "combined_failed_check_count": 3,
+                          "combined_unverified_check_count": 6, "combined_repair_rounds": 2,
+                          "combined_repair_stop": "CORRECTION_CAPACITY_UNAVAILABLE"}),
         ):
             with self.subTest(area=area, fields=fields):
                 report = self.report(self.capture(area, fields))

@@ -148,14 +148,14 @@ internal class GitHubOperationTool(
         val normalized = try {
             if ("view_cursor" in arguments || operation == "github_repository") arguments else (backend as? GitHubTool)?.normalizeOperationRepository(arguments) ?: arguments
         } catch (invalid: IllegalArgumentException) {
-            return AgentToolResult(callId, ToolResultContent.Text(invalid.message.orEmpty()), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            return argumentPrecheck(callId, invalid.message.orEmpty(), "GITHUB_REPOSITORY_INPUT_REJECTED")
         }
         return dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.rebindRepositoryArguments(executeNormalized(callId, normalized), definition.name, normalized, arguments)
     }
 
     private suspend fun executeNormalized(callId: String, arguments: JsonObject): AgentToolResult {
         if (operation == "github_ci" && arguments["action"] == JsonPrimitive("status") && arguments["workflow_id"] != null && arguments["run_id"] == null && arguments["job_id"] == null && arguments["view_cursor"] == null) {
-            return AgentToolResult(callId, ToolResultContent.Text("Workflow status requires an observed run_id. Use action=runs with workflow_id first; commit status cannot be filtered by workflow_id. Nothing was dispatched."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            return argumentPrecheck(callId, "Workflow status requires an observed run_id. Use action=runs with workflow_id first; commit status cannot be filtered by workflow_id. Nothing was dispatched.", "GITHUB_CI_RUN_SELECTOR_REQUIRED")
         }
         val wrongHandles = arguments.keys.intersect(setOf("cursor", "next_cursor", "evidence_id", "tracking_id")) - if (operation == "github_read" && "view_cursor" !in arguments) setOf("evidence_id") else emptySet()
         if (wrongHandles.isNotEmpty() && "view_cursor" !in arguments) {
@@ -202,9 +202,9 @@ internal class GitHubOperationTool(
                 )
             }
             val cursor = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-                ?: return malformedSavedCursor(callId, "view_cursor must be the exact saved cursor string.")
+                ?: return argumentPrecheck(callId, "view_cursor must be the exact saved cursor string.", "SAVED_VIEW_CURSOR_MALFORMED")
             if (!cursor.contains(':')) {
-                return malformedSavedCursor(callId, "Invalid saved-view cursor. Use the exact continuation_call arguments returned by the previous result. To read an evidence_id, omit view_cursor and provide evidence_id alone with the repository context.")
+                return argumentPrecheck(callId, "Invalid saved-view cursor. Use the exact continuation_call arguments returned by the previous result. To read an evidence_id, omit view_cursor and provide evidence_id alone with the repository context.", "SAVED_VIEW_CURSOR_MALFORMED")
             }
             val context = JsonObject(arguments - "view_cursor")
             var saved = views.read(scope, operation, definition.name, cursor, callId, context)
@@ -550,14 +550,14 @@ internal class GitHubOperationTool(
         return retainSavedView(views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance))
     }
 
-    private fun malformedSavedCursor(callId: String, message: String) = AgentToolResult(
+    private fun argumentPrecheck(callId: String, message: String, reason: String) = AgentToolResult(
         callId,
         ToolResultContent.Text(message),
         true,
         errorCode = "INVALID_ARGUMENTS",
         dispatched = false,
         executionReceipt = buildJsonObject {
-            put("reason_code", "SAVED_VIEW_CURSOR_MALFORMED")
+            put("reason_code", reason)
             put("phase", "PREFLIGHT_REJECTED")
         }
     )

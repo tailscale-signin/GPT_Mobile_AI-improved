@@ -51,3 +51,28 @@ class PreparedProfileTests(TestCase):
             entry['workspace_environment']['setup_commands'] = [['python3','-m','site']]
             with self.assertRaises(ValueError):
                 validate_policy_entry(entry)
+
+
+    def test_android_gradle_releases_each_compiler_before_the_next_offline_phase(self):
+        from pathlib import Path
+        import shutil
+        import subprocess
+        if not shutil.which('sh'):
+            self.skipTest('requires a POSIX shell')
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root/'scripts').mkdir()
+            (root/'scripts/android_pipeline.py').touch()
+            (root/'app/src/main/kotlin/dev/chungjungsoo/gptmobile').mkdir(parents=True)
+            (root/'gradlew').write_text('printf "%s\\n" "$*" >> invocations\n', newline='\n')
+            (root/'launcher').write_text(profiles.GRADLE_BUILD, newline='\n')
+            target = ':app:testDebugUnitTest'
+            subprocess.run(['sh','launcher','offline',target,'--tests','example.Test.case'], cwd=root, check=True)
+            calls = (root/'invocations').read_text().splitlines()
+            self.assertEqual(4, len(calls))
+            self.assertTrue(all('--offline' in line and '--max-workers=1' in line for line in calls))
+            self.assertIn(':app:kspDebugKotlin', calls[0])
+            self.assertIn(':app:kaptDebugKotlin', calls[1])
+            self.assertIn(':app:compileDebugKotlin', calls[2])
+            self.assertIn(target+' --tests example.Test.case', calls[3])
+            self.assertTrue(all('-Xmx4096m' in line for line in calls[1:]))

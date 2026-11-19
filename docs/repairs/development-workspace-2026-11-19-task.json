@@ -47,6 +47,10 @@
     {
       "commit": "ae463479441607d5efeadf98547d39897efa0cd6",
       "scope": "Full local Gateway tests and 554 fast tests passed. The Android Gradle project configured successfully with the AboutLibraries plugin restricted to its verified Plugin Portal coordinates."
+    },
+    {
+      "commit": "acae1a76549d8df2a452142d2f072d265990b61a",
+      "scope": "The prepared Android Docker build reported a Java heap exhaustion during Kotlin annotation stub generation. The Windows installer build and hosted Docker check passed for this revision."
     }
   ]
 }

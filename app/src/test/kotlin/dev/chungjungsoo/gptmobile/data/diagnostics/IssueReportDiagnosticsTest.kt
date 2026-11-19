@@ -491,6 +491,53 @@ class IssueReportDiagnosticsTest {
         assertTrue("voice_capture_attempts" in restored.unavailableFields)
     }
 
+    @Test fun unverifiedRemoteAcceptanceReportRetainsExactCriterionGapsAndUnknownOutcomes() {
+        val fields = mapOf<String, Any?>(
+            "diagnostic_area" to "ACCEPTANCE",
+            "provider_kind" to "LLAMA",
+            "failed_stage" to "tool_reconciliation",
+            "run_id" to "private-original-run-1798",
+            "recovery_action" to "RECONCILE_REMOTE_OUTCOME",
+            "unmet_criterion_id_hashes" to listOf(hash, "b".repeat(64)),
+            "unmet_criterion_reason_hashes" to listOf("c".repeat(64), "d".repeat(64)),
+            "unmet_criterion_categories" to listOf("API_OPERATION", "TOOL_ACTION_COVERAGE"),
+            "unmet_criterion_states" to listOf("FAIL", "NOT_TESTED"),
+            "unmet_criterion_blockers" to listOf("OPERATION_FAILED", "MATCHING_EVIDENCE_MISSING"),
+            "unmet_criterion_count" to 80,
+            "unmet_criterion_omitted_count" to 78,
+            "acceptance_evidence_scope" to "RETAINED_VERDICT",
+            "effective_call_limit" to 256,
+            "used_calls" to 81,
+            "remaining_calls" to 175,
+            "pending_continuations" to 16,
+            "unresolved_outcomes" to 1,
+            "checkpoint_hash" to hash,
+            "private_provider_reply" to "private-provider-response-token"
+        )
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, time)
+        val snapshot = requireNotNull(context.diagnostics)
+        assertEquals("ACCEPTANCE", snapshot.area)
+        assertNull(context.dispatched)
+        assertNull(context.remoteAcceptance)
+        assertNull(context.callIdHash)
+        assertNull(context.jobIdHash)
+        assertTrue(context.unavailableFields.containsAll(listOf("dispatched", "remoteAcceptance", "callIdHash", "jobIdHash")))
+        assertEquals(JsonPrimitive(16), snapshot.values["pending_continuations"])
+        assertEquals(JsonPrimitive(1), snapshot.values["unresolved_outcomes"])
+        assertEquals(JsonPrimitive(80), snapshot.values["unmet_criterion_count"])
+        assertEquals(JsonPrimitive(78), snapshot.values["unmet_criterion_omitted_count"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("FAIL"), JsonPrimitive("NOT_TESTED"))), snapshot.values["unmet_criterion_states"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("OPERATION_FAILED"), JsonPrimitive("MATCHING_EVIDENCE_MISSING"))), snapshot.values["unmet_criterion_blockers"])
+        val approved = report(context).approvedPayload()
+        val restored = IssueReport.json.decodeFromString(IssueReport.serializer(), approved)
+        assertEquals(approved, restored.approvedPayload())
+        assertNull(restored.context?.remoteAcceptance)
+        assertNull(restored.context?.dispatched)
+        assertFalse(approved.contains("private-original-run-1798"))
+        assertFalse(approved.contains("private-provider-response-token"))
+        assertFalse(approved.contains("private_provider_reply"))
+    }
+
     @Test fun acceptanceColumnsPreservePositionAndCopyMutableJsonArrayInputs() {
         val ids = mutableListOf<JsonElement>(JsonPrimitive(hash), JsonPrimitive("b".repeat(64)))
         val reasons = mutableListOf<JsonElement>(JsonPrimitive("c".repeat(64)), JsonPrimitive("d".repeat(64)))

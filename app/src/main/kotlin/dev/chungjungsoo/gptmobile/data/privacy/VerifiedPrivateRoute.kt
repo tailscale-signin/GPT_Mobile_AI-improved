@@ -10,7 +10,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** Issued by the organization's device-policy controller after checking the provider account.
+/** Managed/signed evidence or an explicitly confirmed, device-local personal setup.
+ * Personal evidence is accepted only from ProviderApprovalSource's nonportable store.
  * User-editable profile settings, imports and chat payloads cannot issue an approval.
  */
 @Serializable
@@ -34,7 +35,11 @@ internal data class ProviderApproval(
     val allowGuardrailTightening: Boolean = false,
     val policySha256: String = "",
     val policyDocument: String = policyUrl,
-    val scope: String = "exact-route-v1"
+    val scope: String = "exact-route-v1",
+    val personalWorkspaceId: String? = null,
+    val setupId: String? = null,
+    val modelAvailabilityPolicyId: String? = null,
+    val personalPolicyAssignment: String = "direct"
 ) {
     fun permitsDocument(url: String): Boolean = runCatching {
         val uri = java.net.URI(url)
@@ -62,7 +67,7 @@ internal data class ProviderApproval(
                 scope == "exact-route-v1" &&
                     model == profile.model &&
                     validUpstream(upstream) ||
-                    scope == "openrouter-account-v1" &&
+                    (scope == "openrouter-account-v1" || validPersonalScope()) &&
                     profile.compatibleType == ClientType.OPENROUTER &&
                     profile.apiUrl.trimEnd('/') in OpenRouterIdentity.endpoints &&
                     model == "*" &&
@@ -75,6 +80,13 @@ internal data class ProviderApproval(
             credentialSha256 == OpenRouterIdentity.digest(profile.token.orEmpty())
 
     private fun validUpstream(value: String): Boolean = value.matches(Regex("[a-z0-9][a-z0-9._/-]{0,127}"))
+
+    private fun validPersonalScope(): Boolean = scope == "openrouter-personal-v1" &&
+        personalPolicyAssignment in setOf("direct", "inherited") &&
+        listOf(personalWorkspaceId, setupId, modelAvailabilityPolicyId).all { value ->
+            value?.matches(Regex("[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")) == true
+        } &&
+        providerKeyHash == credentialSha256
 }
 
 internal data class VerifiedPrivateRoute(

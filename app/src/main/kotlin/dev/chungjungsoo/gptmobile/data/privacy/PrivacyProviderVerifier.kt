@@ -17,6 +17,8 @@ import javax.inject.Singleton
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -46,7 +48,61 @@ class PrivacyProviderVerifier @Inject constructor(
     internal val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .retryOnConnectionFailure(false).callTimeout(120, TimeUnit.SECONDS).build()
 
-    private val metadataHttp = http.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
+    // Dispatch-boundary account checks must not queue behind the inference calls awaiting them.
+    private val metadataHttp = http.newBuilder().dispatcher(okhttp3.Dispatcher()).connectionPool(okhttp3.ConnectionPool())
+        .callTimeout(8, TimeUnit.SECONDS).build()
+    internal val accountSetup = OpenRouterPrivacySetup(authority, ::accountRequest, ::currentOpenRouterPolicyDigest)
+
+    private suspend fun accountRequest(request: Request, authorized: () -> Unit): JsonObject {
+        val originalContext = currentCoroutineContext()
+        val attempted = java.util.concurrent.atomic.AtomicBoolean(false)
+        val client = metadataHttp.newBuilder().addNetworkInterceptor { chain ->
+            if (!attempted.compareAndSet(false, true) || chain.call().isCanceled()) throw IOException("Account check interrupted.")
+            originalContext.ensureActive()
+            try {
+                authorized()
+            } catch (_: Exception) {
+                throw IOException("Account setup authorization changed.")
+            }
+            chain.proceed(chain.request())
+        }.build()
+        return fetch(client, request) { response ->
+            if (!response.isSuccessful) {
+                val message = when (response.code) {
+                    401 -> "The management key was rejected. Check its value and expiration."
+                    403 -> "This management key lacks access. Automatic setup needs read/write access to this profile's workspace."
+                    404 -> "This account key, workspace or policy could not be found. Check that the management key belongs to the same account."
+                    409 -> "The account policy changed during setup. Check the account again before applying the updated settings."
+                    429 -> "OpenRouter temporarily limited account checks. Wait and try again; Privacy Mode stays on."
+                    else -> "OpenRouter could not confirm this account operation. Check the account again."
+                }
+                throw OpenRouterPrivacySetup.SetupException(message, rejected = response.code in setOf(400, 401, 403, 404, 409, 422, 429))
+            }
+            val body = response.body ?: throw OpenRouterPrivacySetup.SetupException("OpenRouter returned an empty account response.")
+            Json.parseToJsonElement(body.byteStream().use { BoundedResponseText.read(it, 2 * 1024 * 1024) }) as JsonObject
+        }
+    }
+
+    private suspend fun currentOpenRouterPolicyDigest(): String {
+        var url = OpenRouterPrivacySetup.POLICY_DOCUMENT
+        repeat(4) {
+            val parsed = java.net.URI(url)
+            check(parsed.scheme == "https" && parsed.host == "openrouter.ai" && parsed.port in setOf(-1, 443) && parsed.userInfo == null && parsed.fragment == null && parsed.path.startsWith("/docs/"))
+            val request = Request.Builder().url(url)
+                .header("Accept", "text/markdown, text/plain, text/html").header("Cache-Control", "no-cache").build()
+            val observed = fetch(metadataHttp, request) { response ->
+                if (response.isRedirect) {
+                    requireNotNull(response.request.url.resolve(requireNotNull(response.header("Location")))).toString()
+                } else {
+                    check(response.isSuccessful)
+                    OpenRouterIdentity.digest(requireNotNull(response.body).byteStream().use { BoundedResponseText.read(it, 4 * 1024 * 1024) })
+                }
+            }
+            if (!observed.startsWith("https://")) return observed
+            url = observed
+        }
+        throw OpenRouterPrivacySetup.SetupException("The current OpenRouter privacy policy could not be reached.")
+    }
 
     internal suspend fun alternatives(profiles: List<PlatformV2>, excludedUid: String): String {
         val available = profiles.filter { it.enabled && it.uid != excludedUid }
@@ -140,6 +196,9 @@ class PrivacyProviderVerifier @Inject constructor(
     internal suspend fun routingUnchanged(profile: PlatformV2, route: VerifiedPrivateRoute): Boolean =
         route.kind != ClientType.OPENROUTER || route.routingRevision == routing(profile).revision
 
+    internal suspend fun accountUnchanged(profile: PlatformV2, route: VerifiedPrivateRoute): Boolean =
+        route.approval?.takeIf { it.scope == "openrouter-personal-v1" }?.let { accountSetup.verifyPersonal(profile, it) } ?: true
+
     private fun requireApproval(profile: PlatformV2, url: String, terms: String): ProviderApproval {
         val records = try {
             authority.records()
@@ -164,7 +223,9 @@ class PrivacyProviderVerifier @Inject constructor(
         val key = profile.token.orEmpty()
         val account = router.key(api, key)
         if (account.expired || account.isManagement) throw VerificationBlocked(Reason.KEY_UNAVAILABLE)
-        val accountScope = proof.scope == "openrouter-account-v1"
+        val personal = proof.scope == "openrouter-personal-v1"
+        if (personal && !accountSetup.verifyPersonal(profile, proof)) throw VerificationBlocked(Reason.ACCOUNT_PRIVACY_UNVERIFIED)
+        val accountScope = proof.scope in setOf("openrouter-account-v1", "openrouter-personal-v1")
         var metadata = router.objectResource(api, key, "model/" + profile.model)
         val alias = PrivateOpenRouterRouting.aliasTarget(metadata, profile.model)
         if (alias != null) {
@@ -182,10 +243,10 @@ class PrivacyProviderVerifier @Inject constructor(
         val selected = PrivateOpenRouterRouting.select(catalog, inventory, target.model, if (accountScope) null else proof.upstream, options, target.canonical)
         selected.failure?.let { throw VerificationBlocked(Reason.valueOf(it.name)) }
         val upstream = selected.upstream ?: throw VerificationBlocked(Reason.CATALOG_MALFORMED)
-        if (!strictGuardrail(profile, url, proof, target.model)) throw VerificationBlocked(Reason.GUARDRAIL_UNVERIFIED)
+        if (!personal && !strictGuardrail(profile, url, proof, target.model)) throw VerificationBlocked(Reason.GUARDRAIL_UNVERIFIED)
         // Store a concrete model and selector in this ephemeral route; later alias rollover cannot broaden it.
         return Result(
-            PrivacyProfileEligibility.Decision(true, "Verified private text · " + target.model + " · " + upstream, proof.policyUrl, code = "STRICT_ZDR_VERIFIED"),
+            PrivacyProfileEligibility.Decision(true, "Verified private text · " + target.model + " · " + upstream + if (personal) " · default plugins confirmed by you" else "", proof.policyUrl, code = "STRICT_ZDR_VERIFIED"),
             VerifiedPrivateRoute(url, profile.compatibleType, proof, upstream, options, target.model, routing.revision)
         )
     }

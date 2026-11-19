@@ -104,6 +104,7 @@ internal class PrivateInferenceSession(
                     try {
                         recheckDispatch(originalContext) {
                             check(verifier.routingUnchanged(profile, route))
+                            check(verifier.accountUnchanged(profile, route))
                             authorization?.validate?.invoke()
                         }
                         check(store.snapshot() == state)
@@ -200,7 +201,7 @@ internal class PrivateInferenceSession(
                 put(
                     "plugins",
                     buildJsonArray {
-                        listOf("armor", "auto-beta-router", "auto-router", "context-compression", "file-parser", "fusion", "pareto-router", "response-healing", "web").forEach { id ->
+                        listOf("alignment", "armor", "auto-beta-router", "auto-router", "context-compression", "file-parser", "fusion", "pareto-router", "response-healing", "web").forEach { id ->
                             add(
                                 buildJsonObject {
                                     put("id", id)

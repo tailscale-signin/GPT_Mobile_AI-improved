@@ -713,6 +713,12 @@ class CompleteBackupManager @Inject constructor(
                     try {
                         database.withTransaction {
                             ensureIdle(restoring = true)
+                            // Revocation survives rollback and also covers credential/platform-only restores.
+                            // Never erase pending provider mutation receipts or the independently trusted issuer.
+                            check(
+                                context.getSharedPreferences("privacy_personal_setup_v1", Context.MODE_PRIVATE).edit()
+                                    .remove("records").putString("revision", UUID.randomUUID().toString()).commit()
+                            ) { "Could not revoke saved personal privacy setup before restoring." }
                             if (source != null) {
                                 CompleteBackupDatabase.restoreSections(
                                     source,
@@ -1095,7 +1101,7 @@ class CompleteBackupManager @Inject constructor(
         reference.startsWith("github-oauth-session-") || reference.startsWith("github-account-binding-") -> selection.includes(CompleteBackupSection.CREDENTIALS)
         reference.startsWith("github-") || reference.startsWith("mcp_oauth_pending_") -> false
         dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.isDraftKey(reference) -> selection.includes(CompleteBackupSection.GITHUB_WORKSPACE)
-        reference.startsWith("openrouter-management-") -> false
+        reference.startsWith("openrouter-management-") || reference == "privacy_openrouter_management" -> false
         reference.startsWith("share-") || reference.startsWith(RestoreStoreJournal.PREFIX) -> false
         reference.startsWith("memory-portable-") -> selection.includes(CompleteBackupSection.MEMORY)
         reference.startsWith("workspace-memory-") -> selection.includes(CompleteBackupSection.MEMORY)
@@ -1117,7 +1123,7 @@ class CompleteBackupManager @Inject constructor(
     }
 
     private suspend fun replaceSecrets(values: Map<String, String>, selection: CompleteBackupSelection) {
-        values.filterKeys { !it.startsWith("memory-portable-") && !it.startsWith("gateway_scope_") }.forEach { (reference, encoded) ->
+        values.filterKeys { !it.startsWith("memory-portable-") && !it.startsWith("gateway_scope_") && it != "privacy_openrouter_management" }.forEach { (reference, encoded) ->
             val bytes = Base64.getDecoder().decode(encoded)
             try {
                 secretVault.put(reference, bytes)

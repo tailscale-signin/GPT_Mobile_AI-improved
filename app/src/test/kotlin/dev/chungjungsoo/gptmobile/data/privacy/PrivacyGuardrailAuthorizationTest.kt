@@ -127,9 +127,16 @@ class PrivacyGuardrailAuthorizationTest {
     fun pendingIntentSurvivesRecreationRenewedPermissionAndForgetUntilMatchingConfirmation() {
         val values = mutableMapOf<String, Any>("issuer" to "test issuer", "signed" to "test evidence")
         val preferences = mockk<SharedPreferences>()
+        val personalPreferences = mockk<SharedPreferences>()
+        val personalEditor = mockk<SharedPreferences.Editor>()
         val context = mockk<Context>()
         val vault = mockk<SecretVault>()
         every { context.getSharedPreferences("privacy_authority", Context.MODE_PRIVATE) } returns preferences
+        every { context.getSharedPreferences("privacy_personal_setup_v1", Context.MODE_PRIVATE) } returns personalPreferences
+        every { personalPreferences.edit() } returns personalEditor
+        every { personalEditor.remove(any()) } returns personalEditor
+        every { personalEditor.putString(any(), any()) } returns personalEditor
+        every { personalEditor.commit() } returns true
         every { preferences.getString(any(), any()) } answers { values[firstArg<String>()] as? String ?: secondArg() }
         every { preferences.getBoolean(any(), any()) } answers { values[firstArg<String>()] as? Boolean ?: secondArg() }
         every { preferences.edit() } answers {

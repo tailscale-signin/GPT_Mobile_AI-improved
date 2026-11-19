@@ -718,7 +718,7 @@ class PrivacyProfileEligibilityTest {
         assertFalse(wire.containsKey("models") || wire.containsKey("tools") || wire.containsKey("preset") || wire.containsKey("debug") || wire.containsKey("store"))
         val plugins = requireNotNull(wire["plugins"]) as JsonArray
         val ids = plugins.map { it.jsonObject["id"] }.toSet()
-        val documented = setOf("armor", "auto-beta-router", "auto-router", "context-compression", "file-parser", "fusion", "pareto-router", "response-healing", "web").map(::JsonPrimitive).toSet()
+        val documented = setOf("alignment", "armor", "auto-beta-router", "auto-router", "context-compression", "file-parser", "fusion", "pareto-router", "response-healing", "web").map(::JsonPrimitive).toSet()
         assertEquals(documented, ids)
         assertEquals(documented.size, plugins.size)
         plugins.forEach { plugin ->

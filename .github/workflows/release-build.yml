@@ -123,15 +123,20 @@ jobs:
         run: bash scripts/install_android_native_dependencies.sh
       - name: Validate Android resources
         run: python3 scripts/check_android_resources.py
-      # Release KSP/KAPT and compiler state between phases. Run 42164047485
-      # exhausted 3 GiB; only cold production compilation uses 4 GiB, matching
-      # the successful CodeQL build of the same revision. Keep one worker.
-      - name: Generate release validation sources in a separate process
+      # KAPT must start after the KSP JVM exits. Its Kotlin frontend needs the
+      # same bounded heap as the validated PR annotation and compilation phases.
+      - name: Generate debug KSP sources
         timeout-minutes: 10
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee release-validation-generation.log
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee release-validation-ksp.log
+      - name: Generate debug KAPT sources
+        timeout-minutes: 22
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1200 -- :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee release-validation-kapt.log
       - name: Compile release validation production sources in a separate process
         timeout-minutes: 20
         shell: bash
@@ -152,12 +157,18 @@ jobs:
         run: python3 scripts/gradle_retry.py -- :app:lintDebug --no-daemon --max-workers=1 --console=plain
       # Keep debug/release Room KSP schema writes in separate invocations too.
       # A cold lint run otherwise retains KSP and compiler state in the same JVM.
-      - name: Generate release sources in a separate process
+      - name: Generate release KSP sources
         timeout-minutes: 10
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspReleaseKotlin :app:kaptReleaseKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee release-generation.log
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspReleaseKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee release-ksp.log
+      - name: Generate release KAPT sources
+        timeout-minutes: 22
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1200 -- :app:kaptReleaseKotlin --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee release-kapt.log
       - name: Compile release sources in a separate process
         timeout-minutes: 20
         shell: bash

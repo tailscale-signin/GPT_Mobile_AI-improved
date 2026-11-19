@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityDiscoveryException
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence
 import java.io.EOFException
 import java.io.IOException
 import kotlinx.serialization.json.JsonArray
@@ -12,6 +14,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderTransportFailureTest {
+    @Test fun capabilityTimeoutDoesNotGrantReplayOrContinuation() {
+        val error = GatewayCapabilityDiscoveryException("PRIVATE", java.net.SocketTimeoutException("PRIVATE"))
+        val details = providerTransportFailureDetails(
+            GatewayCapabilityFailureEvidence.failureDetails(error, partialOutput = false), error, null,
+            dispatched = false, receivedPayload = false, receivedVisibleText = false, generationCompleted = false,
+            replayAllowed = true, requiresReconciliation = false
+        )
+        assertEquals(JsonPrimitive(false), details["dispatched"])
+        assertEquals(JsonPrimitive("NO"), details["remote_acceptance"])
+        assertEquals(JsonPrimitive("TIMEOUT"), details[GatewayCapabilityFailureEvidence.KIND])
+        assertEquals(JsonPrimitive(false), details["request_replay_allowed"])
+        assertEquals(JsonPrimitive(false), details["logical_continuation_allowed"])
+        assertFalse(details.toString().contains("PRIVATE"))
+    }
+
+    @Test fun laterCapabilityFailureCannotResolveEarlierUnknownMutationOrAuthorizeReplay() {
+        val error = GatewayCapabilityDiscoveryException("PRIVATE", java.net.SocketTimeoutException("PRIVATE"))
+        val details = providerTransportFailureDetails(
+            GatewayCapabilityFailureEvidence.failureDetails(error, partialOutput = false), error, null,
+            dispatched = true, receivedPayload = false, receivedVisibleText = false, generationCompleted = false,
+            replayAllowed = true, requiresReconciliation = true
+        )
+        assertEquals(JsonPrimitive(true), details["dispatched"])
+        assertEquals(JsonPrimitive("UNKNOWN"), details["remote_acceptance"])
+        assertEquals(JsonPrimitive(true), details["requires_reconciliation"])
+        assertEquals(JsonPrimitive(false), details["request_replay_allowed"])
+        assertEquals(JsonPrimitive(false), details["logical_continuation_allowed"])
+    }
+
+    @Test fun reconciliationForbidsReplayEvenWithoutAnExplicitProducerDenial() {
+        val details = providerTransportFailureDetails(null, EOFException(), null, true, false, false, false, true, true)
+        assertEquals(JsonPrimitive("UNKNOWN"), details["remote_acceptance"])
+        assertEquals(JsonPrimitive(false), details["request_replay_allowed"])
+        assertEquals(JsonPrimitive(false), details["logical_continuation_allowed"])
+    }
+
     @Test fun unknownContinuationFailureRetainsOwnedFrameAndDispatchFacts() {
         val failure = IllegalArgumentException("private request").apply {
             stackTrace = arrayOf(StackTraceElement("dev.chungjungsoo.gptmobile.data.network.OpenAIAPIImpl", "prepare", "private-file", 42))

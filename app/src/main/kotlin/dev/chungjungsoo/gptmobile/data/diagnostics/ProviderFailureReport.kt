@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -24,6 +25,7 @@ internal object ProviderFailureReport {
         metadata: GatewayResponseMetadata? = null
     ): JsonObject = buildJsonObject {
         put("diagnostic_area", "PROVIDER")
+        GatewayCapabilityFailureEvidence.retained(receipt.errorCode, failure.failureDetails).forEach { (key, value) -> put(key, value) }
         if (receipt.errorCode == PrivacyFailureEvidence.CODE) {
             receipt.privacyReasonCode?.let { put("privacy_reason_code", it) }
             receipt.privacyStatus?.let { put("privacy_status", it) }

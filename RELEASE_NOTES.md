@@ -18,6 +18,16 @@ Privacy Mode is OFF by default with 11 individually configurable, default-ON sen
 
 Privacy Mode is an initial local settings and fail-closed provider-selection/dispatch gate, not yet full privacy protection: on-device prompt pseudonymization, encrypted restoration, live account-level ZDR verification, tool egress, voice and gateway cloud-relay enforcement remain unverified or unimplemented. No remote AI endpoint is currently certified eligible.
 
+### Privacy and Gateway qualification follow-up
+
+The PR #1741 source continuation gives profiles actionable Checking, Available, Not verified and Incompatible states, with recheck and account-setup controls. Explicit OpenRouter account verification can cover multiple selected models while each concrete model and strict endpoint is independently checked. An ordinary inference key alone does not prove all account privacy settings, and an uncertain guardrail update is never automatically replayed.
+
+Gateway capability failures now retain bounded failure categories and decoder reasons without raw endpoints, response bodies, exception text or field paths. Explicit replay and continuation refusals remain restrictive, and a later preflight cannot make an earlier unknown outcome appear unsent.
+
+Gateway capability failure evidence requires a hosted reporter advertising GATEWAY_CAPABILITY_EVIDENCE_V1; an older host leaves the exact approved report pending. The observed connect-timeout chain does not establish its endpoint or service root cause, and #1768 requires matching installed Android/Gateway acceptance.
+
+These source changes do not authorize a release. Physical Android, live selected-model GitHub and OpenRouter account/route evidence, durable Android-to-Windows Gateway recovery and real Windows installer execution remain separate release gates.
+
 ## GitHub and Gateway delivery
 
 This release candidate adds the singleton GitHub context corrections from PR #1534 and a longer interval between follow-up GitHub chat summaries. GitHub Chat can use the selected profile to narrate observed findings when the task has budget available. Recorded check tables can be saved as XLSX. Windows Gateway 17.0.1 has a separate Windows installer and update package, built from the same source revision when published for this Android build.

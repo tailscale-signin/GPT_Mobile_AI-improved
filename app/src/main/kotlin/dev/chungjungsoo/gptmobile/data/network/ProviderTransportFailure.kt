@@ -56,8 +56,10 @@ internal fun providerTransportFailureDetails(
         attemptTiming?.serverRequestId?.let { put("server_request_id", it) }
         attemptTiming?.generationId?.let { put("generation_id", it) }
         put("generation_completed", generationCompleted)
-        put("request_replay_allowed", replayAllowed)
-        put("logical_continuation_allowed", !requiresReconciliation && kind.retryable)
+        // A transport cause cannot authorize replay or continuation that its
+        // owning admission check explicitly refused.
+        put("request_replay_allowed", !requiresReconciliation && replayAllowed && details?.get("request_replay_allowed") != JsonPrimitive(false))
+        put("logical_continuation_allowed", !requiresReconciliation && kind.retryable && details?.get("logical_continuation_allowed") != JsonPrimitive(false))
         put("partial_output_preserved", receivedPayload)
         put("visible_output_preserved", receivedVisibleText)
         // Dispatch/acceptance are boundary observations. They do not turn an

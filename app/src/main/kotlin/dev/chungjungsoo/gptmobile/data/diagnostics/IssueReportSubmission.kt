@@ -139,7 +139,8 @@ internal class IssueReportSubmission(
             IssueReportDiagnostics.PAGINATION_AND_PROVIDER_LIMIT_FEATURE,
             IssueReportIncidentCapsule.GITHUB_PR_CONTEXT_RACE_FEATURE,
             "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1",
-            PrivacyFailureEvidence.FEATURE
+            PrivacyFailureEvidence.FEATURE,
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityFailureEvidence.FEATURE
         )
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
         private val RECOVERY_CODES = setOf(

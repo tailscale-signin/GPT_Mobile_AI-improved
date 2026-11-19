@@ -174,7 +174,8 @@
     "Start local Privacy Mode with a master checkbox, default-protected data categories, disabled unverified/free provider routes in New Chat, private local gateway exception and a fail-closed chat-provider admission guard.",
     "Add Privacy-Verified AI Profiles, strict account and endpoint verification, local text masking, and a stateless private Windows Gateway route.",
     "Add opt-in Copilot cloud tasks directly from Android or through an explicitly selected standalone Gateway, with durable task receipts, original-account recovery, live consent and exact MCP mutation approval.",
-    "Add strict automatic OpenRouter model and endpoint qualification under explicit account evidence, actionable Privacy Mode profile states, connection-policy and queued-dispatch fences, and privacy-safe terminal failure contracts. Preserve unresolved remote outcomes and separate live release acceptance."
+    "Add strict automatic OpenRouter model and endpoint qualification under explicit account evidence, actionable Privacy Mode profile states, connection-policy and queued-dispatch fences, and privacy-safe terminal failure contracts. Preserve unresolved remote outcomes and separate live release acceptance.",
+    "Retain bounded typed Gateway capability failure evidence and honor explicit no-replay/no-continuation refusals, with negotiated reporter compatibility and regression coverage for the distinct live report #1768."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -257,7 +258,8 @@
     "The new GitHub AI-profile audit uses in-memory fixture tools only; it does not exercise a live GitHub account, authorized mutations, connected-provider completeness, or affected-device performance.",
     "Archive-write root cause, live selected-profile context recovery and installed Android-to-Gateway acceptance still require fresh exact-build device evidence.",
     "Privacy Mode is an initial local settings and fail-closed provider-selection/dispatch gate, not yet full privacy protection: on-device prompt pseudonymization, encrypted restoration, live account-level ZDR verification, tool egress, voice and gateway cloud-relay enforcement remain unverified or unimplemented. No remote AI endpoint is currently certified eligible.",
-    "Native Copilot cloud tasks use the public-preview Agent tasks API, currently requiring Copilot Business or Enterprise and a user token with Agent tasks permission. Live entitlement, installed Android-to-Gateway execution, and exact-PR CI/merge acceptance remain unqualified; remote task completion never supplies merge authorization."
+    "Native Copilot cloud tasks use the public-preview Agent tasks API, currently requiring Copilot Business or Enterprise and a user token with Agent tasks permission. Live entitlement, installed Android-to-Gateway execution, and exact-PR CI/merge acceptance remain unqualified; remote task completion never supplies merge authorization.",
+    "Gateway capability failure evidence requires a hosted reporter advertising GATEWAY_CAPABILITY_EVIDENCE_V1; an older host leaves the exact approved report pending. The observed connect-timeout chain does not establish its endpoint or service root cause, and #1768 requires matching installed Android/Gateway acceptance."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -3130,6 +3132,9 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFailureClassificationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFailureReportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyModeStoreTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyGuardrailAuthorizationTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyGuardrailAuthorizationTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityFailureEvidence.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityFailureEvidenceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GatewayCapabilityFailureReportTest.kt"
   ]
 }

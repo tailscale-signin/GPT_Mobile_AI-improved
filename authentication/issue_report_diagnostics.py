@@ -43,12 +43,23 @@ PRIVACY_ELIGIBILITY_REASONS = {
     "MANAGEMENT_KEY_MISSING", "GUARDRAIL_UNVERIFIED", "GUARDRAIL_UPDATE_UNCONFIRMED", "GUARDRAIL_ASSIGNMENT_UNVERIFIED",
     "KEY_UNAVAILABLE", "VERIFICATION_RATE_LIMITED", "VERIFICATION_UNAVAILABLE",
 }
+GATEWAY_CAPABILITY_FIELDS = {"gateway_capability_failure_kind", "gateway_capability_decode_reason"}
+GATEWAY_CAPABILITY_FAILURE_KINDS = {
+    "CONNECT_TIMEOUT", "TIMEOUT", "DNS", "TLS", "CONNECTION", "CONNECTION_CLOSED",
+    "HTTP_REJECTED", "DECODE_REJECTED", "ISOLATION_UNVERIFIED", "UNKNOWN",
+}
+GATEWAY_CAPABILITY_DECODE_REASONS = {
+    "MALFORMED_JSON", "SCHEMA_MISMATCH", "NULL_NOT_ALLOWED", "EXPECTED_BOOLEAN", "EXPECTED_INTEGER",
+    "EXPECTED_STRING", "EXPECTED_OBJECT", "MISSING_REQUIRED_FIELD", "EXPECTED_ARRAY",
+}
 ENUMS = {
     "provider_failure_stage": {"ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"},
     "provider_failure_domain": {"PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"},
     "provider_failure_code": {"BUDGET_RESTRICTED", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE"},
     "privacy_reason_code": PRIVACY_ELIGIBILITY_REASONS,
     "privacy_status": {"NOT_VERIFIED", "INCOMPATIBLE"},
+    "gateway_capability_failure_kind": GATEWAY_CAPABILITY_FAILURE_KINDS,
+    "gateway_capability_decode_reason": GATEWAY_CAPABILITY_DECODE_REASONS,
     "voice_reply_state": {"FAILED_WITHOUT_DETAILS", "EMPTY_REPLY"},
     "tool_action": {"agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable", "status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch"},
     "tool_error_code": {"APP_ERROR", "DNS_RESOLUTION_FAILED", "TOOL_FAILURE", "TOOL_PRECHECK_FAILED", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PR_HEAD_CHANGED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED"},
@@ -116,6 +127,8 @@ FIELDS_BY_AREA = {
     "APP": COMMON_HASHES | {"original_error_code_hash", "app_exit_kind", "chat_failure_code_state"},
     "INCIDENT": COMMON_HASHES | {"original_error_code_hash", "chat_failure_code_state"},
 }
+FIELDS_BY_AREA["PROVIDER"].update(GATEWAY_CAPABILITY_FIELDS)
+ENUMS["provider_failure_code"].update({"GATEWAY_CAPABILITY_UNAVAILABLE", "GATEWAY_ISOLATION_UNAVAILABLE"})
 # Bounded diagnostic additions for open issue recovery.
 ENUMS["tool_reason_code"].update({"SAVED_VIEW_CONTEXT_MISMATCH", "SAVED_VIEW_CURSOR_MALFORMED", "GITHUB_PATH_NOT_FOUND"})
 # Only the app's bound repository-graph receipt may produce these public categories.
@@ -394,6 +407,13 @@ def validate_diagnostics(value):
     values = value["values"]
     if not isinstance(values, dict) or set(values) - allowed or not all(_valid_value(key, item) for key, item in values.items()):
         raise ValueError("invalid diagnostic values")
+    if GATEWAY_CAPABILITY_FIELDS & values.keys():
+        kind = values.get("gateway_capability_failure_kind")
+        expected_code = "GATEWAY_ISOLATION_UNAVAILABLE" if kind == "ISOLATION_UNVERIFIED" else "GATEWAY_CAPABILITY_UNAVAILABLE"
+        if kind not in GATEWAY_CAPABILITY_FAILURE_KINDS or values.get("provider_failure_code") != expected_code:
+            raise ValueError("invalid gateway capability evidence scope")
+        if "gateway_capability_decode_reason" in values and kind != "DECODE_REJECTED":
+            raise ValueError("invalid gateway capability decoder evidence")
     if not _aligned_composer(values):
         raise ValueError("unaligned composer observations")
     if area != "INCIDENT" and values.get("incident_capture_site") == "CHAT_FLOW_EMPTY_ANSWER":

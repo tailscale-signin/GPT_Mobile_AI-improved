@@ -5,7 +5,7 @@ import re
 import unittest
 
 from authentication import incident_report_contract as capsule
-from authentication.issue_report_diagnostics import CORE_FIELDS, MAX_DIAGNOSTIC_BYTES, PRIVACY_ELIGIBILITY_REASONS, validate_diagnostics
+from authentication.issue_report_diagnostics import CORE_FIELDS, GATEWAY_CAPABILITY_DECODE_REASONS, GATEWAY_CAPABILITY_FAILURE_KINDS, GATEWAY_CAPABILITY_FIELDS, MAX_DIAGNOSTIC_BYTES, PRIVACY_ELIGIBILITY_REASONS, validate_diagnostics
 from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CONTEXT_FIELDS_V5, ReportError, issue_from_report
 
 
@@ -142,6 +142,81 @@ class IncidentReportContractTest(unittest.TestCase):
         enum = source.split("enum class Reason(", 1)[1].split("fun decision(", 1)[0]
         reasons = set(re.findall(r'^\s*([A-Z][A-Z_]+)\(', enum, re.MULTILINE))
         self.assertEqual(reasons, PRIVACY_ELIGIBILITY_REASONS)
+
+    def test_gateway_capability_evidence_roundtrips_without_changing_unknown_remote_outcome(self):
+        observations = [(kind, None) for kind in GATEWAY_CAPABILITY_FAILURE_KINDS]
+        observations += [("DECODE_REJECTED", reason) for reason in GATEWAY_CAPABILITY_DECODE_REASONS]
+        for kind, reason in observations:
+            with self.subTest(kind=kind, reason=reason):
+                code = "GATEWAY_ISOLATION_UNAVAILABLE" if kind == "ISOLATION_UNVERIFIED" else "GATEWAY_CAPABILITY_UNAVAILABLE"
+                fields = {
+                    "provider_failure_code": code, "causal_failure_code": code,
+                    "incident_phase": "connection_preflight", "gateway_capability_failure_kind": kind,
+                    "request_replay_allowed": False, "logical_continuation_allowed": False,
+                }
+                if reason is not None:
+                    fields["gateway_capability_decode_reason"] = reason
+                capture = self.capture("PROVIDER", fields)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report.update(feature="chat", errorCode=code)
+                report["context"].update(source="CHAT_FAILURE", provider="LLAMA", stage="connection_preflight", dispatched=True)
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                before = copy.deepcopy(report)
+                _, issue = issue_from_report(report)
+                self.assertEqual(before, report)
+                self.assertIn(f"| gateway_capability_failure_kind | `{kind}` |", issue["body"])
+                if reason is not None:
+                    self.assertIn(f"| gateway_capability_decode_reason | `{reason}` |", issue["body"])
+                self.assertIn("| logical_continuation_allowed | `false` |", issue["body"])
+                self.assertIn("remoteAcceptance", report["context"]["unavailableFields"])
+                self.assertNotIn("remoteAcceptance", report["context"])
+                self.assertTrue(report["context"]["dispatched"])
+
+    def test_gateway_capability_evidence_rejects_private_values_and_mismatched_code_or_kind(self):
+        valid = {"provider_failure_code": "GATEWAY_CAPABILITY_UNAVAILABLE", "gateway_capability_failure_kind": "DECODE_REJECTED",
+                 "gateway_capability_decode_reason": "EXPECTED_ARRAY"}
+        for field in GATEWAY_CAPABILITY_FIELDS:
+            for invalid in ("https://private.example/token", "$.private.account", "EXPECTED_ARRAY private response", "", True, 1, None, [], {}):
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("PROVIDER", {**valid, field: invalid}))
+        malformed = [
+            {key: value for key, value in valid.items() if key != "provider_failure_code"},
+            {key: value for key, value in valid.items() if key != "gateway_capability_failure_kind"},
+            {**valid, "provider_failure_code": "TRANSPORT_ERROR"},
+            {**valid, "provider_failure_code": "GATEWAY_ISOLATION_UNAVAILABLE"},
+            {**valid, "gateway_capability_failure_kind": "CONNECT_TIMEOUT"},
+            {**valid, "gateway_capability_failure_kind": "ISOLATION_UNVERIFIED"},
+            {**valid, "gateway_capability_field_path": "$.execution.private"},
+            {**valid, "gateway_capability_message": "private server response"},
+            {"provider_failure_code": "GATEWAY_CAPABILITY_UNAVAILABLE", "gateway_capability_failure_kind": "ISOLATION_UNVERIFIED"},
+            {"provider_failure_code": "GATEWAY_ISOLATION_UNAVAILABLE", "gateway_capability_failure_kind": "UNKNOWN"},
+        ]
+        for fields in malformed:
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", fields))
+        for area in ("TOOL", "INCIDENT", "VOICE", "APP", "GATEWAY", "ACCEPTANCE"):
+            with self.subTest(area=area), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, valid))
+
+    def test_gateway_capability_fields_remain_optional_and_explicitly_omitted_values_are_not_invented(self):
+        for code in ("GATEWAY_CAPABILITY_UNAVAILABLE", "GATEWAY_ISOLATION_UNAVAILABLE"):
+            legacy = self.capture("PROVIDER", {"provider_failure_code": code})
+            self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        omitted = self.capture("PROVIDER")
+        omitted["omittedFields"] = sorted(GATEWAY_CAPABILITY_FIELDS)
+        self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
+        for field in GATEWAY_CAPABILITY_FIELDS:
+            unavailable = self.capture("PROVIDER")
+            unavailable["unavailableFields"].append(field)
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(unavailable)
+        no_capture = {"schemaVersion": 1, "area": "PROVIDER", "capturedAtMillis": 1_800_000_000_000,
+                      "captureMode": "NO_CAPTURE", "values": {}, "unavailableFields": sorted(CORE_FIELDS["PROVIDER"])}
+        self.assertEqual(no_capture, validate_diagnostics(copy.deepcopy(no_capture)))
+        for field in GATEWAY_CAPABILITY_FIELDS:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics({**no_capture, "omittedFields": [field]})
 
     def test_voice_pronunciation_reason_is_closed_and_contains_no_spoken_word(self):
         values = {

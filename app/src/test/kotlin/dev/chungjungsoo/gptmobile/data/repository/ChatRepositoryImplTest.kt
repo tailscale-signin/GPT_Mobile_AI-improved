@@ -225,28 +225,29 @@ class ChatRepositoryImplTest {
             assertTrue(outcome is dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed)
             val failure = states.filterIsInstance<ApiState.Error>().single()
             assertTrue(failure.message.contains("There is no saved task to resume"))
-            assertNull(failure.errorCode)
+            assertEquals("OUTPUT_CONTINUATION_UNAVAILABLE", failure.errorCode)
             assertNull(failure.invocationId)
             assertEquals(0, api.streamChatCompletionCalls)
             val report = incidents.pending.value.single()
-            assertEquals("CHAT_FAILED", report.errorCode)
+            assertEquals("OUTPUT_CONTINUATION_UNAVAILABLE", report.errorCode)
             assertNull(report.errorType)
             assertTrue(report.frames.isEmpty())
             val context = requireNotNull(report.context)
             assertEquals(IssueReportContext.identifierHash("run", runId), context.runIdHash)
             assertEquals("CUSTOM", context.provider)
-            assertNull(context.stage)
+            assertEquals("planning", context.stage)
             assertNull(context.exceptionFingerprint)
             assertNull(context.invocationIdHash)
-            assertNull(context.dispatched)
+            assertEquals(false, context.dispatched)
+            assertEquals(false, context.requiresReconciliation)
             assertNull(context.remoteAcceptance)
             assertNull(context.httpStatus)
             assertNull(context.retryable)
             val values = requireNotNull(context.diagnostics).values
             assertEquals(JsonPrimitive("CHAT_REPOSITORY_ERROR_VALUE"), values["incident_capture_site"])
             assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), values["incident_phase_provenance"])
-            assertEquals(JsonPrimitive("ABSENT"), values["chat_failure_code_state"])
-            assertEquals(JsonPrimitive("unknown"), values["incident_phase"])
+            assertEquals(JsonPrimitive("planning"), failure.failureDetails?.get("failed_stage"))
+            assertEquals(JsonPrimitive("planning"), values["incident_phase"])
             assertEquals(JsonPrimitive("UNAVAILABLE"), values["causal_provenance"])
             assertFalse(values.containsKey("exception_type_hashes"))
             val approved = report.approvedPayload()
@@ -1582,7 +1583,7 @@ class ChatRepositoryImplTest {
                 ApiState.PhaseChanged(LocalInferencePhase.LOADING),
                 ApiState.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
                 ApiState.Thinking("plan"),
-                ApiState.Success("hello", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ApiState.Success("hello", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ApiState.Done
             ),
             states
@@ -1660,10 +1661,10 @@ class ChatRepositoryImplTest {
                 ApiState.PhaseChanged(LocalInferencePhase.INSPECTING),
                 ApiState.PhaseChanged(LocalInferencePhase.LOADING),
                 ApiState.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
-                ApiState.Success("before", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ApiState.Success("before", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ApiState.ToolCall(toolSequence = 0),
                 ApiState.ToolCall(toolSequence = 0),
-                ApiState.Success("after", OutputLineage(OutputOrigin.MODEL_TEXT)),
+                ApiState.Success("after", OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = localPlatform().model)),
                 ApiState.Done
             ),
             states.map { if (it is ApiState.ToolCall) it.copy(metrics = null) else it }

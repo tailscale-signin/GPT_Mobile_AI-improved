@@ -156,7 +156,8 @@ internal data class IssueReportContext(
             if (text("reasonCode") in IssueReportDiagnostics.modelPreparationReasonCodes && text("stage") != "model_preparation") return false
             val reason = text("reasonCode")
             val chatAcceptance = reason in acceptanceReasonCodes && text("source") == "CHAT_FAILURE" && text("stage") != "tool_precheck"
-            if (reason in toolPrecheckReasonCodes && !chatAcceptance &&
+            if (reason in toolPrecheckReasonCodes &&
+                !chatAcceptance &&
                 (text("source") != "TOOL_RESULT" || text("stage") != "tool_precheck" || context["dispatched"] != JsonPrimitive(false) || context["requiresReconciliation"] == JsonPrimitive(true))
             ) {
                 return false

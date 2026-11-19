@@ -56,3 +56,5 @@ python3 scripts/audit_locked_dependencies.py
 ```
 
 Release qualification includes the required PR jobs, the emulator acceptance suite and the release workflows for the selected edition. The encrypted-history upgrade test runs within the existing Secret Vault instrumentation suite. See [CI and release validation](.github/workflows/README.md) and [security reporting](SECURITY.md).
+
+Android lint publishes unused resource counts and file locations on pull requests. The weekly maintenance run regenerates the source and architecture indexes and attaches an apply-ready patch when they have drifted.

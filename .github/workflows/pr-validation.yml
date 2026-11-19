@@ -378,6 +378,19 @@ jobs:
           set -o pipefail
           python3 scripts/gradle_retry.py -- :app:lintDebug --no-daemon --max-workers=1 --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
 
+      - name: Summarize unused Android resources for cleanup
+        if: always() && hashFiles('app/build/reports/lint-results-debug.xml') != ''
+        run: |
+          python3 - <<'PYTHON' >> "$GITHUB_STEP_SUMMARY"
+          import xml.etree.ElementTree as ET
+          issues = ET.parse('app/build/reports/lint-results-debug.xml').getroot()
+          print('### Resource cleanup')
+          for issue in ('UnusedResources', 'UnusedIds'):
+              count = sum(item.get('id') == issue for item in issues.findall('issue'))
+              print(f'- {issue}: {count}')
+          print('File locations are in the Android lint artifact.')
+          PYTHON
+
       - name: Retain lint diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

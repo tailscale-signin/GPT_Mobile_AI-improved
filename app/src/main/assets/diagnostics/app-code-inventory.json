@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2a7faf514f9cc942c558242369e6e9af16642d3f34c1112101f3807cd4febc1c",
+  "source_digest": "243808b0fa0eb23d536e9d08e665b3c521feb6ec724e97a3e9a03f3c23cc7dfb",
   "file_count": 2748,
   "indexed_line_count": 452313,
   "line_coverage_available": false,
@@ -18000,7 +18000,7 @@
       "path": "gateway/desktop/development_profiles.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "05897c914588b151d4a109ad40ffd0831c0442dc94d8d255c29d9e82f4d44b24",
+      "sha256": "2c5e68aa1e2de69ae254b511b2d5118051a1019b13192a59435943ceb59934df",
       "indexed_lines": 107
     },
     {

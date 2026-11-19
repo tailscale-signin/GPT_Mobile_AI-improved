@@ -19,7 +19,7 @@ COMMANDS = {
 }
 
 ANDROID_TOOLS = """
-RUN apt-get update && apt-get install -y --no-install-recommends python3 curl unzip cmake ninja-build git ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 curl unzip build-essential cmake ninja-build git ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL --retry 3 https://download.jetbrains.com/kotlin-lsp/262.2310.0/kotlin-lsp-262.2310.0-linux-x64.zip -o /tmp/kotlin.zip && echo "c004242158f4b5e1d917ddd848e6f6a279484fa58a3e2bce8846b807d1ad16b1  /tmp/kotlin.zip" | sha256sum -c - && mkdir -p /opt/kotlin && unzip -q /tmp/kotlin.zip -d /opt/kotlin && chmod +x /opt/kotlin/kotlin-lsp.sh && ln -s /opt/kotlin/kotlin-lsp.sh /usr/local/bin/kotlin-lsp && rm /tmp/kotlin.zip
 ENV ANDROID_HOME=/opt/android ANDROID_SDK_ROOT=/opt/android
 RUN curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -o /tmp/sdk.zip && echo "7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee  /tmp/sdk.zip" | sha256sum -c - && mkdir -p /opt/android/cmdline-tools && unzip -q /tmp/sdk.zip -d /tmp/sdk && mv /tmp/sdk/cmdline-tools /opt/android/cmdline-tools/19 && rm /tmp/sdk.zip && yes | /opt/android/cmdline-tools/19/bin/sdkmanager --licenses >/dev/null

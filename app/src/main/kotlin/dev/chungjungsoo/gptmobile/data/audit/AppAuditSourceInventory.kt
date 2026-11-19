@@ -9,7 +9,7 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "2a7faf514f9cc942c558242369e6e9af16642d3f34c1112101f3807cd4febc1c"
+    val sourceDigest: String = "243808b0fa0eb23d536e9d08e665b3c521feb6ec724e97a3e9a03f3c23cc7dfb"
     val fileCount: Int = 2748
     val lineCount: Int = 452313
     val lineCoverageAvailable: Boolean = false

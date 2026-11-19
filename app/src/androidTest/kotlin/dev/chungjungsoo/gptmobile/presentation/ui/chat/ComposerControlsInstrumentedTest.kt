@@ -47,13 +47,16 @@ class ComposerControlsInstrumentedTest {
         val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
         val pdf = File.createTempFile("scanned-pages-", ".pdf", context.cacheDir)
         try {
-            android.graphics.pdf.PdfDocument().use { doc ->
+            val doc = android.graphics.pdf.PdfDocument()
+            try {
                 for (number in 1..2) {
                     val page = doc.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(200, 100, number).create())
                     page.canvas.drawColor(if (number == 1) android.graphics.Color.RED else android.graphics.Color.BLUE)
                     doc.finishPage(page)
                 }
                 pdf.outputStream().use(doc::writeTo)
+            } finally {
+                doc.close()
             }
             val image = renderScanPage(context, android.net.Uri.fromFile(pdf), 2)
             try {

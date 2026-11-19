@@ -1128,6 +1128,8 @@ private class FakeAgentRunDao :
 private class FakeAgentPersistenceDao :
     AgentPersistenceDao,
     UnusedPolicySnapshotAccess {
+    override suspend fun copyProjectMembership(sourceId: Int, duplicateId: Int) = unused<Unit>()
+
     override suspend fun combinedFinalMessage(chatId: Int, userId: Int): dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage? = null
     override suspend fun insertCombinedFinalMessage(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage) {
         error("Not used in tool recorder tests")

@@ -64,6 +64,10 @@
     {
       "commit": "1d406225aa633db4d53b2a82f35c1f2f09494653",
       "scope": "Hosted GenieX preview ran 11,665 Android unit tests. The single failure was an obsolete assertion expecting 19 catalog entries after the workspace tool was added. The regression now verifies the new entry and the displayed total against all report rows."
+    },
+    {
+      "commit": "1d406225aa633db4d53b2a82f35c1f2f09494653",
+      "scope": "Signed-release validation also exposed an intermittent frozen-input mismatch during recovery of a Combined answer. Compiling the corrected production serializer with the Kotlin serialization plugin verified retained timestamps and deterministic recovery across a real clock change for the user message, history, and nested replies."
     }
   ]
 }

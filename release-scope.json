@@ -3304,7 +3304,9 @@
     "gateway/export_workspace_output.py",
     "gateway/tests/test_gateway_workspace_outputs.py",
     "gateway/v14/workspace_outputs.py",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceObservation.kt"
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceObservation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedInputSnapshot.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/CombinedOwnershipTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.8",

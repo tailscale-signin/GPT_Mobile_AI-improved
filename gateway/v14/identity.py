@@ -71,6 +71,10 @@ class PrincipalResolver:
 
 def principal_can_graph(config, principal, devices):
     """Recheck tools admission for a retained public-map indexing job."""
+    if principal.startswith('phone:'):
+        from desktop.phone_access import authorized
+        import os
+        return authorized(os.getenv('GATEWAY_DESKTOP_ROOT'), principal)
     if config.mode == 'open_network':
         return principal == 'network:shared'
     if config.mode == 'loopback':
@@ -80,6 +84,10 @@ def principal_can_graph(config, principal, devices):
 
 def principal_can_chat(config, principal, devices):
     """Revalidate a retained admission immediately before first execution."""
+    if principal.startswith('phone:'):
+        from desktop.phone_access import authorized
+        import os
+        return authorized(os.getenv('GATEWAY_DESKTOP_ROOT'), principal)
     if config.mode == 'open_network':
         return principal == 'network:shared'
     if config.mode == 'loopback':
@@ -124,12 +132,13 @@ class Admission:
                     not any(c.isspace() or c in "\\@" for c in host))
             except ValueError:
                 pass
-        if host not in self.config.allowed_hosts and not socket_host:
+        if host not in self.config.allowed_hosts and not socket_host and 'gateway.paired' not in scope:
             return await deny("invalid_host")
         origin = headers.get("origin")
         if origin is not None and origin not in self.config.allowed_origins:
             return await deny("invalid_origin")
-        principal = await self.resolver.resolve(scope, headers)
+        paired = scope.get("gateway.paired")
+        principal = paired or await self.resolver.resolve(scope, headers)
         if principal is None:
             return await deny("transport_identity_required", 401)
         request_path = scope.get("path", "")
@@ -150,7 +159,7 @@ class Admission:
         model_preparation_write = path == '/gateway/models/prepare' and scope['method'] == 'POST'
         if engineering_path and not principal.engineering_allowed and not (public_map_path and 'tools' in principal.scopes):
             return await deny("engineering_scope_required")
-        if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
+        if (paired or self.config.mode in {"trusted_proxy", "open_network"}) and not principal.local_admin:
             public_reads = {"/gateway/privacy/inference", "/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/v17", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:

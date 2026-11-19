@@ -82,6 +82,8 @@ class Dashboard:
             button.pack(fill='x', padx=12, pady=3)
             self.nav[page] = button
         tk.Frame(sidebar, bg=theme.LINE, height=1).pack(fill='x', padx=25, pady=25)
+        from desktop.phone_panel import show as show_phone_controls
+        ttk.Button(sidebar, text='Android controls', command=lambda: show_phone_controls(self.window, self.root)).pack(fill='x', padx=17, pady=4)
         ttk.Button(sidebar, text='Settings', command=self.settings).pack(fill='x', padx=17, pady=4)
         theme.label(sidebar, 'Closing this window keeps\nyour Gateway running.', 9, color=theme.MUTED,
                     bg=theme.SIDEBAR, justify='left').pack(anchor='w', padx=22, pady=16)

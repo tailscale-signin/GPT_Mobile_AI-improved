@@ -255,7 +255,7 @@ var Code: Integer;
 begin
   Result := StopInstalled(ExpandConstant('{app}'));
   if not Result then MsgBox('Gateway has active work or could not stop. Finish the work and retry uninstall.', mbError, MB_OK);
-  if Result and FileExists(ExpandConstant('{app}\firewall.json')) then begin
+  if Result and (FileExists(ExpandConstant('{app}\firewall.json')) or FileExists(ExpandConstant('{app}\phone-firewall.json'))) then begin
     Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\Start-Gateway.ps1') + '" -Command remove-firewall', '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
     if not Result then MsgBox('Could not remove this installation''s firewall rule. Allow the administrator prompt or remove the rule in Gateway Settings, then retry uninstall.', mbError, MB_OK);
   end;

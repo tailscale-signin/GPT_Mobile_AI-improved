@@ -96,7 +96,12 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 Text("Gateway execution mode", style = MaterialTheme.typography.titleSmall)
                 val gateway = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)
                 val selectedProfile = state.profileUid
-                if (gateway != null && selectedProfile != null && onAdmissionSetting != null) {
+                val androidContext = androidx.compose.ui.platform.LocalContext.current
+                androidx.compose.material3.TextButton(onClick = { androidContext.startActivity(android.content.Intent(androidContext, OwnerPairingActivity::class.java)) }) { Text("Pair a Windows Gateway") }
+                val pairedOwner = gateway?.let { dev.chungjungsoo.gptmobile.data.pairing.OwnerGateway.forUrl(it.apiUrl) }
+                if (pairedOwner != null && gateway != null) {
+                    OwnerGatewayControls(pairedOwner, gateway.name)
+                } else if (gateway != null && selectedProfile != null && onAdmissionSetting != null) {
                     key(selectedProfile, gateway) {
                         GatewayAdmissionControl { previous -> onAdmissionSetting(selectedProfile, gateway.uid, previous) }
                     }

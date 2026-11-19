@@ -276,9 +276,17 @@ def build_window(root, parent=None, section='General'):
     messages = queue.Queue()
     busy = False
 
+    from desktop.phone_panel import show as show_phone_controls
+    ttk.Button(general, text='Android controls and pairing…', command=lambda: show_phone_controls(window, root)).grid(row=20, column=0, columnspan=3, sticky='w', pady=8)
+
     def save():
         nonlocal public_maps_saved, copilot_saved
+        from desktop.phone_settings import write_lock
+        lock = write_lock(root)
         try:
+            lock.acquire()
+            if load(root) != cfg or public_repository_maps(root) != public_maps_saved:
+                raise ValueError('Gateway settings changed on another device. Reopen Settings to load the current values.')
             updated = dict(cfg)
             for name, variable in values.items():
                 updated[name] = int(variable.get()) if type(cfg[name]) is int else variable.get()
@@ -305,6 +313,8 @@ def build_window(root, parent=None, section='General'):
             notice.set('General settings saved. Repository validation uses its own Save policy / Prepare & save actions. Restart when idle.')
         except Exception as error:
             messagebox.showerror('Check settings', str(error))
+        finally:
+            lock.release()
 
     def operation(action):
         nonlocal busy

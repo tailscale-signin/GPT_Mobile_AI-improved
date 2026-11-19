@@ -94,6 +94,7 @@ class GPTMobileApp :
         // Provider fields keep the child process from eagerly opening Room or starting app services.
         dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.initialize(this)
         super.onCreate()
+        dev.chungjungsoo.gptmobile.data.pairing.OwnerGateway.initialize(this)
         dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.initialize(this)
         if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
         dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.initialize(this)

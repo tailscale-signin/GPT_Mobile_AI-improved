@@ -1220,6 +1220,13 @@ private fun ChatScreenContent(
                 }
                 if (chatToolConfig.github != null) {
                     chatToolConfig.github?.let { github ->
+                        val ownerTarget = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(appAllPlatforms, featureSettings.githubProfileOverrides[github.mainProfileUid]?.engineeringGatewayProfileUid)
+                        val pairedOwner = ownerTarget?.let { dev.chungjungsoo.gptmobile.data.pairing.OwnerGateway.forUrl(it.apiUrl) }
+                        if (ownerTarget != null && pairedOwner != null) {
+                            item(key = "gateway-owner-control") {
+                                dev.chungjungsoo.gptmobile.presentation.ui.setting.OwnerGatewayControls(pairedOwner, ownerTarget.name, compact = true)
+                            }
+                        }
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
                 }

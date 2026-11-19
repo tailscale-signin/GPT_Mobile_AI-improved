@@ -33,6 +33,8 @@ def main():
         from desktop.firewall import apply
         if args.command == 'firewall' or (root / 'firewall.json').exists():
             apply(root, remove=args.command == 'remove-firewall')
+        if args.command == 'remove-firewall' and (root / 'phone-firewall.json').exists():
+            apply(root, remove=True, phone=True)
         return 0
     if args.command in {'serve-engine', 'validate-engine'}:
         if args.command == 'validate-engine':

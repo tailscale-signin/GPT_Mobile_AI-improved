@@ -132,6 +132,8 @@ class Supervisor:
         self.headless = headless
         self.root = Path(root).resolve()
         self.cfg = load(self.root)
+        from desktop.configuration import public_repository_maps
+        self.engine_settings = dict(self.cfg, public_repository_maps=public_repository_maps(self.root))
         self.token = secrets.token_urlsafe(48)
         self.http = requests.Session()
         self.http.trust_env = False
@@ -443,6 +445,8 @@ class Supervisor:
         self.start_desktop_observer()
         next_check, next_activate, candidate = time.monotonic() + 30, 0, None
         crashes, retry_at = [], None
+        next_phone_sync = 0
+        from desktop import phone_settings
         while True:
             if self.child is None or self.child.poll() is not None:
                 now = time.monotonic()
@@ -470,6 +474,15 @@ class Supervisor:
                     self.startup_reason = 'crash_recovery'
             action, ident = self.take_control_request()
             try:
+                if time.monotonic() >= next_phone_sync and (self.root / 'data/phone-control/listener.json').exists():
+                    next_phone_sync = time.monotonic() + 5
+                    try:
+                        phone_settings.project(self.root, startup_registration)
+                        if self.child is not None and self.child.poll() is None and phone_settings.needs_activation(self.root, self.engine_settings) and self.stop():
+                            self.publish(state='stopped')
+                            return RESTART
+                    except (ValueError, OSError, RuntimeError, sqlite3.Error) as error:
+                        self.log.warning('Phone settings reconciliation pending: %s', type(error).__name__)
                 current_cfg = load(self.root)
                 if action in {'stop', 'restart'}:
                     accepted = self.stop()

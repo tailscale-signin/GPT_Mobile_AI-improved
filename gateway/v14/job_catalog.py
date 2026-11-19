@@ -155,7 +155,7 @@ def install_routes(app, conversations, engineering, service, ownership):
         return await execute(lambda: {'schema_version': 1, 'protocol_version': 1, 'gateway_id': conversations.gateway_id(),
             'instance_id': service.instance_id, 'principal_id': principal, 'server_now': conversations.now(),
             'server_time_ms': int(conversations.now() * 1000),
-            'identity_scope': 'shared-network' if principal == 'network:shared' else 'user' if principal.startswith('tailnet:') else 'local-machine'})
+            'identity_scope': 'shared-network' if principal == 'network:shared' else 'paired-device' if principal.startswith('phone:') else 'user' if principal.startswith('tailnet:') else 'local-machine'})
 
     @app.get('/gateway/job-catalog')
     @app.get('/v1/gateway/job-catalog')

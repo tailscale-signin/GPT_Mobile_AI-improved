@@ -11,6 +11,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.content.TextContent
 import java.io.EOFException
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -53,7 +54,8 @@ class GatewayPairedTransportTest {
         }
     }
 
-    @Test fun savedOwnerIdentityReadsUseFreshProofsForEachSafeRetryAndInstructionsSignTheExactBodyOnce() = runTest {
+    // Stale-socket cleanup crosses Dispatchers.IO; virtual time can expire the read before IO resumes.
+    @Test fun savedOwnerIdentityReadsUseFreshProofsForEachSafeRetryAndInstructionsSignTheExactBodyOnce() = runBlocking {
         val nonces = mutableListOf<String>()
         var writes = 0
         var submittedBody: String? = null

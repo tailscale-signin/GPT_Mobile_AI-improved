@@ -26,10 +26,10 @@ class GatewayRecoveryApprovalTest {
 
             fixture.control.approveRecovery(fixture.record, reviewed)
 
-            coVerify(exactly = 1) { fixture.engineering.control(fixture.mutationConfig, fixture.leaf, "approve") }
+            coVerify(exactly = 1) { fixture.engineering.control(fixture.retainedConfig, fixture.leaf, "approve") }
             coVerify(exactly = 0) { fixture.engineering.control(any(), match { it.id != fixture.leaf.id }, any()) }
             coVerify(exactly = 0) { fixture.gateway.cancelJob(any(), any()) }
-            fixture.jobs.keys.forEach { id -> coVerify(exactly = 2) { fixture.engineering.get(fixture.config, id, -1) } }
+            fixture.jobs.keys.forEach { id -> coVerify(exactly = 2) { fixture.engineering.get(fixture.retainedConfig, id, -1) } }
             assertEquals("original-conversation", fixture.jobs.getValue(fixture.record.remoteJobId).conversationId)
             if (descendants > 0) {
                 assertEquals("VERIFY", fixture.jobs.getValue(fixture.id(1)).state)
@@ -55,7 +55,7 @@ class GatewayRecoveryApprovalTest {
                 else -> child.copy(id = fixture.id(4))
             }
             assertTrue(runCatching { fixture.control.inspectRecoveryApproval(fixture.record) }.isFailure)
-            coVerify(exactly = 0) { fixture.engineering.get(fixture.config, fixture.id(2), -1) }
+            coVerify(exactly = 0) { fixture.engineering.get(fixture.retainedConfig, fixture.id(2), -1) }
             fixture.verifyNoMutation()
         }
         val originalConversationChanged = Fixture(2)
@@ -73,16 +73,16 @@ class GatewayRecoveryApprovalTest {
 
         val tooDeep = Fixture(6)
         assertTrue(runCatching { tooDeep.control.inspectRecoveryApproval(tooDeep.record) }.isFailure)
-        coVerify(exactly = 6) { tooDeep.engineering.get(tooDeep.config, any(), -1) }
-        coVerify(exactly = 0) { tooDeep.engineering.get(tooDeep.config, tooDeep.id(6), -1) }
+        coVerify(exactly = 6) { tooDeep.engineering.get(tooDeep.retainedConfig, any(), -1) }
+        coVerify(exactly = 0) { tooDeep.engineering.get(tooDeep.retainedConfig, tooDeep.id(6), -1) }
         tooDeep.verifyNoMutation()
 
         val cycle = Fixture(2)
         val child = cycle.jobs.getValue(cycle.id(1))
         cycle.jobs[child.id] = child.copy(recoveryJobId = cycle.id(0))
         assertTrue(runCatching { cycle.control.inspectRecoveryApproval(cycle.record) }.isFailure)
-        coVerify(exactly = 1) { cycle.engineering.get(cycle.config, cycle.id(0), -1) }
-        coVerify(exactly = 0) { cycle.engineering.get(cycle.config, cycle.id(2), -1) }
+        coVerify(exactly = 1) { cycle.engineering.get(cycle.retainedConfig, cycle.id(0), -1) }
+        coVerify(exactly = 0) { cycle.engineering.get(cycle.retainedConfig, cycle.id(2), -1) }
         cycle.verifyNoMutation()
     }
 
@@ -111,14 +111,14 @@ class GatewayRecoveryApprovalTest {
             val reviewed = fixture.control.inspectRecoveryApproval(fixture.record)
             if (change == "credential") {
                 val rotated = fixture.config.copy(token = "changed-credential")
-                coEvery { fixture.repository.originalRoute(any(), any()) } returnsMany listOf(
+                coEvery { fixture.repository.originalRoute("original-connection", fixture.config.apiUrl) } returnsMany listOf(
                     GatewayJobRoute("original-connection", fixture.config.apiUrl, fixture.config),
                     GatewayJobRoute("original-connection", fixture.config.apiUrl, rotated),
                     GatewayJobRoute("original-connection", fixture.config.apiUrl, rotated)
                 )
-                coEvery { fixture.history.identity(rotated) } returns fixture.identity
+                coEvery { fixture.history.identity(rotated.withGatewayIdentity(fixture.identity)) } returns fixture.identity
             } else {
-                coEvery { fixture.history.identity(fixture.config) } returns GatewayScopeIdentity("gateway", "different-principal")
+                coEvery { fixture.history.identity(fixture.retainedConfig) } returns GatewayScopeIdentity("gateway", "different-principal")
             }
             assertTrue(runCatching { fixture.control.approveRecovery(fixture.record, reviewed) }.isFailure)
             fixture.verifyNoMutation()
@@ -129,7 +129,7 @@ class GatewayRecoveryApprovalTest {
     fun lostApprovalResponseIsReconciledBeforeAnyExplicitRetry() = runTest {
         val fixture = Fixture(0)
         val reviewed = fixture.control.inspectRecoveryApproval(fixture.record)
-        coEvery { fixture.engineering.control(fixture.mutationConfig, reviewed, "approve") } throws IOException("Approval response was lost")
+        coEvery { fixture.engineering.control(fixture.retainedConfig, reviewed, "approve") } throws IOException("Approval response was lost")
         assertTrue(runCatching { fixture.control.approveRecovery(fixture.record, reviewed) }.exceptionOrNull() is IOException)
         fixture.jobs[reviewed.id] = reviewed.copy(state = "VERIFY", mergeReady = false, revision = reviewed.revision + 1)
         assertTrue(runCatching { fixture.control.approveRecovery(fixture.record, reviewed) }.isFailure)
@@ -143,7 +143,7 @@ class GatewayRecoveryApprovalTest {
             val fixture = Fixture(0)
             val reviewed = fixture.control.inspectRecoveryApproval(fixture.record)
             val response = reviewed.copy(state = "MERGE", revision = reviewed.revision + 1)
-            coEvery { fixture.engineering.control(fixture.mutationConfig, reviewed, "approve") } returns when (change) {
+            coEvery { fixture.engineering.control(fixture.retainedConfig, reviewed, "approve") } returns when (change) {
                 0 -> response.copy(gatewayId = "different-gateway")
                 1 -> response.copy(principalId = "different-principal")
                 2 -> response.copy(repository = "other/repository")
@@ -165,7 +165,7 @@ class GatewayRecoveryApprovalTest {
         val engineering = mockk<GatewayEngineeringClient>()
         val config = ProviderRequestConfig("http://original-gateway:8090/v1", "original-credential", profileUid = "original-connection")
         val identity = GatewayScopeIdentity("gateway", "owner")
-        val mutationConfig = config.withGatewayIdentity(identity)
+        val retainedConfig = config.withGatewayIdentity(identity)
         val summary = GatewayJobSummary(
             jobId = id(0),
             jobKind = "engineering",
@@ -216,10 +216,10 @@ class GatewayRecoveryApprovalTest {
         init {
             every { repository.summary(record) } returns summary
             coEvery { repository.originalRoute("original-connection", config.apiUrl) } returns GatewayJobRoute("original-connection", config.apiUrl, config)
-            coEvery { history.catalog(config, null) } returns GatewayJobCatalog(gatewayId = "gateway", principalId = "owner", serverNow = 2.0, items = listOf(summary), complete = true)
-            coEvery { history.identity(config) } returns identity
-            coEvery { engineering.get(config, any(), -1) } answers { jobs.getValue(secondArg()) }
-            coEvery { engineering.control(any(), any(), "approve") } answers { secondArg<GatewayEngineeringJob>().let { it.copy(state = "MERGE", revision = it.revision + 1) } }
+            coEvery { history.catalog(retainedConfig, null) } returns GatewayJobCatalog(gatewayId = "gateway", principalId = "owner", serverNow = 2.0, items = listOf(summary), complete = true)
+            coEvery { history.identity(retainedConfig) } returns identity
+            coEvery { engineering.get(retainedConfig, any(), -1) } answers { jobs.getValue(secondArg()) }
+            coEvery { engineering.control(retainedConfig, any(), "approve") } answers { secondArg<GatewayEngineeringJob>().let { it.copy(state = "MERGE", revision = it.revision + 1) } }
         }
 
         fun id(index: Int) = "eng_" + (index + 1).toString(16).padStart(32, '0')

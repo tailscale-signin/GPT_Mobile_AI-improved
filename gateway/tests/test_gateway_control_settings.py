@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import httpx
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import FastAPI, Request
@@ -422,6 +423,48 @@ class ControlSettingsTests(unittest.TestCase):
             proxy_permission(route, 'GET', {}, device)
         proxy_permission('/gateway/jobs/original/cancel', 'POST', {}, device)
         proxy_permission('/gateway/engineering/repository-operations', 'POST', {'operation': 'clone_repository', 'source_owner': 'owner', 'source_repo': 'repo'}, device)
+
+    def test_paired_profile_checks_forward_only_scoped_owner_posts(self):
+        _, owner = self.paired()
+        _, viewer = self.paired(role='viewer')
+        route = '/gateway/engineering/profile-checks'
+        payload = {'action': 'run', 'repository': 'owner/repo', 'branch': 'main', 'head_sha': 'a' * 40,
+                   'profile_binding': 'b' * 64, 'request_id': 'original-check', 'check_index': 0, 'changes': []}
+        body = json.dumps(payload).encode()
+        forwarded = []
+
+        def runtime(request):
+            forwarded.append(request)
+            self.assertEqual(('POST', route, body), (request.method, request.url.path, request.content))
+            self.assertEqual(owner['principal_id'], request.headers['x-gateway-control-principal'])
+            self.assertEqual(owner['principal_id'], request.headers['x-gateway-principal-id'])
+            self.assertEqual('local-supervisor-secret', request.headers['x-gateway-management'])
+            self.assertNotIn('authorization', request.headers)
+            return httpx.Response(200, json={'state': 'RUNNING', 'request_id': payload['request_id']})
+
+        controller = SimpleNamespace(store=self.store, secret=self.secret, allowed_hosts={'testserver'},
+                                     endpoint='https://testserver', fingerprint='f' * 64,
+                                     supervisor=SimpleNamespace(cfg=DEFAULTS, token='local-supervisor-secret'))
+        original_client = httpx.AsyncClient
+        with patch('desktop.control_server.httpx.AsyncClient', side_effect=lambda **kwargs:
+                   original_client(transport=httpx.MockTransport(runtime), **kwargs)), \
+                TestClient(create_app(controller), base_url='https://testserver') as client:
+            response = client.post(route, content=body, headers=self.signed(owner['token'], 'POST', route, body))
+            self.assertEqual(200, response.status_code, response.text)
+            self.assertEqual({'state': 'RUNNING', 'request_id': 'original-check'}, response.json())
+            denied = [(viewer, 'POST', route, payload, 'owner_role_required'),
+                      (owner, 'POST', route, dict(payload, repository='other/repo'), 'repository_permission_required'),
+                      (owner, 'GET', route, payload, 'control_route_not_admitted'),
+                      (owner, 'POST', route + '/admin', payload, 'control_route_not_admitted'),
+                      (owner, 'POST', '/gateway/engineering/future-admin-operation', payload, 'control_route_not_admitted')]
+            for grant, method, path, value, code in denied:
+                with self.subTest(role=grant['role'], method=method, path=path, repository=value['repository']):
+                    raw = json.dumps(value).encode()
+                    response = client.request(method, path, content=raw,
+                                              headers=self.signed(grant['token'], method, path, raw))
+                    self.assertEqual(403, response.status_code, response.text)
+                    self.assertEqual(code, response.json()['error']['code'])
+            self.assertEqual(1, len(forwarded), 'Denied requests must never reach the runtime')
 
     def test_paired_runtime_identity_requires_local_supervisor_secret_and_live_grant(self):
         _, grant = self.paired()

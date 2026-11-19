@@ -29,7 +29,7 @@ READ_PATTERNS = [r'/gateway/conversations/' + SAFE_ID + r'(?:/messages)?', r'/ga
                  r'/gateway/engineering/jobs/' + SAFE_ID + r'(?:/(?:batch-plan|qualification|checkpoints|operations|evidence))?',
                  r'/gateway/engineering/jobs/' + SAFE_ID + r'/(?:artifacts|checkpoints|evidence)/' + SAFE_ID]
 POST_EXACT = {'/gateway/models/prepare', '/gateway/engineering/bindings', '/gateway/engineering/diagnostics/jobs',
-              '/gateway/engineering/graph', '/gateway/engineering/preflight', '/gateway/engineering/jobs',
+              '/gateway/engineering/graph', '/gateway/engineering/profile-checks', '/gateway/engineering/preflight', '/gateway/engineering/jobs',
               '/gateway/engineering/copilot/tasks', '/gateway/engineering/repository-operations'}
 
 

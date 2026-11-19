@@ -100,7 +100,7 @@ class ChatCompletionsEventAssembler {
             } else {
                 // Some compatible servers omit IDs; preserve supplied IDs and replay generated ones.
                 val callId = call.callId?.takeIf(String::isNotBlank) ?: "call_${java.util.UUID.randomUUID()}"
-                toolCall(callId, name, call.arguments.toString()).single()
+                toolCall(callId, name, call.arguments.toString(), reportedModelId).single()
             }
         }
         completed.keys.forEach(pending::remove)
@@ -132,14 +132,14 @@ private fun invalidToolFrame(message: String, kind: String): ProviderEvent.Faile
     failureDetails = buildJsonObject { put("tool_protocol_frame_kind", kind) }
 )
 
-internal fun toolCall(callId: String, name: String, arguments: String): List<ProviderEvent> {
+internal fun toolCall(callId: String, name: String, arguments: String, reportedModelId: String? = null): List<ProviderEvent> {
     if (callId.length > 256) throw ToolBatchOversizeException("CALL_ID_CHARACTERS", callId.length, 256)
     if (name.length > 256) throw ToolBatchOversizeException("TOOL_NAME_CHARACTERS", name.length, 256)
     if (arguments.length > 16 * 1024) throw ToolBatchOversizeException("ARGUMENT_CHARACTERS", arguments.length, 16 * 1024)
     return try {
         val parsed = Json.parseToJsonElement(arguments.ifBlank { "{}" })
         if (parsed is JsonObject) {
-            listOf(ProviderEvent.ToolCall(callId, name, parsed))
+            listOf(ProviderEvent.ToolCall(callId, name, parsed, reportedModelId = reportedModelId))
         } else {
             listOf(invalidToolFrame("Tool arguments must be a JSON object.", "NON_OBJECT_ARGUMENTS"))
         }

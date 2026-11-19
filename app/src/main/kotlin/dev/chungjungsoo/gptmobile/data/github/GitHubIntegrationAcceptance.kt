@@ -203,6 +203,14 @@ internal object GitHubIntegrationAcceptance {
                     put("reason", "GitHub API and CI observations do not constitute current-device execution")
                 }
             )
+            val workspaceChecks = observed.mapNotNull { row ->
+                (row["profile_workspace_check"] as? JsonObject)?.takeIf { GitHubEvidenceOrigin.of(row) == "LIVE" }?.let { check ->
+                    val id = row["receipt_id"] as? JsonPrimitive ?: return@let null
+                    JsonObject(check + ("receipt_id" to id))
+                }
+            }.distinctBy { listOf(it["profile_binding"], it["source_sha"], it["request_id"]) }
+            put("profile_workspace_check_count", workspaceChecks.size)
+            put("profile_workspace_checks", JsonArray(workspaceChecks.takeLast(32)))
             put("semantics", "CI provenance overlaps its transport class. Counts describe evidence, not interchangeable test passes.")
         }
     }

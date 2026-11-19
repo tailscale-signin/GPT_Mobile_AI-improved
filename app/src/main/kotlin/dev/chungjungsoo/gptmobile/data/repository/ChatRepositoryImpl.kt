@@ -4754,6 +4754,7 @@ class ChatRepositoryImpl(
                 currentToolContracts = evidenceTools.filter { it.nativeGitHub }.associate { it.modelToolName to it.tool.definition.inputSchema },
                 authorizationRevision = dispatchAuthority.revision,
                 sourceRunId = runId,
+                inferenceProfile = platform,
                 readSources = dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(if (reuse) previousTask else githubEffectiveTask),
                 fixtureDecisionMode = githubContext?.let { context ->
                     settingRepository.getFeatureSettings().githubDecisionMode(user.chatId, context)

@@ -97,7 +97,7 @@ class OpenAIResponsesEventAssembler {
         is FunctionCallArgumentsDoneEvent -> {
             val call = pending.remove(event.itemId)
                 ?: return listOf(ProviderEvent.Failed("OpenAI returned arguments for an unknown function call."))
-            toolCall(call.callId, call.name, event.arguments)
+            toolCall(call.callId, call.name, event.arguments, reportedModelId)
         }
 
         is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent -> buildList {
@@ -235,7 +235,7 @@ class AnthropicEventAssembler {
                 completed[event.index] = RedactedThinkingContent(data)
             }
             val call = pending.remove(event.index) ?: return emptyList()
-            val events = toolCall(call.callId, call.name, call.arguments.toString())
+            val events = toolCall(call.callId, call.name, call.arguments.toString(), reportedModelId)
             if (events.singleOrNull() is ProviderEvent.ToolCall) {
                 completed[event.index] = ToolUseContent(
                     call.callId,
@@ -273,7 +273,7 @@ object GeminiEventMapper {
                 events += if (part.thought == true) ProviderEvent.ThinkingDelta(text) else ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(response.modelVersion)))
             }
             part.functionCall?.let { call ->
-                val event = ProviderEvent.ToolCall(call.id ?: java.util.UUID.randomUUID().toString(), call.name, call.args)
+                val event = ProviderEvent.ToolCall(call.id ?: java.util.UUID.randomUUID().toString(), call.name, call.args, reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(response.modelVersion))
                 if (!admission.admit(event)) throw requireNotNull(admission.rejection)
                 events += event
             }

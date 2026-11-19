@@ -265,6 +265,19 @@ class GitHubIntegrationAcceptanceTest {
         assertNull(GitHubAuthorizedCatalog.next(tools, records))
     }
 
+    @Test fun routeProofRequiresCompletedCheckAndUsesTheModelReturnedByThisProviderCall() {
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(name = "Remote", model = "selected", uid = "profile")
+        val id = "a".repeat(64)
+        val result = json("""{"repository":"owner/repo","branch":"feature","head_sha":"${"b".repeat(40)}","request_id":"check","state":"PASSED","scope":"exploratory","check_index":1,"exit_code":0,"executor":"gateway","image":"sha256:$id","output_sha256":"$id","policy_sha256":"$id","patch_identity":"$id","profile_binding":"$id"}""")
+        val call = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall("call", "repository_workspace", json("""{"action":"status","request_id":"check"}"""))
+        fun observe(model: String?, receipt: JsonObject = result) = workspaceCheckObservation(profile, call.copy(reportedModelId = model), receipt, "owner/repo", "feature", "run")
+        assertEquals(JsonPrimitive("UNOBSERVED"), observe(null)?.get("model_identity"))
+        assertEquals(JsonPrimitive("DIFFERENT"), observe("another")?.get("model_identity"))
+        assertEquals(JsonPrimitive("MATCH"), observe("selected")?.get("model_identity"))
+        assertNull(observe("selected", JsonObject(result + ("exit_code" to JsonPrimitive(5)))))
+        assertNull(observe("selected", JsonObject(result + ("repository" to JsonPrimitive("other/repo")))))
+    }
+
     @Test fun workspaceCheckReceiptBelongsToGatewayAndParticipatesInCatalogDiscovery() {
         val invocation = tool("repository_workspace__selected", "catalog", "run", "status")
         val catalog = GitHubAuthorizedCatalog.snapshot(emptyMap(), listOf(invocation))

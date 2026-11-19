@@ -36,7 +36,8 @@ internal class GitHubEvidenceBook(
     authorizationRevision: String? = null,
     internal val fixtureDecisionMode: GitHubDecisionMode? = null,
     private val approvalResolution: suspend (JsonObject) -> List<JsonObject> = { emptyList() },
-    private val sourceRunId: String? = null
+    private val sourceRunId: String? = null,
+    private val inferenceProfile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2? = null
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -243,6 +244,9 @@ internal class GitHubEvidenceBook(
                 }
             )
             put("runtime_identity", runtimeIdentity())
+            if (trustedTarget && call.name.githubOperationFamily() == "repository_workspace" && !result.isError && !result.sharedResult) {
+                workspaceCheckObservation(inferenceProfile, call, root, repository, branch, sourceRunId)?.let { put("profile_workspace_check", it) }
+            }
             authorizationDigest?.let { put(GitHubPolicyReadRecovery.AUTHORITY, it) }
             put("branch", targetBranch)
             put("workspace_branch", branch)

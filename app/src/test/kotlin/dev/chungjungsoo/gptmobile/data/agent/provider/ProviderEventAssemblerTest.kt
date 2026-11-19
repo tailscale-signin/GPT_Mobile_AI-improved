@@ -19,6 +19,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderEventAssemblerTest {
+    @Test fun toolCallObservationUsesOnlyItsOwnResponseModel() {
+        val first = toolCall("first", "repository_workspace", "{}", "served-model").single() as ProviderEvent.ToolCall
+        val second = toolCall("second", "repository_workspace", "{}").single() as ProviderEvent.ToolCall
+        assertEquals("served-model", first.reportedModelId)
+        org.junit.Assert.assertNull(second.reportedModelId)
+    }
+
     @Test fun responsesModelIsLimitedToThePhysicalStreamThatReportedIt() {
         val stream = OpenAIResponsesEventAssembler()
         val created = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>("""{"type":"response.created","response":{"id":"one","model":"served-id"}}""")

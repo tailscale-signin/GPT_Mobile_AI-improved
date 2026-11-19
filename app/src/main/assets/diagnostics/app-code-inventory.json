@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "dffdd0ecde6637415958d038481a3a08f93904c93bb334d810d4b1354f8ce480",
+  "source_digest": "ca722eb9d48ca60cf81cfb3aa215597f90ede0bc4853eca31379b299bff18b45",
   "file_count": 2699,
   "indexed_line_count": 441207,
   "line_coverage_available": false,
@@ -4112,7 +4112,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkScoreboard.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "daa921106f743c5087a02e37e3724f5d1f0d36b9be85e6a7210daa21485c436e",
+      "sha256": "773acd3e5db8df2e5e8bbc5864de9545df7ed503df33b54b5d88582d5e5fa42b",
       "indexed_lines": 247
     },
     {

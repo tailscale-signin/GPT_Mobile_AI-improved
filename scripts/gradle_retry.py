@@ -35,6 +35,14 @@ KNOWN_PUBLISHED_PLUGINS = (
         ),
         re.compile(r"could not resolve plugin artifact 'io\.objectbox:objectbox-gradle-plugin:5\.4\.2'", re.I),
     ),
+    (
+        re.compile(
+            r"Plugin \[id: 'com\.google\.dagger\.hilt\.android', version: '2\.60\.1', "
+            r"artifact: 'com\.google\.dagger:hilt-android-gradle-plugin:2\.60\.1', apply: false\] was not found",
+            re.I,
+        ),
+        re.compile(r"could not resolve plugin artifact 'com\.google\.dagger:hilt-android-gradle-plugin:2\.60\.1'", re.I),
+    ),
 )
 NON_TRANSIENT_HTTP = re.compile(r'(?:HTTP|status(?: code)?|response code:)\D{0,12}(?:401|403|404)\b', re.I)
 DETERMINISTIC = re.compile(r'There were failing tests|\btests completed, [1-9]\d* failed|Compilation error|^e: .*\.(?:kt|java):|Lint found .* errors', re.I)

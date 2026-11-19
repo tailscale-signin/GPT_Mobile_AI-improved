@@ -54,6 +54,17 @@ class GradleRetryTest(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 2)
             self.assertEqual(1, len(counter.read_text().splitlines()))
 
+    def test_hilt_recovery_requires_the_published_version_and_preserves_failures(self):
+        lines = [
+            "Plugin [id: 'com.google.dagger.hilt.android', version: '2.60.1', "
+            "artifact: 'com.google.dagger:hilt-android-gradle-plugin:2.60.1', apply: false] was not found",
+            "Plugin Repositories (could not resolve plugin artifact 'com.google.dagger:hilt-android-gradle-plugin:2.60.1')",
+        ]
+        self.assertTrue(retry.retryable(lines))
+        self.assertFalse(retry.retryable([line.replace("2.60.1", "2.60.99") for line in lines]))
+        self.assertFalse(retry.retryable(lines + ["HTTP 404"]))
+        self.assertFalse(retry.retryable(lines + ["Compilation error"]))
+
     def test_published_kotlin_plugin_lookup_without_status_retries_only_exact_version(self):
         lines = [
             "Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', "

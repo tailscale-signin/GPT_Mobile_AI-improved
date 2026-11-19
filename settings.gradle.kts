@@ -7,6 +7,7 @@ pluginManagement {
                 content {
                     includeGroup("org.jetbrains.kotlin")
                     includeGroup("io.objectbox")
+                    includeModule("com.google.dagger", "hilt-android-gradle-plugin")
                 }
             }
         }

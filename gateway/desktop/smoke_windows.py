@@ -80,6 +80,18 @@ def main():
     results=[]
     with tempfile.TemporaryDirectory(prefix='Gateway smoke ü ') as temp:
         root=Path(temp)/'Gateway install'
+        # Drive the four native setup pages and validate the plan, including an offline model.
+        from configparser import ConfigParser
+        plan_file = Path(temp) / 'native setup.ini'
+        subprocess.run([str(output / 'setup-ui' / 'GatewaySetup.exe'), '--smoke', str(plan_file)], check=True, timeout=45)
+        plan = ConfigParser(interpolation=None)
+        with plan_file.open(encoding='utf-16') as source:
+            plan.read_file(source)
+        settings = validate({'backend': plan['setup']['backend'], 'port': int(plan['setup']['port']),
+                             'bind_host': plan['setup']['bind']})
+        assert settings['access'] == 'loopback' and settings['backend'] == 'http://127.0.0.1:1'
+        assert plan['setup']['engineeringSetup'] == '0' and plan['setup']['advanced'] == '0'
+        results.append('native four-step setup rejects invalid ports and accepts an offline model on loopback')
         cmd=[str(installer),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=',f'/DIR={root}']
         subprocess.run(cmd,check=True,timeout=120)
         results.append('fresh per-user install with spaces and Unicode')

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "881127481b6f54c075cedd5469d058989fcea434d2c6d1fce6a76d1da91d55d1",
+  "source_digest": "ad58671c8d39a0df39517eb4a66720bfc74e960bae5f5521297c293a703ac7ba",
   "file_count": 2739,
-  "indexed_line_count": 451035,
+  "indexed_line_count": 451039,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 241,
-      "indexed_line_count": 41531
+      "indexed_line_count": 41535
     },
     {
       "id": "research",
@@ -16019,8 +16019,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubCodeDiff.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "64a933bcb1dd7afbd0caefb01d084652c599b25c0e0e74acf540e22aedcbe153",
-      "indexed_lines": 65
+      "sha256": "e7760f7d62b442f81be1015c7e15d66a5b841e4a7410dbc62ec27246160b0ada",
+      "indexed_lines": 69
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubConversationApprovalHost.kt",

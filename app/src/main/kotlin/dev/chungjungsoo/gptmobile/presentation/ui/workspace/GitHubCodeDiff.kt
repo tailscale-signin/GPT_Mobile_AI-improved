@@ -28,7 +28,11 @@ internal fun GitHubCodeDiff(diff: String) {
                 var end = (start + 6000).coerceAtMost(diff.length)
                 if (end < diff.length) {
                     val newline = diff.lastIndexOf('\n', end - 1)
-                    if (newline >= start) end = newline + 1 else if (diff[end - 1].isHighSurrogate()) end--
+                    if (newline >= start) {
+                        end = newline + 1
+                    } else if (diff[end - 1].isHighSurrogate()) {
+                        end--
+                    }
                 }
                 add(diff.substring(start, end))
                 start = end

@@ -1,4 +1,11 @@
-# GPT Mobile 0.9.66.8
+# GPT Mobile 0.9.66.8 (build 142) and Windows Gateway 17.0.1
+
+## Getting started
+
+- For local inference on Windows, run the x64 setup executable, choose Standard Gateway or GitHub Engineering, select your listener and port, and check the local model connection. The desktop workspace shows jobs, schedules, analysis and diagnostics.
+- To control a PC from Android, pair the phone and confirm the request on Windows. Open the paired Gateway controls to allow engineering jobs from that phone. The app shows whether a change has taken effect or is waiting for the runtime.
+- In any chat, scroll to the bottom to resume following the answer. After a deliberate scroll stops away from the bottom, the return arrow stays visible for five seconds and fades over one second when animations are enabled.
+- New Chat offers a Privacy Mode checkbox. Under Settings → Privacy, select a saved OpenRouter profile to review account settings, apply the recommended changes and confirm default plugins. The app checks eligibility again before sending.
 
 ## Chat, projects and Gateway
 
@@ -16,11 +23,11 @@ GitHub settings now default cloud tasks to direct Android submission and offer a
 
 Native Copilot cloud tasks use the public-preview Agent tasks API, currently requiring Copilot Business or Enterprise and a user token with Agent tasks permission. Live entitlement, installed Android-to-Gateway execution, and exact-PR CI/merge acceptance remain unqualified; remote task completion never supplies merge authorization.
 
-## Privacy Mode — initial strict gate (PR #1741)
+## Privacy Mode
 
 Privacy Mode is OFF by default with 11 individually configurable, default-ON sensitivity categories. Settings now includes a Privacy section; New Chat has a top-right Privacy Mode checkbox that greys out remote and free profiles unless the full endpoint and account policy is verified. Private local and self-hosted gateway inference is exempt from third-party ZDR requirements; ordinary cloud routes cannot inherit that exemption. Existing-chat generation, research and benchmark entry points now reject ineligible remote providers while the master switch is on. The free-model catalog is assessed provider by provider, including Kilo automatic routing, volunteer AI Horde, OVHcloud's documented policy and upstream gateways.
 
-Privacy Mode is an initial local settings and fail-closed provider-selection/dispatch gate, not yet full privacy protection: on-device prompt pseudonymization, encrypted restoration, live account-level ZDR verification, tool egress, voice and gateway cloud-relay enforcement remain unverified or unimplemented. No remote AI endpoint is currently certified eligible.
+Privacy Mode masks supported text locally and keeps each request’s replacement map in memory. Remote eligibility depends on the current profile, account, upstream endpoint and routing settings. Default-plugin confirmation comes from the account owner and expires within 24 hours. Live account behavior, third-party retention practices, and end-to-end operation on a paired phone and PC still require field verification.
 
 ### Privacy and Gateway qualification follow-up
 
@@ -30,7 +37,7 @@ Gateway capability failures now retain bounded failure categories and decoder re
 
 Gateway capability failure evidence requires a hosted reporter advertising GATEWAY_CAPABILITY_EVIDENCE_V1; an older host leaves the exact approved report pending. The observed connect-timeout chain does not establish its endpoint or service root cause, and #1768 requires matching installed Android/Gateway acceptance.
 
-These source changes do not authorize a release. Physical Android, live selected-model GitHub and OpenRouter account/route evidence, durable Android-to-Windows Gateway recovery and real Windows installer execution remain separate release gates.
+The Windows package includes its installer smoke-test receipt. Physical Android, live selected-model GitHub and OpenRouter accounts, and recovery on a paired Android phone and Windows PC still require field verification.
 
 ## GitHub and Gateway delivery
 
@@ -56,7 +63,7 @@ Android and the Windows Gateway dashboard now share one normalized inventory of 
 
 Manual public issue reports can optionally include a previewed UTF-8 text, Markdown, or JSON evidence file. Selection is off by default, limited to 4 KiB, redacted and bounded before review, and sent only after the user enables the attachment in the final preview. Images and arbitrary binary uploads remain unsupported until the reporting service has a safe attachment contract.
 
-Physical-device voice latency, underruns, sustained throughput, thermals, CPU-thread comparisons, and word timing remain unverified. Captions remain readable but untimed; the app does not fabricate word synchronization.
+Voice captions highlight one word at a time using engine offsets when available and estimated timing for Kokoro. Physical-device latency, underruns, sustained throughput, thermals, CPU-thread comparisons and caption synchronization still require measurement.
 
 ## November 15 autonomous engineering workflow
 

@@ -26,6 +26,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
@@ -42,6 +43,34 @@ import org.junit.Test
 class ComposerControlsInstrumentedTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test fun largeFontConversationRetainsSenderLabelsAndAnnouncesTerminalFailureAfterRestoration() {
+        val restoration = androidx.compose.ui.test.junit4.StateRestorationTester(composeRule)
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        restoration.setContent {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 2f)
+            ) {
+                androidx.compose.foundation.layout.Column {
+                    UserChatBubble(text = "Question")
+                    OpponentChatBubble(canRetry = true, isLoading = false, isError = true, isLastMessage = true, text = "")
+                }
+            }
+        }
+        restoration.emulateSavedInstanceStateRestore()
+        for (sender in listOf(R.string.user_message, R.string.assistant_message)) {
+            composeRule.onNode(
+                androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, context.getString(sender)),
+                useUnmergedTree = true
+            ).assertExists()
+        }
+        composeRule.onNode(
+            androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.LiveRegion, androidx.compose.ui.semantics.LiveRegionMode.Polite) and
+                androidx.compose.ui.test.hasText("The response failed before displayable content was returned."),
+            useUnmergedTree = true
+        ).assertExists()
+    }
 
     @Test fun selectedPdfPageRendersAsABoundedImageForTheVisionComposer() {
         val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext

@@ -176,7 +176,8 @@
     "Add opt-in Copilot cloud tasks directly from Android or through an explicitly selected standalone Gateway, with durable task receipts, original-account recovery, live consent and exact MCP mutation approval.",
     "Add strict automatic OpenRouter model and endpoint qualification under explicit account evidence, actionable Privacy Mode profile states, connection-policy and queued-dispatch fences, and privacy-safe terminal failure contracts. Preserve unresolved remote outcomes and separate live release acceptance.",
     "Retain bounded typed Gateway capability failure evidence and honor explicit no-replay/no-continuation refusals, with negotiated reporter compatibility and regression coverage for the distinct live report #1768.",
-    "Recover uncertain Gateway index requests by original attempt, retry interrupted CI log reads, use provider-compatible strict claim extraction, and spend the verification reserve on expired mutable observations."
+    "Recover uncertain Gateway index requests by original attempt, retry interrupted CI log reads, use provider-compatible strict claim extraction, and spend the verification reserve on expired mutable observations.",
+    "Encrypt installed chat history, require safer public model transport and sharing, restore share drafts, distinguish storage and model failures, and verify release dependency graphs and Git history."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -3155,6 +3156,34 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupPreferences.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiLogPageTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubObservationFreshnessTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubObservationFreshnessTest.kt",
+    ".github/dependabot.yml",
+    ".github/workflows/dependency-audit.yml",
+    ".gitleaks.toml",
+    ".gitleaksignore",
+    ".idea/deviceManager.xml",
+    "DEVELOPMENT.md",
+    "README.md",
+    "SECURITY.md",
+    "app/geniex-release.lockfile",
+    "app/release.lockfile",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/BoundedMetadata.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/FreeErrorDetails.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/SseUtils.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderFailure.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/DevicePrivacySettings.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/EncryptedChatDatabase.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/sharing/ShareInbox.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/di/DatabaseModule.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/main/ShareIncomingActivity.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PrivacyStoragePanel.kt",
+    "app/src/main/res/xml/file_paths.xml",
+    "app/src/main/res/xml/network_security_config.xml",
+    "gateway/requirements.txt",
+    "scripts/audit_locked_dependencies.py",
+    "scripts/scan_secret_history.sh",
+    "scripts/scan_secrets.py",
+    "scripts/tests/test_locked_dependency_audit.py",
+    "settings-gradle.lockfile"
   ]
 }

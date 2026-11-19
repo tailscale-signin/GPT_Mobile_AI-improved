@@ -10,6 +10,26 @@ import org.junit.Test
 
 class NetworkClientTest {
 
+    @Test
+    fun publicPeersCannotReceiveCleartextAndPrivateGatewaysCan() {
+        for (host in listOf("127.0.0.1", "192.168.1.4", "100.64.0.2", "::1", "fd00::2")) {
+            assertTrue(host, NetworkClient.isPrivateHttpPeer(java.net.InetAddress.getByName(host)))
+        }
+        for (host in listOf("203.0.113.1", "0.0.0.0", "224.0.0.1", "2001:db8::1", "100.128.0.1")) {
+            assertFalse(host, NetworkClient.isPrivateHttpPeer(java.net.InetAddress.getByName(host)))
+        }
+        assertFalse(NetworkClient.isPrivateHttpPeer(null))
+    }
+
+    @Test
+    fun resumableUploadsStayAtTheirAuthorizedOrigin() {
+        val start = "https://generativelanguage.googleapis.com/upload/v1beta/files"
+        requireSameUploadOrigin(start, "$start?upload_id=one")
+        for (target in listOf("https://other.example/upload", "http://generativelanguage.googleapis.com/upload", "https://generativelanguage.googleapis.com:444/upload", "https://user@generativelanguage.googleapis.com/upload")) {
+            assertTrue(runCatching { requireSameUploadOrigin(start, target) }.isFailure)
+        }
+    }
+
     @Test fun privateReadinessGrantBindsModelOriginMethodAndLifetime() = runTest {
         val endpoint = "http://127.0.0.1:8090/gateway/ready"
         val selected = "$endpoint?model=my-model".toHttpUrl()
@@ -54,6 +74,8 @@ class NetworkClientTest {
         assertTrue(NetworkClient.isSensitiveHeader("Cookie"))
         assertTrue(NetworkClient.isSensitiveHeader("Set-Cookie"))
         assertTrue(NetworkClient.isSensitiveHeader("X-Gateway-Admission-Error"))
+        assertTrue(NetworkClient.isSensitiveHeader("X-Custom-Provider-Account"))
+        assertTrue(NetworkClient.isSensitiveHeader("X-Goog-Upload-URL"))
         assertFalse(NetworkClient.isSensitiveHeader("Content-Type"))
     }
 

@@ -1,4 +1,5 @@
 [versions]
+sqlcipher = "4.17.0" # Compatible with this Room graph's AndroidX SQLite 2.6.2
 leakcanary = "2.14"
 geniex = "0.8.0"
 agp = "9.4.1"
@@ -55,6 +56,15 @@ haze = "1.7.3"
 macrobenchmark = "1.5.0"
 
 [libraries]
+secure-jackson-core = { module = "com.fasterxml.jackson.core:jackson-core", version = "2.22.3" }
+secure-jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version = "2.22.3" }
+secure-guava = { module = "com.google.guava:guava", version = "33.7.2-jre" }
+secure-protobuf-lite = { module = "com.google.protobuf:protobuf-javalite", version = "4.28.2" }
+secure-commons-lang = { module = "org.apache.commons:commons-lang3", version = "3.18.0" }
+secure-log4j-api = { module = "org.apache.logging.log4j:log4j-api", version = "2.25.5" }
+secure-bcprov = { module = "org.bouncycastle:bcprov-jdk15to18", version = "1.85" }
+secure-bcpkix = { module = "org.bouncycastle:bcpkix-jdk15to18", version = "1.85" }
+sqlcipher = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
 moonshine-voice = { group = "ai.moonshine", name = "moonshine-voice", version.ref = "moonshineVoice" }
 sherpa-onnx-static = { module = "com.k2fsa.sherpa.onnx:sherpa-onnx-static-link-onnxruntime", version.ref = "sherpaOnnx" }
 commons-compress = { module = "org.apache.commons:commons-compress", version.ref = "commonsCompress" }

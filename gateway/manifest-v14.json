@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.1",
   "schemaVersion": 1,
-  "sourceCommit": "c0a10550233d5fa23f1cc8760b7c6eb1ecdea12b",
+  "sourceCommit": "882b7dd4a75e4df18f0e275e571df80c84ad428e",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -148,7 +148,7 @@
     "install_gateway_v14.ps1": "5dcfc737bdc9ca8dee1ef4c7f7036f86faf81995efca68b80e76cc070a7e97aa",
     "qualify_engineering.py": "cb408ca2dbed51c3ff28a147f76093741d613c802fd5e5b4adf5ec4b6a53f937",
     "requirements.in": "65c936e809a99fd5d788f77e6869905e1c237c656e1b31b2328b7815a00f3a05",
-    "requirements.txt": "21799061f4bc4a313ae9b9c72c35ba5d8e17773de6ee1501cabd2c73ade17ea7",
+    "requirements.txt": "0462ab218be1723ddea55dbf78dc63ed49885b98d4af39315d580623f1ab67d8",
     "tests/fixture_mcp_server.py": "be56bde9eb747397ca31df9dcb85e0a1e8b1b7be0d9a6da6831958a695532a83",
     "tests/gateway_capability_fixture.py": "f609f039e40274d2e500050f91b2f9967fc8bfbb4c875b84fb7272740db38790",
     "tests/repository_validation_smoke.py": "1281cda5eda664e726ecedadef5e2cc59d103fbfa8bfaa1a7b9bb28f298572a5",

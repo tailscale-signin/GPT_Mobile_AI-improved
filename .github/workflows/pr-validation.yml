@@ -438,6 +438,8 @@ jobs:
           bash scripts/validate.sh resources
           python3 scripts/check_change_size.py --base "$CHANGE_BASE"
           python3 scripts/scan_secrets.py
+      - name: Scan reachable Git history for credentials
+        run: bash scripts/scan_secret_history.sh
       - name: Review newly introduced dependency vulnerabilities
         if: github.event_name == 'pull_request'
         env:

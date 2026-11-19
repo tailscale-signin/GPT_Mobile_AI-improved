@@ -1,0 +1,25 @@
+name: Locked dependency audit
+on:
+  schedule:
+    - cron: '23 8 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'app/*.lockfile'
+      - '**/package-lock.json'
+      - '**/requirements*.txt'
+      - 'scripts/audit_locked_dependencies.py'
+      - '.github/workflows/dependency-audit.yml'
+permissions:
+  contents: read
+concurrency:
+  group: dependency-audit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  advisories:
+    name: Audit verified Maven, npm and Python versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: python3 scripts/audit_locked_dependencies.py

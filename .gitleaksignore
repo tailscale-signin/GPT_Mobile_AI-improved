@@ -1,0 +1,31 @@
+# Reviewed historical fixture strings, task identifiers, Git object IDs and release prose.
+# Entries apply only to the listed revision, path, rule and line.
+15e07ae05f1ba9a1c42edb10313d034f5ad098c5:docs/repairs/session-reliability-reporting-2026-11-12-task.json:generic-api-key:148
+293810dbc34ef93ee62521e2fd274681e10482ab:app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubArgumentProvenanceTest.kt:generic-api-key:115
+293810dbc34ef93ee62521e2fd274681e10482ab:app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubArgumentProvenanceTest.kt:generic-api-key:95
+293810dbc34ef93ee62521e2fd274681e10482ab:app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubHeaderQueryTest.kt:generic-api-key:27
+293810dbc34ef93ee62521e2fd274681e10482ab:docs/repairs/pr813-integration-2026-11-07-task.json:generic-api-key:13
+36ba1b11b9774c3813cf642a866640b192635279:docs/repairs/open-issues-verification-2026-11-12-task.json:generic-api-key:313
+3c0c4a07a48bb8323734e53af343a603e9c8eae3:app/src/test/kotlin/dev/chungjungsoo/gptmobile/domain/service/BatchManagerAndCacheTest.kt:generic-api-key:19
+46c1dae623a49040c4af8b3a95313466f5da8a7b:RELEASE_NOTES.md:generic-api-key:24
+48e3b4bf57a8803ec42e7cc90d39e4d44be80b4f:RELEASE_NOTES.md:generic-api-key:19
+5ce8cb4ad198386415499159af32fb85972eb62a:docs/repairs/diagnostic-6412928121631152869-task.json:generic-api-key:11
+68a0739ed2db14ddb0109abfb941c51c67ec99a7:docs/repairs/diagnostics-8fb7513c-2026-11-09-task.json:generic-api-key:10
+6b4a96fc47bc54bcefd012a2bd88c091b21b666b:app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderToolRejectionTest.kt:generic-api-key:193
+78d269f2a373f4af0d87bb850c555f9c3b321009:app/src/test/kotlin/dev/chungjungsoo/gptmobile/domain/service/BatchManagerAndCacheTest.kt:generic-api-key:19
+79c58260de528068ee07e03e9d2ec0c5ab9e74b8:docs/repairs/open-issues-verification-2026-11-12-task.json:generic-api-key:313
+79c58260de528068ee07e03e9d2ec0c5ab9e74b8:docs/repairs/session-reliability-followup-2026-11-12-task.json:generic-api-key:124
+79c58260de528068ee07e03e9d2ec0c5ab9e74b8:docs/repairs/session-reliability-followup-2026-11-12-task.json:generic-api-key:140
+79c58260de528068ee07e03e9d2ec0c5ab9e74b8:docs/repairs/session-reliability-reporting-2026-11-12-task.json:generic-api-key:160
+7aaa9731a2b14e77c65d831ca82d437f92eb4fd6:docs/repairs/session-reliability-followup-2026-11-12-task.json:generic-api-key:124
+7aaa9731a2b14e77c65d831ca82d437f92eb4fd6:docs/repairs/session-reliability-followup-2026-11-12-task.json:generic-api-key:140
+7db0c735f9e86eaece24513fbaf5c0a624f13822:docs/repairs/diagnostics-8fb7513c-2026-11-09-task.json:generic-api-key:10
+8877f0ef12ac46f87c9db6e5d79b1b661dc0f62f:docs/repairs/diagnostic-6412928121631152869-task.json:generic-api-key:11
+8877f0ef12ac46f87c9db6e5d79b1b661dc0f62f:docs/repairs/diagnostic-followup-2026-11-12-task.json:generic-api-key:10
+ac945c43407eece368c0fc23905022c597d94089:app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderToolRejectionTest.kt:generic-api-key:193
+cd7e49234b601e7394f582fb12346f0df8f57287:docs/repairs/diagnostic-followup-2026-11-12-task.json:generic-api-key:10
+d02f7f85824ab130b7c8c11c784bb960618eccb4:app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubArgumentProvenanceTest.kt:generic-api-key:115
+d02f7f85824ab130b7c8c11c784bb960618eccb4:app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubArgumentProvenanceTest.kt:generic-api-key:95
+d02f7f85824ab130b7c8c11c784bb960618eccb4:app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubHeaderQueryTest.kt:generic-api-key:27
+daf4f82f86137445f2eab8d34bfa4efd881e1145:docs/repairs/pr813-integration-2026-11-07-task.json:generic-api-key:13
+e1a754336d291ee1ad72878078d7f854d3d0735e:docs/repairs/open-issues-verification-2026-11-12-task.json:generic-api-key:47

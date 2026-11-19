@@ -59,3 +59,18 @@ gateway/.venv/
 /dist/
 /build/
 Gateway_v*_Implementation.zip
+
+# Developer-specific state, private configuration and local Android packages
+.idea/deviceManager.xml
+.env
+.env.*
+!.env.example
+!.env.sample
+*.apk
+*.aab
+*.apks
+*.key
+google-services.json
+local.properties
+.pytest_cache/
+.venv/

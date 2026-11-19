@@ -25,6 +25,45 @@ class SecretVaultInstrumentedTest {
     private val directoryName = "secret-vault-test-$suffix"
     private val vault = AndroidSecretVault(context, keyAlias, directoryName)
 
+    @Test
+    fun encryptsLegacyWalHistoryAndPreservesItIfTheDeviceKeyIsLost() {
+        val directory = File(context.cacheDir, "db-migration-$suffix").apply { mkdirs() }
+        val file = File(directory, "history.db")
+        try {
+            android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
+                db.enableWriteAheadLogging()
+                db.execSQL("CREATE TABLE history(id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)")
+                db.execSQL("CREATE VIRTUAL TABLE history_search USING fts4(body)")
+                db.execSQL("INSERT INTO history(body) VALUES('private migration canary'),('discarded')")
+                db.execSQL("DELETE FROM history WHERE id=2")
+                db.execSQL("INSERT INTO history_search(body) SELECT body FROM history")
+                db.version = 51
+            }
+            val key = EncryptedChatDatabase.prepare(file, vault)
+            assertFalse(file.readBytes().decodeToString().contains("private migration canary"))
+            val native = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
+                file.path,
+                key,
+                null,
+                net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READONLY,
+                null
+            )
+            native.use { db ->
+                assertEquals(51, db.version)
+                assertEquals("private migration canary", db.compileStatement("SELECT body FROM history").use { it.simpleQueryForString() })
+                assertEquals(1L, db.compileStatement("SELECT count(*) FROM history_search WHERE history_search MATCH 'canary'").use { it.simpleQueryForLong() })
+                assertEquals(2L, db.compileStatement("SELECT seq FROM sqlite_sequence WHERE name='history'").use { it.simpleQueryForLong() })
+            }
+            assertArrayEquals(key, EncryptedChatDatabase.prepare(file, vault))
+            val original = file.readBytes()
+            runBlocking { vault.delete("chat-database-v1") }
+            assertTrue(runCatching { EncryptedChatDatabase.prepare(file, vault) }.isFailure)
+            assertArrayEquals(original, file.readBytes())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @After
     fun cleanUp() {
         File(context.noBackupFilesDir, directoryName).deleteRecursively()

@@ -1,7 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.readUTF8Line
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+
+/** Each SSE event is bounded before decoding. Streams can contain many such events. */
+@Suppress("DEPRECATION")
+internal suspend fun ByteReadChannel.readProviderLine(): String? = readUTF8Line(6_000_000)
 
 /**
  * Utility functions for Server-Sent Events (SSE) stream parsing and resilient JSON chunk extraction.
@@ -54,9 +60,7 @@ object SseUtils {
     /**
      * Determines whether an SSE payload string indicates stream completion ([DONE]).
      */
-    fun isDone(payload: String): Boolean {
-        return payload.trim() == DONE_SENTINEL
-    }
+    fun isDone(payload: String): Boolean = payload.trim() == DONE_SENTINEL
 
     /**
      * Safely parses a JSON payload chunk into type [T], gracefully recovering from partial,

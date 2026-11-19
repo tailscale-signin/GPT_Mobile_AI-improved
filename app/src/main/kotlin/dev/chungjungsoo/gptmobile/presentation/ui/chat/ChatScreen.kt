@@ -2652,7 +2652,7 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
         }
         val file = if (format == ChatExportFormat.DEBUG) {
             withContext(Dispatchers.IO) {
-                val output = context.getExternalFilesDir(null) ?: File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                val output = File(context.cacheDir, "chat-exports").apply { mkdirs() }
                 chatViewModel.exportDebugFile(output, reducedMemory, resume, fullHistory)
             }
         } else {
@@ -2662,7 +2662,7 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
                 return
             }
             withContext(Dispatchers.IO) {
-                val output = context.getExternalFilesDir(null) ?: File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                val output = File(context.cacheDir, "chat-exports").apply { mkdirs() }
                 val destination = File(output, fileName)
                 val staging = File(destination.parentFile, ".${destination.name}.partial")
                 try {

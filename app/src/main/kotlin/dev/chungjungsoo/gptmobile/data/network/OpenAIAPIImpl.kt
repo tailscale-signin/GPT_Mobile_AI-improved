@@ -18,7 +18,6 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayResponseMetadata
 import dev.chungjungsoo.gptmobile.data.openrouter.account.recordOpenRouterReceipts
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
-import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.accept
 import io.ktor.client.request.bearerAuth
@@ -34,7 +33,6 @@ import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readLine
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -90,7 +88,7 @@ class OpenAIAPIImpl @Inject constructor(
                 )
             }.execute { response ->
                 GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
-                response.body<String>()
+                response.boundedResponseText()
             }
         }
 
@@ -260,7 +258,7 @@ class OpenAIAPIImpl @Inject constructor(
                         GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                         config.freeDiagnostics?.responded()
                         if (!response.status.isSuccess()) {
-                            val errorBody = if (free != null) readFreeErrorBody(response) else response.body<String>()
+                            val errorBody = readProviderErrorBody(response, if (free != null) 16_384 else 256 * 1024)
                             val failureDetails = JsonObject(
                                 kotlinx.serialization.json.buildJsonObject {
                                     put("failed_stage", "model_invocation")
@@ -393,7 +391,7 @@ class OpenAIAPIImpl @Inject constructor(
                         if (responseType?.match(ContentType.Application.Json) == true ||
                             (!preparedRequest.stream && responseType?.match(ContentType.Text.EventStream) != true)
                         ) {
-                            val responseBody = response.body<String>()
+                            val responseBody = response.boundedResponseText()
                             val decoded = decodeOpenAICompletion(NetworkClient.openAIJson, responseBody)
                             config.freeDiagnostics?.response = FreeResponseObservation.fromHeaders("json") { response.headers[it] }.withChunk(decoded)
                             usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
@@ -483,9 +481,9 @@ class OpenAIAPIImpl @Inject constructor(
                         while (!channel.isClosedForRead) {
                             val remaining = terminalDrain.remainingMillis()
                             val line = if (remaining == null) {
-                                channel.readLine()
+                                channel.readProviderLine()
                             } else {
-                                withTimeoutOrNull(remaining) { channel.readLine() }
+                                withTimeoutOrNull(remaining) { channel.readProviderLine() }
                             } ?: break
                             val data = SseUtils.extractSseData(line) ?: continue
 
@@ -697,7 +695,7 @@ class OpenAIAPIImpl @Inject constructor(
                     else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
                         if (receivedAssistantPayload) "STREAM_INTERRUPTED: connection closed during the response." else "Connection closed before the response started. Please retry."
                     } else {
-                        e.message ?: "Unknown network error"
+                        dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(e).userMessage
                     }
                 }
             }
@@ -864,7 +862,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                                 effectiveConfig.freeDiagnostics?.responded()
                                 if (!response.status.isSuccess()) {
-                                    val errorBody = response.body<String>()
+                                    val errorBody = readProviderErrorBody(response, 256 * 1024)
                                     val parameter = rejectedSamplingParameter(errorBody)
                                     if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown) {
                                         val sanitized = when (parameter) {
@@ -932,7 +930,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 // Success - read SSE stream
                                 val channel = response.bodyAsChannel()
                                 while (!channel.isClosedForRead) {
-                                    val line = channel.readLine() ?: break
+                                    val line = channel.readProviderLine() ?: break
                                     val data = SseUtils.extractSseData(line) ?: continue
 
                                     if (data == "[DONE]") {
@@ -1038,7 +1036,7 @@ class OpenAIAPIImpl @Inject constructor(
                     else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
                         if (receivedResponsePayload) "STREAM_INTERRUPTED: connection closed during the response." else "Connection closed before the response started. Please retry."
                     } else {
-                        e.message ?: "Unknown network error"
+                        dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(e).userMessage
                     }
                 }
             }

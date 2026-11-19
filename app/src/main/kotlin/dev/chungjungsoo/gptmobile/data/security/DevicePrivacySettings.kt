@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-internal data class DevicePrivacySnapshot(val secureScreen: Boolean, val appLock: Boolean)
+internal data class DevicePrivacySnapshot(val secureScreen: Boolean, val appLock: Boolean, val privacyMode: Boolean = false)
 
 /** Null means protected and not yet loaded, never an unlocked default. */
 internal object DevicePrivacySettings {
@@ -26,7 +26,11 @@ internal object DevicePrivacySettings {
         scope.launch {
             val preferences = application.getSharedPreferences("device_privacy", Context.MODE_PRIVATE)
             fun publish() {
-                mutable.value = DevicePrivacySnapshot(preferences.getBoolean("secure_screen", false), preferences.getBoolean("app_lock", false))
+                mutable.value = DevicePrivacySnapshot(
+                    secureScreen = preferences.getBoolean("secure_screen", false) || preferences.getBoolean("privacy_mode_enabled", false),
+                    appLock = preferences.getBoolean("app_lock", false),
+                    privacyMode = preferences.getBoolean("privacy_mode_enabled", false)
+                )
             }
             val observer = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> publish() }
             listener = observer

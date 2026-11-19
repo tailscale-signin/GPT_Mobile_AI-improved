@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 @Serializable
-enum class ProviderFailureKind { AUTHENTICATION, BUDGET, PERMISSION, FORBIDDEN_UNKNOWN, RATE_LIMIT, UNAVAILABLE, UNKNOWN }
+enum class ProviderFailureKind { AUTHENTICATION, BUDGET, PERMISSION, CONTENT_POLICY, FORBIDDEN_UNKNOWN, RATE_LIMIT, UNAVAILABLE, UNKNOWN }
 
 @Serializable
 data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val code: String? = null, val retryAfterMillis: Long? = null) {
@@ -27,6 +27,7 @@ data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val c
             "sharedkeyempty" -> "HTTP $status: the provider reported that the shared key allowance is exhausted."
             else -> "HTTP $status: the provider reported a budget or credit restriction. Check this account's allowance."
         }
+        ProviderFailureKind.CONTENT_POLICY -> "HTTP $status: The provider declined this request under its content policy."
         ProviderFailureKind.PERMISSION -> "HTTP $status: the provider reported an explicit permission restriction for this route."
         ProviderFailureKind.FORBIDDEN_UNKNOWN -> "HTTP 403: access forbidden. The provider's specific cause is unavailable."
         ProviderFailureKind.RATE_LIMIT -> "HTTP $status: provider rate limit reached. Resume after the provider cooldown."
@@ -41,6 +42,7 @@ data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val c
             val error = root?.get("error") as? JsonObject
             val rawCode = ((error?.get("code") ?: root?.get("code") ?: root?.get("rc")) as? JsonPrimitive)?.contentOrNull?.lowercase()
             val kind = when {
+                rawCode in setOf("content_policy_violation", "content_filter", "safety_blocked") -> ProviderFailureKind.CONTENT_POLICY
                 rawCode in setOf("insufficient_quota", "insufficient_credits", "budget_exceeded", "credit_limit_exceeded", "kudosupfront", "sharedkeyempty") || status == 402 -> ProviderFailureKind.BUDGET
                 rawCode in setOf("invalid_api_key", "authentication_error") || status == 401 -> ProviderFailureKind.AUTHENTICATION
                 rawCode in setOf("permission_denied", "model_access_denied", "route_forbidden", "anonforbidden") -> ProviderFailureKind.PERMISSION

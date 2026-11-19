@@ -242,7 +242,7 @@ for test in (
 ):
     check_instrumentation(folder / 'local-voice-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest', test,
                           optional_assumption_reasons=aosp_tts_assumptions)
-for test in ('roundTripOverwriteAndDelete', 'rejectsUnsafeReferencesAndOversizedSecrets', 'rejectsMalformedRecords', 'oversizedRecordIsRejectedBeforeAllocationAndSizeDoesNotRequireAKey', 'rejectsRecordMovedToAnotherReference', 'missingKeystoreKey_preservesEncryptedRecord'):
+for test in ('encryptsLegacyWalHistoryAndPreservesItIfTheDeviceKeyIsLost', 'roundTripOverwriteAndDelete', 'rejectsUnsafeReferencesAndOversizedSecrets', 'rejectsMalformedRecords', 'oversizedRecordIsRejectedBeforeAllocationAndSizeDoesNotRequireAKey', 'rejectsRecordMovedToAnotherReference', 'missingKeystoreKey_preservesEncryptedRecord'):
     check_instrumentation(folder / 'secret-vault-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.security.SecretVaultInstrumentedTest', test)
 for test in ('readableDescriptorWithDeniedPathCanBeExplicitlyImported', 'compatibleSourceRemainsInPlaceAndProbeDoesNotOwnItsDescriptor', 'oversizedFileIsRejectedInsteadOfOfferingAnImpossibleCopy'):
     check_instrumentation(folder / 'model-source-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.localmodel.NativeModelSourceInstrumentedTest', test)
@@ -263,7 +263,7 @@ for test in ('onlineStatusRemainsReadableAndDoesNotChangeSelectionAtLargeText', 
     check_instrumentation(folder / 'gateway-profile-card-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.GatewayProfileCardInstrumentedTest', test)
 for test in ('dialogBlurSwitchActuallyFiltersTheBackground', 'stackedDialogSamplesItsVisibleParentInsteadOfOnlyTheActivity', 'settingsBackdropAndTypographyChangesKeepNavigationContentComposed', 'openingSettingsWhileHomeBlurStillDrawsDoesNotReplayLiveHomeLayers'):
     check_instrumentation(folder / 'glass-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest', test)
-for test in ('selectedPdfPageRendersAsABoundedImageForTheVisionComposer', 'previewedImageReturnsToItsOriginalComposer', 'typingFollowUpKeepsStopAndSendIndependent', 'glassComposerKeepsSendStopAndLatestActionsIndependent', 'backgroundRunStartingDoesNotTakeFocusFromADraft'):
+for test in ('largeFontConversationRetainsSenderLabelsAndAnnouncesTerminalFailureAfterRestoration', 'selectedPdfPageRendersAsABoundedImageForTheVisionComposer', 'previewedImageReturnsToItsOriginalComposer', 'typingFollowUpKeepsStopAndSendIndependent', 'glassComposerKeepsSendStopAndLatestActionsIndependent', 'backgroundRunStartingDoesNotTakeFocusFromADraft'):
     check_instrumentation(folder / 'composer-controls-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ComposerControlsInstrumentedTest', test)
 for test in (
     'conversationGlassKeepsRequestedOpacityOverFadedMessages',

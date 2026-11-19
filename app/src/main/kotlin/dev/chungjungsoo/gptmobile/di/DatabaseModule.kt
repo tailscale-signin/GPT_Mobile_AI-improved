@@ -33,6 +33,7 @@ object DatabaseModule {
             ChatDatabaseV2::class.java,
             "chat_database_v2"
         )
+        .openHelperFactory(dev.chungjungsoo.gptmobile.data.security.EncryptedChatDatabase(context))
         .addMigrations(*ChatDatabaseV2Migrations.ALL_MIGRATIONS)
         .addCallback(dev.chungjungsoo.gptmobile.data.database.RunPolicySnapshotDatabase.callback)
         .build()

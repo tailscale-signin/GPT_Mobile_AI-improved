@@ -1,12 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.network
 
-import android.util.Log
 import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.dto.groq.request.GroqChatCompletionRequest
 import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqChatCompletionChunk
 import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqErrorDetail
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
-import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.accept
 import io.ktor.client.request.bearerAuth
@@ -17,14 +15,12 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readLine
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.serialization.Serializable
 
 class GroqAPIImpl @Inject constructor(
     private val networkClient: NetworkClient
@@ -61,14 +57,9 @@ class GroqAPIImpl @Inject constructor(
                                 errorOrigin = "provider"
                             )
                         }
-                        val errorBody = response.body<String>()
+                        val errorBody = readProviderErrorBody(response, 256 * 1024)
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
-                        val errorMessage = try {
-                            val errorResponse = NetworkClient.openAIJson.decodeFromString<GroqErrorResponse>(errorBody)
-                            errorResponse.error.message
-                        } catch (_: Exception) {
-                            "HTTP ${response.status.value}: $errorBody"
-                        }
+                        val errorMessage = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
 
                         emit(
                             GroqChatCompletionChunk(
@@ -84,19 +75,21 @@ class GroqAPIImpl @Inject constructor(
 
                     ProviderCooldown.observeQuota(config) { response.headers[it] }
                     if (!request.stream) {
-                        val chunk = NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(response.body())
+                        val chunk = NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(response.boundedResponseText())
                         if (chunk.error == null) ProviderCooldown.accepted(config)
                         receivedPayload = true
                         emit(chunk)
                         return@execute
                     }
 
+                    var malformedEvent = false
                     val channel = response.bodyAsChannel()
                     while (!channel.isClosedForRead) {
-                        val line = channel.readLine() ?: break
+                        val line = channel.readProviderLine() ?: break
                         val data = SseUtils.extractSseData(line) ?: continue
 
                         if (data == "[DONE]") {
+                            if (malformedEvent && !receivedPayload) throw kotlinx.serialization.SerializationException("Unreadable Groq response.")
                             ProviderCooldown.accepted(config)
                             emit(GroqChatCompletionChunk(streamFinished = true))
                             break
@@ -104,8 +97,9 @@ class GroqAPIImpl @Inject constructor(
 
                         val chunk = try {
                             NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(data)
-                        } catch (e: kotlinx.serialization.SerializationException) {
-                            Log.w("GroqAPI", "Skipping malformed Groq chunk", e)
+                        } catch (_: kotlinx.serialization.SerializationException) {
+                            // A parser exception can contain private completion text.
+                            malformedEvent = true
                             continue
                         }
                         val error = chunk.error
@@ -128,6 +122,7 @@ class GroqAPIImpl @Inject constructor(
                         receivedPayload = true
                         emit(chunk)
                     }
+                    if (malformedEvent && !receivedPayload) throw kotlinx.serialization.SerializationException("Unreadable Groq response.")
                 }
             }
         } catch (e: Exception) {
@@ -142,29 +137,17 @@ class GroqAPIImpl @Inject constructor(
                 is HttpRequestTimeoutException -> "Request timed out."
                 is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
                 is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
-                else -> e.message ?: "Unknown network error"
+                else -> dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(e).userMessage
             }
 
             emit(
                 GroqChatCompletionChunk(
                     error = GroqErrorDetail(
                         message = errorMessage,
-                        type = "network_error"
+                        type = if (e is kotlinx.serialization.SerializationException) "serialization_error" else "network_error"
                     )
                 )
             )
         }
     }.flowOn(Dispatchers.IO)
 }
-
-@Serializable
-private data class GroqErrorResponse(
-    val error: GroqErrorPayload
-)
-
-@Serializable
-private data class GroqErrorPayload(
-    val message: String,
-    val type: String? = null,
-    val code: String? = null
-)

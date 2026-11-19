@@ -335,7 +335,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
     private suspend fun checkedJson(response: HttpResponse, config: ProviderRequestConfig, model: String): JsonObject {
         val provider = requireNotNull(config.freeProvider)
         if (!response.status.isSuccess()) {
-            val body = readFreeErrorBody(response)
+            val body = readProviderErrorBody(response)
             val retryAt = retainFreeHttpFailure(config, model, response.status.value, body) { response.headers[it] }
             val seconds = retryAt?.let { ((it - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(1) }
             val message = freeHttpErrorMessage(response.status.value, body, config.token)

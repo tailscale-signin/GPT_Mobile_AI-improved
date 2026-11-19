@@ -36,7 +36,14 @@ class ShareInbox @Inject constructor(@ApplicationContext private val context: Co
         var total = 0L
         try {
             val files = uris.mapIndexed { index, uri ->
-                require(uri.scheme == "content" && uri.authority != "${context.packageName}.fileprovider") { "Only granted files from another app can be imported." }
+                val authority = uri.authority?.substringAfterLast('@')
+                require(
+                    uri.scheme == "content" &&
+                        !authority.isNullOrBlank() &&
+                        authority != "${context.packageName}.fileprovider" &&
+                        context.packageManager.resolveContentProvider(authority, 0)?.applicationInfo?.uid != context.applicationInfo.uid &&
+                        context.checkUriPermission(uri, android.os.Process.myPid(), android.os.Process.myUid(), Intent.FLAG_GRANT_READ_URI_PERMISSION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) { "Select a file shared with read access by another app." }
                 val mime = context.contentResolver.getType(uri).orEmpty()
                 val extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)?.takeIf { it.matches(Regex("[a-zA-Z0-9]{1,10}")) } ?: "bin"
                 val file = File(folder, "shared-${index + 1}.$extension")

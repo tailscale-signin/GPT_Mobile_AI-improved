@@ -6,7 +6,6 @@ import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
-import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.accept
 import io.ktor.client.request.forms.MultiPartFormDataContent
@@ -21,7 +20,6 @@ import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readLine
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -80,7 +78,7 @@ class AnthropicAPIImpl @Inject constructor(
                 append(VERSION_HEADER, ANTHROPIC_VERSION)
                 append(BETA_HEADER, ANTHROPIC_FILES_BETA)
             }
-        }.body<String>()
+        }.execute { it.boundedResponseText() }
 
         val uploadResponse = json.decodeFromString<AnthropicFileResponse>(responseBody)
         return UploadedProviderFile(
@@ -102,6 +100,8 @@ class AnthropicAPIImpl @Inject constructor(
             }.execute { response ->
                 response.status.isSuccess()
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             false
         }
@@ -155,7 +155,7 @@ class AnthropicAPIImpl @Inject constructor(
                                         serverRequestId = observed.requestId
                                     )
                                 }
-                                val errorBody = response.body<String>()
+                                val errorBody = readProviderErrorBody(response, 256 * 1024)
                                 throwIfToolDefinitionsRejected(
                                     response.status.value,
                                     !messageRequest.tools.isNullOrEmpty(),
@@ -177,7 +177,7 @@ class AnthropicAPIImpl @Inject constructor(
                                     ErrorResponseChunk(
                                         error = ErrorDetail(
                                             type = errorResponse?.error?.type ?: "api_error",
-                                            message = errorResponse?.error?.message ?: "HTTP ${observed.status}: $errorBody",
+                                            message = providerErrorDetails(errorBody, "HTTP ${observed.status}: The provider rejected this request.", config.token),
                                             code = typed.code,
                                             failureDetails = JsonObject(typed.failureDetails.orEmpty() + ProviderRejectionDiagnostics.response(observed.status, errorBody, ProviderRejectionDiagnostics.Contract.ANTHROPIC_MESSAGES, endpoint))
                                         ).withResponseEvidence(observed, receivedPayload)
@@ -188,7 +188,7 @@ class AnthropicAPIImpl @Inject constructor(
 
                             ProviderCooldown.observeQuota(config) { response.headers[it] }
                             if (!messageRequest.stream) {
-                                val chunks = anthropicCompleteResponseChunks(response.body<String>())
+                                val chunks = anthropicCompleteResponseChunks(response.boundedResponseText())
                                 receivedPayload = true
                                 if (chunks.none { it is ErrorResponseChunk }) ProviderCooldown.accepted(config)
                                 chunks.forEach { chunk ->
@@ -198,7 +198,7 @@ class AnthropicAPIImpl @Inject constructor(
                             }
                             val channel = response.bodyAsChannel()
                             while (!channel.isClosedForRead) {
-                                val line = channel.readLine() ?: break
+                                val line = channel.readProviderLine() ?: break
                                 val data = SseUtils.extractSseData(line) ?: continue
 
                                 var chunk = try {
@@ -243,7 +243,7 @@ class AnthropicAPIImpl @Inject constructor(
                     is HttpRequestTimeoutException -> "Request timed out."
                     is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
                     is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
-                    else -> e.message ?: "Unknown network error"
+                    else -> dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(e).userMessage
                 }
                 val typed = (e as? Exception)?.let { providerExceptionDetails(it, receivedPayload) }
                 val transport = networkFailureKind(e)

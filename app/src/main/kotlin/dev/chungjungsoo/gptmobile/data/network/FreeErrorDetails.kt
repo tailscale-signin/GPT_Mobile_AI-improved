@@ -13,9 +13,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
-internal suspend fun readFreeErrorBody(response: HttpResponse): String {
+internal suspend fun readProviderErrorBody(response: HttpResponse, maxBytes: Int = 16_384): String {
     val channel = response.bodyAsChannel()
-    val buffer = ByteArray(16_384)
+    val buffer = ByteArray(maxBytes)
     var count = 0
     while (count < buffer.size) {
         val read = channel.readAvailable(buffer, count, buffer.size - count)

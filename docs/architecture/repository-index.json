@@ -877,6 +877,7 @@
         ".github/workflows/codeql.yml",
         ".github/workflows/crawler-contracts.yml",
         ".github/workflows/debug-build.yml",
+        ".github/workflows/dependency-audit.yml",
         ".github/workflows/device-validation.yml",
         ".github/workflows/gateway-stability.yml",
         ".github/workflows/gateway-windows-installer.yml",

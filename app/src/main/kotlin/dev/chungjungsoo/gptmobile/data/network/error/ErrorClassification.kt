@@ -38,6 +38,8 @@ enum class ErrorCategory {
     SERVICE_UNAVAILABLE,
     CIRCUIT_BREAKER_OPEN,
     SERIALIZATION_ERROR,
+    LOCAL_STORAGE_FAILURE,
+    CONTENT_POLICY_REFUSAL,
     REQUEST_REJECTED,
     CLIENT_CANCELLED,
     UNKNOWN
@@ -83,6 +85,30 @@ object ErrorClassification {
 
         return when {
             throwable is kotlinx.coroutines.CancellationException -> ClassifiedError(ErrorCategory.CLIENT_CANCELLED, ErrorSeverity.LOW, false, 0, "Request was cancelled.", throwable)
+            causes.any { it is android.database.sqlite.SQLiteException } -> ClassifiedError(
+                ErrorCategory.LOCAL_STORAGE_FAILURE,
+                ErrorSeverity.HIGH,
+                false,
+                0,
+                "The app could not read or save local data. Check available device storage before trying again.",
+                throwable
+            )
+            causes.any { it is kotlinx.serialization.SerializationException } -> ClassifiedError(
+                ErrorCategory.SERIALIZATION_ERROR,
+                ErrorSeverity.MEDIUM,
+                false,
+                0,
+                "The app could not read the response format. Review the selected model and try again.",
+                throwable
+            )
+            msg.contains("the provider declined this request under its content policy") -> ClassifiedError(
+                ErrorCategory.CONTENT_POLICY_REFUSAL,
+                ErrorSeverity.LOW,
+                false,
+                0,
+                "The provider declined this request under its content policy. Edit the request before sending again.",
+                throwable
+            )
             "gateway_outcome_unknown" in msg -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "The gateway may already have performed actions. Reconcile the saved job and remote results before resuming; do not repeat this request.", throwable, errorCode = "GATEWAY_OUTCOME_UNKNOWN")
             dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes.any { msg.contains(it.lowercase(java.util.Locale.ROOT)) } -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "A dispatched operation has an unknown outcome. Reconcile the exact saved result before another write; do not repeat the request.", throwable, errorCode = "RECONCILIATION_REQUIRED")
             gatewayAdmission != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.HIGH, false, 0, requireNotNull(gatewayAdmission.message), throwable, errorCode = "GATEWAY_${gatewayAdmission.reason.name}")
@@ -226,21 +252,12 @@ object ErrorClassification {
                 originalThrowable = throwable
             )
 
-            throwable is kotlinx.coroutines.CancellationException -> ClassifiedError(
-                category = ErrorCategory.CLIENT_CANCELLED,
-                severity = ErrorSeverity.LOW,
-                isRetryable = false,
-                suggestedBackoffMs = 0L,
-                userMessage = "Request was cancelled.",
-                originalThrowable = throwable
-            )
-
             else -> ClassifiedError(
                 category = ErrorCategory.UNKNOWN,
                 severity = ErrorSeverity.MEDIUM,
                 isRetryable = false,
                 suggestedBackoffMs = 1_000L,
-                userMessage = "An unexpected error occurred: ${throwable.localizedMessage ?: "Unknown error"}",
+                userMessage = "The request stopped unexpectedly. Review the task details before retrying.",
                 originalThrowable = throwable
             )
         }

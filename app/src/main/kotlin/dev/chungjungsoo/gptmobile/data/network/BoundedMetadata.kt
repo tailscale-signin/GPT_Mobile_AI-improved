@@ -7,7 +7,10 @@ import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.yield
 
 /** Size bounds apply while reading, before JSON allocation and parsing. */
-internal suspend fun HttpResponse.boundedMetadata(maxBytes: Int = 2_000_000): String {
+internal suspend fun HttpResponse.boundedMetadata(maxBytes: Int = 2_000_000): String =
+    boundedResponseText(maxBytes, "Catalog response exceeds its size limit.")
+
+internal suspend fun HttpResponse.boundedResponseText(maxBytes: Int = 16 * 1024 * 1024, limitMessage: String = "Provider response exceeds its size limit."): String {
     val channel = bodyAsChannel()
     try {
         val output = ByteArrayOutputStream()
@@ -19,7 +22,7 @@ internal suspend fun HttpResponse.boundedMetadata(maxBytes: Int = 2_000_000): St
                 yield()
                 continue
             }
-            check(output.size() + count <= maxBytes) { "Catalog response exceeds its size limit." }
+            check(output.size() + count <= maxBytes) { limitMessage }
             output.write(buffer, 0, count)
         }
         return output.toString("UTF-8")

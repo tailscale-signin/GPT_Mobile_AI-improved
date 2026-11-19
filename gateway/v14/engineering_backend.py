@@ -515,7 +515,7 @@ class GitHubEngineeringBackend:
                        'Use explore for graph-first retrieval, symbols/relationships for revision-bound code graph context, glob for filenames. '
                        'Follow every next_cursor until relevant source is found; read cited ranges before editing. '
                        'discover_tests statically lists cases and approved_check_indices; repeat the same query with next_cursor as cursor to continue, including within a large test file. run_test/compile_module/lint_changed_files/check_patch select a matching check_index; no command strings are accepted. '
-                       'compare_candidates takes left_check_id and right_check_id. '
+                       'compare_candidates takes left_check_id, right_check_id and optional offset from next_offset. '
                        'Use hunks:[{start_line:1,old:exact old text,new:replacement}] instead of edits for repeated anchors. '
                        'Use requirements with offset to read additional acceptance requirements in groups of four. '
                        'Use checks to list approved checks; check selects check_index and optionally proposal with the normal changes contract '

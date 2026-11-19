@@ -141,11 +141,11 @@ class GatewayEngineeringRepository @Inject constructor(
 
     suspend fun candidateDetails(requestId: String, checkId: String): String = candidatePage(requestId, checkId, 0).first
 
-    suspend fun candidatePage(requestId: String, checkId: String, offset: Int): Pair<String, Int?> {
+    suspend fun candidatePage(requestId: String, checkId: String, offset: Int, left: String? = null): Pair<String, Int?> {
         val binding = bindings().single { it.request.requestId == requestId }
         val config = config(binding)
         check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed." }
-        return client.candidatePage(config, requireNotNull(binding.job).id, checkId, offset)
+        return client.candidatePage(config, requireNotNull(binding.job).id, checkId, offset, left)
     }
 
     suspend fun restoreCandidate(requestId: String, expected: GatewayEngineeringJob, checkId: String) = synchronization.withLock {

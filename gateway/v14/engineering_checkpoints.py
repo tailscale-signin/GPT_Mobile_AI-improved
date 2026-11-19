@@ -59,10 +59,15 @@ def rewind(service, principal, job_id, revision, check_id):
     return result
 
 
-def candidate_details(service, principal, job_id, check_id, offset=0):
+def candidate_details(service, principal, job_id, check_id, offset=0, left_check_id=None):
     import difflib
     job = service.evidence_access(principal, job_id)
     service.artifacts.restore_stage(job)
+    if left_check_id is not None:
+        from v14.engineering_workspace_checks import compare_page
+        comparison = compare_page(service.backend, job, left_check_id, check_id, offset)
+        service.evidence_access(principal, job_id)
+        return dict(comparison, job_id=job_id, head_sha=job['data']['head_sha'])
     changes = retained_candidate(service.backend, job, check_id)
     if type(offset) is not int or offset < 0:
         raise ValueError('Select a positive diff offset or zero')

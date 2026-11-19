@@ -12,7 +12,8 @@
     "Offline per-task processes, dependency-prepared environment profiles, language server requests, resumable specialists, configurable validation hooks and Android plan, activity and test views",
     "Corrective commits and alternate workspace checkouts, dependency-ordered issue workflows, custom environment recipes and per-route qualification",
     "Android-selected model workspace check tool, per-repository host approval, revision and profile-bound consent, encrypted idempotent check receipts and reconnect lookup.",
-    "Retained private APK and test output, checksummed Android and desktop export, and hierarchical instructions for Android-native source reads and edits."
+    "Retained private APK and test output, checksummed Android and desktop export, and hierarchical instructions for Android-native source reads and edits.",
+    "The Android checkpoint timeline compares any two retained candidates at the same source and policy, pages the entire diff and shows both test results."
   ],
   "remaining": [
     "Complete end-to-end prepared Android image and installed profile, recovery and source-sharing qualification",
@@ -41,6 +42,10 @@
     {
       "commit": "9a1dd5f111fe354255384fd6a6b922f6745a3ae9",
       "scope": "Immutable local fast suite (554 repository tests) and full Gateway suite passed, as did hosted managed Docker, offline Node and Python. The hosted paired check dispatcher reproduced and repaired a fixture against real Docker. Its model identity was a fixture."
+    },
+    {
+      "commit": "ae463479441607d5efeadf98547d39897efa0cd6",
+      "scope": "Full local Gateway tests and 554 fast tests passed. The Android Gradle project configured successfully with the AboutLibraries plugin restricted to its verified Plugin Portal coordinates."
     }
   ]
 }

@@ -9,6 +9,28 @@ from v14.workspace_timeline import corrective_candidate
 
 
 class TimelineTests(TestCase):
+    def test_comparison_pages_are_complete_and_bound_to_both_test_results(self):
+        from v14.engineering_workspace_checks import compare_page
+        first = [{'path':'main.kt', 'content':'old\n'}, {'path':'removed.txt', 'content':'gone\n'}]
+        second = [{'path':'main.kt', 'content':'new\n' + 'continued\n'*4000}]
+        checks = {'left':{'status':'FAILED', 'patch_identity':'old-patch'}, 'right':{'status':'PASSED', 'patch_identity':'new-patch'}}
+        job = {'data':{'workspace_checks':checks, 'tree':{}}}
+        with patch('v14.engineering_workspace_checks.retained_candidate', side_effect=lambda b,j,key: {'left':first, 'right':second}[key]):
+            offset, parts = 0, []
+            while offset is not None:
+                row = compare_page(None, job, 'left', 'right', offset)
+                self.assertEqual(('FAILED', 'PASSED'), (row['left_status'], row['status']))
+                self.assertEqual(('old-patch', 'new-patch'), (row['left_patch_identity'], row['right_patch_identity']))
+                self.assertLessEqual(len(row['diff']), 16000)
+                parts.append(row['diff'])
+                offset = row['next_offset']
+            patch_text = ''.join(parts)
+            self.assertGreater(len(parts), 2)
+            self.assertEqual(4000, patch_text.count('+continued\n'))
+            self.assertIn('-gone\n', patch_text)
+            with self.assertRaises(ValueError):
+                compare_page(None, job, 'left', 'right', len(patch_text)+1)
+
     def test_corrective_commit_preserves_concurrent_edits_and_file_modes(self):
         target, parent, head = (letter * 40 for letter in 'abc')
         old = {'x': {'sha': blob_sha('old'), 'mode': '100755'}}

@@ -506,10 +506,10 @@ def install_engineering_routes(app, service):
 
     @app.get('/gateway/engineering/jobs/{job_id}/checkpoints/{check_id}')
     @app.get('/v1/gateway/engineering/jobs/{job_id}/checkpoints/{check_id}')
-    async def checkpoint_detail(job_id: str, check_id: str, request: Request, offset: int = 0):
+    async def checkpoint_detail(job_id: str, check_id: str, request: Request, offset: int = 0, left_check_id: str | None = None):
         from v14.engineering_checkpoints import candidate_details
         async def run():
-            return await asyncio.to_thread(candidate_details, service, principal(request), job_id, check_id, offset)
+            return await asyncio.to_thread(candidate_details, service, principal(request), job_id, check_id, offset, left_check_id)
         return await execute(run)
 
     @app.get('/gateway/engineering/jobs/{job_id}/operations')

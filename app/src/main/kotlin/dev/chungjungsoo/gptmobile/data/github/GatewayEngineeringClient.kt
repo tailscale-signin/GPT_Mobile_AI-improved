@@ -489,14 +489,18 @@ class GatewayEngineeringClient internal constructor(
 
     suspend fun candidateDetails(config: ProviderRequestConfig, jobId: String, checkId: String): String = candidatePage(config, jobId, checkId, 0).first
 
-    suspend fun candidatePage(config: ProviderRequestConfig, jobId: String, checkId: String, offset: Int): Pair<String, Int?> {
+    suspend fun candidatePage(config: ProviderRequestConfig, jobId: String, checkId: String, offset: Int, left: String? = null): Pair<String, Int?> {
         require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && checkId.matches(Regex("[a-f0-9]{64}")) && offset >= 0)
-        val value = json.parseToJsonElement(request(config, "jobs/$jobId/checkpoints/$checkId?offset=$offset")).jsonObject
+        require(left == null || left != checkId && left.matches(Regex("[a-f0-9]{64}")))
+        val comparison = left?.let { "&left_check_id=$it" }.orEmpty()
+        val value = json.parseToJsonElement(request(config, "jobs/$jobId/checkpoints/$checkId?offset=$offset$comparison")).jsonObject
+        if (left != null) check(value["left_check_id"] == JsonPrimitive(left) && value["scope"] == JsonPrimitive("candidate_comparison")) { "The Gateway did not return the selected comparison." }
         check(value["job_id"]?.jsonPrimitive?.content == jobId && value["check_id"]?.jsonPrimitive?.content == checkId)
         check((value["offset"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0) == offset)
         val next = value["next_offset"]?.jsonPrimitive?.content?.toIntOrNull()
         check(next == null || next > offset)
         val text = buildString {
+            if (left != null) append("Baseline: ${value["left_status"]?.jsonPrimitive?.content} · Compared candidate: ${value["status"]?.jsonPrimitive?.content}\n")
             append(value["diff"]?.jsonPrimitive?.content.orEmpty())
             if (next == null && value["truncated"] == JsonPrimitive(true)) append("\nThe Gateway returned a partial diff. Update it to enable paging.")
             val output = value["output"]?.jsonPrimitive?.content.orEmpty()

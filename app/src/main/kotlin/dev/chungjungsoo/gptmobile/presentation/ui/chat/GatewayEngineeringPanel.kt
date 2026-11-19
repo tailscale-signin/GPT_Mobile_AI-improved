@@ -224,6 +224,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
         )
     }
     state.checkpoints?.let { (binding, history) ->
+        var baseline by remember(history.jobId, history.revision) { mutableStateOf<String?>(null) }
         var selected by remember(history.jobId, history.revision) { mutableStateOf<String?>(null) }
         AlertDialog(
             onDismissRequest = model::closeCheckpoints,
@@ -237,6 +238,13 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                         }
                     }
                     TextButton(onClick = { selected?.let { model.inspectCandidate(binding, it) } }, enabled = selected != null && !state.busy) { Text("Inspect patch and test output") }
+                    if (history.candidates.size >= 2) {
+                        TextButton(enabled = selected != null && !state.busy, onClick = { baseline = selected }) { Text("Use selected candidate as baseline") }
+                        baseline?.let { first ->
+                            Text("Baseline · ${first.take(12)}")
+                            TextButton(enabled = selected != null && selected != first && !state.busy, onClick = { selected?.let { model.inspectCandidate(binding, it, left = first) } }) { Text("Compare selected candidate with baseline") }
+                        }
+                    }
                     if (history.candidates.isEmpty()) Text("No retained patch attempts yet.")
                     Text("Restore reruns validation and review. Published history remains unchanged.")
                 }
@@ -258,8 +266,8 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                 Column {
                     state.candidateCursor?.let { cursor ->
                         Row {
-                            TextButton(enabled = !state.busy && cursor.offset > 0, onClick = { model.inspectCandidate(cursor.binding, cursor.checkId, (cursor.offset - 16000).coerceAtLeast(0)) }) { Text("Previous page") }
-                            TextButton(enabled = !state.busy && cursor.next != null, onClick = { cursor.next?.let { model.inspectCandidate(cursor.binding, cursor.checkId, it) } }) { Text("Next page") }
+                            TextButton(enabled = !state.busy && cursor.offset > 0, onClick = { model.inspectCandidate(cursor.binding, cursor.checkId, (cursor.offset - 16000).coerceAtLeast(0), cursor.left) }) { Text("Previous page") }
+                            TextButton(enabled = !state.busy && cursor.next != null, onClick = { cursor.next?.let { model.inspectCandidate(cursor.binding, cursor.checkId, it, cursor.left) } }) { Text("Next page") }
                         }
                     }
                     androidx.compose.runtime.key(state.candidateCursor?.offset) {

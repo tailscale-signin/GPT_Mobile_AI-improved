@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-data class CandidatePageCursor(val binding: GatewayEngineeringBinding, val checkId: String, val offset: Int, val next: Int?)
+data class CandidatePageCursor(val binding: GatewayEngineeringBinding, val checkId: String, val offset: Int, val next: Int?, val left: String? = null)
 
 data class GatewayEngineeringUiState(
     val bindings: List<GatewayEngineeringBinding> = emptyList(),
@@ -154,9 +154,9 @@ class GatewayEngineeringViewModel @Inject constructor(
         updateForEpoch(selectedEpoch) { it.copy(checkpoints = binding to result) }
     }
 
-    fun inspectCandidate(binding: GatewayEngineeringBinding, checkId: String, offset: Int = 0) = action { selectedEpoch ->
-        val (text, next) = repository.candidatePage(binding.request.requestId, checkId, offset)
-        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text, candidateCursor = CandidatePageCursor(binding, checkId, offset, next)) }
+    fun inspectCandidate(binding: GatewayEngineeringBinding, checkId: String, offset: Int = 0, left: String? = null) = action { selectedEpoch ->
+        val (text, next) = repository.candidatePage(binding.request.requestId, checkId, offset, left)
+        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text, candidateCursor = CandidatePageCursor(binding, checkId, offset, next, left)) }
     }
 
     fun restoreCandidate(binding: GatewayEngineeringBinding, checkId: String) = action { selectedEpoch ->

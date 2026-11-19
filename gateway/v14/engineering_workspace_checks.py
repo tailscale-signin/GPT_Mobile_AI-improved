@@ -38,6 +38,45 @@ def retained_candidate(backend, job, check_id):
     return changes
 
 
+def compare_page(backend, job, left_id, right_id, offset=0):
+    import difflib
+    from v14.engineering_workspace import load_file
+    if type(offset) is not int or offset < 0 or left_id == right_id:
+        raise ValueError('Select two distinct candidates and a valid page offset')
+    before, after = ({c['path']: c for c in retained_candidate(backend, job, key)} for key in (left_id, right_id))
+    data = job['data']
+    end, position, parts = offset + 16000, 0, []
+    for path in sorted(before.keys() | after.keys()):
+        base = None
+        if path not in before or path not in after:
+            if path in data.get('tree', {}):
+                base = load_file(backend, job, path)['content']
+            elif path in data.get('files', {}):
+                base = data['files'][path]['content']
+        left = before[path]['content'] if path in before else base
+        right = after[path]['content'] if path in after else base
+        if left == right:
+            continue
+        lines = difflib.unified_diff((left or '').splitlines(True), (right or '').splitlines(True),
+                                     fromfile=path if left is not None else '/dev/null',
+                                     tofile=path if right is not None else '/dev/null')
+        for line in lines:
+            following = position + len(line)
+            if following > offset and position < end:
+                parts.append(line[max(0, offset-position):end-position])
+            position = following
+            if position > end:
+                break
+        if position > end:
+            break
+    if offset > position:
+        raise ValueError('Offset exceeds this comparison')
+    first, second = (data['workspace_checks'][key] for key in (left_id, right_id))
+    return dict(diff=''.join(parts), truncated=position > end, next_offset=end if position > end else None, offset=offset,
+                left_check_id=left_id, check_id=right_id, left_status=first['status'], status=second['status'],
+                left_patch_identity=first['patch_identity'], right_patch_identity=second['patch_identity'], scope='candidate_comparison')
+
+
 def act(backend, job, action):
     from v14.engineering_backend import prepare_changes
     from v14.engineering_source import prepare_source
@@ -51,19 +90,7 @@ def act(backend, job, action):
         _, checks = catalog(job)
         return discover(backend, job, action, checks)
     if kind == 'compare_candidates':
-        import difflib
-        left = retained_candidate(backend, job, action.get('left_check_id'))
-        right = retained_candidate(backend, job, action.get('right_check_id'))
-        before, after = {c['path']: c for c in left}, {c['path']: c for c in right}
-        patches = []
-        for path in sorted(before.keys() | after.keys()):
-            source = data.get('files', {}).get(path, {}).get('content', '')
-            a = before[path]['content'] if path in before else source
-            b = after[path]['content'] if path in after else source
-            patches.append(''.join(difflib.unified_diff((a or '').splitlines(True), (b or '').splitlines(True), fromfile=path, tofile=path)))
-        diff = ''.join(patches)
-        return {'diff': diff[:12000], 'truncated': len(diff) > 12000, 'scope': 'candidate_comparison',
-                'left_patch_identity': patch_identity(data['head_sha'], left), 'right_patch_identity': patch_identity(data['head_sha'], right)}
+        return compare_page(backend, job, action.get('left_check_id'), action.get('right_check_id'), action.get('offset', 0))
     if kind == 'checks':
         policy_sha, checks = catalog(job)
         return {'policy_sha256': policy_sha, 'checks': checks, 'scope': 'exploratory'}

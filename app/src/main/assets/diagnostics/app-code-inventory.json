@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b9480a1acf2ff054e4ecd84b919ae17ecf2c4233eb48f8f7534b783e7040f8aa",
+  "source_digest": "dffdd0ecde6637415958d038481a3a08f93904c93bb334d810d4b1354f8ce480",
   "file_count": 2699,
-  "indexed_line_count": 441201,
+  "indexed_line_count": 441207,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 566,
-      "indexed_line_count": 99495
+      "indexed_line_count": 99493
     },
     {
       "id": "accessibility_and_localization",
@@ -136,7 +136,7 @@
       "id": "benchmark",
       "label": "Benchmarks and app audit",
       "file_count": 119,
-      "indexed_line_count": 18479
+      "indexed_line_count": 18487
     },
     {
       "id": "auth_and_security",
@@ -4112,7 +4112,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkScoreboard.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "773acd3e5db8df2e5e8bbc5864de9545df7ed503df33b54b5d88582d5e5fa42b",
+      "sha256": "daa921106f743c5087a02e37e3724f5d1f0d36b9be85e6a7210daa21485c436e",
       "indexed_lines": 247
     },
     {
@@ -4210,8 +4210,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubProfileAuditSuite.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "0b7cec1113516705f1e82237ae0208640e676a0cb8f437d3345900c1412b7229",
-      "indexed_lines": 578
+      "sha256": "0543a08f493e67d06c296cf65e453fbb7834ae0f8b9a351d4cb6ce54e0c28529",
+      "indexed_lines": 586
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/IntelligenceBenchmark.kt",
@@ -13023,8 +13023,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBottomIndicator.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "dcd29d75e5f90959f4e492ccd837dfb716ea2dc5c2b83c1f32b2bc404aa1acef",
-      "indexed_lines": 132
+      "sha256": "2dabe6262f328157e7a938ad77a517a9c3fbb4783fb688780b1ecc1f73887f28",
+      "indexed_lines": 130
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt",

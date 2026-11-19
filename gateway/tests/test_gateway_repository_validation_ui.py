@@ -53,7 +53,10 @@ class RepositoryValidationUiTests(unittest.TestCase):
         self.assertFalse(self.panel.advanced_visible.get())
         self.assertEqual(str(self.panel.commands.cget('state')), 'disabled')
         self.assertFalse((self.root / 'data/validation-settings.json').exists())
-        self.assertEqual(set(CONTRACT_FIELDS), set(json.loads(self.panel.contract.get('1.0', 'end'))))
+        contract = json.loads(self.panel.contract.get('1.0', 'end'))
+        self.assertEqual(set(CONTRACT_FIELDS) | {'workspace_hooks', 'workspace_environment'}, set(contract))
+        self.assertEqual({}, contract['workspace_hooks'])
+        self.assertEqual({}, contract['workspace_environment'])
 
     def test_git_hub_settings_contains_all_three_subtabs_and_no_external_policy_field(self):
         from desktop.ui import build_window

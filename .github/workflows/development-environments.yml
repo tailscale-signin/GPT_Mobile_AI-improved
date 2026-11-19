@@ -18,7 +18,9 @@ permissions:
   contents: read
 concurrency:
   group: development-environments-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Expensive image preparation must finish to expose compiler and offline-test failures.
+  # GitHub retains the newest pending revision under the same PR concurrency group.
+  cancel-in-progress: false
 jobs:
   prepare:
     name: Offline development profile (${{ matrix.profile }})

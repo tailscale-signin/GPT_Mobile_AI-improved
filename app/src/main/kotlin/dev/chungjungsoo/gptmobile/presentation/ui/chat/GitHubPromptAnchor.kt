@@ -25,18 +25,21 @@ internal class GitHubPromptAnchor(
         finishScroll()
     }
 
-    /** Positive motion reveals history; negative motion returns toward the active turn. */
-    fun move(delta: Float) {
-        if (delta == 0f) return
+    /** A positive drag reports detachment once when it crosses touch slop, even after an external jump to the latest message. */
+    fun move(delta: Float): Boolean {
+        if (!delta.isFinite() || delta == 0f) return false
         dragging = true
         if (delta < 0f) {
             historyDistance = 0f
             returningToBottom = true
-        } else {
-            returningToBottom = false
-            historyDistance += delta
-            if (historyDistance >= releaseDistance) mode = GitHubScrollMode.USER_HISTORY
+            return false
         }
+        returningToBottom = false
+        val firstCrossing = historyDistance == 0f || historyDistance < releaseDistance
+        historyDistance += delta
+        if (historyDistance < releaseDistance) return false
+        mode = GitHubScrollMode.USER_HISTORY
+        return firstCrossing
     }
 
     fun endGesture(cancelled: Boolean = false) {

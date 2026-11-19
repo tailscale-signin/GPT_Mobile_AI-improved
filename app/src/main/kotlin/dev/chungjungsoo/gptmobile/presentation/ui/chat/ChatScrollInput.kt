@@ -111,6 +111,7 @@ internal fun rememberChatScrollInput(
                     currentFollowIfAtBottom()
                     // Wheel gestures have no pointer-up callback. Release the
                     // dragging latch before the next explicit follow request.
+                    gesture.finishScroll()
                     input.dragging = false
                     // Prevent IME/header geometry changes from restoring follow later.
                     input.finishUserScroll()
@@ -123,11 +124,10 @@ internal fun rememberChatScrollInput(
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (source == NestedScrollSource.UserInput && available.y != 0f) {
-                    val wasFollowing = gesture.mode != GitHubScrollMode.USER_HISTORY
-                    gesture.move(available.y)
+                    val crossedHistoryThreshold = gesture.move(available.y)
                     input.recordUserDelta(available.y / density)
                     input.dragging = true
-                    if (wasFollowing && gesture.mode == GitHubScrollMode.USER_HISTORY) detach()
+                    if (crossedHistoryThreshold) detach()
                 }
                 return Offset.Zero
             }

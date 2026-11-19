@@ -181,3 +181,5 @@ In GitHub settings select the paired PC as the engineering Gateway for the desir
 Owners can change worker and chat limits, select approved backends and validation profiles, choose a permitted batch mode, and manage repository maps, startup, update policy and diagnostic recording. Windows approves new backend origins and validation profiles. The app reports desired and active values separately and looks up the original command after a lost response. A backend must return a usable model catalogue before activation. Requested Windows actions appear for local review under Android controls. Revoke individual devices there, or pause phone access for the installation.
 
 The Windows workspace uses the installer’s WPF theme. Open a section to inspect the runtime, then open the associated chat, job, benchmark or settings editor. **Diagnostics** previews the fields included in its text export. Closing the workspace leaves the supervisor and jobs running.
+
+The Windows account that runs the Gateway protects its phone-pairing authority and HTTPS private keys with DPAPI. Upgrading an existing installation preserves its certificate fingerprints and paired devices.

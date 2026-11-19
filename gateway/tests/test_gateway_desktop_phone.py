@@ -14,12 +14,14 @@ import unittest
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
+import os
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from desktop import phone_access, phone_settings
+from desktop import phone_access, phone_keys, phone_settings
 from desktop.configuration import DEFAULTS, atomic_json, load
 from desktop.phone_listener import companion_lifespan
 from v14.conversations import Conversations
@@ -62,13 +64,17 @@ class PairedControls(unittest.IsolatedAsyncioTestCase):
             self.port = sock.getsockname()[1]
         self.host = '192.168.2.8'
         # Bind on a real local socket. The enrolled certificate and HTTP authority use the PC's advertised LAN address.
+        if os.name != 'nt':
+            # Exercise encrypted PEMs on Linux. Installed Windows tests use the actual user-scoped DPAPI.
+            provider = patch.object(phone_keys, 'password', return_value=b'test-encrypted-listener-password')
+            provider.start()
+            self.addCleanup(provider.stop)
         self.cfg = phone_access.configure(self.root, self.host, self.port)
         loop = asyncio.get_running_loop()
         create = loop.create_server
         async def loopback_socket(factory, **kwargs):
             kwargs['host'] = '127.0.0.1'
             return await create(factory, **kwargs)
-        from unittest.mock import patch
         patched = patch.object(loop, 'create_server', loopback_socket)
         patched.start()
         self.addCleanup(patched.stop)
@@ -120,6 +126,27 @@ class PairedControls(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(phone_access.authorized(self.root, grant['device']))
         phone_access.approve(self.root, grant['device'])
         return grant['device'], *contexts
+
+    async def test_previous_keys_migrate_without_changing_device_or_server_identity(self):
+        device, control, _ = await self.pair()
+        folder = phone_access.directory(self.root)
+        secret = phone_keys.password(folder)
+        certs = {}
+        for path in folder.glob('*.pem'):
+            data = path.read_bytes()
+            self.assertIn(b'BEGIN ENCRYPTED PRIVATE KEY', data)
+            key = serialization.load_pem_private_key(data, password=secret)
+            certs[path] = x509.load_pem_x509_certificate(data)
+            phone_keys.atomic_bytes(path, phone_keys.pem(key, certs[path], None))
+        self.assertEqual(secret, phone_access.listener_password(self.root))
+        for path, cert in certs.items():
+            data = path.read_bytes()
+            self.assertNotIn(b'BEGIN PRIVATE KEY', data)
+            self.assertEqual(cert, x509.load_pem_x509_certificate(data))
+            with self.assertRaises(TypeError):
+                serialization.load_pem_private_key(data, password=None)
+        self.assertTrue(phone_access.authorized(self.root, device))
+        self.assertEqual(200, (await self.call('/gateway/owner/settings', ctx=control))[0])
 
     async def test_owner_scopes_replay_stale_changes_deferred_worker_and_revocation(self):
         path = '/gateway/owner/settings'

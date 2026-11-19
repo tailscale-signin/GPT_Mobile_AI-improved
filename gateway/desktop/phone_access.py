@@ -4,7 +4,6 @@ from contextlib import contextmanager, closing
 from datetime import datetime, timedelta, timezone
 import hashlib
 import ipaddress
-import os
 from pathlib import Path
 import secrets
 import sqlite3
@@ -16,6 +15,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
+from desktop import phone_keys
 from desktop.configuration import atomic_json
 from v14.state_lock import StateDirectoryLock
 
@@ -63,13 +63,6 @@ def _cert(name, issuer, public, signer, ca=False, usages=(), host=None):
     return builder.sign(signer, hashes.SHA256())
 
 
-def _write_secret(path, data):
-    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-
-
 def configure(root, host, port):
     """A concrete interface and a separate port are deliberate Windows-owner choices."""
     import json
@@ -83,20 +76,20 @@ def configure(root, host, port):
     lock = StateDirectoryLock(folder / 'pki-lock' / 'owner')
     lock.acquire()
     try:
+        secret = phone_keys.password(folder, create=True)
+        phone_keys.protect_existing(folder, secret)
         ca_path = folder / 'authority.pem'
         if not ca_path.exists():
             signer = ec.generate_private_key(ec.SECP256R1())
             ca = _cert('GPT Mobile device authority', None, signer.public_key(), signer, ca=True)
-            key = signer.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
-            _write_secret(ca_path, key + ca.public_bytes(serialization.Encoding.PEM))
+            phone_keys.atomic_bytes(ca_path, phone_keys.pem(signer, ca, secret))
         ca, signer = _authority(folder)
         leaf_path = folder / ('server-' + str(addr) + '.pem')
         if not leaf_path.exists():
             key = ec.generate_private_key(ec.SECP256R1())
             cert = _cert('GPT Mobile Gateway', ca.subject, key.public_key(), signer,
                          usages=[ExtendedKeyUsageOID.SERVER_AUTH], host=addr)
-            _write_secret(leaf_path, key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                          serialization.NoEncryption()) + cert.public_bytes(serialization.Encoding.PEM))
+            phone_keys.atomic_bytes(leaf_path, phone_keys.pem(key, cert, secret))
         cert = x509.load_pem_x509_certificate(leaf_path.read_bytes())
         cfg = dict(host=str(addr), port=port, pin=cert.fingerprint(hashes.SHA256()).hex())
         target = folder / 'listener.json'
@@ -109,9 +102,21 @@ def configure(root, host, port):
         lock.release()
 
 
+def listener_password(root):
+    folder = directory(root)
+    lock = StateDirectoryLock(folder / 'pki-lock' / 'owner')
+    lock.acquire()
+    try:
+        secret = phone_keys.password(folder, create=True)
+        phone_keys.protect_existing(folder, secret)
+        return secret
+    finally:
+        lock.release()
+
+
 def _authority(folder):
     pem = (folder / 'authority.pem').read_bytes()
-    return x509.load_pem_x509_certificate(pem), serialization.load_pem_private_key(pem, password=None)
+    return x509.load_pem_x509_certificate(pem), serialization.load_pem_private_key(pem, password=phone_keys.password(folder))
 
 
 def invite(root, role='owner'):

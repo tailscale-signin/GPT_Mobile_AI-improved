@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "d7d44905eeae7cebdf316edd97a46fe6f912d9bcdc99e5f0abc1b8a4758d287b",
-  "file_count": 2716,
-  "indexed_line_count": 446894,
+  "source_digest": "1a73662a174f2af91f2605b623d278954ff99f37fc5ec963fa446cedfa789bab",
+  "file_count": 2717,
+  "indexed_line_count": 446986,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -165,8 +165,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 181,
-      "indexed_line_count": 79335
+      "file_count": 182,
+      "indexed_line_count": 79427
     },
     {
       "id": "authentication_service",
@@ -18021,15 +18021,22 @@
       "path": "gateway/desktop/phone_access.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "2e80dbe8cde92fba7f2108bb62e429a1e472be25695cc7a8e22c65d006a3c58c",
-      "indexed_lines": 174
+      "sha256": "ef9c1dcb291a2c47a1cf18a734ce8a8cb98bae774e054dc8a617b9c3d49ca9f2",
+      "indexed_lines": 179
+    },
+    {
+      "path": "gateway/desktop/phone_keys.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "2807a5063f585d0ed9fc45411b51435c2b4b3f9c7616955b21929c8a91ab6f41",
+      "indexed_lines": 85
     },
     {
       "path": "gateway/desktop/phone_listener.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "bd7ee8303a784c275456d050e0c0389526c4b62254fc20052e2085b4bc12c359",
-      "indexed_lines": 171
+      "sha256": "75656b0cb49516afc11314e7355b5ad795f18493869e4525647c037cf46c713f",
+      "indexed_lines": 173
     },
     {
       "path": "gateway/desktop/phone_panel.py",

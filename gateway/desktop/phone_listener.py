@@ -16,6 +16,7 @@ from uvicorn.protocols.http.h11_impl import H11Protocol
 from desktop import phone_access, phone_settings
 from desktop.configuration import atomic_json, load
 from v14.identity import Principal
+from v14.state_lock import StateDirectoryAlreadyOwned
 
 
 async def read_json(request):
@@ -131,7 +132,8 @@ def companion_lifespan(base, root, store, readiness=None):
                                     folder = phone_access.directory(root_path)
                                     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
                                     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-                                    ctx.load_cert_chain(str(folder / ('server-' + cfg['host'] + '.pem')))
+                                    secret = await asyncio.to_thread(phone_access.listener_password, root_path)
+                                    ctx.load_cert_chain(str(folder / ('server-' + cfg['host'] + '.pem')), password=secret)
                                     ctx.load_verify_locations(cafile=str(folder / 'authority.pem'))
                                     ctx.verify_mode = ssl.CERT_OPTIONAL
                                     uv = Config(app, http=protocol(root_path, cfg, store, effective, readiness), ws='none', lifespan='off',
@@ -146,7 +148,7 @@ def companion_lifespan(base, root, store, readiness=None):
                             if server and active and time.monotonic() >= heartbeat:
                                 report('listening', active)
                                 heartbeat = time.monotonic() + 10
-                        except (OSError, ValueError, KeyError):
+                        except (OSError, ValueError, KeyError, StateDirectoryAlreadyOwned):
                             if isinstance(cfg, dict) and 'port' in cfg and 'host' in cfg:
                                 report('unavailable', cfg)
                             logging.getLogger(__name__).warning('Phone listener configuration or bind unavailable')

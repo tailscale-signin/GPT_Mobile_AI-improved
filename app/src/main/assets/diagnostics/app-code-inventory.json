@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "857d956a129e37959235ca946214f14e97b992e1761b5de544252fcf000887ee",
+  "source_digest": "d3dcb3341d83b01fc6fafbdfba361a8a517826e8d6eb0c910ceb16dd56dfd32a",
   "file_count": 2700,
   "indexed_line_count": 441927,
   "line_coverage_available": false,
@@ -1774,7 +1774,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "3bc2257680fb394462cab4134de3045230f2573d51cde538570edff09e9f61d8",
+      "sha256": "06dc9274568d689ddee1f4f50f3f54992d4011aac0b680cdf22e25902fff1b10",
       "indexed_lines": 812
     },
     {
@@ -10545,7 +10545,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibility.kt",
       "area_id": "auth_and_security",
       "kind": "source",
-      "sha256": "9d8b847eb5aeaa7afffaa2cd44eee1caab827a9a5950562c4061d92cfcb0c5ce",
+      "sha256": "2ec2e0ba722cf5a74bdbd12ca30b9f47f99c667a8148ee9239c39734c738d4f0",
       "indexed_lines": 145
     },
     {

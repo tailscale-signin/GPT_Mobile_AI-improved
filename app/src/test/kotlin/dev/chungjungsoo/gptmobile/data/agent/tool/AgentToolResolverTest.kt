@@ -1525,14 +1525,16 @@ class AgentToolResolverTest {
             val plainTools = uninstrumented.resolve(profile.uid, userMessage = message)
             val plainCatalog = requireNotNull(plainTools.firstNotNullOfOrNull { it.progressiveCatalog })
             assertEquals("Telemetry must preserve the exact compact contracts", plainCatalog.selected(plainTools.map { it.tool.definition }), schemas)
+            val schemaCosts = schemas.map { it.name to dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) }
             val estimatedTokens = schemas.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) }
+            val budgetDiagnostic = "$task: estimatedTokens=$estimatedTokens, schemaCosts=$schemaCosts"
             if (task == "check repo status") {
-                assertTrue(estimatedTokens <= dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
+                assertTrue(budgetDiagnostic, estimatedTokens <= dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
             } else {
-                assertTrue(estimatedTokens < 2000)
+                assertTrue(budgetDiagnostic, estimatedTokens < 2000)
             }
             val allNative = tools.filter { it.nativeGitHub && it.tool.definition.modelVisible }.map { it.tool.definition }
-            assertTrue(estimatedTokens < allNative.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) })
+            assertTrue(budgetDiagnostic, estimatedTokens < allNative.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) })
         }
         settings.features = settings.features.withToolPluginEnabled(ToolPluginId.GITHUB, false)
         assertFalse(resolver.resolve(profile.uid).any { it.nativeGitHub })

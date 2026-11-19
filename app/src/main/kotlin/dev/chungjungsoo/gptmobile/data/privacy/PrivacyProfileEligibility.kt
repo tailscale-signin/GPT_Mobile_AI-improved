@@ -42,7 +42,7 @@ object PrivacyProfileEligibility {
         MODEL_RESOLUTION_UNVERIFIED("The selected model could not be resolved to a verified version. Choose a specific version or recheck the provider catalog."),
         CATALOG_MALFORMED("The provider returned incomplete or conflicting endpoint metadata. Recheck later; no private prompt was sent."),
         MODEL_NOT_LISTED("No verified endpoint is listed for this selected model. Choose another model or recheck later."),
-        NO_STRICT_ZDR_ENDPOINT("No endpoint for this model currently proves strict ZDR with Safety Retention excluded. Choose another model.", true),
+        NO_STRICT_ZDR_ENDPOINT("No endpoint for this model currently proves strict ZDR with Safety Retention excluded. Recheck later or choose another model."),
         PROVIDER_RESTRICTIONS("The profile's provider restrictions exclude every verified private endpoint. Review its routing options.", true),
         AMBIGUOUS_ENDPOINT("The available provider selector can include an unverified endpoint variant. Choose another model or recheck later."),
         MANAGEMENT_KEY_MISSING("Add an OpenRouter management key in Privacy settings so the app can verify the assigned privacy guardrail."),

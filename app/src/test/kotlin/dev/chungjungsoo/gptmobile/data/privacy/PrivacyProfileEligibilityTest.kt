@@ -314,6 +314,56 @@ class PrivacyProfileEligibilityTest {
     }
 
     @Test
+    fun discoveryKeepsUnknownRetentionEvidenceNotVerified() {
+        listOf(null, JsonNull, JsonPrimitive("false"), JsonPrimitive(0)).forEach { unverified ->
+            val selected = PrivateOpenRouterRouting.select(
+                JsonArray(listOf(catalogRow("provider/zdr", unverified))),
+                inventory(endpoint("provider/zdr")),
+                remote.model,
+                null,
+                JsonObject(emptyMap())
+            )
+            assertEquals("Unknown retention must not admit an endpoint: $unverified", null, selected.upstream)
+            assertEquals(PrivateOpenRouterRouting.Failure.NO_STRICT_ZDR_ENDPOINT, selected.failure)
+            val decision = PrivacyProfileEligibility.Reason.valueOf(requireNotNull(selected.failure).name).decision(terms)
+            assertFalse(decision.eligible)
+            assertEquals(PrivacyProfileEligibility.Status.NOT_VERIFIED, decision.status)
+        }
+    }
+
+    @Test
+    fun discoveryKeepsMissingApprovedUpstreamNotVerified() {
+        val selected = PrivateOpenRouterRouting.select(
+            JsonArray(listOf(catalogRow("provider/zdr"))),
+            inventory(endpoint("provider/zdr")),
+            remote.model,
+            "missing/zdr",
+            JsonObject(emptyMap())
+        )
+        assertEquals(null, selected.upstream)
+        assertEquals(PrivateOpenRouterRouting.Failure.NO_STRICT_ZDR_ENDPOINT, selected.failure)
+        val decision = PrivacyProfileEligibility.Reason.valueOf(requireNotNull(selected.failure).name).decision(terms)
+        assertFalse(decision.eligible)
+        assertEquals(PrivacyProfileEligibility.Status.NOT_VERIFIED, decision.status)
+    }
+
+    @Test
+    fun discoveryKeepsExplicitlyExcludedVerifiedEndpointsIncompatible() {
+        val selected = PrivateOpenRouterRouting.select(
+            JsonArray(listOf(catalogRow("provider/zdr"))),
+            inventory(endpoint("provider/zdr")),
+            remote.model,
+            null,
+            requireNotNull(PrivateOpenRouterRouting.options("""{"ignore":["provider"]}"""))
+        )
+        assertEquals(null, selected.upstream)
+        assertEquals(PrivateOpenRouterRouting.Failure.PROVIDER_RESTRICTIONS, selected.failure)
+        val decision = PrivacyProfileEligibility.Reason.valueOf(requireNotNull(selected.failure).name).decision(terms)
+        assertFalse(decision.eligible)
+        assertEquals(PrivacyProfileEligibility.Status.INCOMPATIBLE, decision.status)
+    }
+
+    @Test
     fun discoveryRejectsMalformedWrongModelOrMissingEndpointEvidence() {
         val catalog = JsonArray(listOf(catalogRow("provider/zdr")))
         val none = JsonObject(emptyMap())

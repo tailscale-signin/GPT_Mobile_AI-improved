@@ -186,7 +186,7 @@ class ProgressiveToolCatalog(
     }
     override val definition = AgentToolDefinition(
         NAME,
-        "List authorized tools with empty arguments, or search by task or exact names. For a compact GitHub action contract use one exact name plus action (for example names=[github_ci], action=logs). Omit action to restore the complete contract. Omit inventory_version on the first page; later pages use the exact continuation_call. Found tools become available next round. This cannot grant permissions or install tools.",
+        "List authorized tools with {}, or search query/names. For a compact GitHub action schema, use one exact name plus action; omit action for the full schema. Omit inventory_version first; then copy continuation_call exactly. Tools appear next round. Grants no permissions; installs nothing.",
         buildJsonObject {
             put("type", "object")
             put(

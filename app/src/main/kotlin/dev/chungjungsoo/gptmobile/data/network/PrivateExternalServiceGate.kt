@@ -21,6 +21,7 @@ internal val PrivateExternalServiceGate = createClientPlugin("PrivateExternalSer
 internal object PrivateGatewayMetadata {
     val grantKey = AttributeKey<String>("privateReadinessGrant")
     const val HEADER = "X-GPTMobile-Internal-Readiness"
+    private data class ReadinessTicket(val id: String)
     private data class Probe(val endpoint: HttpUrl, val model: String)
     private val active = ConcurrentHashMap<String, Probe>()
     private val metadataPaths = setOf("/props", "/models", "/v1/models", "/api/tags", "/gateway/live", "/gateway/ready", "/gateway/identity", "/gateway/capabilities")
@@ -46,13 +47,14 @@ internal object PrivateGatewayMetadata {
 
     // Strip the engine bridge before transport. The network interceptor rechecks the
     // actual target if the engine follows a redirect or Privacy Mode changes mid-call.
-    val stripHeader = Interceptor { chain ->
-        val request = chain.request()
-        val probe = request.header(HEADER)?.let(active::get)
-        chain.proceed(request.newBuilder().removeHeader(HEADER).tag(Probe::class.java, probe).build())
+    val stripHeader = Interceptor { chain -> chain.proceed(bindReadinessGrant(chain.request())) }
+
+    fun bindReadinessGrant(request: okhttp3.Request): okhttp3.Request {
+        val ticket = request.header(HEADER)?.takeIf(active::containsKey)?.let(::ReadinessTicket)
+        return request.newBuilder().removeHeader(HEADER).tag(ReadinessTicket::class.java, ticket).build()
     }
 
-    fun allows(request: okhttp3.Request): Boolean = allows(request.method, request.url, request.tag(Probe::class.java))
+    fun allows(request: okhttp3.Request): Boolean = allows(request.method, request.url, request.tag(ReadinessTicket::class.java)?.id)
 
     fun allows(method: String, url: HttpUrl, ticket: String?): Boolean = allows(method, url, ticket?.let(active::get))
 

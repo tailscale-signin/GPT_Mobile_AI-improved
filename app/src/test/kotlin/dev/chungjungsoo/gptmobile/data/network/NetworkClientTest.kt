@@ -13,9 +13,14 @@ class NetworkClientTest {
     @Test fun privateReadinessGrantBindsModelOriginMethodAndLifetime() = runTest {
         val endpoint = "http://127.0.0.1:8090/gateway/ready"
         val selected = "$endpoint?model=my-model".toHttpUrl()
+        lateinit var queued: okhttp3.Request
         var saved: String? = null
         PrivateGatewayMetadata.withReadiness(endpoint, "my-model") { ticket ->
             saved = ticket
+            val request = okhttp3.Request.Builder().url(selected).header(PrivateGatewayMetadata.HEADER, requireNotNull(ticket)).build()
+            queued = PrivateGatewayMetadata.bindReadinessGrant(request)
+            assertEquals(null, queued.header(PrivateGatewayMetadata.HEADER))
+            assertTrue(PrivateGatewayMetadata.allows(queued))
             assertTrue(PrivateGatewayMetadata.allows("GET", selected, ticket))
             assertTrue(PrivateGatewayMetadata.allows("GET", "$selected&autoload=false".toHttpUrl(), ticket))
             assertFalse(PrivateGatewayMetadata.allows("GET", selected, null))
@@ -25,6 +30,7 @@ class NetworkClientTest {
             }
         }
         assertFalse(PrivateGatewayMetadata.allows("GET", selected, saved))
+        assertFalse(PrivateGatewayMetadata.allows(queued))
     }
 
     @Test

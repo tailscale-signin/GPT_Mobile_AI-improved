@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "3e7efe50b99778095e01caa4eeb54b9e7ff9472f416932a8277d2b18648c8d2e",
+  "source_digest": "af303aedd24db68c5042268cfa2f05ae2f8607c4c5331478360ecfa8dac1ef12",
   "file_count": 2705,
-  "indexed_line_count": 444544,
+  "indexed_line_count": 444546,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -100,7 +100,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 101,
-      "indexed_line_count": 10142
+      "indexed_line_count": 10144
     },
     {
       "id": "github",
@@ -9691,8 +9691,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/PrivateExternalServiceGate.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "158cab1bf48b52175c0918e39f128abf292cf7f98be905f12cc4022b95b66e18",
-      "indexed_lines": 89
+      "sha256": "83328904eb294d1514c4baab642ce55eb1a030189987c938cb120b5da034737e",
+      "indexed_lines": 91
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProfileConnectionTimeout.kt",

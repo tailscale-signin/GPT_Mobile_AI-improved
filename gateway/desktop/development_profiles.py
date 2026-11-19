@@ -122,6 +122,7 @@ set -eu
 # Keep writable Gradle transforms with the disposable checkout. The seed image stays read-only.
 export GRADLE_USER_HOME="$(pwd -P)/.gradle/gateway-user-home"
 export GRADLE_RO_DEP_CACHE=/opt/gradle-seed/caches
+export GPTMOBILE_PREPARED_ANDROID_CXX=/seed/local-gguf-runtime/.cxx/Debug
 mkdir -p "$GRADLE_USER_HOME/caches" "$HOME/.m2"
 test -e "$GRADLE_USER_HOME/wrapper" || cp -R /opt/gradle-seed/wrapper "$GRADLE_USER_HOME/wrapper"
 if [ -d /opt/gradle-seed/caches/gptmobile-models ] && [ ! -e "$GRADLE_USER_HOME/caches/gptmobile-models" ]; then ln -s /opt/gradle-seed/caches/gptmobile-models "$GRADLE_USER_HOME/caches/gptmobile-models"; fi

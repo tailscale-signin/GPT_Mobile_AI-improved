@@ -19,6 +19,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
@@ -48,8 +49,9 @@ internal fun rememberScanPagePicker(chatRoom: StateFlow<ChatRoomV2>, attach: (St
             message = ""
         }
     }
+    val visibleRoom by chatRoom.collectAsStateWithLifecycle()
     val current = source
-    if (current != null && room == chatRoom.value.id) {
+    if (current != null && room == visibleRoom.id) {
         AlertDialog(
             onDismissRequest = { if (!rendering) source = null },
             title = { Text("Attach scanned page") },

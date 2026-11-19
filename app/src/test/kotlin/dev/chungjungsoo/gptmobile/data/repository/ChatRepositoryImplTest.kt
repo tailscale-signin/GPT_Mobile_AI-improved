@@ -1168,8 +1168,15 @@ class ChatRepositoryImplTest {
         assertTrue(repository.resolveDelegatedTools(customPlatform(), "parent", config.copy(allToolsDisabled = true)).isEmpty())
         val denied = repository.resolveDelegatedTools(customPlatform(), "parent", config).single().execute("same-call", JsonObject(emptyMap()))
         assertTrue(denied.isError)
+        assertEquals("AUTH_REQUIRED", denied.errorCode)
+        assertEquals(1, ids.size)
         assertEquals(0, executions)
-        coEvery { approvals.authorizeOrThrow("work", "parent", capture(ids), "github", any(), any(), nativeGitHub = false, executionAllowed = any()) } returns true
+        io.mockk.coVerify(exactly = 0) { approvals.finish("parent", ids.single(), any()) }
+        coEvery { approvals.authorizeOrThrow("work", "parent", capture(ids), "github", any(), any(), nativeGitHub = false, executionAllowed = any()) } coAnswers {
+            // The live admission callback is part of the authorization request;
+            // an omitted argument would match only its null default.
+            requireNotNull(arg<(suspend () -> Boolean)?>(7)).invoke()
+        }
         repeat(2) {
             val bound = repository.resolveDelegatedTools(customPlatform(), "parent", config).single()
             val result = bound.execute("same-call", JsonObject(emptyMap()))
@@ -1179,7 +1186,7 @@ class ChatRepositoryImplTest {
         }
         assertEquals(2, executions)
         assertEquals(3, ids.distinct().size)
-        ids.drop(1).forEach { id -> io.mockk.coVerify { approvals.finish("parent", id, true) } }
+        ids.drop(1).forEach { id -> io.mockk.coVerify(exactly = 1) { approvals.finish("parent", id, true) } }
     }
 
     @Test

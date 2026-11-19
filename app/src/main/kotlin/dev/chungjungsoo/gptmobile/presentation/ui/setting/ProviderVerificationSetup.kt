@@ -31,7 +31,7 @@ internal fun ProviderVerificationSetup(source: ProviderApprovalSource) {
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    fun save(success: String, task: suspend () -> Unit) {
+    fun save(success: String, failure: String = "Could not verify or save these settings. Check the issuer, signature and file format.", task: suspend () -> Unit) {
         busy = true
         scope.launch {
             try {
@@ -40,7 +40,7 @@ internal fun ProviderVerificationSetup(source: ProviderApprovalSource) {
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                status = "Could not verify or save these settings. Check the issuer, signature and file format."
+                status = failure
             } finally {
                 busy = false
                 management = ""
@@ -48,13 +48,25 @@ internal fun ProviderVerificationSetup(source: ProviderApprovalSource) {
         }
     }
     Column {
+        Text("OpenRouter account verification can cover multiple models. The app checks each selected model and endpoint automatically; the account evidence must still cover prompt logging, broadcast and default plugins.", style = MaterialTheme.typography.bodySmall)
         Text("Obtain the account administrator’s P-256 public key through a trusted channel. Trusting a new issuer revokes the previous file. Managed devices use their organization’s configuration.", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(value = issuer, onValueChange = { issuer = it.take(2048) }, label = { Text("Administrator public key (base64 DER)") }, modifier = Modifier.fillMaxWidth())
-        TextButton(enabled = !busy && issuer.isNotBlank(), onClick = { save("Issuer saved. Import its signed account verification.") { source.trustIssuer(issuer) } }) { Text("Trust administrator key") }
+        TextButton(enabled = !busy && issuer.isNotBlank(), onClick = {
+            val value = issuer
+            save("Issuer saved. Import its signed account verification.") { source.trustIssuer(value) }
+        }) { Text("Trust administrator key") }
         OutlinedTextField(value = document, onValueChange = { document = it.take(131072) }, label = { Text("Signed verification JSON") }, modifier = Modifier.fillMaxWidth())
-        TextButton(enabled = !busy && document.isNotBlank(), onClick = { save("Signature verified. Routes will be rechecked in New Chat.") { source.install(document) } }) { Text("Verify and import") }
+        TextButton(enabled = !busy && document.isNotBlank(), onClick = {
+            val value = document
+            save("Signature verified. Recheck profiles to verify the current provider routes.") { source.install(value) }
+        }) { Text("Verify and import") }
+        Text("The management key is used to verify the inference key’s assigned privacy guardrail. Keep the ordinary inference key in your AI profile.", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(value = management, onValueChange = { management = it.take(4096) }, label = { Text("OpenRouter management key") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-        TextButton(enabled = !busy && management.isNotBlank(), onClick = { save("Key saved for read-only guardrail and assignment checks.") { source.setManagementKey(management) } }) { Text("Save guardrail verification key") }
+        TextButton(enabled = !busy && management.isNotBlank(), onClick = {
+            val value = management
+            save("Key saved for read-only guardrail and assignment checks.", "Could not save the management key. Check its format and the device’s secure storage.") { source.setManagementKey(value) }
+        }) { Text("Save guardrail verification key") }
+        Text("Automatic tightening applies only to guardrails authorized by your account evidence. Other keys assigned to the same guardrail may also be affected.", style = MaterialTheme.typography.bodySmall)
         TextButton(enabled = !busy, onClick = { save("Strict settings may be applied to guardrails authorized by your administrator.") { source.allowGuardrailUpdates() } }) { Text("Authorize stricter OpenRouter guardrail settings") }
         TextButton(enabled = !busy, onClick = {
             save("Personal verification settings removed.") {

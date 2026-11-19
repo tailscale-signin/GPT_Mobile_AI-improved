@@ -52,13 +52,30 @@ class ProviderApprovalSource @Inject constructor(@ApplicationContext private val
         check(preferences.edit().putString("signed", signed).commit())
     }
 
+    @Synchronized
     fun allowGuardrailUpdates() {
+        // Renewed permission is not evidence of an earlier mutation's outcome.
         check(preferences.edit().putBoolean("apply_strict_guardrail", true).commit())
+    }
+
+    @Synchronized
+    internal fun beginGuardrailUpdate(identity: String): Boolean {
+        if (preferences.getString("pending_guardrail_update", null) != null) return false
+        return preferences.edit().putString("pending_guardrail_update", identity).commit()
+    }
+
+    @Synchronized
+    internal fun confirmGuardrailUpdate(identity: String) {
+        if (preferences.getString("pending_guardrail_update", null) == identity) {
+            check(preferences.edit().remove("pending_guardrail_update").commit())
+        }
     }
     internal fun mayUpdateGuardrail(): Boolean = preferences.getBoolean("apply_strict_guardrail", false)
 
+    @Synchronized
     fun forget() {
-        check(preferences.edit().clear().commit())
+        val pending = preferences.getString("pending_guardrail_update", null)
+        check(preferences.edit().clear().apply { pending?.let { putString("pending_guardrail_update", it) } }.commit())
     }
 
     internal suspend fun managementKey(): String? = vault.read("privacy_openrouter_management")?.let { bytes ->

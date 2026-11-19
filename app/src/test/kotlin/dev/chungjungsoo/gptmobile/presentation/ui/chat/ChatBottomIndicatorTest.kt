@@ -4,7 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.Color
@@ -78,10 +79,14 @@ class ChatBottomIndicatorTest {
         for (smooth in listOf(false, true)) {
             compose.runOnIdle { smoothStreaming = smooth }
             compose.onNodeWithTag("conversation").performTouchInput { swipeDown() }
-            compose.runOnIdle { assertFalse("An upward history gesture must detach follow intent", following) }
+            compose.waitForIdle()
+            compose.runOnIdle {
+                assertFalse("An upward history gesture must detach follow intent", following)
+                assertTrue(state.canScrollForward)
+                assertFalse(state.isAtGitHubBottom())
+            }
             compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
             compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
-            compose.runOnIdle { assertFalse(following) }
 
             compose.onNodeWithTag("conversation").performTouchInput { swipeUp() }
             compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
@@ -92,8 +97,9 @@ class ChatBottomIndicatorTest {
             }
 
             compose.onNodeWithTag("conversation").performTouchInput { swipeDown() }
+            advanceIndicatorClock(1_100)
             val requestsBeforeClick = compose.runOnIdle { followRequests }
-            compose.onNodeWithTag("chat_jump_to_bottom").performClick()
+            compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed().performClick()
             compose.onNodeWithTag("chat_bottom_generation").assertIsDisplayed()
             compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
             compose.runOnIdle {
@@ -167,15 +173,22 @@ class ChatBottomIndicatorTest {
         compose.setContent {
             MaterialTheme {
                 state = rememberLazyListState()
-                Column(Modifier.background(Color.White)) {
+                Box(Modifier.size(width = 240.dp, height = 400.dp).background(Color.White)) {
                     LazyColumn(Modifier.width(240.dp).height(140.dp), state = state) {
                         items(12) { Text("Message $it", Modifier.height(40.dp)) }
                     }
-                    ChatBottomIndicator(state, following, generating, animate = false, scrollInput = input, onFollow = { following = true })
+                    Box(Modifier.align(Alignment.BottomCenter).size(48.dp)) {
+                        ChatBottomIndicator(state, following, generating, animate = false, scrollInput = input, onFollow = { following = true })
+                    }
                 }
             }
         }
         compose.waitForIdle()
+        compose.runOnIdle {
+            assertFalse(following)
+            assertTrue(state.canScrollForward)
+            assertFalse(state.isAtGitHubBottom())
+        }
         compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
 
         compose.runOnIdle { input.recordFling(230f) }
@@ -183,6 +196,7 @@ class ChatBottomIndicatorTest {
         compose.runOnIdle {
             assertTrue("The test list must have history below its initial viewport", state.canScrollForward)
             assertTrue("Fast user motion must pass the reading-speed gate", input.scrollingFasterThanReading)
+            assertFalse(following)
         }
         compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
         compose.runOnIdle { input.stopScroll() }
@@ -193,6 +207,15 @@ class ChatBottomIndicatorTest {
         compose.runOnIdle { input.recordFling(70f) }
         compose.waitForIdle()
         compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
+    }
+
+    private fun advanceIndicatorClock(milliseconds: Long) {
+        // Commit the visibility change and settle Android's layout before timing
+        // the transition. Advancing the Compose clock alone does not draw a frame.
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(milliseconds)
+        compose.waitForIdle()
     }
 
     private fun dotsBitmap(): Bitmap = requireNotNull(
@@ -210,7 +233,9 @@ class ChatBottomIndicatorTest {
                     following = true
                 }
                 val input = rememberChatScrollInput(state, 8f, onDetach = { following = false }, onFollow = follow)
-                Column(Modifier.background(Color.White)) {
+                // ChatScreen overlays the indicator in a stable viewport. A
+                // wrap-content Column couples its host size to AnimatedVisibility.
+                Box(Modifier.size(width = 240.dp, height = 400.dp).background(Color.White)) {
                     LazyColumn(Modifier.width(240.dp).height(viewportHeight).then(input.modifier).testTag("conversation"), state = state) {
                         items(7) { Text("Message $it", Modifier.height(40.dp)) }
                         item(key = "chat-bottom-anchor") { Spacer(Modifier.size(1.dp)) }
@@ -220,7 +245,9 @@ class ChatBottomIndicatorTest {
                         isEnabled = autoScroll && shouldAutoScrollToBottom(following, input.dragging || isUserDragging, state.isScrollInProgress, state.lastScrolledBackward),
                         animate = animate && smoothStreaming
                     )
-                    ChatBottomIndicator(state, following, generating, animate, onFollow = follow)
+                    Box(Modifier.align(Alignment.BottomCenter).size(48.dp)) {
+                        ChatBottomIndicator(state, following, generating, animate, onFollow = follow)
+                    }
                 }
             }
         }

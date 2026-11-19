@@ -65,7 +65,7 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             )
         }
         Text(
-            "Privacy Mode checks the selected model before sending text. A private Gateway uses its installed model. Cloud routes require current account and endpoint evidence.",
+            "Privacy Mode checks the selected model before sending text. A private Gateway uses its installed model. Cloud profiles become available only after their account and route requirements are verified.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -122,8 +122,9 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
         Text("AI Provider Protection", style = MaterialTheme.typography.titleMedium)
         Text("Required whenever Privacy Mode is on", style = MaterialTheme.typography.labelMedium)
         Text("• Zero Data Retention for prompt and response content\n• No training or routine safety retention\n• Content logging disabled\n• Exact provider route, with no fallback\n• Separate verification for external tools and voice")
+        Text("Available means the checks passed. Not verified means evidence is missing or a check could not finish. Incompatible means an observed route or setting conflicts with the privacy requirements. This does not change your saved profile settings.", style = MaterialTheme.typography.bodySmall)
         Text("Automated masking recognizes common formats and your custom terms. Provider agreements may allow legally required exceptions and non-content usage metadata.", style = MaterialTheme.typography.bodySmall)
-        Text("For cloud access, obtain the provider’s ZDR approval and have your administrator provision the exact account and model. OpenRouter also requires ZDR only for the applicable group and disabled prompt logging, broadcast and default plugins.", style = MaterialTheme.typography.bodySmall)
+        Text("OpenRouter checks the selected model and its exact upstream endpoints automatically. Current account evidence is still needed for prompt logging, broadcast and default plugins. Other cloud providers require their applicable ZDR account and endpoint approvals. Recheck profiles in New Chat after changing settings.", style = MaterialTheme.typography.bodySmall)
         ProviderVerificationSetup(viewModel.authority)
         val handler = androidx.compose.ui.platform.LocalUriHandler.current
         androidx.compose.material3.TextButton(onClick = { handler.openUri("https://openrouter.ai/settings/privacy") }) { Text("Configure OpenRouter privacy") }

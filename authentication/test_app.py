@@ -471,6 +471,35 @@ class IssueReportHttpTest(unittest.TestCase):
                 if feature == "tools":
                     self.assertIn("402", body)
 
+    def test_privacy_eligibility_report_retains_safe_reason_and_unknown_remote_outcome(self):
+        capture = self.diagnostics("PROVIDER", {
+            "provider_failure_code": "PRIVACY_PROVIDER_INELIGIBLE",
+            "provider_failure_stage": "GENERATION",
+            "provider_failure_domain": "APPLICATION_VERIFICATION",
+            "privacy_reason_code": "VERIFICATION_UNAVAILABLE",
+            "privacy_status": "NOT_VERIFIED",
+            "request_replay_allowed": False,
+            "logical_continuation_allowed": False,
+        })
+        context = self.context(schemaVersion=5, source="CHAT_FAILURE", stage="provider_generation",
+                               provider="OPENROUTER", dispatched=True, diagnostics=capture)
+        report = {**self.metadata(), "source": "debug", "feature": "chat",
+                  "errorCode": "PRIVACY_PROVIDER_INELIGIBLE", "context": context}
+        self.assertEqual(200, self.submit(report).status_code)
+        body = self.issued[-1]["body"]
+        self.assertIn("PRIVACY_PROVIDER_INELIGIBLE", body)
+        self.assertIn("VERIFICATION_UNAVAILABLE", body)
+        self.assertIn("NOT_VERIFIED", body)
+        self.assertNotIn("remoteAcceptance", context.keys())
+        self.assertIn("remoteAcceptance", context["unavailableFields"])
+        for key, value in (("privacy_reason_code", "PRIVATE_KEY"), ("privacy_status", "PRIVATE_ACCOUNT")):
+            with self.subTest(key=key):
+                invalid = {**capture, "values": {**capture["values"], key: value}}
+                rejected = self.submit({**report, "reportId": str(uuid4()), "context": {**context, "diagnostics": invalid}})
+                self.assertEqual(422, rejected.status_code)
+                self.assertNotIn(value, rejected.text)
+        self.assertEqual(1, len(self.issued))
+
     def test_readiness_adds_context_capability_without_changing_legacy_service_identity(self):
         response = self.client.get("/health/ready")
         self.assertEqual(200, response.status_code)
@@ -494,7 +523,7 @@ class IssueReportHttpTest(unittest.TestCase):
         extended = self.client.get("/health/ready?capabilities=extended")
         self.assertEqual(200, extended.status_code)
         additions = ["ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
-                     "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "REPORT_TEXT_ATTACHMENT_V1", "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1", "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1", "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1", "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1"]
+                     "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "REPORT_TEXT_ATTACHMENT_V1", "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1", "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1", "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1", "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1", "PRIVACY_ELIGIBILITY_EVIDENCE_V1"]
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
                          extended.json()["reportDiagnosticFeatures"])
         for key in ("service", "version", "reportContextVersions"):

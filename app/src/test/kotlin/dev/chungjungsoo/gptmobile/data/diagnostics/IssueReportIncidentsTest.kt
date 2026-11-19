@@ -678,6 +678,43 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun privacyEligibilityFailuresKeepTypedReasonsOnlyWhenCaptureIsPermitted() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf(
+            "run_id" to "PRIVATE_RUN",
+            "failed_stage" to "provider_generation",
+            "provider_kind" to "OPENROUTER",
+            "privacy_reason_code" to "VERIFICATION_UNAVAILABLE",
+            "privacy_status" to "NOT_VERIFIED",
+            "dispatched" to true,
+            "remote_acceptance" to "UNKNOWN",
+            "request_replay_allowed" to false,
+            "logical_continuation_allowed" to false,
+            "message" to "PRIVATE_PROVIDER_BODY"
+        )
+        IssueReportIncidents.privacyChanged(true)
+        IssueReportIncidents.chatFailure(PrivacyFailureEvidence.CODE, false, null, fields)
+        assertTrue(IssueReportIncidents.pending.value.isEmpty())
+        assertTrue(IssueReportIncidents.recentEvents().isEmpty())
+        assertNull(IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
+
+        IssueReportIncidents.privacyChanged(false)
+        IssueReportIncidents.chatFailure(PrivacyFailureEvidence.CODE, false, null, fields)
+        val report = IssueReportIncidents.pending.value.single()
+        val context = requireNotNull(report.context)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals(PrivacyFailureEvidence.CODE, report.errorCode)
+        assertEquals("provider_generation", context.stage)
+        assertEquals(true, context.dispatched)
+        assertEquals("UNKNOWN", context.remoteAcceptance)
+        assertEquals(JsonPrimitive("GENERATION"), diagnostic.values["provider_failure_stage"])
+        assertEquals(JsonPrimitive("VERIFICATION_UNAVAILABLE"), diagnostic.values["privacy_reason_code"])
+        assertEquals(JsonPrimitive("NOT_VERIFIED"), diagnostic.values["privacy_status"])
+        assertTrue(PrivacyFailureEvidence.FEATURE in diagnostic.requiredServiceFeatures())
+        assertFalse(report.approvedPayload().contains("PRIVATE_"))
+    }
+
+    @Test
     fun toolTransportCodesSurviveTheRecorderAndRepeatedMcpFailureIsOneIncident() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val codes = listOf("DNS_RESOLUTION_FAILED", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "NETWORK_TIMEOUT", "TLS_FAILURE")

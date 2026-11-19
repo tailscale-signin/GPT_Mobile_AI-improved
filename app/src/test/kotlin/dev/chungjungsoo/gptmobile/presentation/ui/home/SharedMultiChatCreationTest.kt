@@ -14,10 +14,12 @@ import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProviderVerifier
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import java.lang.reflect.Proxy
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +31,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -165,6 +168,241 @@ class SharedMultiChatCreationTest {
             runCurrent()
             Dispatchers.resetMain()
         }
+    }
+
+    @Test
+    fun privacyChecksShowPendingStateAndPublishEachResultWithBoundedConcurrency() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profiles = (1..6).map { PlatformV2(uid = "profile-$it", name = "Profile $it", model = "model") }
+            val fixture = privacyFixture(profiles)
+            store.put("privacy", fixture.model)
+            val replies = profiles.associate { it.uid to CompletableDeferred<PrivacyProfileEligibility.Decision>() }
+            var active = 0
+            var maximum = 0
+            coEvery { fixture.verifier.verify(any()) } coAnswers {
+                active++
+                maximum = maxOf(maximum, active)
+                try {
+                    PrivacyProviderVerifier.Result(replies.getValue(firstArg<PlatformV2>().uid).await())
+                } finally {
+                    active--
+                }
+            }
+            val refresh = launch { fixture.model.checkPrivacyProfiles(profiles) }
+            runCurrent()
+            assertTrue(fixture.model.privacyChecking.value)
+            assertEquals(4, active)
+            profiles.forEach {
+                assertEquals(PrivacyProfileEligibility.Status.CHECKING, fixture.model.privacyDecision(it).status)
+                assertFalse(fixture.model.privacyDecision(it).eligible)
+            }
+            replies.getValue(profiles.first().uid).complete(PrivacyProfileEligibility.Decision(true, "Verified"))
+            runCurrent()
+            assertTrue(fixture.model.privacyDecision(profiles.first()).eligible)
+            assertEquals(PrivacyProfileEligibility.Status.CHECKING, fixture.model.privacyDecision(profiles.last()).status)
+            assertTrue(fixture.model.privacyChecking.value)
+            replies.values.forEach { it.complete(PrivacyProfileEligibility.Decision(true, "Verified")) }
+            refresh.join()
+            assertEquals(4, maximum)
+            assertFalse(fixture.model.privacyChecking.value)
+            assertTrue(profiles.all { it.enabled && fixture.model.privacyDecision(it).eligible })
+            coVerify(exactly = 0) { fixture.settings.updatePlatformV2(any()) }
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun supersededPrivacyCheckCannotOverwriteNewerRejection() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+            val fixture = privacyFixture(listOf(profile))
+            store.put("privacy", fixture.model)
+            val oldReply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
+            var calls = 0
+            coEvery { fixture.verifier.verify(profile) } coAnswers {
+                calls++
+                PrivacyProviderVerifier.Result(
+                    if (calls == 1) oldReply.await() else PrivacyProfileEligibility.Decision(false, "Account evidence expired")
+                )
+            }
+            val old = launch { fixture.model.checkPrivacyProfiles(listOf(profile)) }
+            runCurrent()
+            fixture.model.checkPrivacyProfiles(listOf(profile))
+            oldReply.complete(PrivacyProfileEligibility.Decision(true, "Old verification"))
+            old.join()
+            assertFalse(fixture.model.privacyDecision(profile).eligible)
+            assertEquals("Account evidence expired", fixture.model.privacyDecision(profile).explanation)
+            assertFalse(fixture.model.privacyChecking.value)
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun cancelledPrivacyCheckClearsPendingStateWithoutChangingSavedSelection() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+            val fixture = privacyFixture(listOf(profile), listOf(profile.uid))
+            store.put("privacy", fixture.model)
+            val reply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
+            coEvery { fixture.verifier.verify(profile) } coAnswers { PrivacyProviderVerifier.Result(reply.await()) }
+            val refresh = launch { fixture.model.checkPrivacyProfiles(listOf(profile)) }
+            runCurrent()
+            assertEquals(listOf(profile.uid), fixture.model.selectedUids.value)
+            assertEquals(PrivacyProfileEligibility.Status.CHECKING, fixture.model.privacyDecision(profile).status)
+            refresh.cancel()
+            refresh.join()
+            assertFalse(fixture.model.privacyChecking.value)
+            assertFalse(fixture.model.privacyDecision(profile).eligible)
+            assertEquals(PrivacyProfileEligibility.Status.NOT_VERIFIED, fixture.model.privacyDecision(profile).status)
+            assertEquals(listOf(profile.uid), fixture.model.selectedUids.value)
+            coVerify(exactly = 0) { fixture.settings.updatePlatformV2(any()) }
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun privacyToggleInvalidatesInFlightSuccessEvenWhenSwitchedBackOn() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+            val fixture = privacyFixture(listOf(profile))
+            store.put("privacy", fixture.model)
+            val reply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
+            coEvery { fixture.verifier.verify(profile) } coAnswers { PrivacyProviderVerifier.Result(reply.await()) }
+            val refresh = launch { fixture.model.checkPrivacyProfiles(listOf(profile)) }
+            runCurrent()
+            fixture.model.setPrivacyMode(false)
+            fixture.model.setPrivacyMode(true)
+            reply.complete(PrivacyProfileEligibility.Decision(true, "Old verification"))
+            refresh.join()
+            assertTrue(fixture.model.privacyState.value.enabled)
+            assertTrue(fixture.model.checkedProfiles.value.isEmpty())
+            assertFalse(fixture.model.privacyDecision(profile).eligible)
+            assertFalse(fixture.model.privacyChecking.value)
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun startingChatRechecksPrivacyAfterPickerVerificationSucceeded() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+            val fixture = privacyFixture(listOf(profile), listOf(profile.uid))
+            store.put("privacy", fixture.model)
+            coEvery { fixture.verifier.verify(profile) } returns PrivacyProviderVerifier.Result(PrivacyProfileEligibility.Decision(true, "Verified"))
+            fixture.model.checkPrivacyProfiles(listOf(profile))
+            assertTrue(fixture.model.privacyDecision(profile).eligible)
+            coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile)
+            coEvery { fixture.verifier.verify(profile) } returns PrivacyProviderVerifier.Result(PrivacyProfileEligibility.Decision(false, "Account evidence revoked"))
+            var created = false
+            fixture.model.start { created = true }
+            runCurrent()
+            assertFalse(created)
+            assertEquals("Privacy Mode: Account evidence revoked", fixture.model.error.value)
+            coVerify(exactly = 2) { fixture.verifier.verify(profile) }
+            coVerify(exactly = 0) { fixture.chats.createDraftChat(any(), any(), any(), any()) }
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun changingProfileDuringPrivacyVerificationPreventsChatCreation() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "private", name = "Private provider", model = "initial-model")
+            val fixture = privacyFixture(listOf(profile), listOf(profile.uid))
+            store.put("privacy", fixture.model)
+            var saved = profile
+            val reply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
+            coEvery { fixture.settings.fetchPlatformV2s() } answers { listOf(saved) }
+            coEvery { fixture.settings.providerActivationRequired(any()) } returns false
+            coEvery { fixture.verifier.verify(profile) } coAnswers { PrivacyProviderVerifier.Result(reply.await()) }
+            var created = false
+            fixture.model.start { created = true }
+            runCurrent()
+            saved = profile.copy(model = "changed-model")
+            reply.complete(PrivacyProfileEligibility.Decision(true, "Initial model verified"))
+            runCurrent()
+            assertFalse(created)
+            assertTrue(fixture.model.error.value.orEmpty().contains("profile changed while checking"))
+            coVerify(exactly = 0) { fixture.chats.createDraftChat(any(), any(), any(), any()) }
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun switchingPrivacyOffAndBackOnWhileStartingPreventsChatCreation() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+            val fixture = privacyFixture(listOf(profile), listOf(profile.uid))
+            store.put("privacy", fixture.model)
+            val reply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
+            coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile)
+            coEvery { fixture.settings.providerActivationRequired(any()) } returns false
+            coEvery { fixture.verifier.verify(profile) } coAnswers { PrivacyProviderVerifier.Result(reply.await()) }
+            var created = false
+            fixture.model.start { created = true }
+            runCurrent()
+            fixture.model.setPrivacyMode(false)
+            fixture.model.setPrivacyMode(true)
+            reply.complete(PrivacyProfileEligibility.Decision(true, "Old verification"))
+            runCurrent()
+            assertFalse(created)
+            assertTrue(fixture.model.error.value.orEmpty().contains("Privacy settings changed"))
+            coVerify(exactly = 0) { fixture.chats.createDraftChat(any(), any(), any(), any()) }
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    private data class PrivacyFixture(val model: NewChatViewModel, val verifier: PrivacyProviderVerifier, val settings: SettingRepository, val chats: ChatRepository)
+
+    private fun privacyFixture(profiles: List<PlatformV2>, selection: List<String> = emptyList()): PrivacyFixture {
+        val settings = mockk<SettingRepository>()
+        every { settings.observePlatformV2s() } returns flowOf(profiles)
+        every { settings.observeFeatureSettings() } returns flowOf(AppFeatureSettings())
+        val state = MutableStateFlow(PrivacyModeState(enabled = true))
+        val verifier = mockk<PrivacyProviderVerifier>()
+        val privacy = mockk<PrivacyModeStore>()
+        every { privacy.state } returns state
+        every { privacy.snapshot() } answers { state.value }
+        every { privacy.verifier } returns verifier
+        every { privacy.setEnabled(any()) } answers { state.value = state.value.copy(enabled = firstArg()) }
+        val chats = mockk<ChatRepository>()
+        val model = NewChatViewModel(SavedStateHandle(mapOf("new_chat_type" to "SINGLE", "new_chat_uids" to selection)), settings, chats, mockk(), privacyMode = privacy)
+        return PrivacyFixture(model, verifier, settings, chats)
     }
 
     private inline fun <reified T> proxy(crossinline invoke: (String, Array<out Any?>) -> Any?): T =

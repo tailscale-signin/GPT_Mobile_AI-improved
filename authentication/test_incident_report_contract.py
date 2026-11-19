@@ -5,7 +5,7 @@ import re
 import unittest
 
 from authentication import incident_report_contract as capsule
-from authentication.issue_report_diagnostics import CORE_FIELDS, MAX_DIAGNOSTIC_BYTES, validate_diagnostics
+from authentication.issue_report_diagnostics import CORE_FIELDS, MAX_DIAGNOSTIC_BYTES, PRIVACY_ELIGIBILITY_REASONS, validate_diagnostics
 from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CONTEXT_FIELDS_V5, ReportError, issue_from_report
 
 
@@ -97,6 +97,51 @@ class IncidentReportContractTest(unittest.TestCase):
                 self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
                 with self.assertRaises(ValueError):
                     validate_diagnostics(self.capture("PROVIDER", {"provider_failure_code": code + " private text"}))
+
+    def test_privacy_eligibility_reasons_roundtrip_without_reclassifying_unknown_dispatch(self):
+        code = "PRIVACY_PROVIDER_INELIGIBLE"
+        for reason in PRIVACY_ELIGIBILITY_REASONS:
+            for status in ("NOT_VERIFIED", "INCOMPATIBLE"):
+                with self.subTest(reason=reason, status=status):
+                    capture = self.capture("PROVIDER", {
+                        "provider_failure_code": code, "causal_failure_code": code,
+                        "privacy_reason_code": reason, "privacy_status": status,
+                    })
+                    self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                    report = self.report(capture)
+                    report.update(feature="chat", errorCode=code, events=["-0ms E chat " + code])
+                    report["context"].update(source="CHAT_FAILURE", stage="provider_generation", dispatched=True)
+                    report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                    before = copy.deepcopy(report)
+                    _, issue = issue_from_report(report)
+                    self.assertEqual(before, report)
+                    self.assertIn(code, issue["title"])
+                    self.assertIn(reason, issue["body"])
+                    self.assertIn(status, issue["body"])
+                    self.assertIn("remoteAcceptance", report["context"]["unavailableFields"])
+                    self.assertNotIn("remoteAcceptance", report["context"])
+
+    def test_privacy_eligibility_rejects_unknown_private_values_and_wrong_area(self):
+        for field, invalid in (
+            ("privacy_reason_code", "PRIVATE_KEY_OR_PROVIDER_MESSAGE"),
+            ("privacy_reason_code", "NO_STRICT_ZDR_ENDPOINT PRIVATE_DETAILS"),
+            ("privacy_reason_code", 1), ("privacy_reason_code", None),
+            ("privacy_status", "AVAILABLE"), ("privacy_status", "CHECKING"),
+            ("privacy_status", True), ("privacy_status", "PRIVATE_ACCOUNT"),
+            ("provider_failure_code", "PRIVACY_PROVIDER_INELIGIBLE PRIVATE_DETAILS"),
+        ):
+            with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {field: invalid}))
+        for area in ("TOOL", "INCIDENT", "VOICE", "APP", "GATEWAY", "ACCEPTANCE"):
+            with self.subTest(area=area), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {"privacy_reason_code": "VERIFICATION_UNAVAILABLE"}))
+
+    def test_privacy_reason_contract_matches_the_app_closed_eligibility_enum(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyProfileEligibility.kt").read_text()
+        enum = source.split("enum class Reason(", 1)[1].split("fun decision(", 1)[0]
+        reasons = set(re.findall(r'^\s*([A-Z][A-Z_]+)\(', enum, re.MULTILINE))
+        self.assertEqual(reasons, PRIVACY_ELIGIBILITY_REASONS)
 
     def test_voice_pronunciation_reason_is_closed_and_contains_no_spoken_word(self):
         values = {

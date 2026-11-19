@@ -35,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -60,12 +61,14 @@ import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
 import dev.chungjungsoo.gptmobile.data.pricing.decimalRate
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelChip
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.PrivacyModePanel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 
@@ -101,6 +104,7 @@ internal fun NewChatProfileScreen(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val features by viewModel.features.collectAsStateWithLifecycle()
     val privacy by viewModel.privacyState.collectAsStateWithLifecycle()
+    val privacyChecking by viewModel.privacyChecking.collectAsStateWithLifecycle()
     val selected by viewModel.selectedUids.collectAsStateWithLifecycle()
     val modelPreparation by viewModel.gatewayModelPreparation.collectAsStateWithLifecycle()
     val primary by viewModel.primaryUid.collectAsStateWithLifecycle()
@@ -136,21 +140,25 @@ internal fun NewChatProfileScreen(
     var primaryOpen by rememberSaveable { mutableStateOf(false) }
     var researchExpanded by rememberSaveable { mutableStateOf(false) }
     var detailsUid by rememberSaveable { mutableStateOf<String?>(null) }
+    var privacySettingsOpen by rememberSaveable { mutableStateOf(false) }
+    var privacyRefresh by remember { mutableIntStateOf(0) }
     val filter = ProfileFilter.entries.firstOrNull { it.name == filterName } ?: ProfileFilter.ALL
     val sort = ProfileSort.entries.firstOrNull { it.name == sortName } ?: ProfileSort.FAVORITES
     val labels = remember(profiles) { collectReusableProfileLabels(profiles.map { it.labels }) }
     val checkedProfiles by viewModel.checkedProfiles.collectAsStateWithLifecycle()
-    LaunchedEffect(profiles, privacy.enabled, windowFocused) {
-        if (windowFocused) {
+    LaunchedEffect(profiles, privacy, windowFocused, privacyRefresh, privacySettingsOpen) {
+        if (windowFocused && !privacySettingsOpen) {
             do {
                 viewModel.checkPrivacyProfiles(profiles)
                 if (privacy.enabled) delay(60_000)
             } while (privacy.enabled)
         }
     }
-    val availableUids = remember(profiles, privacy.enabled, checkedProfiles) {
-        profiles.filter { it.enabled && viewModel.privacyDecision(it).eligible }
-            .mapTo(mutableSetOf()) { it.uid }
+    val privacyDecisions = remember(profiles, privacy, checkedProfiles) {
+        profiles.filter { it.enabled }.associate { it.uid to viewModel.privacyDecision(it) }
+    }
+    val availableUids = remember(privacyDecisions) {
+        privacyDecisions.filterValues { it.eligible }.keys
     }
     val currentSelection = remember(selected, availableUids) { selected.filter { it in availableUids } }
     val researchPolicy = remember(researchDepth) {
@@ -251,7 +259,24 @@ internal fun NewChatProfileScreen(
                 ) {
                     if (privacy.enabled) {
                         Text("Privacy-Verified AI Profiles", style = MaterialTheme.typography.titleSmall)
-                        Text("${availableUids.size} available · ${profiles.count { it.enabled } - availableUids.size} disabled", style = MaterialTheme.typography.bodySmall)
+                        val counts = privacyDecisions.values.groupingBy { it.status }.eachCount()
+                        Text(
+                            listOf(
+                                "${counts[PrivacyProfileEligibility.Status.AVAILABLE] ?: 0} available",
+                                "${counts[PrivacyProfileEligibility.Status.CHECKING] ?: 0} checking",
+                                "${counts[PrivacyProfileEligibility.Status.NOT_VERIFIED] ?: 0} not verified",
+                                "${counts[PrivacyProfileEligibility.Status.INCOMPATIBLE] ?: 0} incompatible"
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("privacy_profile_counts")
+                        )
+                        Text("Unavailable profiles stay saved. Missing verification does not mean a provider retains your data.", style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { privacyRefresh++ }, enabled = !privacyChecking, modifier = Modifier.testTag("privacy_profiles_recheck")) {
+                                Text(if (privacyChecking) "Checking profiles…" else "Recheck profiles")
+                            }
+                            TextButton(onClick = { privacySettingsOpen = true }, modifier = Modifier.testTag("privacy_profile_settings")) { Text("Privacy settings") }
+                        }
                     }
                     ProfileSearchField(query, { query = it }, Modifier.testTag("new_chat_search"))
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -354,13 +379,14 @@ internal fun NewChatProfileScreen(
                     SelectPlatformProfileCard(
                         profile = profile,
                         privacyRestriction = viewModel.privacyDecision(profile).takeUnless { it.eligible }?.explanation,
+                        privacyStatus = privacyDecisions[profile.uid]?.status.takeIf { privacy.enabled },
                         selected = profile.uid in currentSelection,
                         insight = insights[profile.uid]?.takeIf { it.matches(profile) },
                         onToggle = viewModel::toggleProfile,
                         onFavorite = { viewModel.toggleFavorite(profile.uid) },
                         onInsights = { detailsUid = profile.uid },
                         gatewayAvailability = gatewayAvailability[profile.uid],
-                        animateGateway = profile.uid in visibleKeys && !optionsOpen && !sortOpen && !primaryOpen && detailsUid == null,
+                        animateGateway = profile.uid in visibleKeys && !optionsOpen && !sortOpen && !primaryOpen && !privacySettingsOpen && detailsUid == null,
                         onFocus = { focused ->
                             if (focused) {
                                 focusedUid = profile.uid
@@ -371,7 +397,7 @@ internal fun NewChatProfileScreen(
                     )
                     if (privacy.enabled) {
                         val decision = viewModel.privacyDecision(profile)
-                        if (decision.eligible) Text(decision.explanation, style = MaterialTheme.typography.labelSmall)
+                        Text(decision.explanation, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("privacy_profile_reason_${profile.uid}"))
                         decision.policyUrl?.let { url ->
                             val handler = androidx.compose.ui.platform.LocalUriHandler.current
                             TextButton(onClick = { handler.openUri(url) }) { Text("Provider privacy terms") }
@@ -381,6 +407,14 @@ internal fun NewChatProfileScreen(
                         GatewayModelPreparationContent(state) { viewModel.recheckGatewayModel(profile.uid) }
                     }
                 }
+            }
+        }
+    }
+    if (privacySettingsOpen) {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet(onDismissRequest = { privacySettingsOpen = false }) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+                TextButton(onClick = { privacySettingsOpen = false }, modifier = Modifier.align(Alignment.End)) { Text("Done") }
+                PrivacyModePanel()
             }
         }
     }

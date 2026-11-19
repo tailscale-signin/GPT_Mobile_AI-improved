@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
@@ -54,6 +55,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -68,12 +70,20 @@ internal fun SelectPlatformProfileCard(
     gatewayAvailability: GatewayAvailability? = null,
     animateGateway: Boolean = false,
     onFocus: (Boolean) -> Unit = {},
-    privacyRestriction: String? = null
+    privacyRestriction: String? = null,
+    privacyStatus: PrivacyProfileEligibility.Status? = null
 ) {
     val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
     val unavailable = androidx.compose.runtime.remember(profile, health, now) { dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) }
     val privacyBlocked = privacyRestriction != null
+    val privacyLabel = when (privacyStatus) {
+        PrivacyProfileEligibility.Status.AVAILABLE -> "Privacy · Available"
+        PrivacyProfileEligibility.Status.CHECKING -> "Privacy · Checking"
+        PrivacyProfileEligibility.Status.NOT_VERIFIED -> "Privacy · Not verified"
+        PrivacyProfileEligibility.Status.INCOMPATIBLE -> "Privacy · Incompatible"
+        null -> null
+    }
     val favoriteLabel = stringResource(if (profile.isFavorite) R.string.picker_remove_favorite else R.string.picker_add_favorite)
     val lines = if (LocalDensity.current.fontScale >= 1.3f) 3 else 1
     val surface = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
@@ -98,6 +108,7 @@ internal fun SelectPlatformProfileCard(
                         .combinedClickable(enabled = selected || (unavailable == null && !privacyBlocked), role = Role.Checkbox, onClick = { onToggle(profile.uid) }, onLongClick = onFavorite)
                         .semantics(mergeDescendants = true) {
                             toggleableState = ToggleableState(selected)
+                            privacyLabel?.let { stateDescription = it }
                             customActions = listOf(
                                 CustomAccessibilityAction(favoriteLabel) {
                                     onFavorite()
@@ -133,7 +144,10 @@ internal fun SelectPlatformProfileCard(
                             val description = provider?.let { dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(it, profile.model, health[it], now, profile.token) } ?: blocked.message
                             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        privacyRestriction?.let { reason ->
+                        privacyLabel?.let { label ->
+                            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.testTag("privacy_profile_status_${profile.uid}"))
+                        }
+                        privacyRestriction?.takeIf { privacyStatus == null }?.let { reason ->
                             Text("Privacy Mode: $reason", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(profile.model, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.primary, maxLines = lines, overflow = TextOverflow.Ellipsis)

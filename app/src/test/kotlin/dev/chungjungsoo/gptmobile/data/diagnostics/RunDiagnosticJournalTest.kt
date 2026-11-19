@@ -11,6 +11,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunDiagnosticJournalTest {
+    @Test fun typedPrivacyEligibilityFailureNeverPersistsForAPrivateRunOrSession() = runTest {
+        val vault = MemoryVault()
+        val journal = RunDiagnosticJournal(vault, backgroundScope, coalesceMillis = 0).apply { enabled = true }
+        val receipt = ProviderFailureReceipt(
+            ProviderFailureStage.ADMISSION, "OPENROUTER", "a".repeat(64), "b".repeat(64),
+            ProviderResponseFormat.TEXT, PrivacyFailureEvidence.CODE, ProviderFinishCategory.UNKNOWN,
+            dispatched = false,
+            remoteAcceptance = dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO,
+            privacyReasonCode = "ACCOUNT_PRIVACY_UNVERIFIED",
+            privacyStatus = "NOT_VERIFIED"
+        )
+        assertTrue(receipt.valid())
+        journal.setRunPrivacy("private-run", true)
+        journal.record("private-run", RunDiagnosticKind.FAILURE_RECEIPT, successful = false, providerFailure = receipt)
+        journal.setRunPrivacy("other-run", false)
+        journal.privateSession = true
+        journal.record("other-run", RunDiagnosticKind.FAILURE_RECEIPT, successful = false, providerFailure = receipt)
+        runCurrent()
+        assertTrue(vault.references().isEmpty())
+        val events = mutableListOf<RunDiagnosticEvent>()
+        journal.stream("private-run", {}) { events += it }
+        journal.stream("other-run", {}) { events += it }
+        assertTrue(events.isEmpty())
+    }
+
     @Test fun lastObservedStageUsesAcceptedEventsAndClearsWithPrivacyOrTerminal() = runTest {
         val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope).apply {
             enabled = true

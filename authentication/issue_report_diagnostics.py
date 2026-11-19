@@ -34,10 +34,21 @@ COUNTS = {"voice_reply_characters",
     "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms",
 }
 FINISH_REASONS = {"STOP", "TOOL_CALLS", "LENGTH", "CONTENT_FILTER", "OTHER", "UNKNOWN"}
+PRIVACY_ELIGIBILITY_REASONS = {
+    "BATCH_UNSUPPORTED", "MODEL_ROUTER_UNSUPPORTED", "ENDPOINT_UNSUPPORTED", "CREDENTIAL_MISSING",
+    "ROUTING_UNSUPPORTED", "ACCOUNT_PRIVACY_UNVERIFIED", "ACCOUNT_APPROVAL_EXPIRED",
+    "ACCOUNT_APPROVAL_INVALID", "ACCOUNT_APPROVAL_AMBIGUOUS", "PUBLISHED_POLICY_CHANGED",
+    "MODEL_RESOLUTION_UNVERIFIED", "CATALOG_MALFORMED", "MODEL_NOT_LISTED",
+    "NO_STRICT_ZDR_ENDPOINT", "PROVIDER_RESTRICTIONS", "AMBIGUOUS_ENDPOINT",
+    "MANAGEMENT_KEY_MISSING", "GUARDRAIL_UNVERIFIED", "GUARDRAIL_UPDATE_UNCONFIRMED", "GUARDRAIL_ASSIGNMENT_UNVERIFIED",
+    "KEY_UNAVAILABLE", "VERIFICATION_RATE_LIMITED", "VERIFICATION_UNAVAILABLE",
+}
 ENUMS = {
     "provider_failure_stage": {"ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"},
     "provider_failure_domain": {"PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"},
-    "provider_failure_code": {"BUDGET_RESTRICTED", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION"},
+    "provider_failure_code": {"BUDGET_RESTRICTED", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", "PRIVACY_PROVIDER_INELIGIBLE"},
+    "privacy_reason_code": PRIVACY_ELIGIBILITY_REASONS,
+    "privacy_status": {"NOT_VERIFIED", "INCOMPATIBLE"},
     "voice_reply_state": {"FAILED_WITHOUT_DETAILS", "EMPTY_REPLY"},
     "tool_action": {"agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable", "status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch"},
     "tool_error_code": {"APP_ERROR", "DNS_RESOLUTION_FAILED", "TOOL_FAILURE", "TOOL_PRECHECK_FAILED", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PR_HEAD_CHANGED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED"},
@@ -91,7 +102,7 @@ FIELDS_BY_AREA = {
         "original_error_code_hash", "server_request_id_hash", "generation_id_hash", "response_format", "finish_reason", "configured_output_limit", "effective_output_limit", "backend_output_limit",
         "input_tokens", "output_tokens", "reasoning_tokens", "visible_output_bytes", "reasoning_output_bytes", "backend_attempts", "backend_completed_attempts", "backend_failed_attempt",
         "repair_attempts", "repair_attempt_limit", "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "usage_source", "output_byte_scope",
-        "privacy_policy_hash", "privacy_zdr_required", "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "privacy_fallbacks_allowed", "privacy_observation",
+        "privacy_policy_hash", "privacy_zdr_required", "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "privacy_fallbacks_allowed", "privacy_observation", "privacy_reason_code", "privacy_status",
         "backend_terminal_code_hash", "backend_terminal_status", "backend_finish_reason", "backend_status",
     },
     "TOOL": COMMON_HASHES | {"tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "original_reason_code_hash", "argument_shape_hash", "missing_field_count", "invalid_field_count", "validation_error_count", "invalid_field_classes"},

@@ -55,6 +55,11 @@ internal data class IssueReportDiagnostics(
         }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values.keys + omittedFields + unavailableFields).any { it in PrivacyFailureEvidence.fields } ||
+            listOf("provider_failure_code", "causal_failure_code", "voice_chat_failure_code").any { values[it] == JsonPrimitive(PrivacyFailureEvidence.CODE) }
+        ) {
+            add(PrivacyFailureEvidence.FEATURE)
+        }
         if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.policyResponseFields }) add(IssueReportIncidentCapsule.GITHUB_POLICY_RESPONSE_FEATURE)
         if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.repeatHistoryFields }) add(IssueReportIncidentCapsule.REPEAT_HISTORY_FEATURE)
         if ("semantic_ci_rules" in values || "semantic_ci_rules" in omittedFields) add(IssueReportIncidentCapsule.GITHUB_CI_SEMANTIC_FEATURE)
@@ -335,7 +340,9 @@ internal data class IssueReportDiagnostics(
 
             "provider_failure_stage" to setOf("ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"),
             "provider_failure_domain" to setOf("PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"),
-            "provider_failure_code" to reconciliationCodes + setOf("OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION"),
+            "provider_failure_code" to reconciliationCodes + setOf("OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE),
+            "privacy_reason_code" to PrivacyFailureEvidence.reasonCodes,
+            "privacy_status" to PrivacyFailureEvidence.statuses,
             "github_cooldown_resource" to setOf("CORE", "SEARCH", "GRAPHQL", "OTHER"),
             "github_cooldown_basis" to setOf("SECONDARY_DEADLINE", "RESOURCE_RESET", "RESOURCE_RETRY_AFTER", "RESOURCE_RESET_AND_RETRY_AFTER"),
             "voice_reply_state" to setOf("FAILED_WITHOUT_DETAILS", "EMPTY_REPLY"),
@@ -421,7 +428,7 @@ internal data class IssueReportDiagnostics(
                 "original_error_code_hash", "server_request_id_hash", "generation_id_hash", "response_format", "finish_reason", "configured_output_limit", "effective_output_limit", "backend_output_limit",
                 "input_tokens", "output_tokens", "reasoning_tokens", "visible_output_bytes", "reasoning_output_bytes", "backend_attempts", "backend_completed_attempts", "backend_failed_attempt",
                 "repair_attempts", "repair_attempt_limit", "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "usage_source", "output_byte_scope",
-                "privacy_policy_hash", "privacy_zdr_required", "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "privacy_fallbacks_allowed", "privacy_observation",
+                "privacy_policy_hash", "privacy_zdr_required", "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "privacy_fallbacks_allowed", "privacy_observation", "privacy_reason_code", "privacy_status",
                 "backend_terminal_code_hash", "backend_terminal_status", "backend_finish_reason", "backend_status"
             ),
             "TOOL" to setOf("tool_budget_bytes_available", "graph_index_attempt_hash") + githubCooldownFields + commonHashes + transportFields + setOf("github_transport_kind", "github_transport_wait_ms", "read_range_count", "read_invalid_window_count", "read_window_rejections", "argument_page_size", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "original_reason_code_hash", "argument_shape_hash", "missing_field_count", "invalid_field_count", "validation_error_count", "invalid_field_classes"),
@@ -508,7 +515,7 @@ internal data class IssueReportDiagnostics(
             var result = snapshot()
             // Bound before preview/approval, and say exactly which otherwise valid fields did not fit.
             while (IssueReport.json.encodeToString(serializer(), result).encodeToByteArray().size > MAX_BYTES && values.isNotEmpty()) {
-                val optional = if (version == 3) values.filterKeys { it !in IssueReportIncidentCapsule.priorityFields && it !in acceptanceScopeFields && it !in githubPrerequisiteFields && it !in GitHubAcceptanceRecoveryEvidence.fields && it !in voiceCapturePlaybackFields && it !in githubSchemaBudgetFields && it !in profileSelectionFields && it !in githubCooldownFields } else values
+                val optional = if (version == 3) values.filterKeys { it !in IssueReportIncidentCapsule.priorityFields && it !in acceptanceScopeFields && it !in githubPrerequisiteFields && it !in GitHubAcceptanceRecoveryEvidence.fields && it !in voiceCapturePlaybackFields && it !in githubSchemaBudgetFields && it !in profileSelectionFields && it !in githubCooldownFields && it !in PrivacyFailureEvidence.fields } else values
                 val key = (optional.ifEmpty { values }).maxBy { it.key.length + it.value.toString().length }.key
                 val criterionSize = (values[key] as? JsonArray)?.size ?: 0
                 if (version == 3 && key in criterionFields && criterionSize > 1) {

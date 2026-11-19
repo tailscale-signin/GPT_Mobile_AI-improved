@@ -13,6 +13,7 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -38,6 +39,7 @@ internal class PrivateInferenceSession(
     private val alternatives: suspend () -> String
 ) : AgentProviderSession {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+        val inferenceDispatched = java.util.concurrent.atomic.AtomicBoolean(false)
         try {
             check(tools.isEmpty() && exchanges.isEmpty()) { "External tools require separate privacy verification." }
             val state = store.snapshot()
@@ -65,20 +67,23 @@ internal class PrivateInferenceSession(
             val limit = if (profile.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(profile).outputAllowance(preferred) else preferred
             // The response map exists only for this invocation. No plaintext mapping is persisted.
             val restore = mask.sealForResponse()
-            currentCoroutineContext()[RequestAuthorizationGuard]?.validate?.invoke()
+            val originalContext = currentCoroutineContext()
+            val authorization = originalContext[RequestAuthorizationGuard]
+            authorization?.validate?.invoke()
             suspend fun transmit(): JsonObject {
                 // Verify after acquiring the free-provider permit. Queued work cannot reuse
                 // the eligibility decision made when the conversation was opened.
                 val verified = verifier.verify(profile)
-                val route = verified.route ?: throw RouteUnavailable(verified.decision.explanation)
-                val body = wireBody(route, profile.model, messages, limit)
+                val route = verified.route ?: throw RouteUnavailable(verified.decision)
+                val requestModel = route.model ?: profile.model
+                val body = wireBody(route, requestModel, messages, limit)
                 val config = dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(
                     apiUrl = route.url, token = null, profileUid = profile.uid, providerType = profile.compatibleType.name,
-                    lockedApiUrl = route.url, lockedModel = profile.model, contextCeiling = constraints.contextCeiling,
+                    lockedApiUrl = route.url, lockedModel = requestModel, contextCeiling = constraints.contextCeiling,
                     requireKnownCapacity = constraints.requireKnownCapacity, permissionRevision = constraints.permissionRevision,
                     requestRole = constraints.requestRole ?: "primary"
                 )
-                val wire = verifier.preparation.prepareQueued(body.toString(), config, profile.model, limit)
+                val wire = verifier.preparation.prepareQueued(body.toString(), config, requestModel, limit)
                 val request = Request.Builder().url(route.url).apply {
                     if (route.kind == ClientType.ANTHROPIC) {
                         header("x-api-key", profile.token.orEmpty())
@@ -87,14 +92,26 @@ internal class PrivateInferenceSession(
                         profile.token?.takeIf(String::isNotBlank)?.let { header("Authorization", "Bearer $it") }
                     }
                     header("Cache-Control", "no-store")
+                    if (route.kind == ClientType.OPENROUTER) header("X-OpenRouter-Cache", "false")
                 }.post(wire.toRequestBody("application/json".toMediaType())).build()
                 // Recheck on the network thread just before the body can be written.
                 val attempted = java.util.concurrent.atomic.AtomicBoolean(false)
                 val client = verifier.http.newBuilder().addNetworkInterceptor { chain ->
                     val proof = route.approval
-                    if (!attempted.compareAndSet(false, true) || store.snapshot() != state || (proof != null && verifier.approval(profile, route.url, proof.policyUrl) != proof)) {
+                    if (!attempted.compareAndSet(false, true)) {
                         throw IOException("Privacy verification changed before dispatch.")
                     }
+                    try {
+                        recheckDispatch(originalContext) {
+                            check(verifier.routingUnchanged(profile, route))
+                            authorization?.validate?.invoke()
+                        }
+                        check(store.snapshot() == state)
+                        check(proof == null || verifier.approval(profile, route.url, proof.policyUrl) == proof)
+                    } catch (_: Exception) {
+                        throw IOException("The profile or its permissions changed before dispatch.")
+                    }
+                    inferenceDispatched.set(true)
                     chain.proceed(chain.request())
                 }.build()
                 return verifier.readJson(client, request)
@@ -124,16 +141,37 @@ internal class PrivateInferenceSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            val reason = (error as? RouteUnavailable)?.reason ?: "Private inference stopped. Your conversation is saved locally."
-            emit(ProviderEvent.Failed(reason + " " + alternatives(), errorCode = "PRIVACY_PROVIDER_INELIGIBLE", taskOutcome = "BLOCKED"))
+            val decision = (error as? RouteUnavailable)?.decision ?: PrivacyProfileEligibility.Reason.VERIFICATION_UNAVAILABLE.decision()
+            val dispatched = inferenceDispatched.get()
+            val details = buildJsonObject {
+                put("privacy_reason_code", decision.code?.takeIf { code -> PrivacyProfileEligibility.Reason.entries.any { it.name == code } } ?: "VERIFICATION_UNAVAILABLE")
+                put("privacy_status", decision.status.name)
+                put("failed_stage", if (dispatched) "provider_generation" else "provider_admission")
+                put("dispatched", dispatched)
+                put("remote_acceptance", if (dispatched) "UNKNOWN" else "NO")
+                put("request_replay_allowed", false)
+                put("logical_continuation_allowed", false)
+            }
+            emit(ProviderEvent.Failed(decision.explanation + " " + alternatives(), errorCode = "PRIVACY_PROVIDER_INELIGIBLE", taskOutcome = "BLOCKED", failureDetails = details))
         }
     }
 
-    private class RouteUnavailable(val reason: String) : Exception()
+    private class RouteUnavailable(val decision: PrivacyProfileEligibility.Decision) : Exception()
 
     companion object {
+        /** Network interceptors run outside the flow. Retain permission scopes without inheriting
+         * its dispatcher or blocking its Job, and check the original cancellation on both sides.
+         */
+        internal fun recheckDispatch(context: CoroutineContext, validate: suspend () -> Unit) {
+            context.ensureActive()
+            kotlinx.coroutines.runBlocking(context.minusKey(kotlinx.coroutines.Job).minusKey(kotlin.coroutines.ContinuationInterceptor)) {
+                validate()
+            }
+            context.ensureActive()
+        }
+
         internal fun wireBody(route: VerifiedPrivateRoute, model: String, messages: JsonArray, limit: Int): JsonObject = buildJsonObject {
-            put("model", model)
+            put("model", route.model ?: model)
             if (route.kind == ClientType.ANTHROPIC) {
                 val items = messages.filterIsInstance<JsonObject>()
                 items.firstOrNull { it["role"] == JsonPrimitive("system") }?.get("content")?.let { put("system", it) }
@@ -142,15 +180,34 @@ internal class PrivateInferenceSession(
                 put("messages", messages)
             }
             put(if (route.kind == ClientType.OPENAI) "max_completion_tokens" else "max_tokens", limit)
-            if (route.kind == ClientType.OPENAI || route.kind == ClientType.OPENROUTER) put("store", false)
+            if (route.kind == ClientType.OPENAI) put("store", false)
             if (route.kind == ClientType.OPENROUTER) {
                 put(
                     "provider",
                     buildJsonObject {
+                        route.providerOptions.forEach { (name, value) -> put(name, value) }
                         put("zdr", true)
                         put("data_collection", "deny")
                         put("allow_fallbacks", false)
-                        put("only", JsonArray(listOf(JsonPrimitive(requireNotNull(route.approval).upstream))))
+                        put("require_parameters", true)
+                        val pin = requireNotNull(route.upstream).also { require(it != "*") }
+                        put("only", JsonArray(listOf(JsonPrimitive(pin))))
+                        put("order", JsonArray(listOf(JsonPrimitive(pin))))
+                    }
+                )
+                // Empty/omitted plugins do not override account defaults. Disable documented
+                // overridable plugins explicitly; account evidence must also exclude locked defaults.
+                put(
+                    "plugins",
+                    buildJsonArray {
+                        listOf("armor", "auto-beta-router", "auto-router", "context-compression", "file-parser", "fusion", "pareto-router", "response-healing", "web").forEach { id ->
+                            add(
+                                buildJsonObject {
+                                    put("id", id)
+                                    put("enabled", false)
+                                }
+                            )
+                        }
                     }
                 )
             }

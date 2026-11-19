@@ -5,8 +5,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.BoundedResponseText
+import dev.chungjungsoo.gptmobile.data.openrouter.account.AccountFailure
 import dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterAccountClient
+import dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterAccountException
 import dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility.Reason
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -16,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -33,7 +37,8 @@ class PrivacyProviderVerifier @Inject constructor(
     @ApplicationContext private val context: Context,
     network: dev.chungjungsoo.gptmobile.data.network.NetworkClient,
     internal val authority: ProviderApprovalSource,
-    private val router: OpenRouterAccountClient
+    private val router: OpenRouterAccountClient,
+    private val routerSettings: dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository
 ) {
     internal data class Result(val decision: PrivacyProfileEligibility.Decision, val route: VerifiedPrivateRoute? = null)
 
@@ -87,50 +92,112 @@ class PrivacyProviderVerifier @Inject constructor(
                     }
                 }
                 remote != null && base.policyUrl != null -> {
-                    val proof = approval(profile, remote, base.policyUrl)
-                    if (proof == null) {
-                        Result(base)
+                    val proof = requireApproval(profile, remote, base.policyUrl)
+                    if (!matchesPublishedPolicy(proof)) throw VerificationBlocked(Reason.PUBLISHED_POLICY_CHANGED)
+                    if (profile.compatibleType == ClientType.OPENROUTER) {
+                        verifyOpenRouter(profile, remote, proof)
                     } else {
-                        val live = if (!matchesPublishedPolicy(proof)) {
-                            false
-                        } else if (profile.compatibleType == ClientType.OPENROUTER) {
-                            val api = profile.apiUrl.trimEnd('/')
-                            val key = profile.token.orEmpty()
-                            val account = router.key(api, key)
-                            check(!account.expired && !account.isManagement)
-                            val catalog = router.objectResource(api, key, "endpoints/zdr")["data"] as? JsonArray
-                            catalog != null && VerifiedPrivateRoute.strictCatalogMatch(catalog, proof) && strictGuardrail(proof)
-                        } else {
-                            true
-                        }
-                        if (live) {
-                            Result(PrivacyProfileEligibility.Decision(true, "Verified for stateless text · " + proof.upstream, base.policyUrl), VerifiedPrivateRoute(remote, profile.compatibleType, proof))
-                        } else {
-                            Result(PrivacyProfileEligibility.Decision(false, "The published policy or provider route no longer matches the approval.", base.policyUrl))
-                        }
+                        Result(PrivacyProfileEligibility.Decision(true, "Verified for stateless text · " + proof.upstream, base.policyUrl), VerifiedPrivateRoute(remote, profile.compatibleType, proof))
                     }
                 }
                 else -> Result(base)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (blocked: VerificationBlocked) {
+            Result(blocked.reason.decision(base.policyUrl))
+        } catch (error: OpenRouterAccountException) {
+            val reason = when (error.category) {
+                AccountFailure.INVALID, AccountFailure.EXPIRED, AccountFailure.ROLE -> Reason.KEY_UNAVAILABLE
+                AccountFailure.RATE_LIMITED -> Reason.VERIFICATION_RATE_LIMITED
+                AccountFailure.MALFORMED -> Reason.CATALOG_MALFORMED
+                else -> Reason.VERIFICATION_UNAVAILABLE
+            }
+            Result(reason.decision(base.policyUrl))
         } catch (_: Exception) {
-            Result(PrivacyProfileEligibility.Decision(false, "Could not verify this route. Choose an on-device profile or recheck the connection.", base.policyUrl))
+            Result(Reason.VERIFICATION_UNAVAILABLE.decision(base.policyUrl))
         }
         // Audit only. A previous receipt is never consulted to authorize a request.
         context.getSharedPreferences("privacy_route_checks", Context.MODE_PRIVATE).edit()
-            .putString(identity(profile), listOf(System.currentTimeMillis(), result.decision.eligible, result.decision.policyUrl.orEmpty()).joinToString("|")).apply()
+            .putString(identity(profile), listOf(System.currentTimeMillis(), result.decision.eligible, result.decision.policyUrl.orEmpty(), result.decision.status.name, result.decision.code.orEmpty()).joinToString("|")).apply()
         result
     }
 
-    private suspend fun strictGuardrail(proof: ProviderApproval): Boolean {
+    private class VerificationBlocked(val reason: Reason) : Exception()
+
+    private data class RoutingSnapshot(val options: JsonObject, val revision: String)
+
+    private suspend fun routing(profile: PlatformV2): RoutingSnapshot {
+        val settings = profile.providerConnectionUid?.let { routerSettings.loadSettings(it) }
+        val defaults = settings?.routing?.normalized()?.let { Json.encodeToString(it) }
+        val base = PrivateOpenRouterRouting.options(defaults) ?: throw VerificationBlocked(Reason.ROUTING_UNSUPPORTED)
+        val override = PrivateOpenRouterRouting.options(profile.openRouterRouting) ?: throw VerificationBlocked(Reason.ROUTING_UNSUPPORTED)
+        val resolved = PrivateOpenRouterRouting.mergeOptions(base, override) ?: throw VerificationBlocked(Reason.PROVIDER_RESTRICTIONS)
+        val revision = OpenRouterIdentity.digest(listOf(profile.providerConnectionUid.orEmpty(), settings?.revision?.toString().orEmpty(), defaults.orEmpty(), profile.openRouterRouting.orEmpty()).joinToString("\u0000"))
+        return RoutingSnapshot(resolved, revision)
+    }
+
+    internal suspend fun routingUnchanged(profile: PlatformV2, route: VerifiedPrivateRoute): Boolean =
+        route.kind != ClientType.OPENROUTER || route.routingRevision == routing(profile).revision
+
+    private fun requireApproval(profile: PlatformV2, url: String, terms: String): ProviderApproval {
+        val records = try {
+            authority.records()
+        } catch (_: Exception) {
+            throw VerificationBlocked(Reason.ACCOUNT_APPROVAL_INVALID)
+        }
+        val now = System.currentTimeMillis()
+        val matching = records.filter { it.covers(profile, url, terms, now) }
+        if (matching.size > 1) throw VerificationBlocked(Reason.ACCOUNT_APPROVAL_AMBIGUOUS)
+        matching.singleOrNull()?.let { return it }
+        val sameAccount = records.filter { it.endpoint == url && it.credentialSha256 == OpenRouterIdentity.digest(profile.token.orEmpty()) }
+        val reason = when {
+            records.isEmpty() -> Reason.ACCOUNT_PRIVACY_UNVERIFIED
+            sameAccount.isNotEmpty() && sameAccount.all { it.expiresAtMillis <= now } -> Reason.ACCOUNT_APPROVAL_EXPIRED
+            else -> Reason.ACCOUNT_APPROVAL_INVALID
+        }
+        throw VerificationBlocked(reason)
+    }
+
+    private suspend fun verifyOpenRouter(profile: PlatformV2, url: String, proof: ProviderApproval): Result {
+        val api = profile.apiUrl.trimEnd('/')
+        val key = profile.token.orEmpty()
+        val account = router.key(api, key)
+        if (account.expired || account.isManagement) throw VerificationBlocked(Reason.KEY_UNAVAILABLE)
+        val accountScope = proof.scope == "openrouter-account-v1"
+        var metadata = router.objectResource(api, key, "model/" + profile.model)
+        val alias = PrivateOpenRouterRouting.aliasTarget(metadata, profile.model)
+        if (alias != null) {
+            if (!accountScope || profile.model.endsWith(":free") != alias.endsWith(":free")) throw VerificationBlocked(Reason.MODEL_RESOLUTION_UNVERIFIED)
+            metadata = router.objectResource(api, key, "model/" + alias)
+        }
+        val target = PrivateOpenRouterRouting.concreteTarget(metadata, alias ?: profile.model, accountScope && alias == null)
+            ?: throw VerificationBlocked(Reason.MODEL_RESOLUTION_UNVERIFIED)
+        if (alias != null && target.model != alias) throw VerificationBlocked(Reason.MODEL_RESOLUTION_UNVERIFIED)
+        val catalog = router.objectResource(api, key, "endpoints/zdr")["data"] as? JsonArray
+            ?: throw VerificationBlocked(Reason.CATALOG_MALFORMED)
+        val inventory = router.objectResource(api, key, "models/" + target.model + "/endpoints")
+        val routing = routing(profile)
+        val options = routing.options
+        val selected = PrivateOpenRouterRouting.select(catalog, inventory, target.model, if (accountScope) null else proof.upstream, options, target.canonical)
+        selected.failure?.let { throw VerificationBlocked(Reason.valueOf(it.name)) }
+        val upstream = selected.upstream ?: throw VerificationBlocked(Reason.CATALOG_MALFORMED)
+        if (!strictGuardrail(profile, url, proof, target.model)) throw VerificationBlocked(Reason.GUARDRAIL_UNVERIFIED)
+        // Store a concrete model and selector in this ephemeral route; later alias rollover cannot broaden it.
+        return Result(
+            PrivacyProfileEligibility.Decision(true, "Verified private text · " + target.model + " · " + upstream, proof.policyUrl, code = "STRICT_ZDR_VERIFIED"),
+            VerifiedPrivateRoute(url, profile.compatibleType, proof, upstream, options, target.model, routing.revision)
+        )
+    }
+
+    private suspend fun strictGuardrail(profile: PlatformV2, url: String, proof: ProviderApproval, model: String): Boolean {
         val id = proof.guardrailId?.takeIf { it.matches(Regex("[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")) } ?: return false
         val hash = proof.providerKeyHash?.takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: return false
-        val key = authority.managementKey() ?: return false
+        val key = authority.managementKey() ?: throw VerificationBlocked(Reason.MANAGEMENT_KEY_MISSING)
         val base = "https://openrouter.ai/api/v1/guardrails/$id"
         suspend fun get(url: String) = readJson(metadataHttp, Request.Builder().url(url).header("Authorization", "Bearer $key").build())
-        val group = when (proof.model.substringBefore('/')) {
-            "google", "openai", "anthropic" -> proof.model.substringBefore('/')
+        val group = when (model.substringBefore('/')) {
+            "google", "openai", "anthropic" -> model.substringBefore('/')
             "x-ai" -> "xai"
             else -> "other"
         }
@@ -151,11 +218,9 @@ class PrivacyProviderVerifier @Inject constructor(
             }
             offset += rows.size
             val count = (page["total_count"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return false
-            if (rows.isEmpty() || offset >= count) return false
+            if (rows.isEmpty() || offset >= count) throw VerificationBlocked(Reason.GUARDRAIL_ASSIGNMENT_UNVERIFIED)
         }
-        if (!assigned) return false
-        if (strict(rule)) return true
-        if (!proof.allowGuardrailTightening || !authority.mayUpdateGuardrail()) return false
+        if (!assigned) throw VerificationBlocked(Reason.GUARDRAIL_ASSIGNMENT_UNVERIFIED)
         val update = JsonObject(
             mapOf(
                 "enforce_zdr_$group" to JsonPrimitive(true),
@@ -163,12 +228,39 @@ class PrivacyProviderVerifier @Inject constructor(
                 "allow_safety_retention_other" to JsonPrimitive(false)
             )
         )
-        readJson(
-            http,
-            Request.Builder().url(base).header("Authorization", "Bearer $key")
-                .patch(update.toString().toRequestBody("application/json".toMediaType())).build()
-        )
-        return (get(base)["data"] as? JsonObject)?.let(::strict) == true
+        val updateIdentity = PrivateOpenRouterRouting.guardrailUpdateIdentity(id, hash, update)
+        if (strict(rule)) {
+            authority.confirmGuardrailUpdate(updateIdentity)
+            return true
+        }
+        if (!proof.allowGuardrailTightening || !authority.mayUpdateGuardrail()) return false
+        if (approval(profile, url, proof.policyUrl) != proof) throw VerificationBlocked(Reason.ACCOUNT_APPROVAL_INVALID)
+        if (!authority.beginGuardrailUpdate(updateIdentity)) throw VerificationBlocked(Reason.GUARDRAIL_UPDATE_UNCONFIRMED)
+        try {
+            readJson(
+                guardrailUpdateClient(profile, url, proof),
+                Request.Builder().url(base).header("Authorization", "Bearer $key")
+                    .patch(update.toString().toRequestBody("application/json".toMediaType())).build()
+            )
+            if ((get(base)["data"] as? JsonObject)?.let(::strict) != true) throw VerificationBlocked(Reason.GUARDRAIL_UPDATE_UNCONFIRMED)
+            authority.confirmGuardrailUpdate(updateIdentity)
+            return true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // The durable intent survives a lost PATCH response. A subsequent read must confirm it.
+            throw VerificationBlocked(Reason.GUARDRAIL_UPDATE_UNCONFIRMED)
+        }
+    }
+
+    internal fun guardrailUpdateClient(profile: PlatformV2, url: String, proof: ProviderApproval): OkHttpClient {
+        val attempted = java.util.concurrent.atomic.AtomicBoolean(false)
+        return http.newBuilder().addNetworkInterceptor { chain ->
+            if (!attempted.compareAndSet(false, true) || chain.call().isCanceled() || !proof.allowGuardrailTightening || !authority.mayUpdateGuardrail() || approval(profile, url, proof.policyUrl) != proof) {
+                throw IOException("Guardrail authorization changed before dispatch.")
+            }
+            chain.proceed(chain.request())
+        }.build()
     }
 
     private suspend fun matchesPublishedPolicy(proof: ProviderApproval): Boolean {

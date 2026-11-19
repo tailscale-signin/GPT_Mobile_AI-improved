@@ -173,7 +173,8 @@
     "Preserve content-free research archive failure diagnostics, bounded retry quarantine and conservative unknown-context tool admission, and add selected-profile benchmark argument evidence with release-qualified regression files.",
     "Start local Privacy Mode with a master checkbox, default-protected data categories, disabled unverified/free provider routes in New Chat, private local gateway exception and a fail-closed chat-provider admission guard.",
     "Add Privacy-Verified AI Profiles, strict account and endpoint verification, local text masking, and a stateless private Windows Gateway route.",
-    "Add opt-in Copilot cloud tasks directly from Android or through an explicitly selected standalone Gateway, with durable task receipts, original-account recovery, live consent and exact MCP mutation approval."
+    "Add opt-in Copilot cloud tasks directly from Android or through an explicitly selected standalone Gateway, with durable task receipts, original-account recovery, live consent and exact MCP mutation approval.",
+    "Add strict automatic OpenRouter model and endpoint qualification under explicit account evidence, actionable Privacy Mode profile states, connection-policy and queued-dispatch fences, and privacy-safe terminal failure contracts. Preserve unresolved remote outcomes and separate live release acceptance."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -3123,6 +3124,12 @@
     "gateway/tests/test_gateway_copilot_tasks.py",
     "gateway/v14/copilot_tasks.py",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ResolvedToolAdmission.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ResolvedToolAdmissionTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ResolvedToolAdmissionTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFailureEvidence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/account/OpenRouterAccountClient.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/PrivacyFailureClassificationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/PrivacyFailureReportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyModeStoreTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyGuardrailAuthorizationTest.kt"
   ]
 }

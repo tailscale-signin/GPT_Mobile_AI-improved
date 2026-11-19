@@ -138,7 +138,8 @@ internal class IssueReportSubmission(
             PROVIDER_TERMINAL_CAUSES_FEATURE,
             IssueReportDiagnostics.PAGINATION_AND_PROVIDER_LIMIT_FEATURE,
             IssueReportIncidentCapsule.GITHUB_PR_CONTEXT_RACE_FEATURE,
-            "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1"
+            "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1",
+            PrivacyFailureEvidence.FEATURE
         )
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
         private val RECOVERY_CODES = setOf(
@@ -164,6 +165,7 @@ internal class IssueReportSubmission(
                     code(event)?.let(REPORT_EVENT::matchEntire)?.groupValues?.get(1)
                 }
             return buildSet {
+                if (PrivacyFailureEvidence.CODE in codes) add(PrivacyFailureEvidence.FEATURE)
                 if ("OUTPUT_CONTINUATION_NO_PROGRESS" in codes ||
                     "PROVIDER_INVOCATION_FAILED" in codes ||
                     code(diagnostics?.values?.get("provider_failure_code")) == "BUDGET_RESTRICTED"

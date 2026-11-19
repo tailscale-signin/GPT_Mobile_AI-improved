@@ -15,7 +15,52 @@ import java.net.URI
  * it is a private, locally hosted inference route, NOT when it relays to cloud AI.
  */
 object PrivacyProfileEligibility {
-    data class Decision(val eligible: Boolean, val explanation: String, val policyUrl: String? = null)
+    enum class Status { AVAILABLE, CHECKING, NOT_VERIFIED, INCOMPATIBLE }
+
+    data class Decision(
+        val eligible: Boolean,
+        val explanation: String,
+        val policyUrl: String? = null,
+        val status: Status = if (eligible) Status.AVAILABLE else Status.NOT_VERIFIED,
+        val code: String? = null
+    )
+
+    const val OPENROUTER_TERMS = "https://openrouter.ai/docs/guides/features/zdr"
+
+    /** Bounded diagnostics: never interpolate credential, prompt, provider response or account identifiers. */
+    enum class Reason(val message: String, val incompatible: Boolean = false) {
+        BATCH_UNSUPPORTED("Privacy Mode supports direct text requests. Turn off batch mode for this profile.", true),
+        MODEL_ROUTER_UNSUPPORTED("Choose a named text model. Automatic model routers, online variants and presets cannot be verified for this private route.", true),
+        ENDPOINT_UNSUPPORTED("This endpoint cannot enforce the private route. Use an official OpenRouter API endpoint.", true),
+        CREDENTIAL_MISSING("Add a valid inference API key to this profile before checking privacy."),
+        ROUTING_UNSUPPORTED("This profile contains routing, model fallbacks or plugin options that the private text route cannot enforce. Review its advanced options.", true),
+        ACCOUNT_PRIVACY_UNVERIFIED("Account privacy is not verified. In Privacy settings, add current account evidence for disabled prompt logging, product-improvement collection, Broadcast and default plugins. A normal API key alone cannot prove these settings."),
+        ACCOUNT_APPROVAL_EXPIRED("The account privacy approval has expired. Import current evidence in Privacy settings and recheck."),
+        ACCOUNT_APPROVAL_INVALID("The account privacy evidence is invalid or does not match this key, endpoint or model. Recheck account setup."),
+        ACCOUNT_APPROVAL_AMBIGUOUS("More than one account approval matches this route. Ask the issuer for one unambiguous approval."),
+        PUBLISHED_POLICY_CHANGED("The current provider policy does not match the approved document. Obtain updated account evidence and recheck."),
+        MODEL_RESOLUTION_UNVERIFIED("The selected model could not be resolved to a verified version. Choose a specific version or recheck the provider catalog."),
+        CATALOG_MALFORMED("The provider returned incomplete or conflicting endpoint metadata. Recheck later; no private prompt was sent."),
+        MODEL_NOT_LISTED("No verified endpoint is listed for this selected model. Choose another model or recheck later."),
+        NO_STRICT_ZDR_ENDPOINT("No endpoint for this model currently proves strict ZDR with Safety Retention excluded. Choose another model.", true),
+        PROVIDER_RESTRICTIONS("The profile's provider restrictions exclude every verified private endpoint. Review its routing options.", true),
+        AMBIGUOUS_ENDPOINT("The available provider selector can include an unverified endpoint variant. Choose another model or recheck later."),
+        MANAGEMENT_KEY_MISSING("Add an OpenRouter management key in Privacy settings so the app can verify the assigned privacy guardrail."),
+        GUARDRAIL_UNVERIFIED("The assigned guardrail does not verify ZDR for this model group with both Safety Retention choices excluded. Review OpenRouter privacy setup."),
+        GUARDRAIL_UPDATE_UNCONFIRMED("A privacy guardrail update has an unknown outcome. Confirm or apply the strict settings in OpenRouter, then recheck; the app will not repeat the update."),
+        GUARDRAIL_ASSIGNMENT_UNVERIFIED("The approved guardrail is not confirmed on this inference key. Review its assignment in OpenRouter."),
+        KEY_UNAVAILABLE("The inference key is invalid, expired or has the wrong role. Update the profile's API key."),
+        VERIFICATION_RATE_LIMITED("OpenRouter temporarily limited privacy checks. Wait and recheck; Privacy Mode stays on."),
+        VERIFICATION_UNAVAILABLE("Privacy verification could not be completed. Check the connection and recheck; Privacy Mode stays on.");
+
+        fun decision(policyUrl: String? = null): Decision = Decision(
+            false,
+            message,
+            policyUrl,
+            if (incompatible) Status.INCOMPATIBLE else Status.NOT_VERIFIED,
+            name
+        )
+    }
 
     private val local = Decision(true, "On-device inference")
 
@@ -37,7 +82,15 @@ object PrivacyProfileEligibility {
             return Decision(false, "Groq requires verification of account-level ZDR Data Controls", "https://console.groq.com/docs/your-data")
         }
         if (profile.compatibleType == ClientType.OPENROUTER) {
-            return Decision(false, "Verify the selected model's exact ZDR endpoint, account policy, and Safety Retention exclusion; automatic model routing is not eligible", "https://openrouter.ai/docs/guides/features/zdr")
+            val reason = when {
+                profile.batchMode || !profile.batchApiUrl.isNullOrBlank() -> Reason.BATCH_UNSUPPORTED
+                !PrivateOpenRouterRouting.selectedModel(profile.model) -> Reason.MODEL_ROUTER_UNSUPPORTED
+                profile.apiUrl.trimEnd('/') !in dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity.endpoints -> Reason.ENDPOINT_UNSUPPORTED
+                profile.token.isNullOrBlank() || profile.token.any { it.isWhitespace() || it.isISOControl() || it == ',' || it == ';' } -> Reason.CREDENTIAL_MISSING
+                PrivateOpenRouterRouting.options(profile.openRouterRouting) == null -> Reason.ROUTING_UNSUPPORTED
+                else -> Reason.ACCOUNT_PRIVACY_UNVERIFIED
+            }
+            return reason.decision(OPENROUTER_TERMS)
         }
         if (profile.compatibleType == ClientType.OPENAI) {
             return Decision(false, "An approved project, eligible model and stateless endpoint are required.", "https://developers.openai.com/api/docs/guides/your-data")

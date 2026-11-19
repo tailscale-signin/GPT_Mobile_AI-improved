@@ -56,6 +56,72 @@ class IssueReportSubmissionTest {
         )
     )
 
+    @Test fun privacyEligibilityEvidenceAndCodesWaitForTheirOwnCapabilityBeforePostingApprovedBytes() {
+        val code = PrivacyFailureEvidence.CODE
+        val feature = PrivacyFailureEvidence.FEATURE
+        val diagnosticContext = IssueReportContext.fromFields(
+            "CHAT_FAILURE",
+            mapOf("diagnostic_area" to "PROVIDER", "privacy_reason_code" to "ACCOUNT_PRIVACY_UNVERIFIED", "privacy_status" to "NOT_VERIFIED"),
+            1_000L
+        )
+        val diagnostic = requireNotNull(diagnosticContext.diagnostics)
+        val variants = mutableListOf(
+            report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = code),
+            report.copy(events = listOf("-1ms E chat $code")),
+            report.copy(context = diagnosticContext),
+            report.copy(context = diagnosticContext.withDiagnostics(diagnostic.copy(values = emptyMap(), omittedFields = PrivacyFailureEvidence.fields.toList())))
+        )
+        for (location in listOf("provider_failure_code", "causal_failure_code", "voice_chat_failure_code")) {
+            val area = when (location) {
+                "provider_failure_code" -> "PROVIDER"
+                "voice_chat_failure_code" -> "VOICE"
+                else -> "INCIDENT"
+            }
+            val context = IssueReportContext.fromFields(if (area == "VOICE") "VOICE_STATE" else "CHAT_FAILURE", mapOf("diagnostic_area" to area, location to code), 1_000L)
+            assertEquals(JsonPrimitive(code), context.diagnostics?.values?.get(location))
+            variants += report.copy(context = context)
+        }
+        for (approved in variants) {
+            val payload = approved.approvedPayload()
+            val needed = approved.context?.diagnostics?.requiredServiceFeatures().orEmpty() + feature
+            var compatible = false
+            var dispatched = 0
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                    val readiness = buildJsonObject {
+                        put("service", "gpt-mobile-issue-reporter")
+                        put("version", 2)
+                        put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                        put("reportDiagnosticFeatures", JsonArray(needed.filter { compatible || it != feature }.map(::JsonPrimitive)))
+                    }
+                    response(request, 200, readiness.toString())
+                } else {
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${report.reportId}","number":1741}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+            assertFalse(blocked.automaticRetry)
+            assertEquals(listOf("GET"), methods)
+            assertEquals(0, dispatched)
+            assertTrue(posted.isEmpty())
+            assertEquals(payload, approved.approvedPayload())
+            compatible = true
+            assertEquals(IssueReportSubmission.Confirmed(1741), submission.send(report.reportId, payload) { dispatched++ })
+            assertEquals(listOf("GET", "GET", "POST"), methods)
+            assertEquals(1, dispatched)
+            assertEquals(listOf(payload), posted)
+        }
+        assertEquals(1022, ready(false).encodeToByteArray().size)
+    }
+
     @Test fun publicationEvidenceValuesAndOmissionsNegotiateExtendedReadinessBeforeUnchangedPost() {
         assertEquals(1022, ready(false).encodeToByteArray().size)
         assertTrue(ready(true).encodeToByteArray().size in 1025..4096)

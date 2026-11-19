@@ -414,6 +414,17 @@ internal object IssueReportIncidents {
                 "provider_failure_stage" to "GENERATION",
                 "provider_failure_code" to publicCode
             )
+        } else if (publicCode == PrivacyFailureEvidence.CODE) {
+            fields + mapOf(
+                "diagnostic_area" to "PROVIDER",
+                "diagnostic_capture_mode" to "INCIDENT",
+                "provider_failure_code" to publicCode,
+                "failure_origin" to "APPLICATION"
+            ) + when (input.stage) {
+                "provider_admission" -> mapOf("provider_failure_stage" to "ADMISSION")
+                "provider_generation" -> mapOf("provider_failure_stage" to "GENERATION")
+                else -> emptyMap()
+            }
         } else if (publicCode in setOf("GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_PROFILE_LOCKED", "GITHUB_COOLDOWN_ACTIVE")) {
             fields + mapOf(
                 "diagnostic_area" to "PROVIDER",

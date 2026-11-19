@@ -24,6 +24,10 @@ internal object ProviderFailureReport {
         metadata: GatewayResponseMetadata? = null
     ): JsonObject = buildJsonObject {
         put("diagnostic_area", "PROVIDER")
+        if (receipt.errorCode == PrivacyFailureEvidence.CODE) {
+            receipt.privacyReasonCode?.let { put("privacy_reason_code", it) }
+            receipt.privacyStatus?.let { put("privacy_status", it) }
+        }
         // Closed, content-free rate-limit evidence for future provider incident triage.
         for (key in listOf("provider_limit_source", "provider_cooldown_scope_hash")) {
             failure.failureDetails?.get(key)?.let { put(key, it) }

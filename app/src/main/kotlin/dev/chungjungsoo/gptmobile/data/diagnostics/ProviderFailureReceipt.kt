@@ -70,7 +70,11 @@ data class ProviderFailureReceipt(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val engineeringRejection: JsonObject? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val recoveryAction: String? = null
+    val recoveryAction: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val privacyReasonCode: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val privacyStatus: String? = null
 ) {
     internal fun valid(): Boolean = provider in setOf("OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OPENROUTER", "OLLAMA", "CUSTOM", "LITERT_LM", "LLAMA", "FREE", "NVIDIA") &&
         listOf(profileHash, modelHash).all { it.matches(Regex("[a-f0-9]{64}")) } &&
@@ -81,6 +85,8 @@ data class ProviderFailureReceipt(
         (gatewayAttemptEvidence == null || dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(gatewayAttemptEvidence) == gatewayAttemptEvidence) &&
         (engineeringRejection == null || errorCode == "ENGINEERING_STATE_OR_INPUT_CHANGED" && GatewayInputRejectionDetails.retained(engineeringRejection) == engineeringRejection) &&
         (recoveryAction == null || recoveryAction == GatewayEngineeringPrerequisites.recoveryAction(errorCode)) &&
+        (privacyReasonCode == null || errorCode == PrivacyFailureEvidence.CODE && privacyReasonCode in PrivacyFailureEvidence.reasonCodes) &&
+        (privacyStatus == null || errorCode == PrivacyFailureEvidence.CODE && privacyStatus in PrivacyFailureEvidence.statuses) &&
         listOfNotNull(invocationId, usageInvocationId).all { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) } &&
         (outputTokenSource == null || safeUsageSource(outputTokenSource) != null) &&
         listOfNotNull(serverRequestId, generationId).all { dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity(it) != null } &&
@@ -107,7 +113,7 @@ data class ProviderFailureReceipt(
             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_DISABLED", "OUTPUT_CONTINUATION_NO_PROGRESS",
             "OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_PROTOCOL_INVALID",
             "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "CLIENT_TOOL_RESULTS_REQUIRED", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED",
-            "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED"
+            "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", PrivacyFailureEvidence.CODE
         ) + GatewayEngineeringPrerequisites.codes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES +
             dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES +
             dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes +
@@ -148,10 +154,11 @@ data class ProviderFailureReceipt(
             val capacityAdmissionRejected = code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES &&
                 failedStage == "provider_admission" &&
                 classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
+            val privacyAdmissionRejected = code == PrivacyFailureEvidence.CODE && failedStage == "provider_admission"
             val stage = when {
                 // The failed preparation stage does not establish whether prior
                 // work in this run was dispatched or has an uncertain outcome.
-                profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected || failure.localBudgetRefusal -> ProviderFailureStage.ADMISSION
+                profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected || privacyAdmissionRejected || failure.localBudgetRefusal -> ProviderFailureStage.ADMISSION
                 classified.isUserInputRequired || classified.isEngineeringSetup || code.startsWith("MODEL_PREPARATION_") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" && failedStage in setOf("request_validation", "provider_admission", "binding_admission", "message_admission", "conversation_admission", "execution_admission") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProviderFailureStage.ENGINEERING_GUARD
@@ -197,7 +204,7 @@ data class ProviderFailureReceipt(
                 generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
                 causeTypes = classified.causeTypes,
                 failureDomain = when {
-                    profileSelectionRejected || githubCooldownActive || failure.localBudgetRefusal -> FailureDomain.APPLICATION_VERIFICATION
+                    profileSelectionRejected || githubCooldownActive || code == PrivacyFailureEvidence.CODE || failure.localBudgetRefusal -> FailureDomain.APPLICATION_VERIFICATION
                     githubRateResponse -> FailureDomain.TOOL_EXECUTION
                     classified.isUserInputRequired || classified.isEngineeringSetup || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
@@ -213,7 +220,9 @@ data class ProviderFailureReceipt(
                 causeStage = classified.phase.takeUnless { it.isBlank() || it == "stage_not_recorded" },
                 gatewayAttemptEvidence = attemptEvidence,
                 engineeringRejection = classified.engineeringRejection,
-                recoveryAction = GatewayEngineeringPrerequisites.recoveryAction(code)
+                recoveryAction = GatewayEngineeringPrerequisites.recoveryAction(code),
+                privacyReasonCode = PrivacyFailureEvidence.reason(failure.failureDetails?.get("privacy_reason_code")).takeIf { code == PrivacyFailureEvidence.CODE },
+                privacyStatus = PrivacyFailureEvidence.status(failure.failureDetails?.get("privacy_status")).takeIf { code == PrivacyFailureEvidence.CODE }
             )
         }
     }
@@ -263,7 +272,7 @@ internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: 
                     RunDiagnostics.journal?.record(runId, RunDiagnosticKind.FAILURE_RECEIPT, invocationId = receipt.invocationId, successful = false, providerFailure = receipt)
                     // Delivery can wrap review, extraction, approval or a retained verdict. It
                     // cannot replace the original producer's profile or borrow its last usage.
-                    if (role != "github-delivery" && (receipt.failureDomain == FailureDomain.PROVIDER || event.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) && (invocationId == null || receipt.invocationId == invocationId) && event.failureDetails?.get("diagnostic_area") == null) {
+                    if (role != "github-delivery" && (receipt.failureDomain == FailureDomain.PROVIDER || receipt.errorCode == PrivacyFailureEvidence.CODE || event.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) && (invocationId == null || receipt.invocationId == invocationId) && event.failureDetails?.get("diagnostic_area") == null) {
                         val fields = ProviderFailureReport.fields(
                             runId,
                             ownedFailure,

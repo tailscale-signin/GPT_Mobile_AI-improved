@@ -7,6 +7,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Categories are enabled by default, independently of the OFF-by-default master switch. */
 enum class PrivacyCategory(val title: String, val description: String) {
@@ -25,7 +27,8 @@ enum class PrivacyCategory(val title: String, val description: String) {
 
 data class PrivacyModeState(
     val enabled: Boolean = false,
-    val categories: Set<PrivacyCategory> = PrivacyCategory.entries.toSet()
+    val categories: Set<PrivacyCategory> = PrivacyCategory.entries.toSet(),
+    val revision: Long = 0
 ) {
     fun protects(category: PrivacyCategory): Boolean = enabled && category in categories
 }
@@ -40,21 +43,31 @@ class PrivacyModeStore @Inject constructor(
     internal val verifier: PrivacyProviderVerifier,
     private val vault: SecretVault
 ) {
-    internal suspend fun privateTerms(): List<String> = vault.read("privacy_custom_terms")?.let { bytes ->
-        try {
-            bytes.decodeToString().lines().filter(String::isNotBlank)
-        } finally {
-            bytes.fill(0)
-        }
-    }.orEmpty()
+    private val privateTermsMutex = Mutex()
+
+    internal suspend fun privateTerms(): List<String> = privateTermsMutex.withLock {
+        vault.read("privacy_custom_terms")?.let { bytes ->
+            try {
+                bytes.decodeToString().lines().filter(String::isNotBlank)
+            } finally {
+                bytes.fill(0)
+            }
+        }.orEmpty()
+    }
 
     internal suspend fun savePrivateTerms(text: String) {
         require(text.length <= 8192)
-        val bytes = text.encodeToByteArray()
-        try {
-            vault.put("privacy_custom_terms", bytes)
-        } finally {
-            bytes.fill(0)
+        privateTermsMutex.withLock {
+            // Invalidate earlier masks before a write, including a write with an uncertain outcome.
+            updateRevision()
+            val bytes = text.encodeToByteArray()
+            try {
+                vault.put("privacy_custom_terms", bytes)
+            } finally {
+                bytes.fill(0)
+                // A snapshot taken while this write was pending cannot authorize a later dispatch.
+                updateRevision()
+            }
         }
     }
 
@@ -80,20 +93,34 @@ class PrivacyModeStore @Inject constructor(
 
     @Synchronized
     fun setEnabled(enabled: Boolean) {
-        preferences.edit().putBoolean("privacy_mode_enabled", enabled).commit()
-        mutable.value = read()
+        if (read().enabled == enabled) return
+        updateRevision { putBoolean("privacy_mode_enabled", enabled) }
     }
 
     @Synchronized
     fun setCategory(category: PrivacyCategory, protected: Boolean) {
-        preferences.edit().putBoolean("privacy_category_${category.name}", protected).commit()
-        mutable.value = read()
+        if ((category in read().categories) == protected) return
+        updateRevision { putBoolean("privacy_category_${category.name}", protected) }
+    }
+
+    @Synchronized
+    private fun updateRevision(change: android.content.SharedPreferences.Editor.() -> Unit = {}) {
+        val next = Math.incrementExact(preferences.getLong("privacy_revision", 0))
+        val editor = preferences.edit().putLong("privacy_revision", next).apply(change)
+        val saved = try {
+            editor.commit()
+        } finally {
+            // SharedPreferences updates its in-memory state even if persistence reports failure.
+            mutable.value = read()
+        }
+        check(saved) { "Privacy settings could not be saved." }
     }
 
     private fun read(): PrivacyModeState = PrivacyModeState(
         enabled = preferences.getBoolean("privacy_mode_enabled", false),
         categories = PrivacyCategory.entries.filterTo(mutableSetOf()) {
             preferences.getBoolean("privacy_category_${it.name}", true)
-        }
+        },
+        revision = preferences.getLong("privacy_revision", 0)
     )
 }

@@ -1,25 +1,14 @@
 pluginManagement {
     repositories {
+        google()
+        // On a qualified retry, resolve the entire plugin classpath from Central's
+        // mirror. Plugin marker POMs also need their parents and transitive modules.
         if (providers.environmentVariable("GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY").orNull == "1") {
             maven {
                 name = "PublishedPluginRecovery"
                 url = uri("https://maven-central.storage-download.googleapis.com/maven2/")
-                content {
-                    includeGroup("org.jetbrains.kotlin")
-                    // Kotlin's plugin markers are published under separate group IDs.
-                    for (plugin in listOf("compose", "parcelize", "serialization")) {
-                        val id = "org.jetbrains.kotlin.plugin.$plugin"
-                        includeModule(id, "$id.gradle.plugin")
-                    }
-                    includeGroup("com.google.devtools.ksp")
-                    includeGroup("io.objectbox")
-                    includeModule("com.google.dagger", "hilt-android-gradle-plugin")
-                    // Hilt inherits this POM. A rate-limited primary must not strand its metadata.
-                    includeModule("org.sonatype.oss", "oss-parent")
-                }
             }
         }
-        google()
         mavenCentral()
         gradlePluginPortal()
     }
@@ -43,6 +32,12 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
+        if (providers.environmentVariable("GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY").orNull == "1") {
+            maven {
+                name = "PublishedDependencyRecovery"
+                url = uri("https://maven-central.storage-download.googleapis.com/maven2/")
+            }
+        }
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
         exclusiveContent {

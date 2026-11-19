@@ -165,6 +165,19 @@ class GradleRetryTest(unittest.TestCase):
             self.assertEqual(1, retry.run(args + ['--offline'], delay_seconds=0, executable=str(fake)))
             self.assertEqual(3, len(record.read_text().splitlines()))
 
+    def test_throttled_central_transitive_dependency_enables_mirror_on_next_attempt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake = pathlib.Path(directory) / 'gradlew'
+            fake.write_text(
+                '#!/bin/sh\n'
+                'if [ "${GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY:-0}" = 1 ]; then exit 0; fi\n'
+                'echo "Could not GET https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.9.1/asm-9.9.1.pom"\n'
+                'echo "Received status code 429 from server: Too Many Requests"\n'
+                'exit 1\n'
+            )
+            fake.chmod(0o755)
+            self.assertEqual(0, retry.run(['help'], attempts=2, delay_seconds=0, executable=str(fake)))
+
     def test_dependency_throttling_is_retryable(self):
         self.assertTrue(retry.retryable(['Could not resolve dependency.', 'Received status code 429 from server: Too Many Requests']))
         self.assertTrue(retry.retryable(['Could not GET resource.', 'HTTP 503']))

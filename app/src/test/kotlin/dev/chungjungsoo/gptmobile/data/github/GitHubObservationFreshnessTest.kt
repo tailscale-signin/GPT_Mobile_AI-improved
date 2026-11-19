@@ -10,6 +10,13 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class GitHubObservationFreshnessTest {
+    @Test fun derivedClaimsRefreshOnlyTheirExpiredOperands() {
+        val report = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"unresolved_claims":[{"status":"NOT_MEASURED","sources":[{"receipt_id":"old","status":"STALE"},{"receipt_id":"current","status":"VERIFIED"}]},{"receipt_id":"old","status":"STALE"}]}"""
+        ) as kotlinx.serialization.json.JsonObject
+        assertEquals(listOf("old"), GitHubExecutionContinuation.staleReceiptIds(report))
+    }
+
     @Test fun staleClaimSelectsOnlyItsExactMutableReadAndDoesNotRepeatAfterRestart() {
         fun json(raw: String) = kotlinx.serialization.json.Json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonObject
         val schema = json("""{"type":"object","properties":{"action":{"type":"string"},"issue_number":{"type":"integer"},"verify_live":{"type":"boolean"}},"required":["action","issue_number"]}""")

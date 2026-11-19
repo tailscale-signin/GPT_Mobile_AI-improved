@@ -981,9 +981,7 @@ internal class GitHubVerifiedSession(
         val (text, partial, report) = publication
         val retained = evidence.snapshot().first
         val currentProgress = GitHubExecutionContinuation.progressKeys(retained)
-        val staleReceiptIds = (report["unresolved_claims"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-            .filter { it["status"] == JsonPrimitive("STALE") }
-            .mapNotNull { (it["receipt_id"] as? JsonPrimitive)?.content }.distinct()
+        val staleReceiptIds = GitHubExecutionContinuation.staleReceiptIds(report)
         if (partial &&
             draft != null &&
             originalFailure == null &&

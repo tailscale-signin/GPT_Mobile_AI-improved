@@ -215,6 +215,7 @@ internal object GitHubEvidencePolicy {
                         checked += buildJsonObject {
                             put("kind", claim.string("kind"))
                             put("status", "NOT_MEASURED")
+                            put("sources", JsonArray(results))
                         }
                         "- **Unverified interpretation:** supporting evidence is missing or stale; no conclusion was established."
                     } else {

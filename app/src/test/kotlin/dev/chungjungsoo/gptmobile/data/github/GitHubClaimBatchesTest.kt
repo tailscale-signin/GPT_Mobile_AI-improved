@@ -51,6 +51,19 @@ class GitHubClaimBatchesTest {
         assertTrue(runCatching { GitHubClaimBatches.validate(duplicate, request) }.isFailure)
     }
 
+    @Test fun jsonTextInsideAClaimMustContainValidLiterals() {
+        val request = GitHubClaimBatches.Request("{}", emptySet())
+        for (encoded in listOf("NaN", "[bare]", "01")) {
+            val fact = buildJsonObject {
+                put("kind", "fact")
+                put("pointer", "/field")
+                put("receipt_id", "read")
+                put("value_json", encoded)
+            }
+            assertTrue(runCatching { GitHubClaimBatches.validate(buildJsonObject { put("claims", JsonArray(listOf(fact))) }, request) }.isFailure)
+        }
+    }
+
     @Test fun truncatedBatchCanBeRetriedAtSmallerStrictlyValidatedLimit() {
         val original = GitHubClaimBatches.Request(
             """{"claim_limit":8,"requirements":[]}""",

@@ -64,6 +64,15 @@ internal object GitHubClaimBatches {
         put("additionalProperties", false)
     }
 
+    private val jsonNumber = Regex("-?(0|[1-9][0-9]*)([.][0-9]+)?([eE][+-]?[0-9]+)?")
+
+    // The JSON tree reader can preserve bare, unquoted tokens. A source value must be valid JSON.
+    private fun validLiterals(value: JsonElement): Boolean = when (value) {
+        is JsonObject -> value.values.all(::validLiterals)
+        is JsonArray -> value.all(::validLiterals)
+        is JsonPrimitive -> value.isString || value == JsonNull || value.content in setOf("true", "false") || jsonNumber.matches(value.content)
+    }
+
     private fun normalizeSource(source: JsonObject): JsonObject {
         if ("value_json" !in source) return source
         require("value" !in source)
@@ -71,7 +80,9 @@ internal object GitHubClaimBatches {
         val rest = source - "value_json"
         if (encoded == JsonNull) return JsonObject(rest)
         val value = requireNotNull((encoded as? JsonPrimitive)?.takeIf(JsonPrimitive::isString))
-        return JsonObject(rest + ("value" to kotlinx.serialization.json.Json.parseToJsonElement(value.content)))
+        val decoded = kotlinx.serialization.json.Json.parseToJsonElement(value.content)
+        require(validLiterals(decoded))
+        return JsonObject(rest + ("value" to decoded))
     }
 
     private fun normalizeClaim(entry: JsonElement): JsonObject {

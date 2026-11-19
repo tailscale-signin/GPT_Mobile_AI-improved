@@ -85,9 +85,7 @@ internal object GitHubExecutionContinuation {
                 )
             )
             put("task_completion_verified", verdict?.get("completion_verified") ?: JsonPrimitive(false))
-            val stale = (verdict?.get("unresolved_claims") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-                .filter { it["status"] == JsonPrimitive("STALE") }
-                .mapNotNull { (it["receipt_id"] as? JsonPrimitive)?.content }.distinct()
+            val stale = staleReceiptIds(verdict)
             put("stale_observation_receipt_ids", JsonArray(stale.map(::JsonPrimitive)))
             put("targeted_refresh_only", stale.isNotEmpty())
         }
@@ -116,6 +114,18 @@ internal object GitHubExecutionContinuation {
     }.mapTo(mutableSetOf()) { receipt ->
         GitHubEvidenceBook.digest(JsonObject(receipt.filterKeys { it in setOf("tool", "arguments", "source_head_sha", "remote_mutation") }).toString())
     }
+
+    fun staleReceiptIds(report: JsonObject?): List<String> = buildSet<String> {
+        fun include(observation: JsonObject) {
+            if (observation["status"] == JsonPrimitive("STALE")) {
+                (observation["receipt_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(::add)
+            }
+        }
+        (report?.get("unresolved_claims") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().forEach { claim ->
+            include(claim)
+            (claim["sources"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().forEach(::include)
+        }
+    }.toList()
 
     fun staleRead(ids: List<String>, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, requestKey: String): ProviderEvent.ToolCall? {
         for (id in ids) {

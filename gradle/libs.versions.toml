@@ -62,8 +62,8 @@ secure-guava = { module = "com.google.guava:guava", version = "33.7.2-jre" }
 secure-protobuf-lite = { module = "com.google.protobuf:protobuf-javalite", version = "4.28.2" }
 secure-commons-lang = { module = "org.apache.commons:commons-lang3", version = "3.18.0" }
 secure-log4j-api = { module = "org.apache.logging.log4j:log4j-api", version = "2.25.5" }
-secure-bcprov = { module = "org.bouncycastle:bcprov-jdk15to18", version = "1.85" }
-secure-bcpkix = { module = "org.bouncycastle:bcpkix-jdk15to18", version = "1.85" }
+secure-bcprov = { module = "org.bouncycastle:bcprov-jdk15to18", version = "1.86" }
+secure-bcpkix = { module = "org.bouncycastle:bcpkix-jdk15to18", version = "1.86" }
 sqlcipher = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
 moonshine-voice = { group = "ai.moonshine", name = "moonshine-voice", version.ref = "moonshineVoice" }
 sherpa-onnx-static = { module = "com.k2fsa.sherpa.onnx:sherpa-onnx-static-link-onnxruntime", version.ref = "sherpaOnnx" }

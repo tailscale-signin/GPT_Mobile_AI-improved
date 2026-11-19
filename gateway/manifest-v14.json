@@ -245,7 +245,7 @@
     "tests/test_gateway_v14_diagnostic_events.py": "3d9b2530b34580ba8986de54c4b58e20596c781b4b891cd4bea857605052c4bd",
     "tests/test_gateway_v14_engineering.py": "591cbb3ec0d29547a14358c517146a457d9005a2dfb217853280aea4c057b78b",
     "tests/test_gateway_v14_engineering_backend.py": "685e3b0e7e5715d9190fbe5559f9ae75549ddfe65f4ff80a5e42abb73190e00e",
-    "tests/test_gateway_v14_engineering_http.py": "dd354c6e618d92c27820aab6314eae116b714b2bcf22b7cef0e911145e0a19f9",
+    "tests/test_gateway_v14_engineering_http.py": "83ee1919898840395a15107395ab93158615ae31202f50451dc6550cbdf89812",
     "tests/test_gateway_v14_engineering_memory.py": "3ee2a0a295faaef8bffed4ce2a1241a49b5b23d7bb1e19442ebc34756cac199d",
     "tests/test_gateway_v14_engineering_worker.py": "e1bce7599538fd27a918f2c0e9fb9495ab612da384c3f67819eac63ed332a24c",
     "tests/test_gateway_v14_events.py": "dc362342f3ee16b6ca5f193af2972dc22e9ef67ab37a377bb8723cad7e1ab9e0",

@@ -231,6 +231,18 @@ internal object ToolReportDiagnostics {
             receipt?.get(key)?.let { put(key, it) }
         }
         if (event.modelToolName.substringBefore("__").startsWith("github_")) {
+            if (result.isError &&
+                result.dispatched &&
+                result.errorCode == "GITHUB_VALIDATION_FAILED" &&
+                receipt?.get("schema") == JsonPrimitive("github.dispatch.v1") &&
+                receipt["error_code"] == JsonPrimitive(result.errorCode) &&
+                receipt["phase"] == JsonPrimitive("READ_FAILED") &&
+                receipt["http_status"] == JsonPrimitive(422)
+            ) {
+                for (key in dev.chungjungsoo.gptmobile.data.agent.tool.GitHubToolErrorDiagnostics.validationKeys) {
+                    receipt[key]?.let { put(key, it) }
+                }
+            }
             if (result.errorCode in setOf("GITHUB_TRANSIENT_NETWORK", "GITHUB_TRANSIENT_SERVER", "GITHUB_CIRCUIT_OPEN") &&
                 receipt?.get("schema") == JsonPrimitive("github.dispatch.v1")
             ) {

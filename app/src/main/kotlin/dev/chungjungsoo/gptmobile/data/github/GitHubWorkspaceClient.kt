@@ -2891,6 +2891,8 @@ class GitHubWorkspaceClient(
                                 reportedOAuthScopes = response.headers["X-OAuth-Scopes"],
                                 acceptedOAuthScopes = response.headers["X-Accepted-OAuth-Scopes"]
                             )
+                        } else if (category == "GITHUB_VALIDATION_FAILED" && method == HttpMethod.Get) {
+                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubToolErrorDiagnostics.validationResponse(text, response.headers["X-GitHub-Request-Id"], path)
                         } else {
                             GitHubRateLimitResponseEvidence.fromResponse(response.status.value, category, response.headers, responseObservedAtMillis)
                         },

@@ -20,6 +20,15 @@ class GitHubToolErrorDiagnosticsTest {
         for (secret in listOf("secret-", "private/", "sensitive-detail", "private-request-id")) assertFalse(details.toString().contains(secret))
     }
 
+    @Test fun rejectedComparisonReadsIdentifyTheRequestWithoutExportingItsTarget() {
+        for ((route, expected) in mapOf("commits/private-ref" to "COMMIT_LOOKUP", "git/trees/private-tree" to "TREE_READ", "compare/private-base...private-head" to "REVISION_COMPARE")) {
+            val evidence = GitHubToolErrorDiagnostics.validationResponse("{}", "private-request", "/repos/commits/private-repo/$route?private-query")
+            assertEquals(JsonPrimitive(expected), evidence["github_validation_endpoint"])
+            assertFalse(evidence.toString().contains("private"))
+        }
+        assertFalse("github_validation_endpoint" in GitHubToolErrorDiagnostics.validationResponse("{}", null, "/repos/o/r/issues/commits/private-ref"))
+    }
+
     @Test fun malformedOrOversizedErrorsRemainBoundedWithoutMaskingTheOriginalFailure() {
         for (body in listOf("not JSON", "[]", """{"errors":["unknown server message",null,42]}""", "x".repeat(256 * 1024 + 1))) {
             val details = GitHubToolErrorDiagnostics.response(body, null)

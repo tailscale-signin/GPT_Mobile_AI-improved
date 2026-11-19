@@ -119,7 +119,7 @@ internal object IssueReportIncidentCapsule {
         "native_tool_action", "tool_contract_version", "action_schema_generation_hash", "validation_field_names", "validation_path_hashes", "unknown_field_hashes", "unknown_field_count",
         "argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types", "resolved_argument_shape_hash",
         "saved_view_owner_operation", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_cursor_issued", "saved_view_expired", "saved_view_restore_state", "saved_view_restore_error_hash",
-        "github_error_resources", "github_error_fields", "github_error_codes", "server_request_id_hash", "argument_repair_signature_hash", "argument_repair_attempt", "argument_repair_exhausted",
+        "github_validation_endpoint", "github_error_resources", "github_error_fields", "github_error_codes", "server_request_id_hash", "argument_repair_signature_hash", "argument_repair_attempt", "argument_repair_exhausted",
         "mcp_connection_hash", "mcp_failure_phase", "mcp_failure_category", "mcp_connection_state", "mcp_readiness_state", "mcp_connection_health", "mcp_health_observation", "mcp_health_age_ms",
         "native_dependency_state", "dependency_call_id_hashes", "dependency_count", "dependency_failed_count", "semantic_read_rules", "semantic_ci_rules", "search_validation_field_names", "dependency_admission_reasons", "search_cursor_state", "search_id_hash", "search_cursor_hash"
     ) + remotePaginationFields + prContextRaceFields
@@ -199,6 +199,7 @@ internal object IssueReportIncidentCapsule {
         "voice_chat_failure_phase" to phases - "unknown",
         "voice_pronunciation_failure_kind" to setOf("UNKNOWN_WORD", "UNSUPPORTED_SCRIPT", "MISSING_LETTER"),
         "voice_focus_last_transition" to setOf("RESTORE", "PAUSE", "DUCK", "STOP"),
+        "github_validation_endpoint" to setOf("COMMIT_LOOKUP", "TREE_READ", "REVISION_COMPARE"),
         "native_tool_action" to actions,
         "saved_view_owner_operation" to IssueReportContext.operations,
         "saved_view_restore_state" to setOf("NOT_FOUND", "LOAD_FAILED", "IDENTITY_REJECTED", "RESTORED", "BODY_MISSING", "BODY_MISSING_INDEX_PRESENT", "BODY_UNREADABLE", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID"),

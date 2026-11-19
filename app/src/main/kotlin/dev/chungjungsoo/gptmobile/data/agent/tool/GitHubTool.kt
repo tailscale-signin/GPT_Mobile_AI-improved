@@ -2136,7 +2136,12 @@ class GitHubTool(
                 )
                 return AgentToolResult(callId, ToolResultContent.Json(evidence), true, errorCode = code, retainedContent = ToolResultContent.Text(detail))
             }
-            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = code, executionReceipt = rateLimitResponseEvidence(throwable, code))
+            val evidence = if (code == "GITHUB_VALIDATION_FAILED" && throwable.status == 422) {
+                throwable.evidence?.let { JsonObject(it.filterKeys(GitHubToolErrorDiagnostics.validationKeys::contains)) }
+            } else {
+                rateLimitResponseEvidence(throwable, code)
+            }
+            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = code, executionReceipt = evidence)
         }
         if (throwable is java.io.IOException) {
             val uncertain = currentCoroutineContext()[GitHubDispatchAccounting]?.mutationMayHaveTakenEffect() ?: (action in MUTATING_ACTIONS)

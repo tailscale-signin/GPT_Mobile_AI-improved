@@ -7712,14 +7712,18 @@ class ChatRepositoryImpl(
         profileUids: List<String>,
         conversationMode: String,
         title: String,
-        primaryProfileUid: String?
+        primaryProfileUid: String?,
+        firstMessage: String?
     ): ChatRoomV2 {
         val selected = profileUids.filter(String::isNotBlank).distinct()
         require(selected.isNotEmpty()) { "Choose at least one AI profile." }
         val configured = settingRepository.fetchPlatformV2s().filter { it.enabled }.map { it.uid }.toSet()
         require(selected.all { it in configured }) { "One or more selected profiles are no longer enabled." }
         val mode = dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.normalize(conversationMode)
+        val draft = firstMessage?.takeIf(String::isNotBlank)
         val room = ChatRoomV2(
+            draftText = draft,
+            draftUpdatedAt = draft?.let { System.currentTimeMillis() / 1000 },
             title = title.trim().ifBlank { "New Chat" }.take(50),
             enabledPlatform = selected,
             activePlatform = selected,

@@ -19,6 +19,15 @@ class ChatRouteChoiceTest {
     val remote = PlatformV2(name = "Remote", uid = "r", model = "alpha", reasoning = true)
     val local = PlatformV2(name = "Local", uid = "l", model = "beta", compatibleType = ClientType.LITERT_LM)
 
+    @Test fun firstMessageMatchesReasoningResearchAndQuickTasksLocally() {
+        assertEquals(ChatRouteChoice.AUTO, routeForFirstMessage(""))
+        assertEquals(ChatRouteChoice.FAST, routeForFirstMessage("What is a vertex?"))
+        assertEquals(ChatRouteChoice.THINK, routeForFirstMessage("What is the root cause of this timeout?"))
+        assertEquals(ChatRouteChoice.RESEARCH, routeForFirstMessage("Find recent papers on VR training."))
+        assertEquals(ChatRouteChoice.AUTO, routeForFirstMessage("Rewrite my research notes"))
+        assertEquals(ChatRouteChoice.THINK, routeForFirstMessage("Here is my code:\n```kotlin\nprintln(2)\n```"))
+    }
+
     @Test fun fastUsesSuccessfulLatencyAndPreservesResearchEligibility() {
         fun insight(profile: PlatformV2, outcome: BenchmarkOutcome, latency: Long): ProfileInsight {
             val trial = ScoreboardTrial("test", outcome, 2000, firstTextMs = latency)

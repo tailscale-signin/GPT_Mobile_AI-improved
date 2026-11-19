@@ -42,6 +42,47 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 @OptIn(ExperimentalCoroutinesApi::class)
 class SharedMultiChatCreationTest {
+    @Test fun creatingFromTheFirstMessageKeepsItAsAnUnsentDraft() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profiles = listOf(PlatformV2(uid = "p", name = "Selected", model = "test"))
+            val settings = proxy<SettingRepository> { name, _ ->
+                when (name) {
+                    "observePlatformV2s" -> flowOf(profiles)
+                    "fetchPlatformV2s" -> profiles
+                    "observeFeatureSettings" -> flowOf(AppFeatureSettings())
+                    "providerActivationRequired" -> false
+                    "getFeatureSettings", "mutateFeatureSettings" -> AppFeatureSettings()
+                    else -> error("Unexpected setting operation: $name")
+                }
+            }
+            val drafts = mutableListOf<String?>()
+            val chats = proxy<ChatRepository> { name, arguments ->
+                check(name == "createDraftChat") { "Creating a room dispatched $name" }
+                drafts += arguments[4] as String?
+                ChatRoomV2(id = 12, title = "New Chat", enabledPlatform = listOf("p"))
+            }
+            val state = SavedStateHandle(mapOf("new_chat_type" to "SINGLE", "new_chat_uids" to listOf("p")))
+            val model = NewChatViewModel(state, settings, chats, mockk())
+            store.put("new-chat", model)
+            val task = "Diagnose this issue with my shader."
+            model.editFirstMessage(task)
+            model.editFirstMessage("x".repeat(8193))
+            var route = ""
+            model.start { route = it }
+            runCurrent()
+            assertEquals(listOf(task), drafts)
+            assertTrue(route.startsWith("chat_room/12?"))
+            model.start { route = it }
+            assertEquals(1, drafts.size)
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test
     fun multiChatCreatesOneRoomContainingEverySelectedProfile() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))

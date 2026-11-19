@@ -67,6 +67,11 @@ class NewChatViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 0, replayExpirationMillis = 0), emptyMap())
     val selectedUids = savedStateHandle.getStateFlow("new_chat_uids", emptyList<String>())
     val primaryUid = savedStateHandle.getStateFlow("new_chat_primary", "")
+    val firstMessage = savedStateHandle.getStateFlow("new_chat_first_message", "")
+    fun editFirstMessage(value: String) {
+        if (!_creating.value && value.length <= 8192) savedStateHandle["new_chat_first_message"] = value
+    }
+
     val researchDepth = savedStateHandle.getStateFlow("new_chat_research_depth", 50)
     private val _creating = MutableStateFlow(false)
     val creating = _creating.asStateFlow()
@@ -388,7 +393,8 @@ class NewChatViewModel @Inject constructor(
                         selected,
                         mode,
                         title,
-                        primary
+                        primary,
+                        firstMessage.value.takeIf { it.isNotBlank() && choice in setOf(NewChatType.SINGLE, NewChatType.RESEARCH) }
                     )
                     val chatId = created.single().id
                     settings.mutateFeatureSettings {

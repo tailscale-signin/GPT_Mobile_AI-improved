@@ -13,6 +13,22 @@ import java.math.BigDecimal
 
 internal enum class ChatRouteChoice(val label: String) { AUTO("Auto"), FAST("Fast"), THINK("Think"), RESEARCH("Research") }
 
+private val researchRequest = Regex("""(?i)^\s*(?:please\s+)?(?:(?:do|run|conduct|perform|start)\s+(?:a\s+)?(?:deep|web|academic|literature)\s+(?:research|review|search)|research\b.{0,160}\b(?:sources|citations|papers)\b|(?:find|search for)\s+(?:current|recent|peer-reviewed)\s+(?:sources|papers|studies))""")
+private val reasoningRequest = Regex("""(?i)\b(debug|diagnose|derive|prove|refactor|architect|trade-offs?|step[ -]by[ -]step|root cause|implement|migration plan)\b""")
+private val quickRequest = Regex("""(?i)^\s*(?:please\s+)?(?:what (?:is|are)|define|translate|rephrase|spell|convert|who is|when (?:is|was)|hello|hi)\b""")
+
+/** Local suggestion only. The user sees the mode and confirms the profile before any dispatch. */
+internal fun routeForFirstMessage(text: String): ChatRouteChoice {
+    if (text.isBlank()) return ChatRouteChoice.AUTO
+    val opening = text.take(1024)
+    return when {
+        researchRequest.containsMatchIn(opening) -> ChatRouteChoice.RESEARCH
+        text.length > 2000 || "```" in text || reasoningRequest.containsMatchIn(opening) -> ChatRouteChoice.THINK
+        text.length <= 240 && quickRequest.containsMatchIn(opening) -> ChatRouteChoice.FAST
+        else -> ChatRouteChoice.AUTO
+    }
+}
+
 private data class Candidate(val profile: PlatformV2, val latency: Long?, val score: Double?, val price: BigDecimal?, val completionRate: Double?, val catalogContext: Int?, val demonstratedInput: Long)
 
 internal fun recommendedChatProfile(

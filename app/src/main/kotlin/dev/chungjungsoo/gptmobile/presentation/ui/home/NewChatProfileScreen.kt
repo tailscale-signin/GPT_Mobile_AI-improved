@@ -110,6 +110,9 @@ internal fun NewChatProfileScreen(
     val primary by viewModel.primaryUid.collectAsStateWithLifecycle()
     val researchDepth by viewModel.researchDepth.collectAsStateWithLifecycle()
     val creating by viewModel.creating.collectAsStateWithLifecycle()
+    val firstMessage by viewModel.firstMessage.collectAsStateWithLifecycle()
+    val suggestedMode = remember(firstMessage) { routeForFirstMessage(firstMessage) }
+    var showFirstMessage by rememberSaveable { mutableStateOf(false) }
     val approvingResearch by viewModel.approvingResearch.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val insights by insightViewModel.insights.collectAsStateWithLifecycle()
@@ -336,19 +339,44 @@ internal fun NewChatProfileScreen(
             if (kind == NewChatType.SINGLE || kind == NewChatType.RESEARCH) {
                 item(key = "profile_recommendations") {
                     Column {
-                        Text("Choose by task", style = MaterialTheme.typography.labelLarge)
+                        TextButton(onClick = { showFirstMessage = !showFirstMessage }) {
+                            Text(
+                                if (showFirstMessage) {
+                                    "Hide first message"
+                                } else if (firstMessage.isBlank()) {
+                                    "Match a first message"
+                                } else {
+                                    "Edit first message"
+                                }
+                            )
+                        }
+                        if (showFirstMessage) {
+                            androidx.compose.material3.OutlinedTextField(
+                                value = firstMessage,
+                                onValueChange = viewModel::editFirstMessage,
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("First message") },
+                                supportingText = { Text("Kept in your draft until you send it.") },
+                                minLines = 2,
+                                maxLines = 4,
+                                enabled = !creating
+                            )
+                        }
                         Row(Modifier.horizontalScroll(rememberScrollState())) {
                             ChatRouteChoice.entries.forEach { choice ->
-                                val research = kind == NewChatType.RESEARCH || choice == ChatRouteChoice.RESEARCH
-                                val target = remember(choice, research, visible, availableUids, insights, gatewayAvailability, features, researchPolicy) {
-                                    recommendedChatProfile(choice, visible.filter { it.uid in availableUids }, insights, gatewayAvailability, research) { profile ->
+                                val rank = if (choice == ChatRouteChoice.AUTO && kind == NewChatType.SINGLE) suggestedMode else choice
+                                val research = kind == NewChatType.RESEARCH || rank == ChatRouteChoice.RESEARCH
+                                val target = remember(rank, research, visible, availableUids, insights, gatewayAvailability, features, researchPolicy) {
+                                    recommendedChatProfile(rank, visible.filter { it.uid in availableUids }, insights, gatewayAvailability, research) { profile ->
                                         features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
                                             researchStartBlockReason(researchPolicy, features, profile.uid, !profile.disableAllTools && !profile.disableRemoteTools) == null
                                     }
                                 }
                                 TextButton(onClick = {
                                     target?.let { viewModel.chooseSuggestedProfile(it.uid, research) }
-                                }, enabled = target != null && !creating) { Text(choice.label) }
+                                }, enabled = target != null && !creating && !(research && privacy.enabled)) {
+                                    Text(if (choice == ChatRouteChoice.AUTO && rank != choice) "Auto · " + rank.label else choice.label)
+                                }
                             }
                         }
                     }

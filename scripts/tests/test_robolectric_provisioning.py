@@ -22,6 +22,17 @@ class RobolectricProvisioningTest(unittest.TestCase):
                      opener, wait, clock, jitter, wall_clock)
 
 
+    def test_preview_and_release_validate_runtimes_before_running_full_unit_suites(self):
+        workflows = Path(__file__).resolve().parents[2] / '.github/workflows'
+        for name in ('geniex-preview.yml', 'release-build.yml'):
+            with self.subTest(workflow=name):
+                workflow = (workflows / name).read_text(encoding='utf-8')
+                restore = workflow.index('- name: Restore verified Robolectric runtime cache')
+                verify = workflow.index('run: python3 scripts/provision_robolectric_sdks.py')
+                unit = workflow.index(':app:testDebugUnitTest')
+                self.assertLess(restore, verify)
+                self.assertLess(verify, unit)
+
     def test_ci_cache_restores_before_verified_provisioning_and_saves_after_success(self):
         workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/pr-validation.yml').read_text(encoding='utf-8')
         restored = workflow.index('- name: Restore verified Robolectric runtime cache')

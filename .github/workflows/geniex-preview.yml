@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'scripts/gradle_retry.py'
+      - 'scripts/provision_robolectric_sdks.py'
       - 'scripts/tests/test_gradle_retry.py'
       - 'scripts/artifact_manifest.py'
       - 'scripts/tests/test_delivery_pipeline.py'
@@ -56,6 +57,16 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/geniex-android-user"
           echo "ANDROID_USER_HOME=$RUNNER_TEMP/geniex-android-user" >> "$GITHUB_ENV"
+      - name: Restore verified Robolectric runtime cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: robolectric-sha512-linux-${{ hashFiles('scripts/provision_robolectric_sdks.py') }}
+
+      - name: Provision verified Robolectric runtimes
+        timeout-minutes: 10
+        run: python3 scripts/provision_robolectric_sdks.py
+
       - name: Provision verified memory model outside Gradle
         run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend

@@ -39,6 +39,15 @@ def inputs(profile, root):
     return repo, [['python3','-m','pytest','-q']] if profile == profiles.PYTHON else [['gateway-node','test']]
 
 
+def build_smoke_image(arguments, *, cancel, timeout, label):
+    # Print the failing Dockerfile step for the CI checkout. Use the same local
+    # daemon and empty credential context as the desktop image builder.
+    arguments = ['--progress=plain' if arg == '--quiet' else arg for arg in arguments]
+    with setup.host_command(['docker', *arguments]) as command:
+        subprocess.run(command, env=setup.host_environment(Path.cwd()), timeout=timeout,
+                       stdin=subprocess.DEVNULL, check=True)
+
+
 def run(profile, report):
     receipt = dict(profile=profile, status='STARTED', commands=[])
     try:
@@ -50,7 +59,7 @@ def run(profile, report):
             git(root, 'clone', '-q', '--bare', str(source), str(mirror))
             base = setup.pin_image(setup.executable('docker'), profiles.IMAGES[profile], prepare=True)
             receipt.update(source_sha=head, base_image=base)
-            prepared = profiles.prepare_image(profile, base, mirror, head, None)
+            prepared = profiles.prepare_image(profile, base, mirror, head, None, run_build=build_smoke_image)
             receipt['image'] = prepared['image_id']
             checkout = materialize_checkout({'data':{'head_sha':head}, 'deadline':time.time()+1800}, mirror, [], root, None)
             for path in [checkout, *checkout.rglob('*')]:

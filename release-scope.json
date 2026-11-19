@@ -3282,6 +3282,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubCodeDiff.kt",
     "gateway/desktop/development_profiles.py",
     "gateway/tests/test_gateway_workspace_lifecycle.py",
+    "gateway/tests/test_gateway_workspace_lsp.py",
     "gateway/tests/test_gateway_workspace_profiles.py",
     "gateway/tests/test_gateway_workspace_terminal.py",
     "gateway/v14/workspace_hooks.py",

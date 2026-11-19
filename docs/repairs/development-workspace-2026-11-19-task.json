@@ -85,6 +85,10 @@
     {
       "commit": "b1199ba4752a062692e51056721d42980567d1f2",
       "scope": "The real Kotlin language server resolved a String extension across files and previewed the exact definition and caller edits. Applying the preview in memory preserved a same-named Int extension and its caller."
+    },
+    {
+      "commit": "d4ceaa408e573ad37bc16ba42677706f8eb50437",
+      "scope": "The pinned TypeScript server exposed an asynchronous diagnostic delivery race. The corrected client reported compiler error TS2322 at the affected source line, then an explicitly clean result after correcting the type. Its call hierarchy reported the cross-file caller. The Kotlin overload-sensitive cross-file rename still passed. Both HTTPS mirrors also served Git, curl and Python packages matching their signed Ubuntu index."
     }
   ]
 }

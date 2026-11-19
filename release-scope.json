@@ -3150,6 +3150,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/OpenRouterPrivacySetupTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/OpenRouterWorkspacePrivacyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/ProviderPersonalSetupTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/google/response/GenerateContentResponse.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupPreferences.kt"
   ]
 }

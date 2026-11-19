@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "23acaf511f2aac1f74e3fda8d91874b933823b54515ea0a7627baef1ffd32e90",
+  "source_digest": "a170ae41b2bf1162cfa2250e2ac3ef074271fde7cb14b01c03e2daf7c063495e",
   "file_count": 2715,
-  "indexed_line_count": 446555,
+  "indexed_line_count": 446559,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 180,
-      "indexed_line_count": 79125
+      "indexed_line_count": 79129
     },
     {
       "id": "authentication_service",
@@ -17965,8 +17965,8 @@
       "path": "gateway/desktop/entry.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "a813c14156fd7b666f15382b663238051ac1e73faf5f0e9ec9719b13155afb4c",
-      "indexed_lines": 198
+      "sha256": "6ccd65669f319143fba7bacaba5362531fbbc11d06ab1a5e6b04415cc13637e7",
+      "indexed_lines": 202
     },
     {
       "path": "gateway/desktop/export_icons.py",

@@ -119,10 +119,14 @@ def main():
             assert window.winfo_width() >= 660
             window.lift()
             github_tabs = window.github_tabs
-            assert [github_tabs.tab(tab, 'text') for tab in github_tabs.tabs()] == ['Connection', 'Repository Validation']
+            labels = [github_tabs.tab(tab, 'text') for tab in github_tabs.tabs()]
+            assert labels == ['Connection', 'Repository Validation', 'Job admission'], f'Unexpected GitHub settings tabs: {labels}'
             for tab in github_tabs.tabs():
                 github_tabs.select(tab)
                 window.update()
+                assert github_tabs.nametowidget(tab).winfo_viewable(), github_tabs.tab(tab, 'text')
+            github_tabs.select(github_tabs.tabs()[labels.index('Repository Validation')])
+            window.update()
             panel = window.repository_validation_panel
             assert not panel.advanced_visible.get()
             # Child mapping can survive a hidden ancestor; check actual viewability.

@@ -3197,6 +3197,18 @@
     "buildscript-gradle.lockfile",
     "gateway/desktop/admission_panel.py",
     "gateway/tests/test_gateway_network.py",
-    "CONTRIBUTING.md"
+    "CONTRIBUTING.md",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/pairing/OwnerGateway.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/pairing/PairedGatewayEngine.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/OwnerGatewayControls.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/OwnerPairingActivity.kt",
+    "gateway/desktop/Firewall.ps1",
+    "gateway/desktop/firewall.py",
+    "gateway/desktop/phone_access.py",
+    "gateway/desktop/phone_listener.py",
+    "gateway/desktop/phone_panel.py",
+    "gateway/desktop/phone_settings.py",
+    "gateway/desktop/requirements-build.txt",
+    "gateway/tests/test_gateway_desktop_phone.py"
   ]
 }

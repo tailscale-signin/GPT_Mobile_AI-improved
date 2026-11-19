@@ -118,7 +118,8 @@ data class GatewayRepositoryCapability(
 data class GatewayGraphCapability(
     @SerialName("schema_version") val schemaVersion: Int = 0,
     val enabled: Boolean = false,
-    @SerialName("durable_index_jobs") val durableIndexJobs: Boolean = false
+    @SerialName("durable_index_jobs") val durableIndexJobs: Boolean = false,
+    @SerialName("sync_index_receipts") val syncIndexReceipts: Boolean = false
 )
 
 @Serializable

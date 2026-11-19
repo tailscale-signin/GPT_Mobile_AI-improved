@@ -374,14 +374,16 @@ class GatewayGraphRepositoryTest {
     @Test fun toolCallbackRetainsUnresolvedIndexAcrossBlockedIndexAndSuccessfulUnchangedStatus() = runTest {
         var saved = notIndexed
         var writes = 0
+        var requestId: JsonPrimitive? = null
         HttpClient(
             MockEngine { request ->
                 if (request.url.encodedPath.endsWith("capabilities")) {
-                    respond(ready, HttpStatusCode.OK, headers)
+                    respond(ready.replace("\"schema_version\":1", "\"schema_version\":1,\"sync_index_receipts\":true"), HttpStatusCode.OK, headers)
                 } else {
                     val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                     if (body["action"] == JsonPrimitive("index")) {
                         writes++
+                        requestId = body.getValue("sync_index_request_id").jsonPrimitive
                         throw IOException("private lost index response")
                     }
                     respond(saved, HttpStatusCode.OK, headers)
@@ -508,7 +510,11 @@ class GatewayGraphRepositoryTest {
             assertEquals("GRAPH_INDEX_OUTCOME_UNKNOWN", tool.execute("still-blocked", action("index")).errorCode)
             assertEquals(1, writes)
 
-            saved = status("acknowledged-next-page")
+            saved = status("another-clients-next-page")
+            val unrelated = tool.execute("unrelated-progress", action("status"))
+            assertEquals(JsonPrimitive(true), unrelated.executionReceipt?.get("index_outcome_unknown"))
+            assertEquals(null, unrelated.executionReceipt?.get("confirmed_index_attempt_hash"))
+            saved = JsonObject(Json.parseToJsonElement(status("acknowledged-next-page")).jsonObject + ("confirmed_sync_request_id" to requireNotNull(requestId))).toString()
             val observed = tool.execute("reconciled-status", action("status"))
             assertFalse(observed.isError)
             assertEquals(JsonPrimitive(false), (observed.content as ToolResultContent.Json).value.jsonObject.getValue("index_checkpoint").jsonObject["index_outcome_unknown"])

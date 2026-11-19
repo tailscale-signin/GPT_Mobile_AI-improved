@@ -219,6 +219,16 @@ internal fun diagnosticFailureSummary(
         val criterion = failed?.first?.let { it.text("requirement") ?: it.text("label") ?: it.text("id") }
         put("failed_criterion", record("failed_criterion", criterion?.take(360)?.let { Value(it, requireNotNull(failed).second) }))
         put("causal_receipt_ids", JsonArray(receiptIds.map(::JsonPrimitive)))
+        if (!reviewResolved) {
+            val pending = (verification?.payload?.get("execution_ledger") as? JsonObject)?.get("pending_graph_index") as? JsonObject
+            if (pending?.get("operation") == JsonPrimitive("repository_graph:index")) {
+                put("pending_operation", "repository_graph:index")
+                pending.text("attempt_hash")?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let { put("graph_index_attempt_hash", it) }
+            }
+            for (key in listOf("handoff_tool_binding_hash", "handoff_saved_tool_binding_hash")) {
+                readFrom(causal, key)?.takeIf { it.value.matches(Regex("[a-f0-9]{64}")) }?.let { put(key, record(key, it)) }
+            }
+        }
         if (receiptIds.isNotEmpty()) sources["causal_receipt_ids"] = JsonPrimitive(requireNotNull(failed).second)
         put("invocation_id", record("invocation_id", readFrom(causal, "invocation_id")))
         put("failed_stage", record("failed_stage", failedStage))

@@ -194,6 +194,18 @@ internal object GitHubExecutionLedger {
             put("unresolved_remote_outcomes", unresolved)
             put("reconciled_remote_outcomes", reconciledOutcomes)
             put("unresolved_graph_index_attempts", unresolvedGraphAttempts)
+            graphAttempts.values.firstOrNull { group -> group.none { it.key in reconciled } }?.let { group ->
+                val original = group.firstOrNull { graphExecution(it.value)?.get("action") == JsonPrimitive("index") } ?: group.first()
+                put(
+                    "pending_graph_index",
+                    buildJsonObject {
+                        put("operation", "repository_graph:index")
+                        if (graphAttemptKey(original.value, "graph_index_attempt_hash") != null) {
+                            put("attempt_hash", requireNotNull(graphExecution(original.value)).getValue("graph_index_attempt_hash"))
+                        }
+                    }
+                )
+            }
             put("reconciled_graph_index_attempts", reconciledGraphAttempts)
             put("reconciliation_proofs", JsonObject(reconciled))
             put("receipt_scope", "Retained observations; a shared result does not prove another dispatch")

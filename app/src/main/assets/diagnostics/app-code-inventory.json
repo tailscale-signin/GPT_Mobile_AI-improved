@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "5714b60338facf886c3e7273ea35316a5465577f5faccd474dce64cf744b37a1",
+  "source_digest": "590e1eb803763890a0cfd0074753e34bf5b7ded8d897a4db69dd1cc172eb4d43",
   "file_count": 2705,
-  "indexed_line_count": 444292,
+  "indexed_line_count": 444318,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 241,
-      "indexed_line_count": 41256
+      "indexed_line_count": 41272
     },
     {
       "id": "research",
@@ -130,7 +130,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 94,
-      "indexed_line_count": 13925
+      "indexed_line_count": 13935
     },
     {
       "id": "benchmark",
@@ -5519,8 +5519,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticFailureSummary.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "6b8df58b0d588e7f976d37a6486321be1188a38035b2718c7da8a8a338de9e88",
-      "indexed_lines": 259
+      "sha256": "f85ca59d87570dec82282aed57124410e362521f284a1ddc91595c90e545e25f",
+      "indexed_lines": 269
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticIncidentTracker.kt",
@@ -6450,8 +6450,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringModels.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "e0d801bfac043d0a4a75e70815b05bb3afb70352f73532b463e9a3083f469aac",
-      "indexed_lines": 346
+      "sha256": "d5b87e03f9df12149f1e788ef0fb0a03a0c1b120a6c78c5fb20c0561f3abab16",
+      "indexed_lines": 347
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteRejected.kt",
@@ -6520,8 +6520,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "bbd29b3adadae9f89237900432237cb932693bb0f88872c3174d4fcf3fc469a2",
-      "indexed_lines": 315
+      "sha256": "10be096c8359d69ccdc0ad5f827868eba3f846580a2c4e4b44f816348692a60d",
+      "indexed_lines": 318
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphResponse.kt",
@@ -7101,8 +7101,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "836246141a9c2650a47505c959ccba0bf05b7b711bf6c83f1487b4232ede53a4",
-      "indexed_lines": 443
+      "sha256": "809b32618bf1ac5103d9ec1c320ba8563bca6151d08264d5a1cbd5137bfa0180",
+      "indexed_lines": 455
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimits.kt",
@@ -18553,7 +18553,7 @@
       "path": "gateway/v14/engineering_routes.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "d0646d2672bd27f9149e9146b18b45ea0bac7709d61744b9de55b9cf97f7c063",
+      "sha256": "2f2c6a34e5ff99f5d06a528430b2ddb67c7d24a9f97e268452c84da87c88d47f",
       "indexed_lines": 536
     },
     {

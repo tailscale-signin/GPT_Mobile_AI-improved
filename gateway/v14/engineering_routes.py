@@ -150,7 +150,7 @@ def install_engineering_routes(app, service):
                             'principal_id': owner, 'gateway_id': await asyncio.to_thread(service.store.conversations.gateway_id) if service.store.runtime.GATEWAY_DURABLE_JOBS else None,
                             'code_graph': {'schema_version': 1, 'supported': True, 'configured': connection != 'missing',
                                            'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True,
-                                           'durable_index_jobs': True, 'architecture_pagination': True,
+                                           'durable_index_jobs': True, 'sync_index_receipts': True, 'architecture_pagination': True,
                                            'access': connection}}
             if public_only:
                 # These callers have access to public maps, with no visibility into

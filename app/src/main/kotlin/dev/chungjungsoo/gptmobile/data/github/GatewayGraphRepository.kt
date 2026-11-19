@@ -102,7 +102,8 @@ class GatewayGraphRepository @Inject constructor(
             }
             var payload = boundRequest(context, JsonObject(arguments - setOf("expected_index_attempt_hash", "confirm_sync_index_request_id", "sync_index_request_id")))
             val action = payload.text("action") ?: error("Select a repository graph operation.")
-            if (action == "status") {
+            val syncReceipts = capability.codeGraph?.syncIndexReceipts == true
+            if (action == "status" && syncReceipts) {
                 retained.pendingRequestId()?.let { id -> payload = JsonObject(payload + ("confirm_sync_index_request_id" to JsonPrimitive(id))) }
             }
             val cancelJob = action == "index" && payload.text("job_action") == "cancel"
@@ -147,9 +148,11 @@ class GatewayGraphRepository @Inject constructor(
                 }
             }
             if (action == "index" && !cancelJob) {
-                attempt = retained.begin(payload.text("index_cursor"), previousStatus, requestIdentityRequired = background)
-                val requestField = if (background) "request_id" else "sync_index_request_id"
-                payload = JsonObject(payload + (requestField to JsonPrimitive(attempt)))
+                attempt = retained.begin(payload.text("index_cursor"), previousStatus, requestIdentityRequired = background || syncReceipts)
+                if (background || syncReceipts) {
+                    val requestField = if (background) "request_id" else "sync_index_request_id"
+                    payload = JsonObject(payload + (requestField to JsonPrimitive(attempt)))
+                }
             }
             // Persistence and capability reads can suspend. Revalidate before the POST,
             // not only after a stale configuration could have changed host state.

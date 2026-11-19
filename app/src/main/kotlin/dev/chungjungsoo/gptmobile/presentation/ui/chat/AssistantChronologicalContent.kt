@@ -64,6 +64,7 @@ internal fun AssistantChronologicalContent(
     contentIdentity: Any,
     isLoading: Boolean,
     animateResponse: Boolean = true,
+    selectedModel: String? = null,
     proseColor: androidx.compose.ui.graphics.Color? = null,
     responseSurface: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.background,
     debugMode: Boolean,
@@ -161,8 +162,21 @@ internal fun AssistantChronologicalContent(
             if (hasGatewaySource) {
                 Text("Gateway", style = MaterialTheme.typography.labelMedium, color = ResponseSourceAppearance.gatewayForeground(MaterialTheme.colorScheme.primary, responseSurface), modifier = Modifier.padding(bottom = 4.dp))
             }
-            documentSource?.modelId?.takeIf { it.isNotBlank() }?.let { model ->
-                Text(model, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
+            val reportedModels = remember(timeline, originalSource, combinedManifest) {
+                if (originalSource == null && combinedManifest == null) {
+                    timeline.asSequence().filter { it.type == AssistantTimelineItemType.TEXT && it.content.isNotBlank() }
+                        .mapNotNull { it.outputLineage?.takeIf { owner -> owner.origin == dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT }?.reportedModelId }
+                        .mapNotNull { dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(it) }.distinct().take(8).toList()
+                } else {
+                    emptyList()
+                }
+            }
+            val modelLabel = when {
+                reportedModels.isNotEmpty() -> "Reported model · ${reportedModels.joinToString()}"
+                else -> (originalSource?.source?.modelName?.takeIf { it.isNotBlank() } ?: documentSource?.modelId ?: selectedModel?.takeIf { originalSource == null })?.takeIf { it.isNotBlank() }?.let { "Selected model · $it" }
+            }
+            modelLabel?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
             }
             beforeAnswer()
             key(answerIdentity) {

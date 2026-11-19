@@ -13,7 +13,17 @@ enum class OutputTextRepresentation { VISIBLE_UTF8, DISPLAY_FILTERED_MARKDOWN_UT
 enum class OutputOrigin { MODEL_TEXT, SYSTEM_ERROR, PROGRESS_NOTICE, APPLICATION_REPORT, RETAINED_CONTENT, UNKNOWN }
 
 @Serializable
-data class OutputLineage(val origin: OutputOrigin = OutputOrigin.UNKNOWN, val invocationId: String? = null)
+data class OutputLineage(
+    val origin: OutputOrigin = OutputOrigin.UNKNOWN,
+    val invocationId: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val reportedModelId: String? = null
+)
+
+private val modelIdentifier = Regex("[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,159}")
+
+internal fun reportedModelIdentifier(value: String?): String? =
+    value?.takeIf { it.length in 1..160 && "://" !in it && modelIdentifier.matches(it) }
 
 data class OutputTraceOwner(
     val runId: String,

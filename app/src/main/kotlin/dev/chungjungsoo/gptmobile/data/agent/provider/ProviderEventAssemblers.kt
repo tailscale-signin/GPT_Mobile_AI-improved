@@ -35,6 +35,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 
 class OpenAIResponsesEventAssembler {
+    private var reportedModelId: String? = null
     private val toolGuard = ToolStreamGuard(ProviderToolBatchPolicy.PREFERRED_MAX_CALLS)
     private data class PendingCall(
         val callId: String,
@@ -51,9 +52,17 @@ class OpenAIResponsesEventAssembler {
                 event.providerResponseTiming?.let { ProviderEvent.Usage(providerResponseTiming = it, phase = dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INITIAL) }
             )
 
+        is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCreatedEvent -> {
+            reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(event.response.model)
+            emptyList()
+        }
+        is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseInProgressEvent -> {
+            event.response.model?.let { reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(it) }
+            emptyList()
+        }
         is ReasoningSummaryTextDeltaEvent -> listOf(ProviderEvent.ThinkingDelta(event.delta))
 
-        is OutputTextDeltaEvent -> listOf(ProviderEvent.TextDelta(event.delta, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT)))
+        is OutputTextDeltaEvent -> listOf(ProviderEvent.TextDelta(event.delta, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, reportedModelId = reportedModelId)))
 
         is OutputItemAddedEvent -> {
             if (event.item.type != "function_call") {
@@ -116,6 +125,7 @@ class OpenAIResponsesEventAssembler {
 }
 
 class AnthropicEventAssembler {
+    private var reportedModelId: String? = null
     private val toolGuard = ToolStreamGuard(ProviderToolBatchPolicy.PREFERRED_MAX_CALLS)
     private data class PendingCall(
         val callId: String,
@@ -135,6 +145,7 @@ class AnthropicEventAssembler {
 
     fun accept(event: MessageResponseChunk): List<ProviderEvent> = when (event) {
         is MessageStartResponseChunk -> {
+            reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(event.message.model)
             val usage = event.message.usage
             inputTokens = usage.inputTokens + (usage.cacheReadInputTokens ?: 0) + (usage.cacheCreationInputTokens ?: 0)
             listOf(ProviderEvent.Usage(inputTokens, usage.outputTokens, inputTokens!! + usage.outputTokens, phase = ProviderUsagePhase.INITIAL))
@@ -184,7 +195,7 @@ class AnthropicEventAssembler {
                 else -> Unit
             }
             when (event.contentBlock.type) {
-                ContentBlockType.TEXT -> event.contentBlock.text?.takeIf(String::isNotEmpty)?.let { listOf(ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT))) }.orEmpty()
+                ContentBlockType.TEXT -> event.contentBlock.text?.takeIf(String::isNotEmpty)?.let { listOf(ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, reportedModelId = reportedModelId))) }.orEmpty()
                 ContentBlockType.THINKING -> event.contentBlock.thinking?.takeIf(String::isNotEmpty)?.let { listOf(ProviderEvent.ThinkingDelta(it)) }.orEmpty()
                 else -> emptyList()
             }
@@ -193,7 +204,7 @@ class AnthropicEventAssembler {
         is ContentDeltaResponseChunk -> when (event.delta.type) {
             ContentBlockType.TEXT, ContentBlockType.DELTA -> event.delta.text?.let {
                 pendingText.getOrPut(event.index) { StringBuilder() }.append(it)
-                listOf(ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT)))
+                listOf(ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, reportedModelId = reportedModelId)))
             }.orEmpty()
 
             ContentBlockType.THINKING, ContentBlockType.THINKING_DELTA -> event.delta.thinking?.let {
@@ -259,7 +270,7 @@ object GeminiEventMapper {
         val admission = ToolRoundAdmission()
         response.candidates.orEmpty().asSequence().flatMap { it.content?.parts.orEmpty().asSequence() }.forEach { part ->
             part.text?.let { text ->
-                events += if (part.thought == true) ProviderEvent.ThinkingDelta(text) else ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT))
+                events += if (part.thought == true) ProviderEvent.ThinkingDelta(text) else ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(response.modelVersion)))
             }
             part.functionCall?.let { call ->
                 val event = ProviderEvent.ToolCall(call.id ?: java.util.UUID.randomUUID().toString(), call.name, call.args)

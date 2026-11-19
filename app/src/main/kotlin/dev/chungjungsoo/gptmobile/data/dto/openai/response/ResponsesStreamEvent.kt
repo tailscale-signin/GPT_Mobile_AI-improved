@@ -314,7 +314,8 @@ data class ResponseObject(
 
     @SerialName("usage")
     val usage: ResponseUsage? = null,
-    @SerialName("incomplete_details") val incompleteDetails: JsonObject? = null
+    @SerialName("incomplete_details") val incompleteDetails: JsonObject? = null,
+    val model: String? = null
 )
 
 @Serializable

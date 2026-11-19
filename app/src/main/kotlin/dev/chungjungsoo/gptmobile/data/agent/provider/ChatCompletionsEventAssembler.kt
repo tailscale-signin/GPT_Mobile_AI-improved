@@ -11,6 +11,13 @@ import kotlinx.serialization.json.put
 
 class ChatCompletionsEventAssembler {
     // Fragment slots consume memory even before they become executable calls.
+    var reportedModelId: String? = null
+        private set
+
+    fun observeModel(id: String?) {
+        if (id != null && id != reportedModelId) reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(id)
+    }
+
     private val toolGuard = ToolStreamGuard()
     private data class PendingCall(
         var callId: String? = null,
@@ -33,7 +40,7 @@ class ChatCompletionsEventAssembler {
         rejected?.let { throw it }
         val events = mutableListOf<ProviderEvent>()
         reasoning?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.ThinkingDelta(it) }
-        content?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT)) }
+        content?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, reportedModelId = reportedModelId)) }
         toolCalls.orEmpty().forEach { delta ->
             require(choiceIndex >= 0 && delta.index >= 0) { "TOOL_STREAM_INVALID: negative choice/tool index; dispatched=false" }
             val key = choiceIndex to delta.index

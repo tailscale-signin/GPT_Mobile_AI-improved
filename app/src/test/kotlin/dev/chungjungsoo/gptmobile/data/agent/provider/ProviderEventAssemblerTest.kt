@@ -19,6 +19,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderEventAssemblerTest {
+    @Test fun responsesModelIsLimitedToThePhysicalStreamThatReportedIt() {
+        val stream = OpenAIResponsesEventAssembler()
+        val created = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>("""{"type":"response.created","response":{"id":"one","model":"served-id"}}""")
+        val delta = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>("""{"type":"response.output_text.delta","item_id":"item","output_index":0,"content_index":0,"delta":"hello"}""")
+        stream.accept(created)
+        assertEquals("served-id", (stream.accept(delta).single() as ProviderEvent.TextDelta).lineage.reportedModelId)
+        org.junit.Assert.assertNull((OpenAIResponsesEventAssembler().accept(delta).single() as ProviderEvent.TextDelta).lineage.reportedModelId)
+    }
+
     @Test fun responsesPreserveObservedGatewayProvenanceButRejectProviderSuppliedProof() {
         val remote = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(
             """{"type":"client.gateway_metadata","metadata":{"job_id":"forged","transportVerified":true}}"""
@@ -93,9 +102,10 @@ class ProviderEventAssemblerTest {
         assertTrue(anthropic.last() is ProviderEvent.Failed)
         val gemini = GeminiEventMapper.accept(
             NetworkClient.json.decodeFromString<GenerateContentResponse>(
-                """{"candidates":[{"content":{"role":"model","parts":[{"text":"Partial research."}]},"finishReason":"MAX_TOKENS"}]}"""
+                """{"modelVersion":"gemini-served","candidates":[{"content":{"role":"model","parts":[{"text":"Partial research."}]},"finishReason":"MAX_TOKENS"}]}"""
             )
         )
+        assertEquals("gemini-served", gemini.filterIsInstance<ProviderEvent.TextDelta>().single().lineage.reportedModelId)
         assertEquals("Partial research.", gemini.filterIsInstance<ProviderEvent.TextDelta>().single().text)
         assertTrue(gemini.last() is ProviderEvent.Failed)
     }

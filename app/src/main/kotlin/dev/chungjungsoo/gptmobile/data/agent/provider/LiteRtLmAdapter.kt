@@ -198,6 +198,11 @@ class LiteRtLmAdapter(
                 val resolvedModelId = source.selection.modelId
                 val installedRecord = source.selection.record
                 val modelPath = source.selection.path
+                val localTextLineage by lazy {
+                    val loadedPath = localRuntime.loadedEngineSpec()?.modelPath
+                    val id = if (loadedPath == modelPath) resolvedModelId else loadedPath?.substringAfterLast('/')
+                    OutputLineage(OutputOrigin.MODEL_TEXT, reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(id))
+                }
                 val catalogEntry = source.catalogEntry
                 val metadata = source.metadata
                 val wantsNpu = LocalAccelerators.normalize(platform.accelerator) == LocalAccelerators.NPU
@@ -842,11 +847,11 @@ class LiteRtLmAdapter(
                                                                 val visible = fallbackOutput.accept(event.text)
                                                                 if (visible.isNotEmpty() && !awaitingToolRepair) {
                                                                     assistantReply.append(visible)
-                                                                    send(ProviderEvent.TextDelta(visible, OutputLineage(OutputOrigin.MODEL_TEXT)))
+                                                                    send(ProviderEvent.TextDelta(visible, localTextLineage))
                                                                 }
                                                             } else {
                                                                 assistantReply.append(event.text)
-                                                                send(ProviderEvent.TextDelta(event.text, OutputLineage(OutputOrigin.MODEL_TEXT)))
+                                                                send(ProviderEvent.TextDelta(event.text, localTextLineage))
                                                             }
                                                         }
 
@@ -870,7 +875,7 @@ class LiteRtLmAdapter(
                                                                 val retained = fallbackOutput.buffered()
                                                                 if (!awaitingToolRepair && textToolFallbackEnabled && LocalPromptToolBridge.parseResult(retained, runToolsByName.keys, allowBareCalls = usePromptToolBridge) is PromptToolParseResult.NoCall && retained.isNotEmpty()) {
                                                                     assistantReply.append(retained)
-                                                                    send(ProviderEvent.TextDelta(retained, OutputLineage(OutputOrigin.MODEL_TEXT)))
+                                                                    send(ProviderEvent.TextDelta(retained, localTextLineage))
                                                                 }
                                                                 failed = true
                                                                 send(ProviderEvent.Failed(event.message))
@@ -987,7 +992,7 @@ class LiteRtLmAdapter(
                                                         "LOCAL_TOOL_BRIDGE_FINISHED · registered=${runToolsByName.size} · promptCalls=$promptToolCallCount · nativeToolsUsed=$nativeToolsUsed · parse=no_call"
                                                     )
                                                     assistantReply.append(buffered)
-                                                    if (buffered.isNotEmpty()) send(ProviderEvent.TextDelta(buffered, OutputLineage(OutputOrigin.MODEL_TEXT)))
+                                                    if (buffered.isNotEmpty()) send(ProviderEvent.TextDelta(buffered, localTextLineage))
                                                 }
                                                 break
                                             }
@@ -1034,7 +1039,7 @@ class LiteRtLmAdapter(
                                             when (event) {
                                                 is LocalRuntimeEvent.TextDelta -> {
                                                     assistantReply.append(event.text)
-                                                    send(ProviderEvent.TextDelta(event.text, OutputLineage(OutputOrigin.MODEL_TEXT)))
+                                                    send(ProviderEvent.TextDelta(event.text, localTextLineage))
                                                 }
                                                 is LocalRuntimeEvent.ThinkingDelta -> send(ProviderEvent.ThinkingDelta(event.text))
                                                 is LocalRuntimeEvent.Error -> {

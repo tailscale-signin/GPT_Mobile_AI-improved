@@ -486,6 +486,7 @@ fun OpponentChatBubble(
                     if (completionReveal.showAnswer) {
                         Box(Modifier.alpha(completionReveal.answerAlpha)) {
                             AssistantChronologicalContent(
+                                selectedModel = agentRun?.modelSnapshot,
                                 outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
                                 animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
                                 proseColor = if (hasFinalGitHubAnswer) {

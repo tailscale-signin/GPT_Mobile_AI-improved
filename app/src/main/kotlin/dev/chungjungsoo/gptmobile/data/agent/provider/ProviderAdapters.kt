@@ -614,6 +614,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 if (chunkFailure == null) caughtEvidence = providerAdapterExceptionEvidence(error)
                             }
                             .collect { chunk ->
+                                assembler.observeModel(chunk.reportedModelId)
                                 chunk.applicationNotice?.let { emit(ProviderEvent.Notice(it, persistent = true)) }
                                 chunk.observedFinishReason?.let { reason ->
                                     lastFinishReason = reason
@@ -988,6 +989,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 canRotate = classified.isRetryable && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), protocolErrorCode) && ApiCredentialRotator.isRotatableError(error)
                             }
                             .collect { chunk ->
+                                assembler.observeModel(chunk.reportedModelId)
                                 chunk.serializedOutputTokens?.let { cap ->
                                     effectiveOutputTokens = cap
                                     emit(ProviderEvent.RequestConfigured(effectiveMaxTokens, constraints.maxOutputTokens, cap, providerOutputCeiling = ProviderRouteCapacity.ceiling(platform), serializedOutputTokens = cap))
@@ -1114,7 +1116,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             contentChunk = choice.effectiveDelta.content,
                                             reasoningChunk = effectiveReasoning
                                         ).forEach { state ->
-                                            state.toProviderEvent()?.let { emit(it) }
+                                            state.toProviderEvent(assembler.reportedModelId)?.let { emit(it) }
                                         }
                                         assembler.accept(
                                             content = null,
@@ -1143,7 +1145,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         }
                         assembler.discardIncomplete().forEach { publishAssembly(it) }
                         llamaReasoningParser?.flush()?.forEach { state ->
-                            state.toProviderEvent()?.let { emit(it) }
+                            state.toProviderEvent(assembler.reportedModelId)?.let { emit(it) }
                         }
 
                         if (observesWriter) {
@@ -1260,6 +1262,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 canRotate = error !is dev.chungjungsoo.gptmobile.data.network.ProviderHttpFailure && limit == null && ApiCredentialRotator.isRotatableError(error)
             }
             .collect { chunk ->
+                assembler.observeModel(chunk.model)
                 if (chunk.streamFinished) {
                     terminalReceived = true
                     assembler.finish().forEach { publish(it) }
@@ -1278,7 +1281,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         contentChunk = choice.delta?.content ?: choice.message?.content,
                         reasoningChunk = choice.delta?.reasoning ?: choice.message?.reasoning
                     ).forEach { state ->
-                        state.toProviderEvent()?.let { publish(it) }
+                        state.toProviderEvent(assembler.reportedModelId)?.let { publish(it) }
                     }
                     if (choice.finishReason != null) {
                         terminalReceived = true
@@ -1299,7 +1302,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             }
         assembler.discardIncomplete().forEach { publish(it) }
         reasoningParser.flush().forEach { state ->
-            state.toProviderEvent()?.let { publish(it) }
+            state.toProviderEvent(assembler.reportedModelId)?.let { publish(it) }
         }
 
         if (!roundFailed && !terminalReceived) {
@@ -1900,8 +1903,8 @@ internal fun providerAdapterExceptionEvidence(error: Throwable): kotlinx.seriali
         dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.PROVIDER_ADAPTER_STREAM_CATCH
     )
 
-private fun dev.chungjungsoo.gptmobile.data.dto.ApiState.toProviderEvent(): ProviderEvent? = when (this) {
-    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Success -> ProviderEvent.TextDelta(textChunk, lineage)
+private fun dev.chungjungsoo.gptmobile.data.dto.ApiState.toProviderEvent(reportedModelId: String?): ProviderEvent? = when (this) {
+    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Success -> ProviderEvent.TextDelta(textChunk, if (lineage.origin == dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT) lineage.copy(reportedModelId = reportedModelId) else lineage)
     is dev.chungjungsoo.gptmobile.data.dto.ApiState.Thinking -> ProviderEvent.ThinkingDelta(thinkingChunk)
     is dev.chungjungsoo.gptmobile.data.dto.ApiState.Notice -> null
     is dev.chungjungsoo.gptmobile.data.dto.ApiState.Error -> ProviderEvent.Failed(message, progressDeadline = progressDeadline, errorCode = errorCode, providerLimit = providerLimit, taskOutcome = taskOutcome, failureDetails = failureDetails, invocationId = invocationId)

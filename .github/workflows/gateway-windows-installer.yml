@@ -57,6 +57,7 @@ jobs:
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
     needs: windows-installer
+    concurrency: gateway-release-publication
     runs-on: ubuntu-latest
     timeout-minutes: 125
     permissions:

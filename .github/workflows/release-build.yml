@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - app/build.gradle.kts
+      - release-scope.json
 permissions:
   contents: read
   actions: read
@@ -28,6 +29,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       publish: ${{ steps.intent.outputs.publish }}
+      publish_gateway: ${{ steps.intent.outputs.publish_gateway }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -179,6 +181,8 @@ jobs:
     needs: [release_intent, validate]
     if: github.event_name != 'pull_request' && needs.release_intent.outputs.publish == 'true'
     name: Build, verify and publish
+    outputs:
+      windows_run: ${{ steps.main_checks.outputs.windows_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -211,10 +215,23 @@ jobs:
         timeout-minutes: 8
         run: bash scripts/install_android_native_dependencies.sh
       - name: Require green main checks on this exact candidate
+        id: main_checks
         if: github.ref_name == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/await_release_checks.py --sha "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY"
+          JOINT_RELEASE: ${{ needs.release_intent.outputs.publish_gateway }}
+        run: |
+          set -euo pipefail
+          checks=()
+          if [[ "$JOINT_RELEASE" == true ]]; then
+            checks+=(--require-main-push "Gateway Windows installer" --all-main-checks)
+          fi
+          python3 scripts/await_release_checks.py --sha "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" "${checks[@]}"
+          if [[ "$JOINT_RELEASE" == true ]]; then
+            run=$(jq -er '[.workflows[] | select(.name == "Gateway Windows installer" and .headSha == env.GITHUB_SHA and .conclusion == "success") | .runId] | if length == 1 then .[0] else error("Missing Windows evidence") end' build/reports/release-checks.json)
+            [[ "$run" =~ ^[1-9][0-9]*$ ]]
+            echo "windows_run=$run" >> "$GITHUB_OUTPUT"
+          fi
       - name: Configure release signing
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -369,3 +386,26 @@ jobs:
             app/build/outputs/mapping/release/
           if-no-files-found: ignore
           retention-days: 14
+
+  publish_gateway:
+    name: Publish the validated Windows package
+    needs: [release_intent, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release_intent.outputs.publish_gateway == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency: gateway-release-publication
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WINDOWS_RUN: ${{ needs.build.outputs.windows_run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retrieve the installed and tested package from the verified main run
+        run: gh run download "$WINDOWS_RUN" --repo "$GITHUB_REPOSITORY" --name Gateway-Windows-x64 --dir dist/windows
+      - name: Verify package identity and publish the Windows assets
+        run: bash scripts/publish_gateway_windows.sh

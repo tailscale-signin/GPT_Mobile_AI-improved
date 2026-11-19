@@ -72,6 +72,13 @@ def fetch_runs(repository, sha, token, *, opener=urllib.request.urlopen):
     return runs
 
 
+def observed_main_workflows(runs, sha, publisher):
+    """Include all independently running main CI alongside the mandatory workflow names."""
+    return sorted({run["name"] for run in runs if run.get("head_sha") == sha and run.get("event") == "push"
+                   and run.get("head_branch") == "main" and run.get("name") and run["name"] != publisher
+                   and run.get("conclusion") != "skipped"})
+
+
 def evidence_document(runs, sha, required, *, main_push=()):
     latest = latest_runs(runs, sha, required, main_push=main_push)
     failed, pending = conclusions(runs, sha, required, main_push=main_push)
@@ -92,6 +99,7 @@ def main():
     p.add_argument("--output", type=Path, default=Path("build/reports/release-checks.json"))
     p.add_argument("--require-main-push", action="append", default=[], metavar="WORKFLOW",
                    help="Require a successful independent push run on main for this workflow.")
+    p.add_argument("--all-main-checks", action="store_true", help="Require every independently running main push workflow.")
     args = p.parse_args()
     scope = Path("release-scope.json")
     required = required_workflows(json.loads(scope.read_text()) if scope.exists() else {})
@@ -102,8 +110,12 @@ def main():
     end = time.monotonic() + args.timeout
     while time.monotonic() < end:
         runs = fetch_runs(args.repository, args.sha, os.environ["GH_TOKEN"])
-        args.output.write_text(json.dumps(evidence_document(runs, args.sha, required, main_push=args.require_main_push), indent=2) + "\n")
-        failed, pending = conclusions(runs, args.sha, required, main_push=args.require_main_push)
+        observed = observed_main_workflows(runs, args.sha, os.environ.get("GITHUB_WORKFLOW")) if args.all_main_checks else []
+        workflows = list(dict.fromkeys([*required, *observed]))
+        main_push = [*args.require_main_push, *observed]
+        document = evidence_document(runs, args.sha, workflows, main_push=main_push)
+        args.output.write_text(json.dumps(document, indent=2) + "\n")
+        failed, pending = document["failed"], document["pending"]
         if failed:
             raise SystemExit("Required exact-commit checks failed: " + ", ".join(failed))
         if not pending:

@@ -23,7 +23,7 @@ If startup fails, inspect `logs/gateway.log` and `status.json`. Logs rotate at 5
 
 ## Build and release
 
-On Windows x64 with Python 3.12 and Inno Setup 6.6 or later:
+On Windows x64 with Python 3.12, the .NET 10 SDK and Inno Setup 6.6 or later:
 
 ```powershell
 python -m pip install --require-hashes -r gateway/requirements.txt
@@ -33,7 +33,7 @@ python gateway/desktop/build_windows.py
 python gateway/desktop/smoke_windows.py
 ```
 
-CI produces the unsigned setup EXE, update ZIP, SHA256SUMS and Windows smoke results. To publish the reviewed version, run **Gateway Windows installer** on `main` with **publish** enabled. The workflow requires exact-source release checks and Windows smoke, uploads a draft and confirms GitHub's SHA-256 digests before making it public. A version already published cannot be replaced. If upload or digest confirmation fails, inspect the draft and remove only that incomplete release before rerunning. The setup executable remains unsigned.
+CI produces the unsigned setup EXE, update ZIP, SHA256SUMS and Windows smoke results. A newly reviewed `publicationRequest` in `release-scope.json` can request the matching Android and Windows versions together. After merge, the signed Android workflow waits for the independent main checks, publishes Android and retrieves the Windows package from the verified main run. The Windows publisher checks the tag and downloads all four public assets for byte comparison. For a Windows-only release, run **Gateway Windows installer** on `main` with **publish** enabled. An interrupted publication can resume its matching draft with the original package. Published files are immutable.
 
 The installer cannot guarantee a flawless installation on every PC. Interactive wizard accessibility, corporate policies, antivirus/SmartScreen, code signing, LAN/firewall behavior under corporate policies, and physical Android-device interoperability require separate acceptance testing. Windows CI validates fresh/repair installs, frozen startup, offline-backend behavior, failed-candidate rollback, and data-preserving uninstall. The Android build and its required checks must pass independently.
 

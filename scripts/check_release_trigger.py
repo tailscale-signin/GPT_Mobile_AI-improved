@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Distinguish a version-changing push from an ordinary build configuration edit."""
 
+import json
 import os
 from pathlib import Path
 import re
@@ -44,13 +45,42 @@ def release_requested(event: str, before: str) -> bool:
     return current != version_identity(previous)
 
 
+def coordinated_release(event: str, before: str) -> bool:
+    """Only a newly reviewed version pair on main can request both publications."""
+    path = "release-scope.json"
+    if event != "push" or os.environ.get("GITHUB_REF") != "refs/heads/main" or not Path(path).is_file():
+        return False
+    manifest = json.loads(Path(path).read_text(encoding="utf-8"))
+    request = manifest.get("publicationRequest")
+    if request is None:
+        return False
+    if before != "0" * 40:
+        files = subprocess.check_output(["git", "ls-tree", "--name-only", before, "--", path], text=True)
+        if files.strip():
+            previous = json.loads(subprocess.check_output(["git", "show", f"{before}:{path}"], text=True))
+            if previous.get("publicationRequest") == request:
+                return False
+    android, code = version_identity(Path("app/build.gradle.kts").read_text(encoding="utf-8"))
+    source = Path("gateway/v14/__init__.py").read_text(encoding="utf-8")
+    version = re.search(r'^VERSION = "(17\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))"$', source, re.MULTILINE)
+    if not version or (manifest.get("version"), manifest.get("versionCode")) != (android, code) or request != {
+        "android": android, "versionCode": code, "gateway": version[1]
+    }:
+        raise ValueError("Publication request must match the Android and Gateway versions in this checkout")
+    return True
+
+
 def main() -> None:
     publish = release_requested(
         os.environ["GITHUB_EVENT_NAME"],
         os.environ.get("PUSH_BEFORE_SHA", ""),
     )
+    together = coordinated_release(os.environ["GITHUB_EVENT_NAME"], os.environ.get("PUSH_BEFORE_SHA", ""))
+    publish = publish or together
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         output.write(f"publish={str(publish).lower()}\n")
+        if together:
+            output.write("publish_gateway=true\n")
     if publish:
         print("Release requested; all release validation gates remain mandatory.")
     else:

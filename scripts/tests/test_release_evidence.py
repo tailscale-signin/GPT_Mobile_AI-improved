@@ -31,6 +31,13 @@ class ReleaseEvidenceTest(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
+    def test_joint_release_waits_for_other_main_ci_without_waiting_for_itself(self):
+        def run(name, **fields):
+            return dict(dict(name=name, head_sha=SHA, event="push", head_branch="main", status="in_progress"), **fields)
+        actual = [run("Android acceptance"), run("Signed release"), run("Preview", conclusion="skipped"),
+                  run("Lint", conclusion="failure"), run("Mobile", event="pull_request"), run("Previous", head_sha="b"*40)]
+        self.assertEqual(["Android acceptance", "Lint"], checks.observed_main_workflows(actual, SHA, "Signed release"))
+
     def test_windows_publisher_waits_for_independent_main_push_at_release_sha(self):
         name = "Gateway Windows installer"
         required = [name]

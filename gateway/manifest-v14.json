@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.1",
   "schemaVersion": 1,
-  "sourceCommit": "711fa239430e6604aff9f7e1c2948374eda00c07",
+  "sourceCommit": "080522004e9d280ff90ffcd2220bcc2fe4e530e2",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -42,7 +42,7 @@
     "contracts/v17/capabilities.json": "4eeb6eea5494c084dfdc3c52bcac3491e7696f21fc119cb99cd70631f90cd89d",
     "contracts/v17/gateway-v17-capabilities-full.json": "f10fdafd02e2bf28a72e105f4cbdab23058a5fff76bd5f693825c15c340de098",
     "desktop/Firewall.ps1": "6133b3e6d3c09776884ce1cdc7124424f0c84e63c7db5ecdf36532e4f2ef8c71",
-    "desktop/README.md": "c8f9d8292f7c329ff5b2a88730957bcb48a7052c0aca8320da27a39af8490a83",
+    "desktop/README.md": "78499235460becbc0640452e5e619e95c42282439e65815f9f73b2d219fae7c5",
     "desktop/Start-Gateway.ps1": "aab82c0e874db002eb05e2e74725acf8c4b1b2e13b42b954eb13212be6e823c5",
     "desktop/__init__.py": "51d46d90520bdecad166afa8b2a80a117acf11660b51ac81400759e815b338c8",
     "desktop/acceptance_builder.py": "5c5e07db54e6019a504161e36979680a5aea6f08b7fc0f41a4ac7c898aad23f6",

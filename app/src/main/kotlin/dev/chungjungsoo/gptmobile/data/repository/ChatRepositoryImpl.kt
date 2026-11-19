@@ -5946,7 +5946,15 @@ class ChatRepositoryImpl(
                 val expectedCheckpoint = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.GitHubProviderResumeContext]?.checkpoint
                 dispatchAuthority.validate()
                 check(validateSavedEvidence())
-                val savedProviderCheckpoint = expectedCheckpoint?.let { workspace?.protectedSynthesisCheckpoint(checkpointKey) }
+                val savedProviderCheckpoint = if (expectedCheckpoint != null || restoreGatewayHandoffRequested) workspace?.protectedSynthesisCheckpoint(checkpointKey) else null
+                val savedContext = savedProviderCheckpoint?.get("context") as? kotlinx.serialization.json.JsonObject
+                val handoffTask = verifiedEvidence.checkpointBinding().takeIf {
+                    restoreGatewayHandoffRequested &&
+                        savedContext != null &&
+                        savedContext["profile_uid"] == kotlinx.serialization.json.JsonPrimitive(platform.uid) &&
+                        savedContext["provider"] == kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name) &&
+                        savedContext["model"] == kotlinx.serialization.json.JsonPrimitive(platform.model)
+                }
                 val resolvedToolCheckpoint = dev.chungjungsoo.gptmobile.data.agent.GitHubProviderToolCheckpoint.resolve(
                     context.filesDir,
                     latestUser.chatId,
@@ -5954,7 +5962,8 @@ class ChatRepositoryImpl(
                     dispatchAuthority.revision,
                     expectedCheckpoint,
                     savedProviderCheckpoint,
-                    persistent = agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false
+                    persistent = agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false,
+                    handoffTaskBinding = handoffTask
                 )
                 dispatchAuthority.validate()
                 check(validateSavedEvidence())

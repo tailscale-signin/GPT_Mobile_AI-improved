@@ -94,6 +94,12 @@ internal object GitHubToolHandoff {
     fun pending(checkpoint: JsonObject): Set<String> =
         (checkpoint["pending_calls"] as? JsonArray).orEmpty().mapNotNullTo(linkedSetOf()) { (it as? JsonPrimitive)?.contentOrNull }
 
+    fun bindingChanged(checkpoint: JsonObject, selectedBinding: String?): Boolean {
+        val context = checkpoint["context"] as? JsonObject ?: return false
+        val saved = (context["tool_checkpoint_binding"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+        return selectedBinding != null && saved != null && selectedBinding != saved
+    }
+
     /** Reentrant projection of durable terminal receipts; unknown effects remain pending. */
     fun reconcile(checkpoint: JsonObject, receipts: Collection<ToolHandoffReceipt>, reconciled: Set<String>): JsonObject {
         if (checkpoint["state"] !in states) return checkpoint
@@ -128,7 +134,7 @@ internal object GitHubToolHandoff {
                 put("reconciliation_source", "TERMINAL_RECEIPT_IDENTITIES")
                 put("resume_allowed", remaining.isEmpty())
                 put("resume_kind", "AFTER_TOOL_RESULTS")
-                put("requires_reconciliation", matching.any { !it.settled(reconciled) })
+                put("requires_reconciliation", remaining.isNotEmpty())
                 put("next_action", if (remaining.isEmpty()) "CONTINUE_SELECTED_MODEL" else "RECONCILE_TOOL_RECEIPTS")
             }
         )

@@ -57,6 +57,20 @@ internal object GitHubProviderReplayEvidence {
         return journalDigest(receipts)
     }
 
+    fun settledHandoffDigest(checkpoint: JsonObject, receipts: List<ToolHandoffReceipt>): String? {
+        val calls = checkpoint["pending_calls"] as? JsonArray ?: return null
+        val pending = GitHubToolHandoff.pending(checkpoint)
+        if (checkpoint["state"] != JsonPrimitive("TOOL_HANDOFF") || pending.isEmpty() || pending.size != calls.size || pending.any { !it.matches(sha256) }) return null
+        val completed = checkpoint["completed_results"] as? JsonArray ?: return null
+        val (newlySettled, previous) = receipts.partition { it.invocationFingerprint in pending }
+        if (newlySettled.map { it.invocationFingerprint }.toSet() != pending || completed.size != previous.size) return null
+        if (completed.isNotEmpty()) {
+            val expected = protectedJournalDigest(checkpoint) ?: return null
+            if (journalDigest(previous) != expected) return null
+        }
+        return journalDigest(receipts)
+    }
+
     /** Bind call IDs as well as source identities; retained fingerprints can outlive replay call projections. */
     fun journalDigest(receipts: List<ToolHandoffReceipt>): String? {
         if (receipts.size > 1024 ||

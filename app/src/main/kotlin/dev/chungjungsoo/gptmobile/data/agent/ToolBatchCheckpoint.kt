@@ -221,6 +221,14 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         }
     }
 
+    /** Only a complete journal matching the protected handoff may follow a turn to its new guard. */
+    internal suspend fun settledHandoffDigest(checkpoint: JsonObject): String? = locked {
+        val state = read()
+        if (state.entries.isEmpty() || state.entries.values.any { it.result == null }) return@locked null
+        val receipts = GitHubProviderReplayEvidence.receipts(state.settledExchanges())
+        GitHubProviderReplayEvidence.settledHandoffDigest(checkpoint, receipts)
+    }
+
     suspend fun markConsumed(ids: Set<String>) = locked {
         val state = read()
         val consumed = state.consumedCallIds + ids.filter { state.entries[it]?.result != null }

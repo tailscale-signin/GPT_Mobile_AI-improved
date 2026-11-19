@@ -44,6 +44,52 @@ class GitHubProviderJournalRecoveryTest {
     private val tool = AgentToolDefinition("github_write", "Write an owned test fixture", JsonObject(emptyMap()))
     private val call = ProviderEvent.ToolCall("already-written", tool.name, buildJsonObject { put("branch", "codex-self-test/owned") })
 
+    @Test fun ordinaryRecoveryRestoresOnlyACompletePreviouslyConfirmedJournalForTheSameTask() = runBlocking {
+        val directory = Files.createTempDirectory("github-settled-handoff").toFile()
+        try {
+            val saved = buildJsonObject {
+                put("state", "TOOL_HANDOFF")
+                put(
+                    "context",
+                    buildJsonObject {
+                        put("task_binding", taskBinding)
+                        put("tool_checkpoint_binding", originalBinding)
+                    }
+                )
+                put("pending_calls", JsonArray(listOf(JsonPrimitive(ToolHandoffReceipt.fingerprint(call)))))
+                put("completed_results", JsonArray(emptyList()))
+            }
+            val journal = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+            val current = "$scope:resumed"
+            suspend fun lookup(task: String? = taskBinding, persistent: Boolean = true) =
+                GitHubProviderToolCheckpoint.resolve(directory, 2, scope, "resumed", null, saved, persistent, task)
+            journal.enqueue(listOf(call))
+            assertEquals(current, lookup().binding)
+            var executions = 0
+            journal.execute(call) {
+                executions++
+                AgentToolResult(call.callId, ToolResultContent.Text("original receipt"), false)
+            }
+            assertEquals(current, lookup(null).binding)
+            assertEquals(current, lookup("a different task").binding)
+            assertEquals(current, lookup(persistent = false).binding)
+            val resolved = lookup()
+            assertEquals(originalBinding, resolved.binding)
+            val restored = ToolBatchCheckpoint.forTurn(directory, 2, resolved.binding, persistent = true, expectedProviderJournalDigest = requireNotNull(resolved.journalDigest))
+            assertEquals(listOf(call), restored.recoverySnapshot().completedExchanges.flatMap { it.calls })
+            restored.execute(call) { error("A restored write must never be repeated") }
+            assertEquals(1, executions)
+            val extra = call.copy(callId = "another-call")
+            journal.enqueue(listOf(extra))
+            journal.execute(extra) { AgentToolResult(extra.callId, ToolResultContent.Text("other"), false) }
+            assertEquals(current, lookup().binding)
+            val fenced = ToolBatchCheckpoint.forTurn(directory, 2, resolved.binding, persistent = true, expectedProviderJournalDigest = resolved.journalDigest)
+            assertTrue(runCatching { fenced.recoverySnapshot() }.exceptionOrNull() is ProviderRecoveryFailure)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun completedWriteThenTwoRateLimitsResumesFromDiskWithoutRepeatingTheWrite() = runBlocking {
         val directory = Files.createTempDirectory("github-provider-journal").toFile()
         try {

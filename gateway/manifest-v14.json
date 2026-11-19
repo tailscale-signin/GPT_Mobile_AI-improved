@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.1",
   "schemaVersion": 1,
-  "sourceCommit": "d0c53dde701c025e182a66ec19a3076d0fad167f",
+  "sourceCommit": "6f62556bfd15003163538b23077df1f6889f50fa",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -113,7 +113,7 @@
     "desktop/conversation_client.py": "edcffb79efe16badf2cbdc639eb58925bdef877f21caad033d055e4bb35e7846",
     "desktop/dashboard.py": "445fb6e0e38d990fa00e5cd2ce23f0857b955799edf9a540f25470668b9740d4",
     "desktop/dashboard_model.py": "a67c96270dd1e6a7b615405f188497200a0df5c2f02fcda0daa9122844ce9256",
-    "desktop/development_profiles.py": "c72f1436e597544af9a9ffb27a26148ae1f7a9786cee3741238aaf7243e2081a",
+    "desktop/development_profiles.py": "a1f6fece6b2c622117ac0573ab43080468cab99c840fc702061d8fc3ae92e583",
     "desktop/engineering_composer.py": "6d2350495382e6cea62d676199bd4620d47a057bd1cab403573cd79e59cba7fe",
     "desktop/engineering_setup.py": "540d2dabd25624fc4fe77c88e9016d0cb04e33365792bfcc72ab432c91460539",
     "desktop/engineering_setup_panel.py": "fcb491bd6a0a381d9789cc6f04d3d9ece18f70f2fe09a692c6d7f86752e39b91",

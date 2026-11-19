@@ -16,13 +16,30 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: development-environments-${{ github.event.pull_request.number || github.ref }}
-  # Expensive image preparation must finish to expose compiler and offline-test failures.
-  # GitHub retains the newest pending revision under the same PR concurrency group.
-  cancel-in-progress: false
 jobs:
+  recipe:
+    name: Identify development environment recipe
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      digest: ${{ steps.recipe.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: recipe
+        env:
+          RECIPE_DIGEST: ${{ hashFiles('.github/workflows/development-environments.yml', 'gateway/desktop/development_profiles.py', 'gateway/desktop/repository_validation.py', 'gateway/v14/engineering_validation.py', 'gateway/v14/workspace_environment.py', 'gateway/tests/prepared_environment_smoke.py', 'gateway/requirements.txt') }}
+        run: |
+          [[ "$RECIPE_DIGEST" =~ ^[a-f0-9]{64}$ ]]
+          echo "digest=$RECIPE_DIGEST" >> "$GITHUB_OUTPUT"
   prepare:
+    needs: recipe
+    concurrency:
+      # Finish each distinct preparation recipe, retaining only its newest waiting candidate.
+      group: development-environments-${{ github.event.pull_request.number || github.ref }}-${{ matrix.profile }}-${{ needs.recipe.outputs.digest }}
+      cancel-in-progress: false
     name: Offline development profile (${{ matrix.profile }})
     runs-on: ubuntu-latest
     timeout-minutes: 110

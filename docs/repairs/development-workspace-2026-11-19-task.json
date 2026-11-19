@@ -69,6 +69,10 @@
     {
       "commit": "1d406225aa633db4d53b2a82f35c1f2f09494653",
       "scope": "Signed-release validation also exposed an intermittent frozen-input mismatch during recovery of a Combined answer. Compiling the corrected production serializer with the Kotlin serialization plugin verified retained timestamps and deterministic recovery across a real clock change for the user message, history, and nested replies."
+    },
+    {
+      "commit": "1d406225aa633db4d53b2a82f35c1f2f09494653",
+      "scope": "The hosted isolated Android build passed the earlier SQLite native-loader step. The next failure was missing debugUnitTestRuntimeClasspath packages before JUnit, including Espresso, Conscrypt and Robolectric. The revised preparation resolves runtime and lint artifacts and invokes test discovery during setup. A separate real Gradle 9.8 and JUnit 4 fixture verified runtime dependency resolution and reproduced and repaired its exact named assertion after that preparation."
     }
   ]
 }

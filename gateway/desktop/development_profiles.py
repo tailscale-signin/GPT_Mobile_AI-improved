@@ -25,12 +25,39 @@ ENV ANDROID_HOME=/opt/android ANDROID_SDK_ROOT=/opt/android
 RUN curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -o /tmp/sdk.zip && echo "7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee  /tmp/sdk.zip" | sha256sum -c - && mkdir -p /opt/android/cmdline-tools && unzip -q /tmp/sdk.zip -d /tmp/sdk && mv /tmp/sdk/cmdline-tools /opt/android/cmdline-tools/19 && rm /tmp/sdk.zip && yes | /opt/android/cmdline-tools/19/bin/sdkmanager --licenses >/dev/null
 RUN /opt/android/cmdline-tools/19/bin/sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1' 'platform-tools'
 """
+ANDROID_PREPARE_INIT = """// Only used while the image has network access. Resolve test runner and lint tooling too.
+gradle.beforeProject { project ->
+    project.tasks.withType(org.gradle.api.tasks.testing.Test).configureEach { test ->
+        if (test.hasProperty("dryRun")) {
+            test.dryRun.set(true)
+            test.filter.setIncludePatterns("dev.chungjungsoo.gptmobile.data.github.GatewayGraphTest.requestAlwaysCarriesSelectedImmutableRevision")
+        } else {
+            test.filter.setIncludePatterns("gateway.preparation.DependencyCacheProbe")
+        }
+        test.filter.setFailOnNoMatchingTests(false)
+    }
+    if (project.path == ":app") {
+        project.tasks.register("gatewayPrepareAndroidDependencies") {
+            doLast {
+                def required = project.configurations.getByName("debugUnitTestRuntimeClasspath")
+                required.incoming.artifacts.artifactFiles.files
+                for (def name : ["jacocoAgent", "lintClassPath", "lintChecks"]) {
+                    def optional = project.configurations.findByName(name)
+                    if (optional != null && optional.canBeResolved) {
+                        optional.incoming.artifacts.artifactFiles.files
+                    }
+                }
+            }
+        }
+    }
+}
+"""
 ANDROID_WARM = """
 ENV GRADLE_USER_HOME=/opt/gradle-seed GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY=1
 RUN if [ -f scripts/install_android_native_dependencies.sh ]; then GITHUB_ENV=/tmp/gateway-android-env bash scripts/install_android_native_dependencies.sh && mkdir -p /opt/gateway-native && cp -R "$(sed -n 's/^VULKAN_SDK=//p' /tmp/gateway-android-env)/." /opt/gateway-native/; fi
 ENV VULKAN_SDK=/opt/gateway-native CMAKE_PREFIX_PATH=/opt/gateway-native
 RUN if [ -f scripts/provision_memory_model.py ]; then python3 scripts/provision_memory_model.py; fi && if [ -f scripts/provision_robolectric_sdks.py ]; then python3 scripts/provision_robolectric_sdks.py; fi
-RUN gateway-gradle-build prepare :app:assembleDebug :app:compileDebugUnitTestKotlin && chmod -R a+rX /opt/gradle-seed
+RUN gateway-gradle-build prepare :app:assembleDebug :app:gatewayPrepareAndroidDependencies :app:testDebugUnitTest --init-script /opt/gateway-prepare-android.gradle --no-configuration-cache && chmod -R a+rX /opt/gradle-seed
 RUN mkdir -p /opt/robolectric && if [ -d /root/.m2/repository ]; then cp -R /root/.m2/repository/. /opt/robolectric/; fi
 """
 GRADLE_BUILD = """#!/bin/sh
@@ -114,6 +141,8 @@ def prepare_image(profile, base, mirror, head, cancel, *, run_build=None, custom
             # git archive omits .git. ARG supplies the approved source only while building.
             (context / 'gateway-gradle-build').write_text(GRADLE_BUILD, encoding='utf-8', newline='\n')
             recipe += 'COPY --chmod=0755 gateway-gradle-build /usr/local/bin/gateway-gradle-build\n'
+            (context / 'gateway-prepare-android.gradle').write_bytes(ANDROID_PREPARE_INIT.encode())
+            recipe += 'COPY gateway-prepare-android.gradle /opt/gateway-prepare-android.gradle\n'
             recipe += 'ARG GITHUB_SHA=' + head + '\n' + ANDROID_WARM
             (context / 'gateway-gradle').write_bytes(GRADLE_WRAPPER.encode())
             recipe += 'COPY --chmod=0755 gateway-gradle /usr/local/bin/gateway-gradle\n'

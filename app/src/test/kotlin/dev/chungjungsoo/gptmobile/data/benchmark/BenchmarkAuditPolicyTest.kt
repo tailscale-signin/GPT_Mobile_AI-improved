@@ -98,7 +98,7 @@ class BenchmarkAuditPolicyTest {
     }
 
     @Test fun portableScoreboardRetainsNewFixtureProvenanceAndRejectsUnknownOrSavedPolicy() {
-        val plan = benchmarkSuiteForVersion(10, BenchmarkMode.QUICK, 2)
+        val plan = benchmarkSuiteForVersion(BenchmarkSuiteRegistry.VERSION, BenchmarkMode.QUICK, 2)
         val samples = plan.map { test ->
             val answer = test.expected ?: "complete"
             BenchmarkSample(
@@ -107,7 +107,7 @@ class BenchmarkAuditPolicyTest {
                 intelligenceSemantics = benchmarkIntelligenceEvidence(test, answer, true), intelligenceParseable = true.takeIf { test.category == IntelligenceBenchmark.CATEGORY }
             )
         }
-        val run = BenchmarkRun("current", profile.uid, "Profile", "CUSTOM", "model", "key", false, BenchmarkMode.QUICK, 1, suiteVersion = 10, executionPolicy = capability, samples = samples, plannedTrials = 5, caseManifest = plan, fixtureRotationSeed = 2, fixtureSetVersion = 4, fixtureManifestHash = benchmarkHash(plan.joinToString("\n") { it.id + it.prompt + it.expected }))
+        val run = BenchmarkRun("current", profile.uid, "Profile", "CUSTOM", "model", "key", false, BenchmarkMode.QUICK, 1, suiteVersion = BenchmarkSuiteRegistry.VERSION, executionPolicy = capability, samples = samples, plannedTrials = 5, caseManifest = plan, fixtureRotationSeed = 2, fixtureSetVersion = 4, fixtureManifestHash = benchmarkHash(plan.joinToString("\n") { it.id + it.prompt + it.expected }))
         val submission = checkNotNull(BenchmarkScoreboard.fromRun(run))
         assertEquals(3, submission.schemaVersion)
         assertEquals(2L, submission.fixtureRotationSeed)

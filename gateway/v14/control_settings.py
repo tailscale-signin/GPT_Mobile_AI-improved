@@ -155,4 +155,3 @@ def install_control_settings(app, runtime, state, engineering, config):
             return JSONResponse(result, status_code=200 if result['status'] == 'applied' else 409)
         except (ValueError, TypeError, KeyError):
             return JSONResponse({'error': {'code': 'invalid_settings'}}, status_code=400)
-

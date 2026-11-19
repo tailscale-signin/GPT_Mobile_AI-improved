@@ -60,6 +60,9 @@ internal data class IssueReportDiagnostics(
         if ("semantic_ci_rules" in values || "semantic_ci_rules" in omittedFields) add(IssueReportIncidentCapsule.GITHUB_CI_SEMANTIC_FEATURE)
         if ("search_validation_field_names" in values || "search_validation_field_names" in omittedFields) add(IssueReportIncidentCapsule.GITHUB_SEARCH_VALIDATION_FEATURE)
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.inventoryPaginationFields }) add(IssueReportIncidentCapsule.TOOL_INVENTORY_PAGINATION_FEATURE)
+        if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.remotePaginationFields || it == "provider_limit_source" || it == "provider_cooldown_scope_hash" }) {
+            add(PAGINATION_AND_PROVIDER_LIMIT_FEATURE)
+        }
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.prContextRaceFields }) add(IssueReportIncidentCapsule.GITHUB_PR_CONTEXT_RACE_FEATURE)
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.repeatAdmissionFields }) add(IssueReportIncidentCapsule.REPEAT_ADMISSION_FEATURE)
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.toolEventPersistenceFields }) add(IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE)
@@ -227,6 +230,7 @@ internal data class IssueReportDiagnostics(
         private val newEvidenceFieldNames = setOf("end_line", "max_lines", "start_offset", "ranges", "evidence_id").map(::JsonPrimitive).toSet()
         const val MAX_BYTES = 3072
         const val MAX_CRITERIA = 8
+        const val PAGINATION_AND_PROVIDER_LIMIT_FEATURE = "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1"
         const val MODEL_PREPARATION_FEATURE = "GATEWAY_MODEL_PREPARATION_V1"
         val areas = setOf("PROVIDER", "TOOL", "ACCEPTANCE", "VOICE", "GATEWAY", "APP", "INCIDENT")
         private val captureModes = setOf("INCIDENT", "SELECTED_CAPTURE", "NO_CAPTURE")

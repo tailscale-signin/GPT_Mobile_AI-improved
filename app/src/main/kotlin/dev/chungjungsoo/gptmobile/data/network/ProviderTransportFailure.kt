@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import java.util.Collections
 import java.util.IdentityHashMap
 import kotlinx.serialization.json.JsonArray
@@ -65,6 +66,10 @@ internal fun providerTransportFailureDetails(
         if (kind == NetworkFailureKind.TLS) {
             put("tls_failure_kind", tlsFailureKind(error))
             put("tls_response_started", attemptTiming?.httpStatus != null || receivedPayload)
+        }
+        if (kind == NetworkFailureKind.UNKNOWN && details?.get("code") == JsonPrimitive("PROVIDER_INVOCATION_FAILED")) {
+            val captured = IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.OPENAI_ADAPTER_STREAM_CATCH)
+            captured.forEach { (key, value) -> if (key !in details) put(key, value) }
         }
         put("cause_types", JsonArray(sanitizedCauseTypes(error).map(::JsonPrimitive)))
         if (requiresReconciliation) put("requires_reconciliation", true)

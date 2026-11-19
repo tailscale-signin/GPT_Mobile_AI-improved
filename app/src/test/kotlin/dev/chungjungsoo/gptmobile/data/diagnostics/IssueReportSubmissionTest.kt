@@ -419,6 +419,34 @@ class IssueReportSubmissionTest {
         assertEquals(0, requests)
     }
 
+    @Test fun paginationQuotaAndStreamEvidenceSelectExtendedReporterReadiness() {
+        val samples = listOf(
+            Triple("TOOL", "remote_pagination_page", JsonPrimitive(6)),
+            Triple("TOOL", "pr_context_revision_changed", JsonPrimitive(true)),
+            Triple("PROVIDER", "provider_limit_source", JsonPrimitive("upstream_provider_shared_pool")),
+            Triple("PROVIDER", "tool_protocol_frame_kind", JsonPrimitive("UNFINISHED_STREAM"))
+        )
+        for ((area, field, sample) in samples) {
+            val context = requireNotNull(
+                IssueReportContext.fromFields("CHAT_FAILURE", IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", mapOf("diagnostic_area" to area)), 1000L)
+            )
+            val base = requireNotNull(context.diagnostics)
+            for (diagnostic in listOf(base.copy(values = base.values + (field to sample)), base.copy(omittedFields = listOf(field)))) {
+                val payload = report.copy(context = context.withDiagnostics(diagnostic)).approvedPayload()
+                val calls = mutableListOf<String>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    calls += request.method
+                    assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                    response(request, 200, ready(false))
+                }.build()
+                val failure = IssueReportSubmission(origin, client).send(report.reportId, payload) as IssueReportSubmission.Failure
+                assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", failure.code)
+                assertEquals(listOf("GET"), calls)
+            }
+        }
+    }
+
     @Test fun inventoryPaginationValuesAndOmissionsWaitForCompatibleHostWithoutChangingApproval() {
         val feature = IssueReportIncidentCapsule.TOOL_INVENTORY_PAGINATION_FEATURE
         val context = requireNotNull(

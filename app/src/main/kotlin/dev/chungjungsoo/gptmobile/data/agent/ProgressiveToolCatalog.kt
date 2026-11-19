@@ -60,6 +60,17 @@ class ProgressiveToolCatalog(
     private fun deferInitially(operation: String?): Boolean =
         operation != null && operation in deferredEngineering && operation !in upfrontEngineering
 
+    private fun preferredInitialContracts(definitions: List<AgentToolDefinition>, initialNames: Set<String>?): List<AgentToolDefinition> = definitions.groupBy { definition ->
+        val name = definition.name
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
+            ?.let { it + name.removePrefix(name.substringBefore("__")) } ?: name
+    }.values.map { alternatives ->
+        // Preserve exact planned schemas, then prefer a compact initial contract
+        // when both facades are eligible. Explicit discovery still selects the exact name.
+        val initial = alternatives.filter { it.name in initialNames.orEmpty() }.ifEmpty { alternatives }
+        initial.firstOrNull { it.name.substringBefore("__").endsWith("_inspect") } ?: initial.first()
+    }
+
     private val taskRequired = definitions.filter { definition ->
         definition.modelVisible &&
             !conversational &&
@@ -72,16 +83,7 @@ class ProgressiveToolCatalog(
                             !deferInitially(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name))
                         )
                 )
-    }.groupBy { definition ->
-        val name = definition.name
-        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
-            ?.let { it + name.removePrefix(name.substringBefore("__")) } ?: name
-    }.values.map { alternatives ->
-        // Preserve exact planned schemas, then prefer a compact initial contract
-        // when both facades are eligible. Explicit discovery still selects the exact name.
-        val initial = alternatives.filter { it.name in initialNames.orEmpty() }.ifEmpty { alternatives }
-        initial.firstOrNull { it.name.substringBefore("__").endsWith("_inspect") } ?: initial.first()
-    }
+    }.let { preferredInitialContracts(it, initialNames) }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val omissions = mutableMapOf<String, String>()
     private val active = (
@@ -102,7 +104,7 @@ class ProgressiveToolCatalog(
                         isGitHubTool(it) &&
                             (initialNames == null || it.name in initialNames) &&
                             !deferInitially(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name))
-                    }
+                    }.let { preferredInitialContracts(it, initialNames) }
                 } else {
                     emptyList()
                 }
@@ -676,7 +678,11 @@ class ProgressiveToolCatalog(
         var tokens = 256L
         val selected = mutableListOf<AgentToolDefinition>()
         omissions.clear()
-        for (tool in (listOfNotNull(candidates["read_recovery_context"]) + ordered).distinctBy { if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null) it.name.replace("_inspect__", "__").removeSuffix("_inspect") else it.name }) {
+        val admittedFamilies = mutableSetOf<Pair<String, String>>()
+        for (tool in (listOfNotNull(candidates["read_recovery_context"]) + ordered).distinctBy { it.name }) {
+            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name) ?: tool.name
+            val family = operation to tool.name.substringAfter("__", "")
+            if (family in admittedFamilies) continue
             // An individual authorized GitHub schema may exceed the soft discovery
             // window. Hard provider context admission still precedes all dispatch.
             val cost = schemaTokens(presented(tool))
@@ -694,6 +700,7 @@ class ProgressiveToolCatalog(
             if (reason == null) {
                 tokens += cost
                 selected += tool
+                admittedFamilies += family
             } else {
                 omissions[tool.name] = reason
             }

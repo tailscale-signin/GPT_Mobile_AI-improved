@@ -135,7 +135,10 @@ internal class IssueReportSubmission(
             IssueReportIncidentCapsule.GITHUB_POLICY_RESPONSE_FEATURE,
             "REPORT_TEXT_ATTACHMENT_V1",
             TERMINAL_DELIVERY_CODES_FEATURE,
-            PROVIDER_TERMINAL_CAUSES_FEATURE
+            PROVIDER_TERMINAL_CAUSES_FEATURE,
+            IssueReportDiagnostics.PAGINATION_AND_PROVIDER_LIMIT_FEATURE,
+            IssueReportIncidentCapsule.GITHUB_PR_CONTEXT_RACE_FEATURE,
+            "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1"
         )
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
         private val RECOVERY_CODES = setOf(

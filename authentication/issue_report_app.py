@@ -60,6 +60,7 @@ def create_app(public_url, reporter, rate_key):
                 "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1",
                 "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1",
                 "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1",
+                "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1",
             ])
         return response
 

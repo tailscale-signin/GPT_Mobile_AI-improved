@@ -262,6 +262,12 @@ REPEAT_HISTORY_LIST_FIELDS = REPEAT_HISTORY_HASH_FIELDS | {'dependency_repeat_pr
 REPEAT_HISTORY_FIELDS = REPEAT_HISTORY_LIST_FIELDS | {'dependency_repeat_prior_coverage', 'dependency_repeat_batch_coverage'}
 REPEAT_HISTORY_OUTCOMES = {'UNOBSERVED', 'DISPATCHED_SUCCESS', 'DISPATCHED_FAILURE', 'NOT_DISPATCHED', 'SHARED_RESULT', 'UNKNOWN_OUTCOME'}
 INVENTORY_PAGINATION_FIELDS = {'inventory_pagination_reason', 'inventory_restart_offered'}
+REMOTE_PAGINATION_COUNTS = {
+    'remote_pagination_page', 'remote_pagination_pages_observed', 'remote_pagination_reported_total',
+    'remote_pagination_unique_records', 'remote_pagination_duplicate_records',
+}
+REMOTE_PAGINATION_FLAGS = {'remote_pagination_contiguous', 'remote_pagination_changed'}
+REMOTE_PAGINATION_FIELDS = REMOTE_PAGINATION_COUNTS | REMOTE_PAGINATION_FLAGS | {'remote_pagination_reason'}
 PR_CONTEXT_RACE_FIELDS = {'pr_context_revision_changed', 'pr_context_read_requests', 'pr_context_read_responses'}
 POLICY_RESPONSE_HEADER_ORDER = ('REPORTED_OAUTH_SCOPES', 'ACCEPTED_OAUTH_SCOPES', 'ACCEPTED_GITHUB_PERMISSIONS', 'SSO')
 POLICY_RESPONSE_HEADER_FIELDS = {'status_policy_protection_permission_header_names', 'status_policy_rules_permission_header_names'}
@@ -298,7 +304,7 @@ TOOL_FIELDS = {
     'unknown_field_hashes',
     'validation_field_names',
     'validation_path_hashes',
-} | TOOL_REPEAT_FIELDS
+} | TOOL_REPEAT_FIELDS | REMOTE_PAGINATION_FIELDS
 
 POLICY_OBSERVATION = {'OBSERVED', 'UNOBSERVED', 'INVALID_RESPONSE', 'ACCESS_DENIED', 'NOT_FOUND_OR_INACCESSIBLE', 'RATE_LIMITED', 'UNAVAILABLE', 'HTTP_FAILURE'}
 
@@ -372,7 +378,7 @@ HASH_LISTS = {
     'validation_path_hashes',
 }
 
-FLAGS = FAILED_EVENT_FIELDS | {
+FLAGS = FAILED_EVENT_FIELDS | REMOTE_PAGINATION_FLAGS | {
     'inventory_restart_offered',
     'tool_event_write_attempted',
     'chat_delivery_counts_capped',
@@ -401,7 +407,7 @@ COUNTS = {
     'unknown_field_count',
     'untested_capability_count',
     'verified_capability_count',
-} | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS | CHAT_DELIVERY_COUNTS | ACCEPTANCE_PUBLICATION_COUNTS | TOOL_REPEAT_COUNTS | {
+} | REMOTE_PAGINATION_COUNTS | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS | CHAT_DELIVERY_COUNTS | ACCEPTANCE_PUBLICATION_COUNTS | TOOL_REPEAT_COUNTS | {
     'pr_context_read_requests', 'pr_context_read_responses',
     'voice_focus_transition_count', 'voice_pronunciation_unknown_words', 'voice_pronunciation_initialisms'
 }
@@ -545,6 +551,7 @@ ENUMS = {
     'tool_budget_phase': {'BEFORE_DISPATCH', 'AFTER_DISPATCH'},
     'tool_permission_scope': {'ANDROID_LOCATION', 'GITHUB_LOCAL_GRANT'},
     'tls_failure_kind': {'CERTIFICATE', 'PROTOCOL', 'HANDSHAKE', 'OTHER'},
+    'remote_pagination_reason': {'INCOMPLETE', 'STALLED'},
     'provider_tool_rejection': {'TOOL_USE_FAILED'},
     'tool_protocol_frame_kind': {'MISSING_FUNCTION_NAME', 'UNFINISHED_STREAM', 'NON_OBJECT_ARGUMENTS', 'MALFORMED_JSON'},
     'tool_protocol_recovery_outcome': {'TEXT_FALLBACK_EXHAUSTED', 'TOOL_RETRY_EXHAUSTED', 'BACKEND_HANDLED_TOOLS', 'SINGLE_PASS_NOT_RETRYABLE', 'NO_SAFE_REPAIR'},

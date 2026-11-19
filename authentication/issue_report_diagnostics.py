@@ -193,6 +193,10 @@ FIELDS_BY_AREA["PROVIDER"].update(CAPACITY_DETAIL_FIELDS)
 FIELDS_BY_AREA["TOOL"].update(TRANSPORT_FIELDS)
 FIELDS_BY_AREA["ACCEPTANCE"].add("acceptance_pending_remote_continuations")
 
+ENUMS["provider_limit_source"] = {"upstream_provider_shared_pool", "openrouter_free_tier_per_minute", "openrouter_free_tier_daily"}
+HASH_FIELDS.add("provider_cooldown_scope_hash")
+FIELDS_BY_AREA["PROVIDER"].update({"provider_limit_source", "provider_cooldown_scope_hash"})
+
 # Numeric request components and actual capacity provenance. No raw prompt,
 # endpoint, model name or provider payload is part of this contract.
 CAPACITY_CEILING_FIELDS = {

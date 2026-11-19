@@ -57,6 +57,29 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_remote_pagination_and_provider_limit_reports_survive_submission(self):
+        pagination = {
+            "remote_pagination_page": 6, "remote_pagination_pages_observed": 1, "remote_pagination_reported_total": 170,
+            "remote_pagination_unique_records": 20, "remote_pagination_duplicate_records": 0,
+            "remote_pagination_contiguous": False, "remote_pagination_changed": False, "remote_pagination_reason": "INCOMPLETE",
+        }
+        quota = {"provider_limit_source": "upstream_provider_shared_pool", "provider_cooldown_scope_hash": "a" * 64}
+        for area, fields in (("TOOL", pagination), ("PROVIDER", quota)):
+            with self.subTest(area=area):
+                report = self.report(self.capture(area, fields))
+                _, issue = issue_from_report(report)
+                for field in fields:
+                    self.assertIn(field, issue["body"])
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("APP", fields))
+        for area, key, invalid in (
+            ("TOOL", "remote_pagination_page", True), ("TOOL", "remote_pagination_reported_total", 16_000_001),
+            ("TOOL", "remote_pagination_reason", "private text"), ("TOOL", "remote_pagination_changed", 1),
+            ("PROVIDER", "provider_limit_source", "private text"), ("PROVIDER", "provider_cooldown_scope_hash", "private text"),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {key: invalid}))
+
     def test_interrupted_run_and_unavailable_continuation_keep_their_codes_in_approved_issues(self):
         for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED"):
             with self.subTest(code=code):

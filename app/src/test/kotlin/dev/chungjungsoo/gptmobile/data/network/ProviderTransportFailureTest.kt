@@ -12,6 +12,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderTransportFailureTest {
+    @Test fun unknownContinuationFailureRetainsOwnedFrameAndDispatchFacts() {
+        val failure = IllegalArgumentException("private request").apply {
+            stackTrace = arrayOf(StackTraceElement("dev.chungjungsoo.gptmobile.data.network.OpenAIAPIImpl", "prepare", "private-file", 42))
+        }
+        val details = providerTransportFailureDetails(
+            buildJsonObject { put("code", "PROVIDER_INVOCATION_FAILED") }, failure, null,
+            dispatched = false, receivedPayload = false, receivedVisibleText = false, generationCompleted = false,
+            replayAllowed = false, requiresReconciliation = false
+        )
+        assertEquals(JsonPrimitive("IllegalArgumentException"), details["exception_report_type"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("dev.chungjungsoo.gptmobile.data.network.OpenAIAPIImpl.prepare:42"))), details["exception_application_frames"])
+        assertEquals(JsonPrimitive(false), details["dispatched"])
+        assertEquals(JsonPrimitive(false), details["request_replay_allowed"])
+        assertFalse(details.toString().contains("private"))
+    }
+
     @Test fun reasoningOnlyAcceptedStreamKeepsItsIdentityAndCannotReplayTheRequest() {
         val observer = ProviderResponseObserver { 100L }
         observer.headersReceived(200) { name -> mapOf("X-Request-ID" to "req-17", "X-Generation-ID" to "gen-29")[name] }

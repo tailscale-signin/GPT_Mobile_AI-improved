@@ -24,6 +24,19 @@ import org.junit.Test
 
 class ProgressiveToolCatalogTest {
 
+    @Test fun oversizedFullContextStillAllowsItsFittingInspectContract() {
+        val full = GitHubOperationTool.definition("github_context", "github_context__native").copy(description = "long schema ".repeat(2000))
+        val inspect = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__native")
+        val definitions = listOf(full, inspect)
+        for (ceiling in listOf(4096, null)) {
+            val catalog = ProgressiveToolCatalog(definitions, "continue", githubMode = true, contextCeilingTokens = ceiling)
+            val selected = catalog.selected(definitions + catalog.definition)
+            assertTrue(selected.contains(inspect))
+            assertFalse(selected.contains(full))
+            assertTrue(selected.contains(catalog.definition))
+        }
+    }
+
     @Test fun smallObservedProviderContextNeverAdmitsOversizedSingleGitHubSchema() {
         val original = GitHubOperationTool.definition("github_pr", "github_pr__native")
         val oversized = original.copy(description = original.description + "oversized contract ".repeat(500))

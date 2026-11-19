@@ -395,11 +395,11 @@ private fun GatewayAdmissionControl(loadOrToggle: suspend (GatewayAdmissionSetti
             Column(Modifier.weight(1f)) {
                 Text("Allow new saved engineering jobs")
                 Text(
-                    if (current.principalId == "network:shared") "Applies to every device using this shared Gateway." else "Applies to your account on this Gateway.",
+                    if (current.principalId == "network:shared") "Read-only on a shared network. Change admission in Windows Gateway Settings." else "Applies to your account on this Gateway.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            Switch(checked = current.enabled, enabled = !busy, onCheckedChange = { request(current) })
+            Switch(checked = current.enabled, enabled = !busy && current.principalId != "network:shared", onCheckedChange = { request(current) })
         }
     } else {
         OutlinedButton(onClick = { request(null) }, enabled = !busy) {

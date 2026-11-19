@@ -255,6 +255,7 @@ def build_window(root, parent=None, section='General'):
     github_tabs = ttk.Notebook(github)
     github_tabs.pack(fill='both', expand=True)
     window.github_tabs = github_tabs
+    from desktop.admission_panel import build_panel as build_admission_panel
     connection_canvas = page('Connection', github_tabs)
     connection = ttk.Frame(connection_canvas, padding=14)
     connection.columnconfigure(1, weight=1)
@@ -265,6 +266,7 @@ def build_window(root, parent=None, section='General'):
     public_maps = tk.BooleanVar(value=public_maps_saved)
     copilot_saved = copilot_enabled(root)
     copilot_jobs = tk.BooleanVar(value=copilot_saved)
+    github_tabs.add(build_admission_panel(github_tabs, root), text='Job admission')
     refresh_github = build_github_settings(connection, root, cfg, public_maps, values['engineering'], copilot_jobs)
     validation_panel = RepositoryValidationPanel(validation_frame, root, cfg)
     window.repository_validation_panel = validation_panel

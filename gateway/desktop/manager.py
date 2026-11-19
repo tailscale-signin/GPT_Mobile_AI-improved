@@ -58,11 +58,14 @@ def startup_registration(root, enabled):
                 pass
 
 
-def request(root, action, timeout=50):
+def request(root, action, timeout=50, *, settings=None):
     """Local UI/installer control queue. A busy stop is refused, never forced."""
     root = Path(root)
     ident = uuid.uuid4().hex
-    atomic_json(root / 'request.json', {'id': ident, 'action': action}, retry_windows_sharing=True)
+    command = {'id': ident, 'action': action}
+    if settings is not None:
+        command['settings'] = settings
+    atomic_json(root / 'request.json', command, retry_windows_sharing=True)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -414,6 +417,7 @@ class Supervisor:
             try:
                 command = json.loads(claimed.read_text(encoding='utf-8'))
                 action, ident = command['action'], command['id']
+                self._control_settings = command.get('settings')
             except (ValueError, KeyError, TypeError):
                 self.log.warning('Ignored malformed local control request')
                 action, ident = None, None
@@ -473,6 +477,15 @@ class Supervisor:
                     if accepted:
                         self.publish(state='stopped')
                         return RESTART if action == 'restart' else 0
+                elif action in {'read-admission', 'change-admission'}:
+                    url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/engineering-admission'
+                    response = self.http.request('POST' if action == 'change-admission' else 'GET', url,
+                        headers={'X-Gateway-Management': self.token}, json=self._control_settings, timeout=(2, 8))
+                    if response.status_code == 409:
+                        raise ValueError('The setting changed. Read the current value before editing again.')
+                    response.raise_for_status()
+                    self.respond({'id': ident, 'accepted': True, 'settings': response.json()})
+                    ident = None
                 elif action == 'export-debug':
                     self.export_diagnostics()
                     self.respond({'id': ident, 'accepted': True})

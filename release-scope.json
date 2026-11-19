@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Manage saved engineering job admission for observed accounts through the Windows supervisor and keep anonymous network controls read-only on Android.",
     "Add native four-step Windows Gateway setup with an interface picker, bounded model catalog probe, optional advanced settings and installed-workflow smoke coverage.",
     "Add native interactive answers, evidence-based profile suggestions, scoped context retrieval, progressive GitHub delivery, audio attachments, persisted task recovery, desktop schedules and offline analysis.",
     "Repair build-142 native read/search admission, verification reserves, receipt-linked revision retention, issue cursor rejection diagnostics, generic failure invocation lineage and confirmed provider-pool cooldown scopes. Installed-device qualification remains outstanding.",
@@ -3193,6 +3194,8 @@
     "gateway/desktop/windows/SetupWindow.xaml.cs",
     "gateway/build_v14_package.py",
     "build.gradle.kts",
-    "buildscript-gradle.lockfile"
+    "buildscript-gradle.lockfile",
+    "gateway/desktop/admission_panel.py",
+    "gateway/tests/test_gateway_network.py"
   ]
 }

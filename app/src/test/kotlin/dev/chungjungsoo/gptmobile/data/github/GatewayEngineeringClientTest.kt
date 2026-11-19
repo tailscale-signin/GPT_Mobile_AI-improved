@@ -49,6 +49,21 @@ class GatewayEngineeringClientTest {
         }
     }
 
+    @Test fun sharedNetworkCannotChangeAdmissionEvenOnALegacyGateway() = runTest {
+        var calls = 0
+        http(
+            MockEngine {
+                calls++
+                respond("""{"gateway_id":"pc","principal_id":"network:shared","enabled":true,"revision":2}""")
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            val setting = client.admissionSetting(config, null)
+            assertTrue(runCatching { client.admissionSetting(config, setting) }.exceptionOrNull() is IllegalArgumentException)
+            assertEquals(1, calls)
+        }
+    }
+
     @Test fun candidatePreviewPreservesTheServersTruncationWarning() = runTest {
         val jobId = "eng_" + "a".repeat(32)
         val checkId = "b".repeat(64)

@@ -34,7 +34,7 @@ class PrincipalResolver:
         except ValueError:
             local_peer = False
         path = scope.get('path', '').removeprefix('/v1')
-        if path in {"/gateway/admin/maintenance", "/gateway/admin/dashboard"} or (
+        if path in {"/gateway/admin/maintenance", "/gateway/admin/dashboard", "/gateway/admin/engineering-admission"} or (
                 path == '/gateway/admin/debug/export' and 'x-gateway-management' in headers):
             # A specific-interface listener is reached through that interface on
             # the same PC. The independent supervisor secret is still mandatory.

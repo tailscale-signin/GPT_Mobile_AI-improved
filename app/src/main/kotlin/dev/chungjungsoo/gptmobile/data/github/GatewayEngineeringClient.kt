@@ -428,6 +428,7 @@ class GatewayEngineeringClient internal constructor(
     internal suspend fun admissionSetting(config: ProviderRequestConfig, previous: GatewayAdmissionSetting?): GatewayAdmissionSetting {
         val path = "admission-settings"
         if (previous == null) return json.decodeFromString(request(config, path))
+        require(previous.principalId != "network:shared") { "Change shared network admission on the Gateway PC." }
         val bound = config.withGatewayIdentity(GatewayScopeIdentity(previous.gatewayId, previous.principalId))
         val update = buildJsonObject {
             put("enabled", !previous.enabled)

@@ -147,6 +147,8 @@ def install_engineering_routes(app, service):
             if not service.store.runtime.GATEWAY_DURABLE_JOBS:
                 raise ExecutionBindingError('ENGINEERING_SETTINGS_UNAVAILABLE', 'Enable durable storage on the host.', 503)
             if request.method == 'POST':
+                if owner == 'network:shared':
+                    raise ExecutionBindingError('ENGINEERING_OWNER_REQUIRED', 'Change the shared network setting on the Gateway PC.', 403)
                 if not all(request.headers.get(name) for name in MUTATION_IDENTITY_HEADERS):
                     raise ExecutionBindingError('CONTINUITY_IDENTITY_INVALID', 'Read the installation and account before editing.', 400)
                 value = await asyncio.to_thread(service.store.change_admission_settings, owner, await body(request))
@@ -154,6 +156,32 @@ def install_engineering_routes(app, service):
                 value = await asyncio.to_thread(service.store.tx, lambda db: service.store.admission_settings(db, owner))
             gateway_id = await asyncio.to_thread(service.store.conversations.gateway_id)
             return JSONResponse(dict(value, gateway_id=gateway_id, principal_id=owner), headers={'Cache-Control': 'no-store'})
+        return await execute(run)
+
+    @app.api_route('/gateway/admin/engineering-admission', methods=['GET', 'POST'])
+    async def host_admission(request: Request):
+        async def run():
+            if request.state.principal.id != 'local:manager':
+                raise PermissionError('Gateway supervisor required')
+            def owners(db):
+                # Include the local operator before the first saved job.
+                rows = db.execute("SELECT principal FROM engineering_admission_settings "
+                                  "UNION SELECT DISTINCT principal FROM engineering_jobs "
+                                  "ORDER BY principal LIMIT 257").fetchall()
+                names = sorted({'local:single-user'} | {row[0] for row in rows if row[0] != 'network:shared'})
+                return [{'principal_id': name, **service.store.admission_settings(db, name)} for name in names[:256]]
+            gateway_id = await asyncio.to_thread(service.store.conversations.gateway_id)
+            if request.method == 'POST':
+                record = await body(request)
+                if set(record) != {'gateway_id', 'principal_id', 'revision', 'enabled'} or record['gateway_id'] != gateway_id:
+                    raise ExecutionBindingError('ENGINEERING_SETTINGS_CHANGED', 'Read this installation before editing.')
+                target = record['principal_id']
+                if not isinstance(target, str) or target not in {r['principal_id'] for r in await asyncio.to_thread(service.store.tx, owners)}:
+                    raise ExecutionBindingError('ENGINEERING_OWNER_REQUIRED', 'Choose an observed Gateway account.', 403)
+                updated = await asyncio.to_thread(service.store.change_admission_settings, target,
+                                                  {'revision': record['revision'], 'enabled': record['enabled']})
+                return JSONResponse(dict(updated, gateway_id=gateway_id, principal_id=target))
+            return JSONResponse({'gateway_id': gateway_id, 'accounts': await asyncio.to_thread(service.store.tx, owners)})
         return await execute(run)
 
     @app.get('/gateway/engineering/capabilities')

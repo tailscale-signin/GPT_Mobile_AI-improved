@@ -28,6 +28,30 @@ from requests import HTTPError, Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
+    def test_supervisor_can_edit_observed_account_and_network_clients_cannot(self):
+        app = FastAPI()
+        app.add_middleware(Admission, config=Config(mode='open_network', host='0.0.0.0',
+            allowed_hosts=('testserver',), allowed_origins=(), remote_engineering=True, management_token='local-control'))
+        install_engineering_routes(app, self.service)
+        remote = TestClient(app, client=('192.0.2.10', 9000))
+        local = TestClient(app, client=('127.0.0.1', 9001))
+        admin = '/gateway/admin/engineering-admission'
+        manager = {'X-Gateway-Management': 'local-control'}
+        self.assertEqual(401, remote.get(admin, headers=manager).status_code)
+        self.assertEqual(401, local.get(admin).status_code)
+        seen = local.get(admin, headers=manager).json()
+        account = next(row for row in seen['accounts'] if row['principal_id'] == 'local:single-user')
+        update = dict(account, enabled=False, gateway_id=seen['gateway_id'])
+        self.assertEqual(409, local.post(admin, headers=manager, json=dict(update, gateway_id='other')).status_code)
+        self.assertEqual(403, local.post(admin, headers=manager, json=dict(update, principal_id='unknown')).status_code)
+        self.assertEqual(200, local.post(admin, headers=manager, json=update).status_code)
+        changed = next(row for row in local.get(admin, headers=manager).json()['accounts']
+                       if row['principal_id'] == account['principal_id'])
+        self.assertFalse(changed['enabled'])
+        self.assertEqual(409, local.post(admin, headers=manager, json=update).status_code)
+        self.assertTrue(local.post(admin, headers=manager, json=dict(changed, gateway_id=seen['gateway_id'], enabled=True)).json()['enabled'])
+        self.assertEqual(403, remote.post('/gateway/engineering/admission-settings', json=update).status_code)
+
     def test_phone_can_pause_new_jobs_with_owned_revision_and_recover_an_accepted_command(self):
         path = '/gateway/engineering/admission-settings'
         initial = self.client.get(path, headers=self.headers).json()

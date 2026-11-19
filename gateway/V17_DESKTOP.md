@@ -40,8 +40,7 @@ credential is exposed to these views.
 ## Control new engineering jobs from Android
 
 In the Android GitHub workspace settings, select the engineering Gateway and tap **Check saved-job setting**.
-**Allow new saved engineering jobs** controls admission on that host for the current Gateway account. Devices
-on an open-network Gateway share this setting. The host must already grant engineering access and have durable storage.
+**Allow new saved engineering jobs** controls admission on that host for the current Gateway account. Control requires an authenticated engineering account. Android also treats a shared identity reported by an older Gateway as read-only. Windows **Settings → GitHub → Job admission** can read and change an observed account on that installation. The host must already grant engineering access and have durable storage.
 Pausing leaves accepted jobs, their recovery work and their receipts accessible. Copilot cloud delegation has its own control.
 
 The client reads the host state before editing. Each change is bound to the observed installation, account and

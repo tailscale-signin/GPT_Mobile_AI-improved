@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "2dd871bc880e30afd9238861655ff7c4440b79ebc744bf4f2c5117c4a2b538d5"
-    val fileCount: Int = 2706
-    val lineCount: Int = 445052
+    val sourceDigest: String = "87c1a0d2f2d60789988d8b51f69506110513c948910494f17cec21243906bca5"
+    val fileCount: Int = 2707
+    val lineCount: Int = 445203
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8667),
@@ -26,7 +26,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14860),
         AppAuditSourceArea("gateway_client", "Android gateway client", 36, 5920),
         AppAuditSourceArea("network", "Networking and readiness", 101, 10184),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 241, 41340),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 241, 41341),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14027),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 44, 4939),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 110, 14730),
@@ -36,7 +36,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("voice_and_media", "Voice and media", 31, 6220),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
-        AppAuditSourceArea("gateway_software", "Companion gateway software", 175, 78202),
+        AppAuditSourceArea("gateway_software", "Companion gateway software", 176, 78352),
         AppAuditSourceArea("authentication_service", "Authentication broker software", 9, 2638),
         AppAuditSourceArea("external_integrations", "External integration servers", 63, 6513),
         AppAuditSourceArea("other_production", "Additional production source", 62, 2857)

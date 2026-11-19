@@ -364,6 +364,9 @@ internal object IssueReportIncidents {
             input.requiresReconciliation != true &&
             (
                 input.stage in setOf("model_invocation", "provider_generation") ||
+                    input.stage == "claim_extraction" &&
+                    providerReceipt?.get("provider_failure_domain") == kotlinx.serialization.json.JsonPrimitive("PROVIDER") &&
+                    providerReceipt["provider_failure_stage"] == kotlinx.serialization.json.JsonPrimitive("CLAIM_VERIFICATION") ||
                     providerReceipt?.get("provider_failure_domain") == kotlinx.serialization.json.JsonPrimitive("PROVIDER") &&
                     providerReceipt["provider_failure_stage"] in setOf(kotlinx.serialization.json.JsonPrimitive("GENERATION"), kotlinx.serialization.json.JsonPrimitive("CONTINUATION"))
                 )

@@ -474,6 +474,8 @@ class IssueReportIncidentsTest {
             mapOf("http_status" to 400) to "SOURCE_HTTP_ERROR",
             mapOf("http_status" to 404, "provider_rejection_category" to "NOT_FOUND") to "SOURCE_UNAVAILABLE",
             mapOf("http_status" to 404, "provider_rejection_category" to "MODEL_UNAVAILABLE") to "SELECTED_MODEL_NOT_AVAILABLE",
+            mapOf("failed_stage" to "claim_extraction", "provider_failure_stage" to "CLAIM_VERIFICATION", "http_status" to 400, "provider_rejection_category" to "INVALID_REQUEST") to "PROVIDER_PAYLOAD_ERROR",
+            mapOf("failed_stage" to "claim_extraction", "provider_failure_domain" to "APPLICATION_VERIFICATION", "provider_failure_stage" to "CLAIM_VERIFICATION", "http_status" to 400) to "CHAT_FAILED",
             mapOf("http_status" to 404, "remote_acceptance" to "UNKNOWN") to "CHAT_FAILED",
             mapOf("http_status" to 422, "provider_rejection_category" to "INVALID_REQUEST") to "PROVIDER_PAYLOAD_ERROR",
             mapOf("http_status" to 401, "remote_acceptance" to "UNKNOWN", "requires_reconciliation" to true) to "CHAT_FAILED"

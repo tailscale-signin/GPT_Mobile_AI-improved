@@ -147,6 +147,25 @@ class GitHubTerminalDeliveryTest {
         assertEquals(listOf(text, provider(ProviderEvent.Completed)), events)
     }
 
+    @Test fun interruptedFlowDistinguishesMissingTerminalFromACaughtFailure() = runTest {
+        val sources = listOf(flowOf<AgentRunEvent>(), flow<AgentRunEvent> { throw IllegalStateException("private fixture text") })
+        for ((index, source) in sources.withIndex()) {
+            val events = source.withGitHubTerminalDelivery(true).toList().filterIsInstance<AgentRunEvent.Provider>()
+            val failure = events.map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals("GITHUB_RUN_INTERRUPTED", failure.errorCode)
+            val details = requireNotNull(failure.failureDetails)
+            if (index == 0) {
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("delivery"), details["failed_stage"])
+                assertFalse("exception_report_type" in details)
+            } else {
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("IllegalStateException"), details["exception_report_type"])
+                assertFalse(details.toString().contains("private fixture text"))
+            }
+            assertFalse("dispatched" in details)
+            assertFalse("http_status" in details)
+        }
+    }
+
     @Test fun emptyCompletionAndUnexpectedExceptionsCannotLeaveAnEmptyAnswer() = runTest {
         val sources = listOf(flowOf(provider(ProviderEvent.Completed)), flow<AgentRunEvent> { throw IllegalStateException("storage failed") })
         for (source in sources) {

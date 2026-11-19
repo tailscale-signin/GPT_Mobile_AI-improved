@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from benchmarks.engineering_qualification import CONTINUOUS_SCHEMA, CONTINUOUS_SCENARIOS, run_manifest
+from benchmarks import workspace_qualification as workspace
 from desktop.configuration import atomic_json
 from desktop.conversation_client import Client
 
@@ -14,8 +15,16 @@ def main():
     parser.add_argument('--manifest')
     parser.add_argument('--output', required=True)
     parser.add_argument('--continuous-template', metavar='OWNER/REPO', help='Write an empty continuous engineering manifest')
+    parser.add_argument('--workspace-template', metavar='OWNER/REPO', help='Create a coding qualification manifest for one model and executor')
     parser.add_argument('--execute', action='store_true', help='Submit listed implementation jobs with their fixed request IDs')
     args = parser.parse_args()
+    if args.workspace_template:
+        if args.execute or args.manifest or args.continuous_template:
+            parser.error('Choose one template or an existing manifest')
+        atomic_json(Path(args.output), {'schema': workspace.SCHEMA, 'test_repository': args.workspace_template,
+                    'route': dict(executor='gateway', model='', profile_uid='', endpoint_identity='', environment=''),
+                    'cases': [{'scenario': case} for case in workspace.CASES]})
+        return 0
     if args.continuous_template:
         if args.execute or args.manifest:
             parser.error('Template generation cannot read or execute jobs')

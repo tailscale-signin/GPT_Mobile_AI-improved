@@ -44,6 +44,9 @@ def act(backend, job, action):
     elif kind in {'terminal_open', 'terminal_start', 'terminal_poll', 'terminal_cancel', 'terminal_close', 'terminal_fork', 'terminal_switch', 'terminal_timeline', 'code_intelligence'}:
         from v14.workspace_terminal import act as terminal
         receipt.update(terminal(backend, job, action))
+    elif kind in {'workflow_batch', 'workflow_batch_status', 'workflow_batch_step'}:
+        from v14.workspace_guidance import batch_workflow
+        receipt.update(batch_workflow(job, action))
     elif kind in {'skills', 'skill', 'workflow_step'}:
         from v14.workspace_guidance import workflow
         receipt.update(workflow(backend, job, action))

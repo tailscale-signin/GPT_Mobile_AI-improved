@@ -218,8 +218,13 @@ def validate_options(options):
     if pin and (image_repository(pin) != image_repository(result['image_source']) or
                 PIN.fullmatch(result['image_source']) and pin.split('@')[1] != result['image_source'].split('@')[1]):
         raise ValueError('Image source changed. Use Refresh image to approve a new digest.')
+    from v14 import workspace_environment
+    setup_commands, env, _ = workspace_environment.read(result)
+    if setup_commands and result['profile'] != CUSTOM_PROFILE:
+        raise ValueError('Choose Custom to prepare explicit setup commands')
     prepared = result.get('prepared_environment') or {}
-    if (prepared.get('base_image') != pin or result['profile'] not in (prepared.get('profile'), CUSTOM_PROFILE)):
+    if (prepared.get('base_image') != pin or result['profile'] not in (prepared.get('profile'), CUSTOM_PROFILE) or
+            (setup_commands or prepared.get('recipe_sha256')) and prepared.get('recipe_sha256') != workspace_environment.recipe_id(setup_commands, env)):
         result.pop('prepared_environment', None)
     validate_policy_fields(dict(result, image=pin), allow_unprepared_image=True)
     return result
@@ -240,6 +245,8 @@ def entry_from_options(options, existing=None):
     for key in ('mirror', 'image', 'commands', 'timeout_seconds', 'acceptance_map', 'parallel_command_groups',
                 'allowed_checks', 'acceptance_templates', 'draft_repair_requirements'):
         entry[key] = copy.deepcopy(options.get(key, [] if key not in {'mirror', 'image', 'timeout_seconds'} else ''))
+    if options.get('workspace_environment') or 'workspace_environment' in entry:
+        entry['workspace_environment'] = copy.deepcopy(options.get('workspace_environment', {}))
     if options.get('workspace_hooks') or 'workspace_hooks' in entry:
         entry['workspace_hooks'] = copy.deepcopy(options.get('workspace_hooks', {}))
     if options.get('workspace_terminal') or 'workspace_terminal' in entry:
@@ -492,10 +499,11 @@ def setup(root, options, revision, *, prepare, token=None, cancel=None, progress
                 else check_mirror(git, repository, mirror, cancel=cancel))
         progress('Preparing the digest-pinned image…' if prepare else 'Checking the pinned image…')
         pinned = pin_image(docker, options['image_source'], options.get('image', ''), prepare=prepare, cancel=cancel)
-        if options['profile'] in development_profiles.COMMANDS:
+        custom = options.get('workspace_environment') or {}
+        if options['profile'] in development_profiles.COMMANDS or custom.get('setup_commands'):
             if prepare:
                 progress('Preparing the repository toolchain and dependencies in a local image…')
-                options['prepared_environment'] = development_profiles.prepare_image(options['profile'], pinned, mirror, head, cancel)
+                options['prepared_environment'] = development_profiles.prepare_image(options['profile'], pinned, mirror, head, cancel, **({'custom': custom} if custom.get('setup_commands') else {}))
             else:
                 retained = options.get('prepared_environment') or {}
                 if retained.get('base_image') != pinned or retained.get('profile') != options['profile'] or not re.fullmatch(r'sha256:[a-f0-9]{64}', retained.get('image_id', '')):

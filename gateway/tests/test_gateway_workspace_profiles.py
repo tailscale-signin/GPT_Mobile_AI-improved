@@ -32,3 +32,22 @@ class PreparedProfileTests(TestCase):
             result = setup.entry_from_options(setup.validate_options(options), {})
             self.assertTrue(result['workspace_terminal'])
             self.assertEqual([['python3', '-V']], result['commands'])
+
+    def test_custom_setup_pin_tracks_commands_and_public_environment(self):
+        from v14.workspace_environment import read, recipe_id
+        with tempfile.TemporaryDirectory() as directory:
+            pin = 'python@sha256:' + 'e' * 64
+            recipe = {'setup_commands': [['python3', '-V']], 'environment': {'MODE': 'dev'}, 'cpus': 3}
+            options = dict(setup.defaults(directory), profile=setup.CUSTOM_PROFILE, commands=[['python3', '-V']],
+                           image_source='python:latest', image=pin, workspace_environment=recipe)
+            commands, values, limits = read(options)
+            self.assertEqual(3, limits['cpus'])
+            with self.assertRaises(ValueError):
+                validate_policy_entry(setup.entry_from_options(options))
+            meta = dict(profile=setup.CUSTOM_PROFILE, base_image=pin, source_sha='b'*40, image_id='sha256:'+'c'*64,
+                        recipe_sha256=recipe_id(commands, values))
+            entry = setup.entry_from_options(dict(options, prepared_environment=meta))
+            self.assertEqual(meta['image_id'], validate_policy_entry(entry)[2])
+            entry['workspace_environment']['setup_commands'] = [['python3','-m','site']]
+            with self.assertRaises(ValueError):
+                validate_policy_entry(entry)

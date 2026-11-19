@@ -93,3 +93,62 @@ def workflow(backend, job, action):
         raise ValueError('Reference a current workspace observation')
     state['completed'].append({'step': index, 'receipt_sha256': evidence})
     return {'workflow': state, 'scope': 'working_notes'}
+
+
+def batch_workflow(job, action):
+    """A revision-bound issue workflow. Only compact evidence hashes enter the saved graph."""
+    from v14.workspace_process import identifier
+    data = job['data']
+    head = data['head_sha']
+    state = data.get('workflow_batch')
+    if action['action'] == 'workflow_batch':
+        requested = action.get('items')
+        if not isinstance(requested, list) or not 1 <= len(requested) <= 80:
+            raise ValueError('Select 1–80 issue or work item IDs in dependency order')
+        items = {}
+        for item in requested:
+            if not isinstance(item, dict):
+                raise ValueError('Each work item needs an ID and optional dependencies')
+            key = identifier(item.get('id'))
+            deps = item.get('depends_on', [])
+            if (key in items or not isinstance(deps, list) or len(deps) > 16 or
+                    any(not isinstance(d, str) or d not in items for d in deps) or len(deps) != len(set(deps))):
+                raise ValueError('Give each item a unique ID and reference only earlier dependencies')
+            items[key] = dict(depends_on=deps, receipts=[])
+        if state:
+            if state['head_sha'] != head or {k:v['depends_on'] for k,v in state['items'].items()} != {k:v['depends_on'] for k,v in items.items()}:
+                raise ValueError('The saved workflow belongs to another item set or revision')
+        else:
+            state = data['workflow_batch'] = dict(head_sha=head, steps=list(PROCEDURES['implement-issue']), items=items)
+    if not state or state['head_sha'] != head:
+        raise ValueError('Open the batch workflow at the pinned revision first')
+    total = len(state['steps'])
+    if action['action'] == 'workflow_batch_step':
+        key = identifier(action.get('id'))
+        row = state['items'].get(key)
+        step, evidence = action.get('step'), action.get('receipt_sha256')
+        if not row or type(step) is not int or not 0 <= step < total:
+            raise ValueError('Select a workflow item and step')
+        if any(len(state['items'][d]['receipts']) != total for d in row['depends_on']):
+            raise ValueError('Complete upstream work items first')
+        if step < len(row['receipts']):
+            if evidence != row['receipts'][step]:
+                raise ValueError('The step already has a different evidence receipt')
+        elif step != len(row['receipts']) or not evidence or not any(
+                r.get('head_sha') == head and r.get('receipt_sha256') == evidence and
+                r.get('action') not in {'progress','skills','skill','workflow_step','workflow_batch','workflow_batch_step','workflow_batch_status'}
+                for r in data.get('workspace_receipts', [])):
+            raise ValueError('Reference an observed workspace receipt for the next pending step')
+        else:
+            row['receipts'].append(evidence)
+    keys = list(state['items'])
+    offset = action.get('offset', 0)
+    if type(offset) is not int or not 0 <= offset <= len(keys):
+        raise ValueError('Select a valid batch offset')
+    def info(k):
+        r = state['items'][k]
+        return dict(id=k, completed=len(r['receipts']), depends_on=r['depends_on'], receipt_ids=r['receipts'],
+                    ready=all(len(state['items'][d]['receipts']) == total for d in r['depends_on']))
+    return dict(steps=state['steps'], items=[info(k) for k in keys[offset:offset+8]], item_count=len(keys),
+                completed_items=sum(len(r['receipts']) == total for r in state['items'].values()),
+                next_offset=offset+8 if offset+8 < len(keys) else None, scope='workflow_progress')

@@ -188,7 +188,8 @@
     "Recover uncertain Gateway index requests by original attempt, retry interrupted CI log reads, use provider-compatible strict claim extraction, and spend the verification reserve on expired mutable observations.",
     "Encrypt installed chat history, require safer public model transport and sharing, restore share drafts, distinguish storage and model failures, and verify release dependency graphs and Git history.",
     "Complete the native WPF Gateway dashboard and shared paired-owner controls, with pinned TLS, signed device grants, revisioned settings, original-command recovery and guarded runtime activation; retain the concurrent native setup and five-second chat arrow hold.",
-    "Add per-task offline command execution, prepared development images, language-server inspection, worker checkpoints, validation hooks and paged Android workspace review."
+    "Add per-task offline command execution, prepared development images, language-server inspection, worker checkpoints, validation hooks and paged Android workspace review.",
+    "Qualify prepared environments with real offline Python, Node and Android commands, and record workspace repair and recovery evidence per selected profile and execution environment."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -282,7 +283,8 @@
     "Post-merge correctness",
     "v0.9.50 Android acceptance",
     "Gateway stability",
-    "Gateway Windows installer"
+    "Gateway Windows installer",
+    "Development environments"
   ],
   "allowedPaths": [
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/FreeContextRecovery.kt",
@@ -3287,7 +3289,12 @@
     "gateway/v14/workspace_terminal.py",
     "gateway/v14/workspace_workers.py",
     "gateway/tests/test_gateway_workspace_timeline.py",
-    "gateway/v14/workspace_timeline.py"
+    "gateway/v14/workspace_timeline.py",
+    ".github/workflows/development-environments.yml",
+    "gateway/benchmarks/workspace_qualification.py",
+    "gateway/tests/prepared_environment_smoke.py",
+    "gateway/tests/test_gateway_workspace_qualification.py",
+    "gateway/v14/workspace_environment.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.8",

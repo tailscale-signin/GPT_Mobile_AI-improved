@@ -524,6 +524,7 @@ class GitHubEngineeringBackend:
                        'Use candidates to list retained patches and candidate_files with candidate_check_id to inspect changed paths. '
                        'Finalize an unchanged candidate with {"candidate_check_id":"exact retained check ID","summary":"..."}. '
                        'Only host-approved commands execute; a selected check never replaces complete final validation. '
+                       'Use workflow_batch with items [{id,depends_on}] in dependency order for issue batches; page workflow_batch_status by offset, then workflow_batch_step with id, step and receipt_sha256. '
                        'Inspect terminal_timeline. terminal_fork opens a fresh checkout of the pinned base or candidate_check_id under a new session_id, preserving the original. terminal_switch selects an existing checkout. For a published change use revert_preview with commit_sha, inspect affected conventions, then return {"revert_commit":"sha","summary":"reason"} for normal validation and publication. '
                        'An opted-in offline workspace supports terminal_open with session_id and optional candidate_check_id, terminal_start with session_id, unique process_id, argv, cwd, env and timeout_seconds, terminal_poll with process_id and byte offset, terminal_cancel and terminal_close. Reuse IDs to reconcile. Commands and files stay in this checkout. Propose and validate publication changes through the normal changes contract. '
                        'Use code_intelligence in the open session with process_id, language (kotlin/python/typescript), path, one-based line and UTF-16 column, operation (definition/references/diagnostics/callers/supertypes/rename_preview), and new_name for rename. Poll the process to read results. An unavailable server requires lexical fallback. '
@@ -780,11 +781,14 @@ class GitHubEngineeringBackend:
                     raise ValueError('Workspace iteration allowance reached; receipts are retained')
                 receipt = act(self, job, proposal['workspace_action'])
                 self.record_evidence(job, {'workspace_receipt': receipt})
+                counts = dict(data.get('workspace_action_counts', {}))
+                signature = digest(proposal['workspace_action'])
+                counts[signature] = counts.get(signature, 0) + 1
                 return {'workspace_continue': True, 'workspace_iterations': data.get('workspace_iterations', 0) + 1,
-                        'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
+                        'workspace_action_counts': counts, 'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
                         'workspace_checks': data.get('workspace_checks', {}),
                         'workspace_check_executions': data.get('workspace_check_executions', 0),
-                        'active_instructions': data.get('active_instructions', []), 'workflow': data.get('workflow'),
+                        'active_instructions': data.get('active_instructions', []), 'workflow': data.get('workflow'), 'workflow_batch': data.get('workflow_batch'),
                         'progress_notes': data.get('progress_notes'), 'terminal_session': data.get('terminal_session'),
                         'terminal_branches': data.get('terminal_branches', {}), 'closed_terminal_sessions': data.get('closed_terminal_sessions', []), 'workspace_workers': data.get('workspace_workers', {})}
             if 'revert_commit' in proposal:

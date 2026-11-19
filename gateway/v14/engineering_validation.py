@@ -275,12 +275,18 @@ def validate_policy_entry(policy, *, allow_unprepared_image=False):
             raise ValueError('Acceptance report must be a bounded checkout-relative path')
     from v14.engineering_release_checks import contract
     contract(policy.get('post_merge'), len(commands))
+    from v14 import workspace_environment
+    setup_commands, public_env, _ = workspace_environment.read(policy)
     prepared = policy.get('prepared_environment')
+    if setup_commands and not prepared and not allow_unprepared_image:
+        raise ValueError('Prepare the custom setup commands before activating validation')
     if prepared is not None:
         if (not isinstance(prepared, dict) or prepared.get('base_image') != image or
                 not re.fullmatch(r'sha256:[a-f0-9]{64}', str(prepared.get('image_id'))) or
                 not re.fullmatch(r'[a-f0-9]{40}', str(prepared.get('source_sha')))):
             raise ValueError('Prepared environment does not match its approved source and base image')
+        if (setup_commands or prepared.get('recipe_sha256')) and workspace_environment.recipe_id(setup_commands, public_env) != prepared.get('recipe_sha256'):
+            raise ValueError('Prepare the changed custom setup before validation')
         image = prepared['image_id']
     return policy, mirror, image, commands, coverage
 
@@ -368,15 +374,17 @@ def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, r
         root.chmod(0o755)
         for path in [checkout, *checkout.rglob('*')]:
             path.chmod(0o777 if path.is_dir() or path.stat().st_mode & 0o111 else 0o666)
+        from v14.workspace_environment import read as read_environment
+        _, public_env, limits = read_environment(policy)
         def run_command(index, command, command_checkout):
             command_coverage = [item for item in coverage if item['command_index'] == index]
             prepare_behavior_reports(command_coverage, command_checkout)
             cidfile = root / ('container-' + str(index))
             argv = ['docker', 'run', '--rm', '--pull=never', '--cidfile=' + str(cidfile), '--network=none', '--cap-drop=ALL',
                     '--security-opt=no-new-privileges', '--read-only', '--pids-limit=256' if policy.get('prepared_environment') else '--pids-limit=128',
-                    '--memory=8g' if policy.get('prepared_environment') else '--memory=2g', '--cpus=2', '--user=65534:65534',
+                    '--memory=' + str(limits['memory_gib'] if policy.get('workspace_environment') or policy.get('prepared_environment') else 2) + 'g', '--cpus=' + str(limits['cpus']), '--user=65534:65534',
                     '--tmpfs=/tmp:rw,nosuid,nodev,size=2g' if policy.get('prepared_environment') else '--tmpfs=/tmp:rw,nosuid,nodev,size=512m', '--mount=type=bind,source=' + str(command_checkout) + ',target=/workspace',
-                    '--workdir=/workspace', '--env=HOME=/tmp', image, *command]
+                    '--workdir=/workspace', '--env=HOME=/tmp', *['--env=' + k + '=' + v for k, v in public_env.items()], image, *command]
             try:
                 with cancellation_scope(cancel, job.get('deadline')):
                     seconds = min(timeout, max(1, job.get('deadline', time.time() + timeout) - time.time()))

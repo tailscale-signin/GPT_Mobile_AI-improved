@@ -5,6 +5,7 @@ The caller supplies already-authorized jobs in a designated test repository.
 """
 import json
 import re
+from benchmarks import workspace_qualification as workspace
 from v14.batch import digest
 
 SCENARIOS = {
@@ -89,7 +90,7 @@ def continuous_signals(job, accepted, completed, lost_mutation_proven, duplicate
 
 def snapshot(service, principal, job_id, scenario):
     continuous = scenario in CONTINUOUS_SCENARIOS
-    scenarios = CONTINUOUS_SCENARIOS if continuous else SCENARIOS
+    scenarios = workspace.CASES if scenario in workspace.CASES else CONTINUOUS_SCENARIOS if continuous else SCENARIOS
     if scenario not in scenarios:
         raise ValueError('Unknown engineering qualification scenario')
     job = service.evidence_access(principal, job_id)
@@ -149,9 +150,14 @@ def snapshot(service, principal, job_id, scenario):
         signals = continuous_signals(job, accepted, completed, lost_mutation_proven, duplicates)
     # Completion metadata alone does not measure a production model attempt.
     attempts_measured = complete_records and bool(dispatched)
-    passed = signals[scenario] and attempts_measured and not false_completion
+    passed = signals.get(scenario, False) and attempts_measured and not false_completion
+    workspace_details = {}
+    if scenario in workspace.CASES:
+        workspace_details = workspace.measurements(job, scenario, dispatched, completed, duplicates, lost_mutation_proven)
+        signals[scenario] = workspace_details['passed']
+        passed = signals.get(scenario, False) and attempts_measured and not false_completion
     latest = dispatched[-1] if dispatched else {}
-    return {'schema': CONTINUOUS_SCHEMA if continuous else PRODUCTION_SCHEMA, 'scenario': scenario, 'title': scenarios[scenario],
+    return {**workspace_details, 'schema': workspace.SCHEMA if scenario in workspace.CASES else CONTINUOUS_SCHEMA if continuous else PRODUCTION_SCHEMA, 'scenario': scenario, 'title': scenarios[scenario],
             'job_id': job_id, 'repository': job['request']['repository'], 'source_sha': job['request'].get('source_sha'),
             'head_sha': data.get('head_sha'), 'model': job['request']['model'],
             'model_revision': latest.get('model_revision'), 'quantization': latest.get('hardware', {}).get('quantization'),
@@ -177,15 +183,17 @@ def run_manifest(client, manifest, *, execute=False, progress=lambda _: None):
     and exact merge confirmations remain explicit setup/operator actions.
     """
     schema = manifest.get('schema') if isinstance(manifest, dict) else None
-    if schema not in (PRODUCTION_SCHEMA, CONTINUOUS_SCHEMA):
+    if schema not in (PRODUCTION_SCHEMA, CONTINUOUS_SCHEMA, workspace.SCHEMA):
         raise ValueError('Use a production or continuous engineering qualification manifest')
-    scenarios = CONTINUOUS_SCENARIOS if schema == CONTINUOUS_SCHEMA else SCENARIOS
+    scenarios = workspace.CASES if schema == workspace.SCHEMA else CONTINUOUS_SCENARIOS if schema == CONTINUOUS_SCHEMA else SCENARIOS
+    if schema == workspace.SCHEMA:
+        workspace.validate_route(manifest.get('route'))
     repository, cases = manifest.get('test_repository'), manifest.get('cases')
     if (not isinstance(repository, str) or not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', repository)
             or not isinstance(cases, list) or len(cases) != len(scenarios)
             or not all(isinstance(row, dict) and isinstance(row.get('scenario'), str) for row in cases)
             or {row['scenario'] for row in cases} != set(scenarios)):
-        raise ValueError('Name one designated test repository and all ten distinct scenarios')
+        raise ValueError('Name one designated test repository and all distinct scenarios from the chosen qualification suite')
     results = []
     for row in cases:
         scenario = row['scenario']
@@ -206,8 +214,11 @@ def run_manifest(client, manifest, *, execute=False, progress=lambda _: None):
         result = client.request('GET', '/gateway/engineering/jobs/' + job_id + '/qualification?scenario=' + scenario)
         if (schema == CONTINUOUS_SCHEMA and result.get('schema') != schema) or result.get('job_id') != job_id or result.get('scenario') != scenario or result.get('repository') != repository:
             raise ValueError('Qualification result identity changed')
+        if schema == workspace.SCHEMA and (result.get('schema') != schema or result.get('route') != manifest['route']):
+            raise ValueError('The observed qualification route differs from the selected profile, executor or environment')
         results.append(result)
     return {'schema': manifest['schema'], 'test_repository': repository, 'cases': results,
             'passed': sum(row['status'] == 'PASSED' for row in results), 'total': len(scenarios),
             'qualified': all(row['status'] == 'PASSED' for row in results),
+            **({'route': manifest['route'], 'completion_rate': sum(row['status'] == 'PASSED' for row in results) / len(scenarios)} if schema == workspace.SCHEMA else {}),
             'execution_scope': 'PRODUCTION_JOBS', 'fixture_results_included': False}

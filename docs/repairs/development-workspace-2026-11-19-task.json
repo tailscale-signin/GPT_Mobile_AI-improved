@@ -9,11 +9,21 @@
   "state": "IN_PROGRESS",
   "implementation": [
     "Remote profile graph sharing, path instructions, reusable procedures, native hunk review",
-    "Offline per-task processes, dependency-prepared environment profiles, language server requests, resumable specialists, configurable validation hooks and Android plan, activity and test views"
+    "Offline per-task processes, dependency-prepared environment profiles, language server requests, resumable specialists, configurable validation hooks and Android plan, activity and test views",
+    "Corrective commits and alternate workspace checkouts, dependency-ordered issue workflows, custom environment recipes and per-route qualification"
   ],
   "remaining": [
-    "Qualify Android, Windows and live model routes",
-    "Complete workspace timeline and qualification scenarios",
-    "Green PR and main checks followed by published release"
+    "Complete end-to-end prepared Android image and installed profile, recovery and source-sharing qualification",
+    "Verify head checks, merge, verify main checks and confirm release assets"
+  ],
+  "verified": [
+    {
+      "commit": "d1803bcddd2a089b5062d093952dd2be8a8cc097",
+      "scope": "Full host Gateway suite and fast checks, 554 repository tests"
+    },
+    {
+      "commit": "c917afa436bad8619615622c1d91244b34215ed5",
+      "scope": "GitHub Actions managed repository validation with real Docker, non-root checkout and process retry"
+    }
   ]
 }

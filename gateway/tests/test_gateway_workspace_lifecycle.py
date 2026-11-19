@@ -42,3 +42,18 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(first['last_receipt'], model.call_args.args[2]['workspace_receipts'][0]['receipt_sha256'])
         with self.assertRaises(ValueError):
             workspace_workers.advance(backend, job, dict(worker_id='trace', role='implementation worker'))
+
+    def test_issue_workflow_resumes_from_its_dependency_checkpoints(self):
+        from v14.workspace_guidance import batch_workflow
+        job = {'data': {'head_sha': 'head'}}
+        create = dict(action='workflow_batch', items=[{'id':'issue_1'}, {'id':'issue_2','depends_on':['issue_1']}])
+        state = batch_workflow(job, create)
+        self.assertFalse(state['items'][1]['ready'])
+        for step in range(len(state['steps'])):
+            receipt = dict(head_sha='head', receipt_sha256=str(step), action='check')
+            job['data']['workspace_receipts'] = [receipt]
+            event = dict(action='workflow_batch_step', id='issue_1', step=step, receipt_sha256=str(step))
+            result = batch_workflow(job, event)
+            self.assertEqual(result, batch_workflow(job, event))
+        self.assertEqual(1, batch_workflow(job, create)['completed_items'])
+        self.assertTrue(batch_workflow(job, {'action':'workflow_batch_status'})['items'][1]['ready'])

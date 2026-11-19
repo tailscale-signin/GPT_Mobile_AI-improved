@@ -1,5 +1,7 @@
 """Prepare a local, digest-bound development image from the approved mirror."""
+import json
 from pathlib import Path
+from v14 import workspace_environment
 import re
 import tempfile
 import threading
@@ -54,11 +56,12 @@ RUN mkdir -p node_modules && mv node_modules /opt/modules
 """
 
 
-def prepare_image(profile, base, mirror, head, cancel, *, run_build=None):
+def prepare_image(profile, base, mirror, head, cancel, *, run_build=None, custom=None):
     from desktop.repository_validation import docker_run
     from v14.engineering_validation import materialize_checkout
     build = run_build or docker_run
-    if profile not in IMAGES or not re.fullmatch(r'[A-Za-z0-9./:_-]+@sha256:[a-f0-9]{64}', base):
+    commands, environment, _ = workspace_environment.read({'workspace_environment': custom or {}})
+    if (profile not in IMAGES and not commands) or not re.fullmatch(r'[A-Za-z0-9./:_-]+@sha256:[a-f0-9]{64}', base):
         raise ValueError('Choose a supported profile and verified base image')
     with tempfile.TemporaryDirectory(prefix='gateway-profile-') as directory:
         root = Path(directory)
@@ -86,13 +89,19 @@ def prepare_image(profile, base, mirror, head, cancel, *, run_build=None):
             recipe += NODE_WARM
             (context / 'gateway-node').write_bytes(NODE_WRAPPER.encode())
             recipe += 'COPY --chmod=0755 gateway-node /usr/local/bin/gateway-node\n'
-        else:
+        elif profile == PYTHON:
             recipe += ('RUN python -m pip install pytest python-lsp-server && if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; '
                        'elif [ -f pyproject.toml ]; then python -m pip install .; fi\n')
+        if commands:
+            for argv in commands:
+                # JSON exec form gives the recipe no instruction or shell interpolation.
+                assignments = [name + '=' + value for name, value in sorted(environment.items())]
+                recipe += 'RUN ' + json.dumps(['env', *assignments, *argv], ensure_ascii=True) + '\n'
+            recipe += 'RUN ["python3","--version"]\n'
         (context / 'Dockerfile').write_bytes((recipe + 'WORKDIR /workspace\n').encode())
         receipt = root / 'image-id'
         build(['build', '--quiet', '--iidfile', str(receipt), str(context)], cancel=cancel, timeout=3600, label='Prepare local development image')
         digest = receipt.read_text().strip()
         if not re.fullmatch(r'sha256:[a-f0-9]{64}', digest):
             raise ValueError('Docker did not attest the prepared image ID')
-        return {'profile': profile, 'base_image': base, 'image_id': digest, 'source_sha': head}
+        return {'profile': profile, 'base_image': base, 'image_id': digest, 'source_sha': head, **({'recipe_sha256': workspace_environment.recipe_id(commands, environment)} if commands else {})}

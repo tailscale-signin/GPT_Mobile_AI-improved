@@ -827,6 +827,7 @@ class EngineeringStore:
                 raise ValueError('Cancellation is still pending')
             job['updated_at'] = self.now()
             job.pop('provider_wait', None)
+            job['data']['operator_controls'] = job['data'].get('operator_controls', 0) + 1
             if action == 'approve':
                 if job['state'] != 'MERGE_READY':
                     raise ValueError('The job is not merge-ready')

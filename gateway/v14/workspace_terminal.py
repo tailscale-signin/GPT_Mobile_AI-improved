@@ -107,11 +107,13 @@ def act(backend, job, action):
                     parent = backend.api(backend.root(job) + '/git/commits/' + head, job=job)
                     prepare_source(job, backend.token(), parent['tree']['sha'], cancel)
                     checkout = materialize_checkout(job, mirror, changes, root, cancel)
+                    from v14.workspace_environment import read as read_environment
+                    _, _, limits = read_environment(policy)
                     argv = ['run', '--detach', '--rm', '--pull=never', '--name', name, '--label', 'gpt.workspace=' + identity,
                             '--network=none', '--read-only', '--cap-drop=ALL', '--cap-add=CHOWN', '--cap-add=SETUID',
                             '--cap-add=SETGID', '--cap-add=KILL', '--security-opt=no-new-privileges',
-                            '--pids-limit=256', '--memory=6g', '--cpus=2', '--user=0:0', '--log-driver=none',
-                            '--tmpfs=/task:rw,nosuid,nodev,size=4g', '--tmpfs=/tmp:rw,nosuid,nodev,size=512m',
+                            '--pids-limit=256', '--memory=' + str(limits['memory_gib']) + 'g', '--cpus=' + str(limits['cpus']), '--user=0:0', '--log-driver=none',
+                            '--tmpfs=/task:rw,nosuid,nodev,size=' + str(limits['checkout_gib']) + 'g', '--tmpfs=/tmp:rw,nosuid,nodev,size=512m',
                             '--tmpfs=/control:rw,noexec,nosuid,nodev,mode=0700,size=272m', '--entrypoint=python3',
                             image, '-I', '-u', '-c', Path(workspace_process.__file__).read_text(encoding='utf-8'), str(job['deadline'])]
                     container = docker(argv, root)
@@ -165,6 +167,12 @@ def act(backend, job, action):
             action = {'action': 'terminal_start', 'process_id': workspace_process.identifier(action.get('process_id')),
                       'argv': ['python3', '-I', '-c', Path(workspace_lsp.__file__).read_text(encoding='utf-8'), json.dumps(query)],
                       'timeout_seconds': 300}
+        if action.get('action') == 'terminal_start':
+            from v14.workspace_environment import read as read_environment
+            _, defaults, _ = read_environment(policy)
+            if not isinstance(action.get('env', {}), dict):
+                raise ValueError('Workspace command environment must be a mapping')
+            action = dict(action, env=dict(defaults, **action.get('env', {})))
         if kind == 'terminal_start':
             workspace_process.identifier(action.get('process_id'))
         payload = json.dumps(action)

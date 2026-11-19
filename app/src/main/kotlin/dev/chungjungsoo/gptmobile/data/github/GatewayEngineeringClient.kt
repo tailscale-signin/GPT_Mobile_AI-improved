@@ -418,6 +418,10 @@ class GatewayEngineeringClient internal constructor(
         return json.decodeFromString(response)
     }
 
+    suspend fun profileCheck(config: ProviderRequestConfig, arguments: kotlinx.serialization.json.JsonObject): kotlinx.serialization.json.JsonObject =
+        json.parseToJsonElement(request(config, "profile-checks", arguments.toString())) as? kotlinx.serialization.json.JsonObject
+            ?: error("The Gateway returned an invalid workspace check receipt.")
+
     suspend fun graph(config: ProviderRequestConfig, arguments: kotlinx.serialization.json.JsonObject): kotlinx.serialization.json.JsonObject =
         json.parseToJsonElement(request(config, "graph", arguments.toString())) as? kotlinx.serialization.json.JsonObject
             ?: error("The gateway returned an invalid repository graph response.")

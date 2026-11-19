@@ -60,6 +60,31 @@ class GatewayGraphRepository @Inject constructor(
         )
     }
 
+    internal suspend fun workspaceCheck(context: GitHubConversationContext, arguments: JsonObject): JsonObject {
+        val admitted = admission(context, null, requirePersistentMemory = false)
+        val key = GatewayGraphSharing.key(admitted.profile, context.connectionUid, context.repository.fullName, admitted.gateway.uid)
+        fun verifyConsent() {
+            check(!dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() && admitted.preferences.workspaceCheckConsent == key) { "Authorize workspace checks for this model and repository." }
+        }
+        verifyConsent()
+        require(arguments.keys.all { it in setOf("action", "request_id", "check_index", "changes") })
+        val config = admitted.gateway.engineeringConfig()
+        val identity = client.capabilities(config)
+        val frozen = config.withGatewayIdentity(GatewayScopeIdentity(requireNotNull(identity.gatewayId), requireNotNull(identity.principalId)))
+        val bound = buildJsonObject {
+            arguments.forEach { (name, value) -> put(name, value) }
+            put("repository", context.repository.fullName)
+            put("branch", context.ref)
+            put("head_sha", context.commitSha)
+            put("profile_binding", key)
+        }
+        val result = client.profileCheck(frozen, bound)
+        check(admission(context, admitted.gateway.uid, requirePersistentMemory = false) == admitted) { "The workspace connection or permissions changed." }
+        verifyConsent()
+        require(result["profile_binding"] == JsonPrimitive(key) && result["head_sha"] == JsonPrimitive(context.commitSha) && result["repository"] == JsonPrimitive(context.repository.fullName)) { "The check receipt belongs to a different profile or revision." }
+        return result
+    }
+
     internal suspend fun executeForMap(
         context: GitHubConversationContext,
         arguments: JsonObject,
@@ -269,7 +294,7 @@ class GatewayGraphRepository @Inject constructor(
 
     private data class Admission(val connection: ToolConnection, val profile: PlatformV2, val gateway: PlatformV2, val preferences: GitHubChatProfileOverride)
 
-    private suspend fun admission(context: GitHubConversationContext, expectedGatewayProfileUid: String?): Admission {
+    private suspend fun admission(context: GitHubConversationContext, expectedGatewayProfileUid: String?, requirePersistentMemory: Boolean = true): Admission {
         val connection = connections.getConnection(context.connectionUid)
             ?: throw GatewayGraphAdmissionException("PERMISSION_REVOKED", "The selected GitHub connection was removed. Reconnect or explicitly select an authorized connection.", "RESTORE_SELECTED_GITHUB_CONNECTION")
         val profiles = settings.fetchPlatformV2s()
@@ -283,7 +308,7 @@ class GatewayGraphRepository @Inject constructor(
         if (!features.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.GITHUB) || !features.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.connection(context.connectionUid)) || !preferences.githubTools) {
             throw GatewayGraphAdmissionException("PERMISSION_DENIED", "The GitHub plugin or tools are disabled for the selected profile.")
         }
-        if (preferences.engineeringMemory == GitHubEngineeringMemoryMode.SESSION_ONLY) throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "Enable persistent engineering memory for the selected profile to use its repository graph.", "ENABLE_ENGINEERING_MEMORY")
+        if (requirePersistentMemory && preferences.engineeringMemory == GitHubEngineeringMemoryMode.SESSION_ONLY) throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "Enable persistent engineering memory for the selected profile to use its repository graph.", "ENABLE_ENGINEERING_MEMORY")
         if (connection.type != "GITHUB") throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "The selected connection is not GitHub.")
         val gateway = engineeringGatewayProfile(profiles, preferences.engineeringGatewayProfileUid)
             ?: throw GatewayGraphAdmissionException("GRAPH_CONFIGURATION_REQUIRED", "Select an enabled private engineering gateway in GitHub settings. The AI connection remains separate.", "SELECT_CONFIGURED_ENGINEERING_SURFACE")

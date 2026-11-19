@@ -86,6 +86,10 @@ class RepositoryValidationPanel:
         terminal = ttk.Checkbutton(basic, text='Allow offline task terminal', variable=self.terminal_enabled, command=self.edited)
         terminal.grid(row=2, column=1, sticky='w')
         self.inputs.append(terminal)
+        self.remote_checks = tk.BooleanVar(master=frame)
+        remote = ttk.Checkbutton(basic, text='Allow paired AI profiles to run approved checks', variable=self.remote_checks, command=self.edited)
+        remote.grid(row=3, column=1, sticky='w')
+        self.inputs.append(remote)
         choose = ttk.Button(basic, text='Load / add', command=self.load_repository)
         choose.grid(row=0, column=2, padx=(6, 0))
         self.inputs.append(choose)
@@ -319,6 +323,7 @@ class RepositoryValidationPanel:
         self.loading = True
         try:
             self.loaded = copy.deepcopy(options)
+            self.remote_checks.set(options.get('remote_profile_checks', False))
             self.terminal_enabled.set(options.get('workspace_terminal', False))
             for key, var in self.fields.items():
                 var.set(str(options[key]))
@@ -478,6 +483,7 @@ class RepositoryValidationPanel:
             raise ValueError('Use Load / add after changing repositories, then review its mirror and commands.')
         try:
             options['workspace_terminal'] = self.terminal_enabled.get()
+            options['remote_profile_checks'] = self.remote_checks.get()
             options['timeout_seconds'] = int(options['timeout_seconds'])
             options['commands'] = self.read_json(self.commands)
             contract = self.read_json(self.contract)

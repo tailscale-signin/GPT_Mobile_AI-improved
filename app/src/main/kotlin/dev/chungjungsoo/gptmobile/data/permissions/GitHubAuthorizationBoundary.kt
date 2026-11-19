@@ -24,6 +24,10 @@ internal object GitHubAuthorizationBoundary {
     /** Native reviewed reads may be repeated with a fresh invocation after a timeout.
      * This is replay classification, never a grant of permission. */
     fun isReplayableRead(tool: String, arguments: JsonObject): Boolean {
+        if (tool.substringBefore("__") == "repository_workspace" || tool == "github" && arguments["action"] == JsonPrimitive("repository_workspace")) {
+            val action = arguments[if (tool == "github") "workspace_action" else "action"] as? JsonPrimitive
+            return action?.content in setOf("catalog", "status")
+        }
         val graphAction = graphAction(tool, arguments)
         if (graphAction != null) return (graphAction as? JsonPrimitive)?.content in setOf("status", "query", "node", "callers", "callees", "path", "impact", "architecture", "diff", "diagnose", "contracts", "prs", "notes", "requirements", "wiki", "metrics")
         val native = if (tool == "github") {

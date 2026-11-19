@@ -17,6 +17,7 @@ internal object GitHubTestChecklist {
     private val capabilities = listOf(
         Capability("github_context", "status", "Repository status", true),
         Capability("repository_graph", "status", "Engineering gateway graph status", true),
+        Capability("repository_workspace", "catalog", "Host-approved offline workspace checks", true),
         Capability("github_context", "checks", "Checks for selected SHA", true),
         Capability("github_context", "branches", "Branch inventory", true),
         Capability("github_context", "commits", "Recent commits", true),
@@ -487,7 +488,7 @@ internal object GitHubTestChecklist {
 
     private fun catalog(tools: List<AgentToolDefinition>): List<Capability> {
         if (tools.isEmpty()) return capabilities
-        return tools.filter { it.modelVisible && (it.name.githubOperationFamily().startsWith("github_") || it.name.githubOperationFamily() == "repository_graph") }.flatMap { tool ->
+        return tools.filter { it.modelVisible && (it.name.githubOperationFamily().startsWith("github_") || it.name.githubOperationFamily() in setOf("repository_graph", "repository_workspace")) }.flatMap { tool ->
             val name = tool.name.githubOperationFamily()
             val properties = tool.inputSchema["properties"] as? JsonObject
             val actions = ((properties?.get("action") as? JsonObject)?.get("enum") as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().ifEmpty { listOf(((properties?.get("action") as? JsonObject)?.get("const") as? JsonPrimitive)?.content.orEmpty()) }
@@ -500,6 +501,7 @@ internal object GitHubTestChecklist {
     internal fun requiresLiveTransport(tool: String, action: String): Boolean = when (tool.githubOperationFamily()) {
         "github_context" -> action !in setOf("status", "resolve", "index", "efficiency", "capabilities", "recovery")
         "github_repository" -> action != "capabilities"
+        "repository_workspace" -> true
         "github_search", "github_read", "github_stage_patch", "repository_graph" -> false
         else -> tool.startsWith("github_")
     }

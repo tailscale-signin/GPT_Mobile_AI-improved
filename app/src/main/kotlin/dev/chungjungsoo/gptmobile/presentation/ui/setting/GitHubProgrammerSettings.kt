@@ -108,6 +108,13 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                             onCheckedChange = { enabled -> onSettings(state.profileSettings.copy(graphSharingConsent = consentKey.takeIf { enabled })) }
                         )
                     }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Run approved Gateway checks and share the output with ${inference.model}", Modifier.weight(1f))
+                        Switch(
+                            checked = state.profileSettings.workspaceCheckConsent == consentKey,
+                            onCheckedChange = { enabled -> onSettings(state.profileSettings.copy(workspaceCheckConsent = consentKey.takeIf { enabled })) }
+                        )
+                    }
                 }
                 val androidContext = androidx.compose.ui.platform.LocalContext.current
                 androidx.compose.material3.TextButton(onClick = { androidContext.startActivity(android.content.Intent(androidContext, OwnerPairingActivity::class.java)) }) { Text("Pair a Windows Gateway") }

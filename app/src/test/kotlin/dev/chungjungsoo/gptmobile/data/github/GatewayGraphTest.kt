@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryWorkspaceTool
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -23,6 +24,32 @@ import org.junit.Test
 
 class GatewayGraphTest {
     private val context = GitHubConversationContext("connection", "owner", "repo", "feature", "a".repeat(40), "local")
+
+    @Test fun workspaceToolKeepsRepositoryScopeOutOfModelArguments() = runTest {
+        var dispatched = 0
+        val tool = RepositoryWorkspaceTool("repository_workspace") { args ->
+            dispatched++
+            args
+        }
+        val valid = tool.execute(
+            "check",
+            buildJsonObject {
+                put("action", "run")
+                put("request_id", "targeted-test")
+                put("check_index", 0)
+            }
+        )
+        assertFalse(valid.isError)
+        val invalid = tool.execute(
+            "scope-override",
+            buildJsonObject {
+                put("action", "catalog")
+                put("repository", "other/repo")
+            }
+        )
+        assertTrue(invalid.isError)
+        assertEquals(1, dispatched)
+    }
 
     @Test fun requestAlwaysCarriesSelectedImmutableRevision() {
         val payload = GatewayGraphRepository.boundRequest(

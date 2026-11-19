@@ -338,6 +338,15 @@ def install_engineering_routes(app, service):
             return result if result else JSONResponse({'error': {'code': 'unknown_diagnostic_job'}}, status_code=404)
         return await execute(run)
 
+    @app.post('/gateway/engineering/profile-checks')
+    @app.post('/v1/gateway/engineering/profile-checks')
+    async def profile_checks(request: Request):
+        from v14.profile_checks import ProfileChecks
+        async def run():
+            owner = principal(request)
+            return await asyncio.to_thread(ProfileChecks(service).execute, owner, await body(request))
+        return await execute(run)
+
     @app.post('/gateway/engineering/graph')
     @app.post('/v1/gateway/engineering/graph')
     async def graph(request: Request):

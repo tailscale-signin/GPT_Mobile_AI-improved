@@ -10,7 +10,8 @@
   "implementation": [
     "Remote profile graph sharing, path instructions, reusable procedures, native hunk review",
     "Offline per-task processes, dependency-prepared environment profiles, language server requests, resumable specialists, configurable validation hooks and Android plan, activity and test views",
-    "Corrective commits and alternate workspace checkouts, dependency-ordered issue workflows, custom environment recipes and per-route qualification"
+    "Corrective commits and alternate workspace checkouts, dependency-ordered issue workflows, custom environment recipes and per-route qualification",
+    "Android-selected model workspace check tool, per-repository host approval, revision and profile-bound consent, encrypted idempotent check receipts and reconnect lookup."
   ],
   "remaining": [
     "Complete end-to-end prepared Android image and installed profile, recovery and source-sharing qualification",
@@ -24,6 +25,13 @@
     {
       "commit": "c917afa436bad8619615622c1d91244b34215ed5",
       "scope": "GitHub Actions managed repository validation with real Docker, non-root checkout and process retry"
+    },
+    {
+      "commit": "296953a9e7b30d6b388558982daef5e285266290",
+      "scope": "Real hosted offline Python and Node profile runs passed. Android environment reached native preparation and identified missing host compiler/make."
+    },
+    {
+      "scope": "The checksum-verified Kotlin LSP and installed pylsp resolved definitions across files in separate local language projects."
     }
   ]
 }

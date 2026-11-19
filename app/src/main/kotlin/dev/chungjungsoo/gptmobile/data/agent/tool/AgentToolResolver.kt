@@ -1274,6 +1274,9 @@ class AgentToolResolver @Inject constructor(
             listOf(base) + operations.map { operation ->
                 base.copy(tool = operation, realToolName = operation.operation, modelToolName = operation.definition.name, shareableReadOnly = operation.operation in setOf("github_read", "github_search"), canExecuteArguments = base.canExecuteArguments.takeIf { operation.operation == "github_pr" && operation.definition.name.substringBefore("__") == "github_pr" })
             } + listOfNotNull(
+                github.workspaceTool()?.let { workspace ->
+                    base.copy(tool = workspace, realToolName = "repository_workspace", modelToolName = workspace.definition.name, shareableReadOnly = false, nativeGitHub = true, canExecuteArguments = null)
+                },
                 github.graphTool { callId -> nativeStatus(base, nativeName, callId) }?.let { graph ->
                     base.copy(tool = graph, realToolName = "repository_graph", modelToolName = graph.definition.name, shareableReadOnly = false, nativeGitHub = true, canExecuteArguments = null)
                 }
@@ -1415,6 +1418,68 @@ class AgentToolResolver @Inject constructor(
                 (copilotOwner != dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.GATEWAY || selected?.engineeringGatewayProfileUid == copilotGatewayUid) &&
                 (userMessage == null || live.conversationIdentities[userMessage.chatId] == features.conversationIdentities[userMessage.chatId])
         }
+        suspend fun verifyRepositoryRead(context: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) {
+            check(userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } == true) { "Workspace tools require a persistent conversation." }
+            check(!dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) { "Privacy Mode prevents sharing Gateway workspace results." }
+            if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(approvalProfile)) return
+            val origin = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(actualConnection?.endpointUrl)
+            require(origin == dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM) { "The Gateway graph and GitHub connection must use the same host." }
+            val reader = dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient(
+                credentialProvider?.invoke() ?: token,
+                freshnessSeconds = 0,
+                conditionalReads = false,
+                persistentState = false,
+                apiOrigins = origin
+            )
+            val result = reader.execute(
+                "get_branch_head",
+                buildJsonObject {
+                    put("owner", context.owner)
+                    put("repo", context.repo)
+                    put("branch", context.ref)
+                    put("refresh", true)
+                }
+            ) as? JsonObject
+            val sha = ((result?.get("object") as? JsonObject)?.get("sha") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            require(sha.equals(context.commitSha, ignoreCase = true)) { "Refresh the selected GitHub revision before sharing graph results." }
+        }
+        val workspacePreferences = features.githubProfileOverrides[profileUid]
+        val checkConsent = workspacePreferences?.workspaceCheckConsent
+        val checkAllowed = !authorizationFailed &&
+            !dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() &&
+            checkConsent != null &&
+            workspaceContext != null &&
+            approvalProfile != null &&
+            (requestedModel.isNullOrBlank() || requestedModel == approvalProfile.model) &&
+            userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } == true &&
+            workspacePreferences?.engineeringGatewayProfileUid?.let { gateway ->
+                checkConsent == dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.key(approvalProfile, workspaceContext.connectionUid, workspaceContext.repository.fullName, gateway)
+            } == true
+        val workspaceQuery: (suspend (JsonObject) -> JsonObject)? = if (checkAllowed && repositoryGraphs != null && workspaceContext != null) {
+            val query: suspend (JsonObject) -> JsonObject = { arguments ->
+                verifyRepositoryRead(workspaceContext)
+                val requestId = (arguments["request_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                val scoped = if (requestId != null) {
+                    val id = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("${userMessage?.chatId}|$requestId")
+                    JsonObject(arguments + ("request_id" to kotlinx.serialization.json.JsonPrimitive(id)))
+                } else {
+                    arguments
+                }
+                val result = repositoryGraphs.workspaceCheck(workspaceContext, scoped)
+                verifyRepositoryRead(workspaceContext)
+                if (requestId == null) result else JsonObject(result + ("request_id" to kotlinx.serialization.json.JsonPrimitive(requestId)))
+            }
+            try {
+                query(buildJsonObject { put("action", "catalog") })
+                query
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
         val tool = GitHubTool(
             apiToken = token,
             apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(actualConnection?.endpointUrl),
@@ -1492,6 +1557,7 @@ class AgentToolResolver @Inject constructor(
             },
             repositoryScope = workspaceContext,
             credentialAdmissionFailed = authorizationFailed,
+            workspaceQuery = workspaceQuery,
             graphQuery = if (!authorizationFailed &&
                 repositoryGraphs != null &&
                 features.githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid != null &&
@@ -1501,32 +1567,8 @@ class AgentToolResolver @Inject constructor(
                 userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } == true
             ) {
                 { args ->
-                    val privateProfile = approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(it) } == true
-                    suspend fun verifyRepositoryRead() {
-                        if (privateProfile) return
-                        val origin = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(actualConnection?.endpointUrl)
-                        require(origin == dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM) { "The Gateway graph and GitHub connection must use the same host." }
-                        val reader = dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient(
-                            credentialProvider?.invoke() ?: token,
-                            freshnessSeconds = 0,
-                            conditionalReads = false,
-                            persistentState = false,
-                            apiOrigins = origin
-                        )
-                        val result = reader.execute(
-                            "get_branch_head",
-                            buildJsonObject {
-                                put("owner", workspaceContext.owner)
-                                put("repo", workspaceContext.repo)
-                                put("branch", workspaceContext.ref)
-                                put("refresh", true)
-                            }
-                        ) as? JsonObject
-                        val sha = ((result?.get("object") as? JsonObject)?.get("sha") as? kotlinx.serialization.json.JsonPrimitive)?.content
-                        require(sha.equals(workspaceContext.commitSha, ignoreCase = true)) { "Refresh the selected GitHub revision before sharing graph results." }
-                    }
-                    verifyRepositoryRead()
-                    repositoryGraphs.execute(workspaceContext, args).also { verifyRepositoryRead() }
+                    verifyRepositoryRead(workspaceContext)
+                    repositoryGraphs.execute(workspaceContext, args).also { verifyRepositoryRead(workspaceContext) }
                 }
             } else {
                 null

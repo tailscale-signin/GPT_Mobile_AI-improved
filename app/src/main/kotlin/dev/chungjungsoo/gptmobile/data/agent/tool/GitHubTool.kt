@@ -80,7 +80,8 @@ class GitHubTool(
     private val copilotBackend: (suspend (String, JsonObject) -> JsonObject)? = null,
     private val copilotOrchestrationOwner: String = "ANDROID_DIRECT",
     private val copilotRouteIdentity: String = "",
-    private val copilotRoutingValid: suspend () -> Boolean = { true }
+    private val copilotRoutingValid: suspend () -> Boolean = { true },
+    private val workspaceQuery: (suspend (JsonObject) -> JsonObject)? = null
 ) : AgentTool {
 
     private val BASE_URL get() = apiOrigins.rest
@@ -182,6 +183,11 @@ class GitHubTool(
         return GitHubOperationTool.names.map {
             GitHubOperationTool(requireNotNull(GitHubOperationTool.operationName(it)), this, savedViewScope, it + suffix, loadSavedView = savedViews::loadWithDiagnostics, saveSavedView = savedViews::save, validateSavedViewAccess = ::validateSavedViewAccess)
         }
+    }
+
+    internal fun workspaceTool(): AgentTool? = workspaceQuery?.let { query ->
+        val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
+        RepositoryWorkspaceTool("repository_workspace$suffix", query)
     }
 
     internal fun graphTool(nativeStatus: (suspend (String) -> AgentToolResult)? = null): AgentTool? = graphQuery?.let { query ->

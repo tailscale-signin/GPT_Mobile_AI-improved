@@ -13,6 +13,8 @@ The Windows repository validation settings offer Android/Kotlin, Python and Node
 
 In an engineering conversation, open Plan, Changes, Tests or Activity to inspect the current job. The changes view pages retained diffs. From the Android GitHub proposal editor you can edit a file, exclude a hunk and add a review note. Remote profiles can use the paired repository graph after you authorize source sharing for that profile, repository and Gateway.
 
+For an Android-selected model, enable **Allow paired AI profiles to run approved checks** in Windows validation settings. On Android, authorize the selected model to receive check output for the repository. Its coding session then lists the approved commands. Each run uses the pinned branch revision and an optional candidate patch. Reopening the conversation can retrieve the same check receipt by request ID.
+
 The task timeline can open another local checkout from an earlier candidate, switch between attempts, or preview a corrective commit. The latter requires that each affected path still matches the published version. Use the same validation and review flow to publish the correction.
 
 The Windows benchmark dashboard accepts a development workspace qualification manifest for an exact model, profile, executor and environment digest. Generate a template with `python gateway/qualify_engineering.py --workspace-template OWNER/REPO --output workspace.json`. Each case records the job, source revision and observed results. The prepared-environment CI jobs separately check Python, Node and Android builds.

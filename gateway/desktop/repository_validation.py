@@ -249,6 +249,8 @@ def entry_from_options(options, existing=None):
         entry['workspace_environment'] = copy.deepcopy(options.get('workspace_environment', {}))
     if options.get('workspace_hooks') or 'workspace_hooks' in entry:
         entry['workspace_hooks'] = copy.deepcopy(options.get('workspace_hooks', {}))
+    if options.get('remote_profile_checks') or 'remote_profile_checks' in entry:
+        entry['remote_profile_checks'] = options.get('remote_profile_checks', False)
     if options.get('workspace_terminal') or 'workspace_terminal' in entry:
         entry['workspace_terminal'] = options.get('workspace_terminal', False)
     prepared = options.get('prepared_environment') or {}

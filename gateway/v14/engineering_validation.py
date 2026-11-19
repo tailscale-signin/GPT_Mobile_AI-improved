@@ -247,6 +247,8 @@ def load_policy(repository, *, policy_path=None):
 
 
 def validate_policy_entry(policy, *, allow_unprepared_image=False):
+    if type(policy.get('remote_profile_checks', False)) is not bool:
+        raise ValueError('The host must explicitly enable checks requested by paired profiles')
     mirror = Path(policy['mirror']).resolve()
     image = policy.get('image', '')
     commands = policy.get('commands')

@@ -61,6 +61,8 @@ def prepare_image(profile, base, mirror, head, cancel, *, run_build=None, custom
     from v14.engineering_validation import materialize_checkout
     build = run_build or docker_run
     commands, environment, _ = workspace_environment.read({'workspace_environment': custom or {}})
+    if not re.fullmatch(r'[a-f0-9]{40}', head):
+        raise ValueError('Image preparation requires a full source commit')
     if (profile not in IMAGES and not commands) or not re.fullmatch(r'[A-Za-z0-9./:_-]+@sha256:[a-f0-9]{64}', base):
         raise ValueError('Choose a supported profile and verified base image')
     with tempfile.TemporaryDirectory(prefix='gateway-profile-') as directory:
@@ -82,7 +84,8 @@ def prepare_image(profile, base, mirror, head, cancel, *, run_build=None, custom
             recipe += 'RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\nENV COREPACK_HOME=/opt/corepack\nRUN npm install -g typescript-language-server@4.3.4 typescript@5.9.3\n'
         recipe += 'WORKDIR /seed\nADD source.tar /seed/\n'
         if profile == ANDROID:
-            recipe += ANDROID_WARM
+            # git archive omits .git. ARG supplies the approved source only while building.
+            recipe += 'ARG GITHUB_SHA=' + head + '\n' + ANDROID_WARM
             (context / 'gateway-gradle').write_bytes(GRADLE_WRAPPER.encode())
             recipe += 'COPY --chmod=0755 gateway-gradle /usr/local/bin/gateway-gradle\n'
         elif profile == NODE:

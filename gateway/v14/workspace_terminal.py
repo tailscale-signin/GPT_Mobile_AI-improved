@@ -110,7 +110,7 @@ def act(backend, job, action):
                     from v14.workspace_environment import read as read_environment
                     _, _, limits = read_environment(policy)
                     argv = ['run', '--detach', '--rm', '--pull=never', '--name', name, '--label', 'gpt.workspace=' + identity,
-                            '--network=none', '--read-only', '--cap-drop=ALL', '--cap-add=CHOWN', '--cap-add=SETUID',
+                            '--network=none', '--env=GITHUB_SHA=' + head, '--read-only', '--cap-drop=ALL', '--cap-add=CHOWN', '--cap-add=SETUID',
                             '--cap-add=SETGID', '--cap-add=KILL', '--security-opt=no-new-privileges',
                             '--pids-limit=256', '--memory=' + str(limits['memory_gib']) + 'g', '--cpus=' + str(limits['cpus']), '--user=0:0', '--log-driver=none',
                             '--tmpfs=/task:rw,nosuid,nodev,size=' + str(limits['checkout_gib']) + 'g', '--tmpfs=/tmp:rw,nosuid,nodev,size=512m',

@@ -59,6 +59,8 @@ class Processes:
                         'PATH', 'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'GRADLE_RO_DEP_CACHE', 'COREPACK_HOME', 'VULKAN_SDK', 'CMAKE_PREFIX_PATH', 'LANG'}}
                     environment['HOME'] = str(self.workspace.parent / 'home')
                     environment.update(env)
+                    if 'GITHUB_SHA' in os.environ:
+                        environment['GITHUB_SHA'] = os.environ['GITHUB_SHA']
                     privilege = {'user': self.user, 'group': self.user, 'extra_groups': []} if self.user is not None else {}
                     proc = subprocess.Popen(argv, cwd=directory, env=environment, start_new_session=True,
                                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **privilege)

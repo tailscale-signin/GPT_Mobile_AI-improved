@@ -394,7 +394,7 @@ def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, r
                     '--security-opt=no-new-privileges', '--read-only', '--pids-limit=256' if policy.get('prepared_environment') else '--pids-limit=128',
                     '--memory=' + str(limits['memory_gib'] if policy.get('workspace_environment') or policy.get('prepared_environment') else 2) + 'g', '--cpus=' + str(limits['cpus']), '--user=' + checkout_container_user(),
                     '--tmpfs=/tmp:rw,nosuid,nodev,size=2g' if policy.get('prepared_environment') else '--tmpfs=/tmp:rw,nosuid,nodev,size=512m', '--mount=type=bind,source=' + str(command_checkout) + ',target=/workspace',
-                    '--workdir=/workspace', '--env=HOME=/tmp', *['--env=' + k + '=' + v for k, v in public_env.items()], image, *command]
+                    '--workdir=/workspace', '--env=HOME=/tmp', *['--env=' + k + '=' + v for k, v in (public_env | {'GITHUB_SHA': head}).items()], image, *command]
             try:
                 with cancellation_scope(cancel, job.get('deadline')):
                     seconds = min(timeout, max(1, job.get('deadline', time.time() + timeout) - time.time()))

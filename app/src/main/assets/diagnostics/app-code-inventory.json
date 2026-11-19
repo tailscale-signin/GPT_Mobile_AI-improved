@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ab62ee1501e04adab3f2f362aeac0ccf36a62823e73764064f228e9c3f0adbe8",
+  "source_digest": "3776e8feff0a7ae997828287e6cb96343619a7c349996bd3475b7d9b9658ecc9",
   "file_count": 2750,
-  "indexed_line_count": 452606,
+  "indexed_line_count": 452611,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 211,
-      "indexed_line_count": 83816
+      "indexed_line_count": 83821
     },
     {
       "id": "authentication_service",
@@ -18007,8 +18007,8 @@
       "path": "gateway/desktop/development_profiles.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "18bb66ba9d9b2c1cac263ae0f81c46cef5b71f374bc8e58c343278249fee0a41",
-      "indexed_lines": 107
+      "sha256": "f307c5e69f7daa67ac0e9f8c81d1b0956deca1a972fd587df6fac54d75a44f96",
+      "indexed_lines": 110
     },
     {
       "path": "gateway/desktop/engineering_composer.py",
@@ -18833,7 +18833,7 @@
       "path": "gateway/v14/engineering_validation.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "d5944c2fe3561496d1386fc32ecf4f323241e4dd7d5faf1f8a80bb97dfd63e44",
+      "sha256": "77d0690738beeb7a94f2a27b616e04e1943cb6e84850f575e5077e8a0f87c5b1",
       "indexed_lines": 453
     },
     {
@@ -19176,8 +19176,8 @@
       "path": "gateway/v14/workspace_process.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "0ae9f16e99f2324df3fa6fcdc6ec56879c6f5f5ac72b4890e1cf17f0067440e8",
-      "indexed_lines": 146
+      "sha256": "39b60c6b652691b0010a504c2dba01225e7d4a84f252352e4dcf43e40df85c8c",
+      "indexed_lines": 148
     },
     {
       "path": "gateway/v14/workspace_search.py",
@@ -19190,7 +19190,7 @@
       "path": "gateway/v14/workspace_terminal.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "2e9f090511a42be0995d2287b2dd4746535eeb132d0c6e4a918f7c33ecf2d1ee",
+      "sha256": "77082d588cdbf22b27f67accb29a7b0ab6746ddde4503aceb51ea41a336a18ea",
       "indexed_lines": 210
     },
     {

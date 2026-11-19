@@ -66,7 +66,7 @@ def run(profile, report):
                 path.chmod(0o777 if path.is_dir() or path.stat().st_mode & 0o111 else 0o666)
             for command in commands:
                 result = subprocess.run(['docker','run','--rm','--network=none','--cap-drop=ALL','--read-only',
-                    '--security-opt=no-new-privileges','--user=' + checkout_container_user(),'--env=HOME=/tmp',
+                    '--security-opt=no-new-privileges','--user=' + checkout_container_user(),'--env=HOME=/tmp','--env=GITHUB_SHA=' + head,
                     '--tmpfs=/tmp:rw,nosuid,nodev,size=3g','--mount=type=bind,source='+str(checkout)+',target=/workspace',
                     '--workdir=/workspace',prepared['image_id'],*command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     timeout=2400)

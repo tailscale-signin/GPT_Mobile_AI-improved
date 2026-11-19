@@ -672,6 +672,19 @@ class IssueReportIncidentCapsuleTest {
         )
     }
 
+    @Test fun chatAcceptanceCanReportTheSharedBudgetWithoutClaimingToolDispatch() {
+        val context = capture(
+            ReportFeature.CHAT,
+            "CHAT_FAILURE",
+            "CHAT_FAILED",
+            mapOf("failed_stage" to "acceptance_verification", "reason_code" to "COMBINED_BUDGET_EXHAUSTED")
+        )
+        val encoded = IssueReport.json.encodeToJsonElement(IssueReportContext.serializer(), context).jsonObject
+        assertEquals("COMBINED_BUDGET_EXHAUSTED", context.reasonCode)
+        assertTrue(IssueReportContext.validDiagnosticsIn(encoded))
+        assertFalse(IssueReportContext.validDiagnosticsIn(JsonObject(encoded + ("stage" to JsonPrimitive("tool_precheck")))))
+    }
+
     @Test fun toolPrecheckReportsSafeSchemaReasonsAndCopilotActionsWithoutPrivateArguments() {
         val reasons = listOf(
             "TOOL_ARGUMENT_SCHEMA_REJECTED",

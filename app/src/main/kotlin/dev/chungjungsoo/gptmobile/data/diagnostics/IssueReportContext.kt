@@ -154,7 +154,9 @@ internal data class IssueReportContext(
             )
             if (enums.any { (key, choices) -> key in context && text(key) !in choices }) return false
             if (text("reasonCode") in IssueReportDiagnostics.modelPreparationReasonCodes && text("stage") != "model_preparation") return false
-            if (text("reasonCode") in toolPrecheckReasonCodes &&
+            val reason = text("reasonCode")
+            val chatAcceptance = reason in acceptanceReasonCodes && text("source") == "CHAT_FAILURE" && text("stage") != "tool_precheck"
+            if (reason in toolPrecheckReasonCodes && !chatAcceptance &&
                 (text("source") != "TOOL_RESULT" || text("stage") != "tool_precheck" || context["dispatched"] != JsonPrimitive(false) || context["requiresReconciliation"] == JsonPrimitive(true))
             ) {
                 return false

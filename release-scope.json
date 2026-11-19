@@ -3196,6 +3196,7 @@
     "build.gradle.kts",
     "buildscript-gradle.lockfile",
     "gateway/desktop/admission_panel.py",
-    "gateway/tests/test_gateway_network.py"
+    "gateway/tests/test_gateway_network.py",
+    "CONTRIBUTING.md"
   ]
 }

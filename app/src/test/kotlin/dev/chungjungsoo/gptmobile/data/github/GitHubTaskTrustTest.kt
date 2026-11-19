@@ -305,6 +305,8 @@ class GitHubTaskTrustTest {
         assertEquals("GITHUB_TASK_INCOMPLETE", failure.errorCode)
         assertEquals(JsonPrimitive("task_budget"), failure.failureDetails?.get("failed_stage"))
         assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
+        assertEquals(JsonPrimitive("NEW_TASK_REQUIRED"), failure.failureDetails?.get("recovery_action"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("resume_allowed"))
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
         assertTrue(text.contains("Time limit reached"))
         assertTrue(text.contains("saved approval"))

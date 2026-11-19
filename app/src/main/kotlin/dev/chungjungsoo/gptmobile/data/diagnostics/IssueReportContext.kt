@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure
 import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
+import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.serialization.Serializable
@@ -311,7 +312,7 @@ internal data class IssueReportContext(
                 unavailableFields = emptyList(),
                 stage = stage,
                 provider = text("provider_kind", "provider", "apiType")?.uppercase(Locale.ROOT)?.takeIf { it in providers },
-                operation = text("operation", "tool", "tool_name")?.substringBefore("__")?.lowercase(Locale.ROOT)?.takeIf { it in operations },
+                operation = text("operation", "tool", "tool_name")?.lowercase(Locale.ROOT)?.githubOperationFamily()?.takeIf { it in operations },
                 httpStatus = number("http_status", "httpStatus", "statusCode")?.takeIf { it in 100..599 }?.toInt(),
                 // Only explicit relative durations; ProfileFailureRecord also has absolute deadlines.
                 retryAfterMillis = number("retry_after_ms", "retryAfterMs")?.takeIf { it in 0..86_400_000 },

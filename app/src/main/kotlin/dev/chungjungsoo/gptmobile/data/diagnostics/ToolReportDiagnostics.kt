@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolInventoryPaginationEvidence
 import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import java.security.MessageDigest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -163,7 +164,8 @@ internal object ToolReportDiagnostics {
         }
         // GitHubDispatchAccounting owns the dispatch receipt. Match it to the
         // persisted tool call, and never derive a revision from response prose.
-        if (event.modelToolName.substringBefore("__") == "github_pr" &&
+        val operation = event.modelToolName.githubOperationFamily()
+        if (operation == "github_pr" &&
             action == "context" &&
             result.isError &&
             result.errorCode == "GITHUB_PR_HEAD_CHANGED" &&
@@ -184,7 +186,14 @@ internal object ToolReportDiagnostics {
         // Preserve only typed counts and flags from the call-bound traversal receipt,
         // never upstream record IDs, URLs or unbounded provider text.
         val paginationState = (receipt?.get("traversal_state") as? JsonPrimitive)?.contentOrNull
-        if (event.modelToolName.substringBefore("__") == "github_ci" &&
+        val pagedOperation = when (operation) {
+            "github_ci" -> true
+            "github_context" -> action in setOf("branches", "commits", "changes")
+            "github_pr" -> action in setOf("list", "checks", "context")
+            "github_issue" -> action == "list"
+            else -> false
+        }
+        if (pagedOperation &&
             result.isError &&
             result.errorCode in setOf("GITHUB_PAGINATION_INCOMPLETE", "GITHUB_PAGINATION_STALLED") &&
             (paginationState == "INCOMPLETE" || paginationState == "STALLED")

@@ -17,6 +17,8 @@ internal object GitHubIntegrationReport {
         val catalog = checklist.getValue("authorized_catalog") as JsonObject
         val fixtures = checklist.array("fixtures")
         val requirements = checklist.array("requirements")
+        val integration = GitHubTestChecklist.integration(task)
+        val catalogRequested = integration || requirements.any { GitHubAcceptanceDiagnostics.category(it.text("requirement")) == "AUTHORIZED_CATALOG" }
         val openFixtures = fixtures.filter { it["final_state_verified"] != JsonPrimitive(true) }
         val cleanupStoppedBeforeDispatch = openFixtures.isNotEmpty() && openFixtures.all { it["cleanup_dispatched"] == JsonPrimitive(false) }
         val pending = GitHubTestChecklist.pendingPages(receipts)
@@ -27,7 +29,7 @@ internal object GitHubIntegrationReport {
         val unindexedGraphInputs = unmet.count { it.text("repository_graph_observation") == "NOT_INDEXED" }
         val otherRepositoryInputs = unmet.count { !it.text("id").startsWith("repository_graph:") && it.text("blocker_code") == "REPOSITORY_INPUT_REQUIRED" }
         val reason = when {
-            GitHubTestChecklist.integration(task) && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
+            integration && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
             receipts.values.lastOrNull()?.get("error_code") == JsonPrimitive("COMBINED_BUDGET_EXHAUSTED") ->
                 "COMBINED_BUDGET_EXHAUSTED" to "The shared Combined turn allowance blocked the next operation. Individual profile calls may remain. Completed checks and pending operations have been saved."
@@ -35,7 +37,7 @@ internal object GitHubIntegrationReport {
             remaining != null && remaining <= GitHubChecklistBudget.VERIFICATION_RESERVE -> "VERIFICATION_RESERVE_REACHED" to "The remaining $remaining calls are reserved for verification and cleanup; acquisition stopped before the hard ceiling."
             cleanupStoppedBeforeDispatch -> "FIXTURE_CLEANUP_UNVERIFIED" to "GitHub cleanup stopped during preflight. The fixture still needs a guarded cleanup and a fresh absence check."
             openFixtures.isNotEmpty() -> "FIXTURE_CLEANUP_UNVERIFIED" to "An owned fixture has unverified final state or cleanup. Reconcile its retained mutation receipt before further writes."
-            GitHubAuthorizedCatalog.required(tools, receipts) && catalog["complete"] != JsonPrimitive(true) -> "AUTHORIZED_CATALOG_INCOMPLETE" to "Authorized discovery is ${catalog.text("status").lowercase()}; ${catalog.text("blocker").ifBlank { "the retained version-bound continuation must complete before the denominator is final" }}."
+            catalogRequested && GitHubAuthorizedCatalog.required(tools, receipts) && catalog["complete"] != JsonPrimitive(true) -> "AUTHORIZED_CATALOG_INCOMPLETE" to "Authorized discovery is ${catalog.text("status").lowercase()}; ${catalog.text("blocker").ifBlank { "the retained version-bound continuation must complete before the denominator is final" }}."
             capabilities.any { it.text("status") in setOf("FAILED", "PREFLIGHT_REJECTED") } -> "RECORDED_OPERATION_BLOCKERS" to "Unresolved operation errors remain. The exact error codes, resources and receipt IDs identify the recovery prerequisites."
             pending.isNotEmpty() && exhaustiveInventory -> "INVENTORY_CONTINUATION_BLOCKED" to "Requested inventory traversal has ${pending.size} unfinished exact recipes; no executable authorized continuation was selected."
             unmet.isNotEmpty() -> "CAPABILITY_PREREQUISITES_MISSING" to buildString {

@@ -35,6 +35,17 @@ class GitHubIntegrationStopReasonTest {
         }
     }
 
+    @Test fun discoveryOnlyBlocksWorkWhoseScopeRequiresTheAuthorizedCatalog() {
+        val tools = listOf(branches.copy(name = GitHubAuthorizedCatalog.TOOL))
+        val checkpoint = json("""{"authorized_catalog":{"complete":false},"requirements":[{"requirement":"Summarize the latest commit","acceptance_state":"NOT_TESTED"}]}""")
+        val bounded = GitHubIntegrationReport.stopReason("Summarize the latest commit", emptyMap(), tools, 510, checkpoint)
+        assertEquals(JsonPrimitive("ACCEPTANCE_EVIDENCE_MISSING"), bounded["code"])
+        val integration = GitHubIntegrationReport.stopReason("Test all tools read only", emptyMap(), tools, 510, checkpoint)
+        assertEquals(JsonPrimitive("AUTHORIZED_CATALOG_INCOMPLETE"), integration["code"])
+        val explicit = JsonObject(checkpoint + ("requirements" to JsonArray(listOf(json("""{"requirement":"Exhaust the authorized catalog"}""")))))
+        assertEquals(JsonPrimitive("AUTHORIZED_CATALOG_INCOMPLETE"), GitHubIntegrationReport.stopReason("Inspect catalog", emptyMap(), tools, 510, explicit)["code"])
+    }
+
     @Test fun preparedReadsAreVisibleWithObservedErrorsAndUsableBudget() {
         val checkpoint = json("""{"authorized_catalog":{"complete":true},"capabilities":[{"id":"github_ci","status":"PREFLIGHT_REJECTED"}],"preparation":{"schema":"github.integration-preparation.v1","status":"BOUNDED_READS_PREPARED","ready_read_count":11,"ready_reads":[{"tool":"github_read","plan_only":true}]}}""")
         val stop = GitHubIntegrationReport.stopReason("Test all tools", emptyMap(), emptyList(), 100, checkpoint)

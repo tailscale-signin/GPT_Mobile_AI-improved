@@ -31,7 +31,7 @@ class ToolBatchCheckpointTest {
     @Test fun normalizedInvocationRetainsOriginalProviderWireAcrossRestartWithoutReplayingCompletedAction() = runBlocking {
         val file = File.createTempFile("normalized-invocation", ".json").apply { delete() }
         try {
-            val providerCall = ProviderEvent.ToolCall("ci-call", "github_ci", JsonObject(emptyMap()))
+            val providerCall = ProviderEvent.ToolCall("ci-call", "github_ci", JsonObject(emptyMap()), reportedModelId = "observed-provider-model")
             val execution = providerCall.captureProviderInvocation().copy(
                 name = "github_ci__fixture",
                 arguments = buildJsonObject { put("action", "workflows") }

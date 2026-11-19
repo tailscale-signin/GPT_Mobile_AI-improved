@@ -443,7 +443,8 @@ internal class KokoroVoiceOutput(
         playback.diagnostics?.engine(VoiceDiagnosticTrace.Engine.KOKORO)
         fun acquireFocus(attempt: Int) {
             if (active !== playback) return
-            val focusResult = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull()
+            val focusRequest = runCatching { audioManager?.requestAudioFocus(focus) }
+            val focusResult = focusRequest.getOrNull()
             when (focusResult) {
                 AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> startSynthesis(attempt)
                 AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> {
@@ -456,7 +457,12 @@ internal class KokoroVoiceOutput(
                     if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && attempt == 1) {
                         main.postDelayed({ acquireFocus(attempt + 1) }, 250)
                     } else {
-                        main.post { fail(playback, "audio_focus_denied", "Audio output is unavailable. Your answer remains in chat.", canFallback = false) }
+                        val message = if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED) {
+                            "Android denied audio focus. When the call or other audio ends, return to Voice and tap replay on this reply."
+                        } else {
+                            "Android audio focus is unavailable. Reopen Voice to replay this reply."
+                        }
+                        main.post { fail(playback, "audio_focus_denied", message, canFallback = false, cause = focusRequest.exceptionOrNull()) }
                     }
                 }
             }

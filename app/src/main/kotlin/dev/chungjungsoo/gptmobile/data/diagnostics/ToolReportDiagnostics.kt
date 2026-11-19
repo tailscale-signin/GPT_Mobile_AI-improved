@@ -188,7 +188,7 @@ internal object ToolReportDiagnostics {
         val paginationState = (receipt?.get("traversal_state") as? JsonPrimitive)?.contentOrNull
         val pagedOperation = when (operation) {
             "github_ci" -> true
-            "github_context" -> action in setOf("branches", "commits", "changes")
+            "github_context" -> action in setOf("branches", "commits", "changes", "checks")
             "github_pr" -> action in setOf("list", "checks", "context")
             "github_issue" -> action == "list"
             else -> false

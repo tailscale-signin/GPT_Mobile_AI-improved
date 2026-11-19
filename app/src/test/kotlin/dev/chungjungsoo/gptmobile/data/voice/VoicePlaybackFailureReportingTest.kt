@@ -80,6 +80,29 @@ class VoicePlaybackFailureReportingTest {
         }
     }
 
+    @Test fun repeatedFocusDenialKeepsTheReplyAvailableForManualReplay() {
+        val manager = shadowOf(requireNotNull(context.getSystemService(AudioManager::class.java)))
+        manager.setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
+        val models = mockk<LocalVoiceModelStore>()
+        val output = createKokoroVoiceOutput(context, models, ::attributes, { 1f })
+        val failures = mutableListOf<String>()
+        try {
+            val reply = requireNotNull(
+                output.openReplyWithFailure(KokoroVoice.HEART, {}) { failure, fallback ->
+                    assertFalse(fallback)
+                    failures += failure.message
+                }
+            )
+            reply.enqueue("A retained reply.")
+            reply.finish()
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            assertTrue(failures.single().contains("tap replay"))
+            io.mockk.verify(exactly = 0) { models.acquireUse() }
+        } finally {
+            output.close()
+        }
+    }
+
     @Test fun expiredDelayedFocusIgnoresLateGainAndKeepsTheReplyReplayable() {
         val manager = shadowOf(requireNotNull(context.getSystemService(AudioManager::class.java)))
         manager.setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_DELAYED)

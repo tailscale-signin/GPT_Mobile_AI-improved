@@ -2801,9 +2801,20 @@ class ChatRepositoryImpl(
         } else {
             emptyMap()
         }
+        val revokedEvidence = event.errorCode == null && event.recoveryBlock?.code == "SOURCE_PERMISSION_REVOKED"
+        val recoveryFields = if (revokedEvidence) {
+            kotlinx.serialization.json.buildJsonObject {
+                put("failed_stage", "saved_evidence_dispatch")
+                put("failure_origin", "LOCAL_RECOVERY")
+                put("dispatched", false)
+            }
+        } else {
+            emptyMap()
+        }
         event.copy(
+            errorCode = if (revokedEvidence) "PERMISSION_REVOKED" else event.errorCode,
             failureDetails = kotlinx.serialization.json.JsonObject(
-                boundary + mapOf(
+                boundary + recoveryFields + mapOf(
                     "run_id" to kotlinx.serialization.json.JsonPrimitive(runId),
                     "provider_kind" to kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name)
                 ) + original

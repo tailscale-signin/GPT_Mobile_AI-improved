@@ -1387,7 +1387,9 @@ class ChatRepositoryImplTest {
                 .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Recall the saved research and compare the mobility trial", platformType = null)), emptyList(), platform, runId = "research-$mode").toList()
             if (mode == "revoked") {
                 assertEquals(0, api.streamCalls)
-                assertTrue(states.any { it is ApiState.Error && it.recoveryBlock?.code == "SOURCE_PERMISSION_REVOKED" })
+                val denial = states.filterIsInstance<ApiState.Error>().single { it.recoveryBlock?.code == "SOURCE_PERMISSION_REVOKED" }
+                assertEquals("PERMISSION_REVOKED", denial.errorCode)
+                assertEquals(JsonPrimitive(false), denial.failureDetails?.get("dispatched"))
             } else {
                 assertEquals(1, api.streamCalls)
                 assertEquals(mode == "allowed", api.lastRequest!!.messages.first().content.toString().contains(evidence))

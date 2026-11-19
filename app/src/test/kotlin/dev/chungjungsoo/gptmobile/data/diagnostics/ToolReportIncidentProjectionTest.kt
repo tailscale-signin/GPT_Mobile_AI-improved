@@ -281,7 +281,7 @@ class ToolReportIncidentProjectionTest {
         assertFalse(report.toString().contains("private-upstream-response"))
         assertFalse(ToolReportDiagnostics.fields(event.copy(callId = "different-call"), result).containsKey("remote_pagination_reason"))
         assertFalse(ToolReportDiagnostics.fields(event, result.copy(executionReceipt = JsonObject(receipt + ("traversal_state" to JsonPrimitive("COMPLETE"))))).containsKey("remote_pagination_reason"))
-        for ((tool, action) in listOf("github_context_inspect__selected" to "commits", "github_context__selected" to "branches", "github_pr_inspect__selected" to "list", "github_pr__selected" to "checks", "github_issue" to "list")) {
+        for ((tool, action) in listOf("github_context_inspect__selected" to "commits", "github_context__selected" to "branches", "github_context_inspect__selected" to "checks", "github_pr_inspect__selected" to "list", "github_pr__selected" to "checks", "github_issue" to "list")) {
             val source = event.copy(modelToolName = tool, arguments = buildJsonObject { put("action", action) }.toString())
             val projected = ToolReportDiagnostics.fields(source, result)
             assertEquals(fields["remote_pagination_reason"], projected["remote_pagination_reason"])

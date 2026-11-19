@@ -161,6 +161,8 @@ PREMIUM_JOURNEYS = {
     'narration': 'presentation.ui.chat.UniversalChatActivityFeedTest.counterTicksCoalesceWithoutRewritingDistinctMilestones',
     'grounded_chart': 'presentation.ui.chat.UniversalChatActivityFeedTest.receiptChartNeedsThreeRealToolCallsAndNeverParsesResultText',
     'metric_card': 'data.model.AnswerDatasetTest.metricCardsRequireDistinctLabelsAndFiniteBoundedValues',
+    'reported_model_identity': 'data.network.OpenAICompletionDecoderTest.modelIdentityComesFromTheResponseBodyOnly',
+    'reported_model_stream_isolation': 'data.agent.provider.ProviderEventAssemblerTest.responsesModelIsLimitedToThePhysicalStreamThatReportedIt',
     'first_message_route': 'presentation.ui.home.ChatRouteChoiceTest.firstMessageMatchesReasoningResearchAndQuickTasksLocally',
     'first_message_draft': 'presentation.ui.home.SharedMultiChatCreationTest.creatingFromTheFirstMessageKeepsItAsAnUnsentDraft',
     'fast_research_route': 'presentation.ui.home.ChatRouteChoiceTest.fastUsesSuccessfulLatencyAndPreservesResearchEligibility',

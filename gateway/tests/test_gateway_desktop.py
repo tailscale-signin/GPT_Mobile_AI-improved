@@ -548,6 +548,17 @@ class UpdateTransactionTests(unittest.TestCase):
         observer.start.assert_called_once_with()
         self.assertFalse((self.root / 'notified.json').exists())
 
+    def test_windows_control_file_sharing_failures_preserve_the_request_for_one_dispatch(self):
+        path = self.root / 'request.json'
+        atomic_json(path, {'action': 'stop', 'id': 'real-stop'})
+        with patch('desktop.manager.sys.platform', 'win32'):
+            with patch.object(Path, 'read_text', side_effect=PermissionError('busy reader')):
+                self.assertEqual((None, None), self.manager.take_control_request())
+            with patch.object(Path, 'unlink', side_effect=PermissionError('busy file')):
+                self.assertEqual((None, None), self.manager.take_control_request())
+            self.assertEqual(('stop', 'real-stop'), self.manager.take_control_request())
+            self.assertEqual((None, None), self.manager.take_control_request())
+
     def test_watchdog_keeps_trying_after_five_crashes_and_records_recovery(self):
         manager = self.manager
         manager.start_desktop_observer = Mock()

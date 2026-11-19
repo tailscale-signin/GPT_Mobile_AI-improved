@@ -3153,6 +3153,8 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/ProviderPersonalSetupTest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/google/response/GenerateContentResponse.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupPreferences.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedTurnBudgetTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCiLogPageTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubObservationFreshnessTest.kt"
   ]
 }

@@ -62,7 +62,7 @@ def request(root, action, timeout=50):
     """Local UI/installer control queue. A busy stop is refused, never forced."""
     root = Path(root)
     ident = uuid.uuid4().hex
-    atomic_json(root / 'request.json', {'id': ident, 'action': action})
+    atomic_json(root / 'request.json', {'id': ident, 'action': action}, retry_windows_sharing=True)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -385,6 +385,26 @@ class Supervisor:
                 'Gateway update available', 0x40)
         threading.Thread(target=show, name='update-notification', daemon=True).start()
 
+    def take_control_request(self):
+        path = self.root / 'request.json'
+        try:
+            raw = path.read_text(encoding='utf-8')
+            path.unlink()
+        except FileNotFoundError:
+            return None, None
+        except PermissionError:
+            if sys.platform != 'win32':
+                raise
+            # Windows can temporarily deny reading or removing a replaced file.
+            # The next supervisor iteration retries it before dispatching any action.
+            return None, None
+        try:
+            command = json.loads(raw)
+            return command['action'], command['id']
+        except (ValueError, KeyError, TypeError):
+            self.log.warning('Ignored malformed local control request')
+            return None, None
+
     def run(self):
         result = self.boot()
         if result:
@@ -417,18 +437,7 @@ class Supervisor:
                     retry_at = now + delay
                     self.publish(state='recovering', recoveryAttempt=len(crashes), recoveryRetryAt=time.time() + delay)
                     self.startup_reason = 'crash_recovery'
-            request_path = self.root / 'request.json'
-            action, ident = None, None
-            try:
-                command = json.loads(request_path.read_text(encoding='utf-8'))
-                request_path.unlink()
-                action, ident = command['action'], command['id']
-            except FileNotFoundError:
-                pass
-            except (ValueError, KeyError, TypeError):
-                request_path.unlink(missing_ok=True)
-                self.log.warning('Ignored malformed local control request')
-                action, ident = None, None
+            action, ident = self.take_control_request()
             try:
                 current_cfg = load(self.root)
                 if action in {'stop', 'restart'}:

@@ -265,6 +265,16 @@ class GitHubIntegrationAcceptanceTest {
         assertNull(GitHubAuthorizedCatalog.next(tools, records))
     }
 
+    @Test fun workspaceCheckReceiptBelongsToGatewayAndParticipatesInCatalogDiscovery() {
+        val invocation = tool("repository_workspace__selected", "catalog", "run", "status")
+        val catalog = GitHubAuthorizedCatalog.snapshot(emptyMap(), listOf(invocation))
+        val gateway = json("""{"tool":"repository_workspace__selected","evidence_origin":"LIVE","receipt_id":"check","success":true,"trusted":true}""")
+        val classes = GitHubIntegrationAcceptance.evidenceClasses(mapOf("check" to gateway))
+        assertEquals(JsonPrimitive(1), (classes["APP_GATEWAY"] as JsonObject)["count"])
+        assertEquals(JsonPrimitive(0), (classes["LIVE_ACCOUNT"] as JsonObject)["count"])
+        assertEquals(JsonPrimitive(false), catalog["complete"])
+    }
+
     @Test fun mockedReadCannotSatisfyRepresentativeLiveReads() {
         val records = receipts()
         records["source"] = JsonObject(records.getValue("source") + ("evidence_origin" to JsonPrimitive("MOCKED")))

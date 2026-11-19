@@ -83,3 +83,13 @@ Capability discovery distinguishes a definite unsupported endpoint (HTTP 404/501
 ## Saved conversations and gateway jobs
 
 Gateway 16 exposes a scoped Jobs catalog and a browser of conversations stored on the gateway. Android can reopen the original user-facing transcript and reconnect to accepted work after its process closes. Ordinary generations and engineering jobs retain their existing executors, selected model and explicit stop/approval rules. See [GATEWAY_CONVERSATIONS.md](GATEWAY_CONVERSATIONS.md) for the admission receipts, API contract, private-chat behavior, queue/restart boundaries and regression coverage.
+
+### Development workspace output
+
+Open a saved engineering job in Android and select **Workspace → Tests**. Each retained APK or test report shows its path and SHA-256. Use **Save** to verify all its pages and copy it to a document you choose.
+
+On the paired PC, the same retained file can be exported from the installed configuration directory. When several commands produced the same path, add `--revision`, `--patch` and `--command` from the job receipt.
+
+```powershell
+python export_workspace_output.py --root $GatewayConfigurationDirectory --job $EngineeringJobId --path app/build/outputs/apk/debug/app-debug.apk --output candidate.apk
+```

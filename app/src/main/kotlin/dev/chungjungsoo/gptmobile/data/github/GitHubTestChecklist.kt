@@ -488,7 +488,7 @@ internal object GitHubTestChecklist {
 
     private fun catalog(tools: List<AgentToolDefinition>): List<Capability> {
         if (tools.isEmpty()) return capabilities
-        return tools.filter { it.modelVisible && (it.name.githubOperationFamily().startsWith("github_") || it.name.githubOperationFamily() in setOf("repository_graph", "repository_workspace")) }.flatMap { tool ->
+        return tools.filter { it.modelVisible && (it.name.githubOperationFamily().startsWith("github_") || it.name.isGatewayRepositoryTool()) }.flatMap { tool ->
             val name = tool.name.githubOperationFamily()
             val properties = tool.inputSchema["properties"] as? JsonObject
             val actions = ((properties?.get("action") as? JsonObject)?.get("enum") as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().ifEmpty { listOf(((properties?.get("action") as? JsonObject)?.get("const") as? JsonPrimitive)?.content.orEmpty()) }
@@ -518,7 +518,7 @@ internal object GitHubTestChecklist {
         val historical = receipts.values.filter { it["trusted"] == JsonPrimitive(true) || it["success"] == JsonPrimitive(false) && it["dispatched"] == JsonPrimitive(false) }
         val active = catalog(tools)
         val union = (
-            active + historical.filter { (it.text("tool").startsWith("github_") || it.text("tool").githubOperationFamily() == "repository_graph") && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
+            active + historical.filter { (it.text("tool").startsWith("github_") || it.text("tool").isGatewayRepositoryTool()) && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
                 val name = it.text("tool").githubOperationFamily()
                 val action = (it["arguments"] as? JsonObject)?.text("action").orEmpty()
                 Capability(name, action, "$name / ${action.ifBlank { "default" }}")

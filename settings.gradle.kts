@@ -10,7 +10,15 @@ pluginManagement {
             }
         }
         mavenCentral()
-        gradlePluginPortal()
+        val pluginPortal = gradlePluginPortal()
+        // Both AboutLibraries build-plugin coordinates are published on the Plugin Portal.
+        exclusiveContent {
+            forRepositories(pluginPortal)
+            filter {
+                includeGroup("com.mikepenz.aboutlibraries.plugin.android")
+                includeGroup("com.mikepenz.aboutlibraries.plugin")
+            }
+        }
     }
     resolutionStrategy {
         eachPlugin {

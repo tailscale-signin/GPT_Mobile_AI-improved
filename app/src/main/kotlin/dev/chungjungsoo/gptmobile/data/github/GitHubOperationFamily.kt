@@ -9,6 +9,8 @@ internal fun String.githubOperationFamily(): String = when (val name = substring
     else -> name
 }
 
+internal fun String.isGatewayRepositoryTool(): Boolean = githubOperationFamily() in setOf("repository_graph", "repository_workspace")
+
 /** Consider only supplied schemas, retaining the selected connection when a facade changes. */
 internal fun githubFamilyTools(tools: List<AgentToolDefinition>, family: String): List<AgentToolDefinition> {
     val candidates = tools.filter { it.modelVisible && it.name.githubOperationFamily() == family }

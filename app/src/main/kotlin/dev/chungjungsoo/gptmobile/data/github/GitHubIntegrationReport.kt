@@ -105,7 +105,7 @@ internal object GitHubIntegrationReport {
         val passedCapabilities = requiredCapabilities.filter { it.text("acceptance_state") == "PASS" }
         val accepted = requiredCriteria.count { it.text("acceptance_state") == "PASS" }
         val complete = requiredCriteria.isNotEmpty() && accepted == requiredCriteria.size
-        val activeNames = tools.filter { it.modelVisible && (it.name.substringBefore("__").startsWith("github_") || it.name.substringBefore("__") == "repository_graph") }.map { it.name }.toSet()
+        val activeNames = tools.filter { it.modelVisible && (it.name.substringBefore("__").startsWith("github_") || it.name.isGatewayRepositoryTool()) }.map { it.name }.toSet()
         val activeFamilies = activeNames.map { it.githubOperationFamily() }.toSet()
         val observations = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
         val exercisedNames = observations.filter { GitHubEvidenceOrigin.of(it) == "LIVE" }.map { it.text("tool") }.toSet().intersect(activeNames)

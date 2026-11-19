@@ -2,6 +2,8 @@
 import argparse
 import hashlib
 import json
+import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 import subprocess
 import sys
@@ -64,28 +66,69 @@ def run(profile, report):
             checkout = materialize_checkout({'data':{'head_sha':head}, 'deadline':time.time()+1800}, mirror, [], root, None)
             for path in [checkout, *checkout.rglob('*')]:
                 path.chmod(0o777 if path.is_dir() or path.stat().st_mode & 0o111 else 0o666)
+            def execute(command, phase):
+                with tempfile.TemporaryFile() as log:
+                    result = subprocess.run(['docker', 'run', '--rm', '--network=none', '--cap-drop=ALL', '--read-only',
+                        '--security-opt=no-new-privileges', '--user=' + checkout_container_user(), '--env=HOME=/tmp', '--env=GITHUB_SHA=' + head,
+                        '--tmpfs=/tmp:rw,nosuid,nodev,size=3g', '--mount=type=bind,source='+str(checkout)+',target=/workspace',
+                        '--workdir=/workspace', prepared['image_id'], *command], stdout=log, stderr=subprocess.STDOUT, timeout=2400)
+                    length = log.tell()
+                    log.seek(0)
+                    digest = hashlib.file_digest(log, 'sha256').hexdigest()
+                    log.seek(max(0, length-8000))
+                    print(log.read().decode(errors='replace'), flush=True)
+                receipt['commands'].append(dict(phase=phase, argv=command, exit_code=result.returncode, output_sha256=digest))
+                return result
+
+            if profile == profiles.ANDROID:
+                # A deterministic regression in a disposable two-file Kotlin candidate. An unrelated compilation
+                # error cannot qualify as reproducing it because the named failed JUnit assertion is required.
+                package = 'dev.chungjungsoo.gptmobile.workspacequalification'
+                code = checkout / 'app/src/test/kotlin' / package.replace('.', '/')
+                code.mkdir(parents=True, exist_ok=False)
+                code.chmod(0o755)
+                subject = code/'CheckoutExample.kt'
+                subject.write_text('package '+package+'\ninternal fun candidateTotal(items: List<Int>) = items.size\n')
+                (code/'CheckoutExampleTest.kt').write_text('package '+package+'\nimport org.junit.Assert.assertEquals\nimport org.junit.Test\nclass CheckoutExampleTest { @Test fun sumsItems() { assertEquals(42, candidateTotal(listOf(12, 30))) } }\n')
+                targeted = ['gateway-gradle', ':app:testDebugUnitTest', '--tests', package+'.CheckoutExampleTest.sumsItems']
+                output = checkout/'app/build/test-results/testDebugUnitTest'/('TEST-'+package+'.CheckoutExampleTest.xml')
+                def observed_case():
+                    if not output.is_file():
+                        raise ValueError('Missing targeted Kotlin assertion result')
+                    cases = [case for case in ET.parse(output).getroot().iter('testcase') if case.get('classname') == package+'.CheckoutExampleTest' and case.get('name') == 'sumsItems']
+                    if len(cases) != 1:
+                        raise ValueError('The exact Kotlin assertion did not execute')
+                    return cases[0]
+                def keep(path, phase):
+                    destination = report.parent/'outputs'/phase/path.name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(path, destination)
+                    with destination.open('rb') as artifact:
+                        return dict(path=destination.relative_to(report.parent).as_posix(), sha256=hashlib.file_digest(artifact, 'sha256').hexdigest())
+                if execute(targeted, 'broken_candidate').returncode == 0:
+                    raise ValueError('Incorrect Kotlin candidate unexpectedly passed')
+                failure = observed_case().find('failure')
+                if failure is None or 'expected:<42> but was:<2>' not in (failure.get('message') or ''):
+                    raise ValueError('Recorded failure did not reproduce the intended regression')
+                receipt['regression'] = {'failed': keep(output, 'reproduced'), 'broken_source_sha256': hashlib.sha256(subject.read_bytes()).hexdigest()}
+                output.unlink()
+                subject.write_text(subject.read_text().replace('items.size', 'items.sum()'))
+                execute(targeted, 'repaired_candidate').check_returncode()
+                if any(observed_case().find(tag) is not None for tag in ('failure', 'skipped', 'error')):
+                    raise ValueError('Repaired Kotlin assertion did not pass')
+                receipt['regression'].update(passed=keep(output, 'repaired'), repaired_source_sha256=hashlib.sha256(subject.read_bytes()).hexdigest())
+                shutil.rmtree(code)
             for command in commands:
-                result = subprocess.run(['docker','run','--rm','--network=none','--cap-drop=ALL','--read-only',
-                    '--security-opt=no-new-privileges','--user=' + checkout_container_user(),'--env=HOME=/tmp','--env=GITHUB_SHA=' + head,
-                    '--tmpfs=/tmp:rw,nosuid,nodev,size=3g','--mount=type=bind,source='+str(checkout)+',target=/workspace',
-                    '--workdir=/workspace',prepared['image_id'],*command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    timeout=2400)
-                receipt['commands'].append(dict(argv=command, exit_code=result.returncode, output_sha256=hashlib.sha256(result.stdout).hexdigest()))
-                print(result.stdout[-8000:].decode(errors='replace'), flush=True)
-                result.check_returncode()
+                execute(command, 'pinned_checkout').check_returncode()
             if profile == profiles.ANDROID:
                 files = list(checkout.glob('app/build/outputs/apk/debug/*.apk'))
                 tests = list(checkout.glob('app/build/test-results/testDebugUnitTest/TEST-*GatewayGraphTest.xml'))
                 if not files or not tests:
                     raise ValueError('The requested APK or targeted test report is missing from the candidate checkout')
-                import xml.etree.ElementTree as ET
                 cases = [c for test in tests for c in ET.parse(test).getroot().iter('testcase')]
                 if not cases or any(list(case.findall('skipped')) + list(case.findall('error')) + list(case.findall('failure')) for case in cases):
                     raise ValueError('Targeted Android regression must run and pass')
-                receipt['artifacts'] = {}
-                for artifact in files + tests:
-                    with artifact.open('rb') as body:
-                        receipt['artifacts'][str(artifact.relative_to(checkout))] = hashlib.file_digest(body, 'sha256').hexdigest()
+                receipt['artifacts'] = {str(artifact.relative_to(checkout)): keep(artifact, 'pinned') for artifact in files + tests}
                 receipt['passed_test_cases'] = len(cases)
             receipt['status'] = 'PASSED'
     except Exception as error:

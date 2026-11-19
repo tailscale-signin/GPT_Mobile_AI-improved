@@ -248,7 +248,7 @@ internal class GitHubVerifiedSession(
                     GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, planningRemaining, fixturePreflight, planningBudget),
                     GitHubTestChecklist.nextCall(task, tools, receipts, planningRemaining, fixturePreflight),
                     authorizedTools.filter { definition ->
-                        (definition.name.startsWith("github_") || definition.name.substringBefore("__") == "repository_graph") &&
+                        (definition.name.startsWith("github_") || definition.name.isGatewayRepositoryTool()) &&
                             tools.none { it.name == definition.name } &&
                             receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) }
                     }.take(12)

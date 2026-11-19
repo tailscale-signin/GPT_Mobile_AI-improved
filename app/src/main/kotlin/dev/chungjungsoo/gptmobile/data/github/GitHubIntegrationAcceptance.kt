@@ -178,11 +178,11 @@ internal object GitHubIntegrationAcceptance {
     fun evidenceClasses(receipts: Map<String, JsonObject>): JsonObject {
         val observed = receipts.values.filter { it["trusted"] == JsonPrimitive(true) }
         val groups = linkedMapOf(
-            "LIVE_ACCOUNT" to observed.filter { GitHubEvidenceOrigin.of(it) == "LIVE" && it.text("tool").githubOperationFamily() != "repository_graph" },
+            "LIVE_ACCOUNT" to observed.filter { GitHubEvidenceOrigin.of(it) == "LIVE" && !it.text("tool").isGatewayRepositoryTool() },
             "CACHED_OR_LOCAL" to observed.filter { GitHubEvidenceOrigin.of(it) in setOf("CACHED", "LOCAL", "NOT_TESTED") },
             "MOCKED" to observed.filter { GitHubEvidenceOrigin.of(it) == "MOCKED" },
             "HISTORICAL_CI_OBSERVATION" to observed.filter { it.text("tool").githubOperationFamily() == "github_ci" && args(it).text("action") in setOf("runs", "run", "jobs", "logs", "workflows", "artifacts", "failure") },
-            "APP_GATEWAY" to observed.filter { it.text("tool").githubOperationFamily() == "repository_graph" && GitHubEvidenceOrigin.of(it) == "LIVE" }
+            "APP_GATEWAY" to observed.filter { it.text("tool").isGatewayRepositoryTool() && GitHubEvidenceOrigin.of(it) == "LIVE" }
         )
         return buildJsonObject {
             put("classification_status", if (observed.any { it.text("evidence_origin").isNotBlank() && it.text("evidence_origin") !in setOf("LIVE", "CACHED", "LOCAL", "MOCKED", "NOT_TESTED") }) "INCOMPLETE" else "COMPLETE")

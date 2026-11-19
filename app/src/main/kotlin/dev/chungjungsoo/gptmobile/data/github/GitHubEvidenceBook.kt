@@ -169,7 +169,7 @@ internal class GitHubEvidenceBook(
         }
         val operation = GitHubOperationTool.operationName(call.name) ?: "github".takeIf { call.name.substringBefore("__") == it }
         val authorizedTool = call.name in trustedTools
-        val trusted = authorizedTool && (operation != null || call.name == "discover_available_tools" || call.name.substringBefore("__") == "repository_graph")
+        val trusted = authorizedTool && (operation != null || call.name == "discover_available_tools" || call.name.isGatewayRepositoryTool())
         val effectiveArguments = (result.executionReceipt?.get("corrected_arguments") as? JsonObject) ?: call.arguments
         val owner = (effectiveArguments["owner"] as? JsonPrimitive)?.contentOrNull
         val repo = (effectiveArguments["repo"] as? JsonPrimitive)?.contentOrNull

@@ -82,6 +82,13 @@ class EngineeringPreflightTests(unittest.TestCase):
             self.assertFalse(result['ready'])
             self.assertEqual('ACCEPTANCE_CONTRACT_REQUIRED', result['blockers'][0]['reason_code'])
 
+    def test_slash_procedure_preserves_exact_objective_template(self):
+        result = self.check(dict(self.request, objective='/repair-ci Repair the build'))
+        self.assertTrue(result['ready'])
+        self.assertEqual('HOST_OBJECTIVE_TEMPLATE', result['acceptance_source'])
+        unrelated = self.check(dict(self.request, objective='/repair-ci Add another feature'))
+        self.assertFalse(unrelated['ready'])
+
     def test_unknown_objective_does_not_inherit_unrelated_template(self):
         result = self.check(dict(self.request, objective='Add an unrelated widget'))
         self.assertFalse(result['ready'])

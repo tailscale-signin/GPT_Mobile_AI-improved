@@ -656,6 +656,10 @@ class GitHubEngineeringBackend:
             data.update(actor_id=actor['id'], head_sha=head, tree=tree)
             from v14.engineering_specialists import investigate
             selection = {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'head_sha': head}
+            from v14.workspace_guidance import requested_procedure, start_procedure
+            procedure, _ = requested_procedure(job['request'].get('objective', ''))
+            if procedure:
+                selection['workflow'] = start_procedure(data, procedure)
             specialists = investigate(self, job, [
                 {'role': 'source explorer', 'evidence': dict(selection, focus='Locate implementation and repository conventions for the objective')},
                 {'role': 'test investigator', 'evidence': dict(selection, focus='Locate relevant tests, validation entry points and missing coverage')}])
@@ -663,7 +667,7 @@ class GitHubEngineeringBackend:
             merge_method = next((method for method in ('squash', 'merge', 'rebase') if metadata.get('allow_' + method + '_merge')), None)
             if writable and merge_method is None:
                 raise ValueError('No supported merge method is enabled')
-            return dict(retained_pr or {}, merge_method=merge_method, actor_id=actor['id'], head_sha=head, initial_head=head, base_sha=base, tree=tree, plan=plan)
+            return dict(retained_pr or {}, merge_method=merge_method, actor_id=actor['id'], head_sha=head, initial_head=head, base_sha=base, tree=tree, plan=plan, **({'workflow': selection['workflow']} if 'workflow' in selection else {}))
         if phase == 'READ':
             tree = self.tree(job, data['head_sha'])
             binding = digest([data['actor_id'], root, data['head_sha']])

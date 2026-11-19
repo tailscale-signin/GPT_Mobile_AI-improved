@@ -231,3 +231,15 @@ Supported Android clients can send GitHub chat turns through the same supervisor
 ## Draft repair admission
 
 A repair request carries `draft_repair` with the original PR number, repository, head SHA, source branch, base branch and optional workflow run/attempt pair. The Gateway verifies the draft and attempt against GitHub before admission. Configure the repository validation policy's `draft_repair_requirements` as a list of approved acceptance requirements if Android does not supply a reviewed contract. Each requirement must map to `allowed_checks` and an exact behavior case in `acceptance_map`.
+
+## Reusable development procedures
+
+Choose a procedure in the Windows task composer, or begin a Gateway engineering task on Android or Windows with `/repair-ci`, `/diagnose-android-crash`, `/gateway-readiness`, `/implement-issue`, `/review-changes`, or `/prepare-release`. Include the objective after the command. Direct requests such as “Fix this CI failure in PR #42” also select the corresponding procedure. The Plan view shows its saved steps. Completing a step requires evidence from the current revision.
+
+A repository can supply instructions at `.agents/skills/<name>/SKILL.md` or `.claude/skills/<name>/SKILL.md`. An optional sibling `requirements.json` declares which workspace tools and executor capabilities the procedure needs. For example, a procedure that navigates Kotlin references can declare the following requirements.
+
+```json
+{"tools": ["read", "code_intelligence"], "executor_capabilities": ["language-server-kotlin"]}
+```
+
+The Gateway reports missing requirements when opening the procedure. Execution still uses the repository policy and the job's accepted scope.

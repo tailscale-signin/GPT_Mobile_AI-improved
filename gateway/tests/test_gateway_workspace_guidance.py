@@ -12,7 +12,7 @@ from desktop.control_store import ControlError
 from v14.engineering_backend import blob_sha
 from v14.engineering_workspace import act, view
 from v14.inference_budget import fit_engineering_payload
-from v14.workspace_guidance import contents, instruction_paths
+from v14.workspace_guidance import contents, instruction_paths, requested_procedure, start_procedure
 
 
 class GuidanceTests(TestCase):
@@ -51,6 +51,33 @@ class GuidanceTests(TestCase):
         self.assertEqual(1, len(self.action('skill', name='repair-ci')['workflow']['completed']))
         with self.assertRaises(ValueError):
             self.action('workflow_step', step=0, receipt_sha256=observed['receipt_sha256'])
+
+    def test_direct_procedure_requests_and_same_revision_continuation(self):
+        self.assertEqual(('repair-ci', 'Fix this CI failure in #42'), requested_procedure('Fix this CI failure in #42'))
+        self.assertEqual(('prepare-release', 'Build the reviewed revision'), requested_procedure('/prepare-release Build the reviewed revision'))
+        self.assertIsNone(requested_procedure('Explain what “fix this CI failure” means')[0])
+        self.assertIsNone(requested_procedure('/repair-ci-other')[0])
+        workflow = start_procedure(self.job['data'], 'repair-ci')
+        workflow['completed'].append({'step': 0})
+        self.assertIs(workflow, start_procedure(self.job['data'], 'repair-ci'))
+        self.job['data']['head_sha'] = 'b' * 40
+        self.assertFalse(start_procedure(self.job['data'], 'repair-ci')['completed'])
+
+    def test_skill_dependencies_follow_the_admitted_execution_host(self):
+        path = '.agents/skills/triage/requirements.json'
+        raw = json.dumps({'tools': ['check', 'code_intelligence'], 'executor_capabilities': ['language-server-kotlin']})
+        self.tree[path] = {'mode': '100644', 'sha': blob_sha(raw)}
+        self.job['data']['files'][path] = {'sha': blob_sha(raw), 'content': raw}
+        skill = '.agents/skills/triage/SKILL.md'
+        blocked = self.action('skill', name=skill)
+        self.assertEqual(['check', 'code_intelligence'], blocked['requirements']['missing_tools'])
+        self.assertNotIn('instructions', blocked)
+        self.job['data']['admission'] = {'policy_sha256': 'policy', 'workspace_terminal_enabled': True,
+                                         'development_environment': {'profile': 'Android / Kotlin'}}
+        ready = self.action('skill', name=skill)
+        self.assertEqual('read logs', ready['instructions'])
+        self.assertEqual([], ready['requirements']['missing_capabilities'])
+        self.assertIn('check', self.action('skills')['procedure_requirements']['repair-ci']['tools'])
 
     def fit(self, rules, receipts=None):
         body = {'head_sha': self.job['data']['head_sha'], 'objective': 'Inspect this selected repository',

@@ -14,7 +14,8 @@
     "Android-selected model workspace check tool, per-repository host approval, revision and profile-bound consent, encrypted idempotent check receipts and reconnect lookup.",
     "Retained private APK and test output, checksummed Android and desktop export, and hierarchical instructions for Android-native source reads and edits.",
     "The Android checkpoint timeline compares any two retained candidates at the same source and policy, pages the entire diff and shows both test results.",
-    "Android records the model identifier supplied on the actual provider tool call alongside signed-in host results, candidate, environment, source and check outcome. An unobserved or different model stays explicitly identified."
+    "Android records the model identifier supplied on the actual provider tool call alongside signed-in host results, candidate, environment, source and check outcome. An unobserved or different model stays explicitly identified.",
+    "The Windows composer and explicit or direct engineering requests select a revision-bound procedure before planning. Repository skills can declare their required tools and executor capabilities."
   ],
   "remaining": [
     "Complete end-to-end prepared Android image and installed profile, recovery and source-sharing qualification",
@@ -59,6 +60,10 @@
     {
       "commit": "86c3e1ab2a52f8a2a5cdc775bd30c26fd4c9b63e",
       "scope": "The hosted Gateway stability matrix, Windows installer and GitHub APK catalog/download workflows passed."
+    },
+    {
+      "commit": "1d406225aa633db4d53b2a82f35c1f2f09494653",
+      "scope": "Hosted GenieX preview ran 11,665 Android unit tests. The single failure was an obsolete assertion expecting 19 catalog entries after the workspace tool was added. The regression now verifies the new entry and the displayed total against all report rows."
     }
   ]
 }

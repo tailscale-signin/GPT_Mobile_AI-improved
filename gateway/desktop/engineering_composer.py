@@ -91,6 +91,22 @@ class EngineeringForm(_ThemedForm):
                 ttk.Label(frame, text=label).grid(row=row, column=0, sticky='w', pady=3)
                 self.fields[name] = tk.StringVar(master=frame)
                 ttk.Entry(frame, textvariable=self.fields[name], width=50).grid(row=row, column=1, sticky='ew')
+        from v14.workspace_guidance import PROCEDURES
+        ttk.Label(frame, text='Procedure').grid(row=11, column=0, sticky='w', pady=3)
+        procedure = ttk.Combobox(frame, values=tuple(PROCEDURES), state='readonly')
+        procedure.grid(row=11, column=1, sticky='ew', pady=3)
+
+        def select_procedure(_):
+            from v14.workspace_guidance import requested_procedure
+            text = self.objective.get('1.0', 'end-1c').strip()
+            selected, detail = requested_procedure(text)
+            if selected and text.startswith('/'):
+                text = detail
+            self.objective.delete('1.0', 'end')
+            self.objective.insert('1.0', '/' + procedure.get() + ' ' + text)
+            self.objective.focus_set()
+
+        procedure.bind('<<ComboboxSelected>>', select_procedure)
         return self.objective
 
     def validate(self):

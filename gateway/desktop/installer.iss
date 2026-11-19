@@ -36,9 +36,9 @@ Source: "Start-Gateway.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
-Name: "startup"; Description: "Start Gateway when I sign in"; Flags: checkedonce
+Name: "startup"; Description: "Start Gateway when I sign in"; Flags: checkedonce; Check: NeedsInitialSettings
 Name: "desktopicon"; Description: "Create a desktop dashboard shortcut"; Flags: unchecked
-Name: "engineering"; Description: "Allow network devices to run GitHub engineering tasks and map private repositories"; Flags: unchecked
+Name: "engineering"; Description: "Allow network devices to run GitHub engineering tasks and map private repositories"; Flags: unchecked; Check: NeedsInitialSettings
 
 Name: "firewall"; Description: "Allow Gateway from the local subnet on Private networks (Windows administrator approval)"; Flags: unchecked
 
@@ -119,6 +119,11 @@ begin
   UpdatePage.SelectedValueIndex := 0;
 end;
 
+function NeedsInitialSettings: Boolean;
+begin
+  Result := not FileExists(ExpandConstant('{app}\settings.json'));
+end;
+
 function IsFullEngineeringSelected: Boolean;
 begin
   Result := EngineeringPage.SelectedValueIndex = 1;
@@ -129,9 +134,8 @@ var PlanFile: String; Code: Integer;
 begin
   Result := False;
   PlanFile := ExpandConstant('{tmp}\gateway-setup.ini');
-  DeleteFile(PlanFile);
   ExtractTemporaryFile('GatewaySetup.exe');
-  if not Exec(ExpandConstant('{tmp}\GatewaySetup.exe'), '--plan "' + PlanFile + '"', '',
+  if not Exec(ExpandConstant('{tmp}\GatewaySetup.exe'), '--plan "' + PlanFile + '" ' + IntToStr(WizardForm.Handle), '',
               SW_SHOW, ewWaitUntilTerminated, Code) then begin
     MsgBox('Windows could not open Gateway Setup. Check the install log and try again.', mbError, MB_OK);
     Exit;
@@ -151,7 +155,6 @@ begin
   PerformancePage.Values[1] := IntToStr(GetIniInt('setup', 'chats', 8, 1, 64, PlanFile));
   PerformancePage.Values[2] := IntToStr(GetIniInt('setup', 'grace', 30, 10, 120, PlanFile));
   UpdatePage.SelectedValueIndex := GetIniInt('setup', 'updates', 0, 0, 2, PlanFile);
-  DeleteFile(PlanFile);
   NativePlan := True;
   Result := True;
 end;

@@ -270,6 +270,16 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual([releases.RELEASES_URL, releases.RELEASES_URL + '&page=2', releases.RELEASES_URL + '&page=3'],
                          [call.args[0] for call in session.get.call_args_list])
 
+    def test_latest_missing_digest_reports_incomplete_release_instead_of_current(self):
+        session = Mock()
+        response = requests.Response()
+        response.status_code = 200
+        response._content_consumed = True
+        response._content = json.dumps([metadata('18.0.1'), metadata('18.0.2', digest=None)]).encode()
+        session.get.return_value = response
+        with self.assertRaisesRegex(ValueError, 'missing its verified Windows package'):
+            releases.check('18.0.0', session)
+
     def test_rejects_archive_paths_links_case_collisions_and_expansion(self):
         for names in [['../escape'], ['/absolute'], ['a\\b'], ['C:evil'], ['NUL'], ['foo.'], ['a','A'], ['x/../y'], ['a//b']]:
             with self.subTest(names=names), tempfile.TemporaryDirectory() as temp:

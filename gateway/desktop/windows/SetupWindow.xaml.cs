@@ -13,6 +13,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 
 namespace GatewayDesktop;
@@ -34,7 +35,9 @@ public partial class SetupWindow : Window
     [STAThread]
     public static int Main(string[] args)
     {
-        if (args.Length != 2 || args[0] is not ("--plan" or "--smoke") || !Path.IsPathFullyQualified(args[1])) return 2;
+        if (args.Length is not (2 or 3) || args[0] is not ("--plan" or "--smoke") || !Path.IsPathFullyQualified(args[1])) return 2;
+        long owner = 0;
+        if (args.Length == 3 && (!long.TryParse(args[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out owner) || owner == 0)) return 2;
         var app = new Application();
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("Theme.xaml", UriKind.Relative) });
         if (SystemParameters.HighContrast)
@@ -50,6 +53,12 @@ public partial class SetupWindow : Window
             app.Resources["LineBrush"] = SystemColors.WindowTextBrush;
         }
         var window = new SetupWindow(args[1], args[0] == "--smoke");
+        if (owner != 0)
+        {
+            new WindowInteropHelper(window).Owner = new IntPtr(owner);
+            window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            window.ShowInTaskbar = false;
+        }
         app.Run(window);
         return window.result;
     }
@@ -69,6 +78,7 @@ public partial class SetupWindow : Window
         Listener.SelectedIndex = 0;
         Port.TextChanged += (_, _) => DescribeListener();
         Listener.SelectionChanged += (_, _) => DescribeListener();
+        if (!smoke && File.Exists(planPath)) RestorePlan();
         DescribeListener();
         Closed += (_, _) => { checking?.Cancel(); client.Dispose(); };
         Loaded += async (_, _) =>
@@ -105,6 +115,31 @@ public partial class SetupWindow : Window
             }
             catch { result = 3; Close(); }
         };
+    }
+
+    private void RestorePlan()
+    {
+        // Back from the installer lets the user edit the same temporary plan.
+        // Every restored value still passes normal validation before the next save.
+        if (new FileInfo(planPath).Length > 16384) return;
+        var values = new Dictionary<string, string>();
+        foreach (string line in File.ReadAllLines(planPath, Encoding.Unicode))
+        {
+            int equal = line.IndexOf('=');
+            if (equal > 0) values[line[..equal]] = line[(equal + 1)..];
+        }
+        Backend.Text = values.GetValueOrDefault("backend", Backend.Text);
+        Port.Text = values.GetValueOrDefault("port", Port.Text);
+        var choices = (List<InterfaceChoice>)Listener.ItemsSource;
+        Listener.SelectedItem = choices.FirstOrDefault(c => c.Address.ToString() == values.GetValueOrDefault("bind")) ?? choices[0];
+        Engineering.IsChecked = values.GetValueOrDefault("engineeringSetup") == "1";
+        Standard.IsChecked = Engineering.IsChecked != true;
+        Advanced.IsChecked = values.GetValueOrDefault("advanced") == "1";
+        Mcp.Text = values.GetValueOrDefault("mcp", "");
+        Workers.Text = values.GetValueOrDefault("workers", Workers.Text);
+        Chats.Text = values.GetValueOrDefault("chats", Chats.Text);
+        Grace.Text = values.GetValueOrDefault("grace", Grace.Text);
+        if (int.TryParse(values.GetValueOrDefault("updates"), out int mode) && mode is >= 0 and <= 2) Updates.SelectedIndex = mode;
     }
 
     private static List<InterfaceChoice> Interfaces()

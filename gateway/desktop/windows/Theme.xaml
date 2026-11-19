@@ -33,7 +33,7 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocus}" />
       <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" /></DataTemplate></Setter.Value></Setter>
+      <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><AccessText Text="{Binding}" TextWrapping="Wrap" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" /></DataTemplate></Setter.Value></Setter>
       <Setter Property="Template"><Setter.Value>
         <ControlTemplate TargetType="Button">
           <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="{TemplateBinding Padding}">

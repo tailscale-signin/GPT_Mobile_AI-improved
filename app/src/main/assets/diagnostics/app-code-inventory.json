@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "5d30e9d066ef493208b563adcba7fa5e90c379214066bad18e1f30087ee97a3b",
+  "source_digest": "afde7c38cbfbc8e3a59f3ec9b3e54c27810b759f0db98599ca8f8dba6bc37156",
   "file_count": 2755,
-  "indexed_line_count": 454232,
+  "indexed_line_count": 454322,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 215,
-      "indexed_line_count": 84685
+      "indexed_line_count": 84775
     },
     {
       "id": "authentication_service",
@@ -18091,8 +18091,8 @@
       "path": "gateway/desktop/manager.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "763b40bfbe6d4e345a285a68b80ee0f4a7c36799efcbde778eb7e90e1d503fe8",
-      "indexed_lines": 725
+      "sha256": "ef90c35b6eb255e5de20fa7d4a03fd480eb6232021500fff1c4233433d8391a9",
+      "indexed_lines": 754
     },
     {
       "path": "gateway/desktop/metrics.py",
@@ -18224,8 +18224,8 @@
       "path": "gateway/desktop/releases.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "ce90266a6dcc0936d559adc46c24b8f62d270e72962f64eaa6cf44f37e1de459",
-      "indexed_lines": 183
+      "sha256": "51b5b7688b9f9d085d378a2bede07075374f547ce0540de11c94b3364b9dc89b",
+      "indexed_lines": 209
     },
     {
       "path": "gateway/desktop/repository_validation.py",
@@ -18315,14 +18315,14 @@
       "path": "gateway/desktop/windows/SetupWindow.xaml.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "51c27632c15dc7feca8415b77a6ba462790cfb96d83bf2142290a5f0dbfa1f7b",
-      "indexed_lines": 257
+      "sha256": "6d11fbbfb735097095710887d82f4c2138775f5c91b7ee887414d692a5b31769",
+      "indexed_lines": 292
     },
     {
       "path": "gateway/desktop/windows/Theme.xaml",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "5471b94ca2175b1ce4b61f0684d64097f7743dbdc68205d15c8364395ff4eba4",
+      "sha256": "cadeb48640043e86094bf9b5c4774e53d1146c2fc8b92c7cd59712f8296824b5",
       "indexed_lines": 158
     },
     {

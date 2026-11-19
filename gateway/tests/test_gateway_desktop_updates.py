@@ -52,6 +52,17 @@ class UpdateCycleTests(unittest.TestCase):
         self.assertEqual(2, self.host.activate.call_count)
         self.host.respond.assert_called_once()
 
+    def test_queued_install_survives_restart_with_automatic_checks_off(self):
+        atomic_json(self.host.root / 'pending-update.json', {'from': '17.0.2', 'target': '18.0.0'})
+        self.cycle = UpdateCycle(self.host, self.worker)
+        self.cfg['update_mode'] = 'off'
+        self.tick()
+        self.assertEqual('checking', self.host.status['updateState'])
+        self.future.set_result({'version': '18.0.0'})
+        self.worker.submit.return_value = Future()
+        self.tick()
+        self.assertEqual('downloading', self.host.status['updateState'])
+
     def test_phone_target_change_requires_new_selection_in_notify_mode(self):
         self.host._request_payload = {'target': '18.0.0'}
         self.tick('install')

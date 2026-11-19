@@ -31,6 +31,26 @@ class GatewayControlRepositoryTest {
     private suspend fun seed(binding: GatewayControlBinding = initial) = vault.put(key, json.encodeToString(binding).toByteArray())
     private suspend fun saved(): GatewayControlBinding = json.decodeFromString(requireNotNull(vault.read(key)).toString(Charsets.UTF_8))
 
+    @Test fun installRequiresTheVersionShownByThePairedPc() = runTest {
+        seed()
+        val snapshot = controlSnapshot(principal, 1).copy(writableFields = listOf("update_mode"), updates = GatewayUpdateStatus("18.0.0", "available", "18.0.2"))
+        val posted = mutableListOf<String>()
+        coEvery { transport.exchange(any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            if (arg<String>(5) == "GET") {
+                GatewayControlResponse(200, json.encodeToString(snapshot))
+            } else {
+                assertEquals("/gateway/updates", arg<String>(6))
+                posted.add(arg(7))
+                GatewayControlResponse(200, """{"accepted":true}""")
+            }
+        }
+        val repository = repository()
+        assertTrue(runCatching { repository.updateGateway(profile, "18.0.1") }.isFailure)
+        assertTrue(posted.isEmpty())
+        repository.updateGateway(profile, "18.0.2")
+        assertEquals(listOf("""{"action":"install","target":"18.0.2"}"""), posted)
+    }
+
     @Test fun offlineRestartRetainsTheLastConfirmedValuesAndTimeWithoutRestoringWriteAuthority() = runTest {
         seed()
         coEvery { transport.exchange(any(), any(), any(), any(), any(), any(), any(), any()) } returns GatewayControlResponse(200, json.encodeToString(controlSnapshot(principal, 2)))

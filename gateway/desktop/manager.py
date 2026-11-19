@@ -21,6 +21,7 @@ import zipfile
 import requests
 from desktop.configuration import atomic_json, authority, control_host, environment, load
 from desktop import releases, windows_job
+from desktop.control_store import ControlError
 from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 from v14.journal import backup_database
 
@@ -33,6 +34,7 @@ class UpdateCycle:
     def __init__(self, supervisor, worker):
         self.host = supervisor
         self.worker = worker
+        self.cancelled = threading.Event()
         self.future = None
         self.staging = False
         self.target = None
@@ -41,6 +43,18 @@ class UpdateCycle:
         self.candidate = None
         self.next_check = time.monotonic() + 30
         self.next_activate = 0
+        self.ticket = self.host.root / 'pending-update.json'
+        if self.ticket.exists():
+            try:
+                saved = json.loads(self.ticket.read_text(encoding='utf-8'))
+                current = read_pointer(self.host.root)
+                if (saved['from'] == current['version'] and saved['target'] != current.get('failedVersion') and
+                        releases.version(saved['target']) > releases.version(current['version'])):
+                    self.target, self.install, self.next_check = saved['target'], True, 0
+                else:
+                    self.ticket.unlink(missing_ok=True)
+            except (KeyError, TypeError, ValueError):
+                self.ticket.unlink(missing_ok=True)
 
     def tick(self, action, ident, cfg, recovering):
         now = time.monotonic()
@@ -53,12 +67,12 @@ class UpdateCycle:
         if action == 'install':
             self.install = True
             self.target = self.host._request_payload.get('target')
-        if self.future is None and (manual or cfg['update_mode'] != 'off' and now >= self.next_check):
+        if self.future is None and (manual or (self.install or cfg['update_mode'] != 'off') and now >= self.next_check):
             self.next_check = now + cfg['update_interval_hours'] * 3600
             self.candidate = None
             self.next_activate = 0
             self.host.publish(updateState='checking', updateError=None, availableVersion=None)
-            self.future = self.worker.submit(releases.check, read_pointer(self.host.root)['version'])
+            self.future = self.worker.submit(releases.check, read_pointer(self.host.root)['version'], cancelled=self.cancelled)
         if manual:
             self.host.respond({'id': ident, 'accepted': True, 'updateState': self.host.status.get('updateState')})
         try:
@@ -69,6 +83,8 @@ class UpdateCycle:
                 result = completed.result()
                 if self.staging:
                     self.staging = False
+                    if not self.should_install(cfg, recovering):
+                        self.host.publish(updateState='available')
                 else:
                     self.candidate = result
                     self.host.publish(updateState='available' if result else 'up-to-date',
@@ -80,18 +96,25 @@ class UpdateCycle:
                         self.host.notify(result['version'])
                     if not result:
                         self.install = False
+                    if result and self.install:
+                        self.target = result['version']
+                        atomic_json(self.ticket, {'from': read_pointer(self.host.root)['version'], 'target': self.target})
+                    else:
+                        self.ticket.unlink(missing_ok=True)
                     if result and self.should_install(cfg, recovering):
                         self.host.publish(updateState='downloading')
                         self.staging = True
-                        self.future = self.worker.submit(self.host.stage, result)
+                        self.future = self.worker.submit(self.host.stage, result, cancelled=self.cancelled)
                     return False
+            if self.host.status.get('updateState') == 'waiting-for-idle' and not self.install and cfg['update_mode'] != 'auto':
+                self.host.publish(updateState='available')
             if self.candidate and now >= self.next_activate and self.should_install(cfg, recovering):
                 # A staged candidate can wait through active jobs. Recheck the
                 # disk manifest and the live maintenance fence on each attempt.
                 if not release_path(self.host.root, self.candidate['version']).exists():
                     self.host.publish(updateState='downloading')
                     self.staging = True
-                    self.future = self.worker.submit(self.host.stage, self.candidate)
+                    self.future = self.worker.submit(self.host.stage, self.candidate, cancelled=self.cancelled)
                     return False
                 self.next_activate = now + 60
                 return self.host.activate(self.candidate['version'])
@@ -101,6 +124,7 @@ class UpdateCycle:
             self.next_check = now + 3600
             self.candidate = None
             self.install = self.staging = False
+            self.ticket.unlink(missing_ok=True)
         return False
 
     def should_install(self, cfg, recovering):
@@ -395,7 +419,7 @@ class Supervisor:
         for old in backups[3:]:
             shutil.rmtree(old)
 
-    def stage(self, candidate):
+    def stage(self, candidate, *, cancelled=None):
         destination = release_path(self.root, candidate['version'])
         if destination.exists():
             releases.validate_release(destination, candidate['version'])
@@ -404,9 +428,11 @@ class Supervisor:
             raise OSError('At least 2 GiB of free space is required to stage an update')
         with tempfile.TemporaryDirectory(prefix='update-', dir=self.root) as temp:
             archive, unpacked = Path(temp) / 'release.zip', Path(temp) / 'runtime'
-            releases.download(candidate, archive)
+            releases.download(candidate, archive, cancelled=cancelled)
             releases.extract(archive, unpacked)
             releases.validate_release(unpacked, candidate['version'])
+            if cancelled and cancelled.is_set():
+                raise InterruptedError('Update staging stopped')
             # Validation cannot migrate or lock the live journal.
             isolated = Path(temp) / 'preflight'
             atomic_json(isolated / 'settings.json', self.cfg)
@@ -571,7 +597,6 @@ class Supervisor:
         if result:
             return result
         from desktop.control_settings import Controller
-        from desktop.control_store import ControlError
         self.owner_controls = Controller(self)
         try:
             self.owner_controls.start_saved()
@@ -580,9 +605,13 @@ class Supervisor:
             self.log.warning('Phone controls need attention on this PC')
         self.start_desktop_observer()
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix='gateway-update') as worker:
-            return self.run_loop(UpdateCycle(self, worker), ControlError)
+            updates = UpdateCycle(self, worker)
+            try:
+                return self.run_loop(updates)
+            finally:
+                updates.cancelled.set()
 
-    def run_loop(self, updates, ControlError):
+    def run_loop(self, updates):
         next_settings = 0
         crashes, retry_at = [], None
         while True:

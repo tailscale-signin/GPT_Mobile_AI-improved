@@ -80,6 +80,10 @@ def protect_existing(folder, secret):
         if not path.exists():
             continue
         data = path.read_bytes()
-        if b'-----BEGIN PRIVATE KEY-----' in data:
+        try:
             key = serialization.load_pem_private_key(data, password=None)
-            atomic_bytes(path, pem(key, x509.load_pem_x509_certificate(data), secret))
+        except TypeError:
+            # An encrypted key must also open with this installation's DPAPI password.
+            serialization.load_pem_private_key(data, password=secret)
+            continue
+        atomic_bytes(path, pem(key, x509.load_pem_x509_certificate(data), secret))

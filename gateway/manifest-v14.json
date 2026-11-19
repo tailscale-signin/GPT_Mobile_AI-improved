@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.1",
   "schemaVersion": 1,
-  "sourceCommit": "d1803bcddd2a089b5062d093952dd2be8a8cc097",
+  "sourceCommit": "1daf4e9ff0c7575fe79fa9a4ecf34cd37e715adc",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -300,6 +300,7 @@
     "tests/test_gateway_workspace_lifecycle.py": "37cb7fc8c3071253089b3af846172fbd83ec9c831180ac467548bef7d1f5a65a",
     "tests/test_gateway_workspace_profiles.py": "e3d291905d1640dc44b546f6e2c2ba22cbcf0f594ee40921f8fe9c88d39ef4d6",
     "tests/test_gateway_workspace_terminal.py": "98d48f3482125ad4f0876c83e6c0d6475a8720517d918e7627d020dc8ed3aba6",
+    "tests/test_gateway_workspace_timeline.py": "c7a8f38cf0699fa8c04d615b8d32083192dbd2d13e84358fc40bc199f1a4e6b1",
     "tests/test_private_inference.py": "3183befd049b92390d60c78dfee2a857275486be3f50b3ffcd0464a05987a5c1",
     "v14/__init__.py": "13a8217e53581398c8dddda8665fa003074286e380277b98659327510b0d9ea8",
     "v14/academic.py": "7e2f1c665e272531e6e95276cc58bb355f91c86f33f34bd747ce872cc7f1bfaa",
@@ -337,7 +338,7 @@
     "v14/diagnostic_support.py": "9082fce1c13e2e254e9fb3d1984778e559a260c078dc9f44e6960358bff71a63",
     "v14/engineering.py": "aea2438fc84295796fa96379675abe6a6d842743b8eb487eca0ebf14b89fa09a",
     "v14/engineering_artifacts.py": "027a95eb0b6f1963243d638a404019645dd988c80f5020e9aad77b452397b04b",
-    "v14/engineering_backend.py": "6b350fd802b613b1039eecb8b908d52a2e60e14bde6e3ab14253c2dc93921b2f",
+    "v14/engineering_backend.py": "4a1ec21a385f1336459ead2cac476f808a4d5a1126c605be01985d6b27266093",
     "v14/engineering_backup.py": "80f4c7dbfb57aeb2959af6587f901d39124d2f2ba3a7970f630f26a2cab1d942",
     "v14/engineering_batch_plan.py": "6471cf32d2f919b06d07ffdd813b088bcf94c2a0b8aa72faee44e0a8aa105a10",
     "v14/engineering_batch_policy.py": "c4a66b4cc3bcdfd2c7ef52ed9ba12154563d38ca6ddcac5367fdba983ed746d2",
@@ -360,9 +361,9 @@
     "v14/engineering_scope.py": "7aed6367b49de3b6b935dc164e9371f0022abd4b7355f971e3f2e69aac4572a0",
     "v14/engineering_source.py": "7aa4530e19ce10210a5b7ab0e427e77b31b72580ef521bd650a592ed986f013f",
     "v14/engineering_specialists.py": "756e4c17ac7207231c195b2c1606d7712acec0eaaa07db01ac0e81917716419e",
-    "v14/engineering_validation.py": "5a6a6709ad3485085160f8a692f0a3dbb3b447a0b0447668ed135462cbb4e751",
+    "v14/engineering_validation.py": "5a977248830331b9bbf9e6b4860e9ba85ff50a7790ec4c2e01f759e2eb9e3dae",
     "v14/engineering_workflows.py": "b1d66e7d93b43db1892c04b76c1289bff62a5647a467f4ba971c922672904bf9",
-    "v14/engineering_workspace.py": "44a4425fedc1a324d4389bb051f25ee82ed3d01f476c94bac4542529cf589557",
+    "v14/engineering_workspace.py": "9eee659886570f9089bebe2b63524977a56e2bb380a920c618f70d3f415a1811",
     "v14/engineering_workspace_checks.py": "4392b5536216b9cea37048d902c402d151917a1c2efe3fa0623ec66791bdbc93",
     "v14/errors.py": "40fe6f6aec5a1d394404a5ec104afbf247563add126be833d594b249430fc4ec",
     "v14/events.py": "375c710431facfb030ee962c63f30a74b206f24cb1beeaa20148f3983c815334",
@@ -409,7 +410,8 @@
     "v14/workspace_lsp.py": "70e4ebbd64b182d6da23f4bbc4e8d0159d2640b283da65ad720e82d343720ca6",
     "v14/workspace_process.py": "0ae9f16e99f2324df3fa6fcdc6ec56879c6f5f5ac72b4890e1cf17f0067440e8",
     "v14/workspace_search.py": "ec58767ddff53d50fc3f1ffd3c5fb48046506f7f8f71b143916cbadc5d556c3c",
-    "v14/workspace_terminal.py": "aa1f556cb5701cb30f4351254decd28e7d85bd625be99eb17a9053810fea0362",
+    "v14/workspace_terminal.py": "0cf72f82a58cc69c5e4c2baa68b1a6ed33418b1cf023d5d7a2b1a0a26faebed3",
+    "v14/workspace_timeline.py": "f099eecdbd58f9f6971aa8a1ffca82d11ceab9b3796f9e528957dc14dcd1a369",
     "v14/workspace_workers.py": "f6ba59b98719580984f853bb2b430fc3116ea8274ca2aa9c6de529bd259740a7"
   }
 }

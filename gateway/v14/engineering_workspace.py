@@ -35,10 +35,13 @@ def act(backend, job, action):
         raise ValueError('Workspace action must name the current pinned head_sha')
     kind = action.get('action')
     receipt = {'action': kind, 'head_sha': job['data']['head_sha']}
-    if kind == 'worker':
+    if kind == 'revert_preview':
+        from v14.workspace_timeline import preview
+        receipt.update(preview(backend, job, action))
+    elif kind == 'worker':
         from v14.workspace_workers import advance
         receipt.update(advance(backend, job, action))
-    elif kind in {'terminal_open', 'terminal_start', 'terminal_poll', 'terminal_cancel', 'terminal_close', 'code_intelligence'}:
+    elif kind in {'terminal_open', 'terminal_start', 'terminal_poll', 'terminal_cancel', 'terminal_close', 'terminal_fork', 'terminal_switch', 'terminal_timeline', 'code_intelligence'}:
         from v14.workspace_terminal import act as terminal
         receipt.update(terminal(backend, job, action))
     elif kind in {'skills', 'skill', 'workflow_step'}:

@@ -3285,7 +3285,9 @@
     "gateway/v14/workspace_lsp.py",
     "gateway/v14/workspace_process.py",
     "gateway/v14/workspace_terminal.py",
-    "gateway/v14/workspace_workers.py"
+    "gateway/v14/workspace_workers.py",
+    "gateway/tests/test_gateway_workspace_timeline.py",
+    "gateway/v14/workspace_timeline.py"
   ],
   "publicationRequest": {
     "android": "0.9.66.8",

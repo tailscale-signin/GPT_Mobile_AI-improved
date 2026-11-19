@@ -524,6 +524,7 @@ class GitHubEngineeringBackend:
                        'Use candidates to list retained patches and candidate_files with candidate_check_id to inspect changed paths. '
                        'Finalize an unchanged candidate with {"candidate_check_id":"exact retained check ID","summary":"..."}. '
                        'Only host-approved commands execute; a selected check never replaces complete final validation. '
+                       'Inspect terminal_timeline. terminal_fork opens a fresh checkout of the pinned base or candidate_check_id under a new session_id, preserving the original. terminal_switch selects an existing checkout. For a published change use revert_preview with commit_sha, inspect affected conventions, then return {"revert_commit":"sha","summary":"reason"} for normal validation and publication. '
                        'An opted-in offline workspace supports terminal_open with session_id and optional candidate_check_id, terminal_start with session_id, unique process_id, argv, cwd, env and timeout_seconds, terminal_poll with process_id and byte offset, terminal_cancel and terminal_close. Reuse IDs to reconcile. Commands and files stay in this checkout. Propose and validate publication changes through the normal changes contract. '
                        'Use code_intelligence in the open session with process_id, language (kotlin/python/typescript), path, one-based line and UTF-16 column, operation (definition/references/diagnostics/callers/supertypes/rename_preview), and new_name for rename. Poll the process to read results. An unavailable server requires lexical fallback. '
                        'Use worker with worker_id, objective, role (investigator/test worker/implementation worker/reviewer) and budget to run one isolated step. Repeat worker_id to continue; select its candidate_check_id for normal review. '
@@ -764,8 +765,8 @@ class GitHubEngineeringBackend:
         if phase == 'IMPLEMENT':
             from v14.engineering_workspace import act, view
             proposal = self.model(job, 'coding agent', view(data))
-            if (not isinstance(proposal, dict) or set(proposal) - {'workspace_action', 'changes', 'candidate_check_id', 'summary'}
-                    or sum(key in proposal for key in ('workspace_action', 'changes', 'candidate_check_id')) != 1):
+            if (not isinstance(proposal, dict) or set(proposal) - {'workspace_action', 'changes', 'candidate_check_id', 'revert_commit', 'summary'}
+                    or sum(key in proposal for key in ('workspace_action', 'changes', 'candidate_check_id', 'revert_commit')) != 1):
                 raise ValueError('Select exactly one complete coding operation')
             # Re-enter the model with applicable conventions before accepting a patch
             # that creates a file in a directory the agent has not inspected.
@@ -785,8 +786,18 @@ class GitHubEngineeringBackend:
                         'workspace_check_executions': data.get('workspace_check_executions', 0),
                         'active_instructions': data.get('active_instructions', []), 'workflow': data.get('workflow'),
                         'progress_notes': data.get('progress_notes'), 'terminal_session': data.get('terminal_session'),
-                        'closed_terminal_sessions': data.get('closed_terminal_sessions', []), 'workspace_workers': data.get('workspace_workers', {})}
-            if 'candidate_check_id' in proposal:
+                        'terminal_branches': data.get('terminal_branches', {}), 'closed_terminal_sessions': data.get('closed_terminal_sessions', []), 'workspace_workers': data.get('workspace_workers', {})}
+            if 'revert_commit' in proposal:
+                from v14.workspace_timeline import corrective_candidate
+                changes = corrective_candidate(self, job, proposal['revert_commit'])
+                identity = patch_identity(data['head_sha'], changes)
+                if not any(r.get('action') == 'revert_preview' and r.get('commit_sha') == proposal['revert_commit'] and
+                           r.get('head_sha') == data['head_sha'] and r.get('patch_identity') == identity
+                           for r in data.get('workspace_receipts', [])):
+                    raise ValueError('Preview the exact corrective patch before selecting it')
+                if not set(instruction_paths(data['tree'], [c['path'] for c in changes])).issubset(data.get('active_instructions', [])):
+                    raise ValueError('Refresh applicable instructions with revert_preview')
+            elif 'candidate_check_id' in proposal:
                 from v14.engineering_workspace_checks import retained_candidate
                 if set(proposal) - {'candidate_check_id', 'summary'}:
                     raise ValueError('Final candidate selection cannot also change the patch')

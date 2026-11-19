@@ -55,6 +55,34 @@ def act(backend, job, action):
     head = job['data']['head_sha']
     kind = action['action']
     saved = job['data'].get('terminal_session') or {}
+    branches = job['data'].setdefault('terminal_branches', {})
+    if saved:
+        branches[saved['session_id']] = saved
+    session = action.get('session_id')
+    if kind == 'terminal_timeline':
+        return {'active': saved.get('session_id'), 'checkouts': [
+            {k: row.get(k) for k in ('session_id', 'head_sha', 'candidate_check_id', 'forked_from', 'patch_identity')}
+            for row in branches.values()], 'expires_at': job['deadline']}
+    if kind == 'terminal_switch':
+        chosen = branches.get(workspace_process.identifier(session))
+        if not chosen or chosen['head_sha'] != head or chosen['policy_sha256'] != policy_sha:
+            raise ValueError('Select an existing checkout at the current revision and policy')
+        job['data']['terminal_session'] = chosen
+        return {'session_id': session, 'head_sha': head, 'state': 'SELECTED'}
+    forked_from = None
+    if kind == 'terminal_fork':
+        workspace_process.identifier(session)
+        if session in branches:
+            saved = branches[session]
+            if saved.get('candidate_check_id') != action.get('candidate_check_id'):
+                raise ValueError('This checkout is already bound to a different candidate')
+            forked_from = saved.get('forked_from')
+        else:
+            if not saved or len(branches) >= 3:
+                raise ValueError('Open a workspace first. Up to three local checkouts can be retained.')
+            forked_from = saved['session_id']
+            saved = {}
+        kind = 'terminal_open'
     cancel = backend.cancellation(job)
     if kind == 'terminal_open' and action.get('session_id') in job['data'].get('closed_terminal_sessions', []):
         raise ValueError('This session was closed; choose a fresh session_id')
@@ -104,7 +132,9 @@ def act(backend, job, action):
                 raise ValueError('Workspace container identity changed')
             docker(['exec', bits[0], 'test', '-f', '/control/ready'], root)
             saved = dict(name=name, session_id=session, container=bits[0], identity=identity, head_sha=head,
+                         candidate_check_id=candidate, forked_from=forked_from or saved.get('forked_from'),
                          patch_identity=patch_identity(head, changes), policy_sha256=policy_sha, image=image)
+            branches[session] = saved
             job['data']['terminal_session'] = saved
             return dict(session_id=session, head_sha=head, patch_identity=saved['patch_identity'], image=image,
                         expires_at=job['deadline'], network='none', scope='exploratory')
@@ -117,7 +147,8 @@ def act(backend, job, action):
             if state is not None:
                 docker(['rm', '-f', saved['container']], root)
             job['data']['closed_terminal_sessions'] = (job['data'].get('closed_terminal_sessions', []) + [saved['session_id']])[-128:]
-            job['data']['terminal_session'] = None
+            branches.pop(saved['session_id'], None)
+            job['data']['terminal_session'] = next(iter(branches.values()), None)
             return {'state': 'CLOSED', 'session_id': saved['session_id']}
         if state is None:
             raise ValueError('Workspace interrupted. The container no longer exists; commands were not replayed.')
@@ -139,7 +170,16 @@ def act(backend, job, action):
 
 def dispose(job):
     """Clean up only this job's observed container, including after policy revocation."""
-    saved = job.get('data', {}).get('terminal_session') or {}
+    data = job.get('data', {})
+    sessions = dict(data.get('terminal_branches', {}))
+    saved = data.get('terminal_session')
+    if saved:
+        sessions[saved['session_id']] = saved
+    for session in sessions.values():
+        dispose_one(session)
+
+
+def dispose_one(saved):
     container = saved.get('container')
     if not isinstance(container, str) or not re.fullmatch('[a-f0-9]{64}', container):
         return

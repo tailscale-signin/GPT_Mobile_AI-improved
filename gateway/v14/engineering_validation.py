@@ -325,6 +325,8 @@ def materialize_checkout(job, mirror, changes, root, cancel):
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(change['content'].encode('utf-8'))
+            if change.get('mode') in {'100755', '100644'}:
+                target.chmod(int(change['mode'][-3:], 8))
     return checkout
 
 

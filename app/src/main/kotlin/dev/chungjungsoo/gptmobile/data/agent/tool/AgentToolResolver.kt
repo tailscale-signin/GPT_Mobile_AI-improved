@@ -1500,7 +1500,34 @@ class AgentToolResolver @Inject constructor(
                 dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.allowed(approvalProfile, features.githubProfileOverrides[profileUid], workspaceContext, requestedModel) &&
                 userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } == true
             ) {
-                { args -> repositoryGraphs.execute(workspaceContext, args) }
+                { args ->
+                    val privateProfile = approvalProfile?.let { dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(it) } == true
+                    suspend fun verifyRepositoryRead() {
+                        if (privateProfile) return
+                        val origin = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(actualConnection?.endpointUrl)
+                        require(origin == dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM) { "The Gateway graph and GitHub connection must use the same host." }
+                        val reader = dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient(
+                            credentialProvider?.invoke() ?: token,
+                            freshnessSeconds = 0,
+                            conditionalReads = false,
+                            persistentState = false,
+                            apiOrigins = origin
+                        )
+                        val result = reader.execute(
+                            "get_branch_head",
+                            buildJsonObject {
+                                put("owner", workspaceContext.owner)
+                                put("repo", workspaceContext.repo)
+                                put("branch", workspaceContext.ref)
+                                put("refresh", true)
+                            }
+                        ) as? JsonObject
+                        val sha = ((result?.get("object") as? JsonObject)?.get("sha") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                        require(sha.equals(workspaceContext.commitSha, ignoreCase = true)) { "Refresh the selected GitHub revision before sharing graph results." }
+                    }
+                    verifyRepositoryRead()
+                    repositoryGraphs.execute(workspaceContext, args).also { verifyRepositoryRead() }
+                }
             } else {
                 null
             },

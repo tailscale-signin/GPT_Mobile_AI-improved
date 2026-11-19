@@ -2815,10 +2815,10 @@ class ChatRepositoryImpl(
         event.copy(
             errorCode = if (revokedEvidence) "PERMISSION_REVOKED" else event.errorCode,
             failureDetails = kotlinx.serialization.json.JsonObject(
-                boundary + recoveryFields + mapOf(
+                boundary + mapOf(
                     "run_id" to kotlinx.serialization.json.JsonPrimitive(runId),
                     "provider_kind" to kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name)
-                ) + original
+                ) + original + recoveryFields
             )
         )
     }

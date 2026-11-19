@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "4969e7977447624dc376aa42dfbe4e3086c0fbe4df49b56ef5ea4d33cb4512d2",
+  "source_digest": "103f1dabf788faa5bf5505a6796ffc0b3f7907e3f758771ed32ce047d2089dba",
   "file_count": 2753,
   "indexed_line_count": 453613,
   "line_coverage_available": false,
@@ -10986,7 +10986,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "ea35c8f120a0af0820126a23a2b42125b7538cfc0be987416d288c79f3ea6771",
+      "sha256": "401a497d1a635b35b9bcab31d128ed46cbdd5ddb24a9a9a224a133db22d3900c",
       "indexed_lines": 8083
     },
     {

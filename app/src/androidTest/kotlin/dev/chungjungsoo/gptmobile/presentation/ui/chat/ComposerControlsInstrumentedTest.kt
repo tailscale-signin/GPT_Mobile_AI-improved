@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.decodeMediaPreview
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
@@ -47,7 +48,7 @@ class ComposerControlsInstrumentedTest {
         val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
         val media = File(context.cacheDir, "mcp-media").apply { mkdirs() }
         val original = File(media, "${UUID.randomUUID()}.png")
-        val bitmap = android.graphics.Bitmap.createBitmap(2, 2, android.graphics.Bitmap.Config.ARGB_8888)
+        val bitmap = android.graphics.Bitmap.createBitmap(4096, 32, android.graphics.Bitmap.Config.ARGB_8888)
         try {
             original.outputStream().use { check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) }
         } finally {
@@ -57,6 +58,13 @@ class ComposerControlsInstrumentedTest {
         val room = MutableStateFlow(ChatRoomV2(id = 7, title = "Image conversation"))
         val uri = android.net.Uri.parse("gptmobile://media/${original.name}")
         try {
+            val previewBitmap = requireNotNull(decodeMediaPreview(original))
+            try {
+                assertEquals(2048, previewBitmap.width)
+                assertEquals(16, previewBitmap.height)
+            } finally {
+                previewBitmap.recycle()
+            }
             composeRule.setContent {
                 val preview = rememberChatMediaPreview(room, { attached.set(File(it)) }, { error("Could not attach the preview") })
                 Button(onClick = { preview(uri) }) { Text("Open test image") }

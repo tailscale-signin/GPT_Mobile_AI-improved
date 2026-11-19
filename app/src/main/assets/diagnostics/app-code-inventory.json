@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "d3dcb3341d83b01fc6fafbdfba361a8a517826e8d6eb0c910ceb16dd56dfd32a",
+  "source_digest": "915235d4b6013aa8347ab2c7dfab3b49d0b4bad4c32da4daa60b80a0384d4443",
   "file_count": 2700,
-  "indexed_line_count": 441927,
+  "indexed_line_count": 441950,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 566,
-      "indexed_line_count": 99606
+      "indexed_line_count": 99629
     },
     {
       "id": "accessibility_and_localization",
@@ -15319,8 +15319,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/McpMediaActivity.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "0792f8ab650a5a0c6ce88232dad7efca6ae5922cb9d543559b129ad4baa65f98",
-      "indexed_lines": 99
+      "sha256": "bc97bf86a4a014539050d547345677d1ff651e4198bd71704e03b12bf29bd228",
+      "indexed_lines": 122
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/McpServerPickerDialog.kt",

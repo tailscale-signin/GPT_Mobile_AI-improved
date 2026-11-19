@@ -10,7 +10,7 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel x:Name="Navigation"/></ScrollViewer>
    </DockPanel>
   </Border>
-  <ScrollViewer Grid.Column="1" Margin="20,4,2,0" VerticalScrollBarVisibility="Auto"><StackPanel>
+  <ScrollViewer x:Name="PageContent" Grid.Column="1" Margin="20,4,2,0" VerticalScrollBarVisibility="Auto"><StackPanel>
    <TextBlock x:Name="TitleText" FontSize="34" FontWeight="SemiBold"/>
    <TextBlock x:Name="StatusText" Foreground="{DynamicResource MutedBrush}" Margin="0,6,0,18" AutomationProperties.LiveSetting="Polite"/>
    <Border CornerRadius="18" BorderThickness="1" BorderBrush="{DynamicResource LineBrush}" Background="{DynamicResource PanelBrush}" Padding="22">

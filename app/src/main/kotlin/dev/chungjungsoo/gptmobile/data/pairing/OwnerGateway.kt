@@ -181,6 +181,28 @@ internal object OwnerGateway {
     private fun pendingFile(entry: OwnerCredential) =
         android.util.AtomicFile(java.io.File(requireNotNull(directory), entry.alias + ".pending"))
 
+    private fun observedFile(entry: OwnerCredential) =
+        android.util.AtomicFile(java.io.File(requireNotNull(directory), entry.alias + ".observed"))
+
+    suspend fun lastConfirmed(entry: OwnerCredential): JSONObject? = withContext(Dispatchers.IO) {
+        if (find(entry.origin) != entry) return@withContext null
+        runCatching { JSONObject(observedFile(entry).readFully().decodeToString()) }.getOrNull()
+            ?.takeIf { it.optString("device") == entry.device && it.optString("protocol") == "controlSettings.v1" }
+    }
+
+    private fun rememberConfirmed(entry: OwnerCredential, state: JSONObject) {
+        val file = observedFile(entry)
+        val stream = file.startWrite()
+        try {
+            state.put("observed_at", System.currentTimeMillis())
+            stream.write(state.toString().toByteArray())
+            file.finishWrite(stream)
+        } catch (failure: Exception) {
+            file.failWrite(stream)
+            throw failure
+        }
+    }
+
     private val commandLock = kotlinx.coroutines.sync.Mutex()
 
     suspend fun settings(entry: OwnerCredential, body: JSONObject? = null, retry: Boolean = false): JSONObject = withContext(Dispatchers.IO) {
@@ -210,6 +232,7 @@ internal object OwnerGateway {
             try {
                 val state = exchange(entry.origin, entry.pin, entry, path, if (sending) command else null)
                 check(state.getString("device") == entry.device && state.getString("protocol") == "controlSettings.v1")
+                rememberConfirmed(entry, state)
                 if (id != null && state.getString("command_id") == id && state.getString("command_state") !in setOf("unconfirmed", "queued", "saved")) file.delete()
                 state
             } catch (failure: RejectedChange) {
@@ -223,6 +246,7 @@ internal object OwnerGateway {
         if (revoke) exchange(entry.origin, entry.pin, entry, "/gateway/owner/revoke", JSONObject())
         synchronized(this@OwnerGateway) {
             if (credentials.remove(entry.origin, entry)) {
+                observedFile(entry).delete()
                 pendingFile(entry).delete()
                 keyStore().deleteEntry(entry.alias)
                 java.io.File(requireNotNull(directory), entry.alias + ".json").delete()

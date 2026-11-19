@@ -50,6 +50,7 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
     val lock = remember { Mutex() }
     var observed by remember { mutableStateOf<JSONObject?>(null) }
     var error by remember { mutableStateOf("") }
+    var live by remember { mutableStateOf(false) }
     var writing by remember { mutableStateOf(false) }
     var details by remember { mutableStateOf(false) }
     var forgetOnly by remember { mutableStateOf(false) }
@@ -59,10 +60,13 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
         lock.withLock {
             try {
                 observed = OwnerGateway.settings(entry, retry = retry)
+                live = true
                 error = ""
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                live = false
+                if (observed == null) observed = OwnerGateway.lastConfirmed(entry)
                 error = failure.message ?: "Gateway is offline."
             }
         }
@@ -77,7 +81,7 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
     }
     fun change(field: String, value: Any, confirmed: () -> Unit = {}) {
         val current = observed ?: return
-        if (writing || error.isNotEmpty() || entry.role != "owner") return
+        if (!live || writing || error.isNotEmpty() || entry.role != "owner") return
         writing = true
         scope.launch {
             try {
@@ -92,6 +96,7 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                live = false
                 error = failure.message ?: "Change unconfirmed. Refresh Gateway settings."
             } finally {
                 writing = false
@@ -102,7 +107,7 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
     val actual = observed?.optJSONObject("effective")
     val receipt = observed?.optString("command_state").orEmpty()
     val outstanding = receipt in setOf("queued", "saved", "unconfirmed")
-    val editable = !outstanding && desired != null && entry.role == "owner" && !writing && error.isEmpty()
+    val editable = live && !outstanding && desired != null && entry.role == "owner" && !writing && error.isEmpty()
     val sequence = observed?.optLong("sequence")
     var attempted by remember(bindingKey, appEngineering) { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(bindingKey, appEngineering, editable, sequence) {
@@ -152,7 +157,8 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
             }
             Text(
                 when {
-                    error.isNotEmpty() -> "Last confirmed settings · $error"
+                    error.isNotEmpty() && observed != null -> "Last confirmed ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(observed!!.optLong("observed_at")))} · $error"
+                    error.isNotEmpty() -> error
                     observed == null -> "Reading Gateway settings…"
                     writing -> "Applying change…"
                     entry.role != "owner" -> "Viewer · read-only access"
@@ -230,8 +236,16 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
                         }
                     }
                 }
-                TextButton(onClick = { forgetOnly = false; confirmRemove = true }, enabled = !writing) { Text("Remove phone access") }
-                if (error.isNotEmpty()) TextButton(onClick = { forgetOnly = true; confirmRemove = true }) { Text("Forget offline pairing") }
+                TextButton(onClick = {
+                    forgetOnly = false
+                    confirmRemove = true
+                }, enabled = !writing) { Text("Remove phone access") }
+                if (error.isNotEmpty()) {
+                    TextButton(onClick = {
+                        forgetOnly = true
+                        confirmRemove = true
+                    }) { Text("Forget offline pairing") }
+                }
             }
         }, confirmButton = { TextButton(onClick = { details = false }) { Text("Done") } })
     }

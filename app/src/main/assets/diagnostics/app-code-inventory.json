@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "1a73662a174f2af91f2605b623d278954ff99f37fc5ec963fa446cedfa789bab",
+  "source_digest": "c6cf1fe44c7c72d017cc907ff87dd9bc9faccf1ffed6ec09775b4d045b23a83f",
   "file_count": 2717,
-  "indexed_line_count": 446986,
+  "indexed_line_count": 447024,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -34,13 +34,13 @@
       "id": "android_shell",
       "label": "Android application and lifecycle",
       "file_count": 76,
-      "indexed_line_count": 8960
+      "indexed_line_count": 8984
     },
     {
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 569,
-      "indexed_line_count": 100777
+      "indexed_line_count": 100791
     },
     {
       "id": "accessibility_and_localization",
@@ -10405,8 +10405,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/pairing/OwnerGateway.kt",
       "area_id": "android_shell",
       "kind": "source",
-      "sha256": "fc57d369b7328a57a9cfe1635e819c69271a76dfde66a6b51ea708d21f381d7c",
-      "indexed_lines": 232
+      "sha256": "151817c194133def24008e86c48500f2fe78f7026523dfe9169b1a6c7784daec",
+      "indexed_lines": 256
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/pairing/PairedGatewayEngine.kt",
@@ -15459,8 +15459,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/OwnerGatewayControls.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c8ab4752fae29770c2f4a405491cd3276001df11be30a8cd615bf4d9609e9761",
-      "indexed_lines": 263
+      "sha256": "8e6c3461df6f4a321d86874f7f444877477446f627eb0d37bf737f532b5fae32",
+      "indexed_lines": 277
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/OwnerPairingActivity.kt",

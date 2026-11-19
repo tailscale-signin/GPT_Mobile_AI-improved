@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using System.Windows.Media.Animation;
 using Microsoft.Win32;
 
 namespace GatewayDesktop;
@@ -30,7 +31,12 @@ public partial class WorkspaceWindow : Window
         foreach (string item in Pages)
         {
             var link = new Button { Content = item, Margin = new Thickness(0, 2, 0, 2), MinHeight = 36 };
-            link.Click += (_, _) => { page = item; Refresh(); };
+            link.Click += (_, _) => {
+                if (page == item) return;
+                page = item; Refresh(); PageContent.ScrollToTop();
+                if (SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast)
+                    PageContent.BeginAnimation(OpacityProperty, new DoubleAnimation(0.75, 1, TimeSpan.FromMilliseconds(150)));
+            };
             Navigation.Children.Add(link);
         }
         timer.Tick += (_, _) => Refresh();
@@ -101,7 +107,12 @@ public partial class WorkspaceWindow : Window
             "Settings" => ("Installation settings", "Manage startup, updates, repository validation, network and performance.", "Edit settings"),
             _ => ("Runtime", $"Gateway   {Value(state,"state")}\nModel backend   {Value(state,"backend")}\nActive workers   {(live ? Value(service,"activeWorkers") : "Unavailable")}", "View activity")
         };
-        foreach (Button link in Navigation.Children) link.FontWeight = (string)link.Content == page ? FontWeights.Bold : FontWeights.Normal;
+        foreach (Button link in Navigation.Children) {
+            bool selected = (string)link.Content == page;
+            link.FontWeight = selected ? FontWeights.Bold : FontWeights.Normal;
+            link.SetResourceReference(BackgroundProperty, selected ? "AccentBrush" : "PanelBrush");
+            link.SetResourceReference(ForegroundProperty, selected ? "CanvasBrush" : "TextBrush");
+        }
         ListHeading.Text = page == "Tools" ? "Recent tools" : page == "Diagnostics" ? "Exported fields" : "Recent jobs";
         var lines = page == "Tools" ? Rows(Field(data, "capabilityInventory"), "tools").Select(x => Value(x,"name")) :
             Rows(data, "engineering").Concat(Rows(data, "jobs")).Take(10).Select(x => Value(x,"id") + "    " + Value(x,"status"));

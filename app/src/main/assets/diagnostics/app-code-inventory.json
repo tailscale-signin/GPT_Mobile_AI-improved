@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "af303aedd24db68c5042268cfa2f05ae2f8607c4c5331478360ecfa8dac1ef12",
+  "source_digest": "23544bb1118ac472e5a027e31522f8669fdcc173f216c6d8a647bdd36b8e1a2f",
   "file_count": 2705,
-  "indexed_line_count": 444546,
+  "indexed_line_count": 444583,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 175,
-      "indexed_line_count": 78090
+      "indexed_line_count": 78127
     },
     {
       "id": "authentication_service",
@@ -17965,8 +17965,8 @@
       "path": "gateway/desktop/manager.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "01110dc0ee6b64aece5e31445ccc05e20f98bddf122ef97bcda7623217c6d90e",
-      "indexed_lines": 494
+      "sha256": "bab294107614060b77b4148594d64d612f24face931b0ee5927dfb177d01a785",
+      "indexed_lines": 530
     },
     {
       "path": "gateway/desktop/metrics.py",
@@ -18014,8 +18014,8 @@
       "path": "gateway/desktop/smoke_windows.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "2671e2af13e95768df20df6d4959a9d6e36082857117251976208c5ff58e42a6",
-      "indexed_lines": 201
+      "sha256": "c7c6b6447257b74e126aed8a6b47e9346575c0473f8d3666f9ea73f48e6374c9",
+      "indexed_lines": 202
     },
     {
       "path": "gateway/desktop/theme.py",

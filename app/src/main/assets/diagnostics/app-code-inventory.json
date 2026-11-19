@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "10398a80c6299477b58b148a2745d2376ecd9a839fc801d602a9b9ba8f9a27b6",
+  "source_digest": "394e91ac6218b5575e9d620e2092039a59e0f6f21f681fd47ceecb205939da08",
   "file_count": 2706,
-  "indexed_line_count": 444795,
+  "indexed_line_count": 444799,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -172,7 +172,7 @@
       "id": "authentication_service",
       "label": "Authentication broker software",
       "file_count": 9,
-      "indexed_line_count": 2634
+      "indexed_line_count": 2638
     },
     {
       "id": "external_integrations",
@@ -1774,7 +1774,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "06dc9274568d689ddee1f4f50f3f54992d4011aac0b680cdf22e25902fff1b10",
+      "sha256": "4e93063955c15162cabb9dfb8f6b04a237a0eb176d6ad34683c02595e3ff273d",
       "indexed_lines": 812
     },
     {
@@ -17650,8 +17650,8 @@
       "path": "authentication/issue_reports.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "36cf24a99a8cda69faea9c3e253efc5f1f59bf3d6731380bbe3cb5c3b5cc9ff9",
-      "indexed_lines": 770
+      "sha256": "6ba13c3be7ee8f5f06563cfa847e3cd3bbb80c0b98830c20aa8531f856f9fc80",
+      "indexed_lines": 774
     },
     {
       "path": "authentication/ticket_broker.py",

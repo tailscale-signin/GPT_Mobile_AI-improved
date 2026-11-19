@@ -450,7 +450,11 @@ def _report_context(value):
             raise ReportError(422, "INVALID_REPORT")
     if value.get("reasonCode") in MODEL_PREPARATION_REASONS and value.get("stage") != "model_preparation":
         raise ReportError(422, "INVALID_REPORT")
-    if value.get("reasonCode") in CONTEXT_TOOL_PRECHECK_REASONS and not (
+    reason = value.get("reasonCode")
+    # A Combined budget limit already belonged to the v2 chat acceptance contract.
+    # Only a tool precheck claims that a particular call was never dispatched.
+    acceptance_reason = reason in CONTEXT_ACCEPTANCE_REASONS and value.get("source") == "CHAT_FAILURE" and value.get("stage") != "tool_precheck"
+    if reason in CONTEXT_TOOL_PRECHECK_REASONS and not acceptance_reason and not (
         version in (4, 5, 6, 7) and value.get("source") == "TOOL_RESULT" and value.get("stage") == "tool_precheck" and value.get("dispatched") is False and value.get("requiresReconciliation") is not True
     ):
         raise ReportError(422, "INVALID_REPORT")

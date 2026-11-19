@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "698ac538805caf79629a348ce1f2a6570f31dfef60798f3ce86ae14fb68febb7",
+  "source_digest": "fe19f2c94a078233686af6bb17cc18c9f226ddeb730ab76968217388d1ab1e07",
   "file_count": 2701,
-  "indexed_line_count": 442102,
+  "indexed_line_count": 442110,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 566,
-      "indexed_line_count": 99640
+      "indexed_line_count": 99643
     },
     {
       "id": "accessibility_and_localization",
@@ -130,7 +130,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 94,
-      "indexed_line_count": 13896
+      "indexed_line_count": 13901
     },
     {
       "id": "benchmark",
@@ -4420,8 +4420,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedCorpusMultipass.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "b1de5a615efbb12a75a42ea53170a6a9646f8c9bf68bf93e1a01be3fd19042ff",
-      "indexed_lines": 255
+      "sha256": "ab38707adc2ef941415330a947841e4c534933d5fbde4319c931cbe0bca81323",
+      "indexed_lines": 258
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedCorpusMultipassSession.kt",
@@ -5708,8 +5708,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "7e90ed167c15f804abeed153a3ae65cb5a6a57e8128ddc0fb0176ca4ae6815f3",
-      "indexed_lines": 593
+      "sha256": "7dc4a34e9065e76c27bb552f892494362571afbc11f63b84ccd389835dd88981",
+      "indexed_lines": 598
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportManualCapture.kt",

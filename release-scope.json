@@ -3135,6 +3135,8 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivacyGuardrailAuthorizationTest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityFailureEvidence.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityFailureEvidenceTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GatewayCapabilityFailureReportTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GatewayCapabilityFailureReportTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedCorpusMultipass.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/CombinedCorpusMultipassTest.kt"
   ]
 }

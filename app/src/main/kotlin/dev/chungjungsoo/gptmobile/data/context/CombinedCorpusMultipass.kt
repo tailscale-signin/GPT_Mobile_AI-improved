@@ -153,17 +153,6 @@ object CombinedCorpusMultipass {
         }.getOrNull().orEmpty().ifBlank { current.userMessage.content }
         val output = (config.outputTokens.takeIf { it > 0 } ?: minOf(1024, capacity / 4))
         val safety = minOf(256, capacity / 16)
-        if (output < 128 || output.toLong() + safety.toLong() >= capacity.toLong()) {
-            throw RequestCapacityException(
-                code = "OUTPUT_CAPACITY_EXCEEDED",
-                message = "COMBINED_MULTIPASS_OUTPUT: The inspection output and safety reserve exceed the verified context. Explicitly reduce the configured output allowance or select a larger context. All frozen input remains retained.",
-                promptTokens = 0L,
-                safetyTokens = safety.toLong(),
-                outputTokens = output.toLong(),
-                capacityTokens = capacity.toLong(),
-                measurement = TokenMeasurementKind.UTF8_ESTIMATE
-            )
-        }
         val sourceTexts = turns.flatMapIndexed { index, turn ->
             buildList {
                 if (turn.userMessage.content.isNotEmpty()) add(Triple(index, "user", turn.userMessage.content))
@@ -218,10 +207,27 @@ object CombinedCorpusMultipass {
                     val estimate = ContextBudgetService.breakdown(listOf(sourceTurn), system, emptyList()).total
                     return sourceTurn to estimate
                 }
-                var lower = offset + 1
+                var bestEnd = text.offsetByCodePoints(offset, 1)
+                var best = candidate(bestEnd)
+                if (output < 128 || best.second.toLong() + output + safety > capacity) {
+                    val outputRejected = output < 128 || output.toLong() + safety >= capacity
+                    val message = when {
+                        output < 128 -> "COMBINED_MULTIPASS_OUTPUT: Source inspection needs at least 128 output tokens. The configured allowance is $output."
+                        outputRejected -> "COMBINED_MULTIPASS_OUTPUT: The output allowance and safety reserve exhaust the selected context. Reduce the output allowance or select a larger context."
+                        else -> "The smallest complete inspection request exceeds the selected context."
+                    }
+                    throw RequestCapacityException(
+                        if (outputRejected) "OUTPUT_CAPACITY_EXCEEDED" else "CONTEXT_CAPACITY_EXCEEDED",
+                        message,
+                        best.second.toLong(),
+                        safety.toLong(),
+                        output.toLong(),
+                        capacity.toLong(),
+                        TokenMeasurementKind.UTF8_ESTIMATE
+                    )
+                }
+                var lower = bestEnd + 1
                 var upper = maxEnd
-                var bestEnd = offset
-                var best: Pair<ConversationTurn, Int>? = null
                 while (lower <= upper) {
                     val midpoint = lower + (upper - lower) / 2
                     val middle = safeEnd(midpoint)
@@ -237,9 +243,6 @@ object CombinedCorpusMultipass {
                     } else {
                         upper = midpoint - 1
                     }
-                }
-                require(bestEnd > offset && best != null) {
-                    "COMBINED_MULTIPASS_CAPACITY: The original task and inspection envelope do not fit."
                 }
                 passes += CombinedCorpusInspectionPass(
                     ordinal,

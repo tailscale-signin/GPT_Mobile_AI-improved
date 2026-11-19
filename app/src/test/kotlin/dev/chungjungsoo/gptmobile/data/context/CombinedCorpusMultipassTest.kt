@@ -104,6 +104,20 @@ class CombinedCorpusMultipassTest {
         assertEquals(1024L, failure.capacityTokens)
     }
 
+    @Test fun inspectionHeadroomUsesTheMeasuredEnvelopeAndExplainsTheMinimumOutput() {
+        val turns = listOf(turn("Describe", true))
+        val minimum = assertThrows(RequestCapacityException::class.java) {
+            CombinedCorpusMultipass.plan(turns, "", TokenBudgetSettings(contextTokens = 1024, outputTokens = 127))
+        }
+        assertTrue(minimum.message.orEmpty().contains("at least 128"))
+        assertTrue(minimum.promptTokens > 0)
+        val envelope = assertThrows(RequestCapacityException::class.java) {
+            CombinedCorpusMultipass.plan(turns, "Instructions ".repeat(500), TokenBudgetSettings(contextTokens = 1024, outputTokens = 128))
+        }
+        assertEquals("CONTEXT_CAPACITY_EXCEEDED", envelope.code)
+        assertTrue(envelope.promptTokens + envelope.safetyTokens + 128 > 1024)
+    }
+
     @Test fun refusesExcessivePhysicalPassesWithoutDiscardingOriginalCorpus() {
         val source = "Untrusted source. ".repeat(12000)
         val failure = assertThrows(IllegalArgumentException::class.java) {

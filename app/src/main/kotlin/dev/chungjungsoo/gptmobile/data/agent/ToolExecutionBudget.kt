@@ -323,7 +323,7 @@ class ToolExecutionBudget(
                             val attemptId = "tool:${executionContext.role}:${executionContext.profileUid}:$statisticsRoot:$physicalIdentity"
                             val effectFingerprint = if (replayableRead || CombinedToolWork.isInspection(tool.definition) || AgentToolCapability.WEB_SEARCH in tool.definition.capabilities) null else combinedDigest(statisticsIdentity.key + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments))
                             when (val admission = budget.reserve(requireNotNull(physicalContext), attemptId, CombinedResourceQuota(toolOperations = workUnits), effectFingerprint = effectFingerprint)) {
-                                is CombinedBudgetAdmission.Denied -> return failure("Combined work allowance exhausted: ${admission.reason}. The configured tool-call limit was not the cause; use retained evidence.").copy(combinedWorkBudgetExhausted = true)
+                                is CombinedBudgetAdmission.Denied -> return ToolResultEnvelope.error(callId, "COMBINED_BUDGET_EXHAUSTED", "Combined work allowance exhausted: ${admission.reason}. Use retained evidence.").copy(combinedWorkBudgetExhausted = true)
                                 is CombinedBudgetAdmission.Granted -> {
                                     sharedBudget = budget
                                     reservationId = attemptId
@@ -447,7 +447,7 @@ class ToolExecutionBudget(
                     throw cancellation
                 } catch (error: CombinedBudgetExceeded) {
                     reason = "COMBINED_BUDGET_EXHAUSTED"
-                    return@execution failure("Combined work allowance exhausted: ${error.reason}. Use retained evidence.").copy(combinedWorkBudgetExhausted = true)
+                    return@execution ToolResultEnvelope.error(callId, "COMBINED_BUDGET_EXHAUSTED", "Combined work allowance exhausted: ${error.reason}. Use retained evidence.").copy(combinedWorkBudgetExhausted = true)
                 } catch (error: Exception) {
                     if (error is dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected && ToolFailureMetadata.authorityCode(error) == null) {
                         // Ordinary deterministic permission refusals keep their local

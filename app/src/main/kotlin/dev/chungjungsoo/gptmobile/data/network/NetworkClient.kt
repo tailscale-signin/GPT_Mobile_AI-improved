@@ -44,8 +44,12 @@ class NetworkClient @Inject constructor(
     internal fun gatewayReadClient(): HttpClient = gatewayReads
 
     private fun createClient(pool: ConnectionPool): HttpClient = HttpClient(httpEngine) {
+        install(PrivateMetadataGate)
         install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
-        if (httpEngine == OkHttp) install(ReadinessHttpPlugin)
+        if (httpEngine == OkHttp) {
+            install(ReadinessHttpPlugin)
+            install(OkHttpReadinessGrant)
+        }
         expectSuccess = false
         followRedirects = false
 
@@ -67,13 +71,11 @@ class NetworkClient @Inject constructor(
             engine {
                 (this as? OkHttpConfig)?.config {
                     addInterceptor(ReadinessHttpTrace.stripHeader)
+                    addInterceptor(PrivateGatewayMetadata.stripHeader)
                     addNetworkInterceptor { chain ->
                         val request = chain.request()
                         if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) {
-                            val metadata = request.method == "GET" &&
-                                request.url.query == null &&
-                                request.url.encodedPath in setOf("/props", "/models", "/v1/models", "/api/tags", "/gateway/live", "/gateway/ready", "/gateway/identity", "/gateway/capabilities")
-                            if (!metadata) throw java.io.IOException("PRIVACY_SERVICE_UNVERIFIED: This service has no verified retention policy.")
+                            if (!PrivateGatewayMetadata.allows(request)) throw PrivateMetadataDenied()
                         }
                         chain.proceed(request)
                     }
@@ -150,7 +152,8 @@ class NetworkClient @Inject constructor(
         internal fun resolveNetworkLogLevel(): LogLevel = if (dev.chungjungsoo.gptmobile.BuildConfig.DEBUG) LogLevel.HEADERS else LogLevel.NONE
 
         internal fun isSensitiveHeader(header: String): Boolean =
-            header.equals(HttpHeaders.Authorization, ignoreCase = true) ||
+            header.equals(PrivateGatewayMetadata.HEADER, ignoreCase = true) ||
+                header.equals(HttpHeaders.Authorization, ignoreCase = true) ||
                 header.equals(HttpHeaders.ProxyAuthorization, ignoreCase = true) ||
                 header.equals(HttpHeaders.Cookie, ignoreCase = true) ||
                 header.equals(HttpHeaders.SetCookie, ignoreCase = true) ||

@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonPrimitive
 /** Public precheck evidence comes from a closed local code, never tool-result prose or arguments. */
 internal object ToolPrecheckEvidence {
     private val reasons = setOf(
-        "BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE",
+        "BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE",
         "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "TOOL_PRECHECK_FAILED",
         "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED"
     )

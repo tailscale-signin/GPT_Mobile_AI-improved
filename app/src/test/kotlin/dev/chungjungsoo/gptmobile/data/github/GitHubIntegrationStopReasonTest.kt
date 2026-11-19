@@ -119,6 +119,17 @@ class GitHubIntegrationStopReasonTest {
         }
     }
 
+    @Test fun sharedCombinedDenialPreservesTheRemainingProfileAllowance() {
+        val task = "Test all tools read only and all branches"
+        val denial = json("""{"error_code":"COMBINED_BUDGET_EXHAUSTED","dispatched":false,"success":false}""")
+        val receipts = sampled() + ("shared-denial" to denial)
+        val stop = GitHubIntegrationReport.stopReason(task, receipts, listOf(branches), 91)
+        assertEquals(JsonPrimitive("COMBINED_BUDGET_EXHAUSTED"), stop["code"])
+        assertEquals(JsonPrimitive("REVIEW_SHARED_COMBINED_ALLOWANCE"), stop["recovery_action"])
+        assertEquals(JsonPrimitive(91), stop["remaining_tool_calls"])
+        assertEquals(JsonPrimitive(false), stop["budget_exhausted"])
+    }
+
     @Test fun requiredLocalFragmentAtBudgetExhaustionIsNotLabeledAsOptionalSampling() {
         val task = "Test all tools read only. Acceptance criteria:\n- Bind acceptance to the running app build and exact repository revision"
         val continuation = json("""{"tool":"github_context","arguments":{"view_cursor":"required-fragment:1"}}""")

@@ -1,12 +1,31 @@
 package dev.chungjungsoo.gptmobile.data.network
 
 import io.ktor.client.plugins.logging.LogLevel
+import kotlinx.coroutines.test.runTest
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NetworkClientTest {
+
+    @Test fun privateReadinessGrantBindsModelOriginMethodAndLifetime() = runTest {
+        val endpoint = "http://127.0.0.1:8090/gateway/ready"
+        val selected = "$endpoint?model=my-model".toHttpUrl()
+        var saved: String? = null
+        PrivateGatewayMetadata.withReadiness(endpoint, "my-model") { ticket ->
+            saved = ticket
+            assertTrue(PrivateGatewayMetadata.allows("GET", selected, ticket))
+            assertTrue(PrivateGatewayMetadata.allows("GET", "$selected&autoload=false".toHttpUrl(), ticket))
+            assertFalse(PrivateGatewayMetadata.allows("GET", selected, null))
+            assertFalse(PrivateGatewayMetadata.allows("POST", selected, ticket))
+            for (url in listOf("$selected&extra=x", "$selected&model=my-model", "$selected&autoload=true", "$endpoint?model=other", selected.toString().replace(":8090", ":8091"))) {
+                assertFalse(PrivateGatewayMetadata.allows("GET", url.toHttpUrl(), ticket))
+            }
+        }
+        assertFalse(PrivateGatewayMetadata.allows("GET", selected, saved))
+    }
 
     @Test
     fun `network logging avoids request body logging`() {

@@ -75,6 +75,7 @@ internal object IssueReportCodes {
         "TOOL_PRECHECK_FAILED",
         "TOOL_PROTOCOL_INVALID_FRAME",
         "TOOL_BUDGET_EXHAUSTED",
+        "COMBINED_BUDGET_EXHAUSTED",
         "OUTPUT_LIMIT",
         "INCOMPLETE_PROVIDER_STREAM",
         "CONNECTION_REFUSED",

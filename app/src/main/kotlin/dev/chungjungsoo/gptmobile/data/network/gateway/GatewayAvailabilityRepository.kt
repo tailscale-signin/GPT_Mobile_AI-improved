@@ -443,6 +443,9 @@ class GatewayAvailabilityRepository internal constructor(
 
 internal fun gatewayAvailabilityFailure(failure: Exception): GatewayAvailabilityFailure {
     val causes = generateSequence<Throwable>(failure) { it.cause }.take(8).toList()
+    if (causes.any { it is dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied }) {
+        return GatewayAvailabilityFailure(GatewayAvailabilityStatus.ACCESS_DENIED, "PRIVACY_SERVICE_UNVERIFIED")
+    }
     val status = when {
         causes.any { it is GatewayDashboardAccessDenied } -> GatewayAvailabilityStatus.ACCESS_DENIED
         causes.any { it is ConnectException || it is NoRouteToHostException || it is UnknownHostException } -> GatewayAvailabilityStatus.OFFLINE

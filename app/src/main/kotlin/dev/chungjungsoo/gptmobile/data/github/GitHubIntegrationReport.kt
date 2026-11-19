@@ -29,6 +29,8 @@ internal object GitHubIntegrationReport {
         val reason = when {
             GitHubTestChecklist.integration(task) && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
+            receipts.values.lastOrNull()?.get("error_code") == JsonPrimitive("COMBINED_BUDGET_EXHAUSTED") ->
+                "COMBINED_BUDGET_EXHAUSTED" to "The shared Combined turn allowance blocked the next operation. Individual profile calls may remain. Completed checks and pending operations have been saved."
             remaining == 0 -> "TOOL_BUDGET_EXHAUSTED" to "The recorded authorized tool-call budget has no remaining calls. Resume requires a new authorized budget."
             remaining != null && remaining <= GitHubChecklistBudget.VERIFICATION_RESERVE -> "VERIFICATION_RESERVE_REACHED" to "The remaining $remaining calls are reserved for verification and cleanup; acquisition stopped before the hard ceiling."
             cleanupStoppedBeforeDispatch -> "FIXTURE_CLEANUP_UNVERIFIED" to "GitHub cleanup stopped during preflight. The fixture still needs a guarded cleanup and a fresh absence check."
@@ -71,6 +73,7 @@ internal object GitHubIntegrationReport {
                     } else {
                         "RECONCILE_CATALOG_SNAPSHOT"
                     }
+                    "COMBINED_BUDGET_EXHAUSTED" -> "REVIEW_SHARED_COMBINED_ALLOWANCE"
                     "WAITING_FOR_APPROVAL" -> "RESOLVE_BOUND_APPROVAL"
                     "FIXTURE_CLEANUP_UNVERIFIED" -> if (cleanupStoppedBeforeDispatch) "RECHECK_OWNED_FIXTURE_PREFLIGHT" else "RECONCILE_OWNED_FIXTURE"
                     "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED" -> "REVIEW_REMAINING_SCOPE_AND_BUDGET"

@@ -50,11 +50,13 @@ object CombinedPolicyResolver {
         hardLimits: CombinedHardLimits = CombinedHardLimits(),
         caps: List<CombinedCapRecord> = emptyList(),
         workItems: List<CombinedWorkItem> = emptyList(),
-        prices: Map<String, dev.chungjungsoo.gptmobile.data.accounting.ModelPrice> = emptyMap()
+        prices: Map<String, dev.chungjungsoo.gptmobile.data.accounting.ModelPrice> = emptyMap(),
+        githubIntegrationCalls: Int? = null
     ): CombinedWorkPlan {
         require(requested.settings.isSupported && (requested.version == 1 && requested.completionPolicy == null || requested.appendContinuations && requested.settings.continueLongAnswers)) { "Unsupported Combined policy version." }
         require(requested.requestedPolicyDigest == combinedDigest(Json.encodeToString(requested.copy(requestedPolicyDigest = "")))) { "Combined accepted policy digest changed." }
         require(estimatedInputTokens >= 0 && requiredToolOperations >= 0)
+        require(githubIntegrationCalls == null || githubIntegrationCalls in 0..256)
         val stop = requested.settings.normalized().effort / 25
         val optional = listOf(
             CombinedResourceQuota(8_000, 2_000, 2),
@@ -222,15 +224,26 @@ object CombinedPolicyResolver {
                 derivedEvidence.map { item -> if (item.required) item.copy(assignedOwnerKey = fundingOwner) else item }
         }
         require(finite.map { it.id }.distinct().size == finite.size && finite.all { it.id.isNotBlank() && it.remainingUnits > 0 })
+        // A repository integration run already has a bounded, accepted operation budget.
+        // Every contributor draws from the same ledger, including the native checklist.
+        val sharedToolOperations = when {
+            !toolsAllowed -> 0L
+            githubIntegrationCalls != null -> minOf(githubIntegrationCalls.toLong(), hardLimits.toolOperations ?: Long.MAX_VALUE)
+            else -> optional.toolOperations
+        }
         val plan = CombinedWorkPlan(
             requested = requested,
             baselineByOwner = baseline,
             finalizationReserve = finalReserve,
-            optionalAllowance = optional.copy(toolOperations = if (toolsAllowed) optional.toolOperations else 0),
+            optionalAllowance = optional.copy(toolOperations = sharedToolOperations),
             costReservesByOwner = costReserves,
             hardLimits = hardLimits,
             caps = caps + listOf(
-                CombinedCapRecord("optional_tool_operations", optional.toolOperations, CombinedCapOrigin.APPLICATION_DEFAULT, CombinedCapScope.COMBINED_TURN, "Effort planning tranche; Full scale can renew for concrete unfinished work"),
+                if (githubIntegrationCalls != null) {
+                    CombinedCapRecord("github_integration_tool_operations", sharedToolOperations, CombinedCapOrigin.APPLICATION_DEFAULT, CombinedCapScope.COMBINED_TURN, "Shared GitHub integration execution ceiling")
+                } else {
+                    CombinedCapRecord("optional_tool_operations", sharedToolOperations, CombinedCapOrigin.APPLICATION_DEFAULT, CombinedCapScope.COMBINED_TURN, "Effort planning tranche; Full scale can renew for concrete unfinished work")
+                },
                 CombinedCapRecord("final_visible_output_guidance", requestedFinal.toLong(), CombinedCapOrigin.APPLICATION_DEFAULT, CombinedCapScope.INVOCATION, "Explicit answer contract overrides default visible-length guidance")
             ),
             workItems = finite,

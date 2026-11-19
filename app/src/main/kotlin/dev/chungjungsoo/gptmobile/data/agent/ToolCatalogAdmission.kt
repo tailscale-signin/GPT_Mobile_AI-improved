@@ -185,7 +185,11 @@ internal fun planAuthorizedToolContext(
     // They remain context, never new requirements attributed to the user.
     val task = requestedTask ?: turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()
     val existingCatalog = tools.firstNotNullOfOrNull { it.progressiveCatalog }
-    val effectiveGitHubMode = githubMode || existingCatalog?.githubMode == true
+    val integration = externalTools &&
+        dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task) &&
+        (task.contains("github", ignoreCase = true) || githubMode) &&
+        tools.any { ProgressiveToolCatalog.isGitHubTool(it.tool.definition) }
+    val effectiveGitHubMode = githubMode || existingCatalog?.githubMode == true || integration
     val scopedGitHubStatus = effectiveGitHubMode &&
         dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task) &&
         task.lineSequence().none { it.trim() == "[github-workflow-preset:test_integration]" }
@@ -201,7 +205,7 @@ internal fun planAuthorizedToolContext(
             emptyList()
         } + recovery
         ).distinctBy { it.name }
-    val catalog = if (externalTools) existingCatalog ?: if (limits.adaptiveToolCatalog || scopedGitHubStatus) ProgressiveToolCatalog.create(definitions, task, githubMode = effectiveGitHubMode) else null else null
+    val catalog = if (externalTools) existingCatalog ?: if (limits.adaptiveToolCatalog || scopedGitHubStatus || integration) ProgressiveToolCatalog.create(definitions, task, githubMode = effectiveGitHubMode) else null else null
     val advertised = (required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
     // Pin the immediate status/context read, not every operation mentioned in
     // a multi-step engineering task. Remaining schemas are discoverable later.

@@ -6,6 +6,11 @@ pluginManagement {
                 url = uri("https://maven-central.storage-download.googleapis.com/maven2/")
                 content {
                     includeGroup("org.jetbrains.kotlin")
+                    // Kotlin's plugin markers are published under separate group IDs.
+                    for (plugin in listOf("compose", "parcelize", "serialization")) {
+                        val id = "org.jetbrains.kotlin.plugin.$plugin"
+                        includeModule(id, "$id.gradle.plugin")
+                    }
                     includeGroup("io.objectbox")
                     includeModule("com.google.dagger", "hilt-android-gradle-plugin")
                     // Hilt inherits this POM. A rate-limited primary must not strand its metadata.

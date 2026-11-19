@@ -13,6 +13,16 @@ SPEC.loader.exec_module(retry)
 
 
 class GradleRetryTest(unittest.TestCase):
+    def test_kotlin_markers_recover_only_for_matching_pinned_artifacts(self):
+        for marker in retry.KOTLIN_MARKERS:
+            with self.subTest(marker=marker):
+                missing = f"Plugin [id: '{marker}', version: '2.4.20', apply: false] was not found"
+                artifact = f"Plugin Repositories (could not resolve plugin artifact '{marker}:{marker}.gradle.plugin:2.4.20')"
+                self.assertTrue(retry.retryable([missing, artifact]))
+                self.assertFalse(retry.retryable([missing, artifact.replace(marker, 'another.plugin')]))
+                self.assertFalse(retry.retryable([missing, artifact.replace('2.4.20', '2.4.99')]))
+                self.assertFalse(retry.retryable([missing, artifact, 'HTTP 404']))
+
     @unittest.skipUnless(hasattr(os, 'pidfd_open'), 'Descendant exit qualification requires Linux process handles')
     def test_deadline_terminates_a_stalled_descendant_and_never_retries_it(self):
         with tempfile.TemporaryDirectory() as directory:

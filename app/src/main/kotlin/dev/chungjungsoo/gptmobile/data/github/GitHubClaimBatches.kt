@@ -109,9 +109,13 @@ internal object GitHubClaimBatches {
         return request.copy(payload = reduced.toString(), maxClaims = limit)
     }
 
-    fun validate(answer: JsonObject, request: Request): JsonObject {
-        val claims = JsonArray(requireNotNull(answer["claims"] as? JsonArray).map(::normalizeClaim))
-        require(request.maxClaims in 1..MAX_CLAIMS && claims.size in 1..request.maxClaims)
+    fun validate(answer: JsonObject, request: Request, onValidationStage: (String) -> Unit = {}): JsonObject {
+        onValidationStage("CLAIM_LIST")
+        val entries = requireNotNull(answer["claims"] as? JsonArray)
+        onValidationStage("CLAIM_COUNT")
+        require(request.maxClaims in 1..MAX_CLAIMS && entries.size in 1..request.maxClaims)
+        onValidationStage("CLAIM_RECORD")
+        val claims = JsonArray(entries.map(::normalizeClaim))
         claims.forEach { entry ->
             val claim = requireNotNull(entry as? JsonObject)
             when (claim.string("kind")) {
@@ -126,6 +130,7 @@ internal object GitHubClaimBatches {
                 else -> error("Unsupported claim kind")
             }
         }
+        onValidationStage("REQUIREMENT_MAP")
         val coverage = (answer["requirement_claims"] as? JsonArray)?.let { rows ->
             entryMap(rows, "requirement_id") { it.getValue("claim_indexes") }
         } ?: objectField(answer, "requirement_claims")
@@ -143,6 +148,7 @@ internal object GitHubClaimBatches {
             val mapping = requireNotNull(value as? JsonObject)
             require(mapping.values.all { ids -> ids is JsonArray && ids.size <= 32 && ids.all { it is JsonPrimitive && it.isString } })
         }
+        onValidationStage("QUESTIONS")
         val questions = when (val value = answer["questions"]) {
             null, JsonNull -> emptyList()
             is JsonArray -> value.map { requireNotNull((it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)).content.take(240) }.take(2)

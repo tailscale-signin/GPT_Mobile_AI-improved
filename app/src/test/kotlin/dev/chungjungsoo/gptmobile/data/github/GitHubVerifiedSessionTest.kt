@@ -781,6 +781,16 @@ class GitHubVerifiedSessionTest {
         assertFalse(budget.containsKey("used_calls"))
     }
 
+    @Test fun unrelatedExposedToolCannotStandInForTheIntegrationCatalog() = runTest {
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet())
+        val gate = GitHubVerifiedSession(answer("unused"), book, "Test GitHub tools and report.", { 8192 }, { error("No verifier without operation evidence") }, {}, {})
+        val events = gate.streamRound(listOf(AgentToolDefinition("weather", "", JsonObject(emptyMap()))), emptyList()).toList()
+        val terminal = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", terminal.errorCode)
+        assertEquals(JsonPrimitive("CATALOG_TOOL_NOT_EXPOSED"), terminal.failureDetails?.get("github_prerequisite_observation"))
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+    }
+
     @Test fun absentIntegrationCatalogStopsBeforeProviderDenialCanBeDispatched() = runTest {
         val task = "Test GitHub tools and report."
         val book = GitHubEvidenceBook("b", "o/r", "main", emptySet())

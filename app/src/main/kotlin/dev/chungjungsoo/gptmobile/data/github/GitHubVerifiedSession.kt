@@ -255,7 +255,7 @@ internal class GitHubVerifiedSession(
                     }.take(12)
                 )
             }
-            val discovery = tools.firstOrNull { it.name == "discover_available_tools" }
+            val discovery = tools.firstOrNull { it.name == GitHubAuthorizedCatalog.TOOL && it.modelVisible }
             val catalogNext = GitHubAuthorizedCatalog.next(tools, receipts, authorizedTools)
             val catalogComplete = GitHubAuthorizedCatalog.snapshot(receipts, authorizedTools)["complete"] == kotlinx.serialization.json.JsonPrimitive(true)
             val discoveryArgs = buildJsonObject { put("names", JsonArray(missing.map { kotlinx.serialization.json.JsonPrimitive(it.name) })) }
@@ -314,10 +314,15 @@ internal class GitHubVerifiedSession(
             // or answer rewrite can supply missing executions or unlock a blocked dependency.
             val acceptanceComplete = (checkpoint["requirements"] as? JsonArray)?.isNotEmpty() == true &&
                 (checkpoint["remaining_requirements"] as? JsonArray)?.isEmpty() == true
+            val catalogObservation = when {
+                receipts.isNotEmpty() || catalogComplete || catalogNext != null -> null
+                discovery == null -> "CATALOG_TOOL_NOT_EXPOSED"
+                else -> "CATALOG_INITIAL_REQUEST_UNAVAILABLE"
+            }
             val executionBlocker = when {
                 acceptanceComplete -> null
                 remainingToolCalls() == 0 -> "TOOL_BUDGET_EXHAUSTED"
-                tools.isEmpty() && authorizedTools.isEmpty() -> "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE"
+                catalogObservation != null || tools.isEmpty() && authorizedTools.isEmpty() -> "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE"
                 else -> null
             }
             if (executionBlocker == null) {
@@ -339,6 +344,7 @@ internal class GitHubVerifiedSession(
                             failureDetails = buildJsonObject {
                                 put("failed_stage", "tool_admission")
                                 put("stop_reason", executionBlocker)
+                                if (executionBlocker == "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE") catalogObservation?.let { put("github_prerequisite_observation", it) }
                                 put("dispatched", false)
                                 put("retryable", false)
                             }
@@ -1195,7 +1201,7 @@ internal class GitHubVerifiedSession(
         fun completedCount() = completed.count { it != null }
         val requirementIds = requests.map { it.requirementIds }
         val attempt = GitHubClaimExtraction.Attempt()
-        suspend fun failed(code: String, providerFailure: ProviderEvent.Failed? = null): ClaimExtraction {
+        suspend fun failed(code: String, providerFailure: ProviderEvent.Failed? = null, observations: JsonObject? = null): ClaimExtraction {
             val (text, report) = partial(receipts, epoch, code)
             val retained = JsonObject(
                 report + buildJsonObject {
@@ -1206,6 +1212,7 @@ internal class GitHubVerifiedSession(
                         "verification_failure",
                         buildJsonObject {
                             providerFailure?.failureDetails?.forEach { (key, value) -> put(key, value) }
+                            observations?.forEach { (key, value) -> put(key, value) }
                             put("claim_extraction_schema_hash", schemaHash)
                             put("code", code)
                             put("failed_stage", "claim_extraction")
@@ -1276,7 +1283,7 @@ internal class GitHubVerifiedSession(
                 ClaimExtraction(result)
             } ?: failed(attempt.terminalFailure?.errorCode ?: "GITHUB_EXTRACTION_TIMEOUT", attempt.failureAtDeadline())
         } catch (failure: GitHubClaimExtraction.Failure) {
-            failed(failure.code, failure.providerFailure)
+            failed(failure.code, failure.providerFailure, failure.observations)
         }
     }
 

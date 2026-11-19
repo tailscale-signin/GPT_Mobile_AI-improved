@@ -50,6 +50,17 @@ class GitHubReviewBaselineTest {
 
     private fun failed(ref: String, code: String, action: String = "commit") = JsonObject(resolved(ref, success = false, action = action) + ("error_code" to JsonPrimitive(code)))
 
+    @Test fun missingHeadPreservesTheCauseOfTheSelectedStatusRead() {
+        val status = JsonObject(context() + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("NETWORK_TIMEOUT")))
+        val plan = requireNotNull(GitHubReviewComparison.plan(review, tools, mapOf("status" to status)))
+        assertNull(plan.nextCall)
+        val failure = GitHubReviewComparison.blockedFailure(plan)
+        assertEquals("NETWORK_TIMEOUT", failure.errorCode)
+        assertEquals(JsonPrimitive("STATUS_READ_FAILED"), failure.failureDetails?.get("github_prerequisite_observation"))
+        val absent = requireNotNull(GitHubReviewComparison.plan(review, emptyList(), emptyMap()))
+        assertEquals(JsonPrimitive("STATUS_TOOL_NOT_EXPOSED"), absent.checkpoint["github_prerequisite_observation"])
+    }
+
     @Test fun blockedComparisonPreservesOnlyTheConcreteFailedLookupCause() {
         val original = JsonObject(failed("release/stable", "GITHUB_REF_UNAVAILABLE") + ("call_id" to JsonPrimitive("baseline-lookup")))
         val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: release/stable", tools, mapOf("status" to context(), "failed" to original)))

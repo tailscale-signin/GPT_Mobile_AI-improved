@@ -68,7 +68,7 @@ internal object IssueReportIncidentCapsule {
     private val common = failedEventFields + setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "sqlite_constraint_kind", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
     val toolFailureFields = setOf("url_reader_dns_state", "url_reader_availability", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
-    val providerExecutionFields = setOf("claim_extraction_schema_hash", "tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection", "tool_protocol_frame_kind", "tool_protocol_recovery_outcome", "claim_extraction_failure_kind", "claim_extraction_response_characters", "claim_extraction_max_claims", "claim_extraction_completed")
+    val providerExecutionFields = setOf("claim_extraction_validation_stage", "claim_extraction_schema_hash", "tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection", "tool_protocol_frame_kind", "tool_protocol_recovery_outcome", "claim_extraction_failure_kind", "claim_extraction_response_characters", "claim_extraction_max_claims", "claim_extraction_completed")
     val combinedRepairStops = setOf("CORRECTION_CAPACITY_UNAVAILABLE", "LEGACY_REVISION_REQUIRES_NEW_OWNER", "LEGACY_REPAIR_ALLOWANCE_REACHED", "NO_PROGRESS_AFTER_REQUIRED_REVISIONS", "NO_PROGRESS_AFTER_REQUIRED_REVISION", "NEWER_REVISION_OR_UNAVAILABLE_REPLACEMENT_OWNER", "REPAIR_REJECTED", "NO_REMAINING_REQUIRED_CORRECTION", "REPAIR_PREPARATION_FAILED", "REPLACEMENT_MADE_NO_TEXT_PROGRESS", "REPLACEMENT_OWNER_COMPARE_AND_SET_REJECTED")
     val combinedDeliveryFields = setOf("combined_requirement_gap", "combined_issue_count", "combined_failed_check_count", "combined_unverified_check_count", "combined_repair_rounds", "combined_repair_stop")
     private val handoffReconciliationCounts = setOf("handoff_replay_receipt_count", "handoff_replay_matched_count", "handoff_durable_receipt_count", "handoff_durable_matched_count", "handoff_retained_matched_count")
@@ -147,6 +147,8 @@ internal object IssueReportIncidentCapsule {
         // Capture only the producer's closed type, never its raw error string.
         "provider_error_code_state" to setOf("ABSENT"),
         "provider_error_origin" to setOf("OPENAI_COMPAT_STREAM_ERROR_VALUE"),
+        "claim_extraction_validation_stage" to setOf("CLAIM_LIST", "CLAIM_COUNT", "CLAIM_RECORD", "REQUIREMENT_MAP", "QUESTIONS"),
+        "github_prerequisite_observation" to setOf("CATALOG_TOOL_NOT_EXPOSED", "CATALOG_INITIAL_REQUEST_UNAVAILABLE", "STATUS_TOOL_NOT_EXPOSED", "STATUS_ARGUMENTS_UNAVAILABLE", "STATUS_READ_FAILED", "STATUS_RECEIPT_UNUSABLE"),
         "claim_extraction_failure_kind" to setOf("INVALID_JSON", "NON_OBJECT", "SCHEMA_REJECTED"),
         "inventory_pagination_reason" to setOf("MISSING_VERSION", "VERSION_MISMATCH"),
         "remote_pagination_reason" to setOf("INCOMPLETE", "STALLED"),
@@ -317,8 +319,8 @@ internal object IssueReportIncidentCapsule {
 
     fun fieldsFor(area: String): Set<String> = common + when (area) {
         "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields + repeatHistoryFields + inventoryPaginationFields
-        "INCIDENT" -> combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure", "provider_error_code_state", "provider_error_origin")
-        "ACCEPTANCE" -> acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + policyResponseFields + GitHubAcceptancePublicationEvidence.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
+        "INCIDENT" -> setOf("github_prerequisite_observation") + combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure", "provider_error_code_state", "provider_error_origin")
+        "ACCEPTANCE" -> setOf("github_prerequisite_observation") + acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + policyResponseFields + GitHubAcceptancePublicationEvidence.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
         "GATEWAY" -> gatewayFields
         "PROVIDER" -> providerFields + setOf("provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash")
         "APP" -> setOf("crash_surface", "crash_boundary")

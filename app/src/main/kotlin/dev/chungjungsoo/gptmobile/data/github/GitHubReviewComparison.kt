@@ -206,11 +206,12 @@ internal object GitHubReviewComparison {
             if (receipts.values.any { targetReceipt(it) && it["trusted"] == JsonPrimitive(true) && it["tool"] == JsonPrimitive(tool.name) && it["arguments"] == arguments && it["verification_eligible"] != JsonPrimitive(false) }) return null
             return ProviderEvent.ToolCall("review-base-${receipts.size}-${GitHubEvidenceBook.digest(arguments.toString()).take(8)}", tool.name, arguments)
         }
-        fun state(code: String, detail: String, next: ProviderEvent.ToolCall? = null, failure: JsonObject? = null) = Plan(
+        fun state(code: String, detail: String, next: ProviderEvent.ToolCall? = null, failure: JsonObject? = null, observation: String? = null) = Plan(
             buildJsonObject {
                 put("state", code)
                 put("detail", detail)
                 put("comparison_policy", policy)
+                observation?.let { put("github_prerequisite_observation", it) }
                 if (targetRepository.isNotBlank()) put("repository", targetRepository)
                 if (head.isNotBlank()) put("head_sha", head)
                 if (base.isNotBlank()) put("base_sha", base)
@@ -256,7 +257,29 @@ internal object GitHubReviewComparison {
                 it["repository_role"] != JsonPrimitive("READ_SOURCE") &&
                 (it.text("workspace_branch").isBlank() || data(it).text("branch") == it.text("workspace_branch"))
         }
-            ?: return state("HEAD_REQUIRED", "Resolve the selected branch and default branch before comparing.", call("github_context", buildJsonObject { put("action", "status") }))
+        if (context == null) {
+            val arguments = buildJsonObject { put("action", "status") }
+            val next = call("github_context", arguments)
+            if (next != null) return state("HEAD_REQUIRED", "Resolve the selected branch and default branch before comparing.", next)
+            val candidates = githubFamilyTools(tools, "github_context")
+            val selectedTool = candidates.firstOrNull { ToolArgumentValidator.errors(arguments, it.inputSchema).isEmpty() }
+            val prior = receipts.values.filter {
+                targetReceipt(it) &&
+                    it["trusted"] == JsonPrimitive(true) &&
+                    it["verification_eligible"] != JsonPrimitive(false) &&
+                    it.text("tool") == selectedTool?.name &&
+                    args(it) == arguments
+            }
+            val failed = prior.takeIf { rows -> rows.map { it.text("repository") to it.text("workspace_branch") }.distinct().size == 1 }
+                ?.lastOrNull()?.takeIf { it["success"] == JsonPrimitive(false) }
+            val observation = when {
+                candidates.isEmpty() -> "STATUS_TOOL_NOT_EXPOSED"
+                selectedTool == null -> "STATUS_ARGUMENTS_UNAVAILABLE"
+                failed != null -> "STATUS_READ_FAILED"
+                else -> "STATUS_RECEIPT_UNUSABLE"
+            }
+            return state("HEAD_REQUIRED", "The selected branch head could not be verified from repository status.", failure = failed?.let(::resolutionFailure), observation = observation)
+        }
         val selected = data(context)
         targetRepository = context.text("repository")
         head = selected.text("commit_sha")

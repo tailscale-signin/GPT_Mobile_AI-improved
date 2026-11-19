@@ -79,6 +79,15 @@ class GitHubClaimExtractionTest {
         assertSame(original, result.providerFailure)
     }
 
+    @Test fun interruptedExtractionRetainsItsOwnCountsAndOriginalProviderFailure() = runBlocking {
+        val aborted = ProviderEvent.Failed("Stream interrupted", errorCode = "CONNECTION_ABORTED", transportComplete = false)
+        val result = failed(flowOf(ProviderEvent.TextDelta("part"), aborted))
+        assertSame(aborted, result.providerFailure)
+        assertFalse(result.repairAllowed)
+        assertEquals(JsonPrimitive(4), result.observations?.get("claim_extraction_response_characters"))
+        assertEquals(JsonPrimitive(false), result.observations?.get("claim_extraction_completed"))
+    }
+
     @Test fun incompleteOutputLimitCannotAuthorizeAnotherExtractionAttempt() = runBlocking {
         val original = ProviderEvent.Failed("Output allowance reached", errorCode = "OUTPUT_LIMIT", invocationId = "incomplete-attempt")
         val result = failed(flowOf(ProviderEvent.TextDelta(response), original, ProviderEvent.Completed))
@@ -190,6 +199,7 @@ class GitHubClaimExtractionTest {
         assertEquals(JsonPrimitive("NON_OBJECT"), nonObject.providerFailure?.failureDetails?.get("claim_extraction_failure_kind"))
         val schema = failed(flowOf(ProviderEvent.TextDelta("{\"claims\":[]}"), ProviderEvent.Completed))
         assertEquals(JsonPrimitive("SCHEMA_REJECTED"), schema.providerFailure?.failureDetails?.get("claim_extraction_failure_kind"))
+        assertEquals(JsonPrimitive("CLAIM_COUNT"), schema.providerFailure?.failureDetails?.get("claim_extraction_validation_stage"))
 
         assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", failed(flowOf(ProviderEvent.TextDelta("{\"claims\":["), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed)).code)
         assertEquals("GITHUB_EXTRACTION_FAILED", failed(flowOf(ProviderEvent.TextDelta(response))).code)

@@ -40,12 +40,15 @@ internal object ProviderRejectionDiagnostics {
                     fields["provider_parameter"] == JsonPrimitive("response_format") ||
                     text("message")?.startsWith("Invalid schema for response_format", ignoreCase = true) == true
                 )
-        if (!billing && status != 401 && status != 410 && !schemaRejected) return fields
+        val configurationRequired = billing || status == 401 || status == 410 || schemaRejected
+        if (!configurationRequired && status != 429) return fields
         return JsonObject(
             fields + buildJsonObject {
                 if (billing) put("provider_rejection_category", "BILLING_UNAVAILABLE")
-                put("retryable", false)
-                put("recovery_action", "RETRY_AFTER_CONFIGURATION_CHANGE")
+                if (configurationRequired) {
+                    put("retryable", false)
+                    put("recovery_action", "RETRY_AFTER_CONFIGURATION_CHANGE")
+                }
                 // Hash the route identity without credentials, query parameters or fragments.
                 val route = endpoint?.let { runCatching { java.net.URI(it) }.getOrNull() }
                 if (route != null && route.scheme in setOf("https", "http") && route.host != null) {

@@ -78,6 +78,16 @@ class ProviderRejectionDiagnosticsTest {
         assertTrue(unknown["provider_error_type_hash"] != unknown["provider_parameter_path_hash"])
     }
 
+    @Test fun rateLimitedRoutePreservesTheCooldownPolicyAndExcludesPrivateComponents() {
+        fun response(endpoint: String) = ProviderRejectionDiagnostics.response(429, "{}", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS, endpoint)
+        val route = response("https://private:secret@example.test/v1/chat?token=a#private")
+        assertEquals(response("https://example.test/v1/chat")["provider_route_hash"], route["provider_route_hash"])
+        assertTrue(route["provider_route_hash"] != response("https://example.test/v2/chat")["provider_route_hash"])
+        assertEquals(JsonPrimitive("RATE_LIMIT"), route["provider_rejection_category"])
+        assertFalse("retryable" in route || "recovery_action" in route)
+        assertFalse(route.toString().contains("private"))
+    }
+
     @Test fun malformedResponseAndUnknownTypeLeaveTheMissingCauseUnclaimed() {
         for (body in listOf("not JSON", "[]", "x".repeat(256 * 1024 + 1))) {
             val result = ProviderRejectionDiagnostics.response(400, body, ProviderRejectionDiagnostics.Contract.ANTHROPIC_MESSAGES)

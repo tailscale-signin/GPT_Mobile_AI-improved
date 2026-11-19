@@ -648,6 +648,7 @@ class IssueReportIncidentCapsuleTest {
                 "diagnostic_area" to "PROVIDER",
                 "failed_stage" to "claim_extraction",
                 "claim_extraction_failure_kind" to "SCHEMA_REJECTED",
+                "claim_extraction_validation_stage" to "CLAIM_RECORD",
                 "claim_extraction_response_characters" to 1024,
                 "claim_extraction_max_claims" to 2,
                 "claim_extraction_completed" to true,
@@ -656,6 +657,7 @@ class IssueReportIncidentCapsuleTest {
         )
         val values = requireNotNull(context.diagnostics).values
         assertEquals(JsonPrimitive("SCHEMA_REJECTED"), values["claim_extraction_failure_kind"])
+        assertEquals(JsonPrimitive("CLAIM_RECORD"), values["claim_extraction_validation_stage"])
         assertEquals(JsonPrimitive(1024), values["claim_extraction_response_characters"])
         assertEquals(JsonPrimitive(2), values["claim_extraction_max_claims"])
         assertEquals(JsonPrimitive(true), values["claim_extraction_completed"])

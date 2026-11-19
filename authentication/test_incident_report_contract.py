@@ -309,6 +309,7 @@ class IncidentReportContractTest(unittest.TestCase):
             "causal_failure_code": "GITHUB_TASK_INCOMPLETE",
             "incident_evidence_status": "TYPED_EVIDENCE",
             "claim_extraction_failure_kind": "SCHEMA_REJECTED",
+            "claim_extraction_validation_stage": "CLAIM_RECORD",
             "claim_extraction_response_characters": 1024,
             "claim_extraction_max_claims": 2,
             "claim_extraction_completed": True,
@@ -317,6 +318,7 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
         for key, invalid in (
             ("claim_extraction_failure_kind", "private-response"),
+            ("claim_extraction_validation_stage", "private-response"),
             ("claim_extraction_response_characters", -1),
             ("claim_extraction_max_claims", "8"),
             ("claim_extraction_completed", "true"),
@@ -328,6 +330,14 @@ class IncidentReportContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_diagnostics(self.capture("TOOL", {"claim_extraction_failure_kind": "SCHEMA_REJECTED"}))
         self.assertNotIn("private-response", json.dumps(capture))
+
+    def test_prerequisite_observations_are_bounded_and_area_scoped(self):
+        for area, observation in (("INCIDENT", "STATUS_READ_FAILED"), ("ACCEPTANCE", "CATALOG_TOOL_NOT_EXPOSED")):
+            capture = self.capture(area, {"github_prerequisite_observation": observation})
+            self.assertEqual(validate_diagnostics(copy.deepcopy(capture)), capture)
+        for area, observation in (("TOOL", "STATUS_READ_FAILED"), ("ACCEPTANCE", "private raw error")):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {"github_prerequisite_observation": observation}))
 
     def test_pending_gateway_tool_results_accept_closed_handoff_diagnostics(self):
         capture = self.capture("PROVIDER", {

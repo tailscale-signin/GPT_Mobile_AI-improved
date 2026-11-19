@@ -12,6 +12,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubCiOriginTest {
+    @Test fun anAbortedStorageReadRestartsAtTheOriginalJobAndCachesOnlyTheCompleteBody() = runTest {
+        var apiReads = 0
+        var storageReads = 0
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.host == "api.github.com") {
+                    apiReads++
+                    assertEquals("/repos/o/r/actions/jobs/7/logs", request.url.encodedPath)
+                    respond("", HttpStatusCode.Found, headersOf(HttpHeaders.Location, "https://fixture.blob.core.windows.net/log-$apiReads"))
+                } else {
+                    assertEquals(null, request.headers[HttpHeaders.Authorization])
+                    if (++storageReads == 1) throw java.net.SocketException("Connection reset")
+                    respond("verified log")
+                }
+            }
+        ).use { client ->
+            val reader = GitHubCiLogReader(client, "fixture", GitHubRequestScheduler(), GitHubResponseCache())
+            val path = "/repos/o/r/actions/jobs/7/logs"
+            val result = reader.read(path, true)
+            assertEquals(GitHubCiLogReader.Log("verified log", 12, true), result)
+            assertEquals(result, reader.read(path, true))
+            assertEquals(2, apiReads)
+            assertEquals(2, storageReads)
+        }
+    }
+
     @Test fun enterpriseLogRedirectRetainsTheApiOriginAndStripsStorageCredentials() = runTest {
         val seen = mutableListOf<String>()
         HttpClient(

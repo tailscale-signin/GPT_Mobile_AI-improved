@@ -144,6 +144,19 @@ class GraphServiceTests(unittest.TestCase):
         self.service = GraphService(self.storage, self.backend)
         self.request = {'action': 'index', 'repository': 'owner/repo', 'branch': 'feature', 'commit_sha': self.head}
 
+    def test_synchronous_batch_confirmation_survives_restart_and_matches_only_its_request(self):
+        attempt = 'b9f76ca6-419d-4aa4-98ba-c7acd5019db6'
+        self.service.execute('client', dict(self.request, sync_index_request_id=attempt))
+        restored = GraphService(self.storage, self.backend)
+        status = dict(self.request, action='status', confirm_sync_index_request_id=attempt)
+        reads = self.blob_reads
+        self.assertEqual(restored.execute('client', status)['confirmed_sync_request_id'], attempt)
+        other = 'e9f76ca6-419d-4aa4-98ba-c7acd5019db6'
+        self.assertNotIn('confirmed_sync_request_id', restored.execute('client', dict(status, confirm_sync_index_request_id=other)))
+        self.assertNotIn('confirmed_sync_request_id', restored.execute('another-client', status))
+        self.assertNotIn('sync_index_receipts', restored.execute('client', dict(self.request, action='status')))
+        self.assertEqual(self.blob_reads, reads)
+
     def tearDown(self):
         self.temp.cleanup()
 

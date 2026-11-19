@@ -17,8 +17,79 @@ internal object GitHubClaimBatches {
 
     data class Request(val payload: String, val requirementIds: Set<String>, val maxClaims: Int = MAX_CLAIMS)
 
-    /** OpenAI-compatible JSON Schema response format; other providers keep the same local validator. */
-    fun responseSchemaJson(): String = """{"type":"json_schema","json_schema":{"name":"github_evidence_claims","strict":true,"schema":{"type":"object","properties":{"claims":{"type":"array","items":{"type":"object","properties":{"kind":{"type":"string","enum":["fact","excerpt","inferred","calculation","recommendation","not_measured"]},"receipt_id":{"type":["string","null"]},"pointer":{"type":["string","null"]},"value":{},"text":{"type":["string","null"]},"sources":{"type":["array","null"],"items":{"type":"object","properties":{"receipt_id":{"type":"string"},"pointer":{"type":"string"},"value":{}},"required":["receipt_id","pointer","value"],"additionalProperties":false}},"subject":{"type":["string","null"]},"operation":{"type":["string","null"]}},"required":["kind","receipt_id","pointer","value","text","sources","subject","operation"],"additionalProperties":false}},"requirement_claims":{"type":"object","additionalProperties":{"type":"array","items":{"type":"integer"}}},"acceptance":{"type":"object","additionalProperties":{"type":"object","additionalProperties":{"type":"array","items":{"type":"string"}}}},"questions":{"type":"array","items":{"type":"string"}}},"required":["claims","requirement_claims","acceptance","questions"],"additionalProperties":false}}}"""
+    /** Encode arbitrary GitHub values as JSON text so strict providers can constrain every field. */
+    fun responseSchemaJson(): String = wireSchema
+
+    private val wireSchema: String by lazy {
+        val string = schemaType("string")
+        val nullableString = buildJsonObject { put("type", JsonArray(listOf(JsonPrimitive("string"), JsonPrimitive("null")))) }
+        val source = record("receipt_id" to string, "pointer" to string, "value_json" to string)
+        val kinds = listOf("fact", "excerpt", "inferred", "calculation", "recommendation", "not_measured")
+        val claim = record(
+            "kind" to JsonObject(string + ("enum" to JsonArray(kinds.map(::JsonPrimitive)))),
+            "receipt_id" to nullableString,
+            "pointer" to nullableString,
+            "value_json" to nullableString,
+            "text" to nullableString,
+            "sources" to arrayOfItems(source),
+            "subject" to nullableString,
+            "operation" to nullableString
+        )
+        val coverage = record("requirement_id" to string, "claim_indexes" to arrayOfItems(schemaType("integer")))
+        val group = record("role" to string, "receipt_ids" to arrayOfItems(string))
+        val acceptance = record("requirement_id" to string, "groups" to arrayOfItems(group))
+        buildJsonObject {
+            put("type", "json_schema")
+            put(
+                "json_schema",
+                buildJsonObject {
+                    put("name", "github_evidence_claims_v2")
+                    put("strict", true)
+                    put("schema", record("claims" to arrayOfItems(claim), "requirement_claims" to arrayOfItems(coverage), "acceptance" to arrayOfItems(acceptance), "questions" to arrayOfItems(string)))
+                }
+            )
+        }.toString()
+    }
+
+    private fun schemaType(type: String) = buildJsonObject { put("type", type) }
+    private fun arrayOfItems(item: JsonObject) = buildJsonObject {
+        put("type", "array")
+        put("items", item)
+    }
+
+    private fun record(vararg fields: Pair<String, JsonObject>) = buildJsonObject {
+        put("type", "object")
+        put("properties", JsonObject(fields.toMap()))
+        put("required", JsonArray(fields.map { JsonPrimitive(it.first) }))
+        put("additionalProperties", false)
+    }
+
+    private fun normalizeSource(source: JsonObject): JsonObject {
+        if ("value_json" !in source) return source
+        require("value" !in source)
+        val encoded = source["value_json"]
+        val rest = source - "value_json"
+        if (encoded == JsonNull) return JsonObject(rest)
+        val value = requireNotNull((encoded as? JsonPrimitive)?.takeIf(JsonPrimitive::isString))
+        return JsonObject(rest + ("value" to kotlinx.serialization.json.Json.parseToJsonElement(value.content)))
+    }
+
+    private fun normalizeClaim(entry: JsonElement): JsonObject {
+        val claim = normalizeSource(requireNotNull(entry as? JsonObject))
+        val sources = claim["sources"] as? JsonArray ?: return claim
+        return JsonObject(claim + ("sources" to JsonArray(sources.map { normalizeSource(requireNotNull(it as? JsonObject)) })))
+    }
+
+    private fun entryMap(rows: JsonArray, key: String, value: (JsonObject) -> JsonElement): JsonObject {
+        val result = linkedMapOf<String, JsonElement>()
+        for (element in rows) {
+            val row = requireNotNull(element as? JsonObject)
+            val id = row.string(key)
+            require(id.isNotBlank() && id !in result)
+            result[id] = value(row)
+        }
+        return JsonObject(result)
+    }
 
     fun withClaimLimit(request: Request, limit: Int): Request {
         require(limit in 1 until request.maxClaims)
@@ -28,7 +99,7 @@ internal object GitHubClaimBatches {
     }
 
     fun validate(answer: JsonObject, request: Request): JsonObject {
-        val claims = requireNotNull(answer["claims"] as? JsonArray)
+        val claims = JsonArray(requireNotNull(answer["claims"] as? JsonArray).map(::normalizeClaim))
         require(request.maxClaims in 1..MAX_CLAIMS && claims.size in 1..request.maxClaims)
         claims.forEach { entry ->
             val claim = requireNotNull(entry as? JsonObject)
@@ -44,8 +115,14 @@ internal object GitHubClaimBatches {
                 else -> error("Unsupported claim kind")
             }
         }
-        val coverage = objectField(answer, "requirement_claims")
-        val acceptance = objectField(answer, "acceptance")
+        val coverage = (answer["requirement_claims"] as? JsonArray)?.let { rows ->
+            entryMap(rows, "requirement_id") { it.getValue("claim_indexes") }
+        } ?: objectField(answer, "requirement_claims")
+        val acceptance = (answer["acceptance"] as? JsonArray)?.let { rows ->
+            entryMap(rows, "requirement_id") { entry ->
+                entryMap(requireNotNull(entry["groups"] as? JsonArray), "role") { it.getValue("receipt_ids") }
+            }
+        } ?: objectField(answer, "acceptance")
         require(request.requirementIds.containsAll(coverage.keys) && request.requirementIds.containsAll(acceptance.keys))
         coverage.values.forEach { value ->
             val indexes = requireNotNull(value as? JsonArray)

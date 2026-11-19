@@ -15,7 +15,17 @@ internal object ProviderRejectionDiagnostics {
     fun response(status: Int, body: String, contract: Contract, endpoint: String? = null): JsonObject {
         val root = body.takeIf { it.length <= 256 * 1024 }?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
         val error = root?.get("error") as? JsonObject ?: root
-        fun text(key: String): String? = (error?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content
+        // OpenRouter can wrap an upstream error object in metadata.raw. Project only typed fields.
+        val nested = if (status == 400 && contract == Contract.CHAT_COMPLETIONS) {
+            when (val raw = (error?.get("metadata") as? JsonObject)?.get("raw")) {
+                is JsonObject -> raw
+                is JsonPrimitive -> raw.takeIf { it.isString }?.let { runCatching { Json.parseToJsonElement(it.content) as? JsonObject }.getOrNull() }
+                else -> null
+            }?.let { it["error"] as? JsonObject ?: it }
+        } else {
+            null
+        }
+        fun text(key: String): String? = ((nested?.get(key) as? JsonPrimitive)?.takeIf { it.isString } ?: (error?.get(key) as? JsonPrimitive)?.takeIf { it.isString })?.content
         val code = text("code")?.takeIf { it.any(Char::isLetter) }
         val billing = status == 402 ||
             status == 400 &&
@@ -23,7 +33,14 @@ internal object ProviderRejectionDiagnostics {
             text("type") == "invalid_request_error" &&
             text("message")?.startsWith("Your credit balance is too low to access the Anthropic API", ignoreCase = true) == true
         val fields = typed(status, text("type"), text("param") ?: text("parameter"), contract, code)
-        if (!billing && status != 410) return fields
+        val schemaRejected = status == 400 &&
+            contract == Contract.CHAT_COMPLETIONS &&
+            (
+                code in setOf("invalid_json_schema", "invalid_response_format") ||
+                    fields["provider_parameter"] == JsonPrimitive("response_format") ||
+                    text("message")?.startsWith("Invalid schema for response_format", ignoreCase = true) == true
+                )
+        if (!billing && status != 410 && !schemaRejected) return fields
         return JsonObject(
             fields + buildJsonObject {
                 if (billing) put("provider_rejection_category", "BILLING_UNAVAILABLE")

@@ -1,5 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
+import dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -111,6 +115,29 @@ internal object GitHubExecutionContinuation {
             )
     }.mapTo(mutableSetOf()) { receipt ->
         GitHubEvidenceBook.digest(JsonObject(receipt.filterKeys { it in setOf("tool", "arguments", "source_head_sha", "remote_mutation") }).toString())
+    }
+
+    fun staleRead(ids: List<String>, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, requestKey: String): ProviderEvent.ToolCall? {
+        for (id in ids) {
+            val receipt = receipts[id] ?: continue
+            if (receipt["trusted"] != JsonPrimitive(true) ||
+                receipt["success"] != JsonPrimitive(true) ||
+                receipt["verification_eligible"] == JsonPrimitive(false) ||
+                receipt["immutable"] == JsonPrimitive(true)
+            ) {
+                continue
+            }
+            val args = receipt["arguments"] as? JsonObject ?: continue
+            val name = (receipt["tool"] as? JsonPrimitive)?.content ?: continue
+            if ("view_cursor" in args || !GitHubAuthorizationBoundary.isReplayableRead(name, args)) continue
+            val tool = tools.singleOrNull { it.name == name && it.modelVisible } ?: continue
+            if ((tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") != true) continue
+            val live = JsonObject(args + ("verify_live" to JsonPrimitive(true)))
+            if (ToolArgumentValidator.errors(live, tool.inputSchema).isNotEmpty()) continue
+            val key = "freshness-" + GitHubEvidenceBook.digest("$requestKey|$name|" + JsonObject(live.toSortedMap())).take(24)
+            if (receipts.values.none { it["call_id"] == JsonPrimitive(key) }) return ProviderEvent.ToolCall(key, name, live)
+        }
+        return null
     }
 
     fun canResume(

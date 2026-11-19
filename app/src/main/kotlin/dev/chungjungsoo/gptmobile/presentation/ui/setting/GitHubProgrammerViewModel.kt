@@ -16,6 +16,8 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotConversationPreferenc
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionPreference
 import dev.chungjungsoo.gptmobile.data.github.GitHubDraftRepair
+import dev.chungjungsoo.gptmobile.data.github.engineeringConfig
+import dev.chungjungsoo.gptmobile.data.github.engineeringGateway
 import dev.chungjungsoo.gptmobile.data.github.githubDecisionMode
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
@@ -74,10 +76,22 @@ class GitHubProgrammerViewModel @Inject constructor(
     private val approvals: ToolApprovalManager,
     private val connections: ToolConnectionRepository,
     private val drafts: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore,
+    private val engineeringClient: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClient,
     private val savedStateHandle: androidx.lifecycle.SavedStateHandle = androidx.lifecycle.SavedStateHandle(),
     private val bootstrapper: dev.chungjungsoo.gptmobile.data.github.GitHubSessionBootstrapper? = null,
     private val approvalRecovery: dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalRecovery? = null
 ) : ViewModel() {
+    internal suspend fun batchModes(profileUid: String, gatewayUid: String): Set<String> {
+        val gateway = settings.engineeringGateway(profileUid)
+        require(gateway.uid == gatewayUid)
+        val capability = engineeringClient.refreshCapabilities(gateway.engineeringConfig())
+        return buildSet {
+            add("standard")
+            if (capability.executionBatch?.let { it.protocolVersion == 1 && "smart" in it.modes } == true) add("smart")
+            if (capability.supportsFullBatch) add("full")
+        }
+    }
+
     private val mutable = MutableStateFlow(GitHubProgrammerState())
     val state = mutable.asStateFlow()
     private val destination = MutableStateFlow<GitHubWorkspaceState?>(null)

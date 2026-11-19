@@ -48,6 +48,10 @@ def validate(request):
     for name in ('index_cursor', 'result_cursor'):
         if name in request and (not isinstance(request[name], str) or len(request[name]) > 512):
             raise ValueError('Invalid graph cursor')
+    for key, action in [('sync_index_request_id', 'index'), ('confirm_sync_index_request_id', 'status')]:
+        if key in request and (request['action'] != action or not isinstance(request[key], str)
+                               or not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}', request[key])):
+            raise ValueError('Invalid synchronous index request identity')
     for name in ('retry_failed', 'background'):
         if name in request and type(request[name]) is not bool:
             raise ValueError('Invalid graph option')
@@ -253,6 +257,11 @@ class GraphService:
         snapshot['index_metrics']['index_ms'] += round((time.perf_counter() - started) * 1000, 2)
         if interruption is not None or cancelled():
             raise (interruption or InterruptedError('Graph preparation cancelled')) from rate_wait
+        if rate_wait is None and request.get('sync_index_request_id'):
+            # Commit the acknowledgement in the same scoped snapshot as the completed batch.
+            receipt = request['sync_index_request_id']
+            prior = [item for item in snapshot.get('sync_index_receipts', []) if item != receipt]
+            snapshot['sync_index_receipts'] = (prior + [receipt])[-64:]
         self.store.save(namespace, snapshot)
         if rate_wait is not None:
             # Successful siblings are durable; throttled files remain pending,
@@ -293,7 +302,10 @@ class GraphService:
                             'processing_complete': False, 'coverage_complete': False, 'complete': False}
             else:
                 metadata = saved['graph']
-                result = {key: value for key, value in saved.items() if key not in {'graph', 'extractor_version', 'snapshot_fingerprint'}}
+                result = {key: value for key, value in saved.items() if key not in {'graph', 'extractor_version', 'snapshot_fingerprint', 'sync_index_receipts'}}
+                target = request.get('confirm_sync_index_request_id')
+                if action == 'status' and target and target in saved.get('sync_index_receipts', []):
+                    result['confirmed_sync_request_id'] = target
             if action == 'metrics':
                 result = {'measurements': self.store.metrics(namespace), 'accuracy': 'Not measured', 'token_savings': 'Not measured',
                           'actual_token_counts': 'Not available', 'measurement_scope': 'This principal, account, repository and branch'}

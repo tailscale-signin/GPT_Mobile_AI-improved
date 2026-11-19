@@ -29,6 +29,8 @@ internal object GitHubVerificationRecovery {
     fun advice(failures: List<JsonObject>): String {
         val codes = failures.map { it.text("error_code") }.toSet()
         return when {
+            failures.any { (it["execution"] as? JsonObject)?.get("index_outcome_unknown") == JsonPrimitive(true) && it.text("tool").githubOperationFamily() == "repository_graph" } ->
+                "Check the original index attempt with graph status on the same Gateway and revision. Continue the saved audit once that attempt is confirmed."
             failures.any { it.text("error_code") in dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes || it.text("error_code") == "UNKNOWN_OUTCOME" || (it["execution"] as? JsonObject)?.get("requires_reconciliation") == JsonPrimitive(true) } ->
                 "Reconcile the exact uncertain remote operation from its saved receipt before another mutation; a lost response is not permission to repeat a write. Resolve any separate access or rate-limit failure after preserving this recovery requirement."
             codes.any { it in ToolFailureMetadata.authorityInvalidationCodes } -> policyAdvice(failures)

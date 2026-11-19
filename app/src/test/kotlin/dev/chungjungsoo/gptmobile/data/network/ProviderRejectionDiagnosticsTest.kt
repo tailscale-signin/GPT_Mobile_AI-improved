@@ -7,6 +7,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderRejectionDiagnosticsTest {
+    @Test fun rejectedResponseSchemaRequiresAChangedRequest() {
+        val rejection = ProviderRejectionDiagnostics.response(
+            400,
+            """{"error":{"code":"invalid_json_schema","param":"response_format","message":"private data"}}""",
+            ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS
+        )
+        assertEquals(JsonPrimitive(false), rejection["retryable"])
+        assertEquals(JsonPrimitive("RETRY_AFTER_CONFIGURATION_CHANGE"), rejection["recovery_action"])
+        assertFalse("private data" in rejection.toString())
+    }
+
+    @Test fun wrappedUpstreamSchemaRejectionRetainsOnlySanitizedParameterEvidence() {
+        val result = ProviderRejectionDiagnostics.response(
+            400,
+            """{"error":{"code":400,"message":"Provider returned error","metadata":{"raw":"{\"error\":{\"code\":\"invalid_json_schema\",\"param\":\"response_format.private-field\",\"message\":\"private detail\"}}"}}}""",
+            ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS
+        )
+        assertEquals(JsonPrimitive(false), result["retryable"])
+        assertEquals(JsonPrimitive("response_format"), result["provider_parameter"])
+        assertTrue("provider_parameter_path_hash" in result)
+        assertFalse("private" in result.toString())
+    }
+
     @Test fun notFoundDistinguishesOnlyExplicitModelUnavailability() {
         val explicit = ProviderRejectionDiagnostics.response(404, """{"error":{"code":"model_not_found","message":"private model identifier"}}""", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS)
         assertEquals(JsonPrimitive("MODEL_UNAVAILABLE"), explicit["provider_rejection_category"])

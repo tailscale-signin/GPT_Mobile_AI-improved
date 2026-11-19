@@ -25,13 +25,14 @@ internal class GatewayGraphIndexCheckpoint(private val store: GitHubRepositorySt
     /** A local join token, never a remote job identifier or evidence that an HTTP request ran. */
     fun attemptHash(attempt: String): String = GitHubRepositoryStateStore.digest("gptmobile.graph-index-attempt.v1:$scope:$attempt")
 
-    suspend fun begin(cursor: String?, previousStatus: JsonObject? = null): String {
+    suspend fun begin(cursor: String?, previousStatus: JsonObject? = null, requestIdentityRequired: Boolean = false): String {
         val attempt = UUID.randomUUID().toString()
         store.update(scope, key) { previous ->
             check(!isPending(previous)) { "The previous index request is unconfirmed. Check the saved index before continuing." }
             buildJsonObject {
                 put("status", "RUNNING")
                 put("attempt", attempt)
+                if (requestIdentityRequired) put("request_identity_required", true)
                 cursor?.let { put("index_cursor", it) }
                 if (previousStatus?.get("has_more") == JsonPrimitive(false)) {
                     put("previously_complete", true)
@@ -42,12 +43,12 @@ internal class GatewayGraphIndexCheckpoint(private val store: GitHubRepositorySt
         return attempt
     }
 
-    suspend fun confirm(attempt: String): String? {
+    suspend fun confirm(attempt: String, executed: Boolean = true): String? {
         var confirmed: String? = null
         store.update(scope, key) { previous ->
             if (previous?.text("attempt") == attempt) {
-                if (isPending(previous)) confirmed = attemptHash(attempt)
-                buildJsonObject { put("status", "CONFIRMED") }
+                if (executed && isPending(previous)) confirmed = attemptHash(attempt)
+                confirmedRecord(confirmed)
             } else {
                 requireNotNull(previous)
             }
@@ -59,16 +60,16 @@ internal class GatewayGraphIndexCheckpoint(private val store: GitHubRepositorySt
     suspend fun reconcile(result: JsonObject): Boolean = reconcileObserved(result).unresolved
 
     /** Observe the existing transition; no payload-supplied identifier can manufacture its proof. */
-    suspend fun reconcileObserved(result: JsonObject): Observation {
+    suspend fun reconcileObserved(result: JsonObject, requireAttemptIdentity: Boolean = false): Observation {
         val previous = pending() ?: return Observation(false)
         val observed = Observation(true, previous.text("attempt")?.takeIf(String::isNotBlank)?.let(::attemptHash))
         val job = result["index_job"] as? JsonObject
         val accepted = (job?.get("accepted_request_ids") as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-        if (previous.text("attempt")?.let { it == job?.text("request_id") || it in accepted } == true) {
+        if (previous.text("attempt")?.let { it == job?.text("request_id") || it in accepted || it == result.text("confirmed_sync_request_id") } == true) {
             val confirmed = confirm(requireNotNull(previous.text("attempt")))
             return observation().copy(confirmedAttemptHash = confirmed)
         }
-        if (result["graph"] !is JsonObject) return observed
+        if (requireAttemptIdentity || previous["request_identity_required"] == JsonPrimitive(true) || job != null || result["graph"] !is JsonObject) return observed
         val more = result["has_more"]
         val next = result.text("index_cursor")?.takeIf(String::isNotBlank)
         val previousCursor = previous.text("index_cursor")
@@ -77,18 +78,29 @@ internal class GatewayGraphIndexCheckpoint(private val store: GitHubRepositorySt
         val before = (previous["previous_parsed_files"] as? JsonPrimitive)?.nonnegativeCount()
         val rebuilt = before != null && parsedFiles(result)?.let { it > before } == true
         val completed = more == JsonPrimitive(false) && (previous["previously_complete"] != JsonPrimitive(true) || rebuilt)
-        var confirmed: String? = null
         if (knownAttempt && (completed || progressed)) {
             store.update(scope, key) { current ->
                 if (current == previous) {
-                    confirmed = observed.attemptHash
-                    buildJsonObject { put("status", "CONFIRMED") }
+                    // Progress can unlock a legacy synchronous cursor. It cannot identify the sender.
+                    confirmedRecord(null)
                 } else {
                     requireNotNull(current)
                 }
             }
         }
-        return observation().copy(confirmedAttemptHash = confirmed)
+        return observation()
+    }
+
+    suspend fun pendingRequestId(): String? = pending()?.text("attempt")
+
+    suspend fun previouslyConfirmed(hash: String): Boolean {
+        val record = store.read(scope, key) ?: return false
+        return record.text("status") == "CONFIRMED" && record.text("confirmed_attempt_hash") == hash
+    }
+
+    private fun confirmedRecord(hash: String?) = buildJsonObject {
+        put("status", "CONFIRMED")
+        hash?.let { put("confirmed_attempt_hash", it) }
     }
 
     private suspend fun pending(): JsonObject? = store.read(scope, key)?.takeIf(::isPending)

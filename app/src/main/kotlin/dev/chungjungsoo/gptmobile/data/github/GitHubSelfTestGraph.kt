@@ -46,6 +46,21 @@ internal object GitHubSelfTestGraph {
         return Evidence(sha, observations, graph.filter { it.text("tool") == selectedTool })
     }
 
+    /** A fresh Continue can observe the same attempt again. A single request cannot poll indefinitely. */
+    fun statusForPendingIndex(pending: JsonObject, tools: List<AgentToolDefinition>, receipts: Collection<JsonObject>, requestKey: String): ProviderEvent.ToolCall? {
+        val attempt = (pending["execution"] as? JsonObject)?.text("graph_index_attempt_hash") ?: return null
+        if (!attempt.matches(Regex("[a-f0-9]{64}"))) return null
+        val args = buildJsonObject {
+            put("action", "status")
+            put("options", buildJsonObject { put("expected_index_attempt_hash", attempt) })
+        }
+        val tool = tools.singleOrNull { it.modelVisible && it.name == pending.text("tool") && it.name.githubOperationFamily() == "repository_graph" } ?: return null
+        if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty()) return null
+        val id = "graph-status-" + GitHubEvidenceBook.digest("${pending.text("binding")}:$attempt:$requestKey").take(24)
+        if (receipts.any { it["call_id"] == JsonPrimitive(id) }) return null
+        return ProviderEvent.ToolCall(id, tool.name, args)
+    }
+
     fun available(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): List<ProviderEvent.ToolCall> {
         val evidence = evidence(receipts) ?: return emptyList()
         // A failed index can have changed remote state. Only an independently

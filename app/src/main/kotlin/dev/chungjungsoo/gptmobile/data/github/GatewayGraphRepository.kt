@@ -93,8 +93,18 @@ class GatewayGraphRepository @Inject constructor(
             val retained = GatewayGraphIndexCheckpoint(state, scope)
             checkpoint = retained
             observedCheckpoint = retained.observation()
-            var payload = boundRequest(context, arguments)
+            val expectedAttempt = arguments.text("expected_index_attempt_hash")
+            val previouslyConfirmed = expectedAttempt?.takeIf { retained.previouslyConfirmed(it) }
+            if (expectedAttempt != null) {
+                require(arguments["action"] == JsonPrimitive("status") && (expectedAttempt == observedCheckpoint.attemptHash || previouslyConfirmed != null)) {
+                    "The selected Gateway and revision do not own this pending index attempt."
+                }
+            }
+            var payload = boundRequest(context, JsonObject(arguments - setOf("expected_index_attempt_hash", "confirm_sync_index_request_id", "sync_index_request_id")))
             val action = payload.text("action") ?: error("Select a repository graph operation.")
+            if (action == "status") {
+                retained.pendingRequestId()?.let { id -> payload = JsonObject(payload + ("confirm_sync_index_request_id" to JsonPrimitive(id))) }
+            }
             val cancelJob = action == "index" && payload.text("job_action") == "cancel"
             val durableJobs = capability.codeGraph?.durableIndexJobs == true
             if (payload["background"] == JsonPrimitive(true) && !durableJobs) payload = JsonObject(payload - "background")
@@ -137,8 +147,9 @@ class GatewayGraphRepository @Inject constructor(
                 }
             }
             if (action == "index" && !cancelJob) {
-                attempt = retained.begin(payload.text("index_cursor"), previousStatus)
-                if (background) payload = JsonObject(payload + ("request_id" to JsonPrimitive(attempt)))
+                attempt = retained.begin(payload.text("index_cursor"), previousStatus, requestIdentityRequired = background)
+                val requestField = if (background) "request_id" else "sync_index_request_id"
+                payload = JsonObject(payload + (requestField to JsonPrimitive(attempt)))
             }
             // Persistence and capability reads can suspend. Revalidate before the POST,
             // not only after a stale configuration could have changed host state.
@@ -178,26 +189,26 @@ class GatewayGraphRepository @Inject constructor(
                 throw IllegalStateException(changed.message, changed)
             }
             val confirmed = attempt?.let { retained.confirm(it) }
-            val observed = if (action == "status") retained.reconcileObserved(result) else retained.observation()
+            val observed = if (action == "status") retained.reconcileObserved(result, requireAttemptIdentity = expectedAttempt != null) else retained.observation()
             GatewayGraphResponse(
-                result,
+                JsonObject(result - "confirmed_sync_request_id"),
                 action,
                 admitted.gateway.uid,
                 admitted.gateway.name,
                 observed.unresolved,
                 durableJobs,
                 modelAccess,
-                observed.attemptHash ?: confirmed ?: observed.confirmedAttemptHash,
-                confirmed ?: observed.confirmedAttemptHash
+                observed.attemptHash ?: confirmed ?: observed.confirmedAttemptHash ?: previouslyConfirmed,
+                confirmed ?: observed.confirmedAttemptHash ?: previouslyConfirmed
             )
         } catch (cancelled: CancellationException) {
-            if (!dispatched) attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token) } }
+            if (!dispatched) attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token, executed = false) } }
             throw cancelled
         } catch (failure: Exception) {
             // This typed prerequisite rejection is returned before graph execution.
             // Other HTTP failures can follow a saved batch and remain uncertain.
             if (!dispatched || failure is GatewayGraphUnavailableException) {
-                attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token) } }
+                attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token, executed = false) } }
             }
             val unavailable = when {
                 failure is GatewayGraphUnavailableException -> failure.atRevision(context)

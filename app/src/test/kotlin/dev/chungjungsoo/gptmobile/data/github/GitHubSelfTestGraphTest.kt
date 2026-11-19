@@ -23,6 +23,17 @@ class GitHubSelfTestGraphTest {
     private fun indexed() = graph("index", """"has_more":false""")
     private fun calls(vararg receipts: JsonObject) = GitHubSelfTestGraph.available(listOf(tool), listOf(status()) + receipts)
 
+    @Test fun pendingIndexUsesTheOriginalConnectionAndAttemptOncePerContinue() {
+        val hash = "a".repeat(64)
+        val pending = json("""{"tool":"${tool.name}","binding":"task","execution":{"graph_index_attempt_hash":"$hash"}}""")
+        val call = requireNotNull(GitHubSelfTestGraph.statusForPendingIndex(pending, listOf(tool), emptyList(), "continue-1"))
+        assertEquals(json("""{"action":"status","options":{"expected_index_attempt_hash":"$hash"}}"""), call.arguments)
+        val completed = listOf(json("""{"call_id":"${call.callId}"}"""))
+        assertNull(GitHubSelfTestGraph.statusForPendingIndex(pending, listOf(tool), completed, "continue-1"))
+        assertNull(GitHubSelfTestGraph.statusForPendingIndex(pending, emptyList(), completed, "continue-2"))
+        assertTrue(GitHubSelfTestGraph.statusForPendingIndex(pending, listOf(tool), completed, "continue-2") != null)
+    }
+
     @Test fun missingGraphPreparesIndexAndEveryConfirmedBatchUsesItsExactCursor() {
         assertTrue(calls().isEmpty())
         assertEquals(json("""{"action":"index"}"""), calls(missing()).single().arguments)

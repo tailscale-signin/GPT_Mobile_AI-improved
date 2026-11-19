@@ -80,7 +80,7 @@ class GitHubProgrammerViewModelTest {
         every { chats.observeToolEvents(42) } returns flowOf(emptyList())
         every { queue.observe(42) } returns flowOf(emptyList())
         every { approvals.pending } returns MutableStateFlow(emptyList())
-        model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts)
+        model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, mockk(relaxed = true))
         model.bind(GitHubWorkspaceState(connection = ToolConnection("github", "GitHub", "github", "GITHUB", null, "OAUTH", "credential-reference", null), selection = GitHubRepositoryContext("owner", "repo", "feature"), headSha = "a".repeat(40)))
     }
 
@@ -175,7 +175,7 @@ class GitHubProgrammerViewModelTest {
         )
         val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
         features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
-        val restored = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, handle)
+        val restored = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, mockk(relaxed = true), handle)
         try {
             restored.configureSession("old-route-profile", newConversation = true)
             restored.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = context.repository, headSha = context.commitSha))
@@ -325,7 +325,7 @@ class GitHubProgrammerViewModelTest {
     @Test fun anUnconfiguredSessionNeverChoosesTheFirstEnabledProfile() = runBlocking {
         close(model)
         features.value = features.value.copy(githubMainProfiles = emptyMap(), githubDefaultProfileUid = null)
-        model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts)
+        model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, mockk(relaxed = true))
         model.configureSession(null, newConversation = true)
         model.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = GitHubRepositoryContext("owner", "repo", "feature"), headSha = "a".repeat(40)))
         val unconfigured = withTimeout(5000) { model.state.first { it.profiles.isNotEmpty() } }

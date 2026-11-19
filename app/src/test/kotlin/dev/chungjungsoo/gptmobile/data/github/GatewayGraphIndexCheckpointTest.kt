@@ -12,6 +12,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayGraphIndexCheckpointTest {
+    @Test fun anotherClientsCompletedIndexCannotResolveAnIdentifiedBackgroundRequest() = runTest {
+        val checkpoint = GatewayGraphIndexCheckpoint(GitHubRepositoryStateStore(), "selected-host-revision")
+        val original = checkpoint.begin(null, requestIdentityRequired = true)
+        val other = json("""{"graph":{},"has_more":false,"index_job":{"request_id":"someone-else"}}""")
+        assertTrue(checkpoint.reconcileObserved(other).unresolved)
+        assertTrue(checkpoint.reconcileObserved(json("""{"graph":{},"has_more":false}""")).unresolved)
+        val matched = checkpoint.reconcileObserved(json("""{"index_job":{"accepted_request_ids":["$original"]}}"""))
+        assertEquals(checkpoint.attemptHash(original), matched.confirmedAttemptHash)
+    }
+
+    @Test fun originalConfirmationSurvivesRestartButAnUnsentRequestCannotProveExecution() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val checkpoint = GatewayGraphIndexCheckpoint(store, "repo-at-head")
+        val first = checkpoint.begin(null)
+        checkpoint.confirm(first)
+        val restored = GatewayGraphIndexCheckpoint(store, "repo-at-head")
+        assertTrue(restored.previouslyConfirmed(restored.attemptHash(first)))
+        val second = restored.begin(null)
+        restored.confirm(second, executed = false)
+        assertFalse(restored.previouslyConfirmed(restored.attemptHash(second)))
+    }
+
     @Test fun lostFirstBatchSurvivesRestartAndAbsentStatusCannotAuthorizeAnotherIndex() = runTest {
         val directory = Files.createTempDirectory("graph-checkpoint").toFile()
         try {

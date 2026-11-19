@@ -67,6 +67,7 @@ class GraphStore:
         remaining = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
         value = {'extractor_version': EXTRACTOR_VERSION, 'snapshot_fingerprint': snapshot_fingerprint(snapshot), 'graph': snapshot_metadata(snapshot),
                  'has_more': bool(remaining), 'index_cursor': identity(namespace, snapshot['sha'], *remaining) if remaining else None,
+                 'sync_index_receipts': snapshot.get('sync_index_receipts', []),
                  'issues': [{'path': p, 'status': f['status'], 'warnings': f['warnings']} for p, f in snapshot['fragments'].items() if f['status'] != 'indexed'][:50]}
         payload = EngineeringCipher.encrypt(db, 'graph-summary:' + namespace + ':' + snapshot['sha'], encoded(value))
         db.execute('INSERT OR REPLACE INTO code_graph_snapshot_summaries VALUES(?,?,?,?)', (namespace, snapshot['sha'], updated, payload))

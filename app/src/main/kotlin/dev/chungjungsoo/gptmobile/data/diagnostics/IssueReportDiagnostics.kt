@@ -56,6 +56,7 @@ internal data class IssueReportDiagnostics(
         }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ("claim_extraction_schema_hash" in values.keys + omittedFields + unavailableFields) add("CLAIM_EXTRACTION_SCHEMA_HASH_V1")
         if ((values.keys + omittedFields + unavailableFields).any { it in GatewayCapabilityFailureEvidence.fields } ||
             (values["provider_failure_code"] as? JsonPrimitive)?.contentOrNull in GatewayCapabilityFailureEvidence.codes
         ) {

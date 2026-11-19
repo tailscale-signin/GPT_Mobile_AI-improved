@@ -205,7 +205,11 @@ class ToolExecutionBudget(
                     )
                 }
             }
-            val sourceAcquisition = limits.githubTask && definition.name.substringBefore("__") in setOf("github_read", "github_search")
+            val family = definition.name.substringBefore("__")
+            val liveVerification = arguments["verify_live"] == JsonPrimitive(true) && (definition.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true
+            val inventoryRead = family in setOf("github_repository", "github_issue", "github_pr", "github_ci", "github_release", "github_commit") &&
+                (arguments["action"] as? JsonPrimitive)?.content in setOf("list", "search", "branches", "tags", "runs", "jobs", "workflows", "commits", "releases")
+            val sourceAcquisition = limits.githubTask && !liveVerification && (family in setOf("github_read", "github_search") || inventoryRead)
             val callCeiling = if (sourceAcquisition && executionLimit != Int.MAX_VALUE) {
                 executionLimit - dev.chungjungsoo.gptmobile.data.github.GitHubChecklistBudget.ordinaryVerificationReserve(executionLimit)
             } else {

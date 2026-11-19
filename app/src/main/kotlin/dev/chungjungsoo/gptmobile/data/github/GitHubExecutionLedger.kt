@@ -326,6 +326,14 @@ internal object GitHubExecutionLedger {
         return native + graph
     }
 
+    fun pendingGraphIndex(receipts: Map<String, JsonObject>): JsonObject? {
+        val pending = receipts.filterValues { it["verification_eligible"] != JsonPrimitive(false) && hasGraphIndexUncertainty(it) }
+        if (pending.isEmpty()) return null
+        val settled = reconciledReceiptIds(receipts)
+        val outstanding = pending.filterKeys { it !in settled }.values
+        return outstanding.firstOrNull { graphAttemptKey(it, "graph_index_attempt_hash") != null } ?: outstanding.firstOrNull()
+    }
+
     /** Retained prior uncertainty is an obligation, not another dispatched current mutation. */
     private fun hasGraphIndexUncertainty(receipt: JsonObject): Boolean = graphExecution(receipt)?.let { execution ->
         execution["index_outcome_unknown"] == JsonPrimitive(true)

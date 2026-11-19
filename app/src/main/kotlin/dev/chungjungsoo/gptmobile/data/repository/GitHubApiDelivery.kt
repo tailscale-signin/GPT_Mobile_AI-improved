@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** Covers preparation failures as well as the agent loop, while preserving the original failure metadata. */
 internal fun Flow<ApiState>.withGitHubApiDelivery(enabled: Boolean, runId: String? = null): Flow<ApiState> {
@@ -62,7 +64,15 @@ internal fun Flow<ApiState>.withGitHubApiDelivery(enabled: Boolean, runId: Strin
         }
         if (!done) {
             ensureVisible()
-            if (!failed) emit(ApiState.Error("The workflow ended before its final status was delivered.", errorCode = "GITHUB_RUN_INTERRUPTED"))
+            if (!failed) {
+                emit(
+                    ApiState.Error(
+                        "The workflow ended before its final status was delivered.",
+                        errorCode = "GITHUB_RUN_INTERRUPTED",
+                        failureDetails = buildJsonObject { put("failed_stage", "delivery") }
+                    )
+                )
+            }
             emit(ApiState.Done)
         }
     }

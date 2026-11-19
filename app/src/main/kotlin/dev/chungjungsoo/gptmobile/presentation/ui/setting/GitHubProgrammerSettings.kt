@@ -55,7 +55,7 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
 }
 
 @Composable
-internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}, onCopilotEnabled: (Boolean) -> Unit = {}) {
+internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}, onCopilotEnabled: (Boolean) -> Unit = {}, onBatchModes: suspend (String, String) -> Set<String> = { _, _ -> emptySet() }) {
     var inspection by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     inspection?.let { (profileUid, engineering) ->
         ConnectionDoctorDialog(onDismiss = { inspection = null }, initialProfileUid = profileUid, engineeringGateway = engineering)
@@ -89,10 +89,24 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 }
                 Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
                 Text("Gateway execution mode", style = MaterialTheme.typography.titleSmall)
-                var batchModeOpen by remember { mutableStateOf(false) }
+                val gateway = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)
+                var batchModeOpen by remember(state.profileUid, gateway) { mutableStateOf(false) }
+                var availableModes by remember(batchModeOpen, state.profileUid, gateway) { mutableStateOf<Set<String>?>(null) }
+                androidx.compose.runtime.LaunchedEffect(batchModeOpen, state.profileUid, gateway) {
+                    val profile = state.profileUid
+                    if (batchModeOpen && profile != null && gateway != null) {
+                        availableModes = try {
+                            onBatchModes(profile, gateway.uid)
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            emptySet()
+                        }
+                    }
+                }
                 OutlinedButton(
                     onClick = { batchModeOpen = true },
-                    enabled = state.profileUid != null && state.profileSettings.engineeringGatewayProfileUid != null,
+                    enabled = state.profileUid != null && gateway != null,
                     modifier = Modifier.testTag("github_batch_mode")
                 ) {
                     Text(
@@ -104,9 +118,13 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     )
                 }
                 DropdownMenu(expanded = batchModeOpen, onDismissRequest = { batchModeOpen = false }) {
+                    if (availableModes == null || availableModes?.isEmpty() == true) {
+                        Text(if (availableModes == null) "Checking Gateway modes…" else "Couldn’t verify Gateway modes. Reopen to retry.", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+                    }
                     listOf("standard" to "Standard", "smart" to "Smart Batch", "full" to "Full Integration Batch").forEach { (mode, name) ->
                         DropdownMenuItem(
                             text = { Text(name) },
+                            enabled = mode == "standard" || availableModes?.contains(mode) == true,
                             onClick = {
                                 batchModeOpen = false
                                 onSettings(state.profileSettings.copy(executionBatchMode = mode))
@@ -115,7 +133,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                     }
                 }
                 Text(
-                    "Full Batch requires an explicitly enabled Windows Gateway. This changes only newly admitted jobs, not saved work. GitHub permissions and merge approvals are unchanged.",
+                    "Smart and Full Batch availability follows the selected Gateway. Your choice applies to new jobs.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

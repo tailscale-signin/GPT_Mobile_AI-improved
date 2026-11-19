@@ -175,7 +175,8 @@
     "Add Privacy-Verified AI Profiles, strict account and endpoint verification, local text masking, and a stateless private Windows Gateway route.",
     "Add opt-in Copilot cloud tasks directly from Android or through an explicitly selected standalone Gateway, with durable task receipts, original-account recovery, live consent and exact MCP mutation approval.",
     "Add strict automatic OpenRouter model and endpoint qualification under explicit account evidence, actionable Privacy Mode profile states, connection-policy and queued-dispatch fences, and privacy-safe terminal failure contracts. Preserve unresolved remote outcomes and separate live release acceptance.",
-    "Retain bounded typed Gateway capability failure evidence and honor explicit no-replay/no-continuation refusals, with negotiated reporter compatibility and regression coverage for the distinct live report #1768."
+    "Retain bounded typed Gateway capability failure evidence and honor explicit no-replay/no-continuation refusals, with negotiated reporter compatibility and regression coverage for the distinct live report #1768.",
+    "Recover uncertain Gateway index requests by original attempt, retry interrupted CI log reads, use provider-compatible strict claim extraction, and spend the verification reserve on expired mutable observations."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -3151,6 +3152,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/OpenRouterWorkspacePrivacyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/ProviderPersonalSetupTest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/google/response/GenerateContentResponse.kt",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupPreferences.kt"
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupPreferences.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubObservationFreshnessTest.kt"
   ]
 }

@@ -12,7 +12,7 @@ GATEWAY = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GATEWAY))
 from desktop import development_profiles as profiles
 from desktop import repository_validation as setup
-from v14.engineering_validation import materialize_checkout
+from v14.engineering_validation import checkout_container_user, materialize_checkout
 
 
 def git(cwd, *args):
@@ -57,7 +57,7 @@ def run(profile, report):
                 path.chmod(0o777 if path.is_dir() or path.stat().st_mode & 0o111 else 0o666)
             for command in commands:
                 result = subprocess.run(['docker','run','--rm','--network=none','--cap-drop=ALL','--read-only',
-                    '--security-opt=no-new-privileges','--user=65534:65534','--env=HOME=/tmp',
+                    '--security-opt=no-new-privileges','--user=' + checkout_container_user(),'--env=HOME=/tmp',
                     '--tmpfs=/tmp:rw,nosuid,nodev,size=3g','--mount=type=bind,source='+str(checkout)+',target=/workspace',
                     '--workdir=/workspace',prepared['image_id'],*command], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     timeout=2400)

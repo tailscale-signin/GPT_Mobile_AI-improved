@@ -9,6 +9,7 @@ import queue
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -302,6 +303,13 @@ def _validation_workers(job):
     return workers
 
 
+def checkout_container_user():
+    # Linux bind mounts retain numeric owners. The host must be able to read
+    # reports and remove private build-cache directories after the run.
+    uid = os.geteuid() if sys.platform.startswith('linux') else 65534
+    return f'{uid or 65534}:65534'
+
+
 def materialize_checkout(job, mirror, changes, root, cancel):
     # Archive is bounded while streaming, before extraction. No network fetch or credentials.
     head = job['data']['head_sha']
@@ -382,7 +390,7 @@ def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, r
             cidfile = root / ('container-' + str(index))
             argv = ['docker', 'run', '--rm', '--pull=never', '--cidfile=' + str(cidfile), '--network=none', '--cap-drop=ALL',
                     '--security-opt=no-new-privileges', '--read-only', '--pids-limit=256' if policy.get('prepared_environment') else '--pids-limit=128',
-                    '--memory=' + str(limits['memory_gib'] if policy.get('workspace_environment') or policy.get('prepared_environment') else 2) + 'g', '--cpus=' + str(limits['cpus']), '--user=65534:65534',
+                    '--memory=' + str(limits['memory_gib'] if policy.get('workspace_environment') or policy.get('prepared_environment') else 2) + 'g', '--cpus=' + str(limits['cpus']), '--user=' + checkout_container_user(),
                     '--tmpfs=/tmp:rw,nosuid,nodev,size=2g' if policy.get('prepared_environment') else '--tmpfs=/tmp:rw,nosuid,nodev,size=512m', '--mount=type=bind,source=' + str(command_checkout) + ',target=/workspace',
                     '--workdir=/workspace', '--env=HOME=/tmp', *['--env=' + k + '=' + v for k, v in public_env.items()], image, *command]
             try:

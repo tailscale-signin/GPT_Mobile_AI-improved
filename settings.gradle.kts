@@ -3,7 +3,9 @@ pluginManagement {
         google()
         // On a qualified retry, resolve the entire plugin classpath from Central's
         // mirror. Plugin marker POMs also need their parents and transitive modules.
-        if (providers.environmentVariable("GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY").orNull == "1") {
+        if (providers.environmentVariable("GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY").orNull == "1" ||
+            providers.environmentVariable("GITHUB_ACTIONS").orNull == "true"
+        ) {
             maven {
                 name = "PublishedPluginRecovery"
                 url = uri("https://maven-central.storage-download.googleapis.com/maven2/")
@@ -40,7 +42,9 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
-        if (providers.environmentVariable("GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY").orNull == "1") {
+        if (providers.environmentVariable("GPTMOBILE_PLUGIN_RESOLUTION_RECOVERY").orNull == "1" ||
+            providers.environmentVariable("GITHUB_ACTIONS").orNull == "true"
+        ) {
             maven {
                 name = "PublishedDependencyRecovery"
                 url = uri("https://maven-central.storage-download.googleapis.com/maven2/")

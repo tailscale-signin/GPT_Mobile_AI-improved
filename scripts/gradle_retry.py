@@ -18,7 +18,12 @@ DEPENDENCY = re.compile(
 # status. These exact artifacts are independently published on Maven Central;
 # a missing version, authentication denial, or HTTP 404 is never retried.
 # Match each plugin and module together, not one plugin from a different error.
-KOTLIN_MARKERS = tuple(f'org.jetbrains.kotlin.plugin.{name}' for name in ('compose', 'parcelize', 'serialization'))
+PUBLISHED_MARKERS = (
+    ('org.jetbrains.kotlin.plugin.compose', '2.4.20'),
+    ('org.jetbrains.kotlin.plugin.parcelize', '2.4.20'),
+    ('org.jetbrains.kotlin.plugin.serialization', '2.4.20'),
+    ('com.google.devtools.ksp', '2.3.12'),
+)
 KNOWN_PUBLISHED_PLUGINS = (
     (
         re.compile(
@@ -46,10 +51,10 @@ KNOWN_PUBLISHED_PLUGINS = (
     ),
 ) + tuple(
     (
-        re.compile(rf"Plugin \[id: '{re.escape(marker)}', version: '2\.4\.20', apply: false\] was not found", re.I),
-        re.compile(rf"could not resolve plugin artifact '{re.escape(marker)}:{re.escape(marker)}\.gradle\.plugin:2\.4\.20'", re.I),
+        re.compile(rf"Plugin \[id: '{re.escape(marker)}', version: '{re.escape(version)}', apply: false\] was not found", re.I),
+        re.compile(rf"could not resolve plugin artifact '{re.escape(marker)}:{re.escape(marker)}\.gradle\.plugin:{re.escape(version)}'", re.I),
     )
-    for marker in KOTLIN_MARKERS
+    for marker, version in PUBLISHED_MARKERS
 )
 NON_TRANSIENT_HTTP = re.compile(r'(?:HTTP|status(?: code)?|response code:)\D{0,12}(?:401|403|404)\b', re.I)
 DETERMINISTIC = re.compile(r'There were failing tests|\btests completed, [1-9]\d* failed|Compilation error|^e: .*\.(?:kt|java):|Lint found .* errors', re.I)

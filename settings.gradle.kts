@@ -11,6 +11,7 @@ pluginManagement {
                         val id = "org.jetbrains.kotlin.plugin.$plugin"
                         includeModule(id, "$id.gradle.plugin")
                     }
+                    includeGroup("com.google.devtools.ksp")
                     includeGroup("io.objectbox")
                     includeModule("com.google.dagger", "hilt-android-gradle-plugin")
                     // Hilt inherits this POM. A rate-limited primary must not strand its metadata.

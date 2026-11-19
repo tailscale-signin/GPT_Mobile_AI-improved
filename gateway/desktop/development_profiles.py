@@ -18,8 +18,41 @@ COMMANDS = {
     NODE: [['gateway-node', 'typecheck'], ['gateway-node', 'test'], ['gateway-node', 'build']]
 }
 
+ANDROID_PACKAGES = r"""#!/bin/sh
+set -eu
+install_tools() {
+    apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=15 -o Acquire::http::Timeout=15 "$@" -o APT::Update::Error-Mode=any update &&
+    apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=15 -o Acquire::http::Timeout=15 "$@" install -y --no-install-recommends python3 curl unzip build-essential cmake ninja-build git ca-certificates
+}
+. /etc/os-release
+keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg
+if [ "$ID" != ubuntu ] || [ "$(dpkg --print-architecture)" != amd64 ] || [ ! -r "$keyring" ]; then
+    install_tools
+else
+    source_list=$(mktemp)
+    trap 'rm -f "$source_list"' EXIT
+    for archive in https://azure.archive.ubuntu.com/ubuntu https://mirrors.edge.kernel.org/ubuntu https://archive.ubuntu.com/ubuntu; do
+        security=$archive
+        if [ "$archive" = https://archive.ubuntu.com/ubuntu ]; then security=https://security.ubuntu.com/ubuntu; fi
+        {
+            for suite in "$VERSION_CODENAME" "$VERSION_CODENAME-updates" "$VERSION_CODENAME-backports"; do
+                printf 'deb [signed-by=%s] %s %s main restricted universe multiverse\n' "$keyring" "$archive" "$suite"
+            done
+            printf 'deb [signed-by=%s] %s %s-security main restricted universe multiverse\n' "$keyring" "$security" "$VERSION_CODENAME"
+        } > "$source_list"
+        if install_tools -o "Dir::Etc::sourcelist=$source_list" -o Dir::Etc::sourceparts=-; then
+            rm -rf /var/lib/apt/lists/*
+            exit 0
+        fi
+    done
+    exit 1
+fi
+rm -rf /var/lib/apt/lists/*
+"""
+
 ANDROID_TOOLS = """
-RUN apt-get update && apt-get install -y --no-install-recommends python3 curl unzip build-essential cmake ninja-build git ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --chmod=0755 gateway-android-packages /usr/local/bin/gateway-android-packages
+RUN gateway-android-packages
 RUN curl -fsSL --retry 3 https://download.jetbrains.com/kotlin-lsp/262.2310.0/kotlin-lsp-262.2310.0-linux-x64.zip -o /tmp/kotlin.zip && echo "c004242158f4b5e1d917ddd848e6f6a279484fa58a3e2bce8846b807d1ad16b1  /tmp/kotlin.zip" | sha256sum -c - && mkdir -p /opt/kotlin && unzip -q /tmp/kotlin.zip -d /opt/kotlin && chmod 0755 /opt/kotlin/kotlin-lsp.sh /opt/kotlin/jre/bin/java /opt/kotlin/jre/lib/jspawnhelper && ln -s /opt/kotlin/kotlin-lsp.sh /usr/local/bin/kotlin-lsp && rm /tmp/kotlin.zip
 ENV ANDROID_HOME=/opt/android ANDROID_SDK_ROOT=/opt/android
 RUN curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -o /tmp/sdk.zip && echo "7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee  /tmp/sdk.zip" | sha256sum -c - && mkdir -p /opt/android/cmdline-tools && unzip -q /tmp/sdk.zip -d /tmp/sdk && mv /tmp/sdk/cmdline-tools /opt/android/cmdline-tools/19 && rm /tmp/sdk.zip && yes | /opt/android/cmdline-tools/19/bin/sdkmanager --licenses >/dev/null
@@ -136,6 +169,7 @@ def prepare_image(profile, base, mirror, head, cancel, *, run_build=None, custom
         archive.rename(context / 'source.tar')
         recipe = 'FROM ' + base + '\n'
         if profile == ANDROID:
+            (context / 'gateway-android-packages').write_bytes(ANDROID_PACKAGES.encode())
             recipe += ANDROID_TOOLS
         if profile == NODE:
             recipe += 'RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\nENV COREPACK_HOME=/opt/corepack\nRUN npm install -g typescript-language-server@4.3.4 typescript@5.9.3\n'

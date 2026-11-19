@@ -77,6 +77,14 @@
     {
       "commit": "001348f36f833759c7d144c4bd4da902100bbedf",
       "scope": "Using the actual Android project and Gradle 9.8, preparation exposed an ambiguous artifact variant for the local GGUF project. The revised cache step selects external components while Android chooses project variants. The full project test runtime and lint dependencies resolved online, then :app:mergeDebugUnitTestManifest passed offline, the exact step that previously failed on hosted Android."
+    },
+    {
+      "commit": "b1199ba4752a062692e51056721d42980567d1f2",
+      "scope": "Two independent hosted runners timed out fetching the Ubuntu package index over HTTP. Verified Android setup can fall back between HTTPS mirrors, fails on exhausted mirrors, and preserves native repository configuration on other distributions. Both HTTPS mirrors served release metadata with valid signatures from the Ubuntu archive key."
+    },
+    {
+      "commit": "b1199ba4752a062692e51056721d42980567d1f2",
+      "scope": "The real Kotlin language server resolved a String extension across files and previewed the exact definition and caller edits. Applying the preview in memory preserved a same-named Int extension and its caller."
     }
   ]
 }

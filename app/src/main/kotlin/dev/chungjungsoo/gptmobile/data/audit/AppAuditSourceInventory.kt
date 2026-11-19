@@ -9,13 +9,13 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "a170ae41b2bf1162cfa2250e2ac3ef074271fde7cb14b01c03e2daf7c063495e"
-    val fileCount: Int = 2715
-    val lineCount: Int = 446559
+    val sourceDigest: String = "ef3b4a3e679474e9bfe9cd90b89c54354ece543df0d80c285adf774476414bef"
+    val fileCount: Int = 2716
+    val lineCount: Int = 446792
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
-        AppAuditSourceArea("android_shell", "Android application and lifecycle", 76, 8957),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 569, 100695),
+        AppAuditSourceArea("android_shell", "Android application and lifecycle", 76, 8959),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 569, 100776),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 200, 9296),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 234, 40361),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 101, 23105),
@@ -36,7 +36,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("voice_and_media", "Voice and media", 31, 6220),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
-        AppAuditSourceArea("gateway_software", "Companion gateway software", 180, 79129),
+        AppAuditSourceArea("gateway_software", "Companion gateway software", 181, 79279),
         AppAuditSourceArea("authentication_service", "Authentication broker software", 9, 2638),
         AppAuditSourceArea("external_integrations", "External integration servers", 63, 6513),
         AppAuditSourceArea("other_production", "Additional production source", 62, 2857)

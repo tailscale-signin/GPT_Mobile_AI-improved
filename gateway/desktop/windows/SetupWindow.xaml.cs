@@ -34,8 +34,23 @@ public partial class SetupWindow : Window
     [STAThread]
     public static int Main(string[] args)
     {
-        if (args.Length != 2 || args[0] is not ("--plan" or "--smoke") || !Path.IsPathFullyQualified(args[1])) return 2;
+        if (args.Length != 2 || args[0] is not ("--plan" or "--smoke" or "--dashboard" or "--dashboard-smoke") || !Path.IsPathFullyQualified(args[1])) return 2;
         var app = new Application();
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("Theme.xaml", UriKind.Relative) });
+        if (SystemParameters.HighContrast)
+        {
+            app.Resources["CanvasBrush"] = SystemColors.WindowBrush;
+            app.Resources["PanelBrush"] = SystemColors.WindowBrush;
+            app.Resources["TextBrush"] = SystemColors.WindowTextBrush;
+            app.Resources["MutedBrush"] = SystemColors.WindowTextBrush;
+            app.Resources["AccentBrush"] = SystemColors.WindowTextBrush;
+            app.Resources["LineBrush"] = SystemColors.WindowTextBrush;
+        }
+        if (args[0].StartsWith("--dashboard", StringComparison.Ordinal)) {
+            var workspace = new WorkspaceWindow(args[1], args[0] == "--dashboard-smoke");
+            app.Run(workspace);
+            return workspace.Result;
+        }
         var window = new SetupWindow(args[1], args[0] == "--smoke");
         app.Run(window);
         return window.result;
@@ -47,15 +62,6 @@ public partial class SetupWindow : Window
         planPath = path;
         smoke = smokeMode;
         pages = [EditionPage, ConnectionPage, ChecksPage, FinishPage];
-        if (SystemParameters.HighContrast)
-        {
-            Resources["CanvasBrush"] = SystemColors.WindowBrush;
-            Resources["PanelBrush"] = SystemColors.WindowBrush;
-            Resources["TextBrush"] = SystemColors.WindowTextBrush;
-            Resources["MutedBrush"] = SystemColors.WindowTextBrush;
-            Resources["AccentBrush"] = SystemColors.WindowTextBrush;
-            Resources["LineBrush"] = SystemColors.WindowTextBrush;
-        }
         Listener.ItemsSource = Interfaces();
         Listener.SelectedIndex = 0;
         Port.TextChanged += (_, _) => DescribeListener();

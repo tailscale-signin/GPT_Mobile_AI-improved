@@ -132,6 +132,8 @@ def main():
             assert observation['historyError'] is None
             assert (root / 'data' / 'activity.json').exists()
             subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=150)
+            subprocess.run([str(exe.parent / 'GatewayWorkspace.exe'), '--dashboard-smoke', str(root)], check=True, timeout=45)
+            results.append('installed native workspace renders its nine sections from the runtime observation')
             ui = json.loads((root / 'dashboard-ui-smoke.json').read_text(encoding='utf-8'))
             assert ui['pages'] == ['Overview', 'Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks']
             assert ui['width'] >= 900 and ui['height'] >= 600

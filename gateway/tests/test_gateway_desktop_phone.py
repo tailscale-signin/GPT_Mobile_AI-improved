@@ -149,6 +149,22 @@ class PairedControls(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(403, (await self.call(path, ctx=management))[0])
         self.assertEqual(403, (await self.call('/gateway/identity', ctx=data))[0])
 
+    async def test_reconnect_recovers_command_and_windows_action_receipt(self):
+        device, control, _ = await self.pair()
+        path = '/gateway/owner/settings'
+        _, initial = await self.call(path, ctx=control)
+        command = uuid4().hex
+        receipt_path = path + '?command_id=' + command
+        self.assertEqual('unconfirmed', (await self.call(receipt_path, ctx=control))[1]['command_state'])
+        body = dict(command_id=command, device=device, installation=initial['installation'], revision=initial['revision'],
+                    changes={'host_request': 'Open engineering setup'})
+        self.assertEqual('waiting_pc', (await self.call(path, body, control))[1]['command_state'])
+        _, result = await self.call(receipt_path, ctx=control)
+        self.assertEqual('Android', result['last_change']['source'])
+        self.assertEqual('waiting_pc', result['command_state'])
+        _, other, _ = await self.pair()
+        self.assertEqual('unconfirmed', (await self.call(receipt_path, ctx=other))[1]['command_state'])
+
     async def test_viewer_and_other_device_cannot_change_owner(self):
         owner, control, _ = await self.pair()
         viewer, see, _ = await self.pair('viewer')

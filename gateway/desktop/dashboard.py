@@ -388,7 +388,11 @@ def show(root, smoke=False):
         atomic_json(Path(root) / 'show-dashboard.json', {'requestedAt': time.time()})
         return
     try:
-        _show(root, smoke)
+        shell = Path(sys.executable).parent / 'GatewayWorkspace.exe'
+        if not smoke and os.name == 'nt' and getattr(sys, 'frozen', False) and shell.is_file():
+            subprocess.run([str(shell), '--dashboard', str(root)], check=True)
+        else:
+            _show(root, smoke)
     finally:
         from desktop.repository_validation_panel import settle_setup_workers
         settle_setup_workers(root)

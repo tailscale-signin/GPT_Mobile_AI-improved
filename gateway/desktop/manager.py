@@ -133,7 +133,9 @@ class Supervisor:
         self.root = Path(root).resolve()
         self.cfg = load(self.root)
         from desktop.configuration import public_repository_maps
-        self.engine_settings = dict(self.cfg, public_repository_maps=public_repository_maps(self.root))
+        from desktop.phone_policies import active
+        self.engine_settings = dict(self.cfg, public_repository_maps=public_repository_maps(self.root),
+                                    validation_profile=active(self.root) if (self.root / 'data/phone-control/listener.json').exists() else None)
         self.token = secrets.token_urlsafe(48)
         self.http = requests.Session()
         self.http.trust_env = False

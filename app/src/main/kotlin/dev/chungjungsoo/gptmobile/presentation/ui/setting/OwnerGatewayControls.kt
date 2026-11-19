@@ -41,13 +41,18 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 @Composable
-internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact: Boolean = false) = key(entry) {
+internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact: Boolean = false, profileUid: String? = null, appEngineering: Boolean? = null) = key(entry) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val binding = remember(entry, profileUid) { context.getSharedPreferences("paired-engineering", android.content.Context.MODE_PRIVATE) }
+    val bindingKey = entry.alias + ":" + profileUid
+    var firstPrompt by remember(entry, profileUid) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val lock = remember { Mutex() }
     var observed by remember { mutableStateOf<JSONObject?>(null) }
     var error by remember { mutableStateOf("") }
     var writing by remember { mutableStateOf(false) }
     var details by remember { mutableStateOf(false) }
+    var forgetOnly by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
     val lifecycle = LocalLifecycleOwner.current
     suspend fun read(retry: Boolean = false) {
@@ -70,7 +75,7 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
             }
         }
     }
-    fun change(field: String, value: Any) {
+    fun change(field: String, value: Any, confirmed: () -> Unit = {}) {
         val current = observed ?: return
         if (writing || error.isNotEmpty() || entry.role != "owner") return
         writing = true
@@ -81,6 +86,7 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
                         .put("device", entry.device).put("installation", current.getString("installation")).put("revision", current.getString("revision"))
                         .put("changes", JSONObject().put(field, value))
                     observed = OwnerGateway.settings(entry, payload)
+                    confirmed()
                     error = ""
                 }
             } catch (cancelled: CancellationException) {
@@ -97,6 +103,43 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
     val receipt = observed?.optString("command_state").orEmpty()
     val outstanding = receipt in setOf("queued", "saved", "unconfirmed")
     val editable = !outstanding && desired != null && entry.role == "owner" && !writing && error.isEmpty()
+    val sequence = observed?.optLong("sequence")
+    var attempted by remember(bindingKey, appEngineering) { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(bindingKey, appEngineering, editable, sequence) {
+        if (profileUid == null || appEngineering == null || !editable) return@LaunchedEffect
+        if (!binding.contains(bindingKey)) {
+            if (appEngineering && actual?.optBoolean("engineering") != true) {
+                firstPrompt = true
+            } else {
+                binding.edit().putBoolean(bindingKey, appEngineering).apply()
+            }
+        } else if (binding.getBoolean(bindingKey, false) != appEngineering && !attempted) {
+            attempted = true
+            if (actual?.optBoolean("engineering") == appEngineering) {
+                binding.edit().putBoolean(bindingKey, appEngineering).apply()
+            } else {
+                change("engineering", appEngineering) { binding.edit().putBoolean(bindingKey, appEngineering).apply() }
+            }
+        }
+    }
+    if (firstPrompt && appEngineering == true && editable) {
+        fun dismiss() {
+            firstPrompt = false
+            binding.edit().putBoolean(bindingKey, true).apply()
+        }
+        AlertDialog(
+            onDismissRequest = { dismiss() },
+            title = { Text("Apply Engineering to $name?") },
+            text = { Text("Engineering is on for this app profile. Allow this phone to submit new engineering jobs to this Gateway?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    firstPrompt = false
+                    change("engineering", true) { dismiss() }
+                }) { Text("Apply to this PC") }
+            },
+            dismissButton = { TextButton(onClick = { dismiss() }) { Text("Keep current setting") } }
+        )
+    }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(name, style = MaterialTheme.typography.titleMedium)
@@ -136,43 +179,74 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
                         Switch(desired?.optBoolean(field) == true, { change(field, it) }, enabled = editable)
                     }
                 }
-                for ((field, label) in listOf("workers" to "Worker limit", "active_chats" to "Chat limit", "update_mode" to "Update policy", "backend" to "Approved backend", "batch_mode" to "Batch mode")) {
+                for ((field, label) in listOf("workers" to "Worker limit", "active_chats" to "Chat limit", "update_mode" to "Update policy", "backend" to "Approved backend", "batch_mode" to "Batch mode", "validation_profile" to "Repository validation")) {
                     val choices = when (field) {
                         "workers" -> (1..minOf(16, desired?.optInt("active_chats", 1) ?: 1)).map(Int::toString)
                         "active_chats" -> ((desired?.optInt("workers", 1) ?: 1)..64).map(Int::toString)
+                        "validation_profile" -> observed?.optJSONObject("validation_profiles")?.keys()?.asSequence()?.toList().orEmpty()
                         "update_mode" -> listOf("off", "notify", "auto")
                         else -> (if (field == "backend") observed?.optJSONArray("backends") else observed?.optJSONArray("batch_modes"))?.let { list -> (0 until list.length()).map { list.getString(it) } }.orEmpty()
                     }
+                    fun display(value: String): String = if (field == "validation_profile") {
+                        observed?.optJSONObject("validation_profiles")?.optString(value)?.takeIf { it.isNotEmpty() } ?: if (value == "disabled") "Disabled" else "Host selection"
+                    } else {
+                        value
+                    }
                     var menu by remember { mutableStateOf(false) }
                     Column {
-                        OutlinedButton(enabled = editable && choices.isNotEmpty(), onClick = { menu = true }) { Text("$label · ${desired?.opt(field) ?: "Unknown"}") }
+                        OutlinedButton(enabled = editable && choices.isNotEmpty(), onClick = { menu = true }) { Text("$label · ${display(desired?.optString(field) ?: "Unknown")}") }
                         DropdownMenu(menu, { menu = false }) {
                             choices.forEach { option ->
-                                DropdownMenuItem(text = { Text(option) }, onClick = {
+                                DropdownMenuItem(text = { Text(display(option)) }, onClick = {
                                     menu = false
                                     change(field, if (field in setOf("workers", "active_chats")) option.toInt() else option)
                                 })
                             }
                         }
                     }
-                    if (actual?.opt(field) != desired?.opt(field)) Text("Currently active: ${actual?.opt(field)}", style = MaterialTheme.typography.bodySmall)
+                    if (actual?.opt(field) != desired?.opt(field)) Text("Currently active: ${display(actual?.optString(field) ?: "Unknown")}", style = MaterialTheme.typography.bodySmall)
                 }
-                TextButton(onClick = { confirmRemove = true }, enabled = !writing) { Text("Remove phone access") }
+                observed?.optJSONObject("last_change")?.takeIf { it.has("sequence") }?.let {
+                    Text("Change ${it.optLong("sequence")} · ${it.optString("field")} · ${it.optString("source")} · ${it.optString("state")}")
+                }
+                if (actual?.optBoolean("engineering") == true && observed?.optBoolean("engineering_ready", true) == false) {
+                    val checks = observed?.optJSONObject("engineering_checks")
+                    Text("Engineering setup required · GitHub ${checks?.optString("host_github_connection")} · Worker ${checks?.optString("worker")} · Journal ${checks?.optString("journal")}")
+                }
+                observed?.optJSONArray("jobs")?.let { jobs ->
+                    for (index in 0 until jobs.length()) {
+                        jobs.optJSONObject(index)?.let { job -> Text("${job.optString("id")} · ${job.optString("state")}", style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+                var requestMenu by remember { mutableStateOf(false) }
+                Column {
+                    OutlinedButton(onClick = { requestMenu = true }, enabled = editable) { Text("Request a Windows action") }
+                    DropdownMenu(requestMenu, { requestMenu = false }) {
+                        listOf("Review phone network access", "Open engineering setup", "Review pending restart").forEach { action ->
+                            DropdownMenuItem(text = { Text(action) }, onClick = {
+                                requestMenu = false
+                                change("host_request", action)
+                            })
+                        }
+                    }
+                }
+                TextButton(onClick = { forgetOnly = false; confirmRemove = true }, enabled = !writing) { Text("Remove phone access") }
+                if (error.isNotEmpty()) TextButton(onClick = { forgetOnly = true; confirmRemove = true }) { Text("Forget offline pairing") }
             }
         }, confirmButton = { TextButton(onClick = { details = false }) { Text("Done") } })
     }
     if (confirmRemove) {
         AlertDialog(
             onDismissRequest = { confirmRemove = false },
-            title = { Text("Remove phone access?") },
-            text = { Text("Revoke this device on the PC. You can pair it again with a new invitation.") },
+            title = { Text(if (forgetOnly) "Forget this pairing?" else "Remove phone access?") },
+            text = { Text(if (forgetOnly) "Delete this phone’s private key. The PC will keep its grant until you revoke it on Windows." else "Revoke this device on the PC. You can pair it again with a new invitation.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmRemove = false
                     details = false
                     scope.launch {
                         try {
-                            OwnerGateway.remove(entry, true)
+                            OwnerGateway.remove(entry, !forgetOnly)
                             observed = null
                             error = "Phone access removed."
                         } catch (cancelled: CancellationException) {
@@ -181,7 +255,7 @@ internal fun OwnerGatewayControls(entry: OwnerCredential, name: String, compact:
                             error = failure.message ?: "Revocation unconfirmed."
                         }
                     }
-                }) { Text("Revoke access") }
+                }) { Text(if (forgetOnly) "Forget pairing" else "Revoke access") }
             },
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } }
         )

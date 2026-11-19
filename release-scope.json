@@ -4,6 +4,8 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Manage Windows Gateway settings from the paired Android application, including device-scoped engineering, host-approved validation and model routes, change receipts and safe activation.",
+    "Use the shared WPF theme for the Windows installer and workspace with accessible navigation, live observations and diagnostic previews.",
     "Manage saved engineering job admission for observed accounts through the Windows supervisor and keep anonymous network controls read-only on Android.",
     "Add native four-step Windows Gateway setup with an interface picker, bounded model catalog probe, optional advanced settings and installed-workflow smoke coverage.",
     "Add native interactive answers, evidence-based profile suggestions, scoped context retrieval, progressive GitHub delivery, audio attachments, persisted task recovery, desktop schedules and offline analysis.",
@@ -22,7 +24,7 @@
     "Implement measured GitHub fade and rendered-line pacing, stable preview activation order, shared user-bottom follow, themed voice captions with observed playback phases, and schema-preserving benchmark request and execution-evidence repairs.",
     "Reduce chat composable method size and enforce ART code-unit bounds on packaged chat/voice definitions, retain APK-bound CI reports, and restore benchmark backup evidence without endpoint substitution or private parser errors.",
     "Handle issues #1090 and #1091 with early capacity provenance and numeric component evidence, accurate resolved-output reporting and guidance, explicit conflict acceptance and bounded handoff correlation, while retaining pre-dispatch rejection and original-job recovery fences.",
-    "Fix issues #1093\u2013#1096 with VPN-compatible voice scheduling, attempt-owned progress and cancellation, bounded approved download diagnostics, live GitHub header geometry, shared chat generation indicators, and separately scored GitHub contract/live audits with bounded read-only probes.",
+    "Fix issues #1093–#1096 with VPN-compatible voice scheduling, attempt-owned progress and cancellation, bounded approved download diagnostics, live GitHub header geometry, shared chat generation indicators, and separately scored GitHub contract/live audits with bounded read-only probes.",
     "Repair durable voice download lifecycle and queued UI feedback; preserve bounded transport, read-window, saved-cursor, acceptance-claim and strict reasoning admission evidence in approved issue reports.",
     "Keep logical gateway operation identities stable and retain bounded model preparation, gateway capture retrieval, MCP rejection, tool provenance, GitHub verdict provenance, and frame timing evidence. Defer eligible pre-dispatch provider connectivity failures with bounded backoff.",
     "Improve GitHub chat scrolling and progress, Gateway conversation navigation, background voice plugin installation, and bounded app audit modes. Add safe observations for URL-reader DNS cooldowns, saved-view recovery, and fixture approval.",
@@ -129,10 +131,10 @@
     "Resolve a pinned comparison base for manual CI validation while preserving event-supplied PR, push and merge-queue comparisons and rejecting unavailable or invalid references.",
     "Isolate real-worker engineering recovery tests under the unchanged per-module watchdog, preserving every unique assertion and the existing readiness and shutdown limits while removing identical inherited executions.",
     "Refresh microphone permission evidence from the actual owner permission check after capture read security failures, retaining typed recovery, resource cleanup, generation ownership and privacy invalidation.",
-    "Repair PR 881 open issues #884\u2013#890: exact-model sleep preparation and durable uncertainty, typed model/report diagnostics with negotiated reporter features, explicit immutable review baselines and review intent, and revision-bound self-test workflow dependency discovery.",
+    "Repair PR 881 open issues #884–#890: exact-model sleep preparation and durable uncertainty, typed model/report diagnostics with negotiated reporter features, explicit immutable review baselines and review intent, and revision-bound self-test workflow dependency discovery.",
     "Repair diagnostic capture 62a4cb28 engineering scope serialization and retained replay identity, preserve pre-job and model-preparation failure evidence across versioned approved reports, and split serial durable queue dispatch.",
     "Preserve accepted status criteria and immutable receipt provenance, bind target-repository and exact-SHA pagination evidence, reject mixed page sizes, and render complete integration prerequisites within existing authority and call ceilings.",
-    "Repair built-in head/base review parsing, preserve original provider tool identities through routing and durable continuation, align issue presentation arguments and add negotiated bounded incident-failure diagnostics for issues #891\u2013#921.",
+    "Repair built-in head/base review parsing, preserve original provider tool identities through routing and durable continuation, align issue presentation arguments and add negotiated bounded incident-failure diagnostics for issues #891–#921.",
     "Repair the November 13 diagnostic workflow failures with exact provider-tool replay, bounded argument correction, review baseline parsing, task-aware status budgets, separate ordinary and engineering conversation bindings, native integration routing, and immutable context-v7 incident evidence; retain unconfirmed historical causes as diagnostic follow-up.",
     "Preserve retained acceptance capability scope and pagination mode in bounded approved reports for issue #1092, negotiate matching reporter support, and retain CI source-generation phase metrics without changing completion policy or build limits.",
     "Repair bounded GitHub review output recovery, terminal failure publication, workflow and repository-graph preparation, desktop validation-policy persistence, diagnostic export memory recovery, and targeted report evidence from the supplemental November 14 archive.",
@@ -157,7 +159,7 @@
     "Prefer an existing compact GitHub inspection contract for the initial request while preserving exact connection identity, authorized full-tool discovery and unchanged admission limits. Keep unavailable supplemental engineering memory optional, with a scoped notice and finite lookup/revalidation evidence; fresh repository access, cancellation and cloud-memory consent remain enforced.",
     "Record the actual acceptance publication path, extraction state, draft presence, receipt and claim counts, and the operands of an observed planning rejection. Older verdicts retain unavailable observations. New reports negotiate the extended reporting capability without changing approved bytes or the legacy readiness and submission-receipt limits.",
     "Materialize candidate source as exact UTF-8 bytes, preserving its declared line endings on Windows. Let Repository Validation status and actions span the full compact viewport. Correct the capacity-test lease receiver without changing production behavior or existing assertions, and give the isolated GenieX KAPT step the established 4 GiB build heap.",
-    "Repair resumed tool-event sequence allocation and unavailable saved GitHub conversation routing for the late #1246\u2013#1275 intake. Add bounded producer-qualified repeat-admission, actual persistence and SQLite, receipt-trust, publication-entry and review-comparison observations with distinct hosted capability negotiation; retain historical unknowns and individual final-qualification conditions.",
+    "Repair resumed tool-event sequence allocation and unavailable saved GitHub conversation routing for the late #1246–#1275 intake. Add bounded producer-qualified repeat-admission, actual persistence and SQLite, receipt-trust, publication-entry and review-comparison observations with distinct hosted capability negotiation; retain historical unknowns and individual final-qualification conditions.",
     "Separate archive destinations and installed-bundle validation from linked-model alias resolution while preserving path, code-extension and canonical containment checks; strengthen admitted-runtime traversal, cleanup and valid nested-import regressions.",
     "Continue PR #1203 on PR #1299 with bounded reader, repeat, search, pagination and policy diagnostics; preserve specific argument failures and admission observations; fit continuation replay to the correct context; refine voice pacing and presentation; improve partial exports; qualify pinned companion dependency overlays; and retain the concurrent measured voice activity, adaptive report review, chat interaction and Gateway dashboard presentation. Retain the concurrent pinned engineering exploration, approved adaptive checks, shared execution-budget receipts and revision-fenced checkpoint inspection. Fence checkpoint UI publications to the originating chat and retain unmeasured production-qualification results. Make committed repository-search fixture bytes deterministic across Windows and Unix while preserving the original regex assertions.",
     "Add SHA-pinned repository-wide exploration, approved adaptive validation, shared execution-budget receipts, incremental action checkpoints, specialist reviews, exact patch iteration, verified existing-PR adoption, Android/Windows checkpoint inspection and local restore, generated instruction metadata, and a ten-scenario production qualification runner.",
@@ -3209,6 +3211,10 @@
     "gateway/desktop/phone_panel.py",
     "gateway/desktop/phone_settings.py",
     "gateway/desktop/requirements-build.txt",
-    "gateway/tests/test_gateway_desktop_phone.py"
+    "gateway/tests/test_gateway_desktop_phone.py",
+    "gateway/desktop/phone_policies.py",
+    "gateway/desktop/windows/Theme.xaml",
+    "gateway/desktop/windows/WorkspaceWindow.xaml",
+    "gateway/desktop/windows/WorkspaceWindow.xaml.cs"
   ]
 }

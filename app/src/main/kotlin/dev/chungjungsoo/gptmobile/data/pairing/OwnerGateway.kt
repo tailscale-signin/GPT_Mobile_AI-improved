@@ -74,6 +74,8 @@ internal object OwnerGateway {
         }
     }
 
+    fun pairedDevices() = credentials.values.sortedBy { it.origin }
+
     fun find(origin: String) = credentials[origin]
     fun forUrl(url: String) = runCatching {
         val uri = URI(url)

@@ -81,6 +81,42 @@ class EngineeringHTTPTests(unittest.TestCase):
         self.assertTrue(enabled.json()['enabled'])
         self.assertEqual(2, enabled.json()['revision'])
 
+    def test_paired_phone_gate_controls_real_job_route_and_preserves_accepted_job(self):
+        from desktop import phone_settings
+        from desktop.configuration import DEFAULTS, atomic_json
+        from v14.identity import Principal
+        from uuid import uuid4
+        root = Path(self.temp.name) / 'phone-installation'
+        root.mkdir()
+        atomic_json(root / 'settings.json', DEFAULTS)
+        owner = 'phone:' + uuid4().hex
+        fixtures.DurableEngineeringTests.admit(self, owner)
+        app = FastAPI()
+        app.add_middleware(Admission, config=Config(mode='loopback', allowed_hosts=('testserver',), allowed_origins=()))
+        install_engineering_routes(app, self.service)
+        async def paired(scope, receive, send):
+            scope['gateway.paired'] = Principal(owner, frozenset({'chat','jobs','tools','engineering'}))
+            await app(scope, receive, send)
+        client = TestClient(paired)
+        def switch(value):
+            def update(db):
+                snapshot = phone_settings.snapshot(root, db, self.store, owner, 'owner', {})
+                body = dict(command_id=uuid4().hex, revision=snapshot['revision'], installation=snapshot['installation'],
+                            device=owner, changes={'engineering': value})
+                return phone_settings.change(root, db, self.store, owner, 'owner', {}, body)
+            self.store.tx(update)
+        path = '/gateway/engineering/jobs'
+        self.assertEqual('ENGINEERING_JOBS_PAUSED', client.post(path, json=dict(self.request, request_id='before-enable')).json()['error']['code'])
+        switch(True)
+        accepted = client.post(path, json=self.request)
+        self.assertEqual(202, accepted.status_code, accepted.text)
+        switch(False)
+        replay = client.post(path, json=self.request)
+        self.assertEqual(accepted.json()['id'], replay.json()['id'])
+        rejected = client.post(path, json=dict(self.request, request_id='new-paired-request'))
+        self.assertNotEqual(202, rejected.status_code)
+        self.assertIn('PAUSED', rejected.text.upper())
+
     def test_graph_unexpected_500_is_classified_without_private_error_text(self):
         cases = [
             (sqlite3.OperationalError('private database location'), 'graph_internal_storage_error'),

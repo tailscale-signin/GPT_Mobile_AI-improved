@@ -100,7 +100,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 androidx.compose.material3.TextButton(onClick = { androidContext.startActivity(android.content.Intent(androidContext, OwnerPairingActivity::class.java)) }) { Text("Pair a Windows Gateway") }
                 val pairedOwner = gateway?.let { dev.chungjungsoo.gptmobile.data.pairing.OwnerGateway.forUrl(it.apiUrl) }
                 if (pairedOwner != null && gateway != null) {
-                    OwnerGatewayControls(pairedOwner, gateway.name)
+                    OwnerGatewayControls(pairedOwner, gateway.name, profileUid = selectedProfile, appEngineering = state.profileSettings.engineeringMode != dev.chungjungsoo.gptmobile.data.context.EngineeringMode.OFF)
                 } else if (gateway != null && selectedProfile != null && onAdmissionSetting != null) {
                     key(selectedProfile, gateway) {
                         GatewayAdmissionControl { previous -> onAdmissionSetting(selectedProfile, gateway.uid, previous) }
@@ -341,7 +341,7 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
                 Text("Engineering budget", style = MaterialTheme.typography.titleSmall)
                 OutlinedButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.testTag("github_engineering_budget")) { Text(engineeringLabel(value.engineeringMode)) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    listOf(dev.chungjungsoo.gptmobile.data.context.EngineeringMode.ULTRA_MAX, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.ENGINEERING_MAX, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.DEEP, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.STANDARD, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.QUICK).forEach { mode ->
+                    listOf(dev.chungjungsoo.gptmobile.data.context.EngineeringMode.OFF, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.ULTRA_MAX, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.ENGINEERING_MAX, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.DEEP, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.STANDARD, dev.chungjungsoo.gptmobile.data.context.EngineeringMode.QUICK).forEach { mode ->
                         DropdownMenuItem(text = { Text(engineeringLabel(mode)) }, onClick = {
                             menu = false
                             onChange(value.copy(engineeringMode = mode))

@@ -141,7 +141,7 @@ benchmarks = BenchmarkService(runtime, engineering)
 runtime.gateway_benchmarks = benchmarks
 from desktop.phone_listener import companion_lifespan
 engine_lifespan = schedule_lifespan(benchmarks.lifecycle(model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))))), os.getenv("GATEWAY_DESKTOP_ROOT"), runtime.GATEWAY_JOB_DB_PATH)
-app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=companion_lifespan(engine_lifespan, os.getenv("GATEWAY_DESKTOP_ROOT"), engineering_store),
+app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=companion_lifespan(engine_lifespan, os.getenv("GATEWAY_DESKTOP_ROOT"), engineering_store, engineering.readiness),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)

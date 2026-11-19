@@ -17,7 +17,7 @@ from v14.state_lock import StateDirectoryLock
 
 def main():
     parser = argparse.ArgumentParser(description='GPT Mobile Gateway desktop manager')
-    parser.add_argument('command', choices=['supervise', 'settings', 'github-settings', 'engineering-setup', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard', 'benchmark-settings'])
+    parser.add_argument('command', choices=['supervise', 'settings', 'github-settings', 'engineering-setup', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard', 'benchmark-settings', 'phone-settings', 'workspace'])
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--version')
     parser.add_argument('--headless', action='store_true', help='Run the supervisor without desktop UI')
@@ -25,6 +25,7 @@ def main():
     parser.add_argument('--error-file', type=Path)
     parser.add_argument('--settings-file', type=Path)
     parser.add_argument('--smoke-ui', action='store_true')
+    parser.add_argument('--page', choices=['Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks'])
     args = parser.parse_args()
     if args.headless and args.command != 'supervise':
         parser.error('--headless requires the supervise command')
@@ -76,6 +77,25 @@ def main():
             startup_registration(root, cfg['start_at_login'])
         finally:
             lock.release()
+        return 0
+    if args.command == 'workspace':
+        from desktop.dashboard import Dashboard
+        view = Dashboard(root)
+        view.navigate(args.page or 'Chat')
+        view.window.mainloop()
+        return 0
+    if args.command == 'phone-settings':
+        import tkinter as tk
+        from desktop import phone_panel, window_lifecycle
+        owner = tk.Tk()
+        owner.withdraw()
+        dialog = phone_panel.show(owner, root)
+        window_lifecycle.watch(dialog, root, dialog.destroy)
+        dialog.bind('<Destroy>', lambda event: owner.quit() if event.widget is dialog else None, add='+')
+        try:
+            owner.mainloop()
+        finally:
+            owner.destroy()
         return 0
     if args.command == 'benchmark-settings':
         import tkinter as tk

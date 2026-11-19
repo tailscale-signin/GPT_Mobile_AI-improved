@@ -1,0 +1,22 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="CanvasBrush" Color="#001219"/>
+    <SolidColorBrush x:Key="PanelBrush" Color="#0B2028"/>
+    <SolidColorBrush x:Key="TextBrush" Color="#E0F4F7"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="#B8DDE2"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#00FFDE"/>
+    <SolidColorBrush x:Key="LineBrush" Color="#294D53"/>
+    <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap"/></Style>
+    <Style TargetType="RadioButton"><Setter Property="Foreground" Value="{DynamicResource TextBrush}"/><Setter Property="Margin" Value="0,8"/></Style>
+    <Style TargetType="Button">
+      <Setter Property="Padding" Value="18,8"/><Setter Property="MinHeight" Value="38"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/><Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="Box" CornerRadius="10" Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" BorderThickness="2" BorderBrush="{DynamicResource LineBrush}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.55"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+  </ResourceDictionary>

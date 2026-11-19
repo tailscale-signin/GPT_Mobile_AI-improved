@@ -49,13 +49,15 @@ class OwnerPairingActivity : ProtectedActivity() {
                 var busy by remember { mutableStateOf(false) }
                 Surface {
                     Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        var devices by remember { mutableStateOf(OwnerGateway.pairedDevices()) }
+                        devices.forEach { device -> OwnerGatewayControls(device, device.origin) }
                         Text("Pair a Windows Gateway", style = MaterialTheme.typography.headlineSmall)
                         Text("On your PC, open Android controls and create an invitation. Scan its QR code or paste the invitation here.")
                         OutlinedTextField(link, { link = it.take(2048) }, enabled = !busy, singleLine = true, label = { Text("Invitation link") }, modifier = Modifier.fillMaxWidth())
                         invite?.let { Text("PC  ${it.origin}\nCertificate fingerprint  ${it.pin.chunked(8).joinToString(" ")}") }
                         OutlinedTextField(name, { name = it.take(80) }, enabled = !busy, label = { Text("Gateway name") })
-                        OutlinedTextField(model, { model = it.take(200) }, enabled = !busy, label = { Text("Local model ID") })
-                        Button(enabled = invite != null && name.isNotBlank() && model.isNotBlank() && !busy, onClick = {
+                        OutlinedTextField(model, { model = it.take(200) }, enabled = !busy, label = { Text("Local model ID (optional for settings)") })
+                        Button(enabled = invite != null && name.isNotBlank() && !busy, onClick = {
                             val target = invite ?: return@Button
                             busy = true
                             scope.launch {
@@ -64,10 +66,11 @@ class OwnerPairingActivity : ProtectedActivity() {
                                     if (existing != null) check(existing.pin == target.pin) { "The PC certificate changed. Review the saved pairing." }
                                     val entry = existing ?: OwnerGateway.pair(target)
                                     val endpoint = entry.origin + "/v1"
-                                    if (settings.fetchPlatformV2s().none { it.apiUrl == endpoint && it.compatibleType == ClientType.LLAMA }) {
+                                    if (entry.role == "owner" && model.isNotBlank() && settings.fetchPlatformV2s().none { it.apiUrl == endpoint && it.compatibleType == ClientType.LLAMA }) {
                                         settings.addPlatformV2(PlatformV2(name = name.trim(), compatibleType = ClientType.LLAMA, apiUrl = endpoint, model = model.trim(), enabled = true))
                                     }
-                                    message = "Paired as ${entry.role}. Select this connection under GitHub settings → Engineering gateway."
+                                    devices = OwnerGateway.pairedDevices()
+                                    message = if (entry.role == "owner" && model.isNotBlank()) "Paired. Select this connection under GitHub settings → Engineering gateway." else "Paired as ${entry.role}. Gateway settings are available above."
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (failure: Exception) {

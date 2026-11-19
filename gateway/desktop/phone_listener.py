@@ -26,7 +26,7 @@ async def read_json(request):
     return json.loads(data)
 
 
-def protocol(root, cfg, store, effective):
+def protocol(root, cfg, store, effective, readiness=None):
     endpoint = f"{cfg['host']}:{cfg['port']}"
     class PairedHTTP(H11Protocol):
         def connection_made(self, transport):
@@ -61,7 +61,13 @@ def protocol(root, cfg, store, effective):
                             if request.method == 'GET':
                                 return phone_settings.snapshot(*args, command=request.query_params.get("command_id"))
                             return phone_settings.change(*args, body)
-                        return await reply(await asyncio.to_thread(store.tx, apply))
+                        result = await asyncio.to_thread(store.tx, apply)
+                        if readiness:
+                            health = await asyncio.to_thread(readiness)
+                            result['engineering_ready'] = health.get('ready', False)
+                            checks = health.get('components', health.get('checks', {}))
+                            result['engineering_checks'] = {key: str(checks[key])[:60] for key in ('journal','worker','host_github_connection','draining') if key in checks}
+                        return await reply(result)
                     if path == '/gateway/owner/revoke' and request.method == 'POST':
                         await asyncio.to_thread(phone_access.revoke, root, ident)
                         return await reply({'revoked': True})
@@ -79,7 +85,7 @@ def protocol(root, cfg, store, effective):
     return PairedHTTP
 
 
-def companion_lifespan(base, root, store):
+def companion_lifespan(base, root, store, readiness=None):
     @asynccontextmanager
     async def lifespan(app):
         async with base(app):
@@ -92,6 +98,8 @@ def companion_lifespan(base, root, store):
             from desktop.configuration import public_repository_maps
             effective = {k: running[k] for k in ('workers','active_chats','debug_mode','backend')}
             effective['public_repository_maps'] = public_repository_maps(root_path)
+            from desktop.phone_policies import active as active_policy
+            effective['validation_profile'] = active_policy(root_path)
             async def observe():
                 server = None
                 owner = None
@@ -115,7 +123,7 @@ def companion_lifespan(base, root, store):
                                     ctx.load_cert_chain(str(folder / ('server-' + cfg['host'] + '.pem')))
                                     ctx.load_verify_locations(cafile=str(folder / 'authority.pem'))
                                     ctx.verify_mode = ssl.CERT_OPTIONAL
-                                    uv = Config(app, http=protocol(root_path, cfg, store, effective), ws='none', lifespan='off',
+                                    uv = Config(app, http=protocol(root_path, cfg, store, effective, readiness), ws='none', lifespan='off',
                                                 access_log=False, log_config=None, proxy_headers=False, limit_concurrency=32)
                                     uv.load()
                                     owner = Server(uv)

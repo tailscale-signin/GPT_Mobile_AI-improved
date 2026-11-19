@@ -104,6 +104,9 @@ def show(parent, root):
                 current.update(state)
                 detail.set('Engineering ' + ('on' if state['desired']['engineering'] else 'off') +
                            f"  ·  Workers {state['desired']['workers']}  ·  Updates {state['desired']['update_mode']}")
+                last = state.get('last_change') or {}
+                if last:
+                    detail.set(detail.get() + f"  ·  #{last['sequence']} {last['field']} · {last['source']} · {last['state']}")
                 toggle.configure(state='normal')
             else:
                 current.clear()
@@ -157,7 +160,7 @@ def show(parent, root):
             import uuid
             cmd = dict(command_id=uuid.uuid4().hex, device=device, installation=current['installation'], revision=current['revision'],
                        changes={'engineering': not current['desired']['engineering']})
-            local(lambda db: phone_settings.change(root, db, store, device, 'owner', {}, cmd))
+            local(lambda db: phone_settings.change(root, db, store, device, 'owner', {}, cmd, source='Windows'))
             refresh()
         except (ValueError, KeyError, sqlite3.Error, OSError) as error:
             status.set(str(error))
@@ -199,6 +202,32 @@ def show(parent, root):
     ttk.Button(maintenance, text='Allow private firewall access', command=edit_firewall).pack(side='left')
     ttk.Button(maintenance, text='Remove firewall rule', command=lambda: edit_firewall(True)).pack(side='left')
     ttk.Button(maintenance, text='Pause phone access', command=disable_listener).pack(side='left')
+    def approve_policy():
+        from desktop.phone_policies import approve_current
+        try:
+            approve_current(root)
+            status.set('Current validation profile approved for paired owners.')
+        except (OSError, ValueError) as error:
+            status.set(str(error))
+
+    def review_requests():
+        try:
+            def get(db):
+                phone_settings.schema(db)
+                return db.execute("SELECT seq,payload FROM phone_setting_commands WHERE state='waiting_pc' ORDER BY seq LIMIT 1").fetchone()
+            row = local(get)
+            if not row:
+                status.set('No Windows actions requested.')
+                return
+            action = json.loads(row[1])['changes']['host_request']
+            if messagebox.askyesno('Requested from Android', action + '\nMark this request as reviewed?', parent=window):
+                local(lambda db: db.execute("UPDATE phone_setting_commands SET state='reviewed' WHERE seq=? AND state='waiting_pc'", (row[0],)))
+                status.set('Request reviewed. Run the selected action in Windows settings when ready.')
+        except (ValueError, sqlite3.Error, OSError) as error:
+            status.set(str(error))
+
+    ttk.Button(content, text='Approve current validation profile', command=approve_policy).grid(row=12, column=0, sticky='w', padx=12)
+    ttk.Button(content, text='Review phone requests', command=review_requests).grid(row=12, column=1, sticky='w', padx=12)
     ttk.Button(bar, text='Create pairing invitation', style='Accent.TButton', command=invitation).pack(pady=8)
     toggle = ttk.Button(actions, text='Toggle engineering', command=switch)
     toggle.pack(side='left', padx=3)

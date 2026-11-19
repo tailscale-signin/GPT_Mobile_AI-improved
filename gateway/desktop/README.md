@@ -171,3 +171,13 @@ Each scenario uses an authorized job in the designated test repository. The runn
 ## Chat, saved messages and benchmarks
 
 The dashboard now has Overview, Chat, Saved, Jobs and Benchmarks. New prompt opens the selected-model composer; Ctrl+Enter sends. Saved offers history search, bookmarks, favorites and archiving. Advanced setup is optional. See [Gateway 17 contracts](../V17_DESKTOP.md) for conversation identity, benchmark scope, safe recovery and upgrade behavior.
+
+## Manage the Gateway from Android
+
+Open **Android controls** in the Windows dashboard. Select the PC’s private IPv4 interface, a separate HTTPS port (8443 by default), and an Owner or Viewer grant. Create an invitation and scan it on the intended phone. You can also paste the invitation under **Settings → Windows Gateways**. Compare the displayed certificate fingerprints. Each invitation expires after five minutes and can pair one device. The optional Windows firewall button allows only the selected port and interface on a Private network for the local subnet.
+
+In GitHub settings select the paired PC as the engineering Gateway for the desired inference profile. On first binding the app can apply that profile’s Engineering preference to the PC. The phone and Windows both show the per-device job admission state. Turning Engineering off leaves already accepted jobs in their original journal. A viewer can inspect settings. Shared-LAN traffic and ordinary inference credentials have no owner privileges.
+
+Owners can change worker and chat limits, select approved backends and validation profiles, choose a permitted batch mode, and manage repository maps, startup, update policy and diagnostic recording. Windows approves new backend origins and validation profiles. The app reports desired and active values separately and looks up the original command after a lost response. A backend must return a usable model catalogue before activation. Requested Windows actions appear for local review under Android controls. Revoke individual devices there, or pause phone access for the installation.
+
+The Windows workspace uses the installer’s WPF theme. Open a section to inspect the runtime, then open the associated chat, job, benchmark or settings editor. **Diagnostics** previews the fields included in its text export. Closing the workspace leaves the supervisor and jobs running.

@@ -93,11 +93,28 @@ def request(root, action, timeout=50):
         except StateDirectoryAlreadyOwned:
             pass
         else:
-            lock.release()
-            if action == 'stop':
-                (root / 'request.json').unlink(missing_ok=True)
-                return {'accepted': True}
-            raise RuntimeError('Start Gateway before requesting this action')
+            try:
+                if action != 'stop':
+                    raise RuntimeError('Start Gateway before requesting this action')
+                # The launcher may have published the matching response between
+                # our first read and acquiring its lock.
+                try:
+                    final = json.loads((root / 'response.json').read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    final = {}
+                if final.get('id') == ident:
+                    if not final.get('accepted'):
+                        raise RuntimeError(final.get('error', 'Request refused'))
+                    return final
+                try:
+                    pending = root / 'request.json'
+                    if json.loads(pending.read_text(encoding='utf-8')).get('id') == ident:
+                        pending.unlink()
+                except FileNotFoundError:
+                    pass
+                return {'accepted': True, 'supervisorAbsent': True}
+            finally:
+                lock.release()
         time.sleep(.2)
     try:
         if json.loads((root / 'request.json').read_text(encoding='utf-8')).get('id') == ident:
@@ -116,6 +133,7 @@ class Supervisor:
         self.http = requests.Session()
         self.http.trust_env = False
         self.child = None
+        self._request_claimed = self._request_busy = False
         self.observer_stop = threading.Event()
         self.observer_thread = None
         self.tray = None
@@ -386,24 +404,33 @@ class Supervisor:
         threading.Thread(target=show, name='update-notification', daemon=True).start()
 
     def take_control_request(self):
-        path = self.root / 'request.json'
+        # Claim before reading so a newer command cannot be unlinked with the
+        # previous one. Only this live supervisor may act on its claimed file.
+        claimed = self.root / 'request.claimed.json'
         try:
-            raw = path.read_text(encoding='utf-8')
-            path.unlink()
+            if not self._request_claimed:
+                (self.root / 'request.json').replace(claimed)
+                self._request_claimed = True
+            try:
+                command = json.loads(claimed.read_text(encoding='utf-8'))
+                action, ident = command['action'], command['id']
+            except (ValueError, KeyError, TypeError):
+                self.log.warning('Ignored malformed local control request')
+                action, ident = None, None
+            claimed.unlink()
+            self._request_claimed = False
+            self._request_busy = False
+            return action, ident
         except FileNotFoundError:
-            return None, None
-        except PermissionError:
+            self._request_claimed = False
+            self._request_busy = False
+        except PermissionError as error:
             if sys.platform != 'win32':
                 raise
-            # Windows can temporarily deny reading or removing a replaced file.
-            # The next supervisor iteration retries it before dispatching any action.
-            return None, None
-        try:
-            command = json.loads(raw)
-            return command['action'], command['id']
-        except (ValueError, KeyError, TypeError):
-            self.log.warning('Ignored malformed local control request')
-            return None, None
+            if not self._request_busy:
+                self.log.warning('Windows temporarily denied access to the control request; retrying on the next poll')
+            self._request_busy = True
+        return None, None
 
     def run(self):
         result = self.boot()

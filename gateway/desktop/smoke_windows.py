@@ -38,7 +38,8 @@ def stop_checked(root, child, phase, output):
         exit_code = child.wait(timeout=40)
     except subprocess.TimeoutExpired:
         exit_code = None
-    if exit_code == 0:
+    acknowledged = bool(acknowledgement.get('id')) and acknowledgement.get('accepted') is True
+    if exit_code == 0 and acknowledged:
         return
     # The temporary installed root is deleted at the end of this smoke run.
     # Retain narrowly scoped synthetic CI evidence so a failed stop is actionable.
@@ -50,7 +51,7 @@ def stop_checked(root, child, phase, output):
     summary = {
         'phase': phase,
         'launcherExitCode': exit_code,
-        'stopAcknowledged': acknowledgement.get('accepted') is True,
+        'stopAcknowledged': acknowledged,
         'supervisorState': status.get('state'),
         'supervisorVersion': status.get('version'),
         'supervisorUpdateState': status.get('updateState'),
@@ -70,7 +71,7 @@ def stop_checked(root, child, phase, output):
     except OSError:
         summary['logEvidence'] = 'unavailable'
         atomic_json(output/'smoke-failure.json', summary)
-    raise AssertionError(f'{phase}: stop acknowledged but launcher did not exit cleanly (code={exit_code}, state={status.get("state")})')
+    raise AssertionError(f'{phase}: stop verification failed (acknowledged={acknowledged}, code={exit_code}, state={status.get("state")})')
 
 
 def main():

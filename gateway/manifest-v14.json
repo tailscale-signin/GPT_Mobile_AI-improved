@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.1",
   "schemaVersion": 1,
-  "sourceCommit": "7110434b502d5a9aac106d99acdb0587a8375453",
+  "sourceCommit": "d1803bcddd2a089b5062d093952dd2be8a8cc097",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -360,7 +360,7 @@
     "v14/engineering_scope.py": "7aed6367b49de3b6b935dc164e9371f0022abd4b7355f971e3f2e69aac4572a0",
     "v14/engineering_source.py": "7aa4530e19ce10210a5b7ab0e427e77b31b72580ef521bd650a592ed986f013f",
     "v14/engineering_specialists.py": "756e4c17ac7207231c195b2c1606d7712acec0eaaa07db01ac0e81917716419e",
-    "v14/engineering_validation.py": "4b2203d0ff733bd510c0fc36a8bf998a44aa8a981c73a412f858b1c7f6a4259a",
+    "v14/engineering_validation.py": "5a6a6709ad3485085160f8a692f0a3dbb3b447a0b0447668ed135462cbb4e751",
     "v14/engineering_workflows.py": "b1d66e7d93b43db1892c04b76c1289bff62a5647a467f4ba971c922672904bf9",
     "v14/engineering_workspace.py": "44a4425fedc1a324d4389bb051f25ee82ed3d01f476c94bac4542529cf589557",
     "v14/engineering_workspace_checks.py": "4392b5536216b9cea37048d902c402d151917a1c2efe3fa0623ec66791bdbc93",
@@ -409,7 +409,7 @@
     "v14/workspace_lsp.py": "70e4ebbd64b182d6da23f4bbc4e8d0159d2640b283da65ad720e82d343720ca6",
     "v14/workspace_process.py": "0ae9f16e99f2324df3fa6fcdc6ec56879c6f5f5ac72b4890e1cf17f0067440e8",
     "v14/workspace_search.py": "ec58767ddff53d50fc3f1ffd3c5fb48046506f7f8f71b143916cbadc5d556c3c",
-    "v14/workspace_terminal.py": "8b58114a0b286812b384f98036a0c8ed9e26ee5955d634c185d05b7cbb88da2e",
+    "v14/workspace_terminal.py": "aa1f556cb5701cb30f4351254decd28e7d85bd625be99eb17a9053810fea0362",
     "v14/workspace_workers.py": "f6ba59b98719580984f853bb2b430fc3116ea8274ca2aa9c6de529bd259740a7"
   }
 }

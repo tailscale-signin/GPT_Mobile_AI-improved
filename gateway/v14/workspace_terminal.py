@@ -3,6 +3,8 @@ import hashlib
 import json
 import re
 from pathlib import Path
+import subprocess
+import tarfile
 import tempfile
 
 from v14 import workspace_process
@@ -19,9 +21,11 @@ with socket.socket(socket.AF_UNIX) as connection:
         sys.stdout.buffer.write(stream.readline(65537))
 """
 SEAL = """
-import os
+import os, sys, tarfile
 from pathlib import Path
 root=Path('/task')
+with tarfile.open(fileobj=sys.stdin.buffer, mode='r|') as source:
+    source.extractall(root, filter='data')
 (root/'home').mkdir(exist_ok=True)
 for folder in [root/'home', root/'checkout']:
     for path in [folder, *folder.rglob('*')]:
@@ -31,8 +35,8 @@ Path('/control/ready').touch()
 STATUS = '{{.Id}} {{index .Config.Labels "gpt.workspace"}} {{.State.Running}}'
 
 
-def docker(args, root, timeout=30, *, missing=False):
-    result = run_bounded(['docker', *args], root, timeout)
+def docker(args, root, timeout=30, *, missing=False, stdin=subprocess.DEVNULL):
+    result = run_bounded(['docker', *args], root, timeout, stdin=stdin)
     if result['exit_code'] != 0:
         message = result['output_tail']
         if missing and ('No such object' in message or 'No such container' in message):
@@ -83,8 +87,14 @@ def act(backend, job, action):
                 if not re.fullmatch('[a-f0-9]{64}', container):
                     raise ValueError('Docker did not return a workspace container ID')
                 try:
-                    docker(['cp', str(checkout), container + ':/task/checkout'], root, 180)
-                    docker(['exec', container, 'python3', '-I', '-c', SEAL], root, 120)
+                    # Docker's archive API refuses writes to a read-only rootfs,
+                    # including its tmpfs mounts. Extract the sealed source inside /task.
+                    with tempfile.TemporaryFile(dir=root) as archive:
+                        with tarfile.open(fileobj=archive, mode='w') as source:
+                            source.add(checkout, arcname='checkout')
+                        archive.seek(0)
+                        docker(['exec', '-i', container, 'python3', '-I', '-c', SEAL],
+                               root, 180, stdin=archive)
                 except BaseException:
                     docker(['rm', '-f', container], root, missing=True)
                     raise

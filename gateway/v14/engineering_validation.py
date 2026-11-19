@@ -126,14 +126,14 @@ def check_cancellation():
         raise TimeoutError('Engineering job deadline exhausted before validation launch')
 
 
-def run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
+def run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None, *, stdin=subprocess.DEVNULL):
     check_cancellation()
     from v14.validation_host import command
     with command(argv) as approved:
-        return _run_bounded(approved, cwd, timeout, maximum, destination)
+        return _run_bounded(approved, cwd, timeout, maximum, destination, stdin=stdin)
 
 
-def _run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
+def _run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None, *, stdin=subprocess.DEVNULL):
     started = time.monotonic()
     output = bytearray()
     total = 0
@@ -144,7 +144,7 @@ def _run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
     if os.name == 'nt' and os.environ.get('SystemRoot'):
         environment['SystemRoot'] = os.environ['SystemRoot']
     check_cancellation()
-    process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    process = subprocess.Popen(argv, cwd=cwd, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                env=environment)
     # Windows selectors accept sockets, not subprocess pipes. A bounded reader
     # also lets the deadline run while the child is silent or emits no newline.

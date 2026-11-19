@@ -51,6 +51,14 @@
     {
       "commit": "acae1a76549d8df2a452142d2f072d265990b61a",
       "scope": "The prepared Android Docker build reported a Java heap exhaustion during Kotlin annotation stub generation. The Windows installer build and hosted Docker check passed for this revision."
+    },
+    {
+      "commit": "4fbb586ad211d4dfed62ddd1fa565dabef3b17cd",
+      "scope": "Hosted preparation successfully compiled Android and produced its prepared image. Offline Room KSP then failed loading sqlite-jdbc from noexec /tmp. The same pinned sqlite-jdbc jar loaded natively and executed a database query from the chosen workspace location in an independent Java 21 check."
+    },
+    {
+      "commit": "86c3e1ab2a52f8a2a5cdc775bd30c26fd4c9b63e",
+      "scope": "The hosted Gateway stability matrix, Windows installer and GitHub APK catalog/download workflows passed."
     }
   ]
 }

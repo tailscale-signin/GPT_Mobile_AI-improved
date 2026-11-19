@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.1",
   "schemaVersion": 1,
-  "sourceCommit": "4fbb586ad211d4dfed62ddd1fa565dabef3b17cd",
+  "sourceCommit": "86c3e1ab2a52f8a2a5cdc775bd30c26fd4c9b63e",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -113,7 +113,7 @@
     "desktop/conversation_client.py": "edcffb79efe16badf2cbdc639eb58925bdef877f21caad033d055e4bb35e7846",
     "desktop/dashboard.py": "445fb6e0e38d990fa00e5cd2ce23f0857b955799edf9a540f25470668b9740d4",
     "desktop/dashboard_model.py": "a67c96270dd1e6a7b615405f188497200a0df5c2f02fcda0daa9122844ce9256",
-    "desktop/development_profiles.py": "9bc3bd862d81168361f2775c353670c0b423fa3e9a0c08e51190f3e598ade634",
+    "desktop/development_profiles.py": "c72f1436e597544af9a9ffb27a26148ae1f7a9786cee3741238aaf7243e2081a",
     "desktop/engineering_composer.py": "828081ea56d63d925c9ccdc93bc61a62fcbdae25de87127160cc3c8feb26013f",
     "desktop/engineering_setup.py": "540d2dabd25624fc4fe77c88e9016d0cb04e33365792bfcc72ab432c91460539",
     "desktop/engineering_setup_panel.py": "fcb491bd6a0a381d9789cc6f04d3d9ece18f70f2fe09a692c6d7f86752e39b91",
@@ -184,7 +184,7 @@
     "tests/fixture_mcp_server.py": "be56bde9eb747397ca31df9dcb85e0a1e8b1b7be0d9a6da6831958a695532a83",
     "tests/gateway_capability_fixture.py": "f609f039e40274d2e500050f91b2f9967fc8bfbb4c875b84fb7272740db38790",
     "tests/prepared_environment_smoke.py": "0b61049113bbd0ea4eaf2109c01769b0befd8d0579503c74d063c47d5c577dd8",
-    "tests/repository_validation_smoke.py": "0462716996a6ee7380f7d96e64ecd7aaf241d4830d70347268fc08a174ed5670",
+    "tests/repository_validation_smoke.py": "c778e9b927aaf8bd078cc5917ce216e665e8c6c4e5a3f190b45c0dcb2862f7ee",
     "tests/test_academic.py": "1ba3e6d83289f788c790f846a186d87afac4c122ba9aede91c75282c7e0555a4",
     "tests/test_deep_research_overhaul.py": "75db5e20ef7d740240e709e85edba4400c7ed3290fdafe4230eace5992117104",
     "tests/test_gateway_acceptance_discovery.py": "c6d0ac396f60f0884f791a1f2b615446fc661e7598e798036543a634e5e717d2",
@@ -419,7 +419,7 @@
     "v14/workspace_outputs.py": "0abb36a6e6f2f79cdd920e1d7aeadd665f03115a326161f93b5b60f2b775627f",
     "v14/workspace_process.py": "39b60c6b652691b0010a504c2dba01225e7d4a84f252352e4dcf43e40df85c8c",
     "v14/workspace_search.py": "ec58767ddff53d50fc3f1ffd3c5fb48046506f7f8f71b143916cbadc5d556c3c",
-    "v14/workspace_terminal.py": "77082d588cdbf22b27f67accb29a7b0ab6746ddde4503aceb51ea41a336a18ea",
+    "v14/workspace_terminal.py": "dd2c8cb3eb3b82a107569526c98efc1df6f73fb45227ede86595b918d589d74a",
     "v14/workspace_timeline.py": "f099eecdbd58f9f6971aa8a1ffca82d11ceab9b3796f9e528957dc14dcd1a369",
     "v14/workspace_workers.py": "f6ba59b98719580984f853bb2b430fc3116ea8274ca2aa9c6de529bd259740a7"
   }

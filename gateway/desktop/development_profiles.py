@@ -63,6 +63,11 @@ mkdir -p "$GRADLE_USER_HOME/caches" "$HOME/.m2"
 test -e "$GRADLE_USER_HOME/wrapper" || cp -R /opt/gradle-seed/wrapper "$GRADLE_USER_HOME/wrapper"
 if [ -d /opt/gradle-seed/caches/gptmobile-models ] && [ ! -e "$GRADLE_USER_HOME/caches/gptmobile-models" ]; then ln -s /opt/gradle-seed/caches/gptmobile-models "$GRADLE_USER_HOME/caches/gptmobile-models"; fi
 test -e "$HOME/.m2/repository" || ln -s /opt/robolectric "$HOME/.m2/repository"
+# Room's verified SQLite JDBC driver loads its native library during KSP. Docker /tmp is noexec.
+native_tmp="$GRADLE_USER_HOME/native-tmp"
+mkdir -p "$native_tmp"
+chmod 0700 "$native_tmp"
+export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+$JAVA_TOOL_OPTIONS }-Dorg.sqlite.tmpdir=$native_tmp"
 exec gateway-gradle-build offline "$@"
 """
 NODE_WRAPPER = """#!/bin/sh

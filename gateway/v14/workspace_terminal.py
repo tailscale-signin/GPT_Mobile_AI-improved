@@ -113,7 +113,7 @@ def act(backend, job, action):
                             '--network=none', '--env=GITHUB_SHA=' + head, '--read-only', '--cap-drop=ALL', '--cap-add=CHOWN', '--cap-add=SETUID',
                             '--cap-add=SETGID', '--cap-add=KILL', '--security-opt=no-new-privileges',
                             '--pids-limit=256', '--memory=' + str(limits['memory_gib']) + 'g', '--cpus=' + str(limits['cpus']), '--user=0:0', '--log-driver=none',
-                            '--tmpfs=/task:rw,nosuid,nodev,size=' + str(limits['checkout_gib']) + 'g', '--tmpfs=/tmp:rw,nosuid,nodev,size=512m',
+                            '--tmpfs=/task:rw,exec,nosuid,nodev,size=' + str(limits['checkout_gib']) + 'g', '--tmpfs=/tmp:rw,nosuid,nodev,size=512m',
                             '--tmpfs=/control:rw,noexec,nosuid,nodev,mode=0700,size=272m', '--entrypoint=python3',
                             image, '-I', '-u', '-c', Path(workspace_process.__file__).read_text(encoding='utf-8'), str(job['deadline'])]
                     container = docker(argv, root)

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "10d5db49fdf01f7f29b6439662b2da1c3331d9d22f2b1a9711690cfb2bd867b9",
+  "source_digest": "32b195ba85fc87d6b03d0f7f2ad60e7a7ec098d353b7d16b019ee171a3b8de2a",
   "file_count": 2753,
-  "indexed_line_count": 453056,
+  "indexed_line_count": 453061,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 213,
-      "indexed_line_count": 84028
+      "indexed_line_count": 84033
     },
     {
       "id": "authentication_service",
@@ -18014,8 +18014,8 @@
       "path": "gateway/desktop/development_profiles.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "9bc3bd862d81168361f2775c353670c0b423fa3e9a0c08e51190f3e598ade634",
-      "indexed_lines": 134
+      "sha256": "c72f1436e597544af9a9ffb27a26148ae1f7a9786cee3741238aaf7243e2081a",
+      "indexed_lines": 139
     },
     {
       "path": "gateway/desktop/engineering_composer.py",
@@ -19211,7 +19211,7 @@
       "path": "gateway/v14/workspace_terminal.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "77082d588cdbf22b27f67accb29a7b0ab6746ddde4503aceb51ea41a336a18ea",
+      "sha256": "dd2c8cb3eb3b82a107569526c98efc1df6f73fb45227ede86595b918d589d74a",
       "indexed_lines": 210
     },
     {

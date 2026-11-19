@@ -93,7 +93,14 @@ def verify_terminal(mirror, head, policy):
         return act(backend, job, dict(action=kind, session_id='smoke', **args))
     opened = call('terminal_open')
     try:
-        cmd = ['python3', '-c', 'import os; from pathlib import Path; assert os.geteuid() == 65534; assert Path("AGENTS.md").is_file(); print("pinned workspace")']
+        program = """import os, shutil, subprocess
+from pathlib import Path
+assert os.geteuid() == 65534 and Path('AGENTS.md').is_file()
+executable = Path('workspace-executable-test')
+shutil.copy2('/bin/echo', executable)
+subprocess.run([str(executable.resolve()), 'pinned workspace'], check=True)
+"""
+        cmd = ['python3', '-c', program]
         started = call('terminal_start', process_id='inspect', argv=cmd)
         replay = call('terminal_start', process_id='inspect', argv=cmd)
         assert replay['pid'] == started['pid']

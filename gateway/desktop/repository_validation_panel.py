@@ -6,6 +6,7 @@ from pathlib import Path
 import threading
 import weakref
 import tkinter as tk
+from desktop.window_lifecycle import WindowCallbacks
 from tkinter import ttk, filedialog, messagebox
 
 from desktop import repository_validation as validation
@@ -43,6 +44,7 @@ class RepositoryValidationPanel:
         self.document, self.drafts = {}, {}
         self.revision = self.loaded = self.saved_snapshot = self.worker = None
         self._focus_after = None
+        self.callbacks = WindowCallbacks(self.frame)
         self.fields, self.inputs = {}, []
         viewport = tk.Canvas(frame, bg=BG, highlightthickness=0, width=1, height=1)
         scrollbar = ttk.Scrollbar(frame, orient='vertical', command=viewport.yview)
@@ -289,7 +291,7 @@ class RepositoryValidationPanel:
             # grid_remove retains layout but needs explicit restoration on Windows.
             self.advanced.grid(row=5, column=0, columnspan=2, sticky='ew', pady=4)
             # Expanded Custom actions must be above the fixed Settings footer.
-            self.frame.after_idle(self.show_advanced_actions)
+            self.callbacks.schedule('idle', self.show_advanced_actions)
         else:
             self.advanced.grid_remove()
             self.viewport.yview_moveto(0)

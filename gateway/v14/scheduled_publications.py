@@ -65,15 +65,17 @@ def run_watch(store, now, fetch=literature):
     token = uuid.uuid4().hex
     with closing(store.connect()) as db, db:
         db.execute('BEGIN IMMEDIATE')
-        row = db.execute('''SELECT s.id,s.due,s.period,w.query,w.results,w.seen FROM schedule s
+        row = db.execute('''SELECT s.id,s.due,s.period,s.result,w.query,w.results,w.seen FROM schedule s
                             JOIN publication_watch w ON w.id=s.id WHERE s.due<=? AND w.lease_until<=?
                             ORDER BY s.due, s.id LIMIT 1''', (now, now)).fetchone()
         if row is None:
             return
         db.execute('UPDATE publication_watch SET token=?,lease_until=? WHERE id=?', (token, now + 180, row['id']))
-    previous = json.loads(row['seen'])
     alert = None
     try:
+        previous = json.loads(row['seen'])
+        if not isinstance(previous, list) or not all(isinstance(key, str) for key in previous):
+            raise ValueError('Invalid retained watch history')
         found = fetch(row['query'])
         ids = [item['doi'] for item in found]
         fresh = [key for key in ids if key not in previous]
@@ -85,6 +87,8 @@ def run_watch(store, now, fetch=literature):
             alert = note + ' · ' + ', '.join(fresh)
     except (OSError, requests.RequestException, ValueError, RecursionError):
         note, seen, results = 'Blocked · Crossref metadata unavailable', row['seen'], row['results']
+        if row['result'] != note:
+            alert = note
     with closing(store.connect()) as db, db:
         db.execute('BEGIN IMMEDIATE')
         updated = db.execute('UPDATE publication_watch SET token=NULL,lease_until=0,results=?,seen=? WHERE id=? AND token=?',

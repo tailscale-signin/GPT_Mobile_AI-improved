@@ -123,6 +123,7 @@ class OpenRouterPrivacySetupTest {
         ) as JsonObject
         listOf(true, false).forEach { direct ->
             val fixture = Fixture(directPolicy = direct)
+            fixture.enableWorkspaceLogging()
             fixture.keyData = JsonObject(fixture.keyData + ("creator_user_id" to JsonPrimitive("user_creator")))
             if (!direct) fixture.memberAssignment = assignment(POLICY)
             fixture.policies[POLICY] = fixture.policy(POLICY, source, direct = direct)

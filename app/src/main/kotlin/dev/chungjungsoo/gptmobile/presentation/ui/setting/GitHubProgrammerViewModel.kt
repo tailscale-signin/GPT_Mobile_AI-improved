@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotAgentMergePolicy
@@ -81,6 +82,12 @@ class GitHubProgrammerViewModel @Inject constructor(
     private val bootstrapper: dev.chungjungsoo.gptmobile.data.github.GitHubSessionBootstrapper? = null,
     private val approvalRecovery: dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalRecovery? = null
 ) : ViewModel() {
+    internal suspend fun admissionSetting(profileUid: String, gatewayUid: String, previous: GatewayAdmissionSetting?): GatewayAdmissionSetting {
+        val gateway = settings.engineeringGateway(profileUid)
+        require(gateway.uid == gatewayUid)
+        return engineeringClient.admissionSetting(gateway.engineeringConfig(), previous)
+    }
+
     internal suspend fun batchModes(profileUid: String, gatewayUid: String): Set<String> {
         val gateway = settings.engineeringGateway(profileUid)
         require(gateway.uid == gatewayUid)

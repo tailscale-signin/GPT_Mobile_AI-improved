@@ -28,6 +28,35 @@ from requests import HTTPError, Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
+    def test_phone_can_pause_new_jobs_with_owned_revision_and_recover_an_accepted_command(self):
+        path = '/gateway/engineering/admission-settings'
+        initial = self.client.get(path, headers=self.headers).json()
+        self.assertTrue(initial['enabled'])
+        accepted = self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers)
+        self.assertEqual(202, accepted.status_code, accepted.text)
+        edit = {'enabled': False, 'revision': initial['revision']}
+        self.assertEqual(400, self.client.post(path, headers=self.headers, json=edit).status_code)
+        headers = dict(self.headers, **{'X-Gateway-Installation-ID': initial['gateway_id'],
+                                        'X-Gateway-Principal-ID': initial['principal_id']})
+        paused = self.client.post(path, headers=headers, json=edit)
+        self.assertEqual(200, paused.status_code, paused.text)
+        self.assertFalse(paused.json()['enabled'])
+        self.assertEqual(1, paused.json()['revision'])
+        self.assertEqual(paused.json(), self.client.get(path, headers=headers).json())
+        self.assertEqual(409, self.client.post(path, headers=headers, json=edit).status_code)
+        self.assertEqual(403, self.client.get(path, headers={'Tailscale-User-Login': 'reader@example.test'}).status_code)
+        other = dict(headers, **{'Tailscale-User-Login': 'other@example.test'})
+        self.assertEqual(409, self.client.post(path, headers=other, json=edit).status_code)
+        self.assertTrue(self.client.get(path, headers=other).json()['enabled'])
+        blocked = self.client.post('/gateway/engineering/jobs', headers=self.headers, json=dict(self.request, request_id='paused-job'))
+        self.assertEqual(412, blocked.status_code, blocked.text)
+        self.assertEqual('ENGINEERING_JOBS_PAUSED', blocked.json()['error']['code'])
+        replay = self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers)
+        self.assertEqual(accepted.json()['id'], replay.json()['id'])
+        enabled = self.client.post(path, headers=headers, json={'enabled': True, 'revision': 1})
+        self.assertTrue(enabled.json()['enabled'])
+        self.assertEqual(2, enabled.json()['revision'])
+
     def test_graph_unexpected_500_is_classified_without_private_error_text(self):
         cases = [
             (sqlite3.OperationalError('private database location'), 'graph_internal_storage_error'),

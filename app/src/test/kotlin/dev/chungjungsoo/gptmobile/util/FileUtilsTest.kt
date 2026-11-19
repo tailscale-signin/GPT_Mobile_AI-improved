@@ -9,6 +9,17 @@ import org.junit.Test
 class FileUtilsTest {
 
     @Test
+    fun streamLimitChecksActualBytesIncludingTheExactBoundary() {
+        val input = ByteArray(8200) { it.toByte() }
+        for (limit in listOf(8199L, 8200L)) {
+            val output = java.io.ByteArrayOutputStream()
+            assertEquals(limit == 8200L, FileUtils.copyWithinLimit(input.inputStream(), output, limit))
+            assertTrue(output.size() <= limit)
+            if (limit == 8200L) org.junit.Assert.assertArrayEquals(input, output.toByteArray())
+        }
+    }
+
+    @Test
     fun `large images are downsampled until longest edge fits upload limit`() {
         assertEquals(2, FileUtils.calculateImageInSampleSize(4000, 3000, 2048))
         assertEquals(4, FileUtils.calculateImageInSampleSize(5000, 3750, 2048))

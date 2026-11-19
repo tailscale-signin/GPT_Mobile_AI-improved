@@ -7,6 +7,42 @@ from desktop.configuration import atomic_json
 from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 
 
+class WindowCallbacks:
+    """Cancel pending Tk callbacks when their owning widget is destroyed."""
+    def __init__(self, window):
+        self.window = window
+        self.pending = set()
+        self.closed = False
+        window.bind('<Destroy>', self._destroyed, add='+')
+
+    def schedule(self, milliseconds, callback):
+        if self.closed:
+            return None
+        handle = None
+        def run():
+            self.pending.discard(handle)
+            if not self.closed:
+                callback()
+        handle = self.window.after(milliseconds, run)
+        self.pending.add(handle)
+        return handle
+
+    def cancel(self, handle):
+        import tkinter as tk
+        if handle in self.pending:
+            self.pending.remove(handle)
+            try:
+                self.window.after_cancel(handle)
+            except tk.TclError:
+                pass
+
+    def _destroyed(self, event):
+        if event.widget is self.window:
+            self.closed = True
+            for handle in tuple(self.pending):
+                self.cancel(handle)
+
+
 def watch(window, root, close):
     import tkinter as tk
     started = time.time()

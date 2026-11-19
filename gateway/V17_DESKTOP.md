@@ -37,6 +37,17 @@ shows that scope explicitly; a request arriving over loopback does not create a
 private account inside a shared network configuration. No supervisor management
 credential is exposed to these views.
 
+## Control new engineering jobs from Android
+
+In the Android GitHub workspace settings, select the engineering Gateway and tap **Check saved-job setting**.
+**Allow new saved engineering jobs** controls admission on that host for the current Gateway account. Devices
+on an open-network Gateway share this setting. The host must already grant engineering access and have durable storage.
+Pausing leaves accepted jobs, their recovery work and their receipts accessible. Copilot cloud delegation has its own control.
+
+The client reads the host state before editing. Each change is bound to the observed installation, account and
+revision. If another device edited the setting or the connection drops during a change, read it again to see the
+current value. Hosts predating this control continue to use their existing admission rules.
+
 ## Additive conversation APIs
 
 | API | Contract |

@@ -367,6 +367,20 @@ class CopilotTaskTests(unittest.TestCase):
         self.assertFalse(recovered['has_more'])
         self.assertEqual([], self.backend.calls)
 
+    def test_polling_does_not_shuffle_task_pages_and_unrecognized_state_retains_remote_id(self):
+        tasks = [self.tasks.submit('tailnet:owner', dict(self.payload, request_id=str(n))) for n in range(3)]
+        first = self.tasks.list('tailnet:owner', page=1, per_page=2)
+        self.backend.remote = dict(self.backend.remote, state={})
+        self.tasks.tick(tasks[0]['id'])
+        observed = self.tasks.get(tasks[0]['id'])
+        self.assertEqual('UNKNOWN', observed['state'])
+        self.assertEqual(self.backend.remote['id'], observed['upstream_task_id'])
+        self.tasks.tick(tasks[0]['id'])
+        self.assertEqual(1, len(self.backend.posts()))
+        last = self.tasks.list('tailnet:owner', page=2, per_page=2)
+        ids = [t['id'] for t in first['tasks'] + last['tasks']]
+        self.assertEqual([t['id'] for t in reversed(tasks)], ids)
+
     def test_http_task_page_is_bounded_and_echoes_pagination_without_remote_calls(self):
         for index in range(3):
             self.tasks.submit('tailnet:owner', dict(self.payload, request_id='page-' + str(index)))

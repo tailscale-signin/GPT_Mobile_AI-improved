@@ -9,43 +9,9 @@ from desktop.configuration import atomic_json, load, public_repository_maps, sav
 from v14.engineering_batch_policy import load_policy as load_execution_policy, save_policy as save_execution_policy
 from desktop.manager import request, startup_registration
 from desktop.addons import load_addons, save_addons
+from desktop.window_lifecycle import WindowCallbacks
 from desktop import theme
 from desktop.theme import BG as BACKGROUND, PANEL as SURFACE, TEXT, MUTED, CYAN as ACCENT
-
-
-class WindowCallbacks:
-    """Own scheduled Settings callbacks until this exact window is destroyed."""
-    def __init__(self, window):
-        self.window = window
-        self.pending = set()
-        self.closed = False
-        window.bind('<Destroy>', self._destroyed, add='+')
-
-    def schedule(self, milliseconds, callback):
-        if self.closed:
-            return None
-        handle = None
-        def run():
-            self.pending.discard(handle)
-            if not self.closed:
-                callback()
-        handle = self.window.after(milliseconds, run)
-        self.pending.add(handle)
-        return handle
-
-    def cancel(self, handle):
-        if handle in self.pending:
-            self.pending.remove(handle)
-            try:
-                self.window.after_cancel(handle)
-            except tk.TclError:
-                pass
-
-    def _destroyed(self, event):
-        if event.widget is self.window:
-            self.closed = True
-            for handle in tuple(self.pending):
-                self.cancel(handle)
 
 
 def build_window(root, parent=None, section='General'):
@@ -58,38 +24,18 @@ def build_window(root, parent=None, section='General'):
         window.transient(parent.winfo_toplevel())
     callbacks = WindowCallbacks(window)
     window.settings_callbacks = callbacks
-    theme.apply(window)
+    style = theme.apply(window)
     window.title('GPT Mobile Gateway')
     width = min(900, max(660, window.winfo_screenwidth() - 32))
     height = min(820, max(500, window.winfo_screenheight() - 100))
     window.geometry(f'{width}x{height}+16+16')
     window.minsize(660, 500)
-    window.configure(bg=BACKGROUND)
-    style = ttk.Style(window)
-    style.theme_use('clam')
-    style.configure('.', font=('Segoe UI', 10), background=BACKGROUND, foreground=TEXT)
-    style.configure('TFrame', background=BACKGROUND)
-    style.configure('TLabel', background=BACKGROUND, foreground=TEXT)
     style.configure('Muted.TLabel', foreground=MUTED)
     style.configure('Title.TLabel', font=('Segoe UI', 22, 'bold'))
     style.configure('Section.TLabel', font=('Segoe UI', 13, 'bold'))
     style.configure('Card.TFrame', background=SURFACE)
     style.configure('CardMuted.TLabel', background=SURFACE, foreground=MUTED, font=('Segoe UI', 9))
     style.configure('Metric.TLabel', background=SURFACE, foreground=ACCENT, font=('Segoe UI', 24, 'bold'))
-    style.configure('TButton', background='#28434A', foreground=TEXT, padding=(14, 9), borderwidth=0)
-    style.map('TButton', background=[('active', '#365860'), ('disabled', SURFACE)])
-    style.configure('TEntry', fieldbackground=SURFACE, foreground=TEXT, insertcolor=TEXT, padding=7)
-    style.configure('TCombobox', fieldbackground=SURFACE, background=SURFACE, foreground=TEXT, padding=7)
-    style.map('TCombobox', fieldbackground=[('readonly', SURFACE)], foreground=[('readonly', TEXT)])
-    style.configure('TCheckbutton', background=BACKGROUND, foreground=TEXT, padding=5)
-    style.map('TCheckbutton', background=[('active', SURFACE)])
-    style.configure('TNotebook', background=BACKGROUND, borderwidth=0)
-    style.configure('TNotebook.Tab', background=SURFACE, foreground=MUTED, padding=(24, 12))
-    style.map('TNotebook.Tab', background=[('selected', '#25434A')], foreground=[('selected', ACCENT)])
-    style.configure('Treeview', background=SURFACE, fieldbackground=SURFACE, foreground=TEXT, rowheight=29, borderwidth=0)
-    style.configure('Treeview.Heading', background='#263336', foreground=MUTED, padding=7)
-    style.map('Treeview', background=[('selected', '#365860')])
-
     header = ttk.Frame(window, padding=(24, 12))
     header.pack(fill='x')
     ttk.Label(header, text='GPT  /  GATEWAY', foreground=ACCENT, font=('Segoe UI', 15, 'bold')).pack(side='left')

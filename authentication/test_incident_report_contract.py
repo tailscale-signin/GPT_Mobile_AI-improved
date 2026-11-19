@@ -1795,6 +1795,7 @@ class IncidentReportContractTest(unittest.TestCase):
             ("TOOL", {"semantic_read_rules": ["LINE_WINDOW"], "validation_field_names": ["ranges", "end_line"],
                       "dependency_admission_reasons": ["CALL_ALLOWANCE"], "saved_view_restore_state": "BODY_MISSING_INDEX_PRESENT",
                       "url_reader_dns_state": "RECOVERY_COOLDOWN", "url_reader_availability": "NEGATIVE_CACHE"}),
+            ("TOOL", {"saved_view_restore_state": "CURSOR_INDEX_INVALID"}),
             ("INCIDENT", {"incident_capture_site": "CHAT_REPOSITORY_PREFLIGHT", "incident_origin": "APPLICATION",
                           "local_readiness_failure": "PENDING_CLEANUP", "pending_tool_count": 2,
                           "pending_tool_identity_hashes": ["a" * 64], "pending_tool_receipt_state": "SOME_TERMINAL_RECEIPTS_MISSING"}),

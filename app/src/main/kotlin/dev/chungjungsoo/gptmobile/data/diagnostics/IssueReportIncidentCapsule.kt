@@ -202,7 +202,7 @@ internal object IssueReportIncidentCapsule {
         "github_validation_endpoint" to setOf("COMMIT_LOOKUP", "TREE_READ", "REVISION_COMPARE"),
         "native_tool_action" to actions,
         "saved_view_owner_operation" to IssueReportContext.operations,
-        "saved_view_restore_state" to setOf("NOT_FOUND", "LOAD_FAILED", "IDENTITY_REJECTED", "RESTORED", "BODY_MISSING", "BODY_MISSING_INDEX_PRESENT", "BODY_UNREADABLE", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID"),
+        "saved_view_restore_state" to setOf("NOT_FOUND", "LOAD_FAILED", "IDENTITY_REJECTED", "RESTORED", "BODY_MISSING", "BODY_MISSING_INDEX_PRESENT", "BODY_UNREADABLE", "CURSOR_INDEX_MISSING", "CURSOR_INDEX_INVALID", "INVALID_VIEW_ID"),
         "mcp_failure_phase" to setOf("configuration", "catalog", "discovery", "initialization", "execution", "connection", "dns", "tls", "oauth_refresh", "local_validation"),
         "mcp_failure_category" to (mcpHealth - "HEALTHY" + setOf("MCP_TOOL_ERROR", "MCP_OUTPUT_INVALID")),
         "mcp_connection_health" to mcpHealth,

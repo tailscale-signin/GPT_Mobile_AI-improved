@@ -177,6 +177,11 @@ class OperatorWorkTest(unittest.TestCase):
         run_watch(self.open(), self.clock, offline)
         self.assertTrue(self.open().rows()[0]['result'].startswith('Blocked'))
         self.assertEqual(self.open().publications(key), works)
+        notices = self.open().notices(key)
+        self.assertEqual('Blocked · Crossref metadata unavailable', notices[0]['message'])
+        self.clock += 3600
+        run_watch(self.open(), self.clock, offline)
+        self.assertEqual(notices, self.open().notices(key))
         self.open().remove(key)
         self.assertEqual([], self.open().publications(key))
 

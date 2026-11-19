@@ -235,7 +235,8 @@ class CopilotTasks:
         if repository is not None:
             query += " AND lower(json_extract(data,'$.request.repository'))=lower(?)"
             parameters.append(repository)
-        query += ' ORDER BY next_at DESC,id LIMIT ? OFFSET ?'
+        # Polling changes next_at. Keep page membership stable while workers observe tasks.
+        query += ' ORDER BY rowid DESC LIMIT ? OFFSET ?'
         parameters.extend((per_page + 1, (page - 1) * per_page))
         tasks = self.tx(lambda db: [json.loads(row[0]) for row in db.execute(query, parameters)])
         more = len(tasks) > per_page
@@ -303,8 +304,9 @@ class CopilotTasks:
                 or remote.get('creator', {}).get('id') != task['request']['expected_actor_id']):
             raise CopilotTaskError('COPILOT_REMOTE_IDENTITY_UNVERIFIED', 'The remote task identity needs reconciliation.')
         remote_state = remote.get('state')
-        state = remote_state.upper() if remote_state in REMOTE_STATES else 'UNKNOWN'
-        self._checkpoint(task, upstream_task_id=identifier, remote_state=remote_state if remote_state in REMOTE_STATES else None,
+        known_state = isinstance(remote_state, str) and remote_state in REMOTE_STATES
+        state = remote_state.upper() if known_state else 'UNKNOWN'
+        self._checkpoint(task, upstream_task_id=identifier, remote_state=remote_state if known_state else None,
                          state=state, last_checked_at=self.store.now(), next_at=self.store.now() + 30,
                          error_code=None if state != 'UNKNOWN' else 'COPILOT_REMOTE_STATE_UNKNOWN')
 

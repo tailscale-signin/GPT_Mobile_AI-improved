@@ -8,11 +8,19 @@ import kotlinx.serialization.json.Json
 /** A presentation value only. Decoding a response never executes tools or establishes provenance. */
 @Serializable
 internal data class AnswerDataset(val version: Int, val type: String, val title: String, val columns: List<String>, val rows: List<List<String>>) {
+    val supportsBarChart: Boolean
+        get() = type in setOf("bars", "table") &&
+            columns.size == 2 &&
+            rows.all {
+                it[0].isNotBlank() && (number(it[1])?.signum() ?: -1) >= 0
+            }
+
     fun ordered(column: Int?, descending: Boolean): List<List<String>> {
         if (column == null || column !in columns.indices) return rows
-        val numeric = rows.all { number(it[column]) != null }
+        val (present, missing) = rows.partition { it[column].isNotBlank() }
+        val numeric = present.all { number(it[column]) != null }
         val comparator = if (numeric) compareBy<List<String>> { number(it[column]) } else compareBy(String.CASE_INSENSITIVE_ORDER) { row: List<String> -> row[column] }
-        return rows.sortedWith(if (descending) comparator.reversed() else comparator)
+        return present.sortedWith(if (descending) comparator.reversed() else comparator) + missing
     }
 
     fun csv(orderedRows: List<List<String>>): String = (listOf(columns) + orderedRows).joinToString("\r\n", postfix = "\r\n") { row ->
@@ -39,7 +47,7 @@ internal data class AnswerDataset(val version: Int, val type: String, val title:
             if (data.version != 1 || data.type !in setOf("table", "bars", "metrics", "places", "sources", "diagram") || !label(data.title, 120)) return null
             if (data.columns.size !in 1..8 || data.columns.any { !label(it, 80) } || data.columns.distinct().size != data.columns.size) return null
             if (data.rows.size !in 1..64 || data.rows.any { row -> row.size != data.columns.size || row.any { it.length > 256 || it.any(Char::isISOControl) } }) return null
-            if (data.type == "bars" && (data.columns.size != 2 || data.rows.any { it.first().isBlank() || (number(it.last())?.signum() ?: -1) < 0 })) return null
+            if (data.type == "bars" && !data.supportsBarChart) return null
             if (data.type == "metrics" &&
                 (
                     data.columns.size != 2 ||

@@ -19,6 +19,15 @@ class AnswerDatasetTest {
         assertEquals(table.rows, table.ordered(1, true))
     }
 
+    @Test fun missingNumbersStayLastAndChartRequiresCompleteNonnegativePairs() {
+        val partial = table.copy(rows = table.rows + listOf(listOf("Pending", "")))
+        assertEquals(listOf("2", "23", ""), partial.ordered(1, false).map { it.last() })
+        assertEquals(listOf("23", "2", ""), partial.ordered(1, true).map { it.last() })
+        assertTrue(table.supportsBarChart)
+        org.junit.Assert.assertFalse(partial.supportsBarChart)
+        org.junit.Assert.assertFalse(table.copy(rows = listOf(listOf("Loss", "-1"))).supportsBarChart)
+    }
+
     @Test fun rejectsInvalidShapesLocationsAndLinks() {
         listOf(
             table.copy(version = 2),

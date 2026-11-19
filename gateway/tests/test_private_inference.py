@@ -36,6 +36,19 @@ class PrivateInferenceTest(unittest.TestCase):
             body = upstream.await_args.args[-1]
             self.assertEqual(body, dict(self.message, stream=False, cache_prompt=False))
 
+    def test_changed_model_incomplete_generation_and_non_public_payloads_are_withheld(self):
+        choice = {"finish_reason": "stop", "message": {"role": "assistant", "content": "answer"}}
+        cases = [{"model": "other", "choices": [choice]},
+                 {"model": "test", "choices": [dict(choice, finish_reason="length")]},
+                 {"choices": [dict(choice, message={"role": "tool", "content": "private"})]},
+                 {"choices": [dict(choice, message={"content": "   "})]}]
+        for reply in cases:
+            with self.subTest(reply=reply), patch("v14.private_inference.backend_json", new_callable=AsyncMock) as upstream:
+                upstream.side_effect = self.responses() + [reply]
+                result = self.client.post(BASE, json=self.message)
+                self.assertEqual(409, result.status_code)
+                self.assertEqual({"error": "PRIVATE_LOCAL_ROUTE_UNAVAILABLE"}, result.json())
+
     def test_revoked_or_substituted_route_never_submits_content(self):
         with patch("v14.private_inference.backend_json", new_callable=AsyncMock) as upstream:
             upstream.side_effect = self.responses() + self.responses(model="changed")

@@ -42,6 +42,16 @@ class ChatRouteChoiceTest {
         assertNull(recommendedChatProfile(ChatRouteChoice.FAST, candidates, insights, checking, requiresResearch = true) { it == remote })
     }
 
+    @Test fun fastComparesTheMedianOfSuccessfulSamplesForEvenSizedHistories() {
+        fun insight(profile: PlatformV2, vararg timings: Long): ProfileInsight {
+            val trials = timings.map { ScoreboardTrial("test", BenchmarkOutcome.PASSED, 2000, firstTextMs = it) }
+            val run = ScoreboardSubmission(id = "test", kind = ScoreboardKind.MODEL, plan = BenchmarkMode.QUICK, suiteVersion = 1, startedAt = 1, provider = "test", model = profile.model, trials = trials)
+            return ProfileInsight(profile, ScoreboardEntry(run, 50.0, emptyList()), false, null, AppFeatureSettings(), 1)
+        }
+        val evidence = mapOf(remote.uid to insight(remote, 100, 500), local.uid to insight(local, 350))
+        assertEquals(remote, recommendedChatProfile(ChatRouteChoice.FAST, listOf(local, remote), evidence, emptyMap()) { true })
+    }
+
     @Test fun choosesAmongEligibleProfilesAndKeepsResearchPrerequisites() {
         val candidates = listOf(remote, local)
         assertEquals(local, recommendedChatProfile(ChatRouteChoice.AUTO, candidates, emptyMap(), emptyMap()) { true })

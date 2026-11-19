@@ -44,22 +44,20 @@ internal fun AnswerDatasetCard(data: AnswerDataset) {
     var column by rememberSaveable(data) { mutableIntStateOf(-1) }
     var descending by rememberSaveable(data) { mutableStateOf(false) }
     var limit by rememberSaveable(data) { mutableIntStateOf(8) }
-    val hasVisual = data.type in setOf("bars", "diagram", "metrics")
-    var visual by rememberSaveable(data) { mutableStateOf(hasVisual) }
+    val hasVisual = data.supportsBarChart || data.type in setOf("diagram", "metrics", "places")
+    var visual by rememberSaveable(data) { mutableStateOf(hasVisual && data.type != "table") }
     val ordered = remember(data, column, descending) { data.ordered(column, descending) }
-    if (data.type == "places") {
-        val map = remember(data) {
-            val places = data.rows.mapIndexed { index, row -> dev.chungjungsoo.gptmobile.data.agent.tool.NearbyPlace(index.toString(), row[0], row[1].toDouble(), row[2].toDouble(), 0.0) }
-            val first = places.first()
-            LocationMapData(dev.chungjungsoo.gptmobile.data.agent.tool.MapCoordinate(first.latitude, first.longitude), places, null, showOrigin = false, title = data.title)
-        }
-        EmbeddedLocationMap(map)
-        return
-    }
     Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(data.title, style = MaterialTheme.typography.titleMedium)
-            if (data.type == "sources") {
+            if (visual && data.type == "places") {
+                val map = remember(data) {
+                    val places = data.rows.mapIndexed { index, row -> dev.chungjungsoo.gptmobile.data.agent.tool.NearbyPlace(index.toString(), row[0], row[1].toDouble(), row[2].toDouble(), 0.0) }
+                    val first = places.first()
+                    LocationMapData(dev.chungjungsoo.gptmobile.data.agent.tool.MapCoordinate(first.latitude, first.longitude), places, null, showOrigin = false, title = data.title)
+                }
+                EmbeddedLocationMap(map)
+            } else if (data.type == "sources") {
                 val handler = androidx.compose.ui.platform.LocalUriHandler.current
                 var openFailed by remember(data) { mutableStateOf(false) }
                 ordered.take(limit).forEach { row ->
@@ -111,13 +109,15 @@ internal fun AnswerDatasetCard(data: AnswerDataset) {
                     }
                 }
             }
-            if (limit < ordered.size && !(visual && data.type == "diagram")) TextButton(onClick = { limit += 8 }) { Text("Show more rows (${ordered.size - limit} remaining)") }
+            if (limit < ordered.size && !(visual && data.type in setOf("diagram", "places"))) TextButton(onClick = { limit += 8 }) { Text("Show more rows (${ordered.size - limit} remaining)") }
             Row(Modifier.horizontalScroll(rememberScrollState())) {
                 if (hasVisual) {
                     TextButton(onClick = { visual = !visual }) {
                         Text(
                             if (visual) {
                                 "View table"
+                            } else if (data.type == "places") {
+                                "View map"
                             } else if (data.type == "metrics") {
                                 "View metrics"
                             } else if (data.type == "diagram") {

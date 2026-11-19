@@ -7,9 +7,14 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 /** The outbox retains the source while failed indexing backs off across progress saves and restarts. */
+private val terminalIngestionStates = setOf("IDENTITY_REVIEW_REQUIRED", "OWNER_UNAVAILABLE", "ARCHIVE_SUPERSEDED", "REQUIRES_REVIEW")
+
+internal fun ResearchOutbox.awaitsAutomaticRetry(): Boolean =
+    Json.parseToJsonElement(operation).jsonObject.text("state") !in terminalIngestionStates
+
 internal fun ResearchOutbox.retryDue(now: Long): Boolean =
     Json.parseToJsonElement(operation).jsonObject.let { payload ->
-        payload.text("state") !in setOf("IDENTITY_REVIEW_REQUIRED", "OWNER_UNAVAILABLE", "ARCHIVE_SUPERSEDED", "REQUIRES_REVIEW") &&
+        payload.text("state") !in terminalIngestionStates &&
             (payload.text("retryAfterMs").toLongOrNull()?.let { now >= it } ?: true)
     }
 

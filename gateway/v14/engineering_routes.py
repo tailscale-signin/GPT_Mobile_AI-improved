@@ -139,6 +139,23 @@ def install_engineering_routes(app, service):
             return JSONResponse({'error': {'code': code, 'retryable': False,
                                            'operation_result_unconfirmed': True}}, status_code=500)
 
+    @app.api_route('/gateway/engineering/admission-settings', methods=['GET', 'POST'])
+    @app.api_route('/v1/gateway/engineering/admission-settings', methods=['GET', 'POST'])
+    async def admission_settings(request: Request):
+        async def run():
+            owner = principal(request)
+            if not service.store.runtime.GATEWAY_DURABLE_JOBS:
+                raise ExecutionBindingError('ENGINEERING_SETTINGS_UNAVAILABLE', 'Enable durable storage on the host.', 503)
+            if request.method == 'POST':
+                if not all(request.headers.get(name) for name in MUTATION_IDENTITY_HEADERS):
+                    raise ExecutionBindingError('CONTINUITY_IDENTITY_INVALID', 'Read the installation and account before editing.', 400)
+                value = await asyncio.to_thread(service.store.change_admission_settings, owner, await body(request))
+            else:
+                value = await asyncio.to_thread(service.store.tx, lambda db: service.store.admission_settings(db, owner))
+            gateway_id = await asyncio.to_thread(service.store.conversations.gateway_id)
+            return JSONResponse(dict(value, gateway_id=gateway_id, principal_id=owner), headers={'Cache-Control': 'no-store'})
+        return await execute(run)
+
     @app.get('/gateway/engineering/capabilities')
     @app.get('/v1/gateway/engineering/capabilities')
     async def capabilities(request: Request):

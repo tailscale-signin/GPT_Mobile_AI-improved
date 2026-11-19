@@ -24,6 +24,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayEngineeringClientTest {
+    @Test fun changingSavedJobAdmissionBindsTheInstallationAccountAndObservedRevision() = runTest {
+        var calls = 0
+        http(
+            MockEngine { req ->
+                calls++
+                assertEquals("/v1/gateway/engineering/admission-settings", req.url.encodedPath)
+                if (calls == 1) {
+                    assertEquals("GET", req.method.value)
+                    respond("""{"gateway_id":"pc","principal_id":"owner","enabled":true,"revision":2}""")
+                } else {
+                    assertEquals("POST", req.method.value)
+                    assertEquals("pc", req.headers["X-Gateway-Installation-ID"])
+                    assertEquals("owner", req.headers["X-Gateway-Principal-ID"])
+                    assertEquals(Json.parseToJsonElement("""{"enabled":false,"revision":2}"""), Json.parseToJsonElement((req.body as TextContent).text))
+                    respond("""{"gateway_id":"pc","principal_id":"owner","enabled":false,"revision":3}""")
+                }
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            val before = client.admissionSetting(config, null)
+            assertFalse(client.admissionSetting(config, before).enabled)
+            assertEquals(2, calls)
+        }
+    }
+
     @Test fun candidatePreviewPreservesTheServersTruncationWarning() = runTest {
         val jobId = "eng_" + "a".repeat(32)
         val checkId = "b".repeat(64)

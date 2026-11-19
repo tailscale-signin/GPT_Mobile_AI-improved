@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 import tkinter as tk
 import webbrowser
+from desktop.window_lifecycle import WindowCallbacks
 from tkinter import ttk
 
 from v14.operator_schedule import OperatorSchedule
@@ -14,6 +15,7 @@ from v14.scheduled_validation import KIND as TEST_KIND
 def show_schedules(parent, root):
     window = tk.Toplevel(parent)
     window.title('Scheduled work')
+    callbacks = WindowCallbacks(window)
     store = OperatorSchedule(Path(root) / 'data')
     body = ttk.Frame(window, padding=12)
     body.pack(fill='both', expand=True)
@@ -123,7 +125,7 @@ def show_schedules(parent, root):
 
     def poll():
         refresh()
-        window.after(15000, poll)
+        callbacks.schedule(15000, poll)
 
     def show_alerts():
         if not table.selection():

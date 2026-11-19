@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.github
 import java.util.UUID
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -15,7 +16,7 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
         require(
             issued.size <= 16_384 &&
                 issued.all { cursor ->
-                    (cursor as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.substringBefore(':') == id
+                    (cursor as? JsonPrimitive)?.takeIf { it.isString }?.content?.startsWith("$id:") == true
                 }
         ) { "Saved view requires bounded cursors issued for this identity" }
         // Recover the first immutable capture before appending subsequently issued handles.
@@ -29,7 +30,7 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
         val bootstrap = (persistedBody["bootstrap_issued_cursors"] as? JsonArray).orEmpty()
         check(
             bootstrap.all { item ->
-                (item as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.substringBefore(':') == id
+                (item as? JsonPrimitive)?.takeIf { it.isString }?.content?.startsWith("$id:") == true
             }
         ) { "GITHUB_SAVED_RESULT_CURSOR_IDENTITY_MISMATCH: saved handle identity differs." }
         state.update(scope, "saved-view-access:$id") { previous ->
@@ -74,7 +75,7 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
                 throw MissingSavedView("CURSOR_INDEX_MISSING")
             }
             val altered = initial.any { item ->
-                (item as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.substringBefore(':') != id
+                (item as? JsonPrimitive)?.takeIf { it.isString }?.content?.startsWith("$id:") != true
             }
             if (altered) throw MissingSavedView("CURSOR_INDEX_MISSING")
             // Initial handle proof is encrypted with the source body. Do not
@@ -85,7 +86,22 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
                     ("failed_persistence_cursors" to JsonArray(emptyList()))
             )
         }
-        return JsonObject((body - "bootstrap_issued_cursors") + access)
+        val issued = access["issued_cursors"] as? JsonArray ?: throw MissingSavedView("CURSOR_INDEX_INVALID")
+        val failed = when (val value = access["failed_persistence_cursors"]) {
+            null -> JsonArray(emptyList())
+            is JsonArray -> value
+            else -> throw MissingSavedView("CURSOR_INDEX_INVALID")
+        }
+        if (issued.isEmpty() ||
+            issued.size > 16_384 ||
+            failed.size > issued.size ||
+            issued.any { it !is JsonPrimitive || !it.isString || !it.content.startsWith("$id:") }
+        ) {
+            throw MissingSavedView("CURSOR_INDEX_INVALID")
+        }
+        val authorized = issued.toSet()
+        if (failed.any { it !in authorized }) throw MissingSavedView("CURSOR_INDEX_INVALID")
+        return JsonObject((body - "bootstrap_issued_cursors") + mapOf("issued_cursors" to issued, "failed_persistence_cursors" to failed))
     }
 
     class MissingSavedView(val reason: String) : Exception()

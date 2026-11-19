@@ -10,6 +10,19 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
+internal data class GatewayAdmissionSetting(
+    val enabled: Boolean,
+    val revision: Long,
+    @SerialName("gateway_id") val gatewayId: String,
+    @SerialName("principal_id") val principalId: String
+) {
+    init {
+        require(revision >= 0)
+        requireGatewayIdentity(gatewayId, principalId)
+    }
+}
+
+@Serializable
 data class GatewayEngineeringCapabilities(
     val service: String,
     @SerialName("protocol_version") val protocolVersion: Int,

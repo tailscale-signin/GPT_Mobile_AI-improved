@@ -505,7 +505,8 @@ fun GitHubWorkspaceScreen(
                                         },
                                         onDecisionMode = programmer::setDecisionMode,
                                         onCopilotEnabled = programmer::setCopilotEnabled,
-                                        onBatchModes = programmer::batchModes
+                                        onBatchModes = programmer::batchModes,
+                                        onAdmissionSetting = programmer::admissionSetting
                                     )
                                     Row(
                                         Modifier.fillMaxWidth(),

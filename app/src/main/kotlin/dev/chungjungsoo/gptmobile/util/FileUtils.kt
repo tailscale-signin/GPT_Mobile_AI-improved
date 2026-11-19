@@ -117,7 +117,7 @@ object FileUtils {
         // Fast path: if no downsampling needed, read and return bytes directly
         if (sampleSize <= 1) {
             return try {
-                getInputStreamFromUri(context, filePath)?.use { inputStream -> inputStream.readBytes() }
+                readLocalImage(context, filePath)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to read image bytes for local inference: $filePath", e)
                 null
@@ -132,21 +132,21 @@ object FileUtils {
             }
             val bitmap = getInputStreamFromUri(context, filePath)?.use { stream ->
                 BitmapFactory.decodeStream(stream, null, decodeOptions)
-            } ?: return getInputStreamFromUri(context, filePath)?.use { it.readBytes() }
+            } ?: return readLocalImage(context, filePath)
 
             try {
                 val output = ByteArrayOutputStream(DEFAULT_STREAM_BUFFER_SIZE)
                 if (bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
                     output.toByteArray()
                 } else {
-                    getInputStreamFromUri(context, filePath)?.use { it.readBytes() }
+                    readLocalImage(context, filePath)
                 }
             } finally {
                 bitmap.recycle()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to convert image bytes for local inference: $filePath", e)
-            getInputStreamFromUri(context, filePath)?.use { it.readBytes() }
+            readLocalImage(context, filePath)
         }
     }
 
@@ -482,21 +482,30 @@ object FileUtils {
             ?: "attachment_${System.currentTimeMillis()}"
     }
 
-    private fun encodeFileToBase64(context: Context, uriString: String): String? {
-        val fileSize = getFileSize(context, uriString)
-        val initialCapacity = if (fileSize in 1..MAX_UPLOAD_SIZE_BYTES) {
-            calculateBase64EncodedSize(fileSize)
-        } else {
-            DEFAULT_STREAM_BUFFER_SIZE
+    internal fun copyWithinLimit(input: InputStream, output: OutputStream, limit: Long = MAX_UPLOAD_SIZE_BYTES): Boolean {
+        val buffer = ByteArray(DEFAULT_STREAM_BUFFER_SIZE)
+        var remaining = limit
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) return true
+            if (count == 0 || count > remaining) return false
+            output.write(buffer, 0, count)
+            remaining -= count
         }
-        val outputStream = ByteArrayOutputStream(initialCapacity)
-        getInputStreamFromUri(context, uriString)?.use { inputStream ->
-            Base64.getEncoder().wrap(outputStream).use { base64Stream ->
-                inputStream.copyTo(base64Stream)
-            }
-        } ?: return null
+    }
 
-        return outputStream.toString(Charsets.UTF_8.name())
+    private fun readLocalImage(context: Context, path: String): ByteArray? =
+        getInputStreamFromUri(context, path)?.use { input ->
+            val output = ByteArrayOutputStream()
+            if (copyWithinLimit(input, output)) output.toByteArray() else null
+        }
+
+    private fun encodeFileToBase64(context: Context, uriString: String): String? {
+        val size = getFileSize(context, uriString)
+        if (size > MAX_UPLOAD_SIZE_BYTES) return null
+        return getInputStreamFromUri(context, uriString)?.use { input ->
+            encodeToBase64(size) { output -> copyWithinLimit(input, output) }
+        }
     }
 
     private fun resolveImageCompressFormat(mimeType: String): Pair<Bitmap.CompressFormat, String> = when {

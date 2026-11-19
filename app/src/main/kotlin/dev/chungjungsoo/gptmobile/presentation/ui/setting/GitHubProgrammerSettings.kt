@@ -14,8 +14,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,9 +25,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
 import dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -55,7 +60,7 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
 }
 
 @Composable
-internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}, onCopilotEnabled: (Boolean) -> Unit = {}, onBatchModes: suspend (String, String) -> Set<String> = { _, _ -> emptySet() }) {
+internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null, onDecisionMode: (GitHubDecisionMode) -> Unit = {}, onCopilotEnabled: (Boolean) -> Unit = {}, onBatchModes: suspend (String, String) -> Set<String> = { _, _ -> emptySet() }, onAdmissionSetting: (suspend (String, String, GatewayAdmissionSetting?) -> GatewayAdmissionSetting)? = null) {
     var inspection by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     inspection?.let { (profileUid, engineering) ->
         ConnectionDoctorDialog(onDismiss = { inspection = null }, initialProfileUid = profileUid, engineeringGateway = engineering)
@@ -90,6 +95,12 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
                 Text("Gateway execution mode", style = MaterialTheme.typography.titleSmall)
                 val gateway = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(state.profiles, state.profileSettings.engineeringGatewayProfileUid)
+                val selectedProfile = state.profileUid
+                if (gateway != null && selectedProfile != null && onAdmissionSetting != null) {
+                    key(selectedProfile, gateway) {
+                        GatewayAdmissionControl { previous -> onAdmissionSetting(selectedProfile, gateway.uid, previous) }
+                    }
+                }
                 var batchModeOpen by remember(state.profileUid, gateway) { mutableStateOf(false) }
                 var availableModes by remember(batchModeOpen, state.profileUid, gateway) { mutableStateOf<Set<String>?>(null) }
                 androidx.compose.runtime.LaunchedEffect(batchModeOpen, state.profileUid, gateway) {
@@ -352,5 +363,50 @@ private fun GitHubOverrideSwitch(title: String, description: String, checked: Bo
             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(checked, onChange, enabled = enabled)
+    }
+}
+
+@Composable
+private fun GatewayAdmissionControl(loadOrToggle: suspend (GatewayAdmissionSetting?) -> GatewayAdmissionSetting) {
+    val scope = rememberCoroutineScope()
+    var observed by remember { mutableStateOf<GatewayAdmissionSetting?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
+    fun request(previous: GatewayAdmissionSetting?) {
+        if (busy) return
+        busy = true
+        failed = false
+        scope.launch {
+            try {
+                observed = loadOrToggle(previous)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                observed = null
+                failed = true
+            } finally {
+                busy = false
+            }
+        }
+    }
+    val current = observed
+    if (current != null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Allow new saved engineering jobs")
+                Text(
+                    if (current.principalId == "network:shared") "Applies to every device using this shared Gateway." else "Applies to your account on this Gateway.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = current.enabled, enabled = !busy, onCheckedChange = { request(current) })
+        }
+    } else {
+        OutlinedButton(onClick = { request(null) }, enabled = !busy) {
+            Text(if (busy) "Reading Gateway setting…" else "Check saved-job setting")
+        }
+        if (failed) {
+            Text("Current setting unknown. Check the connection, host version and engineering access, then read it again.", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }

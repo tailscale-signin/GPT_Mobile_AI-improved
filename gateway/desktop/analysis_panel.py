@@ -8,6 +8,7 @@ import queue
 import threading
 import tempfile
 import tkinter as tk
+from desktop.window_lifecycle import WindowCallbacks
 from tkinter import filedialog, ttk
 
 from benchmarks.sandbox import execute
@@ -33,16 +34,21 @@ def analyze(root, code, source, cancel):
 def write_analysis(path, code, source):
     analysis_input(code, source)
     snapshot = {'format': 'gptmobile.analysis.v1', 'python': code, 'input': source}
+    write_export(path, json.dumps(snapshot, ensure_ascii=False).encode('utf-8'))
+
+
+def write_export(path, data):
     target = Path(path)
-    with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
-        temp = Path(stream.name)
-        try:
-            stream.write(json.dumps(snapshot, ensure_ascii=False).encode('utf-8'))
-            stream.close()
-            os.replace(temp, target)
-        finally:
-            stream.close()
-            temp.unlink(missing_ok=True)
+    stream = tempfile.NamedTemporaryFile(dir=target.parent, delete=False)
+    temp = Path(stream.name)
+    try:
+        with stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, target)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def read_analysis(path):
@@ -75,6 +81,7 @@ def import_data(path):
 def show_analysis(parent, root, initial_code, append_result, selected_python=None):
     window = tk.Toplevel(parent)
     window.title('Analysis workspace')
+    callbacks = WindowCallbacks(window)
     body = ttk.Frame(window, padding=12)
     body.pack(fill='both', expand=True)
     def editor(label, height):
@@ -135,7 +142,7 @@ def show_analysis(parent, root, initial_code, append_result, selected_python=Non
             try:
                 target = Path(path)
                 data = export_result(output.get('1.0', 'end-1c'), target.suffix.lower())
-                target.write_bytes(data)
+                write_export(target, data)
                 status.set('Saved ' + target.name)
             except (OSError, ValueError, RecursionError) as error:
                 show_status(error)
@@ -162,7 +169,7 @@ def show_analysis(parent, root, initial_code, append_result, selected_python=Non
         try:
             args, ok, value = results.get_nowait()
         except queue.Empty:
-            window.after(100, poll)
+            callbacks.schedule(100, poll)
             return
         run_button.configure(state='normal')
         open_button.configure(state='normal')
@@ -193,7 +200,7 @@ def show_analysis(parent, root, initial_code, append_result, selected_python=Non
             except Exception as error:
                 results.put((args, False, error))
         threading.Thread(target=work, daemon=True).start()
-        window.after(100, poll)
+        callbacks.schedule(100, poll)
     ttk.Button(toolbar, text='Open data…', command=load).pack(side='left')
     run_button = ttk.Button(toolbar, text='Run analysis', command=run)
     run_button.pack(side='left')

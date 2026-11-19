@@ -195,6 +195,37 @@ class GitHubSavedPageRepairTest {
         }
     }
 
+    @Test fun mutableCursorIndexCannotReplaceTheBodyOrRestoreForeignHandles() = runBlocking {
+        val directory = java.nio.file.Files.createTempDirectory("saved-index-integrity").toFile()
+        try {
+            val state = GitHubRepositoryStateStore(directory)
+            val store = GitHubSavedViewStore(state, "scope")
+            val id = UUID.randomUUID().toString()
+            val issued = JsonArray(listOf(JsonPrimitive("$id:0:2048")))
+            store.save(
+                id,
+                buildJsonObject {
+                    put("issued_cursors", issued)
+                    put("schema", "original")
+                }
+            )
+            state.write(
+                "scope",
+                "saved-view-access:$id",
+                buildJsonObject {
+                    put("issued_cursors", issued)
+                    put("schema", "wrong")
+                }
+            )
+            assertEquals(JsonPrimitive("original"), store.loadWithDiagnostics(id)["schema"])
+            state.write("scope", "saved-view-access:$id", buildJsonObject { put("issued_cursors", JsonArray(listOf(JsonPrimitive("other:0:2048")))) })
+            val error = runCatching { store.loadWithDiagnostics(id) }.exceptionOrNull()
+            assertEquals("CURSOR_INDEX_INVALID", (error as GitHubSavedViewStore.MissingSavedView).reason)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun laterPageSavePreservesInitialHandleWhenMutableIndexWasLost() = runBlocking {
         val directory = java.nio.file.Files.createTempDirectory("github-saved-bootstrap-recovery-").toFile()
         try {

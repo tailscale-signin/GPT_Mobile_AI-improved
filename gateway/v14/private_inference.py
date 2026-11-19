@@ -70,7 +70,8 @@ async def local_ollama_text(client, root, payload):
     answer = await backend_json(client, "POST", root + "/api/chat",
                                 {"model": payload["model"], "messages": payload["messages"],
                                  "options": {"num_predict": payload["max_tokens"]}, "stream": False})
-    if answer.get("remote_host") or answer.get("remote_model") or answer.get("model") != payload["model"]:
+    if (answer.get("remote_host") or answer.get("remote_model") or answer.get("model") != payload["model"]
+            or answer.get("done") is not True or answer.get("done_reason", "stop") != "stop"):
         raise ValueError()
     return answer["message"]
 
@@ -104,9 +105,13 @@ def install_private_inference(app, runtime):
                     message = await local_ollama_text(client, root, payload)
                 else:
                     answer = await backend_json(client, "POST", root + "/v1/chat/completions", payload)
-                    message = answer["choices"][0]["message"]
-                if message.get("tool_calls") or not isinstance(message["content"], str):
+                    choice = answer["choices"][0]
+                    if answer.get("model", payload["model"]) != payload["model"] or choice.get("finish_reason", "stop") != "stop":
+                        raise ValueError()
+                    message = choice["message"]
+                if (message.get("role", "assistant") != "assistant" or message.get("tool_calls") or message.get("function_call")
+                        or not isinstance(message["content"], str) or not message["content"].strip()):
                     raise ValueError()
                 return {"text": message["content"]}
-        except (ValueError, KeyError, IndexError, TypeError, AttributeError, httpx.HTTPError):
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError, RecursionError, httpx.HTTPError):
             return JSONResponse({"error": "PRIVATE_LOCAL_ROUTE_UNAVAILABLE"}, status_code=409)

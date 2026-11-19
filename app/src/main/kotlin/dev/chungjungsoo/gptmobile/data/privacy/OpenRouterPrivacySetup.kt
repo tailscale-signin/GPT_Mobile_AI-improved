@@ -120,6 +120,7 @@ internal class OpenRouterPrivacySetup(
                 bindingStillMatches(session, ::authorized)
                 reconcilePending(session, ::authorized)
                 val initialPlan = plan(session, ::authorized)
+                val existingPolicy = reusablePolicy(initialPlan, session.binding.hash)
                 val policyDigest = currentPolicyDigest()
                 if (!policyDigest.matches(Regex("[0-9a-f]{64}"))) throw SetupException("The current OpenRouter privacy policy could not be checked. Try again when connected.")
 
@@ -131,7 +132,7 @@ internal class OpenRouterPrivacySetup(
                     authority.confirmSetupMutation(pending.toString())
                 }
 
-                val target = ensurePolicy(session, initialPlan, ::authorized)
+                val target = existingPolicy ?: assignDedicatedPolicy(session, initialPlan, ::authorized)
                 bindingStillMatches(session, ::authorized)
                 if (!workspace(session.binding, session.management, ::authorized).strict || !policyStillApplies(session, target, ::authorized)) {
                     throw SetupException("OpenRouter settings changed during setup. Check the account again; it has not been marked ready.")
@@ -194,10 +195,9 @@ internal class OpenRouterPrivacySetup(
             OpenRouterPrivacyPolicy.directlyProtects(policy(target.id, session.binding, session.management, authorized), session.binding.hash)
         }
 
-    private suspend fun ensurePolicy(session: Session, initial: PolicyPlan, authorized: () -> Unit): ConfiguredPolicy {
-        val binding = session.binding
+    private fun reusablePolicy(initial: PolicyPlan, keyHash: String): ConfiguredPolicy? {
         val direct = initial.assignment.policies.singleOrNull()
-        if (direct != null && initial.sourcePolicy?.let { OpenRouterPrivacyPolicy.directlyProtects(it, binding.hash) } == true) return ConfiguredPolicy(direct)
+        if (direct != null && initial.sourcePolicy?.let { OpenRouterPrivacyPolicy.directlyProtects(it, keyHash) } == true) return ConfiguredPolicy(direct)
         initial.sourcePolicy?.let { source ->
             if (direct == null && OpenRouterPrivacyPolicy.strict(initial.config)) return ConfiguredPolicy(text(source, "id") ?: throw malformed(), inherited = true)
             throw SetupException("Your existing model-access policy needs ZDR for all model groups and both Safety Retention options off. Review that policy in OpenRouter Guardrails, then check again. Its other restrictions have been preserved.")
@@ -207,6 +207,11 @@ internal class OpenRouterPrivacySetup(
         if (initial.memberCreator != null || initial.assignment.optedOut || initial.assignment.policies.isNotEmpty() || initial.assignment.defaults.isNotEmpty()) {
             throw SetupException("This key inherits account policy settings. Configure strict ZDR in OpenRouter Guardrails, then check again. Automatic setup will not replace inherited restrictions.")
         }
+        return null
+    }
+
+    private suspend fun assignDedicatedPolicy(session: Session, initial: PolicyPlan, authorized: () -> Unit): ConfiguredPolicy {
+        val binding = session.binding
         val desired = OpenRouterPrivacyPolicy.strictFields
         // Deterministic, credential-free name lets a confirmed but unassigned creation be reused after restart.
         val name = "GPT Mobile Privacy " + OpenRouterIdentity.digest(binding.hash + desired.toString()).take(32)

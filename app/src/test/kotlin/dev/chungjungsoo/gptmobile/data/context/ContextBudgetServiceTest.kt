@@ -23,6 +23,15 @@ class ContextBudgetServiceTest {
         assertEquals(emptyList<ConversationTurn>(), MemoryTokenWindow.forQuestion(turns, 1, "goal") { 2 })
     }
 
+    @Test fun olderEvidenceCanMatchTheEndOfALongQuestionAndMessage() {
+        val filler = "unrelated ".repeat(300)
+        val turns = listOf("goal", filler + "zirconium", "please could you", "latest").map {
+            ConversationTurn(MessageV2(content = it, platformType = null), null, false)
+        }
+        val question = "please could you " + "context ".repeat(350) + "find zirconium"
+        assertEquals(listOf(turns[0], turns[1], turns[3]), MemoryTokenWindow.forQuestion(turns, 3, question) { 1 })
+    }
+
     @Test fun `defaults preserve context and use fifty tool calls`() {
         val turns = (0..9).map { ConversationTurn(MessageV2(content = "history ".repeat(3000), platformType = null), null, it == 9) }
         val plan = ContextBudgetService.plan(turns, "system", emptyList(), TokenBudgetSettings())

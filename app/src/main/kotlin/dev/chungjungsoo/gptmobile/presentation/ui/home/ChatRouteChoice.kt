@@ -64,7 +64,13 @@ internal fun recommendedChatProfile(
                 decimalRate(it.inputPerMillion)?.add(decimalRate(it.outputPerMillion))
             }
         }
-        Candidate(profile, times.getOrNull(times.size / 2), insight?.score?.score, tokenPrice, rate, ProviderRouteCapacity.context(profile), input ?: 0L)
+        val medianLatency = if (times.isEmpty()) {
+            null
+        } else {
+            val lower = times[(times.size - 1) / 2]
+            lower + (times[times.size / 2] - lower) / 2
+        }
+        Candidate(profile, medianLatency, insight?.score?.score, tokenPrice, rate, ProviderRouteCapacity.context(profile), input ?: 0L)
     }
     val fallback = compareByDescending<Candidate> { it.profile.isFavorite }.thenBy { it.profile.name.lowercase() }.thenBy { it.profile.uid }
     val latency = compareBy<Candidate> { it.latency ?: Long.MAX_VALUE }

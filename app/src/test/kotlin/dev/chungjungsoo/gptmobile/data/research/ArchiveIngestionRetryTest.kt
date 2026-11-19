@@ -30,6 +30,15 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ArchiveIngestionRetryTest {
+    @Test fun retainedReviewRowsDoNotRescheduleTheWorker() = runBlocking {
+        withStore { store, database, _, _ ->
+            val held = ResearchOutbox("ingest:held", """{"state":"REQUIRES_REVIEW","retryAttempt":16}""", 1)
+            database.research().outbox(held)
+            assertTrue(store.retryPendingDiscovery())
+            assertEquals(held, database.research().outboxById(held.id))
+        }
+    }
+
     @Test fun retryBackoffSurvivesSerializationAndRetainsOriginalSource() {
         var row = ResearchOutbox("ingest:test", """{"source":{"id":"S1"}}""", 1)
         repeat(20) { attempt ->

@@ -223,10 +223,36 @@ class EngineeringStore:
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_model_attempts ('
                                'id TEXT PRIMARY KEY, job_id TEXT NOT NULL, binding_id TEXT NOT NULL, revision INTEGER NOT NULL, '
                                'state TEXT NOT NULL, dispatched INTEGER NOT NULL, reserved_tokens INTEGER NOT NULL, payload TEXT NOT NULL)')
+                    db.execute('CREATE TABLE IF NOT EXISTS engineering_admission_settings ('
+                               'principal TEXT PRIMARY KEY, enabled INTEGER NOT NULL, revision INTEGER NOT NULL)')
                     self.conversations.schema(db)
                     return operation(db)
             finally:
                 db.close()
+
+    @staticmethod
+    def admission_settings(db, principal):
+        row = db.execute('SELECT enabled, revision FROM engineering_admission_settings WHERE principal=?',
+                         (principal,)).fetchone()
+        return {'enabled': bool(row[0]), 'revision': row[1]} if row else {'enabled': True, 'revision': 0}
+
+    def change_admission_settings(self, principal, payload):
+        if (set(payload) != {'enabled', 'revision'} or type(payload['enabled']) is not bool or
+                type(payload['revision']) is not int or payload['revision'] < 0):
+            raise ExecutionBindingError('ENGINEERING_SETTINGS_INVALID', 'Read the current setting before changing it.', 400)
+        def change(db):
+            current = self.admission_settings(db, principal)
+            if current['revision'] != payload['revision']:
+                raise ExecutionBindingError('ENGINEERING_SETTINGS_CHANGED', 'Refresh the Gateway setting before editing.')
+            if current['enabled'] != payload['enabled']:
+                db.execute('INSERT OR REPLACE INTO engineering_admission_settings VALUES (?,?,?)',
+                           (principal, payload['enabled'], current['revision'] + 1))
+            return self.admission_settings(db, principal)
+        return self.tx(change)
+
+    def require_new_jobs(self, db, principal):
+        if not self.admission_settings(db, principal)['enabled']:
+            raise ExecutionBindingError('ENGINEERING_JOBS_PAUSED', 'Enable new saved jobs in the Gateway settings for this account.', 412)
 
     def accept_webhook(self, principal, delivery, body_digest):
         """Durable replay filter. A delivery identifier cannot be rebound to another payload."""
@@ -325,6 +351,8 @@ class EngineeringStore:
                 if old[3] != request_hash:
                     raise ValueError('Request identity was reused with different settings')
                 return self.decode(old[:3])
+            if recovery_of is None:
+                self.require_new_jobs(db, principal)
             if db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED','FAILED')").fetchone()[0] >= 32:
                 raise ValueError('Engineering job capacity reached')
             if db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0] >= 4096:
@@ -988,6 +1016,7 @@ class EngineeringService:
         return binding
 
     def preflight_submission(self, principal, request):
+        self.store.tx(lambda db: self.store.require_new_jobs(db, principal))
         self.validate_submission(principal, request)
         from v14.engineering_preflight import preflight
         value = validate_request(request)

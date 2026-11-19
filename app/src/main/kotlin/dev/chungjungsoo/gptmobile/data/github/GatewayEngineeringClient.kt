@@ -166,15 +166,19 @@ class GatewayEngineeringClient internal constructor(
                             detail["dispatch_state"] == JsonPrimitive("not_dispatched") &&
                             detail["inference_attempted"] == JsonPrimitive(false)
                         if (body != null && (response.status.value in 400..499 && response.status.value !in setOf(408, 499) || confirmedRejection)) {
-                            val message = when (response.status.value) {
-                                401, 403 -> "Gateway engineering access was rejected. Restore the original account and engineering permission before submitting a new command."
-                                409, 412 -> if (code == "engineering_state_or_input_changed") {
-                                    "The gateway rejected an input or state prerequisite. Review the saved draft and exact task; this response alone does not establish that the conversation changed."
-                                } else {
-                                    "The conversation or job prerequisite changed. Refresh Jobs and review the original task before sending another command."
+                            val message = if (code == "ENGINEERING_JOBS_PAUSED") {
+                                "New saved jobs are paused for this Gateway account. Enable them in GitHub settings."
+                            } else {
+                                when (response.status.value) {
+                                    401, 403 -> "Gateway engineering access was rejected. Restore the original account and engineering permission before submitting a new command."
+                                    409, 412 -> if (code == "engineering_state_or_input_changed") {
+                                        "The gateway rejected an input or state prerequisite. Review the saved draft and exact task; this response alone does not establish that the conversation changed."
+                                    } else {
+                                        "The conversation or job prerequisite changed. Refresh Jobs and review the original task before sending another command."
+                                    }
+                                    429 -> "The gateway did not admit this command because its queue or request limit is full."
+                                    else -> "The gateway rejected this command (HTTP ${response.status.value}). Review it before sending another command."
                                 }
-                                429 -> "The gateway did not admit this command because its queue or request limit is full."
-                                else -> "The gateway rejected this command (HTTP ${response.status.value}). Review it before sending another command."
                             }
                             val safeCode = safeEngineeringRejectionCode(code)
                             if (code == "engineering_state_or_input_changed") {
@@ -419,6 +423,20 @@ class GatewayEngineeringClient internal constructor(
         require(operationId.matches(Regex("repoop_[a-f0-9]{32}")))
         return json.parseToJsonElement(request(config, "repository-operations/$operationId")) as? JsonObject
             ?: error("The gateway returned an invalid repository operation status.")
+    }
+
+    internal suspend fun admissionSetting(config: ProviderRequestConfig, previous: GatewayAdmissionSetting?): GatewayAdmissionSetting {
+        val path = "admission-settings"
+        if (previous == null) return json.decodeFromString(request(config, path))
+        val bound = config.withGatewayIdentity(GatewayScopeIdentity(previous.gatewayId, previous.principalId))
+        val update = buildJsonObject {
+            put("enabled", !previous.enabled)
+            put("revision", previous.revision)
+        }
+        val receipt = json.decodeFromString<GatewayAdmissionSetting>(request(bound, path, update.toString()))
+        check(receipt.gatewayId == previous.gatewayId && receipt.principalId == previous.principalId)
+        check(receipt.enabled != previous.enabled && receipt.revision == previous.revision + 1)
+        return receipt
     }
 
     internal suspend fun copilotCapabilities(config: ProviderRequestConfig): JsonObject =

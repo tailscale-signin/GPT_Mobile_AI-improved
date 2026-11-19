@@ -199,8 +199,17 @@ class ChatBottomIndicatorTest {
             assertFalse(following)
         }
         compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
+        compose.mainClock.autoAdvance = false
         compose.runOnIdle { input.stopScroll() }
-        compose.waitForIdle()
+        advanceIndicatorClock(4_500)
+        compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
+        compose.runOnIdle { input.recordFling(230f) }
+        advanceIndicatorClock(650)
+        compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
+        compose.runOnIdle { input.stopScroll() }
+        advanceIndicatorClock(4_500)
+        compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
+        advanceIndicatorClock(650)
         compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
 
         // Slow reading motion never resurrects the arrow after its timeout.

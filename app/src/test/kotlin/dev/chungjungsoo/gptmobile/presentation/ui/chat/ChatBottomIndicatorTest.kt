@@ -71,13 +71,14 @@ class ChatBottomIndicatorTest {
     }
 
     @Test fun manualBottomArrivalAndButtonHaveTheSameIndicatorAndFollowBehavior() {
-        animate = true
+        // Exercise follow intent independently of the optional arrow entrance animation.
+        animate = false
         setConversation()
         compose.onNodeWithTag("chat_bottom_generation").assertIsDisplayed()
         for (smooth in listOf(false, true)) {
             compose.runOnIdle { smoothStreaming = smooth }
             compose.onNodeWithTag("conversation").performTouchInput { swipeDown() }
-            compose.mainClock.advanceTimeBy(1_100)
+            compose.runOnIdle { assertFalse("An upward history gesture must detach follow intent", following) }
             compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
             compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
             compose.runOnIdle { assertFalse(following) }
@@ -163,7 +164,6 @@ class ChatBottomIndicatorTest {
         following = false
         generating = false
         val input = ChatScrollInput()
-        compose.mainClock.autoAdvance = false
         compose.setContent {
             MaterialTheme {
                 state = rememberLazyListState()
@@ -175,19 +175,23 @@ class ChatBottomIndicatorTest {
                 }
             }
         }
-        compose.mainClock.advanceTimeBy(100)
+        compose.waitForIdle()
         compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
 
         compose.runOnIdle { input.recordFling(230f) }
-        compose.mainClock.advanceTimeBy(1_100)
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertTrue("The test list must have history below its initial viewport", state.canScrollForward)
+            assertTrue("Fast user motion must pass the reading-speed gate", input.scrollingFasterThanReading)
+        }
         compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
         compose.runOnIdle { input.stopScroll() }
-        compose.mainClock.advanceTimeBy(1_100)
+        compose.waitForIdle()
         compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
 
         // Slow reading motion never resurrects the arrow after its timeout.
         compose.runOnIdle { input.recordFling(70f) }
-        compose.mainClock.advanceTimeBy(1_100)
+        compose.waitForIdle()
         compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
     }
 

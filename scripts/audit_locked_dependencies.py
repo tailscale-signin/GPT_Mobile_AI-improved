@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Query OSV for the versions in the verified Maven inventory and npm/PyPI lockfiles."""
+"""Query OSV for locked Android, build plugin, npm and Python dependencies."""
 import argparse
 import json
 import re
@@ -19,13 +19,22 @@ def inventory(root, verified_inventory=False):
             group, artifact, version = (component.attrib[key] for key in ('group', 'name', 'version'))
             packages.add(('Maven', f'{group}:{artifact}', version))
     else:
-        for lock in ('app/release.lockfile', 'app/geniex-release.lockfile'):
-            rows = (root / lock).read_text().splitlines()
-            coordinates = [row.split('=', 1)[0].split(':') for row in rows if row.endswith('=releaseRuntimeClasspath')]
-            if not coordinates:
-                raise ValueError(f'Release runtime lock has no dependency coordinates: {lock}')
-            for group, artifact, version in coordinates:
-                packages.add(('Maven', f'{group}:{artifact}', version))
+        release_graphs = {'releaseRuntimeClasspath', 'kspReleaseKotlinProcessorClasspath'}
+        locks = {'app/release.lockfile': release_graphs, 'app/geniex-release.lockfile': release_graphs,
+                 'buildscript-gradle.lockfile': {'classpath'}}
+        for lock, expected in locks.items():
+            seen = set()
+            for line in (root / lock).read_text().splitlines():
+                if not line or line.startswith(('#', 'empty=')):
+                    continue
+                coordinate, configurations = line.split('=', 1)
+                matched = expected.intersection(configurations.split(','))
+                if matched:
+                    group, artifact, version = coordinate.split(':')
+                    packages.add(('Maven', f'{group}:{artifact}', version))
+                    seen.update(matched)
+            if seen != expected:
+                raise ValueError(f'{lock} is missing locked coordinates for {sorted(expected - seen)}')
     for lock in sorted((root / 'mcp').rglob('package-lock.json')):
         if 'node_modules' in lock.parts:
             continue

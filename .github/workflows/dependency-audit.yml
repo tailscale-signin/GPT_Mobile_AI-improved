@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - 'app/*.lockfile'
+      - 'buildscript-gradle.lockfile'
       - '**/package-lock.json'
       - '**/requirements*.txt'
       - 'scripts/audit_locked_dependencies.py'
@@ -17,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   advisories:
-    name: Audit locked Android, npm and Python versions
+    name: Audit locked Android, build plugin, npm and Python versions
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

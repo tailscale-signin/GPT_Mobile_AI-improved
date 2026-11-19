@@ -78,7 +78,7 @@ val geniexRuntime = providers.gradleProperty("geniexRuntime").orNull == "true"
 dependencyLocking {
     lockFile.set(layout.projectDirectory.file(if (geniexRuntime) "geniex-release.lockfile" else "release.lockfile"))
 }
-configurations.matching { it.name == "releaseRuntimeClasspath" }.configureEach {
+configurations.matching { it.name in setOf("releaseRuntimeClasspath", "kspReleaseKotlinProcessorClasspath") }.configureEach {
     resolutionStrategy.activateDependencyLocking()
 }
 
@@ -632,6 +632,7 @@ dependencies {
         implementation(libs.secure.jackson.core)
         implementation(libs.secure.jackson.databind)
         implementation(libs.secure.guava)
+        add("ksp", libs.secure.guava)
         implementation(libs.secure.protobuf.lite)
         implementation(libs.secure.commons.lang)
         implementation(libs.secure.log4j.api)

@@ -10,7 +10,8 @@ class LockedDependencyAuditTest(unittest.TestCase):
     def test_all_ecosystems_include_transitive_dependencies(self):
         packages = inventory(Path(__file__).resolve().parents[2])
         self.assertEqual({'Maven', 'npm', 'PyPI'}, {row[0] for row in packages})
-        self.assertTrue(any(name == 'androidx.sqlite:sqlite-android' for _, name, _ in packages))
+        names = {name for _, name, _ in packages}
+        self.assertTrue({'androidx.sqlite:sqlite-android', 'com.android.tools.build:gradle', 'androidx.room:room-compiler'} <= names)
 
     def test_pagination_retains_package_identity(self):
         def query(batch):

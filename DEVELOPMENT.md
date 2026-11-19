@@ -47,11 +47,14 @@ Use different service credentials for development, staging and production. Confi
 
 ## Updating release dependencies
 
-Both Android release graphs have Gradle lockfiles. Regenerate both after changing a runtime dependency. Verify any new checksums against publisher artifacts before committing the lockfiles and verification metadata.
+Both Android editions lock their runtime and Room processor dependencies. The root build also locks the Gradle plugin classpath. Refresh the affected graphs after changing a dependency. Verify any new checksums against publisher artifacts before committing the lockfiles and verification metadata.
 
 ```sh
-./gradlew :app:dependencies --configuration releaseRuntimeClasspath --write-locks
-./gradlew -PgeniexRuntime=true :app:dependencies --configuration releaseRuntimeClasspath --write-locks
+./gradlew buildEnvironment --write-locks
+for graph in releaseRuntimeClasspath kspReleaseKotlinProcessorClasspath; do
+  ./gradlew :app:dependencies --configuration "$graph" --write-locks
+  ./gradlew -PgeniexRuntime=true :app:dependencies --configuration "$graph" --write-locks
+done
 python3 scripts/audit_locked_dependencies.py
 ```
 

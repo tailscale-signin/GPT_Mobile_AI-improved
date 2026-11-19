@@ -3191,6 +3191,8 @@
     "gateway/desktop/windows/GatewaySetup.csproj",
     "gateway/desktop/windows/SetupWindow.xaml",
     "gateway/desktop/windows/SetupWindow.xaml.cs",
-    "gateway/build_v14_package.py"
+    "gateway/build_v14_package.py",
+    "build.gradle.kts",
+    "buildscript-gradle.lockfile"
   ]
 }

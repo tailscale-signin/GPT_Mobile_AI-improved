@@ -4,7 +4,17 @@ on:
     paths: ['gateway/**', 'authentication/**', '.github/workflows/gateway-stability.yml']
   push:
     branches: ['main', 'feat/gateway-v14-1-stability-2026-10-10', 'feat/combined-marketplace-gateway-14-2-2026-10-10']
-    paths: ['gateway/**', 'authentication/**', '.github/workflows/gateway-stability.yml', 'app/build.gradle.kts', 'release-scope.json']
+    paths:
+      - 'gateway/**'
+      - 'authentication/**'
+      - '.github/workflows/gateway-stability.yml'
+      - 'app/build.gradle.kts'
+      - 'release-scope.json'
+      # Publication-only changes must still earn an exact-main Gateway receipt.
+      - '.github/workflows/recover-verified-android144-gateway18.yml'
+      - 'scripts/recover_release_publication.py'
+      - 'scripts/verify_published_release.py'
+      - 'release-recovery.json'
   workflow_dispatch:
 permissions:
   contents: read

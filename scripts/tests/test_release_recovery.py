@@ -531,6 +531,19 @@ class ReleaseRecoveryTest(unittest.TestCase):
             with self.subTest(assets=changed), self.assertRaises(ValueError):
                 recovery.verify_gateway_assets({"assets": changed}, self.root, version)
 
+    def test_recovery_code_push_triggers_all_path_scoped_mandatory_main_checks(self):
+        workflows = (
+            "gateway-stability.yml",
+            "release-0950-acceptance.yml",
+            "development-environments.yml",
+        )
+        for name in workflows:
+            text = (ROOT / ".github/workflows" / name).read_text()
+            push = text.split("\n  push:\n", 1)[1].split("\n  workflow_dispatch:", 1)[0]
+            for path in sorted(recovery.TRIGGER_PATHS):
+                with self.subTest(workflow=name, path=path):
+                    self.assertIn(f"      - '{path}'", push)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -162,6 +162,20 @@ class ConfiguredDispatchAuthorityTest {
         coVerify(exactly = featureReads) { settings.getFeatureSettings() }
     }
 
+    @Test fun gatewaySelectionReportsOnlyTheDirectionForTheSameProfile() {
+        fun fields(uid: String?, profile: String = "same") = kotlinx.serialization.json.buildJsonObject {
+            put("githubProfileSelection", JsonPrimitive(profile))
+            put("githubProfileOverride", JsonObject(uid?.let { mapOf("engineeringGatewayProfileUid" to JsonPrimitive(it)) }.orEmpty()))
+        }
+        val a = fields("private-a")
+        val b = fields("private-b")
+        assertEquals("SELECTED", ConfiguredDispatchAuthority.gatewaySelectionChange(fields(null), a))
+        assertEquals("CLEARED", ConfiguredDispatchAuthority.gatewaySelectionChange(a, fields(null)))
+        assertEquals("REPLACED", ConfiguredDispatchAuthority.gatewaySelectionChange(a, b))
+        assertNull(ConfiguredDispatchAuthority.gatewaySelectionChange(a, a))
+        assertNull(ConfiguredDispatchAuthority.gatewaySelectionChange(a, fields("private-b", "different")))
+    }
+
     @Test fun githubPolicyDiagnosticsNameOnlyChangedKnownSubfields() {
         fun fields(value: String) = Json.parseToJsonElement(value) as JsonObject
         val before = fields("""{"githubProfileOverride":{"githubTools":true,"engineeringGatewayProfileUid":"private-old"}}""")

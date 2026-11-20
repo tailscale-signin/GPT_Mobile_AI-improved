@@ -496,6 +496,7 @@ internal object IssueReportIncidentCapsule {
                 text(fields[sourceKey])?.let { validValue(reportKey, JsonPrimitive(it)) }?.let { put(reportKey, it) }
             }
         }
+        remove("dispatch_gateway_selection_change")
         val policyCode = text(fields["authority_invalidation_code"]) ?: code
         if (policyCode in setOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE")) {
             val changes = fields["changed_policy_fields"]
@@ -506,6 +507,10 @@ internal object IssueReportIncidentCapsule {
             }
             val sections = names.take(32).mapNotNull { policySection(text(it)) }.distinct().take(8).toList()
             if (sections.isNotEmpty()) put("dispatch_policy_sections", sections)
+            if (names.take(32).any { text(it) == "githubProfileOverride.engineeringGatewayProfileUid" }) {
+                text(fields["dispatch_gateway_selection_change"])?.takeIf { it in setOf("SELECTED", "CLEARED", "REPLACED") }
+                    ?.let { put("dispatch_gateway_selection_change", it) }
+            }
             (text(fields["authority_failed_stage"]) ?: text(fields["blocked_stage"]) ?: phase)
                 .takeIf { it in policyStages }?.let { put("dispatch_policy_stage", it) }
             when (val resume = fields["resume_required"]) {

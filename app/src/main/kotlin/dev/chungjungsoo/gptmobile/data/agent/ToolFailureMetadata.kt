@@ -45,6 +45,7 @@ internal object ToolFailureMetadata {
                     put("authority_failed_stage", stage)
                     put("resume_required", true)
                     policy?.let { put("changed_policy_fields", JsonArray(it.fields.map(::JsonPrimitive))) }
+                    policy?.gatewaySelectionChange?.let { put("dispatch_gateway_selection_change", it) }
                 }
             )
         )
@@ -67,6 +68,7 @@ internal object ToolFailureMetadata {
                     put("authority_failed_stage", "tool_precheck")
                     put("resume_required", true)
                     prior.executionReceipt?.get("changed_policy_fields")?.let { put("changed_policy_fields", it) }
+                    prior.executionReceipt?.get("dispatch_gateway_selection_change")?.let { put("dispatch_gateway_selection_change", it) }
                 }
             ),
             tool,
@@ -82,6 +84,8 @@ internal object ToolFailureMetadata {
         return ProviderEvent.Failed(
             if (unknown) {
                 "Execution authority changed while an earlier operation has an unknown outcome. Reconcile the retained receipts before any mutation; no model or tool continuation was started."
+            } else if (code == "DISPATCH_POLICY_CHANGED" && result.executionReceipt?.get("dispatch_gateway_selection_change") in setOf(JsonPrimitive("SELECTED"), JsonPrimitive("CLEARED"), JsonPrimitive("REPLACED"))) {
+                "The engineering Gateway selection changed while this task was running. Resume to check the selected Gateway and continue from the saved results."
             } else if (code == dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport.CODE) {
                 "Privacy Mode blocked this tool. Choose a verified text profile to continue chatting."
             } else {
@@ -101,6 +105,7 @@ internal object ToolFailureMetadata {
                 put("resume_required", true)
                 put("requires_reconciliation", unknown)
                 result.executionReceipt?.get("changed_policy_fields")?.let { put("changed_policy_fields", it) }
+                result.executionReceipt?.get("dispatch_gateway_selection_change")?.let { put("dispatch_gateway_selection_change", it) }
             }
         )
     }

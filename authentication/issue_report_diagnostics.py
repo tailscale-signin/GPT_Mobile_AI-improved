@@ -309,6 +309,7 @@ FIELDS_BY_AREA["ACCEPTANCE"].update(ACCEPTANCE_RECOVERY_FIELDS)
 REASONING_PROBE_NEGATIVES = {"IDENTICAL_PROMPTS", "MISSING_THINK_MARKER", "PREFIX_MISMATCH", "SUFFIX_MISMATCH", "INVALID_PROMPT"}
 ENUMS.update({
     "provider_wait_decision_state": {"NOT_RECORDED", "ROUTE_MISMATCH", "ELIGIBLE", "INELIGIBLE"},
+    "dispatch_gateway_selection_change": {"SELECTED", "CLEARED", "REPLACED"},
     "read_handle_kind": {"SAVED_CURSOR", "NO_HANDLE", "DIGEST_SHAPED", "NONCANONICAL_HANDLE"},
     "native_trace_format": {"text", "protobuf", "binary", "unknown"},
     "native_trace_reason": {"no_trace_stream", "empty_trace", "trace_read_failed", "trace_access_failed", "unrecognized_binary_tombstone", "no_recognized_tombstone_fields", "text_prefix_limit", "signal_and_library_frames", "malformed_protobuf", "trace_process_mismatch", "trace_limit_before_evidence", "no_recognized_protobuf_fields", "protobuf_prefix_limit", "protobuf_crashed_thread"},
@@ -321,6 +322,8 @@ HASH_FIELDS.update({"native_top_frame_hash", "acceptance_missing_pointer_hash", 
 COUNTS.update({"search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count"})
 FIELDS_BY_AREA["PROVIDER"].update({"reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"})
 FIELDS_BY_AREA["APP"].update({"native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash"})
+for area in ("INCIDENT", "PROVIDER", "TOOL"):
+    FIELDS_BY_AREA[area].add("dispatch_gateway_selection_change")
 FIELDS_BY_AREA["TOOL"].update({"read_handle_kind", "search_query_length", "search_explicit_mode"})
 FIELDS_BY_AREA["ACCEPTANCE"].update({"acceptance_verified_claim_count", "acceptance_unmeasured_claim_count", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash"})
 

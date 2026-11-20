@@ -2769,6 +2769,7 @@ class ChatRepositoryImpl(
                     put("authority_invalidation_code", "DISPATCH_POLICY_CHANGED")
                     put("resume_required", true)
                     put("changed_policy_fields", kotlinx.serialization.json.JsonArray(policy.fields.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                    policy.gatewaySelectionChange?.let { put("dispatch_gateway_selection_change", it) }
                 }
             )
         }

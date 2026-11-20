@@ -10,6 +10,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
@@ -92,7 +93,7 @@ internal object ConfiguredDispatchAuthority {
                 it == "budget" && allowsAcceptedTokenPlan(capturedFeatures.tokenBudget, currentFeatures.tokenBudget, platform.uid)
             }.sorted()
             if (changed.isNotEmpty()) {
-                throw DispatchPolicyChangedException(changed + githubOverrideChanges(capturedFields, currentFields))
+                throw DispatchPolicyChangedException(changed + githubOverrideChanges(capturedFields, currentFields), gatewaySelectionChange(capturedFields, currentFields))
             }
         }
     }
@@ -103,6 +104,21 @@ internal object ConfiguredDispatchAuthority {
         val current = (after["githubProfileOverride"] as? JsonObject).orEmpty()
         return listOf("webSearch", "githubTools", "engineeringMode", "maximumContext", "engineeringMemory", "allowCloudEngineeringMemory", "workflowPreset", "quickWorkflows", "engineeringGatewayProfileUid", "executionBatchMode", "sampling")
             .filter { previous[it] != current[it] }.map { "githubProfileOverride.$it" }
+    }
+
+    internal fun gatewaySelectionChange(before: JsonObject, after: JsonObject): String? {
+        if (before["githubProfileSelection"] != after["githubProfileSelection"]) return null
+        val previous = before["githubProfileOverride"] as? JsonObject ?: return null
+        val current = after["githubProfileOverride"] as? JsonObject ?: return null
+        fun selected(fields: JsonObject) = (fields["engineeringGatewayProfileUid"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+        val prior = selected(previous)
+        val next = selected(current)
+        return when {
+            prior == next -> null
+            prior == null -> "SELECTED"
+            next == null -> "CLEARED"
+            else -> "REPLACED"
+        }
     }
 
     internal fun profileRevision(profile: PlatformV2): String = researchHash(Json.encodeToString(profile.copy(name = "", labels = "", isFavorite = false)))
@@ -186,7 +202,7 @@ internal object ConfiguredDispatchAuthority {
 }
 
 /** Safe field names only; never include settings values, prompts or credentials. */
-internal class DispatchPolicyChangedException(val fields: List<String>) :
+internal class DispatchPolicyChangedException(val fields: List<String>, val gatewaySelectionChange: String? = null) :
     IllegalStateException(
         "DISPATCH_POLICY_CHANGED: changed fields=${fields.joinToString(",")}. " +
             "Resume the unfinished task to revalidate saved results under the current settings; no stale request was sent."

@@ -224,6 +224,19 @@ class ToolFailureMetadataTest {
         }
     }
 
+    @Test fun changedEngineeringGatewayKeepsItsDirectionThroughBlockedCallsAndReports() {
+        val policy = dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException(listOf("githubProfileOverride.engineeringGatewayProfileUid"), "REPLACED")
+        val call = requireNotNull(ToolFailureMetadata.authorityPrecheck("private-call", "github_ci", policy))
+        val queued = ToolFailureMetadata.authorityBlocked("queued", "github_read", call)
+        val failure = ToolFailureMetadata.authorityFailure(queued, hasUnknownOutcome = false)
+        val context = policyIncident(ReportFeature.TOOLS, "TOOL_RESULT", requireNotNull(call.errorCode), call.executionReceipt.orEmpty())
+        assertEquals(JsonPrimitive("REPLACED"), requireNotNull(context.diagnostics).values["dispatch_gateway_selection_change"])
+        assertEquals(JsonPrimitive("REPLACED"), failure.failureDetails?.get("dispatch_gateway_selection_change"))
+        assertTrue(failure.message.contains("engineering Gateway selection changed"))
+        assertFalse(queued.dispatched)
+        assertEquals("RECONCILIATION_REQUIRED", ToolFailureMetadata.authorityFailure(queued, hasUnknownOutcome = true).errorCode)
+    }
+
     @Test fun policyDriftRetainsChangedFieldsWithoutReplacingSuccessfulReceipts() {
         val observed = AgentToolResult("completed", ToolResultContent.Text("written"), false, executionReceipt = buildJsonObject { put("remote_receipt", "observed-write") })
         val policy = dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException(listOf("tool_connections", "allowed_tools"))

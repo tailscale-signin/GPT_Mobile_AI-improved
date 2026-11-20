@@ -43,7 +43,7 @@ class FailureDetailsTest(unittest.TestCase):
         rows = {
             "APP": {"native_trace_frames": 2, "native_trace_truncated": False, "native_signal": "SIGSEGV",
                     "native_trace_format": "protobuf", "native_trace_reason": "protobuf_crashed_thread", "native_top_frame_hash": "a" * 64},
-            "TOOL": {"read_handle_kind": "NONCANONICAL_HANDLE", "search_explicit_mode": False, "search_query_length": 10},
+            "TOOL": {"dispatch_gateway_selection_change": "REPLACED", "read_handle_kind": "NONCANONICAL_HANDLE", "search_explicit_mode": False, "search_query_length": 10},
             "ACCEPTANCE": {"acceptance_verified_claim_count": 5, "acceptance_unmeasured_claim_count": 2,
                            "acceptance_missing_pointer_hash": "c" * 64, "acceptance_pointer_receipt_hash": "e" * 64},
             "PROVIDER": {"reasoning_probe_enable_thinking": "IDENTICAL_PROMPTS", "reasoning_probe_thinking": "PREFIX_MISMATCH",

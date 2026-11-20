@@ -164,9 +164,10 @@ internal data class IssueReportDiagnostics(
     companion object {
         const val INCIDENT_DETAIL_FEATURE = "RUNTIME_INCIDENT_DETAILS_V1"
         private val incidentDetailsByArea = mapOf(
-            "PROVIDER" to setOf("reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),
+            "PROVIDER" to setOf("dispatch_gateway_selection_change", "reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),
             "APP" to setOf("native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash"),
-            "TOOL" to setOf("read_handle_kind", "search_query_length", "search_explicit_mode"),
+            "INCIDENT" to setOf("dispatch_gateway_selection_change"),
+            "TOOL" to setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode"),
             "ACCEPTANCE" to setOf("acceptance_verified_claim_count", "acceptance_unmeasured_claim_count", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash")
         )
         private val incidentDetailFields = incidentDetailsByArea.values.flatten().toSet()
@@ -323,6 +324,7 @@ internal data class IssueReportDiagnostics(
         private val finishReasons = setOf("STOP", "TOOL_CALLS", "LENGTH", "CONTENT_FILTER", "OTHER", "UNKNOWN")
         private val enums = mapOf(
             "provider_wait_decision_state" to setOf("NOT_RECORDED", "ROUTE_MISMATCH", "ELIGIBLE", "INELIGIBLE"),
+            "dispatch_gateway_selection_change" to setOf("SELECTED", "CLEARED", "REPLACED"),
             "read_handle_kind" to setOf("SAVED_CURSOR", "NO_HANDLE", "DIGEST_SHAPED", "NONCANONICAL_HANDLE"),
             "native_trace_format" to setOf("text", "protobuf", "binary", "unknown"),
             "native_trace_reason" to setOf("no_trace_stream", "empty_trace", "trace_read_failed", "trace_access_failed", "unrecognized_binary_tombstone", "no_recognized_tombstone_fields", "text_prefix_limit", "signal_and_library_frames", "malformed_protobuf", "trace_process_mismatch", "trace_limit_before_evidence", "no_recognized_protobuf_fields", "protobuf_prefix_limit", "protobuf_crashed_thread"),

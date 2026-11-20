@@ -330,17 +330,20 @@ class ReleaseRecoveryTest(unittest.TestCase):
         with mock.patch.object(recovery, "MAX_UNPACKED_BYTES", 3), self.assertRaises(ValueError):
             recovery.safe_extract(archive, self.root / "oversized")
 
-    def fake_gh(self, source):
-        executable = self.root / "gh"
+    def fake_curl(self, source):
+        executable = self.root / "curl"
         executable.write_text("#!/usr/bin/env python3\n" + source + "\n")
         executable.chmod(0o755)
-        return mock.patch.dict(os.environ, {"PATH": str(self.root) + os.pathsep + os.environ["PATH"]})
+        return mock.patch.dict(os.environ, {
+            "PATH": str(self.root) + os.pathsep + os.environ["PATH"],
+            "GH_TOKEN": "fixture",
+        })
 
     def test_stream_download_enforces_actual_bytes_digest_exit_and_deadline(self):
         data = b"retained archive bytes"
         digest = hashlib.sha256(data).hexdigest()
         destination = self.root / "download.zip"
-        with self.fake_gh("import os\nos.write(1, " + repr(data) + ")"):
+        with self.fake_curl("import os\nos.write(1, " + repr(data) + ")"):
             recovery.stream_download("repos/example/repo/actions/artifacts/1/zip", destination, len(data), digest, timeout=5)
             self.assertEqual(data, destination.read_bytes())
             destination.unlink()
@@ -348,10 +351,21 @@ class ReleaseRecoveryTest(unittest.TestCase):
                 with self.subTest(size=size, checksum=checksum), self.assertRaises(ValueError):
                     recovery.stream_download("repos/example/repo/actions/artifacts/1/zip", destination, size, checksum, timeout=5)
                 self.assertFalse(destination.exists())
-        with self.fake_gh("import sys\nsys.exit(1)"), self.assertRaises(ValueError):
+        with self.fake_curl("import sys\nsys.exit(1)"), self.assertRaises(ValueError):
             recovery.stream_download("repos/example/repo/actions/artifacts/1/zip", destination, len(data), digest, timeout=5)
-        with self.fake_gh("import time\ntime.sleep(60)"), self.assertRaises(ValueError):
+        with self.fake_curl("import time\ntime.sleep(60)"), self.assertRaises(ValueError):
             recovery.stream_download("repos/example/repo/actions/artifacts/1/zip", destination, len(data), digest, timeout=0.05)
+
+        with self.fake_curl("import os\nos.write(1, " + repr(data) + ")"):
+            with self.assertRaisesRegex(ValueError, "Unapproved release download endpoint"):
+                recovery.stream_download("repos/example/repo/actions/artifacts/1/zip?unsafe=1",
+                                         destination, len(data), digest, timeout=5)
+            self.assertFalse(destination.exists())
+        with self.fake_curl("import sys\nsys.stderr.write('curl: (22) HTTP 503\\n')\nsys.exit(22)"), \
+                self.assertRaisesRegex(ValueError, "curl exit 22.*503"):
+            recovery.stream_download("repos/example/repo/actions/artifacts/1/zip",
+                                     destination, len(data), digest, timeout=5)
+        self.assertFalse(destination.exists())
 
     def test_failed_prepublication_verification_or_main_guard_never_mutates(self):
         patch = mock.Mock()

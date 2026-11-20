@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ecb5fae5db4234c16cb58927d1dff1c719952bb59921bac549ee90bb5932072d",
+  "source_digest": "c857506d2ce82ceff83fe852e7cc775da5cc69a75b5d43cb36c8ccc0232f4117",
   "file_count": 2757,
-  "indexed_line_count": 456093,
+  "indexed_line_count": 456143,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 215,
-      "indexed_line_count": 85118
+      "indexed_line_count": 85168
     },
     {
       "id": "authentication_service",
@@ -18189,8 +18189,8 @@
       "path": "gateway/desktop/native/MainWindow.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "a03b93bc54f591f2fe4847564a0117b322cea86a4949ae3a7347f2b9e14aa30a",
-      "indexed_lines": 519
+      "sha256": "743f8f33e2fb4c9b869c3e1270a147ee74bf683b2fe28479a19db56682501b29",
+      "indexed_lines": 525
     },
     {
       "path": "gateway/desktop/native/Ui.cs",
@@ -18266,8 +18266,8 @@
       "path": "gateway/desktop/smoke_windows.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "c3d036ce4135ab5af5b67f4f54b32707b7c56a72daa62c9d3abf671531bd304f",
-      "indexed_lines": 267
+      "sha256": "df07e399b86dad593df51ddfac5cd5f3be29e3f5da90e07d32354c96f48af7a3",
+      "indexed_lines": 269
     },
     {
       "path": "gateway/desktop/theme.py",
@@ -18329,8 +18329,8 @@
       "path": "gateway/desktop/windows/setup_smoke.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "3d422a882f9b02deecd6f9c9bed82f57c2d0ed5088f89fa052675de826d5e3c1",
-      "indexed_lines": 119
+      "sha256": "fed6b49248993df4a033ae8acfbfccec18a0f48117b0841d75aabc1623127aeb",
+      "indexed_lines": 161
     },
     {
       "path": "gateway/desktop/windows_job.py",

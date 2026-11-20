@@ -335,7 +335,10 @@ jobs:
   android_lint:
     name: Android lint
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Hosted run 44660315458 timed out during lintAnalyzeDebugUnitTest at 45m.
+    # Keep all production, unit-test, and Android-test lint analysis enabled;
+    # allow the cold lint graph sufficient bounded time to produce a verdict.
+    timeout-minutes: 95
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: ./.github/actions/setup-android
@@ -371,8 +374,9 @@ jobs:
 
       - name: Run Android Lint
         id: android_lint
-        # The expanded app's cold local lint pass took 19m29s; retain useful headroom.
-        timeout-minutes: 45
+        # Hosted run 44660315458 reached lintAnalyzeDebugUnitTest but exhausted
+        # the 45-minute step; preserve the full task graph and give it headroom.
+        timeout-minutes: 75
         shell: bash
         run: |
           set -o pipefail

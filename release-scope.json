@@ -1,10 +1,11 @@
 {
-  "version": "0.9.66.9",
-  "versionCode": 143,
+  "version": "0.9.66.10",
+  "versionCode": 144,
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
-    "Release Android 0.9.66.9, Gateway 18.0.0 and the compatible v17 updater transition using packages tested on the reviewed main commit.",
+    "Release Android 0.9.66.10, Gateway 18.0.0 and the compatible v17 updater transition using packages tested on the reviewed main commit.",
+    "Run all required release workflows for each publisher input on main, including development environments, Gateway stability and Android acceptance, before publishing the unchanged Gateway 18.0.0 with Android build 144.",
     "Theme the Windows installer and verify stable release discovery, deferred installation, paired Android management and rollback.",
     "Repair build-143 graph indexing recovery, reviewed read deadlines, saved-view observation identity and CI log timestamps; pack source fragments without losing content, preserve full public progress, and finish preview fades under rapid updates.",
     "Recover encrypted chat-history migration, qualify the official Compose marker POMs, and retain a bounded cold-emulator barrier retry with fresh process checks.",
@@ -3343,8 +3344,8 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSchedulerAndPaginationTest.kt"
   ],
   "publicationRequest": {
-    "android": "0.9.66.9",
-    "versionCode": 143,
+    "android": "0.9.66.10",
+    "versionCode": 144,
     "gateway": "18.0.0"
   }
 }

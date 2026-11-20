@@ -1,4 +1,6 @@
-# GPT Mobile 0.9.66.9 (build 143) and Windows Gateway 18.0.0
+# GPT Mobile 0.9.66.10 (build 144) and Windows Gateway 18.0.0
+
+Release validation now starts every required workflow when the Android version or coordinated publication request changes. Publication still waits for successful checks on the exact main commit, including development environments and Windows installer verification.
 
 Repository indexing now uses saved background jobs on capable Gateways, and independent GitHub reads can continue while an index is being reconciled. Reviewed read deadlines remain recoverable without treating them as uncertain writes. Saved source pages preserve original observation identity and timestamps, combine adjacent text fragments to reduce model round trips, and retain every source character. Chat progress keeps complete public summaries and expanded details; rapid preview changes finish their fade before showing the newest update.
 

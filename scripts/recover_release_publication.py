@@ -291,9 +291,21 @@ def stream_download(endpoint, destination, expected_bytes, expected_digest, *, t
             "Invalid download bounds")
     deadline, size, digest = time.monotonic() + timeout, 0, hashlib.sha256()
     destination.parent.mkdir(parents=True, exist_ok=True)
+    # The artifact endpoint returns an HTTPS 302 to object storage. gh api can
+    # reject the binary redirect, so use curl's bounded streaming transport.
+    # curl does not forward Authorization to a different host with --location.
+    require(re.fullmatch(
+        r"repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:actions/artifacts/[0-9]+/zip|releases/assets/[0-9]+)",
+        endpoint) is not None, "Unapproved release download endpoint")
     with tempfile.TemporaryFile() as errors:
-        process = subprocess.Popen(["gh", "api", endpoint, "--header", "Accept: application/octet-stream"],
-                                   stdout=subprocess.PIPE, stderr=errors)
+        process = subprocess.Popen([
+            "curl", "--fail", "--location", "--silent", "--show-error",
+            "--proto", "=https", "--proto-redir", "=https",
+            "--connect-timeout", "30", "--max-time", str(max(1, timeout)),
+            "--header", "Accept: application/vnd.github+json",
+            "--header", "Authorization: Bearer " + os.environ["GH_TOKEN"],
+            "https://api.github.com/" + endpoint,
+        ], stdout=subprocess.PIPE, stderr=errors)
         try:
             with selectors.DefaultSelector() as ready, destination.open("xb") as output:
                 ready.register(process.stdout, selectors.EVENT_READ)
@@ -309,7 +321,12 @@ def stream_download(endpoint, destination, expected_bytes, expected_digest, *, t
                     require(size <= expected_bytes, "Download exceeded its declared size")
                     digest.update(block)
                     output.write(block)
-            require(process.wait(timeout=max(1, deadline - time.monotonic())) == 0, "Artifact download failed")
+            status = process.wait(timeout=max(1, deadline - time.monotonic()))
+            if status != 0:
+                errors.seek(0)
+                diagnostic = errors.read(2048).decode("utf-8", "replace").strip()
+                diagnostic = re.sub(r"https?://[^\\s]+", "[redacted URL]", diagnostic)
+                raise ValueError(f"Release download transport failed (curl exit {status}): {diagnostic}")
             require(size == expected_bytes and digest.hexdigest() == expected_digest,
                     "Downloaded bytes disagree with the reviewed digest")
         except BaseException:

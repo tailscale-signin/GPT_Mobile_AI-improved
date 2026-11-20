@@ -59,6 +59,10 @@ internal class GitHubVerifiedSession(
     private var lastChecklist: JsonObject? = null
     private var initialReceiptIds: Set<String>? = null
     private var initiallyVerifiedComplete = false
+    private val readProgress = GitHubReadRoundProgress()
+    private var replannedReader: AgentProviderSession? = null
+    private var replanBoundary: String? = null
+    private var completedDecisionMillis = 0L
     private var executionCorrectionAttempted = false
     private var correctionProgress: Set<String> = emptySet()
     private var progressCorrections = 0
@@ -233,6 +237,27 @@ internal class GitHubVerifiedSession(
             val (receipts, epoch) = evidence.snapshot()
             val observed = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
             if (observed != null) {
+                val report = observed.second
+                if (report["observation_state"] == JsonPrimitive("WAITING_FOR_CI") && report["background_monitoring_registered"] != JsonPrimitive(true)) {
+                    val watch = tools.singleOrNull { it.modelVisible && JsonPrimitive(it.name) == report["watch_tool"] }
+                    val args = buildJsonObject {
+                        put("run_id", report.getValue("run_id"))
+                        put("commit_sha", report.getValue("head_sha"))
+                    }
+                    if (watch != null &&
+                        remainingToolCalls()?.let { it > 0 } != false &&
+                        dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, watch.inputSchema).isEmpty() &&
+                        receipts.values.none { it["tool"] == JsonPrimitive(watch.name) && it["arguments"] == args }
+                    ) {
+                        val id = "ci-watch-" + GitHubEvidenceBook.digest("${evidence.checkpointBinding()}|$args").take(24)
+                        if (receipts.values.none { it["call_id"] == JsonPrimitive(id) }) {
+                            progress("Registering a background check for the active workflow")
+                            emit(ProviderEvent.ToolCall(id, watch.name, args))
+                            emit(ProviderEvent.Completed)
+                            return@flow
+                        }
+                    }
+                }
                 // Complete this bounded factual diagnosis directly from retained
                 // evidence; another model request cannot discover a missing failure.
                 emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.CI_OBSERVATION))
@@ -391,7 +416,7 @@ internal class GitHubVerifiedSession(
             val comparisonTools = if (remainingToolCalls()?.let { it > 0 } != false) tools else emptyList()
             val comparison = withContext(computationDispatcher) { GitHubReviewComparison.plan(task, comparisonTools, evidence.snapshot().first, authorizedTools) }
             comparison?.nextCall?.let { next ->
-                progress("Resolving exact review comparison revisions")
+                progress(if (next.name == "github_decide") "Waiting for your review baseline" else "Resolving exact review comparison revisions")
                 emit(next)
                 emit(ProviderEvent.Completed)
                 return@flow
@@ -431,7 +456,21 @@ internal class GitHubVerifiedSession(
             )
             return@flow
         }
-        var round = collectDraft(delegate, tools, exchanges)
+        val latest = exchanges.lastOrNull()
+        if (openExecutionContinuation != null && replannedReader == null && latest != null && readProgress.replan(latest, completedDecisionMillis)) {
+            val saved = evidence.snapshot().first
+            val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, saved, evidence.diagnostic()) +
+                "\nOverlapping source reads have stopped adding evidence. Use retained excerpts to propose a concrete edit, or identify the specific missing prerequisite."
+            progress("Reusing the saved source and checking what the repair still needs")
+            replannedReader = openExecutionContinuation.invoke(prompt)
+            replanBoundary = latest.calls.first().callId
+        }
+        val boundary = replanBoundary
+        val first = if (boundary == null) -1 else exchanges.indexOfFirst { exchange -> exchange.calls.any { it.callId == boundary } }
+        val readerContext = if (first < 0) exchanges else exchanges.subList(first, exchanges.size)
+        val decisionStarted = System.nanoTime()
+        var round = collectDraft(replannedReader ?: delegate, tools, readerContext)
+        completedDecisionMillis = if (round.completed && !round.failed && round.calls) (System.nanoTime() - decisionStarted) / 1_000_000 else 0
         val retained = evidence.snapshot().first
         if (!initiallyVerifiedComplete &&
             !executionCorrectionAttempted &&
@@ -841,7 +880,13 @@ internal class GitHubVerifiedSession(
                     }
                     retention.forEach { (key, value) -> put(key, value) }
                     put("partial", partial)
-                    put("resume_required", partial)
+                    val watchOwnsPolling = report["background_monitoring_registered"] == JsonPrimitive(true) &&
+                        retentionComplete &&
+                        originalFailure == null &&
+                        publicationFailureCode == null &&
+                        descendantsSettled &&
+                        trustFailures.isEmpty()
+                    put("resume_required", partial && !watchOwnsPolling)
                     if (partial) {
                         put("completion_verified", false)
                         put("task_outcome", if (originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL")
@@ -1022,6 +1067,7 @@ internal class GitHubVerifiedSession(
         val newEvidenceProgress = (currentProgress - correctionProgress).isNotEmpty()
         val currentSessionReview = GitHubRequestCompletion.requiresLiveSessionReviewRefresh(task)
         if (partial &&
+            report["observation_state"] != JsonPrimitive("WAITING_FOR_CI") &&
             originalFailure == null &&
             publication.extractionFailure == null &&
             openExecutionContinuation != null &&
@@ -1116,6 +1162,16 @@ internal class GitHubVerifiedSession(
         // generation; it cannot authorize generic provider-wait replay.
         val currentFailure = originalFailure ?: publication.extractionFailure?.takeUnless { unresolved }
         val approvalIsPrimary = waitingApproval && currentFailure == null && !unresolved
+        val monitoring = delivered["background_monitoring_registered"] == JsonPrimitive(true) &&
+            currentFailure == null &&
+            !unresolved &&
+            !waitingApproval &&
+            delivered["evidence_retention_complete"] == JsonPrimitive(true)
+        if (monitoring) {
+            // The interactive observation is delivered. The durable background watch owns further polls.
+            emit(ProviderEvent.Completed)
+            return@flow
+        }
         if (partial || delivered["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)) {
             lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)
             emit(

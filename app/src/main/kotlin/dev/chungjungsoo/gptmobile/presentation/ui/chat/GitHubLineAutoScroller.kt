@@ -85,6 +85,14 @@ private suspend fun LazyListState.followRenderedLines(lines: GitHubRenderedLines
         while (!queue.isEmpty) {
             val now = withFrameNanos { it }
             val distance = remaining()
+            if (lines.catchUpRequested) {
+                lines.catchUpRequested = false
+                lines.catchUpAvailable.value = false
+                lines.ledger.takeLines()
+                queue.clear()
+                scrollBy(distance)
+                return@scroll
+            }
             val added = lines.ledger.takeLines()
             if (added > 0) {
                 queue.append(added, (distance - queue.remainingPixels).coerceAtLeast(0f))
@@ -94,6 +102,7 @@ private suspend fun LazyListState.followRenderedLines(lines: GitHubRenderedLines
             val elapsed = (now - previous).coerceAtLeast(0L) + remainderNanos
             remainderNanos = elapsed % 1_000_000L
             scrollBy(queue.advance(elapsed / 1_000_000L))
+            lines.catchUpAvailable.value = queue.remainingMillis >= 8000 && distance > layoutInfo.viewportSize.height
             previous = now
         }
     }

@@ -181,7 +181,7 @@ internal object GitHubRequestCompletion {
         val rows = requirements.map { requirement ->
             val selected = (coverage[id(requirement)] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.intOrNull }
             val selectedClaims = when {
-                selected.isNotEmpty() -> selected.mapNotNull(claims::getOrNull)
+                id(requirement) in coverage -> selected.mapNotNull(claims::getOrNull)
                 requirement.startsWith("Evidence-backed findings", true) -> claims.filter { it["kind"] in setOf(JsonPrimitive("fact"), JsonPrimitive("excerpt"), JsonPrimitive("inferred"), JsonPrimitive("calculation")) }
                 requirement.startsWith("Recommendations are clearly labeled", true) -> claims.filter { it["kind"] == JsonPrimitive("recommendation") }
                 sessionReview && requirement == requirements.first() -> claims

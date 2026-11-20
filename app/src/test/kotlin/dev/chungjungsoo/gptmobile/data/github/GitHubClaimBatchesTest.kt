@@ -11,6 +11,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubClaimBatchesTest {
+    @Test fun oneMalformedClaimCannotEraseItsNeighboursOrRetargetTheirIndexes() {
+        val answer = Json.parseToJsonElement("""{"claims":[{"kind":"fact","pointer":"wrong","receipt_id":"r","value":1},{"kind":"fact","pointer":"/valid","receipt_id":"r","value":2}],"requirement_claims":{"a":[0],"b":[1]}}""").jsonObject
+        val batch = GitHubClaimBatches.validate(answer, GitHubClaimBatches.Request("", setOf("a", "b")))
+        assertEquals(1, (batch.getValue("claims") as JsonArray).size)
+        assertEquals(Json.parseToJsonElement("""{"a":[],"b":[0]}"""), batch["requirement_claims"])
+    }
+
     @Test fun strictWireSchemaClosesEveryObjectAndTypesEveryNode() {
         val root = Json.parseToJsonElement(GitHubClaimBatches.responseSchemaJson()).jsonObject
         fun verify(node: kotlinx.serialization.json.JsonObject) {

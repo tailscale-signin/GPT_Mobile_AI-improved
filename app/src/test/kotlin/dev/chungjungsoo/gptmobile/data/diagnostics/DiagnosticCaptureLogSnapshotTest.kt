@@ -12,6 +12,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticCaptureLogSnapshotTest {
+    @Test fun frozenLogCursorResumesAtAnExactUtf8RecordBoundary() = temporary { root ->
+        runBlocking {
+            val source = File(root, "frozen.log").apply { writeText("first\n界🙂\nlast\n") }
+            val rows = mutableListOf<Pair<String, Long>>()
+            DiagnosticCaptureLogSnapshot.frozenLines(source, 0, {}) { line, next -> rows += line to next }
+            val tail = mutableListOf<String>()
+            DiagnosticCaptureLogSnapshot.frozenLines(source, rows[1].second, {}) { line, _ -> tail += line }
+            assertEquals(listOf("last"), tail)
+            assertEquals(source.length(), rows.last().second)
+            assertTrue(runCatching { DiagnosticCaptureLogSnapshot.frozenLines(source, rows[1].second - 1, {}) { _, _ -> } }.isFailure)
+        }
+    }
+
     @Test fun frozenChatFragmentsAreRedactedBeforeCallerSpecificCredentialFiltering() = temporary { root ->
         runBlocking {
             val snapshot = DiagnosticCaptureLogSnapshot.open(root, {}, { text, _ ->

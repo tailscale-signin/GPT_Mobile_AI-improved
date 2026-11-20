@@ -204,6 +204,22 @@ class GitHubReadRecoveryTest {
         assertEquals(2, fixture.blobs.get())
     }
 
+    @Test fun mixedReadKeepsPinnedSuccessesAndReportsOnlyTheAmbiguousPath() = runBlocking {
+        val fixture = fixture(listOf("README.md", "src/Test.kt", "a/Config.kt", "b/Config.kt"))
+        val args = buildJsonObject {
+            put("ref", head)
+            put("commit_sha", head)
+            put("ranges", JsonArray(listOf("README.md", "old/Test.kt", "old/Config.kt").map { path -> buildJsonObject { put("path", path) } }))
+        }
+        repeat(2) {
+            val result = fixture.session.execute("read_ranges", "owner", "repo", args).jsonObject
+            assertEquals(listOf("README.md", "src/Test.kt"), result.getValue("items").jsonArray.map { it.jsonObject.getValue("path").jsonPrimitive.content })
+            assertEquals(JsonPrimitive("src/Test.kt"), result.getValue("path_corrections").jsonArray.single().jsonObject["path"])
+            assertEquals(1, result.getValue("failed_ranges").jsonArray.size)
+        }
+        assertEquals(2, fixture.blobs.get())
+    }
+
     @Test fun truncatedTreeDoesNotClaimMissingPathIsAbsent() = runBlocking {
         val fixture = fixture(truncated = true)
         val failure = runCatching { fixture.session.execute("read_ranges", "owner", "repo", read("docs/Missing.md")) }.exceptionOrNull() as GitHubReadValidation

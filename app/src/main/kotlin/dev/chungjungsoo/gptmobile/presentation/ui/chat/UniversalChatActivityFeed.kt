@@ -57,25 +57,26 @@ internal fun universalCoalescedActivityLines(lines: List<String>): List<String> 
  */
 internal fun universalChatPublicCheckpoints(timeline: List<AssistantTimelineItem>): List<String> =
     timeline.asSequence()
-        .filter { item ->
-            item.type == AssistantTimelineItemType.NOTICE &&
-                item.progressCheckpoint &&
-                item.content.isNotBlank() &&
-                (item.modelAuthored || item.statusSummary) &&
-                item.delegationInvocationId == null &&
-                item.delegationProfile == null &&
-                !item.delegatedTool &&
-                item.toolSequence == null &&
-                item.toolMetrics == null &&
-                item.recalledFacts.isEmpty() &&
-                !isContextDiagnostic(item.content)
-        }
-        .mapNotNull { item ->
-            item.content.lineSequence().map { it.trim().trimStart('#', '*', '-', ' ') }
-                .firstOrNull(String::isNotBlank)?.take(280)
-        }
+        .mapNotNull(::publicCheckpointLine)
         .toList()
         .let(::universalCoalescedActivityLines)
+
+internal fun publicCheckpointLine(item: AssistantTimelineItem): String? {
+    val visible = item.type == AssistantTimelineItemType.NOTICE &&
+        item.progressCheckpoint &&
+        item.content.isNotBlank() &&
+        (item.modelAuthored || item.statusSummary) &&
+        item.delegationInvocationId == null &&
+        item.delegationProfile == null &&
+        !item.delegatedTool &&
+        item.toolSequence == null &&
+        item.toolMetrics == null &&
+        item.recalledFacts.isEmpty() &&
+        !isContextDiagnostic(item.content)
+    if (!visible) return null
+    return item.content.lineSequence().map { it.trim().trimStart('#', '*', '-', ' ') }
+        .firstOrNull(String::isNotBlank)?.take(280)
+}
 
 /** A request-specific opening without pretending a tool or source has been executed. */
 internal fun universalActivityOpening(task: String): String {

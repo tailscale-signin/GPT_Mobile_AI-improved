@@ -38,6 +38,21 @@ fun parseChatMarkdown(content: String, cacheResult: Boolean = true, checkActive:
     checkActive()
     if (cacheResult) markdownParseCache.get(content)?.let { return it }
 
+    // This preparation pass only transforms math. CommonMark still receives the entire
+    // document so later reference definitions, tables and closing fences reconcile normally.
+    if ('$' !in content && '\\' !in content) {
+        val parsed = if (content.isBlank()) {
+            ParsedChatMarkdown(emptyList(), emptyList())
+        } else {
+            ParsedChatMarkdown(
+                listOf(ChatMarkdownBlock.Markdown(content)),
+                emptyList(),
+                listOf(MarkdownSourceRun(0, 0, content.length, 0))
+            )
+        }
+        if (cacheResult && content.length <= 128 * 1024) markdownParseCache.put(content, parsed)
+        return parsed
+    }
     val blocks = mutableListOf<ChatMarkdownBlock>()
     val inlineMath = mutableListOf<InlineMathToken>()
     val markdownBuffer = StringBuilder()

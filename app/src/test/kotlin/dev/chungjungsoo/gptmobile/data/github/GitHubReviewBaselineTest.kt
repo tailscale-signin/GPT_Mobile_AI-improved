@@ -65,6 +65,26 @@ class GitHubReviewBaselineTest {
 
     private fun failed(ref: String, code: String, action: String = "commit") = JsonObject(resolved(ref, success = false, action = action) + ("error_code" to JsonPrimitive(code)))
 
+    @Test fun inlineFirstParentDecisionContinuesTheSameReviewAtPinnedRevisions() {
+        val chooser = AgentToolDefinition("github_decide", "Choose", json("{}"), capabilities = setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.USER_DECISION))
+        val available = tools + chooser
+        val parents = receipt("github_context", json("""{"action":"commit","ref":"$head"}"""), json("""{"commit_sha":"$head","parents":[{"sha":"$base"},{"sha":"${"c".repeat(40)}"}]}"""))
+        val observations = mapOf("head" to context(), "parents" to parents)
+        val offered = requireNotNull(GitHubReviewComparison.plan(review, available, observations)?.nextCall)
+        assertEquals("github_decide", offered.name)
+        val answer = JsonObject(
+            receipt(offered.name, offered.arguments, json("""{"user_answer":"Before this commit (${base.take(12)})","cancelled":false}""")) + mapOf(
+                "call_id" to JsonPrimitive(offered.callId),
+                "shared_result" to JsonPrimitive(true),
+                "dispatched" to JsonPrimitive(false)
+            )
+        )
+        val comparison = requireNotNull(GitHubReviewComparison.plan(review, available, observations + ("decision" to answer))?.nextCall)
+        assertEquals(JsonPrimitive("changes"), comparison.arguments["action"])
+        assertEquals(JsonPrimitive(base), comparison.arguments["base_sha"])
+        assertEquals(JsonPrimitive(head), comparison.arguments["commit_sha"])
+    }
+
     @Test fun missingHeadPreservesTheCauseOfTheSelectedStatusRead() {
         val status = JsonObject(context() + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("NETWORK_TIMEOUT")))
         val plan = requireNotNull(GitHubReviewComparison.plan(review, tools, mapOf("status" to status)))

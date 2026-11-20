@@ -28,7 +28,8 @@ internal object DiagnosticCaptureLogSnapshot {
         beforeRead: suspend () -> Unit,
         redactLine: (String, (String) -> Unit) -> String?,
         capture: (File) -> DiagnosticLogSnapshot,
-        critical: Boolean = true
+        critical: Boolean = true,
+        requireFrozen: Boolean = false
     ): DiagnosticLogSnapshot {
         beforeRead()
         val directory = File(session, if (critical) "frozen-critical-logs" else "frozen-recent-logs")
@@ -41,9 +42,10 @@ internal object DiagnosticCaptureLogSnapshot {
             }
         }
         val descriptor = File(directory, "snapshot.json")
+        if (requireFrozen && !descriptor.isFile) throw IOException("LOG_SNAPSHOT_MISSING")
         if (descriptor.isFile) {
             val retained = load(directory, descriptor, beforeRead)
-            if (retained.recordCount > 0) return retained
+            if (requireFrozen || retained.recordCount > 0) return retained
             // No evidence is lost by refreshing a snapshot that contained no logs.
             directory.deleteRecursively()
         }
@@ -190,6 +192,37 @@ internal object DiagnosticCaptureLogSnapshot {
                 }
             }
             if (line.isNotEmpty()) consume(redactLogMessage(line.toString().removeSuffix("\r")))
+        }
+    }
+
+    /** Frozen files contain bounded, redacted UTF-8 rows, each terminated by LF. */
+    suspend fun frozenLines(source: File, offset: Long, beforeRead: suspend () -> Unit, consume: suspend (String, Long) -> Unit) {
+        require(offset in 0..source.length())
+        source.inputStream().use { input ->
+            if (offset > 0) {
+                input.channel.position(offset - 1)
+                require(input.read() == 10) { "LOG_CURSOR_NOT_AT_RECORD_BOUNDARY" }
+            }
+            var position = offset
+            val buffer = ByteArray(4096)
+            val row = java.io.ByteArrayOutputStream()
+            while (true) {
+                beforeRead()
+                val count = input.read(buffer)
+                if (count < 0) break
+                var start = 0
+                for (i in 0 until count) {
+                    if (buffer[i] != 10.toByte()) continue
+                    row.write(buffer, start, i - start)
+                    consume(row.toString(Charsets.UTF_8.name()), position + i + 1)
+                    row.reset()
+                    start = i + 1
+                }
+                row.write(buffer, start, count - start)
+                require(row.size() <= MAX_LINE_CHARACTERS * 4)
+                position += count
+            }
+            require(row.size() == 0) { "LOG_SNAPSHOT_INCOMPLETE_ROW" }
         }
     }
 

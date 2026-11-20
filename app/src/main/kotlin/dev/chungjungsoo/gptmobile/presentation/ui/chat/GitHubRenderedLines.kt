@@ -18,7 +18,12 @@ internal class GitHubRenderedLines {
     val textLayouts = mutableMapOf<Any, TextLayoutResult>()
     val tableLayouts = mutableMapOf<Any, GitHubTableLayoutSnapshot>()
 
+    val catchUpAvailable = androidx.compose.runtime.mutableStateOf(false)
+    var catchUpRequested = false
+
     fun baseline() {
+        catchUpAvailable.value = false
+        catchUpRequested = false
         ledger.baseline()
         queue.clear()
     }

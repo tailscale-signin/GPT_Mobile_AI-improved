@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.app.Application
-import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Box
@@ -23,11 +22,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -75,7 +72,7 @@ class ChatBottomIndicatorTest {
         // Exercise follow intent independently of the optional arrow entrance animation.
         animate = false
         setConversation()
-        compose.onNodeWithTag("chat_bottom_generation").assertIsDisplayed()
+        compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
         for (smooth in listOf(false, true)) {
             compose.runOnIdle { smoothStreaming = smooth }
             compose.onNodeWithTag("conversation").performTouchInput { swipeDown() }
@@ -90,7 +87,7 @@ class ChatBottomIndicatorTest {
 
             compose.onNodeWithTag("conversation").performTouchInput { swipeUp() }
             compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
-            compose.onNodeWithTag("chat_bottom_generation").assertIsDisplayed()
+            compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
             compose.runOnIdle {
                 assertTrue(state.isAtGitHubBottom())
                 assertTrue(following)
@@ -100,7 +97,7 @@ class ChatBottomIndicatorTest {
             advanceIndicatorClock(1_100)
             val requestsBeforeClick = compose.runOnIdle { followRequests }
             compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed().performClick()
-            compose.onNodeWithTag("chat_bottom_generation").assertIsDisplayed()
+            compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
             compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
             compose.runOnIdle {
                 assertTrue(state.isAtGitHubBottom())
@@ -126,13 +123,13 @@ class ChatBottomIndicatorTest {
         compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
         compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
         compose.onNodeWithTag("chat_jump_to_bottom").performClick()
-        compose.onNodeWithTag("chat_bottom_generation").assertIsDisplayed()
+        compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
         compose.runOnIdle { generating = false }
         compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
         compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
     }
 
-    @Test fun followRequestShowsDotsOnlyAfterTheMeasuredBottomIsReached() {
+    @Test fun followingReachesTheMeasuredBottomWithoutGeneratingDots() {
         following = false
         setConversation(initialItem = 0, autoScroll = false)
         compose.runOnIdle { assertFalse(state.isAtGitHubBottom()) }
@@ -140,30 +137,10 @@ class ChatBottomIndicatorTest {
         compose.runOnIdle { assertTrue(following) }
         compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
         compose.runOnIdle { scope.launch { state.scrollToItem(7) } }
-        compose.onNodeWithTag("chat_bottom_generation").assertIsDisplayed()
+        compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
         compose.onNodeWithTag("conversation").performTouchInput { swipeDown() }
         compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed()
         compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
-    }
-
-    @Test fun disablingAppOrSystemMotionKeepsVisibleStationaryDots() {
-        setConversation()
-        compose.onNodeWithTag("chat_bottom_generation").assertIsDisplayed()
-        compose.mainClock.autoAdvance = false
-        for ((appAnimations, systemScale) in listOf(false to 1f, true to 0f)) {
-            compose.runOnIdle {
-                animate = appAnimations
-                durationScale.scaleFactor = systemScale
-            }
-            compose.waitForIdle()
-            compose.mainClock.advanceTimeByFrame()
-            val before = dotsBitmap()
-            val pixels = IntArray(before.width * before.height)
-            before.getPixels(pixels, 0, before.width, 0, 0, before.width, before.height)
-            assertTrue("Reduced motion must keep the generation dots visible", pixels.any { it != android.graphics.Color.WHITE })
-            compose.mainClock.advanceTimeBy(2400)
-            assertTrue("Reduced motion must keep the dots stationary", before.sameAs(dotsBitmap()))
-        }
     }
 
     @Test fun fastScrollArrowRemainsAvailableAfterReleaseThenFadesAway() {
@@ -226,10 +203,6 @@ class ChatBottomIndicatorTest {
         compose.mainClock.advanceTimeBy(milliseconds)
         compose.waitForIdle()
     }
-
-    private fun dotsBitmap(): Bitmap = requireNotNull(
-        compose.onNodeWithTag("chat_bottom_generation").assertIsDisplayed().captureToImage().asAndroidBitmap().copy(Bitmap.Config.ARGB_8888, false)
-    )
 
     private fun setConversation(initialItem: Int = 7, autoScroll: Boolean = true) {
         compose.setContent {

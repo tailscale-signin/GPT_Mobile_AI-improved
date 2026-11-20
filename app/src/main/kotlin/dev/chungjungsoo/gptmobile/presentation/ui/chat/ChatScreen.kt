@@ -1242,6 +1242,9 @@ private fun ChatScreenContent(
             }
 
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 12.dp)) {
+                if (renderedLines.catchUpAvailable.value) {
+                    TextButton(onClick = { renderedLines.catchUpRequested = true }) { Text("Latest output") }
+                }
                 ChatBottomIndicator(
                     listState = listState,
                     following = !isModelTabPositionLocked && if (githubPromptMode) githubScrollMode == GitHubScrollMode.FOLLOW_BOTTOM else isFollowingBottom,

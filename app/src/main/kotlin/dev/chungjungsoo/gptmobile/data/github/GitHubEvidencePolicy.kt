@@ -560,7 +560,7 @@ internal object GitHubEvidencePolicy {
         val displayedClaims = claims.values.sortedBy { claim ->
             val receipt = scopedReceipts[claim.string("receipt_id")]
             if (receipt != null && GitHubStatusEvidence.operation(receipt, "github_context", "status")) 0 else 1
-        }.take(96)
+        }.take(20)
         val (text, report) = render(buildJsonObject { put("claims", JsonArray(displayedClaims)) }, scopedReceipts, now, epoch, task)
         val completed = missing.isEmpty() && requirements.isNotEmpty() && requirements.all { it["status"] == JsonPrimitive("PASSED") }
         val outcome = JsonObject(
@@ -585,7 +585,8 @@ internal object GitHubEvidencePolicy {
         val criteriaText = if (unknownCriteria.isEmpty()) "" else "\n\n**Remaining accepted criteria:**\n\n" + unknownCriteria.joinToString("\n") { "- ${safe(it.string("requirement"))}: ${safe(it.string("reason"))}" }
         val displayScope = if (displayedClaims.size == claims.size) "" else "\n\nThe table shows ${displayedClaims.size} of ${claims.size} captured status facts. Coverage above is evaluated against the complete retained observations, including facts omitted from this table."
         val collectionScope = coverage.mapNotNull { it.summary.takeIf(String::isNotBlank) }.joinToString("\n", prefix = "\n\n") { "- ${safe(it)}" }
-        return text.substringBefore("\n\n## Remaining work").replace("# Repository update", "# Repository status") + collectionScope + commitSummaries(scopedReceipts, now, epoch) + checkOutcomes(inventory) + missingText + criteriaText + displayScope + workflowText to outcome
+        val details = text.substringBefore("\n\n## Remaining work").substringAfter('\n').trimStart()
+        return "# Repository status" + checkOutcomes(inventory) + "\n\n" + details + collectionScope + commitSummaries(scopedReceipts, now, epoch) + missingText + criteriaText + displayScope + workflowText to outcome
     }
 
     private fun commitSummaries(receipts: Map<String, JsonObject>, now: Long, epoch: Long): String {
@@ -719,6 +720,7 @@ internal object GitHubEvidencePolicy {
                 }
                 if (receipt?.string("tool")?.githubOperationFamily() == "github_pr" && (parent as? JsonObject)?.get("number") is JsonPrimitive) pullRequest = parent
             }
+            if ("/workflow_runs/" in pointer) return "Workflow run · " + parts.last().replace('_', ' ')
             val subject = pullRequest?.let { "PR #${it.string("number")}" } ?: (parent as? JsonObject)?.let { obj ->
                 if ("/pull_requests/" in pointer || "/pull_request/" in pointer) {
                     (obj["number"] as? JsonPrimitive)?.contentOrNull?.let { "PR #$it" }

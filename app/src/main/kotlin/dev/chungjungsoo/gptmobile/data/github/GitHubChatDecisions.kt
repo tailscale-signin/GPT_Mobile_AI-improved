@@ -30,7 +30,7 @@ internal fun dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.githubDeci
     }?.mode ?: GitHubDecisionMode.ASK
 
 @Serializable
-data class GitHubDecisionOption(val label: String, val detail: String = "")
+data class GitHubDecisionOption(val label: String, val detail: String = "", val enterValue: Boolean = false)
 
 @Serializable
 data class GitHubChatDecision(

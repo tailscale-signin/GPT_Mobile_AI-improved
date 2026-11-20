@@ -17,7 +17,11 @@ internal object GitHubChecklistScope {
 
     private val pendingReads = Regex("(?i)\\b(?:finish|complete|resume)\\s+(?:(?:all|the)\\s+)?(?:(?:pending|remaining|unread)\\s+)(?:read(?:s| pages)?|pages|pagination)\\b")
 
-    fun exhaustive(task: String): Boolean = requested(pendingReads, task) || requested(Regex("(?i)\\b(?:all|entire|complete|full)\\s+(?:(?:workflow|ci|run|issue)\\s+)?(?:branches|workflows|pull requests|issues|commits|runs|tags|releases|inventor(?:y|ies)|history)\\b"), task)
+    fun exhaustive(task: String): Boolean {
+        // The former shipped fixture preset included this generic sentence in every request.
+        val scope = if (supportedFixturePlan(task)) task.replaceFirst("Finish all pending read pages using the exact authorized continuation recipes before declaring pagination complete.", "") else task
+        return requested(pendingReads, scope) || requested(Regex("(?i)\\b(?:all|entire|complete|full)\\s+(?:(?:workflow|ci|run|issue)\\s+)?(?:branches|workflows|pull requests|issues|commits|runs|tags|releases|inventor(?:y|ies)|history)\\b"), scope)
+    }
 
     private fun requested(pattern: Regex, task: String): Boolean = pattern.findAll(task).any { match ->
         !negatedRequest.containsMatchIn(task.substring(0, match.range.first))

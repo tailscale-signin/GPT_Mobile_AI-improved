@@ -1079,20 +1079,29 @@ internal class GitHubRepositorySession(
         val pinnedTree = tree(context)
         val entries = pinnedTree["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { it.s("path") }
         val treeComplete = pinnedTree["truncated"]?.jsonPrimitive?.booleanOrNull != true
-        val selected = withContext(Dispatchers.Default) {
-            ranges.map { it.jsonObject.s("path") }.distinct().associateWith { path ->
+        val resolvedRanges = mutableListOf<JsonObject>()
+        val failedRanges = mutableListOf<JsonObject>()
+        val selected = linkedMapOf<String, JsonObject>()
+        val corrections = mutableListOf<JsonObject>()
+        var firstFailure: GitHubReadValidation? = null
+        withContext(Dispatchers.Default) {
+            for (raw in ranges) {
+                val range = raw.jsonObject
+                val path = range.s("path")
                 try {
-                    GitHubPinnedPathResolver.resolve(path, entries, context.commitSha, treeComplete)
+                    selected[path] = GitHubPinnedPathResolver.resolve(path, entries, context.commitSha, treeComplete)
+                    resolvedRanges += range
                 } catch (failure: GitHubReadValidation) {
-                    val validation = JsonObject(failure.details + mapOf("owner" to JsonPrimitive(context.owner), "repo" to JsonPrimitive(context.repo), "ref" to JsonPrimitive(context.ref)))
-                    val correction = GitHubSourceReadRecovery.correctedArguments("github_read", args, validation)
-                    throw GitHubReadValidation(
-                        failure.code,
-                        if (correction == null) {
-                            validation
+                    val scoped = JsonObject(failure.details + mapOf("owner" to JsonPrimitive(context.owner), "repo" to JsonPrimitive(context.repo), "ref" to JsonPrimitive(context.ref)))
+                    val one = JsonObject(args + ("ranges" to JsonArray(listOf(range))))
+                    val rebound = GitHubSourceReadRecovery.correctedArguments("github_read", one, scoped)
+                    if (ranges.size == 1) {
+                        val correction = GitHubSourceReadRecovery.correctedArguments("github_read", args, scoped)
+                        val details = if (correction == null) {
+                            scoped
                         } else {
                             JsonObject(
-                                validation + (
+                                scoped + (
                                     "correction_call" to buildJsonObject {
                                         put("tool", "github_read")
                                         put("arguments", JsonObject(correction - "action"))
@@ -1100,19 +1109,35 @@ internal class GitHubRepositorySession(
                                     )
                             )
                         }
-                    )
+                        throw GitHubReadValidation(failure.code, details)
+                    }
+                    val fixed = (rebound?.get("ranges") as? JsonArray)?.singleOrNull() as? JsonObject
+                    if (fixed == null) {
+                        if (firstFailure == null) firstFailure = GitHubReadValidation(failure.code, scoped)
+                        failedRanges += scoped
+                    } else {
+                        val actual = fixed.s("path")
+                        selected[actual] = GitHubPinnedPathResolver.resolve(actual, entries, context.commitSha, treeComplete)
+                        resolvedRanges += fixed
+                        corrections += buildJsonObject {
+                            put("requested_path", path)
+                            put("path", actual)
+                            put("blob_sha", selected.getValue(actual).getValue("sha"))
+                        }
+                    }
                 }
             }
         }
+        if (resolvedRanges.isEmpty()) throw requireNotNull(firstFailure)
         val permits = Semaphore(2)
         val sources = coroutineScope {
             selected.map { (path, entry) -> async { permits.withPermit { path to blob(context, entry).s("content") } } }.awaitAll().toMap()
         }
         var remaining = MAX_EXCERPT_BYTES
-        val results = ranges.map { raw ->
-            val range = raw.jsonObject
+        val results = resolvedRanges.map { range ->
             val path = range.s("path").also { GitHubWorkspaceClient.filePath(it) }
             val entry = selected.getValue(path)
+            require(range.s("expected_blob_sha").let { it.isBlank() || it.equals(entry.s("sha"), true) }) { "Requested blob does not match the pinned tree." }
             val content = sources.getValue(path)
             val lines = sourceLines(content)
             fun lineNumber(key: String): Int? = range[key]?.let { value ->
@@ -1181,7 +1206,7 @@ internal class GitHubRepositorySession(
         val guidance = applicableGuidance(context, selected.keys, pinnedTree)
         if (guidance.getValue("files").jsonArray.isNotEmpty()) store.write(scope, guidanceKey(context), guidance)
         val contextGraph = withContext(Dispatchers.Default) { GitHubCodeContext.build(sources, entries.keys.toList(), context.commitSha) }
-        val evidenceId = GitHubRepositoryStateStore.digest(scope + context.commitSha + results.toString())
+        val evidenceId = GitHubRepositoryStateStore.digest(scope + context.commitSha + results.toString() + if (failedRanges.isEmpty() && corrections.isEmpty()) "" else ranges.toString())
         val evidence = buildJsonObject {
             put("owner", context.owner)
             put("repo", context.repo)
@@ -1189,6 +1214,8 @@ internal class GitHubRepositorySession(
             put("tree_sha", context.treeSha)
             put("ranges", ranges)
             put("items", JsonArray(results))
+            if (failedRanges.isNotEmpty()) put("failed_ranges", JsonArray(failedRanges))
+            if (corrections.isNotEmpty()) put("path_corrections", JsonArray(corrections))
             put("context_graph", contextGraph)
             if (guidance["files"]?.jsonArray?.isNotEmpty() == true) put("active_instructions", guidance)
         }
@@ -1215,6 +1242,8 @@ internal class GitHubRepositorySession(
             put("tree_sha", context.treeSha)
             put("source_coverage", JsonArray(coverage))
             put("items", JsonArray(results))
+            if (failedRanges.isNotEmpty()) put("failed_ranges", JsonArray(failedRanges))
+            if (corrections.isNotEmpty()) put("path_corrections", JsonArray(corrections))
             put("context_graph", contextGraph)
             if (guidance["files"]?.jsonArray?.isNotEmpty() == true) put("active_instructions", guidance)
             put("concurrent_blob_limit", 2)

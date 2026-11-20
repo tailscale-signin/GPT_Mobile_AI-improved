@@ -62,6 +62,7 @@ internal class GitHubDecisionTool(
                                         buildJsonObject {
                                             put("label", text(80))
                                             put("detail", text(240))
+                                            put("enter_value", buildJsonObject { put("type", "boolean") })
                                         }
                                     )
                                     put("required", JsonArray(listOf(JsonPrimitive("label"))))

@@ -148,35 +148,62 @@ internal suspend fun writeStagedChatDiagnostics(
                     }
                 },
                 capture = { AppLogRecorder.captureForExport(it, useReducedMemory) },
-                critical = critical
+                critical = critical,
+                requireFrozen = sink.resumeCursor != null
             ).also { logs[critical] = it }
-            sink.note(
-                buildJsonObject {
-                    put("kind", "log_capture_metadata")
-                    put("capturedAtMillis", snapshot.capturedAtMillis)
-                    put("trackingEnabled", snapshot.trackingEnabled)
-                    put("droppedRecords", snapshot.droppedRecords)
-                    put("droppedCriticalRecords", snapshot.droppedCriticalRecords)
-                    put("retainedLogRecords", snapshot.recordCount)
-                    put("omissionReason", snapshot.omissionReason)
-                }.toString()
-            )
-            snapshot.omissionReason?.let { sink.omit(it) }
-            snapshot.sourceFailures.filterKeys { it == "pending-records" || it.startsWith("critical") == critical }.values.forEach { sink.omit(it) }
-            snapshot.sources.filter { it.name.startsWith("critical") == critical }.forEach { source ->
-                if (source.skippedSourceBytes > 0) sink.omit("LOG_SOURCE_WINDOW_LIMIT")
-                if (source.truncatedRecords > 0) sink.omit("LOG_RECORD_TRUNCATED", source.truncatedRecords)
-                DiagnosticCaptureLogSnapshot.lines(source.file, {
+            val cursor = sink.resumeCursor
+            val sources = snapshot.sources.filter { it.name.startsWith("critical") == critical }
+            val identity = snapshot.capturedAtMillis
+            fun boundary(source: Int, offset: Long) = buildJsonObject {
+                put("snapshot_at_ms", identity)
+                put("source_index", source)
+                put("byte_offset", offset)
+            }
+            val start = cursor?.let {
+                require(it["snapshot_at_ms"] == JsonPrimitive(identity)) { "LOG_SNAPSHOT_CHANGED" }
+                requireNotNull((it["source_index"] as? JsonPrimitive)?.content?.toIntOrNull()).also { index -> require(index in 0..sources.size) }
+            } ?: 0
+            val offset = cursor?.let { requireNotNull((it["byte_offset"] as? JsonPrimitive)?.content?.toLongOrNull()) } ?: 0L
+            if (cursor == null) {
+                sink.note(
+                    buildJsonObject {
+                        put("kind", "log_capture_metadata")
+                        put("capturedAtMillis", snapshot.capturedAtMillis)
+                        put("trackingEnabled", snapshot.trackingEnabled)
+                        put("droppedRecords", snapshot.droppedRecords)
+                        put("droppedCriticalRecords", snapshot.droppedCriticalRecords)
+                        put("retainedLogRecords", snapshot.recordCount)
+                        put("omissionReason", snapshot.omissionReason)
+                    }.toString()
+                )
+                snapshot.omissionReason?.let { sink.omit(it) }
+                snapshot.sourceFailures.filterKeys { it == "pending-records" || it.startsWith("critical") == critical }.values.forEach { sink.omit(it) }
+                sources.forEach { source ->
+                    if (source.skippedSourceBytes > 0) sink.omit("LOG_SOURCE_WINDOW_LIMIT")
+                    if (source.truncatedRecords > 0) sink.omit("LOG_RECORD_TRUNCATED", source.truncatedRecords)
+                }
+                sink.checkpoint(boundary(0, 0))
+            }
+            for (index in start until sources.size) {
+                val source = sources[index]
+                var batch = 0
+                DiagnosticCaptureLogSnapshot.frozenLines(source.file, if (index == start) offset else 0L, {
                     authorized()
                     sink.checkBudget()
-                }) { line ->
+                }) { line, next ->
                     sink.emit(
                         buildJsonObject {
                             put("source", source.name)
                             put("line", line)
                         }
                     )
+                    if (++batch >= sink.sourcePageSize) {
+                        sink.checkpoint(boundary(index, next))
+                        batch = 0
+                        kotlinx.coroutines.yield()
+                    }
                 }
+                sink.checkpoint(boundary(index + 1, 0))
             }
         }
         val stages = mutableListOf(
@@ -237,7 +264,7 @@ internal suspend fun writeStagedChatDiagnostics(
                     sink.checkBudget()
                 }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint, sourceRecord = sink::sourceRecord, sourcePageSize = sink.sourcePageSize)
             },
-            DiagnosticCaptureStage("critical_logs", "critical-app-logs.jsonl", critical = true, lowMemorySafe = true, emptyReason = "NO_RETAINED_CRITICAL_LOGS") { captureLogs(it, critical = true) },
+            DiagnosticCaptureStage("critical_logs", "critical-app-logs.jsonl", critical = true, lowMemorySafe = true, resumableRecords = true, emptyReason = "NO_RETAINED_CRITICAL_LOGS") { captureLogs(it, critical = true) },
             DiagnosticCaptureStage("capture_context", "capture-context.jsonl", lowMemorySafe = true, content = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticStageContent.CONFIGURATION) { sink ->
                 sink.emit(
                     buildJsonObject {
@@ -277,7 +304,7 @@ internal suspend fun writeStagedChatDiagnostics(
                 )
                 if (draft.length <= maximumCharacters) sink.emit(buildJsonObject { put("composerDraft", draft) }, evidence = false) else sink.omit("COMPOSER_DRAFT_CHARACTER_LIMIT")
             },
-            DiagnosticCaptureStage("recent_logs", "recent-app-logs.jsonl", lowMemorySafe = true, emptyReason = "NO_RETAINED_APP_LOGS") { captureLogs(it, critical = false) },
+            DiagnosticCaptureStage("recent_logs", "recent-app-logs.jsonl", lowMemorySafe = true, resumableRecords = true, emptyReason = "NO_RETAINED_APP_LOGS") { captureLogs(it, critical = false) },
             DiagnosticCaptureStage("profiles", "profiles.jsonl", lowMemorySafe = true, content = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticStageContent.CONFIGURATION) { sink ->
                 profiles.forEach { profile ->
                     sink.checkBudget()

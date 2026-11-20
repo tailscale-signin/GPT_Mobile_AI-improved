@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -20,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -34,20 +36,27 @@ internal fun ChatBottomIndicator(
     generating: Boolean,
     animate: Boolean,
     scrollInput: ChatScrollInput? = null,
+    showAnchorDots: Boolean = false,
     onFollow: () -> Unit
 ) {
-    if (following) return
+    val fadeMillis = chatScrollArrowFadeMillis(animate)
+    AnimatedVisibility(visible = showAnchorDots && following, enter = fadeIn(tween(fadeMillis)), exit = fadeOut(tween(fadeMillis))) {
+        val tint = MaterialTheme.colorScheme.primary
+        Canvas(Modifier.size(30.dp, 18.dp).testTag("chat_anchor_dots")) {
+            for (offset in -1..1) drawCircle(tint, 2.dp.toPx(), Offset(center.x + offset * 7.dp.toPx(), center.y))
+        }
+    }
     // Do not infer reading speed from programmatic list movement. The shared
     // input only reports real user gestures and already applies a speed gate.
     // Keep the target available after release. Only another user gesture
     // can extend the hold, so streaming layout changes do not reset it.
     var heldVisible by remember(scrollInput, listState) { mutableStateOf(false) }
     val fastUserScroll = scrollInput?.scrollingFasterThanReading == true
-    val userScrolling = listState.isScrollInProgress && scrollInput?.dragging == true
+    val userScrolling = listState.isScrollInProgress
     val hasOlderContent = listState.canScrollForward
-    LaunchedEffect(scrollInput, fastUserScroll, userScrolling, hasOlderContent) {
+    LaunchedEffect(scrollInput, fastUserScroll, userScrolling, hasOlderContent, following) {
         when {
-            !hasOlderContent -> heldVisible = false
+            following || !hasOlderContent -> heldVisible = false
             fastUserScroll -> heldVisible = true
             !userScrolling && heldVisible -> {
                 delay(5_000L)
@@ -56,8 +65,7 @@ internal fun ChatBottomIndicator(
         }
     }
     val reveal = if (scrollInput == null) true else (fastUserScroll || heldVisible) && hasOlderContent
-    val fadeMillis = chatScrollArrowFadeMillis(animate)
-    AnimatedVisibility(visible = reveal, enter = fadeIn(tween(fadeMillis)), exit = fadeOut(tween(fadeMillis))) {
+    AnimatedVisibility(visible = !following && reveal, enter = fadeIn(tween(fadeMillis)), exit = fadeOut(tween(fadeMillis))) {
         ScrollToBottomButton(isGenerating = generating, onClick = onFollow)
     }
 }

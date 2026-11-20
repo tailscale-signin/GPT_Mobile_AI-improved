@@ -16,11 +16,10 @@ internal fun gitHubTopFadeHeight(
     if (!enabled) return 0f
     val progress = expansionProgress.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
     val eased = progress * progress * (3f - 2f * progress)
-    val window = stableWindowHeight.coerceAtLeast(0f)
-    val header = headerHeight.coerceAtLeast(0f)
-    val collapsedExtra = window * .03f
-    // Keep at least half the available viewport readable on short/landscape displays.
-    val maximumExtra = ((window - header).coerceAtLeast(0f) * .5f).coerceAtLeast(collapsedExtra)
-    val expandedExtra = (window * profile.expandedExtra).coerceAtMost(maximumExtra)
-    return header + collapsedExtra + (expandedExtra - collapsedExtra) * eased
+    val window = stableWindowHeight.takeIf(Float::isFinite)?.coerceAtLeast(0f) ?: return 0f
+    val header = headerHeight.takeIf(Float::isFinite)?.coerceIn(0f, window) ?: 0f
+    val collapsedExtra = (window * .03f).coerceAtMost(32f)
+    // Bound the extension in dp so tablets and a transient large header cannot blank the transcript.
+    val expandedExtra = (window * profile.expandedExtra).coerceAtMost(128f * profile.expandedExtra / .44f)
+    return (header + collapsedExtra + (expandedExtra - collapsedExtra) * eased).coerceAtMost(window * .45f)
 }

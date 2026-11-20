@@ -4,6 +4,8 @@ Windows Setup uses the Gateway workspace theme for connection, update, and advan
 
 Installed v17 updaters first select the 17.0.2 transition release. Once it restarts, check again for v18 or let automatic updates continue. The Windows release workflow builds both packages and exercises the transition using the packaged v18 ZIP.
 
+Voice captions follow Kokoro audio playback or word offsets provided by Android speech engines. The composer keeps the first draft until it is saved. Scrolling to the bottom of GitHub chat restores the three-dot follow indicator. Expanded chat headers concentrate the fade near the top.
+
 ## Getting started
 
 - For local inference on Windows, run the x64 setup executable, choose Standard Gateway or GitHub Engineering, select your listener and port, and check the local model connection. The desktop workspace shows jobs, schedules, analysis and diagnostics.

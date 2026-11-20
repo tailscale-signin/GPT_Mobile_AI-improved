@@ -79,7 +79,8 @@ data class VoiceState(
     val hasDraft: Boolean = false,
     val recoveryAction: VoiceRecoveryAction? = null,
     val spokenRange: IntRange? = null,
-    val submittedDraftRequestId: String? = null
+    val submittedDraftRequestId: String? = null,
+    val playbackCaption: String? = null
 )
 
 /** A state callback may run before Compose delivers the dispatcher's latest admission event. */
@@ -315,6 +316,7 @@ class VoiceSession(
             awaitingReply = waiting,
             hasDraft = draftPending,
             submittedDraftRequestId = submittedDraft?.requestId,
+            playbackCaption = next.playbackCaption?.takeIf { next.phase == VoicePhase.SPEAKING },
             spokenRange = next.spokenRange?.takeIf { next.phase == VoicePhase.SPEAKING && next.reply.startsWith(state.reply) }
         )
         diagnosticProbe.phase(state.phase)
@@ -586,6 +588,7 @@ class VoiceSession(
     private fun preparePlayback(ticket: Long): Long {
         val sequence = ++playbackSequence
         var utteranceStart = -1
+        var playbackCaption: String? = null
         var activeUtterance = -1
         var lastRangeStart = -1
         update(state.copy(phase = if (audio.reportsPlaybackStart) VoicePhase.PREPARING else VoicePhase.SPEAKING, level = 0f, notice = null, spokenRange = null))
@@ -596,11 +599,17 @@ class VoiceSession(
         }
         audio.bindSpokenRange { index, utterance, range ->
             if (ticket == generation && sequence == playbackSequence && state.phase == VoicePhase.SPEAKING) {
+                if (range.isEmpty()) {
+                    if (index == activeUtterance) update(state.copy(spokenRange = null))
+                    return@bindSpokenRange
+                }
                 if (index < activeUtterance || index == activeUtterance && range.first < lastRangeStart) return@bindSpokenRange
                 // Require an exact visible-text match. Pronunciation and Markdown transforms can change the source.
                 if (index != activeUtterance) {
-                    utteranceStart = state.reply.indexOf(utterance, startIndex = captionSearchFrom).takeIf {
-                        it >= captionSearchFrom && state.reply.substring(captionSearchFrom, it).all(Char::isWhitespace)
+                    val projected = VoiceSpeechText.project(state.reply)
+                    playbackCaption = projected.takeIf { it != state.reply }
+                    utteranceStart = projected.indexOf(utterance, startIndex = captionSearchFrom).takeIf {
+                        it >= captionSearchFrom && projected.substring(captionSearchFrom, it).all(Char::isWhitespace)
                     } ?: -1
                     activeUtterance = index
                 }
@@ -612,7 +621,7 @@ class VoiceSession(
                 }
                 if (mapped != null) captionSearchFrom = utteranceStart + utterance.length
                 diagnosticProbe.captionAlignment(if (mapped == null) "TEXT_UNMAPPED" else "EXACT_RANGE")
-                update(state.copy(spokenRange = mapped))
+                update(state.copy(spokenRange = mapped, playbackCaption = playbackCaption))
             }
         }
         diagnosticProbe.captionAlignment("NO_TIMING")

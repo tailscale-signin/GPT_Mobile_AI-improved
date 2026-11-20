@@ -85,7 +85,7 @@ internal fun rememberChatScrollInput(
     val detach by rememberUpdatedState(onDetach)
     val follow by rememberUpdatedState(onFollow)
     fun followIfAtBottom() {
-        if (input.shouldFollowAtBottom(listState.layoutInfo.totalItemsCount > 0 && listState.gitHubDistanceToBottom() <= bottomTolerancePx)) {
+        if (input.shouldFollowAtBottom(listState.layoutInfo.totalItemsCount > 0 && (!listState.canScrollForward || listState.gitHubDistanceToBottom() <= bottomTolerancePx))) {
             gesture.followBottom()
             input.dragging = false
             input.finishUserScroll()
@@ -133,9 +133,8 @@ internal fun rememberChatScrollInput(
             }
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                // Wheels can reach the edge without a pointer release or a fling.
-                // A held touch still waits for its release or completed fling.
-                if (!input.pointerActive && source == NestedScrollSource.UserInput && (consumed.y < 0f || available.y < 0f)) currentFollowIfAtBottom()
+                // Engage as soon as a real drag or its fling reaches the footer.
+                if (consumed.y < 0f || available.y < 0f) currentFollowIfAtBottom()
                 return Offset.Zero
             }
 

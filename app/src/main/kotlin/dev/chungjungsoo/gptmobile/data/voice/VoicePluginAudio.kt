@@ -14,6 +14,7 @@ internal interface KokoroOutput {
     val outputLevel: kotlinx.coroutines.flow.StateFlow<Float?>? get() = null
     val reportsPlaybackStart: Boolean get() = false
     fun bindPlaybackStarted(started: (() -> Unit)?) = Unit
+    fun bindSpokenRange(spoken: SpokenRangeObserver?) = Unit
     fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit)
     fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit) = speak(text, voice, complete, error)
     fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit): VoiceReplyPlayback? = null
@@ -52,6 +53,7 @@ internal class VoicePluginAudio(
 
     override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
         system.bindSpokenRange(spoken)
+        kokoro?.bindSpokenRange(spoken)
     }
 
     // offlineSpeech belongs to the same Android output and shares its start observer.

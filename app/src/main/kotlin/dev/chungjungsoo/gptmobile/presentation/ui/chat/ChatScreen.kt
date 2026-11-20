@@ -1256,6 +1256,7 @@ private fun ChatScreenContent(
                         },
                     animate = featureSettings.responseAnimation,
                     scrollInput = scrollInput,
+                    showAnchorDots = githubPromptMode && entryPositioned && groupedMessages.userMessages.isNotEmpty(),
                     onFollow = ::followChatBottom
                 )
             }

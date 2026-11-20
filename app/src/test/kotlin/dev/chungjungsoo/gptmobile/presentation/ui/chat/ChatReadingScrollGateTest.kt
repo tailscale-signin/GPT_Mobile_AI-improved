@@ -31,7 +31,7 @@ class ChatReadingScrollGateTest {
     @Test fun slightlySlowerButDeliberateScrollRevealsWhileReadingDoesNot() {
         val gate = ChatReadingScrollGate()
         assertFalse(gate.recordDelta(10f, 0L))
-        assertTrue(gate.recordDelta(6f, 100L)) // 160 dp/s
+        assertTrue(gate.recordDelta(4f, 100L)) // 140 dp/s
         gate.stop()
         assertFalse(gate.recordDelta(8f, 200L))
         assertFalse(gate.recordDelta(4f, 300L)) // 120 dp/s

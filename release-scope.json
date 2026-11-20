@@ -191,7 +191,9 @@
     "Complete the native WPF Gateway dashboard and shared paired-owner controls, with pinned TLS, signed device grants, revisioned settings, original-command recovery and guarded runtime activation; retain the concurrent native setup and five-second chat arrow hold.",
     "Add per-task offline command execution, prepared development images, language-server inspection, worker checkpoints, validation hooks and paged Android workspace review.",
     "Qualify prepared environments with real offline Python, Node and Android commands, and record workspace repair and recovery evidence per selected profile and execution environment.",
-    "Allow authorized Android-selected profiles to request and observe approved Gateway checks for exact candidate files, retaining the original model and repository source permissions."
+    "Allow authorized Android-selected profiles to request and observe approved Gateway checks for exact candidate files, retaining the original model and repository source permissions.",
+    "Synchronize local voice captions with rendered PCM, preserve the first prompt through initialization and persistence, restore GitHub bottom-follow feedback, and bound the expanded chat header fade.",
+    "Exclude native GGUF debugging sections from production Android downloads while preserving both supported ABIs and their runtime backends."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -3318,7 +3320,12 @@
     "gateway/contracts/v18/gateway-v18-capabilities-full.json",
     "gateway/desktop/build_v17_transition.py",
     "gateway/desktop/windows/Build-SetupArtwork.ps1",
-    "gateway/tests/test_gateway_desktop_updates.py"
+    "gateway/tests/test_gateway_desktop_updates.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubDecisionToolTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRoundProgressTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.9",

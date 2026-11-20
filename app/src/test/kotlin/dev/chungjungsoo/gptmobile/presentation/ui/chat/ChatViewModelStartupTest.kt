@@ -1057,6 +1057,30 @@ class ChatViewModelStartupTest {
         coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
     }
 
+    @Test fun firstSendSurvivesProfileLoadingAndOneFailedPersistenceWithoutLosingTheDraft() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val delayed = CompletableDeferred<List<PlatformV2>>()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        coEvery { repository.persistAgentTurn(any()) } coAnswers {
+            entered.complete(Unit)
+            release.await()
+            throw IllegalStateException("Storage unavailable")
+        }
+        val model = createViewModel(combined = false, profileLoad = delayed)
+        model.question.edit { append("Keep my first message") }
+        model.askQuestion()
+        model.askQuestion()
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        delayed.complete(profiles)
+        withTimeout(5000) { entered.await() }
+        assertEquals("Keep my first message", model.question.text.toString())
+        model.askQuestion()
+        release.complete(Unit)
+        coVerify(exactly = 1) { repository.persistAgentTurn(any()) }
+        assertEquals("Keep my first message", model.question.text.toString())
+    }
+
     @Test fun voiceCannotAdmitBeforeItsSelectedProfileLoads() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         val delayed = CompletableDeferred<List<PlatformV2>>()

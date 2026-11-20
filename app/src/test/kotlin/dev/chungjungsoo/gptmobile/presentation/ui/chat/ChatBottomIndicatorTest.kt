@@ -88,6 +88,7 @@ class ChatBottomIndicatorTest {
             compose.onNodeWithTag("conversation").performTouchInput { swipeUp() }
             compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
             compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
+            compose.onNodeWithTag("chat_anchor_dots").assertIsDisplayed()
             compose.runOnIdle {
                 assertTrue(state.isAtGitHubBottom())
                 assertTrue(following)
@@ -99,6 +100,7 @@ class ChatBottomIndicatorTest {
             compose.onNodeWithTag("chat_jump_to_bottom").assertIsDisplayed().performClick()
             compose.onNodeWithTag("chat_bottom_generation").assertDoesNotExist()
             compose.onNodeWithTag("chat_jump_to_bottom").assertDoesNotExist()
+            compose.onNodeWithTag("chat_anchor_dots").assertIsDisplayed()
             compose.runOnIdle {
                 assertTrue(state.isAtGitHubBottom())
                 assertTrue(following)
@@ -228,7 +230,7 @@ class ChatBottomIndicatorTest {
                         animate = animate && smoothStreaming
                     )
                     Box(Modifier.align(Alignment.BottomCenter).size(48.dp)) {
-                        ChatBottomIndicator(state, following, generating, animate, onFollow = follow)
+                        ChatBottomIndicator(state, following, generating, animate, showAnchorDots = true, onFollow = follow)
                     }
                 }
             }

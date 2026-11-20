@@ -45,6 +45,21 @@ class VoicePlaybackStartTest {
         session.close()
     }
 
+    @Test fun markupUsesTheSpokenCaptionOffsetsAndClearsDuringSilence() {
+        val audio = ObservedAudio()
+        val session = session(audio)
+        audio.listeners.last().final("Read this")
+        session.reply("first", "**Read** the [guide](https://example.org).")
+        audio.starts.last().invoke()
+        val range = audio.ranges.single()
+        range(0, "Read the guide.", 9..13)
+        assertEquals("Read the guide.", session.state.playbackCaption)
+        assertEquals(9..13, session.state.spokenRange)
+        range(0, "Read the guide.", IntRange.EMPTY)
+        assertEquals(null, session.state.spokenRange)
+        session.close()
+    }
+
     @Test fun cancelledPreparationCannotMarkTheNextTurnAsSpeaking() {
         for (streaming in listOf(false, true)) {
             val audio = ObservedAudio().apply { streamsReplies = streaming }

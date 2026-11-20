@@ -186,6 +186,14 @@ internal object GitHubSelfTestReads {
                 // unlock another attempt, and absent logs get only one alternate job.
                 val correctable = when (name to args.text("action")) {
                     "github_release" to "status", "github_ci" to "definitions" -> prior.all { it.text("error_code") == "INVALID_ARGUMENTS" }
+                    "github_release" to "detail" -> prior.singleOrNull()?.let { failed ->
+                        val previous = failed["arguments"] as? JsonObject
+                        "release_id" in args &&
+                            failed.text("error_code") == "GITHUB_NOT_FOUND_OR_HIDDEN" &&
+                            previous?.get("tag_name") is JsonPrimitive &&
+                            previous["tag_name"] == release?.get("tag_name") &&
+                            "release_id" !in previous
+                    } == true
                     "github_ci" to "jobs" -> additionalJobs
                     "github_ci" to "logs" -> prior.size == 1 && prior.single().text("error_code") == "GITHUB_NOT_FOUND_OR_HIDDEN"
                     else -> false

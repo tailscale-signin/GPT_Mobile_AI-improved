@@ -95,13 +95,14 @@ class DesktopWorkspaces(unittest.TestCase):
     def test_report_filters_use_exact_reviewed_bytes_and_state_missing_sources(self):
         (self.root / 'logs').mkdir()
         now = int(time.time()*1000)
-        events = [{'jobDigest':hashlib.sha256(b'my-job').hexdigest(), 'timestampMs':now},
-                  {'jobId':'other', 'timestampMs':now}, {'jobId':'my-job', 'timestampMs':now-7200000}]
+        events = [{'jobDigest':hashlib.sha256(b'my-job').hexdigest(), 'timestampMs':now, 'client':{'appVersionCode':144}},
+                  {'jobId':'other', 'timestampMs':now, 'client':{'appVersionCode':141}}, {'jobId':'my-job', 'timestampMs':now-7200000}]
         with zipfile.ZipFile(self.root / 'logs' / 'gateway-debug.zip','w') as archive:
             archive.writestr('manifest.json', json.dumps({'version':'18.1.0','redaction':'metadata only','files':[]}))
             archive.writestr('gateway-debug.jsonl', ''.join(json.dumps(row)+'\n' for row in events))
         with patch('desktop.workspace_reports.request'):
             preview = report(self.root, 'report-preview', {'hours':1,'job':'my-job'})
+        self.assertEqual([144], preview['manifest']['androidBuilds'])
         location = self.root / 'data' / 'report-previews' / (preview['sha256']+'.zip')
         self.assertEqual(preview['sha256'], hashlib.sha256(location.read_bytes()).hexdigest())
         self.assertEqual(['diagnostic-events.jsonl'], preview['manifest']['missingSources'])

@@ -77,13 +77,18 @@ public partial class MainWindow
             Ui.Button("Connection settings",()=>Navigate("Settings/Connection"))));
         if(!running)hero.Children.Add(Ui.Button("Start Gateway",()=>Run(async()=>{await Call("runtime-start");await RefreshSnapshot();})));
         page.Children.Add(Ui.Card(hero,true));
-        var metrics=new UniformGrid{Columns=4};
+        var metrics = new UniformGrid { Columns = 4 };
+        metrics.SizeChanged += (_, e) =>
+        {
+            int columns = e.NewSize.Width >= 720 ? 4 : e.NewSize.Width >= 360 ? 2 : 1;
+            if (metrics.Columns != columns) metrics.Columns = columns;
+        };
         foreach(var (label,key) in new[]{("Running","running"),("Queued","queued"),("Needs attention","needs_attention"),("Workers","workers")})
         {
             string val=key=="workers"?service.Text("activeWorkers","—")+" / "+service.Text("maxWorkers","—"):jobCounts.Text(key,"—");
             var button=Ui.Button(label,()=>OpenJobs(key=="workers"?"running":key));
             button.ContentTemplate=null;
-            button.Content=Ui.Column(Ui.Text(val,24,"PrimaryBrush",true),Ui.Text(label,13),Ui.Text(key=="workers"?TimeOf(snapshot.Number("capturedAt")):CatalogAge,11,"MutedBrush"));
+            button.Content=Ui.Column(Ui.Text(val,24,"PrimaryBrush",true),Ui.Text(label,15),Ui.Text(key=="workers"?TimeOf(snapshot.Number("capturedAt")):CatalogAge,13,"MutedBrush"));
             metrics.Children.Add(button);
         }
         page.Children.Add(metrics);

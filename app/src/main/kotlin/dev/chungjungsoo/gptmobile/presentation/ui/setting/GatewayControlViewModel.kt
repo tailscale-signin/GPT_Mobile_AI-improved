@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
+import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClient
@@ -34,7 +36,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 @HiltViewModel
-internal class GatewayControlViewModel @Inject constructor(private val settings: SettingRepository, private val repository: GatewayControlRepository, private val engineering: GatewayEngineeringClient) : ViewModel() {
+internal class GatewayControlViewModel @Inject constructor(private val settings: SettingRepository, private val repository: GatewayControlRepository, private val engineering: GatewayEngineeringClient, private val preparation: GatewayModelPreparationRepository) : ViewModel() {
     val profiles = settings.observePlatformV2s().map { list -> list.filter(GitHubAutonomousEngineeringPolicy::supportsSavedJobs) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val states = repository.states
@@ -165,6 +167,17 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
             observeAccount(saved, admission)
         }
         onConnected(saved.uid)
+    }
+
+    fun prepareModel(profile: PlatformV2, model: String, onMessage: (String) -> Unit) = run(profile) { current ->
+        val snapshot = requireNotNull(repository.states.value[current.uid]?.takeIf { it.writable }?.snapshot)
+        check(snapshot.desired["backend"] == snapshot.effective["backend"])
+        val selected = (snapshot.desired["model"] as? JsonPrimitive)?.content.orEmpty().ifBlank { current.model }
+        require(model == selected && model.isNotBlank())
+        val mode = ReasoningPolicy.preference(current.reasoning, settings.getFeatureSettings().llamaReasoningModes[current.uid])
+        preparation.prepareSelected(current.copy(model = model), mode, forceRefresh = true) { state ->
+            onMessage(state?.message ?: "The Gateway could not confirm preparation for this model.")
+        }
     }
 
     suspend fun readConnectionSettings(profile: PlatformV2) = repository.connectionSettings(profile)

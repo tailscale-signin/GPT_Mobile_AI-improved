@@ -10,6 +10,7 @@ import time
 import zipfile
 
 from desktop.manager import request
+from v14.debug_projection import android_build
 
 
 def matches(row, since, job):
@@ -49,6 +50,8 @@ def report(root, action, args):
                             selection={'hours': hours, 'job': job, 'clock': 'UTC', 'unattributedIncluded': not job},
                             missingSources=[], scope='local_admin_retained_diagnostics')
             cutoff = time.time() - hours * 3600 if hours else 0
+            builds = set()
+            scan_builds = hours or job or 'androidBuildsTruncated' not in original
             with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as out:
                 for name in ('gateway-debug.jsonl', 'diagnostic-events.jsonl'):
                     if name not in archive.namelist():
@@ -57,13 +60,19 @@ def report(root, action, args):
                     digest, count, size = hashlib.sha256(), 0, 0
                     with archive.open(name) as source, out.open(name, 'w') as target:
                         for line in source:
-                            if (hours or job) and not matches(json.loads(line), cutoff, job):
-                                continue
+                            if scan_builds:
+                                row = json.loads(line)
+                                if (hours or job) and not matches(row, cutoff, job):
+                                    continue
+                                if (build := android_build(row)) is not None:
+                                    builds.add(build)
                             target.write(line)
                             digest.update(line)
                             size += len(line)
                             count += 1
                     selected['files'].append({'path': name, 'bytes': size, 'records': count, 'sha256': digest.hexdigest()})
+                if scan_builds:
+                    selected.update(androidBuilds=sorted(builds)[-64:], androidBuildsTruncated=len(builds) > 64)
                 if hours or job:
                     selected['scope'] = 'selected_retained_records'
                     selected.pop('transport', None)

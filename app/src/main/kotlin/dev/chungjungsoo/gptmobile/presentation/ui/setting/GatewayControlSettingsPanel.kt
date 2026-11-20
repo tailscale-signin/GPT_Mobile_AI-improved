@@ -322,6 +322,15 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
         if ("host_request" in snapshot.writableFields || snapshot.principalId.startsWith("paired:")) {
             TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide device access" else "Device access") }
         }
+        val serverModel = (snapshot.desired["model"] as? JsonPrimitive)?.content.orEmpty().ifBlank { profile.model }
+        if (serverModel.isNotBlank() && profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) {
+            var preparationMessage by remember(profile.uid, profile.apiUrl, serverModel, snapshot.effective["backend"]) { mutableStateOf("") }
+            OutlinedButton(
+                onClick = { model.prepareModel(profile, serverModel) { preparationMessage = it } },
+                enabled = live && snapshot.desired["backend"] == snapshot.effective["backend"] && draft.isEmpty()
+            ) { Text("Prepare model · $serverModel") }
+            if (preparationMessage.isNotBlank()) Text(preparationMessage, style = MaterialTheme.typography.bodyMedium)
+        }
         snapshot.pending.forEach { pending ->
             OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

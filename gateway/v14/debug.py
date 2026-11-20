@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse, Response
 from .diagnostic_events import (DiagnosticSessionJournal, DiagnosticProtocolError, MAX_BATCH_BYTES, MAX_CAPTURE_SECONDS,
                                 event_identity, sanitize_event, trace_context, HEX32)
 from .debug_projection import (ROUTES, ADMISSION_CODES, route_kind, provenance, failure_fields, response_summary, choice,
-                               backend_build_provenance)
+                               android_build, backend_build_provenance)
 
 MAX_LINES = 5000
 MAX_LINE_BYTES = 2048
@@ -478,8 +478,7 @@ class DebugLogStore:
                 safe = provenance(candidate)
                 if safe and safe not in versions:
                     versions.append(safe)
-            builds = sorted({row['client']['appVersionCode'] for row in records
-                             if isinstance(row.get('client'), dict) and type(row['client'].get('appVersionCode')) is int})
+            builds = {build for row in records if (build := android_build(row)) is not None}
             transport = encode_records(records).encode('utf-8')
             output = io.BytesIO()
             archive = zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED)
@@ -489,6 +488,8 @@ class DebugLogStore:
                 with archive.open('diagnostic-events.jsonl', 'w') as stream:
                     def write_event(event):
                         nonlocal event_bytes
+                        if (build := android_build(event)) is not None:
+                            builds.add(build)
                         data = (json.dumps(event, separators=(',', ':'), sort_keys=True) + '\n').encode('utf-8')
                         stream.write(data)
                         event_hash.update(data)
@@ -502,7 +503,7 @@ class DebugLogStore:
                 raise
             manifest = {'schemaVersion': 1, 'diagnosticProtocolVersion': 2, 'exportedAtMs': int(self.now() * 1000),
                         'scope': 'local_admin_retained_diagnostics', 'redaction': 'allowlisted_metadata_only',
-                        'versions': versions[-32:], 'versionsTruncated': len(versions) > 32, 'androidBuilds': builds[-64:],
+                        'versions': versions[-32:], 'versionsTruncated': len(versions) > 32, 'androidBuilds': sorted(builds)[-64:], 'androidBuildsTruncated': len(builds) > 64,
                         'buildIdentity': {'comparisonFields': ['gatewayVersion', 'sourceCommit', 'manifestDigest'],
                                           'versionLabelIsUnique': all(len({v.get('sourceCommit') for v in versions if v.get('gatewayVersion') == label}) <= 1
                                                                      for label in {v.get('gatewayVersion') for v in versions}),

@@ -242,7 +242,7 @@ class DebugEvidenceTests(unittest.TestCase):
         self.store.record_event('private-principal', 'a' * 32, int(time.time() * 1000), stage='operation_dispatch',
                                 job_id='job_' + 'b' * 32, operation_id='c' * 32, category='model',
                                 dispatch_state='not_dispatched', error_code='PRECHECK_REJECTED', severity='warning',
-                                bounded_attributes={'output_tokens': 0, 'prompt': 'private contents'})
+                                bounded_attributes={'output_tokens': 0, 'app_version_code': 141, 'prompt': 'private contents'})
         raw = self.store.export_bundle()
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             self.assertEqual({'gateway-debug.jsonl', 'diagnostic-events.jsonl', 'manifest.json'}, set(archive.namelist()))
@@ -251,6 +251,7 @@ class DebugEvidenceTests(unittest.TestCase):
             self.assertEqual(1, len(events))
             self.assertEqual('not_dispatched', events[0]['dispatch_state'])
             self.assertEqual('job_' + 'b' * 32, events[0]['job_id'])
+            self.assertIn(141, manifest['androidBuilds'])
             self.assertEqual('1' * 40, manifest['versions'][-1]['sourceCommit'])
             self.assertEqual('3' * 64, manifest['versions'][-1]['configurationFingerprint'])
             self.assertEqual('retained_evidence', manifest['journal']['availability'])

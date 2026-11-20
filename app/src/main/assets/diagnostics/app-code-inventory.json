@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "09cdb26b59df41d3d5d829c9876c66dae9b23228c8fe0bdf9fb28870ba7d5cbb",
+  "source_digest": "77d3159ec9142c7b0ac3f7cf21342a69c72fed68a53e7f34cdd797b7296d8710",
   "file_count": 2771,
-  "indexed_line_count": 459083,
+  "indexed_line_count": 459132,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 571,
-      "indexed_line_count": 101570
+      "indexed_line_count": 101592
     },
     {
       "id": "accessibility_and_localization",
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 229,
-      "indexed_line_count": 87374
+      "indexed_line_count": 87401
     },
     {
       "id": "authentication_service",
@@ -14976,15 +14976,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlSettingsPanel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "d71e8185fa04c65b84871b824ef473eb998f6c0ae8be0202cc3f4112c899e39a",
-      "indexed_lines": 541
+      "sha256": "0d3b6966a213ec0f6ebd7a07d6eea213a209f7d43c3cdd2dbb5c32edc72c47a2",
+      "indexed_lines": 550
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "93393d237ff159d06179c5827ff97d27725d6b1a3674339e005accd723036fb3",
-      "indexed_lines": 245
+      "sha256": "20b73419a88b46be46eb22737df8debf6b58ba5e4114df6f21d5ef362df3ef0a",
+      "indexed_lines": 258
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayDiagnosticPanel.kt",
@@ -18000,7 +18000,7 @@
       "path": "gateway/desktop/control_settings.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "e8bcd175e99a85e679800bff2502f7dedae50b6e10385261bf30cef030f40dd2",
+      "sha256": "4d0fc7f956054e3207125e410de77499fb305d5c48ca161411a59614e445e0f0",
       "indexed_lines": 352
     },
     {
@@ -18434,8 +18434,8 @@
       "path": "gateway/desktop/workspace_reports.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "aa94fd6862fe06f3ea085d21f6ab1a71aad49dcd2e3030425562b46b3b945972",
-      "indexed_lines": 81
+      "sha256": "b25ac27312139490bd50a38fa739703d9502b66d5358f2c1038eb308600d12eb",
+      "indexed_lines": 90
     },
     {
       "path": "gateway/export_workspace_output.py",
@@ -18567,8 +18567,8 @@
       "path": "gateway/v14/account_connection.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "ece65c53b2931596318cf95ba8f05bd7becc1c2a522e09a9375cdc1287e420b1",
-      "indexed_lines": 98
+      "sha256": "e8a48a77e88d61646e5bb7ac20f579503045c3589f79d3689bfc596d52a74e27",
+      "indexed_lines": 105
     },
     {
       "path": "gateway/v14/actions.py",
@@ -18714,8 +18714,8 @@
       "path": "gateway/v14/control_settings.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "16c5405d9997c8914d62e72ca8e0f297a9f93faed0e19bf0455571c5d4c4e821",
-      "indexed_lines": 254
+      "sha256": "395841c000f5ee862ede6f4e21454c55d7cb084eb9938d2a8a0108fc022a2f9a",
+      "indexed_lines": 255
     },
     {
       "path": "gateway/v14/conversation_metadata.py",
@@ -18763,15 +18763,15 @@
       "path": "gateway/v14/debug.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "e7ef49e7a883a56fd90df4f5e184b333020a6fdf332cbb39d393fa500b156a4e",
-      "indexed_lines": 884
+      "sha256": "6a898390bc22d75e3bd39d3cb201dba2fc3ac3206b7894eae23cf1c0d9537559",
+      "indexed_lines": 885
     },
     {
       "path": "gateway/v14/debug_projection.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "97f6912ad93f2e00f50ee09533ae6f720a65e5dc15903f27f5d25ea08af3313f",
-      "indexed_lines": 203
+      "sha256": "c866ecec9a5fc48446be953420fd9b00ddcb42e6a9f5f4096f53e594ca3b0717",
+      "indexed_lines": 212
     },
     {
       "path": "gateway/v14/diagnostic_events.py",
@@ -19064,7 +19064,7 @@
       "path": "gateway/v14/identity.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "3615fb1e1718c33c57f590ed038e4c3914c246ff35b80a2f36d7f76b5ec6c383",
+      "sha256": "17690206a4cc244cf75cb030f104530626a6db704ba930eb04d7c8673ee80d5b",
       "indexed_lines": 226
     },
     {

@@ -21,6 +21,15 @@ def choice(value, choices):
     return isinstance(value, str) and value in choices
 
 
+def android_build(row):
+    for source, field in (('client', 'appVersionCode'), ('bounded_attributes', 'app_version_code')):
+        attributes = row.get(source)
+        build = attributes.get(field) if isinstance(attributes, dict) else None
+        if type(build) is int and 0 < build <= 2_147_483_647:
+            return build
+    return None
+
+
 def backend_build_provenance(value):
     """A build label cannot export hostnames, paths, compiler flags or arbitrary prose."""
     result = {'backendBuildStatus': 'not_observed'}

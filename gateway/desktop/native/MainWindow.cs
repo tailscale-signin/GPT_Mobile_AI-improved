@@ -21,7 +21,7 @@ public partial class MainWindow : Window
     private readonly StackPanel page = new();
     private readonly TextBlock heading = Ui.Text("Overview", 34, bold: true);
     private readonly TextBlock subtitle = Ui.Text("Your local workspace", color: "MutedBrush");
-    private readonly TextBlock status = Ui.Text("Reading this installation…", 13, "MutedBrush");
+    private readonly TextBlock status = Ui.Text(string.Empty, 13, "MutedBrush");
     private readonly TextBlock connection = Ui.Text("Connecting", 13, "MutedBrush");
     private readonly ScrollViewer pageScroll;
     private readonly Dictionary<string, Button> navigation = [];
@@ -186,19 +186,19 @@ public partial class MainWindow : Window
         refreshing = true;
         try
         {
-            var previous = snapshot;
-            snapshot = await Call("snapshot");
+            var previous = OverviewData(snapshot);
+            try { snapshot = await Call("snapshot"); }
+            catch { snapshot["fresh"] = false; }
             RefreshUpdateCard();
-            bool fresh = snapshot.Flag("fresh");
-            connection.Text = fresh ? "●  Live" : "○  Offline · last known status";
+            connection.Text = snapshot.Flag("fresh") ? "●  Live" : "○  Offline · last known status";
             if (selectedPage == "Overview")
             {
-                overviewRefreshPending |= !JsonNode.DeepEquals(OverviewData(previous), OverviewData(snapshot));
+                overviewRefreshPending |= !JsonNode.DeepEquals(previous, OverviewData(snapshot));
                 if (overviewRefreshPending && Mouse.LeftButton != MouseButtonState.Pressed)
                 { overviewRefreshPending = false; RefreshOverview(); }
             }
         }
-        catch { connection.Text = "Offline · last confirmed values retained"; }
+        catch (Exception error) { if (!closed) status.Text = error.Message; }
         finally { refreshing = false; }
     }
 
@@ -228,12 +228,18 @@ public partial class MainWindow : Window
     private void BuildOverview()
     {
         var manager = snapshot.Object("manager");
-        bool running = manager.Text("state") == "running";
-        string backend = manager.Text("backend", "Not observed");
-        bool ready = running && snapshot.Flag("fresh") && backend == "ready";
+        bool fresh = snapshot.Flag("fresh");
+        bool running = fresh && manager.Text("state") == "running";
+        bool ready = running && manager.Text("backend") == "ready";
+        var (title, description) = (ready, running) switch
+        {
+            (true, _) => ("Ready to connect", "Chat and jobs are available on this PC."),
+            (_, true) => ("Waiting for a model", "Start the model server or choose a backend in Settings."),
+            _ when snapshot.Count > 0 && !fresh => ("Gateway is offline", "Start Gateway to reconnect. Your saved jobs stay on this PC."),
+            _ => ("Gateway " + manager.Text("state", "starting"), "You can open Settings while the server starts.")
+        };
         var hero = Ui.Column(Ui.Text("Gateway server", 14, "PrimaryBrush", true),
-            Ui.Text(ready ? "Ready to connect" : running ? "Waiting for a model" : "Gateway " + manager.Text("state", "starting"), 30, bold: true),
-            Ui.Text(ready ? "Chat and jobs are available on this PC." : running ? "Start the model server or choose a backend in Settings." : "You can open Settings while the server starts.", 15, "MutedBrush"),
+            Ui.Text(title, 30, bold: true), Ui.Text(description, 15, "MutedBrush"),
             Ui.Actions(Ui.Button("Connect phone", () => Navigate("Connect phone"), true),
                 Ui.Button(ready ? "Open chat" : running ? "Connection settings" : "Start Gateway", () =>
                 {

@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "18.1.0",
   "schemaVersion": 1,
-  "sourceCommit": "e7cec48e55856001c1fef941dee741ddc84333f6",
+  "sourceCommit": "6edda2670213a606d6d13feba7e622a8d082f470",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -140,7 +140,7 @@
     "desktop/native/MainWindow.Benchmarks.cs": "eaa45142c4a534f2050322e26742c8ba62d74c9d5ed447535d6c9fd843d95712",
     "desktop/native/MainWindow.Chat.cs": "7ba0b5391d2aaa5b96ae46acbddb800f51e490f2a92329acf57fa5174ff15309",
     "desktop/native/MainWindow.Control.cs": "033a8ad525e7b6a95882a450f0758b52869fe3ddf34f5b185c1c8a1efe4bea4f",
-    "desktop/native/MainWindow.cs": "a03b93bc54f591f2fe4847564a0117b322cea86a4949ae3a7347f2b9e14aa30a",
+    "desktop/native/MainWindow.cs": "743f8f33e2fb4c9b869c3e1270a147ee74bf683b2fe28479a19db56682501b29",
     "desktop/native/Ui.cs": "a2f6b404653c7d76a41975f7eb5ea484fd04347d99a0da11c2cd159f73569564",
     "desktop/native/tests/Gateway.Native.Contracts.csproj": "014a2eda46acfd32f82b90948410325af62f4f7202dc6c6f77a3ca55869f4de3",
     "desktop/native/tests/Program.cs": "ac3f22990fe0b09ea57f5cb530c0a9f3632cfeb632c37b6450ca527e3286cc3b",

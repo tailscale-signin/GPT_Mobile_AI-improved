@@ -298,10 +298,13 @@ class GitHubLiveProgressTest {
         assertEquals(1f, transition.opacity.value, 0.01f)
 
         compose.runOnIdle { text = "Checking one result" }
+        compose.waitForIdle()
         clock.advanceTimeBy(112)
         compose.runOnIdle { text = "Checking two results" }
+        compose.waitForIdle()
         clock.advanceTimeBy(112)
         compose.runOnIdle { text = "Checking the newest result" }
+        compose.waitForIdle()
         clock.advanceTimeBy(96)
         assertEquals("Checking the newest result", transition.text.value)
         clock.advanceTimeBy(240)

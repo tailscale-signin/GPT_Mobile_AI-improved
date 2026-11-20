@@ -10,20 +10,20 @@
   "intent": "Repair the complete retained-history diagnostic capture and current issue families on the existing shared PR, preserve concurrent commits, verify the resulting source, then merge and publish only after all applicable checks pass.",
   "state": "SOURCE_COMPLETE_VALIDATING",
   "work": [
-    "Use durable graph indexing when supported and reconcile saved jobs while independent authorized reads continue.",
+    "Use durable graph indexing when supported and reconcile saved jobs while independent authorized reads continue, including inventories otherwise hidden by deferred cleanup or watch subscriptions.",
     "Classify proven read-only plugin deadlines without inventing unknown mutation outcomes; preserve real permission revocations.",
     "Retain original observation timestamps and source identity through saved-result reads.",
     "Reduce saved-source page amplification while retaining every character and exact authorized cursors.",
     "Coalesce rapid preview updates, finish each fade, and preserve expanded details while their content changes."
   ],
   "validation": {
-    "focused_regressions": "PASS: 7 configured-plugin tests, 14 graph planning tests, 25 CI-log/saved-page tests. Current-source Android CI still required for full graph session, evidence-book integration and Compose behavior.",
-    "canonical_fast": "PASS: 555 host tests plus CI policy, architecture/source inventories, dependency catalog, schema/metadata, resources, regex, secrets and whitespace checks. Repeat after final integration.",
+    "focused_regressions": "PASS: 7 configured-plugin tests, 14 graph planning tests, 25 CI-log/saved-page tests, 9 universal activity-feed tests and 2 Compose animation regressions. Current-source Android CI remains required for full graph session, evidence-book integration and native UI rendering; the local native rendering process was killed before producing a result.",
+    "canonical_fast": "PASS: 555 host tests plus CI policy, architecture/source inventories, dependency catalog, schema/metadata, resources, regex, secrets and whitespace checks, repeated after the follow-up integration.",
     "current_head_ci": "PENDING",
     "main_ci": "PENDING",
     "publication": "PENDING",
     "physical_android_windows": "NOT_RUN",
-    "release_packaging": "Existing link-time debug stripping preserves allocated native sections and dynamic symbols; measured compressed savings34,458,305bytes exceeds historical10,494,296byte universal APK overage. Final exact-source signed APK size remains a release gate."
+    "release_packaging": "Existing link-time debug stripping preserves allocated native sections and dynamic symbols. Measured compressed savings of 34,458,305 bytes exceed the historical 10,494,296-byte universal APK overage. Final exact-source signed APK size remains a release gate."
   },
-  "evidence_scope": "Complete retained-history capture: all20 stage hashes and reconstructed records checked; 10 retained runs, not a claim of complete installed-device acceptance."
+  "evidence_scope": "Complete retained-history capture: all 20 stage hashes and reconstructed records checked; 10 retained runs, not a claim of complete installed-device acceptance."
 }

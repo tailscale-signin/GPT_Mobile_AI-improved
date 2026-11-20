@@ -122,8 +122,11 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         if (!providerRecoveryValidated && (expectedProviderEvidenceDigest != null || expectedProviderJournalDigest != null)) {
             val receipts = GitHubProviderReplayEvidence.receipts(saved.settledExchanges())
             ProviderRecoveryFailure.require(
+                saved.entries.values.none { it.started && it.result == null } && receipts.none { it.requiresReconciliation },
+                "PROVIDER_WAIT_OUTCOME_UNKNOWN"
+            )
+            ProviderRecoveryFailure.require(
                 saved.entries.values.all { it.result != null } &&
-                    receipts.none { it.requiresReconciliation } &&
                     if (expectedProviderJournalDigest != null) {
                         GitHubProviderReplayEvidence.journalDigest(receipts) == expectedProviderJournalDigest
                     } else {

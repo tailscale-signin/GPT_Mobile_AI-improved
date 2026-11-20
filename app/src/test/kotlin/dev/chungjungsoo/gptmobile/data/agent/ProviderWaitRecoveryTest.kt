@@ -302,6 +302,50 @@ class ProviderWaitRecoveryTest {
         }
     }
 
+    @Test fun failedResumeRetainsOnlyTheClaimedCheckpointsOriginalProviderEvidence() = runBlocking {
+        val fixture = Fixture()
+        try {
+            fixture.initialize()
+            val checkpoint = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true,"failure_code":"429","failure_details":{"http_status":429,"retry_after_ms":2000,"message":"private provider text"}}""") as JsonObject
+            val limit = fixture.decision().copy(gitHubCheckpoint = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint("b".repeat(64), researchHash(checkpoint.toString())))
+            val row = fixture.row(limit, ProviderWaitMode.GITHUB_STEP)
+            val saved = fixture.codec.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint).copy(resumeClaimId = "current-claim")
+            val claimed = row.copy(checkpoint = fixture.codec.encodeToString(saved))
+            assertTrue(fixture.dao.deferRunningProvider(claimed))
+            fixture.gitHubCheckpoint = checkpoint
+            val request = fixture.request.copy(providerWaitClaimId = "current-claim")
+            val refusal = ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED")
+            fixture.store.recordRecoveryFailure(fixture.request, refusal.code)
+            assertEquals(claimed, fixture.dao.rawProviderWait("run"))
+
+            // Another revision at the same key cannot supply historical evidence.
+            fixture.gitHubCheckpoint = JsonObject(checkpoint + ("failure_code" to JsonPrimitive("503")))
+            assertNull(fixture.store.localRecoveryFailure(request, refusal).original)
+            fixture.gitHubCheckpoint = checkpoint
+            fixture.store.recordRecoveryFailure(request, refusal.code)
+            fun recovery(wait: ProviderWait) = requireNotNull(fixture.codec.decodeFromString<ProviderWaitCheckpoint>(wait.checkpoint).recoveryFailure)
+            val stored = recovery(requireNotNull(fixture.dao.rawProviderWait("run")))
+            assertEquals(JsonPrimitive(refusal.code), stored["recovery_code"])
+            val original = stored["original_interruption"] as JsonObject
+            assertEquals(JsonPrimitive("429"), original["code"])
+            assertEquals(
+                buildJsonObject {
+                    put("http_status", 429)
+                    put("retry_after_ms", 2000)
+                },
+                original["details"]
+            )
+            assertFalse(stored.toString().contains("private provider text"))
+
+            // Re-recording the same refusal must work after the protected source is gone.
+            fixture.gitHubCheckpoint = null
+            fixture.store.recordRecoveryFailure(request, refusal.code)
+            assertEquals(original, recovery(requireNotNull(fixture.dao.rawProviderWait("run")))["original_interruption"])
+        } finally {
+            fixture.database.close()
+        }
+    }
+
     @Test fun anUnreadableTerminalCheckpointDoesNotPreventSchedulingAnotherActiveWait() = runBlocking {
         val fixture = Fixture()
         val scheduled = mutableListOf<String>()

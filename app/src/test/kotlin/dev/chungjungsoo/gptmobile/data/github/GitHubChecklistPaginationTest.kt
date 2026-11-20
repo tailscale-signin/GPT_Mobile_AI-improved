@@ -59,7 +59,7 @@ class GitHubChecklistPaginationTest {
         assertTrue(GitHubTestChecklist.pendingPages(records).isNotEmpty())
     }
 
-    @Test fun integrationPresetFinishesExactIssuedRemotePageAfterOrdinarySampleCap() {
+    @Test fun integrationPresetPreservesRemoteContinuationAndRespectsTheOrdinarySampleCap() {
         val remote = json("""{"tool":"github_context","arguments":{"action":"branches","page":2}}""")
         val records = linkedMapOf(
             "source" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches"},"result":{"continuation_call":$remote}}""")
@@ -68,8 +68,14 @@ class GitHubChecklistPaginationTest {
             records["sample$index"] = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches","page":${index + 11}},"result":{}}""")
         }
         val prompt = GitHubWorkflowPreset.selected("test_integration").prompt()
-        assertTrue(GitHubChecklistScope.exhaustive(prompt))
-        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall(prompt, tools, records)?.arguments)
+        val legacy = prompt + "\nFinish all pending read pages using the exact authorized continuation recipes before declaring pagination complete."
+        for (bounded in listOf(prompt, legacy)) {
+            assertFalse(GitHubChecklistScope.exhaustive(bounded))
+            assertFalse(remote["arguments"] == GitHubTestChecklist.nextCall(bounded, tools, records)?.arguments)
+        }
+        val full = "$legacy\nFetch all branches."
+        assertTrue(GitHubChecklistScope.exhaustive(full))
+        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall(full, tools, records)?.arguments)
         assertEquals(listOf(remote), GitHubTestChecklist.pendingPages(records))
     }
 

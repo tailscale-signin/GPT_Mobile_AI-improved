@@ -15,6 +15,11 @@ on:
       - 'gateway/v14/workspace_environment.py'
       - 'gateway/tests/prepared_environment_smoke.py'
       - '.github/workflows/development-environments.yml'
+      # Recovery-only commits must independently pass the offline environments.
+      - '.github/workflows/recover-verified-android144-gateway18.yml'
+      - 'scripts/recover_release_publication.py'
+      - 'scripts/verify_published_release.py'
+      - 'release-recovery.json'
   workflow_dispatch:
 permissions:
   contents: read

@@ -26,6 +26,9 @@ WORKFLOW = "Recover verified Android 144 and Gateway 18 publication"
 PUBLISHER = "Publish Signed Release"
 WINDOWS_WORKFLOW = "Gateway Windows installer"
 REPAIR_PATHS = frozenset({
+    ".github/workflows/development-environments.yml",
+    ".github/workflows/gateway-stability.yml",
+    ".github/workflows/release-0950-acceptance.yml",
     ".github/workflows/recover-verified-android144-gateway18.yml",
     "scripts/recover_release_publication.py",
     "scripts/tests/test_release_recovery.py",

@@ -52,12 +52,11 @@ internal class ProviderThrottleRegistry(
 
     @Synchronized
     fun accepted(identity: String) {
-        val state = states[identity] ?: return
-        if (state.blockedUntil <= nowMillis()) {
-            states.remove(identity)
-            rejections.remove(identity)
-            _revision.update { it + 1 }
-        }
+        val state = states[identity]
+        if (state != null && state.blockedUntil > nowMillis()) return
+        // Pacing state can expire before the longer rejection-count window.
+        rejections.remove(identity)
+        if (states.remove(identity) != null) _revision.update { it + 1 }
     }
 
     @Synchronized

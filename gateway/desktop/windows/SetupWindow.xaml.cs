@@ -13,7 +13,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace GatewayDesktop;
 
@@ -34,7 +36,9 @@ public partial class SetupWindow : Window
     [STAThread]
     public static int Main(string[] args)
     {
-        if (args.Length != 2 || args[0] is not ("--plan" or "--smoke") || !Path.IsPathFullyQualified(args[1])) return 2;
+        if (args.Length is not (2 or 3) || args[0] is not ("--plan" or "--smoke") || !Path.IsPathFullyQualified(args[1])) return 2;
+        long owner = 0;
+        if (args.Length == 3 && (!long.TryParse(args[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out owner) || owner == 0)) return 2;
         var app = new Application();
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("Theme.xaml", UriKind.Relative) });
         if (SystemParameters.HighContrast)
@@ -43,10 +47,19 @@ public partial class SetupWindow : Window
             app.Resources["PanelBrush"] = SystemColors.WindowBrush;
             app.Resources["TextBrush"] = SystemColors.WindowTextBrush;
             app.Resources["MutedBrush"] = SystemColors.WindowTextBrush;
-            app.Resources["AccentBrush"] = SystemColors.WindowTextBrush;
+            app.Resources["RaisedBrush"] = SystemColors.WindowBrush;
+            app.Resources["PrimaryBrush"] = SystemColors.HighlightBrush;
+            app.Resources["PrimaryTextBrush"] = SystemColors.HighlightTextBrush;
+            app.Resources["SecondaryBrush"] = SystemColors.HighlightBrush;
             app.Resources["LineBrush"] = SystemColors.WindowTextBrush;
         }
         var window = new SetupWindow(args[1], args[0] == "--smoke");
+        if (owner != 0)
+        {
+            new WindowInteropHelper(window).Owner = new IntPtr(owner);
+            window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            window.ShowInTaskbar = false;
+        }
         app.Run(window);
         return window.result;
     }
@@ -54,13 +67,20 @@ public partial class SetupWindow : Window
     public SetupWindow(string path, bool smokeMode)
     {
         InitializeComponent();
+        var workArea = SystemParameters.WorkArea;
+        MinWidth = Math.Min(MinWidth, workArea.Width);
+        MinHeight = Math.Min(MinHeight, workArea.Height);
+        Width = Math.Min(Width, workArea.Width);
+        Height = Math.Min(Height, workArea.Height);
         planPath = path;
         smoke = smokeMode;
         pages = [EditionPage, ConnectionPage, ChecksPage, FinishPage];
-        Listener.ItemsSource = Interfaces();
-        Listener.SelectedIndex = 0;
+        var networks = Interfaces();
+        Listener.ItemsSource = networks;
+        Listener.SelectedItem = networks.FirstOrDefault(item => item.Label.StartsWith("Tailscale · ", StringComparison.OrdinalIgnoreCase)) ?? networks[0];
         Port.TextChanged += (_, _) => DescribeListener();
         Listener.SelectionChanged += (_, _) => DescribeListener();
+        if (!smoke && File.Exists(planPath)) RestorePlan();
         DescribeListener();
         Closed += (_, _) => { checking?.Cancel(); client.Dispose(); };
         Loaded += async (_, _) =>
@@ -69,8 +89,12 @@ public partial class SetupWindow : Window
             if (!smoke) return;
             try
             {
+                Width = MinWidth;
+                Height = MinHeight;
+                CapturePage("edition");
                 // Exercise actual controls and validation. No installation or host changes occur.
                 NextPage(this, new RoutedEventArgs());
+                CapturePage("connection");
                 Port.Text = "1";
                 NextPage(this, new RoutedEventArgs());
                 if (page != 1 || Problem.Text.Length == 0) throw new InvalidOperationException();
@@ -79,13 +103,67 @@ public partial class SetupWindow : Window
                 NextPage(this, new RoutedEventArgs());
                 if (page != 2) throw new InvalidOperationException();
                 await (activeCheck ?? Task.CompletedTask);
+                CapturePage("checks");
                 if (!Checks.Text.Contains("Model catalog")) throw new InvalidOperationException();
                 NextPage(this, new RoutedEventArgs());
                 if (page != 3 || !Summary.Text.Contains("127.0.0.1:8090")) throw new InvalidOperationException();
+                PreviousPage(this, new RoutedEventArgs());
+                await (activeCheck ?? Task.CompletedTask);
+                NextPage(this, new RoutedEventArgs());
+                Advanced.IsChecked = true;
+                Workers.Text = "7";
+                Chats.Text = "2";
+                NextPage(this, new RoutedEventArgs());
+                if (page != 3 || Problem.Text.Length == 0 || File.Exists(planPath)) throw new InvalidOperationException();
+                Chats.Text = "11";
+                Grace.Text = "42";
+                Updates.SelectedIndex = 1;
+                Grace.BringIntoView();
+                CapturePage("advanced");
                 NextPage(this, new RoutedEventArgs());
             }
             catch { result = 3; Close(); }
         };
+    }
+
+    private void CapturePage(string name)
+    {
+        UpdateLayout();
+        if (!Next.IsVisible || Next.ActualWidth < 60 || PageScroll.ViewportHeight < 100)
+            throw new InvalidOperationException("Setup controls clipped at minimum window size.");
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(ActualWidth * dpi.DpiScaleX),
+            (int)Math.Ceiling(ActualHeight * dpi.DpiScaleY), dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+        bitmap.Render(this);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var file = File.Create(Path.Combine(Path.GetDirectoryName(planPath)!, $"setup-{name}.png"));
+        encoder.Save(file);
+    }
+
+    private void RestorePlan()
+    {
+        // Back from the installer lets the user edit the same temporary plan.
+        // Every restored value still passes normal validation before the next save.
+        if (new FileInfo(planPath).Length > 16384) return;
+        var values = new Dictionary<string, string>();
+        foreach (string line in File.ReadAllLines(planPath, Encoding.Unicode))
+        {
+            int equal = line.IndexOf('=');
+            if (equal > 0) values[line[..equal]] = line[(equal + 1)..];
+        }
+        Backend.Text = values.GetValueOrDefault("backend", Backend.Text);
+        Port.Text = values.GetValueOrDefault("port", Port.Text);
+        var choices = (List<InterfaceChoice>)Listener.ItemsSource;
+        Listener.SelectedItem = choices.FirstOrDefault(c => c.Address.ToString() == values.GetValueOrDefault("bind")) ?? choices[0];
+        Engineering.IsChecked = values.GetValueOrDefault("engineeringSetup") == "1";
+        Standard.IsChecked = Engineering.IsChecked != true;
+        Advanced.IsChecked = values.GetValueOrDefault("advanced") == "1";
+        Mcp.Text = values.GetValueOrDefault("mcp", "");
+        Workers.Text = values.GetValueOrDefault("workers", Workers.Text);
+        Chats.Text = values.GetValueOrDefault("chats", Chats.Text);
+        Grace.Text = values.GetValueOrDefault("grace", Grace.Text);
+        if (int.TryParse(values.GetValueOrDefault("updates"), out int mode) && mode is >= 0 and <= 2) Updates.SelectedIndex = mode;
     }
 
     private static List<InterfaceChoice> Interfaces()
@@ -100,12 +178,14 @@ public partial class SetupWindow : Window
                         choices.Add(new InterfaceChoice($"{adapter.Name} · {ip}", ip));
         }
         catch (NetworkInformationException) { /* Loopback remains usable offline. */ }
+        choices.Add(new InterfaceChoice("All IPv4 interfaces · trusted networks only", IPAddress.Any));
         return choices;
     }
 
     private InterfaceChoice CurrentInterface => (InterfaceChoice)Listener.SelectedItem;
     private void DescribeListener() =>
         ListenerHint.Text = IPAddress.IsLoopback(CurrentInterface.Address) ? "Only applications on this PC can connect."
+            : CurrentInterface.Address.Equals(IPAddress.Any) ? $"Reachable devices can use enabled tools. Use this PC’s LAN or VPN address and port {Port.Text} on the phone."
             : $"Trusted network only. Reachable devices can use enabled tools. Phone URL: http://{CurrentInterface.Address}:{Port.Text}/v1";
 
     private bool ValidConnection(out Uri? origin)
@@ -142,6 +222,8 @@ public partial class SetupWindow : Window
         page = index;
         for (int i = 0; i < pages.Length; ++i)
             pages[i].Visibility = i == page ? Visibility.Visible : Visibility.Collapsed;
+        PageScroll.ScrollToTop();
+        Heading.Focus();
         StepNumber.Text = $"{page + 1} of {pages.Length}";
         Heading.Text = Titles[page];
         Problem.Text = "";
@@ -199,7 +281,24 @@ public partial class SetupWindow : Window
         if (page == 1 && !ValidConnection(out _)) return;
         if (page < 3) { ShowPage(page + 1); return; }
         if (!ValidConnection(out var origin)) { ShowPage(1); return; }
+        bool advanced = Advanced.IsChecked == true;
+        string mcp = advanced ? Mcp.Text.Trim() : "";
+        if (mcp.Length > 0 && (mcp.Any(char.IsControl) || !Path.IsPathFullyQualified(mcp) || !File.Exists(mcp)))
+        {
+            Problem.Text = "Choose an existing MCP configuration by its full path.";
+            Mcp.Focus();
+            return;
+        }
+        if (!int.TryParse(advanced ? Workers.Text : "2", NumberStyles.None, CultureInfo.InvariantCulture, out int workers) || workers is < 1 or > 16 ||
+            !int.TryParse(advanced ? Chats.Text : "8", NumberStyles.None, CultureInfo.InvariantCulture, out int chats) || chats < workers || chats > 64 ||
+            !int.TryParse(advanced ? Grace.Text : "30", NumberStyles.None, CultureInfo.InvariantCulture, out int grace) || grace is < 10 or > 120)
+        {
+            Problem.Text = "Check the worker, admitted chat and shutdown ranges. Admitted chats must cover every worker.";
+            Workers.Focus();
+            return;
+        }
         string plan = $"[setup]\r\nbackend={origin!.GetLeftPart(UriPartial.Authority)}\r\n" +
+            $"mcp={mcp}\r\nworkers={workers}\r\nchats={chats}\r\ngrace={grace}\r\nupdates={Updates.SelectedIndex}\r\n" +
             $"port={Port.Text}\r\nbind={CurrentInterface.Address}\r\nengineeringSetup={(Engineering.IsChecked == true ? 1 : 0)}\r\nadvanced={(Advanced.IsChecked == true ? 1 : 0)}\r\n";
         try
         {

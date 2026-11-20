@@ -57,6 +57,7 @@ internal class DeferredKokoroOutput(
     private var performance = VoicePerformanceMode.BALANCED
     private var replyId: String? = null
     private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+    private var spokenRange: SpokenRangeObserver? = null
     private var playbackStarted: (() -> Unit)? = null
     private var delegate: KokoroOutput? = null
 
@@ -67,6 +68,14 @@ internal class DeferredKokoroOutput(
             if (closed) return
             playbackStarted = started
             delegate?.bindPlaybackStarted(started)
+        }
+    }
+
+    override fun bindSpokenRange(spoken: SpokenRangeObserver?) {
+        synchronized(lock) {
+            if (closed) return
+            spokenRange = spoken
+            delegate?.bindSpokenRange(spoken)
         }
     }
 
@@ -82,6 +91,7 @@ internal class DeferredKokoroOutput(
                 replyId?.let(output::bindReply)
                 output.bindDiagnostics(diagnosticProbe)
                 output.bindPlaybackStarted(playbackStarted)
+                output.bindSpokenRange(spokenRange)
             }
         }
         delegate
@@ -197,7 +207,12 @@ internal class KokoroVoiceOutput(
     }
     private var replyId: String? = null
     private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+    private var spokenRange: SpokenRangeObserver? = null
     private var playbackStarted: (() -> Unit)? = null
+    override fun bindSpokenRange(spoken: SpokenRangeObserver?) {
+        spokenRange = spoken
+    }
+
     override val reportsPlaybackStart: Boolean get() = true
     override fun bindPlaybackStarted(started: (() -> Unit)?) {
         playbackStarted = started
@@ -234,12 +249,14 @@ internal class KokoroVoiceOutput(
         val error: (VoicePlaybackFailure, Boolean) -> Unit,
         val diagnostics: VoiceDiagnosticTrace.Probe?,
         val audioStarted: (() -> Unit)?,
+        val onRange: SpokenRangeObserver?,
         val pause: VoicePauseDuration,
         val performance: VoicePerformanceMode,
         val rate: Float
     ) {
         val id = UUID.randomUUID().toString()
         val startedAt = SystemClock.elapsedRealtime()
+        val captions = VoicePcmCaptions()
         val segments = ArrayBlockingQueue<String>(MAX_SEGMENTS)
         val pcm = ArrayBlockingQueue<FloatArray>(KokoroPcmBatches.QUEUE_BATCHES)
 
@@ -438,7 +455,7 @@ internal class KokoroVoiceOutput(
                 }
             }
         }
-        playback = Playback(replyId, voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error, diagnosticProbe, playbackStarted, pause, performance, speed)
+        playback = Playback(replyId, voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error, diagnosticProbe, playbackStarted, spokenRange, pause, performance, speed)
         active = playback
         playback.diagnostics?.engine(VoiceDiagnosticTrace.Engine.KOKORO)
         fun acquireFocus(attempt: Int) {
@@ -453,10 +470,11 @@ internal class KokoroVoiceOutput(
                     main.postDelayed(watchdog, KOKORO_FOCUS_PAUSE_MAX_MS)
                 }
                 else -> {
+                    val mode = runCatching { audioManager?.mode }.getOrNull()
                     playback.diagnostics?.playbackFocus(
                         if (focusResult == null) VoiceDiagnosticTrace.Focus.ERROR else VoiceDiagnosticTrace.Focus.DENIED,
                         attempt,
-                        when (runCatching { audioManager?.mode }.getOrNull()) {
+                        when (mode) {
                             null -> null
                             AudioManager.MODE_NORMAL -> VoiceDiagnosticTrace.PlaybackAudioMode.NORMAL
                             AudioManager.MODE_RINGTONE -> VoiceDiagnosticTrace.PlaybackAudioMode.RINGTONE
@@ -465,8 +483,9 @@ internal class KokoroVoiceOutput(
                             else -> VoiceDiagnosticTrace.PlaybackAudioMode.OTHER
                         }
                     )
-                    if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && attempt == 1) {
-                        main.postDelayed({ acquireFocus(attempt + 1) }, 250)
+                    val retryDelay = kokoroFocusRetryDelay(attempt, mode)
+                    if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && retryDelay != null) {
+                        main.postDelayed({ acquireFocus(attempt + 1) }, retryDelay)
                     } else {
                         val message = if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED) {
                             "Android denied audio focus. When the call or other audio ends, return to Voice and tap replay on this reply."
@@ -516,6 +535,7 @@ internal class KokoroVoiceOutput(
             val sampleRate = model.engine.sampleRate().also { check(it in 8_000..48_000) }
             val silence = playback.pause.maxQuietMs?.let { VoiceQuietLimiter(sampleRate, it) }
             output.execute { play(playback, playbackAttributes, sampleRate) }
+            var segmentIndex = -1
             while (active === playback) {
                 playback.synthesizing = false
                 val segment = playback.segments.poll(INPUT_WAIT_MS, TimeUnit.MILLISECONDS)
@@ -524,7 +544,11 @@ internal class KokoroVoiceOutput(
                     continue
                 }
                 playback.synthesizing = true
-                val projection = KokoroSpeechText.projected(segment, model.words::contains)
+                val projection = if (playback.onRange == null) {
+                    KokoroSpeechText.projected(segment, model.words::contains)
+                } else {
+                    KokoroSpeechText.timed(segment, model.words::contains)
+                }
                 val observation = projection.observation
                 playback.knownWords += observation.knownWords
                 playback.initialisms += observation.initialisms
@@ -538,7 +562,8 @@ internal class KokoroVoiceOutput(
                         playback.initialisms,
                         playback.queuedAudio,
                         playback.firstFrame,
-                        observation.failure
+                        observation.failure,
+                        observation.unknownWordLength
                     )
                     timing("pronunciation_unavailable", playback, "reason=${observation.failure?.name ?: "UNKNOWN"} · unknownWords=${playback.unknownWords} · normalizedFormats=${playback.removedFormatCharacters}")
                     main.post {
@@ -549,7 +574,19 @@ internal class KokoroVoiceOutput(
                     }
                     return
                 }
-                for (part in parts) {
+                segmentIndex++
+                val units = if (playback.onRange == null) {
+                    parts.map { KokoroCaptionPart(it, IntRange.EMPTY) }
+                } else {
+                    projection.captionParts
+                }
+                for ((part, range) in units) {
+                    playback.captions.beginWord()
+                    fun emit(samples: FloatArray): Boolean {
+                        val audible = silence?.filter(samples) ?: samples
+                        if (!range.isEmpty()) playback.captions.append(segmentIndex, segment, range, audible)
+                        return queuePcm(playback, audible, sampleRate, part.length)
+                    }
                     if (active !== playback) return
                     var callbackFrames = 0L
                     var invalidBatch = false
@@ -558,7 +595,7 @@ internal class KokoroVoiceOutput(
                         if (callbackFrames > sampleRate * 30L) invalidBatch = true
                         return if (invalidBatch || active !== playback) {
                             0
-                        } else if (samples.isEmpty() || queuePcm(playback, silence?.filter(samples) ?: samples, sampleRate, part.length)) {
+                        } else if (samples.isEmpty() || emit(samples)) {
                             1
                         } else {
                             0
@@ -578,8 +615,9 @@ internal class KokoroVoiceOutput(
                     check(!invalidBatch && generated.sampleRate == sampleRate)
                     if (callbackFrames == 0L) {
                         check(generated.samples.size in 1..sampleRate * 30)
-                        if (!queuePcm(playback, silence?.filter(generated.samples) ?: generated.samples, sampleRate, part.length)) return
+                        if (!emit(generated.samples)) return
                     }
+                    if (!range.isEmpty()) playback.captions.endWord(segmentIndex, segment)
                 }
             }
             playback.synthesisDone = true
@@ -808,6 +846,11 @@ internal class KokoroVoiceOutput(
             timing("first_audio", playback)
             main.post {
                 if (!closed && active === playback) playback.audioStarted?.invoke()
+            }
+        }
+        playback.captions.consumed(frames)?.let { cue ->
+            main.post {
+                if (active === playback && !closed) playback.onRange?.invoke(cue.segment, cue.text, cue.range)
             }
         }
         return frames

@@ -7,6 +7,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KokoroFocusPolicyTest {
+    @Test fun normalModeDenialAllowsRouteSettlingWithoutRepeatedRequestsDuringCalls() {
+        assertEquals(900L, kokoroFocusRetryDelay(1, AudioManager.MODE_NORMAL))
+        assertEquals(250L, kokoroFocusRetryDelay(1, AudioManager.MODE_IN_CALL))
+        assertEquals(null, kokoroFocusRetryDelay(2, AudioManager.MODE_NORMAL))
+    }
+
     @Test fun repeatedFocusLossDoesNotExtendThePauseDeadline() {
         val paused = KokoroFocusState().transition(KokoroFocusAction.PAUSE, 1000)
             .transition(KokoroFocusAction.PAUSE, 14_000)

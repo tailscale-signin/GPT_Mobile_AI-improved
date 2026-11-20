@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from fastapi.responses import JSONResponse
 from gateway_security import current_device, device_store
 from v14.browser import LANDING_PATHS
+from v14.account_connection import accounts, overlay, PREFIX as ACCOUNT_PREFIX
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,14 @@ class PrincipalResolver:
             # A key-free shared listener does not authenticate an owner. Saved
             # engineering mutations require the separate paired grant or an
             # established authenticated local/trusted account.
+            host = self.config.host
+            peer = scope.get("client") or ("", 0)
+            server = scope.get("server") or ("", 0)
+            if (self.config.account_engineering and overlay(host) and server[0] == host and overlay(peer[0])
+                    and not any(k.startswith(("x-forwarded-", "tailscale-")) or k in {"forwarded", "origin", "cookie", "sec-fetch-site"} for k in headers)):
+                account = await asyncio.to_thread(accounts.resolve, host, peer[0])
+                if account:
+                    return Principal(account, frozenset({"chat", "jobs", "tools", "engineering"}))
             return Principal("network:shared", frozenset({"chat", "jobs", "tools"}))
         if not local_peer:
             return None
@@ -83,12 +92,17 @@ def control_grant(config, principal):
     return retained_device_grant(config.control_journal, principal)
 
 
+def account_authorized(config, principal):
+    return (config.mode == 'open_network' and config.account_engineering and principal.startswith(ACCOUNT_PREFIX)
+            and bool(overlay(config.host)) and accounts.authorized(config.host, principal))
+
+
 def principal_can_graph(config, principal, devices):
     """Recheck tools admission for a retained public-map indexing job."""
     if principal.startswith('paired:'):
         return control_grant(config, principal) is not None
     if config.mode == 'open_network':
-        return principal == 'network:shared'
+        return principal == 'network:shared' or account_authorized(config, principal)
     if config.mode == 'loopback':
         return principal == 'local:single-user' or bool(config.legacy_bearer and any(row[0] == principal and not row[2] for row in devices.list_devices()))
     return any(principal == 'tailnet:' + grant['principalId'] and 'tools' in grant.get('scopes', []) for grant in config.trusted_users.values())
@@ -99,7 +113,7 @@ def principal_can_chat(config, principal, devices):
     if principal.startswith('paired:'):
         return control_grant(config, principal) is not None
     if config.mode == 'open_network':
-        return principal == 'network:shared'
+        return principal == 'network:shared' or account_authorized(config, principal)
     if config.mode == 'loopback':
         return principal == 'local:single-user' or bool(config.legacy_bearer and any(row[0] == principal and not row[2] for row in devices.list_devices()))
     return any(principal == 'tailnet:' + grant['principalId'] and {'chat', 'tools'} <= set(grant.get('scopes', [])) for grant in config.trusted_users.values())
@@ -169,7 +183,7 @@ class Admission:
         if engineering_path and not principal.engineering_allowed and not (public_map_path and 'tools' in principal.scopes):
             return await deny("engineering_scope_required")
         if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
-            public_reads = {"/gateway/privacy/inference", "/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/v17", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
+            public_reads = {"/gateway/privacy/inference", "/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/v17", "/gateway/v18", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
                 landing_page = self.config.mode == "open_network" and request_path in LANDING_PATHS

@@ -1,4 +1,12 @@
-# GPT Mobile 0.9.66.8 (build 142) and Windows Gateway 17.0.1
+# GPT Mobile 0.9.66.9 (build 143) and Windows Gateway 18.0.0
+
+Repository indexing now uses saved background jobs on capable Gateways, and independent GitHub reads can continue while an index is being reconciled. Reviewed read deadlines remain recoverable without treating them as uncertain writes. Saved source pages preserve original observation identity and timestamps, combine adjacent text fragments to reduce model round trips, and retain every source character. Chat progress keeps complete public summaries and expanded details; rapid preview changes finish their fade before showing the newest update.
+
+Windows Setup uses the Gateway workspace theme for connection, update, and advanced settings. The desktop and paired Android controls show the installed version, available version and update progress. Paired owners with update permission can check for stable releases and select a version to install when idle.
+
+Installed v17 updaters first select the 17.0.2 transition release. Once it restarts, check again for v18 or let automatic updates continue. The Windows release workflow builds both packages and exercises the transition using the packaged v18 ZIP.
+
+Voice captions follow Kokoro audio playback or word offsets provided by Android speech engines. The composer keeps the first draft until it is saved. Scrolling to the bottom of GitHub chat restores the three-dot follow indicator. Expanded chat headers concentrate the fade near the top. Kokoro can spell unfamiliar words and continue speaking. GitHub chat can reopen a saved jobs page when its cursor matches the observed workflow run, and **Continue** can collect missing verification from an unfinished task. The conversation reasoning selector can return to the profile setting after an explicit override.
 
 ## Getting started
 

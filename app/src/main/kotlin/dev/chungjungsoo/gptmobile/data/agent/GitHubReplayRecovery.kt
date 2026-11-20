@@ -179,7 +179,7 @@ internal object GitHubReplayRecovery {
 
     fun compact(content: ToolResultContent, maxChars: Int, consumed: Boolean = false): ToolResultContent? {
         val source = envelope(content) ?: return null
-        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "continuation_options", "remote_continuations", "correction_call", "source_recovery_call", "previous_call_id", "metadata", "recovery_required", "agent_instruction", "reason", "semantic_summary", "retained_original_complete", "source_result_sha256", "receipt_reference") }
+        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "continuation_options", "remote_continuations", "correction_call", "source_recovery_call", "previous_call_id", "metadata", "recovery_required", "recovery_action", "mutation_replay_allowed", "agent_instruction", "reason", "semantic_summary", "retained_original_complete", "source_result_sha256", "receipt_reference") }
         val result = controls.toMutableMap()
         result["replay_compacted"] = JsonPrimitive(true)
         result["previously_delivered"] = JsonPrimitive(consumed)
@@ -219,12 +219,48 @@ internal object GitHubReplayRecovery {
         val operation = GitHubOperationTool.operationName(call.name) ?: return null
         val key = toolRepeatKey(call)
         val candidates = exchanges.asReversed().mapNotNull { exchange ->
-            val id = exchange.calls.lastOrNull { toolRepeatKey(it) == key }?.callId
-            exchange.results.lastOrNull { it.callId == id && (!it.isError || !it.dispatched && it.errorCode in deterministicErrors) }
+            val ids = exchange.calls.filter { toolRepeatKey(it) == key }.mapTo(mutableSetOf()) { it.callId }
+            exchange.results.lastOrNull { it.callId in ids && (!it.isError || !it.dispatched && it.errorCode in deterministicErrors) }
         }
         // A suppression is a reference to an observation, never a new observation
         // to wrap. Prefer its retained source when that source is still in replay.
-        var previous = candidates.firstOrNull() ?: return null
+        var previous = candidates.firstOrNull() ?: run {
+            // A refused read has no remote result. Keep its last actual blocker available
+            // when the identical request reaches the repeat limit.
+            if (!dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments)) return null
+            val failures = exchanges.flatMap { exchange ->
+                val ids = exchange.calls.filter { toolRepeatKey(it) == key }.mapTo(mutableSetOf()) { it.callId }
+                exchange.results.filter { it.callId in ids }
+            }
+            val hasUncertainOutcome = failures.any { result ->
+                result.dispatched ||
+                    !result.isError ||
+                    result.errorCode in ToolResultEnvelope.unknownOutcomeCodes ||
+                    listOf("requires_reconciliation", "requiresReconciliation").any { result.executionReceipt?.get(it) == JsonPrimitive(true) }
+            }
+            if (failures.isEmpty() || hasUncertainOutcome) return null
+            val blocked = failures.lastOrNull { !it.sharedResult && it.errorCode != null && it.errorCode != "NOT_DISPATCHED" } ?: failures.last()
+            return AgentToolResult(
+                call.callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("schema", "github.repeat.v1")
+                        put("operation", operation)
+                        put("status", "REPEAT_LIMIT")
+                        put("prior_attempt_count", failures.size)
+                        put("previous_call_id", blocked.callId)
+                        put("previous_error_code", blocked.errorCode)
+                        put("message", if (blocked.errorCode == "NOT_DISPATCHED") "Earlier identical requests were rejected before dispatch. Resolve the prior rejection before retrying." else message)
+                        envelope(blocked.content)?.let { prior ->
+                            for (field in listOf("correction_call", "recovery_call", "source_recovery_call")) prior[field]?.let { put(field, it) }
+                        }
+                    }
+                ),
+                isError = true,
+                errorCode = "NOT_DISPATCHED",
+                dispatched = false
+            )
+        }
         val visited = mutableSetOf<String>()
         while (envelope(previous.content)?.get("schema") == JsonPrimitive("github.repeat.v1") && visited.add(previous.callId)) {
             val sourceId = (envelope(previous.content)?.get("previous_call_id") as? JsonPrimitive)?.content ?: break

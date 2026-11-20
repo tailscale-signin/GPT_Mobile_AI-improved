@@ -3,15 +3,22 @@
 set -euo pipefail
 
 [[ "$GITHUB_REF" == refs/heads/main && "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
-version=$(PYTHONPATH=gateway python3 -c 'from v14 import VERSION; print(VERSION)')
-[[ "$version" =~ ^17\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+canonical=$(PYTHONPATH=gateway python3 -c 'from v14 import VERSION; print(VERSION)')
+version=$canonical
+payload=dist/windows
+if [[ "${1:-}" == --v17-transition ]]; then
+    [[ "$canonical" == 18.0.0 ]]
+    version=17.0.2
+    payload=dist/windows/v17-transition
+fi
+[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 tag="gateway-v$version"
 zip="Gateway-$version-windows-x64.zip"
 installer="Gateway-$version-windows-x64-setup.exe"
 android_version=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"$/\1/p' app/build.gradle.kts)
 android_code=$(sed -n 's/^[[:space:]]*versionCode = \([0-9]*\)$/\1/p' app/build.gradle.kts)
 [[ "$android_version" =~ ^[0-9]+(\.[0-9]+)+$ && "$android_code" =~ ^[0-9]+$ ]]
-cd dist/windows
+cd "$payload"
 
 # The Windows runner writes its checksum file with CRLF on Windows.
 tr -d '\r' < SHA256SUMS.txt > checksums.txt
@@ -46,6 +53,9 @@ fi
 {
     printf 'Gateway source: %s\n\n' "$GITHUB_SHA"
     printf 'Android source at this revision: v%s (build %s). Android packaging and publication use the signed Android release workflow.\n\n' "$android_version" "$android_code"
+    if [[ "$version" == 17.0.2 && "$canonical" == 18.0.0 ]]; then
+        printf 'This transition release upgrades the v17 updater. After Gateway restarts, check for updates again to install Gateway 18. Automatic updates continue when idle.\n\n'
+    fi
     printf 'The Windows installer is unsigned. CI verified the installer and update smoke scenarios. Physical Android and Windows integration requires its own observed results.\n'
     if [[ -f "../../docs/repairs/post-1349-github-read-recovery-2026-11-17.md" ]]; then
         printf '\n[Feature delivery and qualification](https://github.com/%s/blob/%s/docs/repairs/post-1349-github-read-recovery-2026-11-17.md)\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
@@ -101,3 +111,10 @@ trap 'rm -rf -- "$downloads"' EXIT
 gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$downloads" --pattern "$zip" --pattern "$installer" \
     --pattern SHA256SUMS.txt --pattern smoke-results.json
 for name in "${assets[@]}"; do cmp -- "$name" "$downloads/$name"; done
+
+
+# Publish the bridge only after the destination is independently downloadable.
+if [[ "$canonical" == 18.0.0 && "$version" == "$canonical" ]]; then
+    cd ../..
+    bash scripts/publish_gateway_windows.sh --v17-transition
+fi

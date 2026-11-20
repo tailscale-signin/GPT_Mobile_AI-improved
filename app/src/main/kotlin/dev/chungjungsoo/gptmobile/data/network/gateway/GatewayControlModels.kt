@@ -25,7 +25,9 @@ internal fun gatewayControlEndpoint(raw: String): String {
     return raw.trimEnd('/')
 }
 
-internal data class GatewayPairingLink(val endpoint: String, val installationId: String, val fingerprint: String, val code: String, val expiresAt: Long) {
+internal data class GatewayPairingLink(val endpoint: String, val installationId: String, val fingerprint: String, val code: String, val expiresAt: Long, val gatewayPort: Int? = null) {
+    val profileEndpoint: String? get() = gatewayPort?.let { URI("http", null, URI(endpoint).host, it, "/v1", null, null).toString() }
+
     companion object {
         fun parse(raw: String, nowSeconds: Long): GatewayPairingLink {
             require(raw.length in 1..4096)
@@ -38,7 +40,7 @@ internal data class GatewayPairingLink(val endpoint: String, val installationId:
             }
             require(fields.map { it.first }.toSet().size == fields.size)
             val values = fields.toMap()
-            require(values.keys == setOf("endpoint", "installation_id", "fingerprint", "code", "expires"))
+            require(values.keys - "gateway_port" == setOf("endpoint", "installation_id", "fingerprint", "code", "expires"))
             val installation = values.getValue("installation_id")
             require(installation.matches(Regex("[A-Za-z0-9_.:-]{1,160}")))
             val fingerprint = values.getValue("fingerprint").lowercase()
@@ -47,7 +49,8 @@ internal data class GatewayPairingLink(val endpoint: String, val installationId:
             require(code.matches(Regex("[A-Za-z0-9_-]{43,128}")))
             val expires = requireNotNull(values.getValue("expires").toLongOrNull())
             require(expires > nowSeconds && expires - nowSeconds <= 3600)
-            return GatewayPairingLink(gatewayControlEndpoint(values.getValue("endpoint")), installation, fingerprint, code, expires)
+            val gatewayPort = values["gateway_port"]?.let { requireNotNull(it.toIntOrNull()).also { port -> require(port in 1024..65535) } }
+            return GatewayPairingLink(gatewayControlEndpoint(values.getValue("endpoint")), installation, fingerprint, code, expires, gatewayPort)
         }
     }
 }
@@ -100,6 +103,9 @@ internal data class GatewayControlHostRequest(
 )
 
 @Serializable
+internal data class GatewayUpdateStatus(val installed: String, val state: String, val available: String? = null)
+
+@Serializable
 internal data class GatewayControlSnapshot(
     val schema: String,
     @SerialName("installation_id") val installationId: String,
@@ -114,10 +120,16 @@ internal data class GatewayControlSnapshot(
     val capabilities: JsonObject = JsonObject(emptyMap()),
     @SerialName("validation_profiles") val validationProfiles: Map<String, String> = emptyMap(),
     @SerialName("host_requests") val hostRequests: List<GatewayControlHostRequest> = emptyList(),
-    @SerialName("approved_backends") val approvedBackends: List<String> = emptyList()
+    @SerialName("approved_backends") val approvedBackends: List<String> = emptyList(),
+    val updates: GatewayUpdateStatus? = null
 ) {
     fun validate(installation: String, principal: String): GatewayControlSnapshot {
         require(schema == GATEWAY_CONTROL_SCHEMA && installationId == installation && principalId == principal)
+        updates?.let { update ->
+            val version = Regex("""[0-9]{1,6}(?:\.[0-9]{1,6}){2}""")
+            require(update.installed.matches(version) && (update.available == null || update.available.matches(version)))
+            require(update.state.matches(Regex("[a-z-]{1,40}")))
+        }
         require(revision >= 0 && observedAt.isFinite() && observedAt >= 0 && role in setOf("owner", "viewer"))
         require(capabilities["controlSettings.v1"] == JsonPrimitive(true))
         require(desired.size <= 32 && effective.size <= 32 && pending.size <= 32 && writableFields.size <= 32)
@@ -232,7 +244,8 @@ internal data class GatewayControlPairing(
     val expiresAt: Long,
     val keyAlias: String,
     val publicKey: String,
-    val pairingId: String? = null
+    val pairingId: String? = null,
+    val gatewayPort: Int? = null
 )
 
 internal enum class GatewayControlPhase { UNPAIRED, PAIRING, LIVE, SAVING, RECONCILING, STALE, CONFLICT, REVOKED }

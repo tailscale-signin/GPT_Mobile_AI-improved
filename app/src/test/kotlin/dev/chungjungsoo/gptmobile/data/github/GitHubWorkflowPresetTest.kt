@@ -17,7 +17,7 @@ class GitHubWorkflowPresetTest {
         assertEquals(48, GitHubWorkflowPreset.selected("diagnose_ci").toolCalls)
     }
 
-    @Test fun integrationPresetFinishesPendingPagesWithoutExpandingItsBudget() {
+    @Test fun integrationPresetRetainsPendingPagesWithinItsSamplingBudget() {
         val selected = GitHubWorkflowPreset.selected("test_integration")
         val prompt = selected.prompt()
         assertEquals(256, selected.toolCalls)
@@ -26,7 +26,7 @@ class GitHubWorkflowPresetTest {
         assertTrue(prompt.contains("Never invent saved-view cursors"))
         assertTrue(prompt.contains("FIXTURE_BLOCKED"))
         assertTrue(prompt.contains("pending remote continuations"))
-        assertTrue(GitHubChecklistScope.exhaustive(prompt))
+        assertFalse(GitHubChecklistScope.exhaustive(prompt))
         assertFalse(GitHubChecklistScope.readOnly(prompt))
         assertFalse(GitHubChecklistScope.exhaustive(GitHubWorkflowPreset.selected("review_branch").prompt()))
     }

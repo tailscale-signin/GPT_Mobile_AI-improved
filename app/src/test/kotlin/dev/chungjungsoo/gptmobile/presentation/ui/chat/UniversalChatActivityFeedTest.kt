@@ -76,16 +76,58 @@ class UniversalChatActivityFeedTest {
         )
         assertEquals("Reviewing cited sources", generationActivityLabel(emptyList(), listOf(visible, private)))
         assertEquals("Preparing response", generationActivityLabel(emptyList(), listOf(private)))
+        val writing = AssistantTimelineItem(AssistantTimelineItemType.TEXT, "A public response")
+        assertEquals("Writing", generationActivityLabel(emptyList(), listOf(visible, writing, private)))
+        assertEquals("Reviewing cited sources", generationActivityLabel(emptyList(), listOf(writing, visible)))
     }
 
-    @Test fun richSummaryKeepsOnlyItsFirstPublicHeadline() {
+    @Test fun richSummaryKeepsItsCompletePublicBodyForExpansion() {
         val summary = AssistantTimelineItem(
             AssistantTimelineItemType.NOTICE,
             "### Research findings\n- Three sources were checked",
             progressCheckpoint = true,
             statusSummary = true
         )
-        assertEquals(listOf("Research findings"), universalChatPublicCheckpoints(listOf(summary)))
+        assertEquals(listOf(summary.content), universalChatPublicCheckpoints(listOf(summary)))
+    }
+
+    @Test fun sharedHeadlinesDoNotDiscardDifferentFindingsOrTruncateTheRemainingWork() {
+        fun summary(body: String) = AssistantTimelineItem(
+            AssistantTimelineItemType.NOTICE,
+            "Research findings\n$body",
+            progressCheckpoint = true,
+            statusSummary = true
+        )
+        val first = summary("The sources describe the measured result. ".repeat(12) + "Device validation remains pending.")
+        val second = summary("The comparison uses a different revision. The earlier result still applies only to its recorded source.")
+        assertEquals(listOf(first.content, second.content), universalChatPublicCheckpoints(listOf(first, second)))
+    }
+
+    @Test fun heartbeatAndCounterHeadlinesCannotCoalesceDistinctMultilineFindings() {
+        val lines = listOf(
+            "Tracing recent repository commits\nThe first source changed the read policy.",
+            "Tracing recent repository commits\nThe next source changed the resume action.",
+            "Checks: 1/9\nThe unit tests passed; the build is still running.",
+            "Checks: 1/9\nThe build failed while packaging the universal APK."
+        )
+        assertEquals(lines, universalCoalescedActivityLines(lines))
+        assertEquals(lines.size, lines.map(::universalActivityLineIdentity).distinct().size)
+        assertEquals(
+            universalActivityLineIdentity(lines.first()),
+            universalActivityLineIdentity("  TRACING RECENT REPOSITORY COMMITS\r\nThe first source changed the read policy...  ")
+        )
+        val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, lines.first(), progressCheckpoint = true, statusSummary = true)
+        assertEquals("Tracing recent repository commits", generationActivityLabel(emptyList(), listOf(item)))
+    }
+
+    @Test fun changingSingleLineCountersAndHeartbeatsKeepTheirRowIdentity() {
+        assertEquals(universalActivityLineIdentity("Checks: 1 / 9"), universalActivityLineIdentity("Checks: 4 / 9"))
+        assertEquals(universalActivityLineIdentity("Files: 1 / 3"), universalActivityLineIdentity("Files: 2 / 3"))
+        assertEquals(universalActivityLineIdentity("Reading recent changes"), universalActivityLineIdentity("Commit history result received"))
+        assertEquals(
+            listOf("Reading relevant files", "Checks: 4 / 9"),
+            universalCoalescedActivityLines(listOf("Checks: 1 / 9", "Reading relevant files", "Checks: 4 / 9"))
+        )
     }
 
     @Test fun receiptChartNeedsThreeRealToolCallsAndNeverParsesResultText() {

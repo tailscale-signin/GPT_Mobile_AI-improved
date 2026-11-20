@@ -26,7 +26,7 @@ internal fun ReasoningCapabilityContent(
     mode: ReasoningMode,
     state: ReasoningCapabilityUiState,
     onRecheck: () -> Unit,
-    onSwitchToAuto: () -> Unit,
+    onSwitchToAuto: (() -> Unit)?,
     enabled: Boolean
 ) {
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
@@ -44,7 +44,7 @@ internal fun ReasoningCapabilityContent(
         if (!state.checking) observation?.detailMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         if (!state.checking && observation?.routeVerified == false) Text("The inference route is not verified as ready.", style = MaterialTheme.typography.bodySmall)
         TextButton(onClick = onRecheck, enabled = enabled && !state.checking) { Text("Recheck reasoning support") }
-        if (mode != ReasoningMode.AUTO) TextButton(onClick = onSwitchToAuto, enabled = enabled && !state.checking) { Text("Switch to Auto") }
+        if (mode != ReasoningMode.AUTO && onSwitchToAuto != null) TextButton(onClick = onSwitchToAuto, enabled = enabled && !state.checking) { Text("Switch to Auto") }
     }
 }
 
@@ -64,7 +64,8 @@ internal fun ReasoningAdmissionDialog(
     onSwitchToAuto: () -> Unit,
     onSettings: () -> Unit,
     onChooseModel: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onUseProfileSettings: (() -> Unit)? = null
 ) {
     val observation = notice.state.observation
     androidx.compose.material3.AlertDialog(
@@ -92,7 +93,11 @@ internal fun ReasoningAdmissionDialog(
                         )
                     }
                 } else {
-                    ReasoningCapabilityContent(notice.requested, notice.state, onRecheck, onSwitchToAuto, enabled = true)
+                    ReasoningCapabilityContent(notice.requested, notice.state, onRecheck, onSwitchToAuto.takeIf { onUseProfileSettings == null }, enabled = true)
+                    if (onUseProfileSettings != null) {
+                        Text("This conversation overrides the reasoning setting for each profile.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = onUseProfileSettings, enabled = !notice.state.checking) { Text("Use profile settings for this conversation") }
+                    }
                 }
                 Text("Your draft is kept. Rechecking does not send it. Return to the draft and press Send after repairing the setting.", style = MaterialTheme.typography.bodySmall)
             }

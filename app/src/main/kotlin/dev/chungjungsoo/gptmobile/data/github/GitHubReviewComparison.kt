@@ -26,6 +26,8 @@ internal object GitHubReviewComparison {
     private val labelledBase = Regex("(?i)$baselineSelector[:=][ \\t]*([^\\r\\n]*)")
     private val quotedBaselinePrefix = Regex("(?i)$baselinePrefix$")
     private val literalRef = Regex("[A-Za-z0-9_][A-Za-z0-9._/+@-]{0,254}")
+
+    fun acceptsBaselineInput(text: String): Boolean = literalRef.matches(text.trim())
     private val quotedMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"(?:\\\\.|[^\"\\\\])*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'")
     private val resolutionFailureCodes = GitHubFailurePolicy.codes + setOf(
         "GITHUB_CIRCUIT_OPEN", "GITHUB_TRANSIENT_NETWORK", "GITHUB_REF_UNAVAILABLE", "GITHUB_OPERATION_FAILED",
@@ -34,7 +36,7 @@ internal object GitHubReviewComparison {
         "RATE_LIMITED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "RECONCILIATION_REQUIRED", "TOOL_OUTCOME_UNKNOWN"
     )
     private val resolutionRecoveryActions = setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "RETRY_AFTER_CONFIGURATION_CHANGE")
-    const val INSTRUCTION = "Branch review: establish exact base_sha and head_sha first. Resolve a user-supplied baseline commit, tag or branch to an exact SHA. Otherwise use an observed matching PR base, or resolve the default branch at a full SHA for a non-default selected branch. If the selected branch is the default branch and no baseline was supplied, ask for an updated review request with Baseline: <commit, tag or branch>; never infer an empty diff by comparing the branch to itself. Call github_context action=changes with both pinned revisions, then read the relevant changed source at those revisions. Checks and branch inventories do not constitute a source review."
+    const val INSTRUCTION = "Branch review: establish exact base_sha and head_sha first. Resolve a user-supplied baseline commit, tag or branch to an exact SHA. Otherwise use an observed matching PR base, or resolve the default branch at a full SHA for a non-default selected branch. If the selected branch is the default branch and no baseline was supplied, ask for a baseline in the current task; never infer an empty diff by comparing the branch to itself. Call github_context action=changes with both pinned revisions, then read the relevant changed source at those revisions. Checks and branch inventories do not constitute a source review."
     data class Plan(val checkpoint: JsonObject, val nextCall: ProviderEvent.ToolCall?)
     private data class BaselineSelection(val ref: String? = null, val invalid: Boolean = false)
 
@@ -172,9 +174,11 @@ internal object GitHubReviewComparison {
         val sourceRead = eligible.any { row ->
             val args = row["arguments"] as? JsonObject ?: return@any false
             val pinned = args.text("commit_sha").ifBlank { data(row).text("commit_sha").ifBlank { row.text("resource_sha") } }
+            val result = data(row)
+            val sourceRanges = if ("failed_ranges" in result || "path_corrections" in result) result["items"] else result["items"] ?: args["ranges"]
             row.text("tool").githubOperationFamily() == "github_read" &&
                 pinned in setOf(base, head) &&
-                (args["ranges"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any { it.text("path") in changed }
+                (sourceRanges as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any { it.text("path") in changed }
         }
         return if (sourceRead) null else "The exact comparison is retained, but no relevant changed-source read at the pinned base/head is recorded. Checks and inventories cannot verify a source review."
     }
@@ -310,7 +314,24 @@ internal object GitHubReviewComparison {
         val default = selected.text("default_branch").ifBlank { (selected["repository"] as? JsonObject)?.text("default_branch").orEmpty() }
         val selection = baseline(task)
         if (selection.invalid) return state("BASELINE_REQUIRED", "The supplied baseline is missing, unsupported or ambiguous. Send one literal baseline on its own line: Baseline: <commit, tag or branch>. Saved observations remain retained.")
-        val requestedBase = selection.ref
+        val choiceId = "review-baseline-" + GitHubEvidenceBook.digest("$task|$targetRepository|$head").take(24)
+        val choice = receipts.values.lastOrNull {
+            targetReceipt(it) &&
+                it.text("tool") == "github_decide" &&
+                it.text("call_id") == choiceId &&
+                it["shared_result"] == JsonPrimitive(true) &&
+                it["dispatched"] == JsonPrimitive(false)
+        }
+        val requestedBase = selection.ref ?: choice?.let {
+            // A local decision supplies a selector only. The comparison and its evidence still require GitHub receipts.
+            val result = data(it)
+            if (it["success"] != JsonPrimitive(true) || result["cancelled"] != JsonPrimitive(false)) return state("BASELINE_REQUIRED", "Baseline selection stopped. The review observations are saved.")
+            val answer = result.text("user_answer")
+            val options = (args(it)["options"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            val parent = options.singleOrNull { option -> option.text("label") == answer && option.text("label").startsWith("Before this commit") }
+                ?.text("detail")?.takeIf(sha::matches)
+            parent ?: answer.takeIf(literalRef::matches) ?: return state("BASELINE_REQUIRED", "Select one commit, tag or branch to continue the saved review.")
+        }
         if (requestedBase != null) {
             policy = if (sha.matches(requestedBase)) "EXPLICIT_BASE_SHA" else "EXPLICIT_BASE_REF"
             if (sha.matches(requestedBase)) {
@@ -354,8 +375,43 @@ internal object GitHubReviewComparison {
                             args(it).text("action") == "commit" &&
                             data(it).text("commit_sha").equals(head, ignoreCase = true)
                     }
-                    val parent = (observedHead?.let(::data)?.get("parents") as? JsonArray)?.singleOrNull()
+                    val parent = (observedHead?.let(::data)?.get("parents") as? JsonArray)?.firstOrNull()
                         ?.let { it as? JsonObject }?.text("sha")?.takeIf { sha.matches(it) && !it.equals(head, ignoreCase = true) }
+                    val decision = tools.singleOrNull { it.name == "github_decide" && it.modelVisible && dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.USER_DECISION in it.capabilities }
+                    if (decision != null) {
+                        if (observedHead == null) {
+                            val lookup = call(
+                                "github_context",
+                                buildJsonObject {
+                                    put("action", "commit")
+                                    put("ref", head)
+                                }
+                            )
+                            if (lookup != null) return state("HEAD_REQUIRED", "Checking the parent of the pinned revision.", lookup)
+                        }
+                        val question = "Which baseline should this review compare with ${head.take(12)}?"
+                        val options = listOf(
+                            buildJsonObject {
+                                if (parent == null) {
+                                    put("label", "Enter a commit")
+                                    put("enter_value", true)
+                                } else {
+                                    put("label", "Before this commit (${parent.take(12)})")
+                                    put("detail", parent)
+                                }
+                            },
+                            buildJsonObject {
+                                put("label", "Choose a tag or branch")
+                                put("enter_value", true)
+                            }
+                        )
+                        val arguments = buildJsonObject {
+                            put("question", question)
+                            put("context", "$targetRepository · $branch. The review will continue from its saved evidence.")
+                            put("options", JsonArray(options))
+                        }
+                        return state("BASELINE_REQUIRED", question, ProviderEvent.ToolCall(choiceId, decision.name, arguments))
+                    }
                     val suggestion = parent?.let { " For a one-commit review, you can select the observed parent with Baseline: $it." }.orEmpty()
                     return state("BASELINE_REQUIRED", "The selected branch is also the default branch ($branch). Send the review request again with Baseline: <commit, tag or branch>.$suggestion Saved observations remain retained.")
                 }

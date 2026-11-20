@@ -518,7 +518,40 @@ internal class GitHubOperationTool(
         if (!result.isError && data != null) {
             val assessment = pagination.assessPage(operation, resolved, data)
             if (assessment.errorCode != null) {
-                return withPaginationState(result, assessment.data).copy(
+                val gap = (assessment.data["pagination_progress"] as? JsonObject)?.get("first_unobserved_page")
+                val repairArguments = gap?.let { page ->
+                    val pinned = if (operation == "github_context" && effectiveArguments["action"] == JsonPrimitive("commits")) {
+                        (assessment.data["commit_sha"] as? JsonPrimitive)?.content?.takeIf { sha -> sha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) }
+                    } else {
+                        null
+                    }
+                    JsonObject(
+                        effectiveArguments + buildJsonObject {
+                            put("page", page)
+                            if (pinned != null) {
+                                put("ref", pinned)
+                                put("commit_sha", pinned)
+                            }
+                        }
+                    ).takeIf { candidate -> ToolArgumentValidator.errors(candidate, definition.inputSchema).isEmpty() }
+                }
+                val recovery = if (repairArguments == null) {
+                    assessment.data
+                } else {
+                    JsonObject(
+                        assessment.data + buildJsonObject {
+                            put(
+                                "correction_call",
+                                buildJsonObject {
+                                    put("tool", definition.name)
+                                    put("arguments", repairArguments)
+                                }
+                            )
+                            put("message", "The requested page was observed. Earlier pages are missing. For a complete inventory, use the supplied correction call and follow its returned continuations. For a sample, keep the observed rows.")
+                        }
+                    )
+                }
+                return withPaginationState(result, recovery).copy(
                     executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("traversal_state" to assessment.data.getValue("traversal_state"), "has_more" to JsonPrimitive(false), "pagination_progress" to assessment.data.getValue("pagination_progress"))),
                     isError = true,
                     errorCode = assessment.errorCode
@@ -571,7 +604,7 @@ internal class GitHubOperationTool(
             else -> null
         }
         val stateFields = setOf("pagination_progress", "has_more", "complete", "continuation", "continuation_call", "remote_continuations", "next_page", "traversal_state", "upstream_has_more", "reason", "message")
-        val evidence = source?.let { JsonObject(it.filterKeys { key -> key !in stateFields } + data.filterKeys { key -> key in stateFields }) }
+        val evidence = source?.let { JsonObject(it.filterKeys { key -> key !in stateFields } + data.filterKeys { key -> key in stateFields || key == "correction_call" }) }
         return result.copy(content = ToolResultContent.Json(data), retainedContent = evidence?.let { ToolResultContent.Json(it) } ?: retained)
     }
 

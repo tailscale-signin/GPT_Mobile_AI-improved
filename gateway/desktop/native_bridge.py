@@ -24,7 +24,7 @@ MAX_INPUT = 512 * 1024
 PROTOCOL = 'gptmobile.desktop.v1'
 CONTROL_ACTIONS = {
     'control-settings-read', 'control-settings-patch', 'control-settings-command', 'control-settings-retry',
-    'control-pairing-create', 'control-pairing-list', 'control-pairing-confirm',
+    'control-connect-create', 'control-pairing-create', 'control-pairing-list', 'control-pairing-confirm',
     'control-devices', 'control-device-revoke', 'control-enable',
     'control-validation-approve', 'control-host-requests', 'control-host-request-review',
     'control-backend-approve',
@@ -163,7 +163,7 @@ def control(root, action, args):
                 raise ValueError('The settings response did not confirm the original command. Read its receipt before retrying.')
         if action == 'control-settings-read' and pending:
             result = dict(result, native_pending=pending)
-        if action == 'control-pairing-create':
+        if action in {'control-connect-create', 'control-pairing-create'}:
             # Render the canonical one-time invitation locally. The copyable
             # link remains available when the optional source-build QR package
             # is absent; never create or redeem another invitation to render it.
@@ -367,6 +367,11 @@ def dispatch(root, action, args, output):
         if command not in {'settings', 'github-settings', 'engineering-setup', 'benchmark-settings', 'dashboard', 'schedules'}:
             raise ValueError('Unknown Gateway utility.')
         call = executable(root, read_pointer(root)['version'], command) + ['--legacy-ui']
+        if command in {'settings', 'github-settings'} and 'view' in args:
+            view = args['view']
+            if view not in ({'Add-ons', 'General', 'Advanced'} if command == 'settings' else {'Repository Validation', 'GitHub'}):
+                raise ValueError('Unknown settings section.')
+            call += ['--section', view]
         if command == 'dashboard':
             view = args.get('view', 'Overview')
             if view not in UTILITY_VIEWS:

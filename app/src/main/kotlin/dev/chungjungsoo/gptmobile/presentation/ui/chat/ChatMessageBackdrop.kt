@@ -27,8 +27,8 @@ internal fun Modifier.chatMessageBackdrop(
         drawContent()
         if (size.height <= 0f || (topFade.value <= 0f && bottomFadeStartFromBottom.value <= 0f)) return@drawWithContent
 
-        val topStart = (topFadeStart.toPx() / size.height).coerceIn(0f, 1f)
-        val topStop = (topFade.toPx() / size.height).coerceIn(topStart, 1f)
+        val topStart = (topFadeStart.toPx() / size.height).coerceIn(0f, .45f)
+        val topStop = (topFade.toPx() / size.height).coerceIn(topStart, .45f)
         val topStops = chatTopFadeStops(topStart, topStop, topFadeConcentration)
         val bottomOpaqueStop = (1f - (bottomFadeStartFromBottom.toPx() / size.height))
             .coerceIn(topStop, 1f)
@@ -69,6 +69,6 @@ internal fun chatTopFadeStops(start: Float, stop: Float, expansion: Float): Pair
     // Exactly preserve the original full-width linear fade when collapsed.
     // Expansion retains stronger transparency near the top, then reaches
     // opacity over the final half of the mask for a sharper falloff.
-    return (low + range * (0.46f * eased)) to
-        (low + range * (1f - 0.06f * eased))
+    return (low + range * (0.64f * eased)) to
+        (low + range * (1f - 0.14f * eased))
 }

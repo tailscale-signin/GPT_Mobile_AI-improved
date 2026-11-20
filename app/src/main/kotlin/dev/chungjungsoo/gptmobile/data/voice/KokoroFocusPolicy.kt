@@ -10,6 +10,13 @@ internal enum class KokoroFocusAction { RESTORE, PAUSE, DUCK, STOP, IGNORE }
 
 internal const val KOKORO_FOCUS_PAUSE_MAX_MS = 15_000L
 
+/** Give Android a short route-settling window for an immediate denial in normal mode. */
+internal fun kokoroFocusRetryDelay(attempt: Int, mode: Int?): Long? = when {
+    attempt == 1 && mode == AudioManager.MODE_NORMAL -> 900L
+    attempt == 1 -> 250L
+    else -> null
+}
+
 internal data class KokoroFocusState(val paused: Boolean = false, val ducked: Boolean = false, val pauseStartedAt: Long? = null) {
     fun transition(action: KokoroFocusAction, now: Long): KokoroFocusState = when (action) {
         KokoroFocusAction.RESTORE -> KokoroFocusState()

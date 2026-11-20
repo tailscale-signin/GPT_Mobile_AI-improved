@@ -33,6 +33,21 @@ class GitHubDecisionToolTest {
     private val workspace = GitHubConversationContext("connection", "owner", "repo", "main", "a".repeat(40), "profile")
     private val arguments = Json.parseToJsonElement("""{"question":"Which layout?","options":[{"label":"Compact"},{"label":"Spacious"}],"recommended":0}""").jsonObject
 
+    @Test fun customBaselineOptionWaitsForAValidRevisionEvenWhenSuggestionsAreEnabled() = runBlocking {
+        val decisions = GitHubChatDecisions(GitHubRepositoryStateStore())
+        val tool = GitHubDecisionTool(decisions, 1, 2, "profile", workspace, false, { true }, useSuggestion = { true })
+        val args = Json.parseToJsonElement("""{"question":"Choose a baseline","options":[{"label":"Before this commit"},{"label":"Choose a tag","enter_value":true}],"recommended":1}""").jsonObject
+        val pending = async { tool.execute("baseline", args) }
+        val id = decisions.waiting.first { it.isNotEmpty() }.single()
+        val decision = decisions.decisions.value.single()
+        assertTrue(decision.options.last().enterValue)
+        assertTrue(runCatching { decisions.respond(id, 1, decision.workspace, option = 1) }.isFailure)
+        assertTrue(runCatching { decisions.respond(id, 1, decision.workspace, customAnswer = "invalid revision") }.isFailure)
+        decisions.respond(id, 1, decision.workspace, customAnswer = "release/v18")
+        assertFalse(pending.await().isError)
+        assertEquals("release/v18", decisions.decisions.value.single().answer)
+    }
+
     @Test fun hydratedEngineeringMemoryAndRealDecisionCatalogAllowAVisibleProviderReply() = runBlocking {
         val profile = PlatformV2(uid = "profile", name = "Local Llama", compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:8080/v1", model = "local")
         val decision = GitHubDecisionTool(GitHubChatDecisions(GitHubRepositoryStateStore()), 1, 2, profile.uid, workspace, false, { true })

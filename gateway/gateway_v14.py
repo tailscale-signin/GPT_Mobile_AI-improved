@@ -382,6 +382,8 @@ async def v14_capabilities(request: Request, model: str = ""):
     return result
 
 
+@app.get("/gateway/v18")
+@app.get("/v1/gateway/v18")
 @app.get("/gateway/v17")
 @app.get("/v1/gateway/v17")
 @app.get("/gateway/v16")

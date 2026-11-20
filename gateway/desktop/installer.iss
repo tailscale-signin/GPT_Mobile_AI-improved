@@ -13,6 +13,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 WizardStyle=modern dark
+WizardSmallImageFile=assets\gateway.png
+WizardSmallImageBackColor=#001219
+WizardImageFile=..\..\dist\windows\setup-sidebar.png
 WizardImageBackColor=#001219
 DisableProgramGroupPage=yes
 DisableDirPage=no
@@ -33,9 +36,9 @@ Source: "Start-Gateway.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
-Name: "startup"; Description: "Start Gateway when I sign in"; Flags: checkedonce
+Name: "startup"; Description: "Start Gateway when I sign in"; Flags: checkedonce; Check: NeedsInitialSettings
 Name: "desktopicon"; Description: "Create a desktop dashboard shortcut"; Flags: unchecked
-Name: "engineering"; Description: "Allow network devices to run GitHub engineering tasks and map private repositories"; Flags: unchecked
+Name: "engineering"; Description: "Allow network devices to run GitHub engineering tasks and map private repositories"; Flags: unchecked; Check: NeedsInitialSettings
 
 Name: "firewall"; Description: "Allow Gateway from the local subnet on Private networks (Windows administrator approval)"; Flags: unchecked
 
@@ -116,6 +119,11 @@ begin
   UpdatePage.SelectedValueIndex := 0;
 end;
 
+function NeedsInitialSettings: Boolean;
+begin
+  Result := not FileExists(ExpandConstant('{app}\settings.json'));
+end;
+
 function IsFullEngineeringSelected: Boolean;
 begin
   Result := EngineeringPage.SelectedValueIndex = 1;
@@ -126,9 +134,8 @@ var PlanFile: String; Code: Integer;
 begin
   Result := False;
   PlanFile := ExpandConstant('{tmp}\gateway-setup.ini');
-  DeleteFile(PlanFile);
   ExtractTemporaryFile('GatewaySetup.exe');
-  if not Exec(ExpandConstant('{tmp}\GatewaySetup.exe'), '--plan "' + PlanFile + '"', '',
+  if not Exec(ExpandConstant('{tmp}\GatewaySetup.exe'), '--plan "' + PlanFile + '" ' + IntToStr(WizardForm.Handle), '',
               SW_SHOW, ewWaitUntilTerminated, Code) then begin
     MsgBox('Windows could not open Gateway Setup. Check the install log and try again.', mbError, MB_OK);
     Exit;
@@ -143,7 +150,11 @@ begin
   NetworkPage.Values[0] := GetIniString('setup', 'bind', '', PlanFile);
   EngineeringPage.SelectedValueIndex := GetIniInt('setup', 'engineeringSetup', 0, 0, 1, PlanFile);
   SetupPage.SelectedValueIndex := GetIniInt('setup', 'advanced', 0, 0, 1, PlanFile);
-  DeleteFile(PlanFile);
+  ConnectionPage.Values[2] := GetIniString('setup', 'mcp', '', PlanFile);
+  PerformancePage.Values[0] := IntToStr(GetIniInt('setup', 'workers', 2, 1, 16, PlanFile));
+  PerformancePage.Values[1] := IntToStr(GetIniInt('setup', 'chats', 8, 1, 64, PlanFile));
+  PerformancePage.Values[2] := IntToStr(GetIniInt('setup', 'grace', 30, 10, 120, PlanFile));
+  UpdatePage.SelectedValueIndex := GetIniInt('setup', 'updates', 0, 0, 2, PlanFile);
   NativePlan := True;
   Result := True;
 end;
@@ -154,7 +165,7 @@ begin
   AdvancedPage := (PageID = ConnectionPage.ID) or (PageID = PerformancePage.ID) or
     (PageID = NetworkPage.ID) or (PageID = UpdatePage.ID);
   Upgrade := FileExists(ExpandConstant('{app}\settings.json'));
-  Result := (AdvancedPage and ((SetupPage.SelectedValueIndex = 0) or Upgrade)) or
+  Result := (AdvancedPage and (NativePlan or (SetupPage.SelectedValueIndex = 0) or Upgrade)) or
     (((PageID = SetupPage.ID) or (PageID = EngineeringPage.ID)) and (Upgrade or NativePlan));
 end;
 
@@ -229,7 +240,7 @@ begin
     RuntimePrepared := True;
   end;
   Validator := ExpandConstant('{tmp}\') + '{app}\releases\{#GatewayVersion}\Gateway.exe';
-  if not Exec(Validator, 'validate-settings --root "' + ExpandConstant('{app}') + '" --settings-file "' + TempFile + '" --quiet --error-file "' + ExpandConstant('{tmp}\gateway-config-error.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then begin
+  if not Exec(Validator, 'validate-settings --version {#GatewayVersion} --root "' + ExpandConstant('{app}') + '" --settings-file "' + TempFile + '" --quiet --error-file "' + ExpandConstant('{tmp}\gateway-config-error.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then begin
     Result := ConfigurationError;
     Exit;
   end;

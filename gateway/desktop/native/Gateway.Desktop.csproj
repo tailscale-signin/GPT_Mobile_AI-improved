@@ -18,6 +18,7 @@
     <Deterministic>true</Deterministic>
   </PropertyGroup>
   <ItemGroup>
+    <Page Include="../windows/Theme.xaml" Link="Theme.xaml" />
     <Compile Remove="tests/**/*.cs" />
     <None Remove="tests/**" />
   </ItemGroup>

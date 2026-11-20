@@ -84,12 +84,12 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                 DropdownMenu(gatewayMenu, { gatewayMenu = false }) {
                     DropdownMenuItem(text = { Text("Unavailable / not configured") }, onClick = {
                         gatewayMenu = false
-                        onSettings(state.profileSettings.copy(engineeringGatewayProfileUid = null))
+                        onSettings(state.profileSettings.copy(engineeringGatewayProfileUid = null, engineeringGatewayDefaultApplied = true))
                     })
                     state.profiles.filter { dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(it) }.forEach { gateway ->
                         DropdownMenuItem(text = { Text(gateway.name) }, onClick = {
                             gatewayMenu = false
-                            onSettings(state.profileSettings.copy(engineeringGatewayProfileUid = gateway.uid))
+                            onSettings(state.profileSettings.copy(engineeringGatewayProfileUid = gateway.uid, engineeringGatewayDefaultApplied = true))
                         })
                     }
                 }

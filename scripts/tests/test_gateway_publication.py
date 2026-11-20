@@ -16,14 +16,18 @@ GH = '''#!/usr/bin/env python3
 import hashlib, json, os, shutil, subprocess, sys
 from pathlib import Path
 root = Path(os.environ["FIXTURE"])
-state = root / "remote.json"
+version = "17.0.2" if Path.cwd().name == "v17-transition" else "18.0.0"
+state = root / ("remote-" + version + ".json")
+uploads = root / "uploads" / version
+uploads.mkdir(exist_ok=True)
 r = json.loads(state.read_text()) if state.exists() else None
 args = sys.argv[1:]
 if args[:3] == ["api", "--paginate", "--slurp"]:
     print(json.dumps([[r] if r else []]))
 elif args[:3] == ["api", "--method", "POST"]:
     assert r is None
-    r = dict(id=7, tag_name="gateway-v17.0.1", target_commitish=os.environ["GITHUB_SHA"],
+    assert "tag_name=gateway-v" + version in args
+    r = dict(id=7, tag_name="gateway-v" + version, target_commitish=os.environ["GITHUB_SHA"],
              draft=True, prerelease=False, assets=[], html_url="fixture")
     state.write_text(json.dumps(r))
     sys.exit(1)  # GitHub stored it but the acknowledgment was lost.
@@ -34,7 +38,7 @@ elif args[:2] == ["release", "upload"]:
     assert not any(item["name"] == name for item in r["assets"])
     assert r["draft"]
     path = Path(name)
-    shutil.copyfile(path, root / "uploads" / name)
+    shutil.copyfile(path, uploads / name)
     r["assets"].append(dict(name=name, state="uploaded", size=path.stat().st_size,
                             digest="sha256:"+hashlib.sha256(path.read_bytes()).hexdigest()))
     state.write_text(json.dumps(r))
@@ -50,7 +54,7 @@ elif args[:2] == ["release", "download"]:
     assert not r["draft"]
     dest = Path(args[args.index("--dir")+1])
     for item in r["assets"]:
-        shutil.copyfile(root / "uploads" / item["name"], dest / item["name"])
+        shutil.copyfile(uploads / item["name"], dest / item["name"])
 else:
     raise ValueError(args)
 '''
@@ -70,22 +74,24 @@ class WindowsPublicationTest(unittest.TestCase):
             (root / "app/build.gradle.kts").write_text('versionName = "0.9.66.8"\nversionCode = 142\n')
             v14 = root / "gateway/v14"
             v14.mkdir(parents=True)
-            (v14 / "__init__.py").write_text('VERSION = "17.0.1"\n')
+            (v14 / "__init__.py").write_text('VERSION = "18.0.0"\n')
             git("add", "app", "gateway")
             git("commit", "-qm", "fixture")
             sha = git("rev-parse", "HEAD")
             git("init", "-q", "--bare", "origin.git")
             git("remote", "add", "origin", str(root / "origin.git"))
-            payload = root / "dist/windows"
-            payload.mkdir(parents=True)
-            archive = payload / "Gateway-17.0.1-windows-x64.zip"
-            with zipfile.ZipFile(archive, "w") as z:
-                z.writestr("release.json", json.dumps(dict(version="17.0.1", sourceCommit=sha)))
-            installer = payload / "Gateway-17.0.1-windows-x64-setup.exe"
-            installer.write_bytes(b"fixture installer")
-            (payload / "SHA256SUMS.txt").write_bytes("".join(
-                f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\r\n" for path in (archive, installer)).encode())
-            (payload / "smoke-results.json").write_text(json.dumps(dict(version="17.0.1", passed=["installed"])))
+            (root / "scripts").mkdir()
+            shutil.copyfile(ROOT / "scripts/publish_gateway_windows.sh", root / "scripts/publish_gateway_windows.sh")
+            for version, payload in (("18.0.0", root / "dist/windows"), ("17.0.2", root / "dist/windows/v17-transition")):
+                payload.mkdir(parents=True)
+                archive = payload / f"Gateway-{version}-windows-x64.zip"
+                with zipfile.ZipFile(archive, "w") as z:
+                    z.writestr("release.json", json.dumps(dict(version=version, sourceCommit=sha)))
+                installer = payload / f"Gateway-{version}-windows-x64-setup.exe"
+                installer.write_bytes(b"fixture installer")
+                (payload / "SHA256SUMS.txt").write_bytes("".join(
+                    f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\r\n" for path in (archive, installer)).encode())
+                (payload / "smoke-results.json").write_text(json.dumps(dict(version=version, passed=["installed"])))
             (root / "uploads").mkdir()
             gh = root / "gh"
             gh.write_text(GH)
@@ -98,6 +104,7 @@ class WindowsPublicationTest(unittest.TestCase):
             for attempt in range(2):
                 result = publish()
                 self.assertEqual(0, result.returncode, (attempt, result.stderr))
-            self.assertFalse(json.loads((root / "remote.json").read_text())["draft"])
-            (root / "uploads" / installer.name).write_bytes(b"changed remote bytes")
+            for version in ("18.0.0", "17.0.2"):
+                self.assertFalse(json.loads((root / f"remote-{version}.json").read_text())["draft"])
+            (root / "uploads/17.0.2" / installer.name).write_bytes(b"changed remote bytes")
             self.assertNotEqual(0, publish().returncode)

@@ -335,7 +335,10 @@ jobs:
   android_lint:
     name: Android lint
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Hosted run 44660315458 timed out during lintAnalyzeDebugUnitTest at 45m.
+    # Keep all production, unit-test, and Android-test lint analysis enabled;
+    # allow the cold lint graph sufficient bounded time to produce a verdict.
+    timeout-minutes: 105
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: ./.github/actions/setup-android
@@ -371,12 +374,13 @@ jobs:
 
       - name: Run Android Lint
         id: android_lint
-        # The expanded app's cold local lint pass took 19m29s; retain useful headroom.
-        timeout-minutes: 45
+        # Hosted run 44660315458 reached lintAnalyzeDebugUnitTest but exhausted
+        # the 45-minute step; preserve the full task graph and give it headroom.
+        timeout-minutes: 75
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py -- :app:lintDebug --no-daemon --max-workers=1 --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
+          python3 scripts/gradle_retry.py --timeout-seconds 4440 -- :app:lintDebug --no-daemon --max-workers=1 --info '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
 
       - name: Summarize unused Android resources for cleanup
         if: always() && hashFiles('app/build/reports/lint-results-debug.xml') != ''

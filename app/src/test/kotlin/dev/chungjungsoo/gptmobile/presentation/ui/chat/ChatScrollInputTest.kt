@@ -77,14 +77,14 @@ class ChatScrollInputTest {
             assertEquals(1, followCount)
             following = false
         }
-        // The same edge arrival while a touch is held must wait for release.
+        // Reaching the edge while the finger is still down reattaches immediately.
         compose.onNodeWithTag("conversation-edge").performTouchInput { down(center) }
         compose.runOnIdle {
             val downward = Offset(0f, -24f)
             dispatcher.dispatchPreScroll(downward, NestedScrollSource.UserInput)
             dispatcher.dispatchPostScroll(Offset.Zero, downward, NestedScrollSource.UserInput)
-            assertFalse(following)
-            assertEquals(1, followCount)
+            assertTrue(following)
+            assertEquals(2, followCount)
         }
         compose.onNodeWithTag("conversation-edge").performTouchInput { up() }
         compose.runOnIdle {

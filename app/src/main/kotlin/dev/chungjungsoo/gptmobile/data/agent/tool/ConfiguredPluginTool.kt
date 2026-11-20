@@ -3,7 +3,9 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ApprovedReadOnlyAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.ToolReplaySafety
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
@@ -12,7 +14,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 
-internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: PluginExecutionSettings) : OwnedAgentTool {
+internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: PluginExecutionSettings) :
+    OwnedAgentTool,
+    ApprovedReadOnlyAgentTool {
     private val settings = settings.normalized()
     override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = ConfiguredPluginTool(delegate.withChildBudget(bind), settings)
     override val definition = delegate.definition.let { original ->
@@ -37,6 +41,7 @@ internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: P
     override val searchValidationOwner get() = delegate.searchValidationOwner
     override val coordinatesChildWork = delegate.coordinatesChildWork
     override val executionOwner = (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
+    override val approvedReadOnly get() = (delegate as? ApprovedReadOnlyAgentTool)?.approvedReadOnly == true
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val properties = definition.inputSchema["properties"] as? JsonObject
@@ -63,7 +68,14 @@ internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: P
             }
         }
         val result = withTimeoutOrNull(settings.timeoutSeconds * 1000L) { delegate.execute(callId, bounded) }
-            ?: return AgentToolResult(callId, ToolResultContent.Text("Plugin timed out after ${settings.timeoutSeconds} seconds. Dispatch outcome is unknown; reconcile before repeating this action."), true, errorCode = "TIMEOUT_OUTCOME_UNKNOWN")
+            ?: return if (ToolReplaySafety.isReplayableRead(definition.name, bounded, delegate)) {
+                // The configured deadline can expire before the outer execution budget.
+                // Preserve its reviewed read classification instead of creating a false
+                // unknown mutation that blocks unrelated integration work.
+                AgentToolResult(callId, ToolResultContent.Text("Plugin read timed out after ${settings.timeoutSeconds} seconds. Retry this read with a new call ID or narrow its scope; completed evidence is retained."), true, errorCode = "READ_DEADLINE", dispatched = true)
+            } else {
+                AgentToolResult(callId, ToolResultContent.Text("Plugin timed out after ${settings.timeoutSeconds} seconds. Dispatch outcome is unknown; reconcile before repeating this action."), true, errorCode = "TIMEOUT_OUTCOME_UNKNOWN", dispatched = true)
+            }
         val retail = (result.content as? ToolResultContent.Json)?.value as? JsonObject
         if ((retail?.get("schema") as? JsonPrimitive)?.content == GitHubResultViews.SCHEMA) return result
         if (retail != null && AmazonProducts.text(retail, "schema") == AmazonProducts.SCHEMA) {

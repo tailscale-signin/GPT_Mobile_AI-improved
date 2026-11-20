@@ -4,7 +4,7 @@ import kotlin.math.abs
 
 /** A windowed user-gesture speed gate; programmatic streaming scroll never drives it. */
 internal class ChatReadingScrollGate(
-    private val readingThresholdDpPerSecond: Float = 155f,
+    private val readingThresholdDpPerSecond: Float = 135f,
     private val windowMillis: Long = 90L
 ) {
     private var windowStart = -1L

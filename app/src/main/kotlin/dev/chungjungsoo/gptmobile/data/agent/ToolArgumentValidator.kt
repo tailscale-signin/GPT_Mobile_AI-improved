@@ -12,6 +12,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Host validation shared by native callbacks and ordinary tools. Never guesses identifiers. */
@@ -50,7 +51,9 @@ internal object ToolArgumentValidator {
             else -> ""
         }
         val declared = (schema["properties"] as? JsonObject).orEmpty().keys.sorted().joinToString(", ").take(1000)
-        val cursorGuidance = if (arguments?.containsKey("view_cursor") == true) {
+        val cursorGuidance = if (arguments != null && jobsReadWithoutCursor(toolName, arguments) != null) {
+            "For a fresh jobs list, use action=jobs and the observed run_id. For a saved page, copy the exact cursor-only call from that run's jobs result. "
+        } else if (arguments?.containsKey("view_cursor") == true) {
             "A saved view accepts only the issued view_cursor by itself. Copy the exact continuation_call.arguments; never invent a cursor or combine it with action, owner, repo, page, branch or query. "
         } else {
             ""
@@ -212,6 +215,9 @@ internal object ToolArgumentValidator {
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
         val operation = toolName.githubOperationFamily()
+        jobsReadWithoutCursor(toolName, arguments)?.let { fresh ->
+            return fresh.takeIf { errors(it, schema).isEmpty() }
+        }
         if (operation == "github_search" &&
             arguments.keys.none { it in setOf("view_cursor", "search_id") } &&
             arguments["index_cursor"] in setOf(null, JsonPrimitive(0)) &&
@@ -267,6 +273,16 @@ internal object ToolArgumentValidator {
         return proposal.takeIf { errors(it, schema).isEmpty() }
     }
 
+    /** A fresh jobs proposal keeps the supplied run ID. A cursor alone needs separate proof of issuance. */
+    internal fun jobsReadWithoutCursor(toolName: String, arguments: JsonObject): JsonObject? {
+        if (arguments["action"] != JsonPrimitive("jobs") || toolName.githubOperationFamily() != "github_ci") return null
+        if (arguments.keys != setOf("action", "run_id", "view_cursor")) return null
+        val cursor = arguments["view_cursor"] as? JsonPrimitive ?: return null
+        val runId = arguments["run_id"] as? JsonPrimitive ?: return null
+        if (!cursor.isString || runId.isString || (runId.longOrNull ?: 0L) <= 0L) return null
+        return JsonObject(arguments - "view_cursor")
+    }
+
     internal fun sourceReadArgumentCorrection(arguments: JsonObject): JsonObject? {
         val argumentFields = setOf("owner", "repo", "commit_sha", "action", "response_detail", "path", "start_line", "end_line", "max_lines")
         if (arguments["action"] !in setOf(null, JsonPrimitive("ranges")) || arguments.keys.any { it !in argumentFields }) return null
@@ -284,10 +300,11 @@ internal object ToolArgumentValidator {
         )
     }
 
-    internal fun boundedReadCorrection(operation: String, arguments: JsonObject): JsonObject? {
+    internal fun boundedReadCorrection(operation: String, arguments: JsonObject, proposeFiniteIntersection: Boolean = true): JsonObject? {
         if (arguments.keys.any { it in setOf("view_cursor", "index_cursor", "evidence_id", "start_offset") }) return null
         if (operation == "github_read") sourceReadArgumentCorrection(arguments)?.let { return it }
-        return when (operation to arguments["action"]) {
+        val action = arguments["action"] ?: JsonPrimitive("ranges").takeIf { operation == "github_read" && "ranges" in arguments }
+        return when (operation to action) {
             "github_ci" to JsonPrimitive("runs") -> {
                 val conclusion = arguments["conclusion"]?.takeIf { it == JsonPrimitive("failure") } ?: return null
                 if (arguments["status"] !in setOf(null, JsonPrimitive("completed"), conclusion)) return null
@@ -303,10 +320,16 @@ internal object ToolArgumentValidator {
                 val ranges = arguments["ranges"] as? JsonArray ?: return null
                 val corrected = ranges.map { value ->
                     val range = value as? JsonObject ?: return null
-                    if (range["end_line"] == JsonPrimitive(-1) && integer(range["max_lines"])?.let { it in 1..2000 } == true) {
-                        JsonObject(range - "end_line")
-                    } else {
-                        range
+                    val end = integer(range["end_line"])
+                    val count = integer(range["max_lines"])
+                    val start = if ("start_line" in range) integer(range["start_line"]) else 1
+                    when {
+                        end == -1 && count != null && count in 1..2000 -> JsonObject(range - "end_line")
+                        // A finite intersection is offered with the rejection. Only the caller
+                        // can accept a narrower explicit window on a subsequent invocation.
+                        proposeFiniteIntersection && start != null && start >= 1 && end != null && end >= start && count != null && count in 1..2000 ->
+                            JsonObject(range - "max_lines" + ("end_line" to JsonPrimitive(minOf(end.toLong(), start.toLong() + count - 1).toInt())))
+                        else -> range
                     }
                 }
                 val correctedRanges = JsonArray(corrected)

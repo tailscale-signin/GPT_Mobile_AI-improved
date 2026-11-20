@@ -59,6 +59,10 @@ internal class GitHubVerifiedSession(
     private var lastChecklist: JsonObject? = null
     private var initialReceiptIds: Set<String>? = null
     private var initiallyVerifiedComplete = false
+    private val readProgress = GitHubReadRoundProgress()
+    private var replannedReader: AgentProviderSession? = null
+    private var replanBoundary: String? = null
+    private var completedDecisionMillis = 0L
     private var executionCorrectionAttempted = false
     private var correctionProgress: Set<String> = emptySet()
     private var progressCorrections = 0
@@ -207,6 +211,19 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         if (recoverGraphIndex(tools)) return@flow
+        if (GitHubTestChecklist.integration(task)) {
+            val receipts = evidence.snapshot().first
+            val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls())
+            if (remaining == null || remaining > GitHubChecklistBudget.cleanupReserve(receipts)) {
+                GitHubSelfTestGraph.statusForSavedIndex(tools, receipts.values.toList(), resumeRequestKey)?.let { call ->
+                    validatePublication()
+                    progress("Checking the saved repository indexing job; independent checks can continue")
+                    emit(call)
+                    emit(ProviderEvent.Completed)
+                    return@flow
+                }
+            }
+        }
         refreshDraft?.let { draft ->
             refreshDraft = null
             emitAll(publish(draft, GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION, continuationTools = tools, continuationExchanges = exchanges))
@@ -216,7 +233,12 @@ internal class GitHubVerifiedSession(
             val saved = evidence.retainedClaimExtraction()
             val draft = (saved?.get("draft") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
             if (draft != null) {
-                emitAll(publish(draft, GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION, continuationTools = tools, continuationExchanges = exchanges))
+                val previous = evidence.diagnostic()
+                val resumeAcceptance = saved["pending"] == JsonPrimitive(false) &&
+                    GitHubTaskContinuity.control(currentRequest) &&
+                    (previous?.get("execution_ledger") as? JsonObject)?.get("recovery") == JsonPrimitive("RESUME_UNFINISHED_WORK") &&
+                    previous["verification_failure"] in setOf(JsonPrimitive("GITHUB_TASK_INCOMPLETE"), JsonPrimitive("GITHUB_EVIDENCE_REQUIRED"))
+                emitAll(publish(draft, GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION, continuationTools = tools, continuationExchanges = exchanges, resumeAcceptance = resumeAcceptance))
                 return@flow
             }
         }
@@ -233,6 +255,27 @@ internal class GitHubVerifiedSession(
             val (receipts, epoch) = evidence.snapshot()
             val observed = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
             if (observed != null) {
+                val report = observed.second
+                if (report["observation_state"] == JsonPrimitive("WAITING_FOR_CI") && report["background_monitoring_registered"] != JsonPrimitive(true)) {
+                    val watch = tools.singleOrNull { it.modelVisible && JsonPrimitive(it.name) == report["watch_tool"] }
+                    val args = buildJsonObject {
+                        put("run_id", report.getValue("run_id"))
+                        put("commit_sha", report.getValue("head_sha"))
+                    }
+                    if (watch != null &&
+                        remainingToolCalls()?.let { it > 0 } != false &&
+                        dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, watch.inputSchema).isEmpty() &&
+                        receipts.values.none { it["tool"] == JsonPrimitive(watch.name) && it["arguments"] == args }
+                    ) {
+                        val id = "ci-watch-" + GitHubEvidenceBook.digest("${evidence.checkpointBinding()}|$args").take(24)
+                        if (receipts.values.none { it["call_id"] == JsonPrimitive(id) }) {
+                            progress("Registering a background check for the active workflow")
+                            emit(ProviderEvent.ToolCall(id, watch.name, args))
+                            emit(ProviderEvent.Completed)
+                            return@flow
+                        }
+                    }
+                }
                 // Complete this bounded factual diagnosis directly from retained
                 // evidence; another model request cannot discover a missing failure.
                 emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.CI_OBSERVATION))
@@ -309,6 +352,19 @@ internal class GitHubVerifiedSession(
                 emit(next.copy(callId = next.callId + "-${receipts.size}"))
                 emit(ProviderEvent.Completed)
                 return@flow
+            }
+            // The host may have finished while the independent audit ran. One
+            // final read can unlock its source queries before saving a partial
+            // report, without polling continuously or repeating the index write.
+            val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls())
+            if (remaining == null || remaining > GitHubChecklistBudget.cleanupReserve(receipts)) {
+                GitHubSelfTestGraph.statusForSavedIndex(tools, receipts.values.toList(), "$resumeRequestKey:after-independent-reads")?.let { call ->
+                    validatePublication()
+                    progress("Checking whether saved indexing finished during the GitHub audit")
+                    emit(call)
+                    emit(ProviderEvent.Completed)
+                    return@flow
+                }
             }
             // Coverage fields come exclusively from the cumulative ledger. No model draft
             // or answer rewrite can supply missing executions or unlock a blocked dependency.
@@ -391,7 +447,7 @@ internal class GitHubVerifiedSession(
             val comparisonTools = if (remainingToolCalls()?.let { it > 0 } != false) tools else emptyList()
             val comparison = withContext(computationDispatcher) { GitHubReviewComparison.plan(task, comparisonTools, evidence.snapshot().first, authorizedTools) }
             comparison?.nextCall?.let { next ->
-                progress("Resolving exact review comparison revisions")
+                progress(if (next.name == "github_decide") "Waiting for your review baseline" else "Resolving exact review comparison revisions")
                 emit(next)
                 emit(ProviderEvent.Completed)
                 return@flow
@@ -431,7 +487,21 @@ internal class GitHubVerifiedSession(
             )
             return@flow
         }
-        var round = collectDraft(delegate, tools, exchanges)
+        val latest = exchanges.lastOrNull()
+        if (openExecutionContinuation != null && replannedReader == null && latest != null && readProgress.replan(latest, completedDecisionMillis)) {
+            val saved = evidence.snapshot().first
+            val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, saved, evidence.diagnostic()) +
+                "\nOverlapping source reads have stopped adding evidence. Use retained excerpts to propose a concrete edit, or identify the specific missing prerequisite."
+            progress("Reusing the saved source and checking what the repair still needs")
+            replannedReader = openExecutionContinuation.invoke(prompt)
+            replanBoundary = latest.calls.first().callId
+        }
+        val boundary = replanBoundary
+        val first = if (boundary == null) -1 else exchanges.indexOfFirst { exchange -> exchange.calls.any { it.callId == boundary } }
+        val readerContext = if (first < 0) exchanges else exchanges.subList(first, exchanges.size)
+        val decisionStarted = System.nanoTime()
+        var round = collectDraft(replannedReader ?: delegate, tools, readerContext)
+        completedDecisionMillis = if (round.completed && !round.failed && round.calls) (System.nanoTime() - decisionStarted) / 1_000_000 else 0
         val retained = evidence.snapshot().first
         if (!initiallyVerifiedComplete &&
             !executionCorrectionAttempted &&
@@ -516,6 +586,23 @@ internal class GitHubVerifiedSession(
             emit(call)
             emit(ProviderEvent.Completed)
         } else {
+            // The earlier graph write remains unconfirmed, but native reads do
+            // not share its index state. Continue the authorized audit after its
+            // one bounded reconciliation read; retain the original obligation.
+            // A fixture mutation or another graph operation cannot use this path.
+            if (GitHubTestChecklist.integration(task) && (remaining == null || remaining > cleanup)) {
+                val independent = withContext(computationDispatcher) {
+                    GitHubTestChecklist.nextIndependentRead(task, tools, receipts, remainingToolCalls())
+                        ?.takeIf { "view_cursor" in it.arguments || (GitHubTransportRecovery.retryNotBefore(receipts.values) ?: 0L) <= now() }
+                }
+                if (independent != null) {
+                    validatePublication()
+                    progress("Continuing independent GitHub reads while the saved graph outcome remains unconfirmed")
+                    emit(independent.copy(callId = independent.callId + "-${receipts.size}"))
+                    emit(ProviderEvent.Completed)
+                    return true
+                }
+            }
             emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.INTEGRATION_CHECKPOINT))
         }
         return true
@@ -698,7 +785,8 @@ internal class GitHubVerifiedSession(
         originalFailure: ProviderEvent.Failed? = null,
         continuationTools: List<AgentToolDefinition> = emptyList(),
         continuationExchanges: List<AgentToolExchange> = emptyList(),
-        verificationRestart: Int = 0
+        verificationRestart: Int = 0,
+        resumeAcceptance: Boolean = false
     ): Flow<ProviderEvent> = flow {
         val verificationStarted = System.nanoTime()
         suspend fun restartPublication(): Boolean {
@@ -713,7 +801,8 @@ internal class GitHubVerifiedSession(
                     originalFailure = originalFailure,
                     continuationTools = continuationTools,
                     continuationExchanges = continuationExchanges,
-                    verificationRestart = verificationRestart + 1
+                    verificationRestart = verificationRestart + 1,
+                    resumeAcceptance = resumeAcceptance
                 )
             )
             return true
@@ -726,7 +815,12 @@ internal class GitHubVerifiedSession(
             val publicationFailureCode = if (descendantsSettled) failureCode else "GITHUB_OWNED_DESCENDANTS_PENDING"
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
-            val ciObservation = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
+            val stopped = originalFailure != null || remainingToolCalls() == 0
+            val ciObservation = withContext(computationDispatcher) {
+                val at = now()
+                GitHubCiObservationReport.render(task, receipts, at, epoch)
+                    ?: if (stopped) GitHubCiObservationReport.render(task, receipts, at, epoch, checkSnapshotOnly = true) else null
+            }
             val status = if (GitHubStatusRequest.matches(task)) {
                 val acceptedContract = evidence.acceptedPromptContract()
                 val acceptedCriteria = (acceptedContract?.get("acceptance_criteria") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
@@ -841,7 +935,13 @@ internal class GitHubVerifiedSession(
                     }
                     retention.forEach { (key, value) -> put(key, value) }
                     put("partial", partial)
-                    put("resume_required", partial)
+                    val watchOwnsPolling = report["background_monitoring_registered"] == JsonPrimitive(true) &&
+                        retentionComplete &&
+                        originalFailure == null &&
+                        publicationFailureCode == null &&
+                        descendantsSettled &&
+                        trustFailures.isEmpty()
+                    put("resume_required", partial && !watchOwnsPolling)
                     if (partial) {
                         put("completion_verified", false)
                         put("task_outcome", if (originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL")
@@ -1020,14 +1120,20 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         val newEvidenceProgress = (currentProgress - correctionProgress).isNotEmpty()
+        // A new explicit continuation starts with the saved receipts already in correctionProgress.
+        // Permit one attempt to collect the missing proof within the original acquisition budget.
+        val requestedCorrection = resumeAcceptance &&
+            progressCorrections == 0 &&
+            (report["stage_budget"] as? JsonObject)?.get("acquisition_allowed") == JsonPrimitive(true)
         val currentSessionReview = GitHubRequestCompletion.requiresLiveSessionReviewRefresh(task)
         if (partial &&
+            report["observation_state"] != JsonPrimitive("WAITING_FOR_CI") &&
             originalFailure == null &&
             publication.extractionFailure == null &&
             openExecutionContinuation != null &&
             continuationTools.isNotEmpty() &&
             progressCorrections < 3 &&
-            newEvidenceProgress &&
+            (newEvidenceProgress || requestedCorrection) &&
             staleReceiptIds.isEmpty() &&
             (GitHubRequestCompletion.requiresRepositoryEvidence(task) || currentSessionReview) &&
             GitHubExecutionContinuation.canResume(
@@ -1116,6 +1222,16 @@ internal class GitHubVerifiedSession(
         // generation; it cannot authorize generic provider-wait replay.
         val currentFailure = originalFailure ?: publication.extractionFailure?.takeUnless { unresolved }
         val approvalIsPrimary = waitingApproval && currentFailure == null && !unresolved
+        val monitoring = delivered["background_monitoring_registered"] == JsonPrimitive(true) &&
+            currentFailure == null &&
+            !unresolved &&
+            !waitingApproval &&
+            delivered["evidence_retention_complete"] == JsonPrimitive(true)
+        if (monitoring) {
+            // The interactive observation is delivered. The durable background watch owns further polls.
+            emit(ProviderEvent.Completed)
+            return@flow
+        }
         if (partial || delivered["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)) {
             lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)
             emit(
@@ -1164,10 +1280,11 @@ internal class GitHubVerifiedSession(
 
     private data class ClaimExtraction(val rendered: Pair<String, JsonObject>, val failure: ProviderEvent.Failed? = null)
 
-    private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null, fixturePreflight: JsonObject? = null): Pair<String, JsonObject> = withContext(computationDispatcher) {
+    private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null, fixturePreflight: JsonObject? = null, inspectExtractorFailure: Boolean = false): Pair<String, JsonObject> = withContext(computationDispatcher) {
         val budget = evidence.stageBudget(receipts, remainingToolCalls(), GitHubSelfTestFixtures.minimumCalls(authorizedTools))
         val remaining = (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull
-        GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode, authorizedTools, remaining, budget, evidence.acceptedPromptContract(), fixturePreflight ?: if (GitHubTestChecklist.integration(task)) evidence.fixtureApprovalPreflight() else null)
+        val preflight = fixturePreflight ?: if (GitHubTestChecklist.integration(task)) evidence.fixtureApprovalPreflight() else null
+        GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode, authorizedTools, remaining, budget, evidence.acceptedPromptContract(), preflight, inspectExtractorFailure)
     }
 
     private suspend fun claimExtractionContext(receipts: Map<String, JsonObject>, epoch: Long): String = withContext(computationDispatcher) {
@@ -1204,7 +1321,8 @@ internal class GitHubVerifiedSession(
         val requirementIds = requests.map { it.requirementIds }
         val attempt = GitHubClaimExtraction.Attempt()
         suspend fun failed(code: String, providerFailure: ProviderEvent.Failed? = null, observations: JsonObject? = null): ClaimExtraction {
-            val (text, report) = partial(receipts, epoch, code)
+            val inspectTimeout = code == "GITHUB_EXTRACTION_TIMEOUT" && providerFailure?.transportComplete == false
+            val (text, report) = partial(receipts, epoch, code, inspectExtractorFailure = inspectTimeout)
             val retained = JsonObject(
                 report + buildJsonObject {
                     put("extraction_batches_completed", completedCount())
@@ -1223,7 +1341,7 @@ internal class GitHubVerifiedSession(
                                 when (code) {
                                     "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
                                     "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA"
-                                    "GITHUB_EXTRACTION_TIMEOUT" -> if (providerFailure?.transportComplete == false) "INSPECT_THE_RECORDED_PROVIDER_FAILURE" else "RESUME_UNFINISHED_EXTRACTION_BATCHES"
+                                    "GITHUB_EXTRACTION_TIMEOUT" -> if (inspectTimeout) "INSPECT_THE_RECORDED_PROVIDER_FAILURE" else "RESUME_UNFINISHED_EXTRACTION_BATCHES"
                                     else -> "INSPECT_THE_RECORDED_PROVIDER_FAILURE"
                                 }
                             )

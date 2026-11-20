@@ -290,6 +290,7 @@ private fun VoiceChatSessionScreen(
                 retainedMuted = it.muted
             }
         }).also {
+            it.submissionRejection = { model.voiceSubmissionRejection }
             val wasMuted = retainedMuted
             // A recreated surface primes retained messages as history. Explicit replay remains
             // available; restoration must never speak already consumed audio a second time.

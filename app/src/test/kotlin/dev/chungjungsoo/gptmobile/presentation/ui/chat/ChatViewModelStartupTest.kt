@@ -786,6 +786,33 @@ class ChatViewModelStartupTest {
         verify(exactly = 0) { coordinator.start(any()) }
     }
 
+    @Test fun clearingConversationReasoningRestoresTheExplicitProfileModeAndKeepsTheDraft() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val profile = profiles.first().copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA, reasoning = false)
+        profiles = listOf(profile)
+        val mode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON
+        val original = features.copy(llamaReasoningModes = mapOf(profile.uid to mode), conversationReasoning = mapOf(7 to false, 8 to true))
+        val settings = mockk<SettingRepository>(relaxed = true)
+        var saved = original
+        coEvery { settings.mutateFeatureSettings(any()) } answers { firstArg<(AppFeatureSettings) -> AppFeatureSettings>()(saved).also { saved = it } }
+        val capabilities = mockk<dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository>(relaxed = true)
+        coEvery { capabilities.check(any(), mode, true) } returns dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation(
+            profile.uid, profile.model, mode, dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNSUPPORTED,
+            "opaque", "runtime", System.currentTimeMillis(), "REASONING_ON_UNSUPPORTED", true, false
+        )
+        val model = createViewModel(combined = false, testFeatures = original, settings = settings, reasoningCapabilities = capabilities)
+        assertEquals(false, model.chatToolConfig.value.reasoning)
+        model.setConversationReasoning(null)
+        assertNull(model.chatToolConfig.value.reasoning)
+        assertEquals(original.copy(conversationReasoning = mapOf(8 to true)), saved)
+        coVerify(exactly = 0) { capabilities.check(any(), any(), any()) }
+        model.askQuestion()
+        assertEquals(mode, model.reasoningAdmissionNotice.value?.requested)
+        assertEquals("Saved draft", model.question.text.toString())
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+    }
+
     @Test fun strictOffSendPreservesDraftAndExplicitRecheckNeverAutomaticallyDispatches() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         profiles = profiles.take(1).map { it.copy(compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) }
@@ -1057,6 +1084,30 @@ class ChatViewModelStartupTest {
         coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
     }
 
+    @Test fun firstSendSurvivesProfileLoadingAndOneFailedPersistenceWithoutLosingTheDraft() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val delayed = CompletableDeferred<List<PlatformV2>>()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        coEvery { repository.persistAgentTurn(any()) } coAnswers {
+            entered.complete(Unit)
+            release.await()
+            throw IllegalStateException("Storage unavailable")
+        }
+        val model = createViewModel(combined = false, profileLoad = delayed)
+        model.question.edit { replace(0, length, "Keep my first message") }
+        model.askQuestion()
+        model.askQuestion()
+        coVerify(exactly = 0) { repository.persistAgentTurn(any()) }
+        delayed.complete(profiles)
+        withTimeout(5000) { entered.await() }
+        assertEquals("Keep my first message", model.question.text.toString())
+        model.askQuestion()
+        release.complete(Unit)
+        coVerify(exactly = 1) { repository.persistAgentTurn(any()) }
+        assertEquals("Keep my first message", model.question.text.toString())
+    }
+
     @Test fun voiceCannotAdmitBeforeItsSelectedProfileLoads() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         val delayed = CompletableDeferred<List<PlatformV2>>()
@@ -1085,7 +1136,7 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null, modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true), testFeatures: AppFeatureSettings? = null, reasoningCapabilities: dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityRepository? = null, roomAvailable: Boolean = true, profileLoad: CompletableDeferred<List<PlatformV2>>? = null, modelPreparation: dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository? = null, settings: SettingRepository = mockk(relaxed = true)): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
         every { repository.observeMessageWindow(chatId, any()) } returns messages
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
@@ -1100,7 +1151,6 @@ class ChatViewModelStartupTest {
             exitAction = secondArg()
             kotlinx.coroutines.Job()
         }
-        val settings = mockk<SettingRepository>(relaxed = true)
         val currentFeatures = testFeatures ?: combinedSettings?.let { features.copy(conversationCombined = features.conversationCombined + (chatId to it)) } ?: features
         coEvery { settings.fetchPlatformV2s() } coAnswers { profileLoad?.await() ?: profiles }
         coEvery { settings.getFeatureSettings() } returns currentFeatures

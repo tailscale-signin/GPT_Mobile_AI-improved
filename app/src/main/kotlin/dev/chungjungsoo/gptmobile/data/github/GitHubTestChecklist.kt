@@ -353,15 +353,27 @@ internal object GitHubTestChecklist {
         return null
     }
 
-    fun nextCall(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, remainingToolCalls: Int? = null, fixturePreflight: JsonObject? = null): ProviderEvent.ToolCall? {
+    /** Unknown graph writes cannot prevent unrelated reads or authorize fixture cleanup. */
+    fun nextIndependentRead(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, remainingToolCalls: Int? = null): ProviderEvent.ToolCall? {
+        if (!integration(task)) return null
+        val nativeTools = tools.filter { it.name.githubOperationFamily() != "repository_graph" }
+        return nextCall(task, nativeTools, receipts, remainingToolCalls, independentReadsOnly = true)
+    }
+
+    fun nextCall(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, remainingToolCalls: Int? = null, fixturePreflight: JsonObject? = null, independentReadsOnly: Boolean = false): ProviderEvent.ToolCall? {
         if (!integration(task) || tools.isEmpty()) return null
         val observations = trusted(receipts)
         val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
         if (remaining == 0) return null
+        if (independentReadsOnly && remaining != null && remaining <= GitHubChecklistBudget.cleanupReserve(receipts)) return null
+        // Filter while selecting, so a deferred mutation or subscription cannot
+        // hide later inventory reads, dependency recipes or saved continuations.
+        fun eligible(call: ProviderEvent.ToolCall) = !independentReadsOnly || dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments)
         // Preserve cleanup allowance, but qualify required live reads while their
         // owned resource still exists. A verified deletion retires those reads.
         val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remainingToolCalls)
         val cleanup = GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = false, cleanupOnly = true, abortIncomplete = !acquisitionAllowed)
+            ?.takeIf(::eligible)
         if (!acquisitionAllowed && cleanup != null) return cleanup
         // A deletion may already have happened. Reconcile its exact retained
         // intent before attempting reads whose resource may no longer exist.
@@ -371,7 +383,7 @@ internal object GitHubTestChecklist {
         ) {
             return cleanup
         }
-        if (acquisitionAllowed) GitHubTransportRecovery.nextRead(tools, observations)?.let { return it }
+        if (acquisitionAllowed) GitHubTransportRecovery.nextRead(tools, observations)?.takeIf(::eligible)?.let { return it }
         val retiredRead = GitHubSelfTestFixtures.retiredReadPredicate(receipts)
         if (GitHubIntegrationAcceptance.requiresBuildBinding(task) && GitHubIntegrationAcceptance.binding(observations)["verified"] != JsonPrimitive(true)) {
             val runtime = GitHubRuntimeIdentity.current()
@@ -384,7 +396,7 @@ internal object GitHubTestChecklist {
                 dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, status.inputSchema).isEmpty() &&
                 observations.none { it.text("tool") == status.name && (it["arguments"] == args || GitHubActionIdentity.matches(status.name, args, it)) && it["runtime_identity"] == runtime }
             ) {
-                return call(status.name, args)
+                call(status.name, args).takeIf(::eligible)?.let { return it }
             }
         }
         // A cached observation is useful evidence but cannot qualify transport.
@@ -407,7 +419,7 @@ internal object GitHubTestChecklist {
         }
         if (liveRead != null) return liveRead
         if (cleanup != null) return cleanup
-        if (acquisitionAllowed) continuation(task, tools, receipts, localOnly = true)?.let { return it }
+        if (acquisitionAllowed) continuation(task, tools, receipts, localOnly = true)?.takeIf(::eligible)?.let { return it }
         val watch = tools.firstOrNull { it.modelVisible && it.name.githubOperationFamily() == "github_watch_checks" }
         val selectedHead = observations.asReversed().firstNotNullOfOrNull { receipt ->
             if (!matches(receipt, capabilities.first()) || receipt["success"] != JsonPrimitive(true)) null else data(receipt)?.get("commit_sha")
@@ -421,7 +433,9 @@ internal object GitHubTestChecklist {
                     put("commit_sha", selectedHead)
                     put("wait_timeout_seconds", 1)
                 }
-                if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, watch.inputSchema).isEmpty() && observations.none { it.text("tool") == watch.name && (it["arguments"] as? JsonObject)?.get("run_id") == id }) return call(watch.name, args)
+                if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, watch.inputSchema).isEmpty() && observations.none { it.text("tool") == watch.name && (it["arguments"] as? JsonObject)?.get("run_id") == id }) {
+                    call(watch.name, args).takeIf(::eligible)?.let { return it }
+                }
             }
         }
         for (capability in capabilities.filter { it.automatic }) {
@@ -441,23 +455,24 @@ internal object GitHubTestChecklist {
                     if (capability.action == "list") put("state", "all")
                 }
                 if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty()) continue
-                return call(tool.name, arguments)
+                call(tool.name, arguments).takeIf(::eligible)?.let { return it }
             }
         }
         if (!acquisitionAllowed) return null
-        val read = GitHubSelfTestReads.next(tools, observations)
+        val read = GitHubSelfTestReads.available(tools, observations).firstOrNull(::eligible)
         // Acquire resource IDs before optional source/metadata samples. Once
         // dependencies are observed, finish an admissible fixture while its
         // cleanup allowance still fits instead of spending it on more samples.
         if (read != null && GitHubSelfTestReads.isDependency(read)) return read
-        continuation(task, tools, receipts, localOnly = false, workflowDependencyOnly = true)?.let { return it }
+        continuation(task, tools, receipts, localOnly = false, workflowDependencyOnly = true)?.takeIf(::eligible)?.let { return it }
         // A fixture is bounded and must leave capacity for its verification and
         // cleanup; optional inventory sampling runs only after this decision.
-        val fixtureAllowed = (remaining == null || remaining >= GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE) &&
+        val fixtureAllowed = !independentReadsOnly &&
+            (remaining == null || remaining >= GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE) &&
             fixturePreflight?.get("state") == JsonPrimitive("READY")
-        GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = fixtureAllowed)?.let { return it }
+        GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = fixtureAllowed)?.takeIf(::eligible)?.let { return it }
         if (read != null) return read
-        return continuation(task, tools, receipts, localOnly = false)
+        return continuation(task, tools, receipts, localOnly = false)?.takeIf(::eligible)
     }
 
     private fun call(tool: String, args: JsonObject) = ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("$tool:$args").take(24), tool, args)
@@ -579,7 +594,7 @@ internal object GitHubTestChecklist {
                     successes.any { GitHubEvidenceOrigin.of(it) == "MOCKED" } -> "MOCKED"
                     else -> "NOT_TESTED"
                 }
-                val graphIncomplete = capability.tool == "repository_graph" && latest?.let { GitHubSelfTestGraph.incomplete(capability.action, it) } == true
+                val graphIncomplete = capability.tool == "repository_graph" && latest?.let { GitHubSelfTestGraph.incomplete(capability.action, it, allTrusted) } == true
                 val incomplete = graphIncomplete || latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS")
                 val excluded = capability.tool == "github_context" && capability.action == "repositories"
                 val unsupportedFixture = !readOnly(capability) && !GitHubSelfTestFixtures.supports(capability.tool, capability.action)

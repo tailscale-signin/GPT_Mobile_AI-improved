@@ -1,2 +1,2 @@
 """Additive v14 gateway contracts; the characterized v13 engine is retained."""
-VERSION = "17.0.1"
+VERSION = "18.0.0"

@@ -190,6 +190,86 @@ class GatewayGraphRepositoryTest {
         }
     }
 
+    @Test fun modelIndexUsesAdvertisedSavedJobsWhileExplicitAndLegacyBatchesStaySynchronous() = runTest {
+        authorizeGraphSharing()
+        for ((durable, explicitSync) in listOf(true to false, true to true, false to false)) {
+            var indexWrites = 0
+            val capability = if (durable) ready.replace("\"schema_version\":1,\"enabled\":true", "\"schema_version\":1,\"enabled\":true,\"durable_index_jobs\":true") else ready
+            HttpClient(
+                MockEngine { request ->
+                    if (request.url.encodedPath.endsWith("capabilities")) {
+                        respond(capability, HttpStatusCode.OK, headers)
+                    } else {
+                        val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                        if (body["action"] == JsonPrimitive("status")) {
+                            respond(notIndexed, HttpStatusCode.OK, headers)
+                        } else {
+                            indexWrites++
+                            if (durable && !explicitSync) {
+                                assertEquals(JsonPrimitive(true), body["background"])
+                                val requestId = body.getValue("request_id").jsonPrimitive.content
+                                respond("""{"status":"INDEX_JOB_ACCEPTED","repository":"owner/repo","commit_sha":"${context.commitSha}","index_job":{"id":"saved-job","generation":1,"state":"QUEUED","request_id":"$requestId"}}""", HttpStatusCode.OK, headers)
+                            } else {
+                                assertFalse(body["background"] == JsonPrimitive(true))
+                                assertFalse("request_id" in body)
+                                respond(status("next-batch"), HttpStatusCode.OK, headers)
+                            }
+                        }
+                    }
+                }
+            ) { install(HttpTimeout) }.use { http ->
+                // Capability caching is shared by endpoint; each scenario uses a
+                // new endpoint identity so it observes its advertised protocol.
+                profiles = listOf(ai, host.copy(apiUrl = host.apiUrl + "/$durable-$explicitSync"))
+                val arguments = buildJsonObject {
+                    put("action", "index")
+                    if (explicitSync) put("background", false)
+                }
+                val result = repository(http).execute(context, arguments)
+                assertEquals(JsonPrimitive(false), result.getValue("index_checkpoint").jsonObject["index_outcome_unknown"])
+                assertEquals(1, indexWrites)
+            }
+        }
+    }
+
+    @Test fun explicitResumeUsesJobIdentityAndAcknowledgementWithoutRequiringBackgroundFlag() = runTest {
+        authorizeGraphSharing()
+        var controls = 0
+        val capability = ready.replace("\"schema_version\":1,\"enabled\":true", "\"schema_version\":1,\"enabled\":true,\"durable_index_jobs\":true,\"sync_index_receipts\":true")
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(capability, HttpStatusCode.OK, headers)
+                } else {
+                    val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    if (body["action"] == JsonPrimitive("status")) {
+                        respond("""{"repository":"owner/repo","commit_sha":"${context.commitSha}","index_job":{"id":"saved-job","generation":2,"state":"PAUSED"}}""", HttpStatusCode.OK, headers)
+                    } else {
+                        controls++
+                        assertEquals(JsonPrimitive("resume"), body["job_action"])
+                        assertEquals(JsonPrimitive(2), body["job_generation"])
+                        assertFalse("sync_index_request_id" in body)
+                        val requestId = body.getValue("request_id").jsonPrimitive.content
+                        respond("""{"repository":"owner/repo","commit_sha":"${context.commitSha}","index_job":{"id":"saved-job","generation":3,"state":"QUEUED","request_id":"$requestId"}}""", HttpStatusCode.OK, headers)
+                    }
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val result = repository(http).execute(
+                context,
+                buildJsonObject {
+                    put("action", "index")
+                    put("job_action", "resume")
+                    put("job_id", "saved-job")
+                    put("job_generation", 2)
+                }
+            )
+            assertEquals(JsonPrimitive(false), result.getValue("index_checkpoint").jsonObject["index_outcome_unknown"])
+            assertEquals(JsonPrimitive("QUEUED"), result.getValue("index_job").jsonObject["state"])
+            assertEquals(1, controls)
+        }
+    }
+
     @Test fun backgroundCancellationRejectsAChangedJobBeforeSendingTheCancel() = runTest {
         var cancellations = 0
         val capability = ready.replace("\"schema_version\":1,\"enabled\":true", "\"schema_version\":1,\"enabled\":true,\"durable_index_jobs\":true")

@@ -30,7 +30,7 @@ internal fun dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.githubDeci
     }?.mode ?: GitHubDecisionMode.ASK
 
 @Serializable
-data class GitHubDecisionOption(val label: String, val detail: String = "")
+data class GitHubDecisionOption(val label: String, val detail: String = "", val enterValue: Boolean = false)
 
 @Serializable
 data class GitHubChatDecision(
@@ -95,7 +95,7 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
             val existing = mutable.value.firstOrNull { it.id == proposal.id }
             require(existing == null || existing.copy(answer = null, delivered = false, cancelled = false, automatic = false, persistent = proposal.persistent) == proposal) { "Decision identity changed." }
             val decision = existing ?: proposal.let {
-                val label = if (useSuggestion) it.recommended?.let(it.options::get)?.label else null
+                val label = if (useSuggestion) it.recommended?.let(it.options::get)?.takeUnless(GitHubDecisionOption::enterValue)?.label else null
                 if (label == null) it else it.copy(answer = label, automatic = true)
             }.also {
                 check(mutable.value.count { !it.delivered } < MAX_PENDING) { "Answer or dismiss an existing GitHub decision before adding another." }
@@ -129,7 +129,12 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
         val request = mutable.value.firstOrNull { it.id == id && it.chatId == chatId && it.workspace == workspace && !it.delivered } ?: return@withLock GitHubDecisionResponse(false, false)
         if (request.answer != null) return@withLock GitHubDecisionResponse(false, id in waiters)
         require((option != null) != (customAnswer != null)) { "Choose one option or provide a custom answer." }
-        val answer = option?.let { request.options.getOrNull(it)?.label ?: error("Unknown decision option.") } ?: customAnswer.orEmpty().trim()
+        val selected = option?.let { requireNotNull(request.options.getOrNull(it)) { "Unknown decision option." } }
+        require(selected?.enterValue != true) { "Enter a commit, tag or branch." }
+        val answer = selected?.label ?: customAnswer.orEmpty().trim()
+        if (customAnswer != null && request.options.any(GitHubDecisionOption::enterValue)) {
+            require(GitHubReviewComparison.acceptsBaselineInput(answer)) { "Enter one commit, tag or branch." }
+        }
         require(answer.isNotBlank() && answer.length <= 2000)
         save(mutable.value.map { if (it.id == id) it.copy(answer = answer) else it })
         GitHubDecisionResponse(true, id in waiters)

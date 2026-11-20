@@ -19,7 +19,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPaginationBoundaryTest {
+    @Test fun sparseBranchInventoryIdentifiesTheFirstMissingPage() {
+        val boundary = GitHubPaginationBoundary()
+        fun read(page: Int, more: Boolean): GitHubPaginationBoundary.Assessment {
+            val args = json("""{"action":"list_branches","page":$page,"per_page":100}""")
+            return boundary.assessPage("github_context", args, json("""{"has_more":$more,"items":[{"name":"branch-$page"}]}"""))
+        }
+        read(1, true)
+        read(2, true)
+        val last = read(61, false)
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", last.errorCode)
+        assertEquals(JsonPrimitive(3), last.data.getValue("pagination_progress").jsonObject["first_unobserved_page"])
+    }
+
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
+
+    @Test fun sparseTerminalInventoryNamesTheMissingPageAndPreservesItDuringRepair() {
+        val boundary = GitHubPaginationBoundary()
+        fun args(n: Int) = json("""{"action":"list_pull_requests","state":"all","per_page":100,"page":$n}""")
+        fun result(n: Int, more: Boolean) = json("""{"items":[{"id":$n}],"has_more":$more}""")
+        val sparse = boundary.assessPage("github_pr", args(3), result(3, false))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", sparse.errorCode)
+        assertEquals(JsonPrimitive(1), sparse.data.getValue("pagination_progress").jsonObject["first_unobserved_page"])
+        assertEquals(null, boundary.completedPage("github_pr", args(1)))
+        val first = boundary.assessPage("github_pr", args(1), result(1, true))
+        assertEquals(2, (first.data.getValue("pagination_progress").jsonObject["remote_pages_observed"] as JsonArray).size)
+        boundary.assessPage("github_pr", args(2), result(2, true))
+        assertEquals(null, boundary.assessPage("github_pr", args(3), result(3, false)).errorCode)
+    }
+
+    @Test fun fillingAnEarlierGapDetectsOverlapWithALaterObservedPage() {
+        val boundary = GitHubPaginationBoundary()
+        fun args(page: Int) = json("""{"action":"list_pull_requests","state":"all","per_page":100,"page":$page}""")
+        fun rows(id: Int, more: Boolean) = json("""{"items":[{"id":$id}],"has_more":$more}""")
+        boundary.assessPage("github_pr", args(2), rows(42, true))
+        boundary.assessPage("github_pr", args(3), rows(43, false))
+        boundary.completedPage("github_pr", args(1))
+        val overlap = boundary.assessPage("github_pr", args(1), rows(42, true))
+        assertEquals(JsonPrimitive(true), overlap.data.getValue("pagination_progress").jsonObject["upstream_changed_during_traversal"])
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", boundary.assessPage("github_pr", args(3), rows(43, false)).errorCode)
+    }
 
     @Test fun commitHistoryUsesTheObservedRevisionAcrossIssuedPagesAndFreshReads() {
         val boundary = GitHubPaginationBoundary()

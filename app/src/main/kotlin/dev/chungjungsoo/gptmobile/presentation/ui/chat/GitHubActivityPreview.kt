@@ -57,8 +57,8 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
     val colors = MaterialTheme.colorScheme
     val previewColor = colors.onSurface.copy(alpha = 0.5f)
     val entryOpacity = rememberGitHubActivityEntry(animateEntry && !latest)
-    var expanded by rememberSaveable(text) { mutableStateOf(false) }
-    var overflows by remember(text) { mutableStateOf(false) }
+    var expanded by rememberSaveable(lineIdentity) { mutableStateOf(false) }
+    var overflows by remember(lineIdentity) { mutableStateOf(false) }
     val reportLayout = rememberGitHubTextLayout("preview" to lineIdentity, updatesAddLines = false, firstAppearanceAddsLines = animateEntry)
     Row(
         modifier = Modifier.fillMaxWidth().testTag("github_preview_row")

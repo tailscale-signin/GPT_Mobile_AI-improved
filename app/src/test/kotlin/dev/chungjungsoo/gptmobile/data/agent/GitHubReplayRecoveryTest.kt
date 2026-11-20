@@ -18,6 +18,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReplayRecoveryTest {
+    @Test fun aRepeatLimitedRefLookupKeepsTheLastUndispatchedBlocker() {
+        val call = ProviderEvent.ToolCall(
+            "first",
+            "github_context",
+            buildJsonObject {
+                put("action", "resolve")
+                put("ref", "main")
+            }
+        )
+        val failure = AgentToolResult(call.callId, ToolResultContent.Text("Lookup unavailable"), true, errorCode = "GITHUB_NOT_CONFIGURED", dispatched = false)
+        val history = listOf(AgentToolExchange(listOf(call), listOf(failure)))
+        val replay = requireNotNull(GitHubReplayRecovery.repeated(call.copy(callId = "repeat"), history, "Repeat limit"))
+        val content = (replay.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("GITHUB_NOT_CONFIGURED"), content["previous_error_code"])
+        assertEquals(JsonPrimitive("first"), content["previous_call_id"])
+        assertFalse(replay.dispatched)
+    }
+
     @Test fun issuedLargerPagesBatchRecoveryWithinTheActualReplayAllowanceAndSurviveRestart() {
         val views = GitHubResultViews()
         val original = "retained-".repeat(600)
@@ -254,6 +272,29 @@ class GitHubReplayRecoveryTest {
         assertEquals(null, recovered.errorCode)
         assertEquals(next, (recovered.content as ToolResultContent.Json).value.let { it as JsonObject }["continuation_call"])
         assertEquals(null, GitHubReplayRecovery.repeated(call.copy(arguments = buildJsonObject { put("path", "B.kt") }), exchanges, "Repeat limit"))
+    }
+
+    @Test fun rejectedReadIdentifiesThePriorRequestAndPreservesAnUncertainOutcome() {
+        val call = ProviderEvent.ToolCall(
+            "earlier",
+            "github_context__github_api",
+            buildJsonObject {
+                put("action", "resolve")
+                put("ref", "main")
+            }
+        )
+        fun repeatAfter(error: String) = GitHubReplayRecovery.repeated(
+            call.copy(callId = "again"),
+            listOf(AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("blocked"), true, errorCode = error, dispatched = false)))),
+            "Repeat limit"
+        )
+        val rejected = requireNotNull(repeatAfter("NOT_DISPATCHED"))
+        assertEquals("NOT_DISPATCHED", rejected.errorCode)
+        assertFalse(rejected.dispatched)
+        val evidence = (rejected.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("earlier"), evidence["previous_call_id"])
+        assertEquals(JsonPrimitive(1), evidence["prior_attempt_count"])
+        assertEquals(null, repeatAfter("DISPATCH_OUTCOME_UNKNOWN"))
     }
 
     @Test fun repeatedSuppressionKeepsTheOriginalReferenceAndDoesNotNestWrappers() {

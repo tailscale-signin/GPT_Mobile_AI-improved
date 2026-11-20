@@ -35,6 +35,7 @@ internal object GitHubStatusEvidence {
     ) {
         fun row() = buildJsonObject {
             put("observed_checks", observedChecks)
+            put("outcomes", JsonObject(outcomes.mapValues { JsonPrimitive(it.value) }))
             totalChecks?.let { put("reported_total_checks", it) }
             put("observed_statuses", observedStatuses)
             totalStatuses?.let { put("reported_total_statuses", it) }

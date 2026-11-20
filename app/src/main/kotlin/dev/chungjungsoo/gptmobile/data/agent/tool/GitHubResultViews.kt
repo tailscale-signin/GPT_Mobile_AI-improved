@@ -29,7 +29,7 @@ internal class GitHubResultViews(
     init {
         require(pageBytes >= 2048)
     }
-    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val sourceRecovery: JsonObject?, val issuedCursors: MutableSet<String> = mutableSetOf(), val failedPersistenceCursors: MutableSet<String> = mutableSetOf(), val compressedSource: ByteArray? = null, val sourceCharacters: Int = 0, val sourceSha256: String? = null) {
+    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val sourceRecovery: JsonObject?, val issuedCursors: MutableSet<String> = mutableSetOf(), val failedPersistenceCursors: MutableSet<String> = mutableSetOf(), val compressedSource: ByteArray? = null, val sourceCharacters: Int = 0, val sourceSha256: String? = null, val sourceCallId: String? = null) {
         val fragmentCount: Int get() = if (compressedSource == null) fragments.size else (sourceCharacters + SOURCE_FRAGMENT_CHARACTERS - 1) / SOURCE_FRAGMENT_CHARACTERS
     }
     private data class EvictedView(
@@ -125,14 +125,14 @@ internal class GitHubResultViews(
         val context = JsonObject((defaults + (value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
         val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + sourceRecovery.toString().toByteArray().size * 2L + 1024
         if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
-        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery, sourceSha256 = GitHubRepositoryStateStore.digest(value.toString()))
+        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery, sourceSha256 = GitHubRepositoryStateStore.digest(value.toString()), sourceCallId = upstream.callId)
         if (small.toString().toByteArray().size <= pageBytes) {
             authorize(entry, small)
             store(id, entry)
             return upstream.copy(
                 content = ToolResultContent.Json(small),
                 executionReceipt = JsonObject(
-                    upstream.executionReceipt.orEmpty() + buildJsonObject {
+                    upstream.executionReceipt.orEmpty() + sourceIdentity(entry) + buildJsonObject {
                         summary?.let { put("semantic_summary", it) }
                         if (upstream.retainedContent != null) {
                             put("retained_original_complete", true)
@@ -151,7 +151,7 @@ internal class GitHubResultViews(
         val retainedRecipes = JsonArray(continuations)
         val completeRecipes = continuations.size <= 128 && retainedRecipes.toString().encodeToByteArray().size <= 64 * 1024
         val receipt = JsonObject(
-            upstream.executionReceipt.orEmpty() + buildJsonObject {
+            upstream.executionReceipt.orEmpty() + sourceIdentity(entry) + buildJsonObject {
                 summary?.let { put("semantic_summary", it) }
                 put("retained_original_complete", completeRecipes)
                 if (completeRecipes) put("retained_remote_continuations", retainedRecipes)
@@ -217,14 +217,16 @@ internal class GitHubResultViews(
                     buildJsonObject {
                         put("schema", "github.arguments.v1")
                         put("reason", if (unissued) "UNISSUED_CURSOR" else known?.reason ?: "UNAVAILABLE_IN_AUTHORIZED_SCOPE")
-                        put("recovery_action", if (unissued) "START_FRESH_SCOPED_READ" else "REOPEN_ORIGINAL_SOURCE")
+                        put("recovery_action", if (known?.recovery != null) "REOPEN_ORIGINAL_SOURCE" else "START_FRESH_SCOPED_READ")
                         put("mutation_replay_allowed", false)
                         put(
                             "message",
                             if (unissued) {
                                 "This view_cursor was never issued. Do not retry or alter it. Start a fresh authorized source read with observed selectors; do not repeat a mutation."
+                            } else if (known?.recovery != null) {
+                                "Reopen the same immutable source with the exact source_recovery_call."
                             } else {
-                                "The saved page is unavailable. When source_recovery_call is available, reopen the same immutable source with that exact read-only recipe. Otherwise start a fresh authorized read; never replay a mutation."
+                                "The saved page is unavailable. Start a fresh authorized read using selectors from a successful result. Do not guess another cursor or repeat a mutation."
                             }
                         )
                         known?.let { view ->
@@ -352,9 +354,23 @@ internal class GitHubResultViews(
         val page = page(parts[0], refreshed, offset, modelName, requestedBytes)
         authorize(refreshed, page)
         if (page["page_capacity_exceeded"] == JsonPrimitive(true)) {
-            return AgentToolResult(callId, ToolResultContent.Json(page), true, errorCode = "SAVED_VIEW_PAGE_CAPACITY", sharedResult = true, dispatched = false)
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(page),
+                true,
+                errorCode = "SAVED_VIEW_PAGE_CAPACITY",
+                sharedResult = true,
+                dispatched = false,
+                executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
+            )
         }
-        return AgentToolResult(callId, ToolResultContent.Json(page), entry.originalError, errorCode = entry.originalErrorCode, sharedResult = true, dispatched = false)
+        return AgentToolResult(callId, ToolResultContent.Json(page), entry.originalError, errorCode = entry.originalErrorCode, sharedResult = true, dispatched = false, executionReceipt = sourceIdentity(entry))
+    }
+
+    /** A fragment links to its original observation; opening it cannot refresh that observation. */
+    private fun sourceIdentity(entry: Entry): JsonObject = buildJsonObject {
+        entry.sourceSha256?.let { put("saved_view_source_sha256", it) }
+        entry.sourceCallId?.let { put("saved_view_source_call_id", it) }
     }
 
     /** Durable bodies and issued handles are stored separately to avoid rewriting source on every page. */
@@ -373,6 +389,7 @@ internal class GitHubResultViews(
             put("model_name", entry.modelName)
             put("fragments", JsonArray(entry.fragments))
             entry.sourceSha256?.let { put("source_sha256", it) }
+            entry.sourceCallId?.let { put("source_call_id", it) }
             entry.compressedSource?.let {
                 put("source_gzip_base64", Base64.getEncoder().encodeToString(it))
                 put("source_characters", entry.sourceCharacters)
@@ -412,7 +429,9 @@ internal class GitHubResultViews(
         if (encoded != null && compressed == null || fragments.isEmpty() && compressed == null || fragments.size != (snapshot["fragments"] as JsonArray).size) return false
         val sourceCharacters = (snapshot["source_characters"] as? JsonPrimitive)?.intOrNull ?: 0
         val sourceHash = text("source_sha256")
+        val sourceCallId = text("source_call_id")
         if (sourceHash != null && !sourceHash.matches(Regex("[a-f0-9]{64}"))) return false
+        if (sourceCallId != null && (sourceCallId.isBlank() || sourceCallId.length > 512)) return false
         if (compressed != null && (fragments.isNotEmpty() || sourceCharacters !in 1..MAX_SERIALIZED_SOURCE_BYTES || sourceHash?.matches(Regex("[a-f0-9]{64}")) != true)) return false
         if (compressed != null && runCatching { decodeSource(compressed, sourceCharacters, requireNotNull(sourceHash)) }.isFailure) return false
         val pageSize = (snapshot["page_bytes"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 2048..pageBytes } ?: return false
@@ -428,7 +447,7 @@ internal class GitHubResultViews(
         while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + size > capacityBytes)) evict(entries.keys.first())
         val entry = Entry(
             scope, operation, modelName, fragments, metadata, continuations, now() + 10 * 60_000, size.toInt(),
-            originalError, text("original_error_code"), pageSize, context, recovery, issued.toMutableSet(), failed.toMutableSet(), compressed, sourceCharacters, sourceHash
+            originalError, text("original_error_code"), pageSize, context, recovery, issued.toMutableSet(), failed.toMutableSet(), compressed, sourceCharacters, sourceHash, sourceCallId
         )
         entries[id] = entry
         retainedBytes += entry.bytes
@@ -473,18 +492,22 @@ internal class GitHubResultViews(
         }
         val records = mutableListOf<JsonObject>()
         var next = offset
+        var compact = false
         fun envelope(): JsonObject = buildJsonObject {
             val complete = next == entry.fragmentCount
             put("schema", SCHEMA)
             put("operation", entry.operation)
             put("local_page_complete", complete)
-            put("metadata", metadata)
+            put("metadata", if (compact) JsonObject(emptyMap()) else metadata)
             put("fragments", JsonArray(records))
             put("fragment_offset", offset)
+            put("fragment_end", next)
             put("total_fragments", entry.fragmentCount)
             put(
                 "reconstruction",
-                if (source != null) {
+                if (compact) {
+                    "Use fragment offsets to reconstruct the original result."
+                } else if (source != null) {
                     "Join json_text values by UTF-16 offset, verify each chunk and the source SHA-256, then parse JSON. Finish local pages before remote continuation."
                 } else if (pageBytes < 2048) {
                     "JSON pointers; UTF-16 string offsets. Read every local page before remote continuation."
@@ -496,24 +519,33 @@ internal class GitHubResultViews(
             put("recovery_call", savedCall(modelName, "$id:$offset:${recoveryPageBytes(pageBytes)}"))
             // Small-context pages keep their historical envelope. Larger pages
             // issue exact alternatives so the runner can honor a later budget.
-            if (pageBytes >= 2048) put("recovery_options", savedOptions(modelName, id, offset, entry.pageBytes, MIN_RECOVERY_PAGE_BYTES))
-            entry.sourceRecovery?.takeIf { it.toString().toByteArray().size <= pageBytes / 4 }?.let { put("source_recovery_call", it) }
+            if (!compact && pageBytes >= 2048) put("recovery_options", savedOptions(modelName, id, offset, entry.pageBytes, MIN_RECOVERY_PAGE_BYTES))
+            entry.sourceRecovery?.takeIf { !compact && it.toString().toByteArray().size <= pageBytes / 4 }?.let { put("source_recovery_call", it) }
             if (!complete) {
                 put(
                     "continuation_call",
                     savedCall(modelName, "$id:$next:$pageBytes")
                 )
-                if (pageBytes >= 2048) put("continuation_options", savedOptions(modelName, id, next, entry.pageBytes, pageBytes))
+                if (!compact && pageBytes >= 2048) put("continuation_options", savedOptions(modelName, id, next, entry.pageBytes, pageBytes))
             } else if (entry.continuations.isNotEmpty()) {
                 put("remote_continuations", JsonArray(entry.continuations))
                 if (entry.continuations.size == 1) put("continuation_call", entry.continuations.single().getValue("call"))
             }
         }
         while (next < entry.fragmentCount) {
-            records += if (source == null) entry.fragments[next] else sourceFragment(source, next)
+            val fragment = if (source == null) entry.fragments[next] else sourceFragment(source, next)
+            val previous = records.lastOrNull()
+            val combined = GitHubSavedFragments.combine(previous, fragment)
+            if (combined == null) records += fragment else records[records.lastIndex] = combined
             next++
             if (envelope().toString().toByteArray().size > pageBytes) {
-                records.removeAt(records.lastIndex)
+                // Retry a blocked first record without optional metadata and alternate handles.
+                // The primary cursor and any final remote continuations stay exact.
+                if (next == offset + 1 && !compact) {
+                    compact = true
+                    if (envelope().toString().toByteArray().size <= pageBytes) continue
+                }
+                if (combined == null) records.removeAt(records.lastIndex) else records[records.lastIndex] = requireNotNull(previous)
                 next--
                 break
             }
@@ -524,6 +556,10 @@ internal class GitHubResultViews(
                 put("operation", entry.operation)
                 put("local_page_complete", false)
                 put("page_capacity_exceeded", true)
+                put("requested_page_bytes", pageBytes)
+                put("fragment_offset", offset)
+                if (pageBytes < entry.pageBytes) put("recovery_call", savedCall(modelName, "$id:$offset:${entry.pageBytes}"))
+                entry.sourceRecovery?.takeIf { it.toString().toByteArray().size <= pageBytes / 4 }?.let { put("source_recovery_call", it) }
                 put("message", "This saved record exceeds the admitted page allowance. Increase the result/context allowance or narrow the immutable read; no cursor advanced and no upstream action was repeated.")
             }
         }
@@ -686,7 +722,7 @@ internal class GitHubResultViews(
         val entry = Entry(
             scope, operation, modelName, emptyList(), metadata, continuations, now() + 10 * 60_000, cost.toInt(),
             upstream.isError, upstream.errorCode, pageBytes, context, recovery,
-            compressedSource = compressed, sourceCharacters = source.length, sourceSha256 = GitHubRepositoryStateStore.digest(source)
+            compressedSource = compressed, sourceCharacters = source.length, sourceSha256 = GitHubRepositoryStateStore.digest(source), sourceCallId = upstream.callId
         )
         val summary = if (display == value) {
             null
@@ -712,7 +748,7 @@ internal class GitHubResultViews(
             content = ToolResultContent.Json(first),
             retainedContent = upstream.retainedContent ?: upstream.content,
             executionReceipt = JsonObject(
-                upstream.executionReceipt.orEmpty() + buildJsonObject {
+                upstream.executionReceipt.orEmpty() + sourceIdentity(entry) + buildJsonObject {
                     put("retained_original_complete", true)
                     put("retained_remote_continuations", JsonArray(continuations))
                     put("saved_result_encoding", "GZIP_JSON_UTF8")

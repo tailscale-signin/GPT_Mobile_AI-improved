@@ -50,6 +50,16 @@ class PrivacyProfileEligibilityTest {
     }
 
     @Test
+    fun customProfileWithoutVerifiedRouteRemainsIneligibleInPrivacyMode() {
+        val custom = profile(ClientType.CUSTOM, "https://custom.example/v1")
+        assertTrue(PrivacyProfileEligibility.evaluate(custom, false).eligible)
+        assertFalse(PrivacyProfileEligibility.evaluate(custom, true).eligible)
+        assertEquals(PrivacyProfileEligibility.Status.NOT_VERIFIED, PrivacyProfileEligibility.evaluate(custom, true).status)
+        assertEquals(null, VerifiedPrivateRoute.providerEndpoint(custom))
+        assertEquals(null, VerifiedPrivateRoute.gateway(custom))
+    }
+
+    @Test
     fun masterOn_rejectsUnverifiedRemoteGateway() {
         assertFalse(PrivacyProfileEligibility.evaluate(profile(ClientType.LLAMA, "https://cloud-proxy.example.com/v1"), true).eligible)
         assertFalse(PrivacyProfileEligibility.evaluate(profile(ClientType.OLLAMA, "http://8.8.8.8:11434"), true).eligible)

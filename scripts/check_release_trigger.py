@@ -62,7 +62,7 @@ def coordinated_release(event: str, before: str) -> bool:
                 return False
     android, code = version_identity(Path("app/build.gradle.kts").read_text(encoding="utf-8"))
     source = Path("gateway/v14/__init__.py").read_text(encoding="utf-8")
-    version = re.search(r'^VERSION = "(17\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))"$', source, re.MULTILINE)
+    version = re.search(r'^VERSION = "((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))"$', source, re.MULTILINE)
     if not version or (manifest.get("version"), manifest.get("versionCode")) != (android, code) or request != {
         "android": android, "versionCode": code, "gateway": version[1]
     }:

@@ -1220,7 +1220,7 @@ private fun ChatScreenContent(
                 }
                 if (chatToolConfig.github != null) {
                     chatToolConfig.github?.let { github ->
-                        val ownerTarget = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(appAllPlatforms, featureSettings.githubProfileOverrides[github.mainProfileUid]?.engineeringGatewayProfileUid)
+                        val ownerTarget = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(appAllPlatforms, featureSettings.githubProfileOverrides[github.mainProfileUid]?.engineeringGatewayProfileUid ?: github.mainProfileUid)
                         if (ownerTarget != null) {
                             item(key = "gateway-owner-control") {
                                 dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayControlChatEntry(ownerTarget)
@@ -1242,6 +1242,9 @@ private fun ChatScreenContent(
             }
 
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 12.dp)) {
+                if (renderedLines.catchUpAvailable.value) {
+                    TextButton(onClick = { renderedLines.catchUpRequested = true }) { Text("Latest output") }
+                }
                 ChatBottomIndicator(
                     listState = listState,
                     following = !isModelTabPositionLocked && if (githubPromptMode) githubScrollMode == GitHubScrollMode.FOLLOW_BOTTOM else isFollowingBottom,
@@ -1253,6 +1256,7 @@ private fun ChatScreenContent(
                         },
                     animate = featureSettings.responseAnimation,
                     scrollInput = scrollInput,
+                    showAnchorDots = githubPromptMode && entryPositioned && groupedMessages.userMessages.isNotEmpty(),
                     onFollow = ::followChatBottom
                 )
             }
@@ -1525,7 +1529,7 @@ private fun ChatScreenContent(
                 onAcademicConsent = { chatViewModel.grantAcademicResearch(currentProfileUid, chatToolConfig.research?.scope != dev.chungjungsoo.gptmobile.data.model.ResearchContentScope.WEB_ONLY) },
                 onSaveResearchDefault = { chatViewModel.saveResearchDepthDefault(currentProfileUid, chatToolConfig.research?.depth ?: featureSettings.delegationFor(currentProfileUid).strategy) },
                 onDelegationChanged = chatViewModel::setConversationDelegation,
-                initialReasoning = chatToolConfig.reasoning ?: appAllPlatforms.firstOrNull { it.uid in activePlatformUids }?.reasoning ?: false,
+                conversationReasoning = chatToolConfig.reasoning,
                 onReasoningChanged = chatViewModel::setConversationReasoning,
                 githubConversation = chatToolConfig.github != null,
                 githubCopilotAvailable = chatToolConfig.github != null && !chatRoom.isTemporary && githubCopilotPluginOn,
@@ -1645,6 +1649,7 @@ private fun ChatReasoningAdmissionDialog(
 ) {
     val reasoningAdmission by chatViewModel.reasoningAdmissionNotice.collectAsStateWithLifecycle()
     reasoningAdmission?.let { notice ->
+        val tools by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
         dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionDialog(
             notice.copy(
                 state = gatewayModelPreparation[notice.profileUid]?.takeIf { notice.modelReadiness && it.model == notice.model && it.observation?.requested == notice.requested }?.let {
@@ -1653,6 +1658,12 @@ private fun ChatReasoningAdmissionDialog(
             ),
             onRecheck = chatViewModel::recheckReasoningAdmission,
             onSwitchToAuto = { chatViewModel.switchProfileReasoningToAuto(notice.profileUid) },
+            onUseProfileSettings = tools.reasoning?.let {
+                {
+                    chatViewModel.setConversationReasoning(null)
+                    chatViewModel.dismissReasoningAdmission()
+                }
+            },
             onSettings = {
                 chatViewModel.dismissReasoningAdmission()
                 onProfileSettings(notice.profileUid)

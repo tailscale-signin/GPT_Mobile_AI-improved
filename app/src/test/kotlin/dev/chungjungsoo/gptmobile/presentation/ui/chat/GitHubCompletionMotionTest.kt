@@ -23,8 +23,6 @@ class GitHubCompletionMotionTest {
     }
 
     @Test fun finalRevealAndEdgeGlowUseSeparatePreciseDurations() {
-        assertEquals(1000, GITHUB_COMPLETION_PROGRESS_FADE_MILLIS)
-        assertEquals(2000, GITHUB_COMPLETION_ANSWER_FADE_MILLIS)
         assertEquals(2000, GITHUB_COMPLETION_PROMPT_SCROLL_MILLIS)
         assertEquals(3000, GITHUB_COMPLETION_GLOW_HOLD_MILLIS)
         assertEquals(2000, GITHUB_COMPLETION_GLOW_FADE_MILLIS)

@@ -172,11 +172,13 @@ internal class GitHubEvidenceBook(
         val authorizedTool = call.name in trustedTools
         val trusted = authorizedTool && (operation != null || call.name == "discover_available_tools" || call.name.isGatewayRepositoryTool())
         val effectiveArguments = (result.executionReceipt?.get("corrected_arguments") as? JsonObject) ?: call.arguments
+        val savedSource = savedViewSource(call, result)
         val owner = (effectiveArguments["owner"] as? JsonPrimitive)?.contentOrNull
         val repo = (effectiveArguments["repo"] as? JsonPrimitive)?.contentOrNull
         val selected = owner == null && repo == null || "$owner/$repo".equals(repository, true)
         val targetBranch = (effectiveArguments["ref"] as? JsonPrimitive)?.contentOrNull ?: (effectiveArguments["branch"] as? JsonPrimitive)?.contentOrNull ?: branch
-        val immutable = GitHubOperationTool.immutableRead(call.name, effectiveArguments)
+        val immutable = savedSource?.get("immutable")?.let { it == JsonPrimitive(true) }
+            ?: GitHubOperationTool.immutableRead(call.name, effectiveArguments)
         val native = if (operation == "github") effectiveArguments else GitHubOperationTool.nativeArguments(call.name, effectiveArguments)
         val action = (native?.get("action") as? JsonPrimitive)?.contentOrNull.orEmpty()
         val mutation = action in GitHubWorkspaceClient.writeActions - "stage_patch" ||
@@ -198,6 +200,7 @@ internal class GitHubEvidenceBook(
             listOf("head_sha", "commit_sha").firstNotNullOfOrNull { (root?.get(it) as? JsonPrimitive)?.contentOrNull }
                 ?: ((root?.get("head") as? JsonObject)?.get("sha") as? JsonPrimitive)?.contentOrNull
                 ?: (((root?.get("repository") as? JsonObject)?.get("head") as? JsonObject)?.get("sha") as? JsonPrimitive)?.contentOrNull
+                ?: (savedSource?.get("source_head_sha") as? JsonPrimitive)?.contentOrNull
             )
             ?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
         val remoteChange = ((result.executionReceipt?.get("accepted_mutations") as? JsonPrimitive)?.longOrNull ?: 0) > 0 ||
@@ -286,9 +289,11 @@ internal class GitHubEvidenceBook(
                 put("previous_attempt_count", priorAttempts.count)
                 put("previous_attempt_reference_mode", "LINKED_PREDECESSOR")
             }
-            val sourceTime = (result.executionReceipt?.get("source_observed_at_ms") as? JsonPrimitive)?.longOrNull
+            val sourceTime = (savedSource?.get("observed_at_ms") as? JsonPrimitive)?.longOrNull
+                ?: (result.executionReceipt?.get("source_observed_at_ms") as? JsonPrimitive)?.longOrNull
             put("observed_at_ms", sourceTime ?: if (origin == "LIVE" && !result.sharedResult) now() else 0)
-            put("epoch", epoch)
+            put("epoch", savedSource?.get("epoch") ?: JsonPrimitive(epoch))
+            savedSource?.get("receipt_id")?.let { put("source_observation_receipt_id", it) }
             put("source_head_sha", head?.let(::JsonPrimitive) ?: JsonNull)
             put("head_observation", selected && !lifecycle && (headObservation || remoteChange))
             put("immutable", immutable)
@@ -346,6 +351,38 @@ internal class GitHubEvidenceBook(
             throw failure
         }
         retain(id, observed)
+    }
+
+    private fun savedViewSource(call: ProviderEvent.ToolCall, result: AgentToolResult): JsonObject? {
+        if (!result.sharedResult || result.dispatched || result.isError || "view_cursor" !in call.arguments) return null
+        val execution = result.executionReceipt ?: return null
+        val hash = (execution["saved_view_source_sha256"] as? JsonPrimitive)?.contentOrNull
+            ?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return null
+        val page = (result.content as? ToolResultContent.Json)?.value as? JsonObject ?: return null
+        if (page["schema"] != JsonPrimitive("github.operation.v1") || page["source_sha256"] != JsonPrimitive(hash)) return null
+        val callId = (execution["saved_view_source_call_id"] as? JsonPrimitive)?.contentOrNull
+        val viewId = (call.arguments["view_cursor"] as? JsonPrimitive)?.contentOrNull?.substringBefore(':') ?: return null
+        val candidates = if (callId != null) {
+            listOfNotNull(records["ev_" + digest("$binding|$callId").take(24)])
+        } else {
+            // Older views can link through their executor-owned view identity.
+            // The hash alone cannot distinguish a later identical network read.
+            records.values.toList()
+        }
+        return candidates.filter { source ->
+            source["binding"] == JsonPrimitive(binding) &&
+                source["tool"] == JsonPrimitive(call.name) &&
+                source["repository"] == JsonPrimitive(repository) &&
+                source["shared_result"] != JsonPrimitive(true) &&
+                source["trusted"] == JsonPrimitive(true) &&
+                source["verification_eligible"] != JsonPrimitive(false) &&
+                source["success"] == JsonPrimitive(true) &&
+                (callId != null || (source["execution"] as? JsonObject)?.get("saved_view_id") == JsonPrimitive(viewId)) &&
+                (
+                    source["source_result_sha256"] == JsonPrimitive(hash) ||
+                        (source["execution"] as? JsonObject)?.get("saved_view_source_sha256") == JsonPrimitive(hash)
+                    )
+        }.singleOrNull()
     }
 
     private fun withTrustObservation(receipt: JsonObject, failure: GitHubAcceptancePublicationEvidence.TrustFailure): JsonObject {

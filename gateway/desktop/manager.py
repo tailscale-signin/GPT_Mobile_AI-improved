@@ -1,4 +1,6 @@
 """Per-user supervisor and transactional same-schema updates; never terminates active work."""
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -15,14 +17,120 @@ import tempfile
 import threading
 import time
 import uuid
+import zipfile
 
 import requests
 from desktop.configuration import atomic_json, authority, control_host, environment, load
 from desktop import releases, windows_job
+from desktop.control_store import ControlError
 from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 from v14.journal import backup_database
 
 RESTART = 75
+
+
+class UpdateCycle:
+    """One release lookup/download at a time. Only the supervisor may switch runtimes."""
+
+    def __init__(self, supervisor, worker):
+        self.host = supervisor
+        self.worker = worker
+        self.cancelled = threading.Event()
+        self.future = None
+        self.staging = False
+        self.target = None
+        self.mode = None
+        self.install = False
+        self.candidate = None
+        self.next_check = time.monotonic() + 30
+        self.next_activate = 0
+        self.ticket = self.host.root / 'pending-update.json'
+        if self.ticket.exists():
+            try:
+                saved = json.loads(self.ticket.read_text(encoding='utf-8'))
+                current = read_pointer(self.host.root)
+                if (saved['from'] == current['version'] and saved['target'] != current.get('failedVersion') and
+                        releases.version(saved['target']) > releases.version(current['version'])):
+                    self.target, self.install, self.next_check = saved['target'], True, 0
+                else:
+                    self.ticket.unlink(missing_ok=True)
+            except (KeyError, TypeError, ValueError):
+                self.ticket.unlink(missing_ok=True)
+
+    def tick(self, action, ident, cfg, recovering):
+        now = time.monotonic()
+        manual = action in {'check', 'install'}
+        if self.mode is not None and cfg['update_mode'] != self.mode:
+            self.next_check = now
+        self.mode = cfg['update_mode']
+        if action == 'install' and recovering:
+            raise RuntimeError('Install is available when Gateway has recovered')
+        if action == 'install':
+            self.install = True
+            self.target = self.host._request_payload.get('target')
+        if self.future is None and (manual or (self.install or cfg['update_mode'] != 'off') and now >= self.next_check):
+            self.next_check = now + cfg['update_interval_hours'] * 3600
+            self.candidate = None
+            self.next_activate = 0
+            self.host.publish(updateState='checking', updateError=None, availableVersion=None)
+            self.future = self.worker.submit(releases.check, read_pointer(self.host.root)['version'], cancelled=self.cancelled)
+        if manual:
+            self.host.respond({'id': ident, 'accepted': True, 'updateState': self.host.status.get('updateState')})
+        try:
+            if self.future is not None:
+                if not self.future.done():
+                    return False
+                completed, self.future = self.future, None
+                result = completed.result()
+                if self.staging:
+                    self.staging = False
+                    if not self.should_install(cfg, recovering):
+                        self.host.publish(updateState='available')
+                else:
+                    self.candidate = result
+                    self.host.publish(updateState='available' if result else 'up-to-date',
+                                      availableVersion=result['version'] if result else None, checkedAt=time.time())
+                    if self.target and (not result or result['version'] != self.target):
+                        self.install = False
+                        self.target = None
+                    if result and cfg['update_mode'] == 'notify' and not self.install:
+                        self.host.notify(result['version'])
+                    if not result:
+                        self.install = False
+                    if result and self.install:
+                        self.target = result['version']
+                        atomic_json(self.ticket, {'from': read_pointer(self.host.root)['version'], 'target': self.target})
+                    else:
+                        self.ticket.unlink(missing_ok=True)
+                    if result and self.should_install(cfg, recovering):
+                        self.host.publish(updateState='downloading')
+                        self.staging = True
+                        self.future = self.worker.submit(self.host.stage, result, cancelled=self.cancelled)
+                    return False
+            if self.host.status.get('updateState') == 'waiting-for-idle' and not self.install and cfg['update_mode'] != 'auto':
+                self.host.publish(updateState='available')
+            if self.candidate and now >= self.next_activate and self.should_install(cfg, recovering):
+                # A staged candidate can wait through active jobs. Recheck the
+                # disk manifest and the live maintenance fence on each attempt.
+                if not release_path(self.host.root, self.candidate['version']).exists():
+                    self.host.publish(updateState='downloading')
+                    self.staging = True
+                    self.future = self.worker.submit(self.host.stage, self.candidate, cancelled=self.cancelled)
+                    return False
+                self.next_activate = now + 60
+                return self.host.activate(self.candidate['version'])
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, requests.RequestException, zipfile.BadZipFile) as error:
+            self.host.log.exception('Gateway update failed')
+            self.host.publish(updateState='error', updateError=str(error)[:500])
+            self.next_check = now + 3600
+            self.candidate = None
+            self.install = self.staging = False
+            self.ticket.unlink(missing_ok=True)
+        return False
+
+    def should_install(self, cfg, recovering):
+        return not recovering and (self.install or cfg['update_mode'] == 'auto' and
+                                   self.candidate['version'] != read_pointer(self.host.root).get('failedVersion'))
 
 
 class ManagerRequestError(RuntimeError):
@@ -72,6 +180,23 @@ def startup_registration(root, enabled):
 def request(root, action, timeout=50, *, payload=None, settings=None):
     """Local UI/installer control queue. A busy stop is refused, never forced."""
     root = Path(root)
+    client = StateDirectoryLock(root / 'control-client' / 'owner')
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            client.acquire()
+            break
+        except StateDirectoryAlreadyOwned:
+            if time.monotonic() >= deadline:
+                raise TimeoutError('Another Gateway control request is still in progress')
+            time.sleep(.1)
+    try:
+        return _request(root, action, deadline, payload, settings)
+    finally:
+        client.release()
+
+
+def _request(root, action, deadline, payload, settings):
     ident = uuid.uuid4().hex
     command = {'id': ident, 'action': action}
     if payload is not None:
@@ -83,7 +208,6 @@ def request(root, action, timeout=50, *, payload=None, settings=None):
             raise ValueError('Manager settings payload is invalid or oversized')
         command['settings'] = settings
     atomic_json(root / 'request.json', command, retry_windows_sharing=True)
-    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             result = json.loads((root / 'response.json').read_text(encoding='utf-8'))
@@ -114,8 +238,6 @@ def request(root, action, timeout=50, *, payload=None, settings=None):
             pass
         else:
             try:
-                if action != 'stop':
-                    raise RuntimeError('Start Gateway before requesting this action')
                 # The launcher may have published the matching response between
                 # our first read and acquiring its lock.
                 try:
@@ -132,6 +254,8 @@ def request(root, action, timeout=50, *, payload=None, settings=None):
                         pending.unlink()
                 except FileNotFoundError:
                     pass
+                if action != 'stop':
+                    raise RuntimeError('Start Gateway before requesting this action')
                 return {'accepted': True, 'supervisorAbsent': True}
             finally:
                 lock.release()
@@ -289,14 +413,14 @@ class Supervisor:
     def backup(self):
         destination = self.root / 'data' / 'backups' / ('before-update-' + uuid.uuid4().hex)
         for path in (self.root / 'data').glob('*.sqlite3'):
-            with sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True) as db:
+            with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)) as db:
                 backup_database(db, destination / path.name)
         # Keep the latest three complete backup sets; failed backup aborts activation.
         backups = sorted(destination.parent.glob('before-update-*'), key=lambda p: p.stat().st_mtime, reverse=True)
         for old in backups[3:]:
             shutil.rmtree(old)
 
-    def stage(self, candidate):
+    def stage(self, candidate, *, cancelled=None):
         destination = release_path(self.root, candidate['version'])
         if destination.exists():
             releases.validate_release(destination, candidate['version'])
@@ -305,9 +429,11 @@ class Supervisor:
             raise OSError('At least 2 GiB of free space is required to stage an update')
         with tempfile.TemporaryDirectory(prefix='update-', dir=self.root) as temp:
             archive, unpacked = Path(temp) / 'release.zip', Path(temp) / 'runtime'
-            releases.download(candidate, archive)
+            releases.download(candidate, archive, cancelled=cancelled)
             releases.extract(archive, unpacked)
             releases.validate_release(unpacked, candidate['version'])
+            if cancelled and cancelled.is_set():
+                raise InterruptedError('Update staging stopped')
             # Validation cannot migrate or lock the live journal.
             isolated = Path(temp) / 'preflight'
             atomic_json(isolated / 'settings.json', self.cfg)
@@ -348,6 +474,7 @@ class Supervisor:
             atomic_json(self.root / 'current.json', dict(pointer, attempted=True))
         try:
             health = self.spawn(pointer['version'])
+            self.control('resume')
         except Exception:
             self.discard_failed_start()
             if pointer.get('pending') and pointer.get('previous'):
@@ -357,8 +484,12 @@ class Supervisor:
                 return RESTART
             raise
         atomic_json(self.root / 'current.json', {'version': pointer['version'], 'previous': pointer.get('previous'), 'failedVersion': pointer.get('failedVersion')})
-        self.control('resume')
-        self.publish(state='running', version=pointer['version'], backend=health['checks']['backend'], build=health.get('build', {}))
+        update = {}
+        if pointer.get('failedVersion'):
+            update = dict(updateState='rolled-back', failedVersion=pointer['failedVersion'])
+        elif pointer.get('pending'):
+            update = dict(updateState='installed')
+        self.publish(state='running', version=pointer['version'], backend=health['checks']['backend'], build=health.get('build', {}), **update)
         return 0
 
     def open_window(self, command):
@@ -467,7 +598,6 @@ class Supervisor:
         if result:
             return result
         from desktop.control_settings import Controller
-        from desktop.control_store import ControlError
         self.owner_controls = Controller(self)
         try:
             self.owner_controls.start_saved()
@@ -475,7 +605,14 @@ class Supervisor:
             # Ordinary chat survives an unavailable optional management port.
             self.log.warning('Phone controls need attention on this PC')
         self.start_desktop_observer()
-        next_check, next_activate, candidate = time.monotonic() + 30, 0, None
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix='gateway-update') as worker:
+            updates = UpdateCycle(self, worker)
+            try:
+                return self.run_loop(updates)
+            finally:
+                updates.cancelled.set()
+
+    def run_loop(self, updates):
         next_settings = 0
         crashes, retry_at = [], None
         while True:
@@ -509,6 +646,8 @@ class Supervisor:
                     result = self.owner_controls.local(action, self._request_payload)
                     self.respond({'id': ident, 'accepted': True, 'result': result})
                     action, ident = None, None
+                if action == 'phone-update':
+                    action = self.owner_controls.phone_update_action(self._request_payload)
                 current_cfg = load(self.root)
                 if action in {'stop', 'restart'}:
                     accepted = self.stop()
@@ -575,29 +714,11 @@ class Supervisor:
                             return RESTART
                     except (OSError, ValueError, RuntimeError, ControlError, requests.RequestException):
                         self.log.warning('Owner settings could not be reconciled; retrying while Gateway continues')
-                if action == 'install' and retry_at is not None:
-                    raise RuntimeError('Install is available when Gateway has recovered')
-                if action in {'check', 'install'} or current_cfg['update_mode'] != 'off' and time.monotonic() >= next_check:
-                    candidate = releases.check(read_pointer(self.root)['version'])
-                    next_check = time.monotonic() + current_cfg['update_interval_hours'] * 3600
-                    self.publish(updateState='available' if candidate else 'up-to-date', availableVersion=candidate['version'] if candidate else None)
-                    if candidate and current_cfg['update_mode'] == 'notify':
-                        self.notify(candidate['version'])
-                    if ident:
-                        self.respond({'id': ident, 'accepted': True})
-                automatic = current_cfg['update_mode'] == 'auto' and time.monotonic() >= next_activate
-                failed = read_pointer(self.root).get('failedVersion')
-                if retry_at is None and candidate and (action == 'install' or automatic and candidate['version'] != failed):
-                    self.publish(updateState='downloading')
-                    self.stage(candidate)
-                    next_activate = time.monotonic() + 60
-                    if self.activate(candidate['version']):
-                        return RESTART
+                if updates.tick(action, ident, current_cfg, retry_at is not None):
+                    return RESTART
             except Exception as exc:
                 self.log.exception('Manager operation failed')
-                self.publish(updateState='error', error=str(exc))
-                next_check = time.monotonic() + 3600
-                next_activate = time.monotonic() + 3600
+                self.publish(error=str(exc))
                 if ident:
                     rejection = {'id': ident, 'accepted': False, 'error': str(exc)}
                     if isinstance(exc, ControlError):

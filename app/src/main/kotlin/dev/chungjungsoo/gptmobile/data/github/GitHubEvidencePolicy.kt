@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
@@ -174,7 +175,7 @@ internal object GitHubEvidencePolicy {
             }
             return verify(claim, receipts, now, epoch, projected, allowHistorical = historicalReview(task))
         }
-        val lines = claims.map { raw ->
+        val renderedLines = claims.map { raw ->
             val claim = raw as? JsonObject ?: error("Malformed claim")
             when (claim.string("kind")) {
                 "calculation" -> {
@@ -239,9 +240,26 @@ internal object GitHubEvidencePolicy {
                 else -> error("Unsupported claim kind")
             }
         }
-        val supportedClaims = checked.filterNot(::explicitlyUnmeasured)
+        // Only an explicit, complete requirement map can identify an optional claim.
+        // Preserve original indexes for required claims during acceptance evaluation.
+        val mapping = answer["requirement_claims"] as? JsonObject
+        val required = GitHubRequestCompletion.requirements(task).map(GitHubRequestCompletion::id)
+        val mapped = mapping?.values?.filterIsInstance<JsonArray>().orEmpty().flatten().mapNotNull { (it as? JsonPrimitive)?.intOrNull }.toSet()
+        val canOmit = required.isNotEmpty() &&
+            required.all { mapping?.get(it) is JsonArray } &&
+            checked.any { it.string("status") in setOf("VERIFIED", "HISTORICAL") }
+        val omitted = if (canOmit) {
+            checked.indices.filterTo(mutableSetOf()) {
+                it !in mapped && checked[it].string("reason") == "POINTER_NOT_IN_EVIDENCE"
+            }
+        } else {
+            emptySet()
+        }
+        val lines = renderedLines.filterIndexed { index, _ -> index !in omitted }
+        val retainedClaims = checked.filterIndexed { index, _ -> index !in omitted }
+        val supportedClaims = retainedClaims.filterNot(::explicitlyUnmeasured)
         val unmeasuredScopes = checked.filter(::explicitlyUnmeasured)
-        val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now)
+        val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now, omittedOptionalClaimIndexes = omitted)
         val checklist = if (GitHubTaskCoverage.matches(task)) {
             GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, stageBudget, acceptedContract)
         } else {
@@ -250,7 +268,8 @@ internal object GitHubEvidencePolicy {
         val report = buildJsonObject {
             put("schema", "github.verification.v1")
             put("verified_at_ms", now)
-            put("claims", JsonArray(checked))
+            put("claims", JsonArray(retainedClaims))
+            if (omitted.isNotEmpty()) put("omitted_optional_claim_count", omitted.size)
             put("verified_claim_count", checked.count { it.string("status") in setOf("VERIFIED", "HISTORICAL") })
             put("historical_claim_count", checked.count { it.string("status") == "HISTORICAL" })
             put("unresolved_claims", JsonArray(supportedClaims.filter { it.string("status") !in setOf("VERIFIED", "INFERRED", "HISTORICAL") }))
@@ -279,7 +298,7 @@ internal object GitHubEvidencePolicy {
         val output = if (!GitHubTaskCoverage.matches(task) && !remaining.isNullOrEmpty()) {
             text + "\n\n## Remaining work\n\n" + remaining.joinToString("\n") { row ->
                 val item = row as JsonObject
-                "- **${item.string("status").lowercase()}:** ${safe(item.string("requirement"))}"
+                "- **${item.string("status").lowercase()}:** ${safe(item.string("requirement"))} — ${safe(item.string("acceptance"))}"
             }
         } else {
             text
@@ -288,7 +307,7 @@ internal object GitHubEvidencePolicy {
     }
 
     /** A formatter outage cannot turn a private draft into proof or erase retained observations. */
-    fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null): Pair<String, JsonObject> {
+    fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, inspectExtractorFailure: Boolean = false): Pair<String, JsonObject> {
         if (GitHubTaskCoverage.matches(task)) return testing(receipts, now, epoch, task, tools, remainingToolCalls, stageBudget, acceptedContract, fixturePreflight)
         val allowHistorical = historicalReview(task)
         val claims = mutableListOf<JsonObject>()
@@ -346,7 +365,7 @@ internal object GitHubEvidencePolicy {
             val result = (resolution["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
             result?.get("keep_fixture") == JsonPrimitive(true)
         }
-        val action = recoveryAction(failureCode, receipts)
+        val action = if (inspectExtractorFailure) "INSPECT_THE_RECORDED_PROVIDER_FAILURE" else recoveryAction(failureCode, receipts)
         val ending = when {
             waitingForApproval ->
                 "**Waiting for approval.** Resolve the existing approval card for its exact task, branch, expected head and staged patch. Generic Continue and Retry are paused." +
@@ -400,7 +419,7 @@ internal object GitHubEvidencePolicy {
                         else -> action
                     }
                 ),
-                "retryable_without_new_input" to JsonPrimitive(!waitingForApproval && rejectedApprovals.isEmpty())
+                "retryable_without_new_input" to JsonPrimitive(!inspectExtractorFailure && !waitingForApproval && rejectedApprovals.isEmpty())
             )
         )
     }
@@ -428,6 +447,7 @@ internal object GitHubEvidencePolicy {
         "RESTORE_REVIEW_COMPARISON_EVIDENCE" -> "Restore the exact head and baseline observations before continuing the source review."
         "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT" -> "Resume the failed saved claim batch with a smaller claim limit; keep completed batches."
         "RESUME_SAVED_BATCH_WITH_SCHEMA_VALIDATION" -> "Resume the failed saved claim batch with strict structured-output validation."
+        "INSPECT_THE_RECORDED_PROVIDER_FAILURE" -> "Inspect the interrupted provider request before resuming its unfinished claim batch."
         "RESUME_UNFINISHED_EXTRACTION_BATCHES" -> "Continue only unfinished claim extraction batches from their saved checkpoint."
         "RETRY_CLAIM_EXTRACTION_FROM_SAVED_RECEIPTS" -> "Retry claim extraction from retained receipts without repeating completed GitHub reads."
         "PUBLISH_RETAINED_EVIDENCE_AND_SAVE_REMAINING_CHECKS" -> "Publish the evidence already gathered and save the remaining checks until an authorized tool allowance is available."
@@ -560,7 +580,7 @@ internal object GitHubEvidencePolicy {
         val displayedClaims = claims.values.sortedBy { claim ->
             val receipt = scopedReceipts[claim.string("receipt_id")]
             if (receipt != null && GitHubStatusEvidence.operation(receipt, "github_context", "status")) 0 else 1
-        }.take(96)
+        }.take(20)
         val (text, report) = render(buildJsonObject { put("claims", JsonArray(displayedClaims)) }, scopedReceipts, now, epoch, task)
         val completed = missing.isEmpty() && requirements.isNotEmpty() && requirements.all { it["status"] == JsonPrimitive("PASSED") }
         val outcome = JsonObject(
@@ -585,7 +605,8 @@ internal object GitHubEvidencePolicy {
         val criteriaText = if (unknownCriteria.isEmpty()) "" else "\n\n**Remaining accepted criteria:**\n\n" + unknownCriteria.joinToString("\n") { "- ${safe(it.string("requirement"))}: ${safe(it.string("reason"))}" }
         val displayScope = if (displayedClaims.size == claims.size) "" else "\n\nThe table shows ${displayedClaims.size} of ${claims.size} captured status facts. Coverage above is evaluated against the complete retained observations, including facts omitted from this table."
         val collectionScope = coverage.mapNotNull { it.summary.takeIf(String::isNotBlank) }.joinToString("\n", prefix = "\n\n") { "- ${safe(it)}" }
-        return text.substringBefore("\n\n## Remaining work").replace("# Repository update", "# Repository status") + collectionScope + commitSummaries(scopedReceipts, now, epoch) + checkOutcomes(inventory) + missingText + criteriaText + displayScope + workflowText to outcome
+        val details = text.substringBefore("\n\n## Remaining work").substringAfter('\n').trimStart()
+        return "# Repository status" + checkOutcomes(inventory) + "\n\n" + details + collectionScope + commitSummaries(scopedReceipts, now, epoch) + missingText + criteriaText + displayScope + workflowText to outcome
     }
 
     private fun commitSummaries(receipts: Map<String, JsonObject>, now: Long, epoch: Long): String {
@@ -719,6 +740,7 @@ internal object GitHubEvidencePolicy {
                 }
                 if (receipt?.string("tool")?.githubOperationFamily() == "github_pr" && (parent as? JsonObject)?.get("number") is JsonPrimitive) pullRequest = parent
             }
+            if ("/workflow_runs/" in pointer) return "Workflow run · " + parts.last().replace('_', ' ')
             val subject = pullRequest?.let { "PR #${it.string("number")}" } ?: (parent as? JsonObject)?.let { obj ->
                 if ("/pull_requests/" in pointer || "/pull_request/" in pointer) {
                     (obj["number"] as? JsonPrimitive)?.contentOrNull?.let { "PR #$it" }

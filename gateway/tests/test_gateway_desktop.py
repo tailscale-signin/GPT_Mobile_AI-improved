@@ -165,7 +165,7 @@ class SettingsTests(unittest.TestCase):
 
             with patch('desktop.manager.uuid.uuid4', return_value=SimpleNamespace(hex='accepted-id')), \
                     patch('desktop.manager.Path.read_text', autospec=True, side_effect=read_text), \
-                    patch('desktop.manager.StateDirectoryLock.acquire', side_effect=StateDirectoryAlreadyOwned('running')), \
+                    patch('desktop.manager.StateDirectoryLock.acquire', side_effect=[None, StateDirectoryAlreadyOwned('running')]), \
                     patch('desktop.manager.time.sleep'):
                 self.assertEqual({'id': 'accepted-id', 'accepted': True}, request(root, 'restart', timeout=1))
 
@@ -233,13 +233,13 @@ class SettingsTests(unittest.TestCase):
 
 class ReleaseTests(unittest.TestCase):
     def test_only_newer_stable_compatible_official_digest_assets(self):
-        bad = [metadata('15.0.0'), metadata('14.99.0'), metadata('18.0.0'), metadata(digest=None), metadata(size=0), metadata(browser_download_url='https://evil.example/file')]
+        bad = [metadata('15.0.0'), metadata('14.99.0'), metadata(digest=None), metadata(size=0), metadata(browser_download_url='https://evil.example/file')]
         bad += [dict(metadata('15.2.0'), prerelease=True), dict(metadata('15.3.0'), draft=True)]
         self.assertIsNone(releases.choose(bad, '15.0.0'))
         self.assertEqual('15.1.0', releases.choose(bad+[metadata(),metadata('15.1.0')], '15.0.0')['version'])
 
     def test_gateway16_upgrade_preserves_stable_channel_and_cannot_downgrade(self):
-        candidates = [metadata('15.9.0'), metadata('16.0.0'), metadata('16.0.1'), metadata('18.0.0')]
+        candidates = [metadata('15.9.0'), metadata('16.0.0'), metadata('16.0.1')]
         self.assertEqual('16.0.1', releases.choose(candidates, '15.0.0')['version'])
         self.assertEqual('16.0.1', releases.choose(candidates, '16.0.0')['version'])
         self.assertIsNone(releases.choose(candidates, '16.0.1'))
@@ -247,10 +247,38 @@ class ReleaseTests(unittest.TestCase):
 
 
     def test_v17_update_is_admitted_only_with_official_bounded_digest_metadata(self):
-        candidates = [metadata('17.0.0'), metadata('18.0.0')]
+        candidates = [metadata('17.0.0')]
         self.assertEqual('17.0.0', releases.choose(candidates, '16.0.0')['version'])
         self.assertIsNone(releases.choose(candidates, '17.0.0'))
         self.assertIsNone(releases.choose([metadata('17.0.1', digest=None)], '17.0.0'))
+
+    def test_catalog_checks_every_page_and_selects_highest_stable_gateway(self):
+        # GitHub may publish an Android release or backport after the newest Gateway.
+        session = Mock()
+        responses = []
+        for items, more in (([metadata('17.0.2')], True), ([metadata('18.2.0')], True),
+                            ([metadata('18.1.0'), dict(metadata('19.0.0'), prerelease=True)], False)):
+            response = requests.Response()
+            response.status_code = 200
+            response._content = json.dumps(items).encode()
+            response._content_consumed = True
+            if more:
+                response.headers['Link'] = '<https://other.invalid/>; rel="next"'
+            responses.append(response)
+        session.get.side_effect = responses
+        self.assertEqual('18.2.0', releases.check('17.0.1', session)['version'])
+        self.assertEqual([releases.RELEASES_URL, releases.RELEASES_URL + '&page=2', releases.RELEASES_URL + '&page=3'],
+                         [call.args[0] for call in session.get.call_args_list])
+
+    def test_latest_missing_digest_reports_incomplete_release_instead_of_current(self):
+        session = Mock()
+        response = requests.Response()
+        response.status_code = 200
+        response._content_consumed = True
+        response._content = json.dumps([metadata('18.0.1'), metadata('18.0.2', digest=None)]).encode()
+        session.get.return_value = response
+        with self.assertRaisesRegex(ValueError, 'missing its verified Windows package'):
+            releases.check('18.0.0', session)
 
     def test_rejects_archive_paths_links_case_collisions_and_expansion(self):
         for names in [['../escape'], ['/absolute'], ['a\\b'], ['C:evil'], ['NUL'], ['foo.'], ['a','A'], ['x/../y'], ['a//b']]:

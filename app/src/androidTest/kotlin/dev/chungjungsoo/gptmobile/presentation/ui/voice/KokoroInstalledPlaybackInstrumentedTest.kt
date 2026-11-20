@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.VoiceReplyPlayback
 import dev.chungjungsoo.gptmobile.data.voice.createKokoroVoiceOutput
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -20,8 +21,9 @@ import org.junit.Test
 class KokoroInstalledPlaybackInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun installedKokoroModelPlaysAudioThroughTheAndroidOutputBackend() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
+    @Test fun installedKokoroStreamsAnUnknownWordAfterPlaybackStartsAndHighlightsTheNextWord() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
         val models = KokoroModelPack.store(File(context.noBackupFilesDir, "voice-models"))
         assumeTrue("Install the Kokoro model to run native playback qualification", models.isInstalled())
         val complete = CountDownLatch(1)
@@ -31,15 +33,30 @@ class KokoroInstalledPlaybackInstrumentedTest {
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
             .build()
         val output = createKokoroVoiceOutput(context, models, { attributes }, { 1f })
+        val followUpRanges = mutableListOf<IntRange>()
         try {
-            output.speak("Kokoro real device playback check.", KokoroVoice.HEART, { complete.countDown() }, { message, _ ->
-                failure.set(message)
-                complete.countDown()
-            })
+            instrumentation.runOnMainSync {
+                lateinit var reply: VoiceReplyPlayback
+                output.bindPlaybackStarted {
+                    reply.enqueue("Rughepagr here.")
+                    reply.finish()
+                }
+                output.bindSpokenRange { segment, _, range ->
+                    if (segment == 1 && !range.isEmpty()) followUpRanges += range
+                }
+                reply = requireNotNull(
+                    output.openReply(KokoroVoice.HEART, complete::countDown) { message, _ ->
+                        failure.set(message)
+                        complete.countDown()
+                    }
+                )
+                reply.enqueue("Hello.")
+            }
             assertTrue("Kokoro delegate did not produce or report real Android playback", complete.await(45, TimeUnit.SECONDS))
             assertEquals(null, failure.get())
+            assertEquals(listOf(0..8, 10..13), followUpRanges)
         } finally {
-            output.close()
+            instrumentation.runOnMainSync { output.close() }
         }
     }
 }

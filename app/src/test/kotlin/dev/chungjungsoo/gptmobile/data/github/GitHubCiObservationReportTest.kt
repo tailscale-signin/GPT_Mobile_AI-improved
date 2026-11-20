@@ -53,6 +53,93 @@ class GitHubCiObservationReportTest {
         )
     )
 
+    @Test fun capturedCheckSnapshotAndPendingJobSurviveIncompleteHistoryAndNoModelClaims() {
+        val receipts = evidence(listOf(run(1)), returned = 12)
+        val active = run(17, "", "in_progress")
+        receipts["attempt"] = JsonObject(
+            receipt("attempt", "run", active, head) +
+                (
+                    "arguments" to buildJsonObject {
+                        put("action", "run")
+                        put("run_id", 17)
+                    }
+                    )
+        )
+        receipts["logs"] = JsonObject(
+            receipt(
+                "logs",
+                "logs",
+                buildJsonObject {
+                    put("status", "PENDING_LOG_AVAILABILITY")
+                    put("job_id", 26)
+                    put("run_id", 17)
+                    put("head_sha", head)
+                    put("job_status", "in_progress")
+                    put("logs_available", false)
+                },
+                head
+            ) + (
+                "arguments" to buildJsonObject {
+                    put("action", "logs")
+                    put("job_id", 26)
+                    put("run_attempt", 1)
+                }
+                )
+        )
+        val rows = (1..43).map { id ->
+            run(
+                id,
+                if (id <= 24) {
+                    "success"
+                } else if (id <= 42) {
+                    "skipped"
+                } else {
+                    ""
+                },
+                if (id == 43) "in_progress" else "completed"
+            )
+        }
+        val raw = buildJsonObject {
+            put("commit_sha", head)
+            put("state", "RUNNING")
+            put(
+                "check_details",
+                buildJsonObject {
+                    put("total_count", 43)
+                    put("check_runs", JsonArray(rows))
+                }
+            )
+            put(
+                "status_details",
+                buildJsonObject {
+                    put("total_count", 0)
+                    put("statuses", JsonArray(emptyList()))
+                }
+            )
+        }
+        val args = buildJsonObject {
+            put("action", "status")
+            put("commit_sha", head)
+        }
+        val check = receipt("snapshot", "status", buildJsonObject { put("observationTruncated", true) }, head)
+        receipts["snapshot"] = JsonObject(check + ("semantic_summary" to GitHubSemanticSummary.from("github_ci", args, raw)))
+        val (text, report) = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2))
+        assertTrue(text.contains("24 succeeded, 18 were skipped and 1 was still running"))
+        assertTrue(text.contains("Logs for job `26` are pending"))
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        assertEquals(JsonPrimitive("WAITING_FOR_CI"), report["observation_state"])
+        assertEquals(JsonPrimitive(1), report["run_attempt"])
+        val ids = report["evidence_receipt_ids"] as JsonArray
+        assertTrue(listOf("attempt", "snapshot", "logs").all { JsonPrimitive(it) in ids })
+        receipts["logs"] = JsonObject(receipts.getValue("logs") + ("trusted" to JsonPrimitive(false)))
+        assertNull(GitHubCiObservationReport.render(task, receipts, now, 2))
+        val (partialText, partial) = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2, checkSnapshotOnly = true))
+        assertTrue(partialText.contains("24"))
+        assertEquals(JsonPrimitive("CHECK_SNAPSHOT_ONLY"), partial["observation_state"])
+        assertEquals(JsonPrimitive(false), partial["completion_verified"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("snapshot"))), partial["evidence_receipt_ids"])
+    }
+
     @Test fun sevenSuccessfulAndElevenSkippedRunsFinishOnlyTheBoundedDiagnosis() {
         val receipts = evidence((1..18).map { run(it, if (it <= 7) "success" else "skipped") })
         val (text, report) = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2))

@@ -1,0 +1,30 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "8bc0ce103f9b6b82ce01ee74856de182ea5cb543",
+  "working_branch": "feat/gateway-18-installer-updates",
+  "existing_pr": 1900,
+  "initial_head_sha": "1ffeb44c55a4723b68c1b06d3b730a11957787fe",
+  "capture_commit": "f2063bf8ed918c055e80eb18c2830c25a2a42e80",
+  "capture_id": "0880ec93-b55f-4ba8-8a19-abf5788be394",
+  "intent": "Repair the complete retained-history diagnostic capture and current issue families on the existing shared PR, preserve concurrent commits, verify the resulting source, then merge and publish only after all applicable checks pass.",
+  "state": "SOURCE_COMPLETE_VALIDATING",
+  "work": [
+    "Use durable graph indexing when supported and reconcile saved jobs while independent authorized reads continue, including inventories otherwise hidden by deferred cleanup or watch subscriptions.",
+    "Classify proven read-only plugin deadlines without inventing unknown mutation outcomes; preserve real permission revocations.",
+    "Retain original observation timestamps and source identity through saved-result reads.",
+    "Reduce saved-source page amplification while retaining every character and exact authorized cursors.",
+    "Coalesce rapid preview updates, finish each fade, preserve expanded details and distinct multiline rows, and retain the latest visible text when animations are re-enabled."
+  ],
+  "validation": {
+    "focused_regressions": "PASS: 7 configured-plugin tests, 14 graph planning tests, 25 CI-log/saved-page tests, 5 current-source saved-evidence integration tests, 2 current-source expiry/renewal cases, 10 universal activity-feed tests, 4 reduced-motion tests and 3 live-preview/expansion regressions. Current-source Android CI remains required for the complete integrated follow-up. The deterministic scheduler-clock correction awaits CI because the local execution environment became unavailable.",
+    "canonical_fast": "PASS: 555 host tests plus CI policy, architecture/source inventories, dependency catalog, schema/metadata, resources, regex, secrets and whitespace checks, repeated after the follow-up integration.",
+    "current_head_ci": "Preceding head d192f9a passed production and test compilation, graph integration, all 20 live-progress methods, Windows packaging and CodeQL. Its complete Android run executed 11,750 tests with 5 skips and 3 failures: reduced-motion text replay, an unsupported fact-verification expectation for inferred advice, and an immutable recovery expectation without immutable source identity. This follow-up repairs those three findings; a fresh exact-head CI run is required. A separate diagnostic run exposed a mixed-clock scheduler test: recording a cooldown later than the captured wall clock correctly kept it active. This follow-up uses one fixed test epoch and verifies the 29/30-second boundary without changing production rate-limit behavior.",
+    "main_ci": "PENDING",
+    "publication": "PENDING",
+    "physical_android_windows": "NOT_RUN",
+    "release_packaging": "Existing link-time debug stripping preserves allocated native sections and dynamic symbols. Measured compressed savings of 34,458,305 bytes exceed the historical 10,494,296-byte universal APK overage. Final exact-source signed APK size remains a release gate."
+  },
+  "evidence_scope": "Complete retained-history capture: all 20 stage hashes and reconstructed records checked; 10 retained runs, not a claim of complete installed-device acceptance.",
+  "checkpoint_scope": "Pre-push source checkpoint. Final CI and publication evidence is recorded by the workflows associated with PR #1900."
+}

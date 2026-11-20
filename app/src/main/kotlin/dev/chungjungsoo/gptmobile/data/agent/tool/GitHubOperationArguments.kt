@@ -277,8 +277,16 @@ internal object GitHubOperationArguments {
                 val compound = listOf("target_file", "search_snippet", "replacement_snippet").any { it in args }
                 if (compound) {
                     required("target_file", "search_snippet")
+                    if ("replacement_snippet" in args && text("search_snippet") == text("replacement_snippet")) {
+                        errors += "search_snippet and replacement_snippet are identical. Use github_read to inspect the file, then stage an actual change."
+                    }
                     if ("replacement_snippet" !in args) errors += "replacement_snippet is required (empty text deletes the exact anchor)"
                     if ("edits" in args) errors += "use either a target_file replacement or edits, not both"
+                } else if ((args["edits"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any {
+                        it["old_text"] != null && it["old_text"] == it["new_text"]
+                    }
+                ) {
+                    errors += "old_text and new_text are identical. Read the pinned file before staging an edit."
                 } else if ((args["edits"] as? JsonArray).isNullOrEmpty()) {
                     errors += "provide target_file, search_snippet and replacement_snippet, or SHA-checked edits; select the intended repository revision before staging"
                 }

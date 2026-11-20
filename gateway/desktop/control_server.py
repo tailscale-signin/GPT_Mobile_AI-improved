@@ -157,13 +157,31 @@ def create_app(controller):
             value, status = await asyncio.to_thread(store.pairing_finish, request.state.control_token, payload, controller.secret)
             if status == 200:
                 value.update(endpoint=controller.endpoint, fingerprint=controller.fingerprint)
+                if value.get('engineering_connection') and (port := controller.connection_port()):
+                    value['gateway_port'] = port
             return JSONResponse(value, status_code=status)
         except ControlError as error:
             return JSONResponse({'error': {'code': error.code}}, status_code=error.status)
 
     @app.get('/gateway/settings')
     async def settings(request: Request):
-        return await execute(request, lambda: store.snapshot(principal(request)))
+        return await execute(request, lambda: controller.phone_snapshot(principal(request)))
+
+    @app.post('/gateway/updates')
+    async def update(request: Request):
+        payload = await request.json()
+        if not isinstance(payload, dict) or set(payload) not in ({'action'}, {'action', 'target'}):
+            raise ControlError('invalid_update_request')
+        command = dict(payload, principal=principal(request))
+        def dispatch():
+            from desktop.manager import ManagerRequestError, request as send
+            controller.phone_update_action(command)
+            try:
+                send(controller.supervisor.root, 'phone-update', payload=command)
+            except ManagerRequestError as error:
+                raise ControlError(error.code or 'update_not_accepted', error.status or 409) from None
+            return {'accepted': True}
+        return await execute(request, dispatch)
 
     @app.patch('/gateway/settings')
     async def change(request: Request):
@@ -244,8 +262,11 @@ def create_app(controller):
 
 
 def pairing_link(value, endpoint, fingerprint):
-    return 'gptmobile://gateway-control?' + urlencode({'endpoint': endpoint, 'installation_id': value['installation_id'],
-                                                     'fingerprint': fingerprint, 'code': value['code'], 'expires': value['expires_at']})
+    fields = {'endpoint': endpoint, 'installation_id': value['installation_id'],
+              'fingerprint': fingerprint, 'code': value['code'], 'expires': value['expires_at']}
+    if 'gateway_port' in value:
+        fields['gateway_port'] = value['gateway_port']
+    return 'gptmobile://gateway-control?' + urlencode(fields)
 
 
 class ControlServer:

@@ -32,15 +32,24 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 import kotlinx.coroutines.delay
 
+/** Coalescing and rendering must agree on which public updates share a row. */
+internal fun universalActivityLineIdentity(line: String): String {
+    val text = line.trim()
+    // A multiline finding can start with a heartbeat or counter while its
+    // following observations still need their own row and expansion state.
+    if ('\n' !in text && '\r' !in text) {
+        GitHubProgressPresentation.liveKey(text)?.let { return "counter:$it" }
+        GitHubProgressPresentation.semanticActivityKey(text)?.let { return "story:$it" }
+    }
+    return "text:${GitHubProgressPresentation.lineKey(text)}"
+}
+
 /** Deduplicate old counter ticks without discarding distinct public findings. */
 internal fun universalCoalescedActivityLines(lines: List<String>): List<String> {
     val current = linkedMapOf<String, String>()
     lines.forEach { line ->
-        val counter = GitHubProgressPresentation.liveKey(line)
-        val identity = counter?.let { "counter:$it" }
-            ?: GitHubProgressPresentation.semanticActivityKey(line)?.let { "story:$it" }
-            ?: "text:${GitHubProgressPresentation.lineKey(line)}"
-        if (counter != null) {
+        val identity = universalActivityLineIdentity(line)
+        if (identity.startsWith("counter:")) {
             // Move the latest measured count into its actual activation order.
             current.remove(identity)
             current[identity] = line
@@ -57,25 +66,27 @@ internal fun universalCoalescedActivityLines(lines: List<String>): List<String> 
  */
 internal fun universalChatPublicCheckpoints(timeline: List<AssistantTimelineItem>): List<String> =
     timeline.asSequence()
-        .filter { item ->
-            item.type == AssistantTimelineItemType.NOTICE &&
-                item.progressCheckpoint &&
-                item.content.isNotBlank() &&
-                (item.modelAuthored || item.statusSummary) &&
-                item.delegationInvocationId == null &&
-                item.delegationProfile == null &&
-                !item.delegatedTool &&
-                item.toolSequence == null &&
-                item.toolMetrics == null &&
-                item.recalledFacts.isEmpty() &&
-                !isContextDiagnostic(item.content)
-        }
-        .mapNotNull { item ->
-            item.content.lineSequence().map { it.trim().trimStart('#', '*', '-', ' ') }
-                .firstOrNull(String::isNotBlank)?.take(280)
-        }
+        .mapNotNull(::publicCheckpointLine)
         .toList()
         .let(::universalCoalescedActivityLines)
+
+internal fun publicCheckpointLine(item: AssistantTimelineItem): String? {
+    val visible = item.type == AssistantTimelineItemType.NOTICE &&
+        item.progressCheckpoint &&
+        item.content.isNotBlank() &&
+        (item.modelAuthored || item.statusSummary) &&
+        item.delegationInvocationId == null &&
+        item.delegationProfile == null &&
+        !item.delegatedTool &&
+        item.toolSequence == null &&
+        item.toolMetrics == null &&
+        item.recalledFacts.isEmpty() &&
+        !isContextDiagnostic(item.content)
+    if (!visible) return null
+    // The preview owns visual line limits and expansion. Keep every public finding
+    // here so a shared headline cannot erase distinct bodies or their final caveat.
+    return item.content.trim()
+}
 
 /** A request-specific opening without pretending a tool or source has been executed. */
 internal fun universalActivityOpening(task: String): String {
@@ -134,7 +145,7 @@ internal fun UniversalChatActivityFeed(
     val motion = rememberGitHubProgressMotion(active && animate)
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         visible.forEachIndexed { index, line ->
-            val identity = "universal:" + (GitHubProgressPresentation.liveKey(line) ?: GitHubProgressPresentation.semanticActivityKey(line) ?: line)
+            val identity = "universal:" + universalActivityLineIdentity(line)
             key(identity) {
                 GitHubActivityPreview(
                     raw = line,

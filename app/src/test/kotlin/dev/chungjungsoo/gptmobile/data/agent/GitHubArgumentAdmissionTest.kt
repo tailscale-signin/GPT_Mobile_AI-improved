@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -29,6 +30,12 @@ class GitHubArgumentAdmissionTest {
                 assertTrue(ToolArgumentValidator.errors(invalid, definition.inputSchema).isNotEmpty())
                 val result = tool.execute("invalid-$end", invalid)
                 assertEquals("INVALID_ARGUMENTS", result.errorCode)
+                if (end > 0) {
+                    val body = (result.content as ToolResultContent.Json).value as JsonObject
+                    val correction = body.getValue("correction_call") as JsonObject
+                    val intended = args("""{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"end_line":$end}]}""")
+                    assertEquals(intended, correction["arguments"])
+                }
                 assertFalse(result.dispatched)
                 assertFalse(result.toolCallBudgetExhausted)
                 assertEquals(0, budget.usedCalls())
@@ -226,12 +233,86 @@ class GitHubArgumentAdmissionTest {
 
     private fun args(value: String) = Json.parseToJsonElement(value) as JsonObject
 
-    private class RecordingBackend : AgentTool {
+    @Test fun mixedJobsCallUsesOnlyThePageIssuedByTheSameRunAndAlias() = runBlocking {
+        val backend = RecordingBackend(buildJsonObject { put("detail", "job detail ".repeat(1500)) })
+        val native = GitHubOperationTool("github_ci", backend, "jobs-page", "github_ci__selected", views = GitHubResultViews(pageBytes = 2048))
+        val tool = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 4)).bind(native)
+        val name = tool.definition.name
+        val jobs = args("""{"action":"jobs","run_id":4500000000}""")
+        val original = ProviderEvent.ToolCall("list", name, jobs)
+        val listed = tool.execute(original.callId, jobs)
+        val envelope = (listed.content as ToolResultContent.Json).value as JsonObject
+        val page = (envelope.getValue("continuation_call") as JsonObject).getValue("arguments") as JsonObject
+        val mixed = ProviderEvent.ToolCall("page", name, JsonObject(jobs + page)).captureProviderInvocation()
+        val history = listOf(AgentToolExchange(listOf(original), listOf(listed)))
+        val registered = mapOf(name to tool)
+        val resolved = GitHubRecoveryCalls.resolve(mixed, history, registered)
+        assertEquals(mixed.providerInvocation(), resolved.providerInvocation())
+        assertEquals(page, resolved.arguments)
+        val saved = tool.execute(resolved.callId, resolved.arguments)
+        assertFalse(saved.isError)
+        assertFalse(saved.dispatched)
+        val next = ((saved.content as ToolResultContent.Json).value as JsonObject).getValue("continuation_call") as JsonObject
+        val nextPage = next.getValue("arguments") as JsonObject
+        val nextMixed = ProviderEvent.ToolCall("next", name, JsonObject(jobs + nextPage))
+        assertEquals(nextMixed, GitHubRecoveryCalls.resolve(nextMixed, history, registered))
+        val nextCall = GitHubRecoveryCalls.resolve(nextMixed, history + AgentToolExchange(listOf(resolved), listOf(saved)), registered)
+        assertEquals(nextPage, nextCall.arguments)
+        val nextResult = tool.execute(nextCall.callId, nextCall.arguments)
+        assertFalse(nextResult.isError)
+        assertFalse(nextResult.dispatched)
+        assertEquals(1, backend.calls.size)
+        for (unproven in listOf(
+            mixed.copy(arguments = JsonObject(mixed.arguments + ("run_id" to JsonPrimitive(9)))),
+            mixed.copy(arguments = JsonObject(mixed.arguments + ("view_cursor" to JsonPrimitive("invented:0:1536")))),
+            mixed.copy(arguments = JsonObject(mixed.arguments + ("repo" to JsonPrimitive("other")))),
+            mixed.copy(arguments = JsonObject(mixed.arguments + ("action" to JsonPrimitive("cancel"))))
+        )) {
+            assertEquals(unproven, GitHubRecoveryCalls.resolve(unproven, history, registered))
+        }
+        for (unproven in listOf(
+            AgentToolExchange(listOf(original.copy(name = "github_ci__other")), listOf(listed)),
+            AgentToolExchange(listOf(original), listOf(listed.copy(callId = "unrelated"))),
+            AgentToolExchange(listOf(original), listOf(listed.copy(isError = true)))
+        )) {
+            assertEquals(mixed, GitHubRecoveryCalls.resolve(mixed, listOf(unproven), registered))
+        }
+    }
+
+    @Test fun mixedJobsPrecheckOffersTheSameFreshReadEvenAfterRepairExhaustion() = runBlocking {
+        for (projected in listOf(false, true)) {
+            val backend = RecordingBackend()
+            val native = GitHubOperationTool("github_ci", backend, "jobs-repair", "github_ci__selected")
+            val definition = if (projected) requireNotNull(GitHubActionSchema.project(native.definition, "jobs")) else native.definition
+            val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 1))
+            val tool = budget.bindPresented(native, definition)
+            val jobs = args("""{"action":"jobs","run_id":4500000000}""")
+            val mixed = JsonObject(jobs + ("view_cursor" to JsonPrimitive("unknown:0:1536")))
+            repeat(2) { index ->
+                val rejected = tool.execute("reject-$index", mixed)
+                assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+                assertFalse(rejected.dispatched)
+                assertEquals(JsonPrimitive(index + 1), rejected.executionReceipt?.get("argument_repair_attempt"))
+                assertEquals(JsonPrimitive(index == 1), rejected.executionReceipt?.get("argument_repair_exhausted"))
+                val body = (rejected.content as ToolResultContent.Json).value as JsonObject
+                val correction = body.getValue("correction_call") as JsonObject
+                assertEquals(JsonPrimitive(definition.name), correction["tool"])
+                assertEquals(jobs, correction["arguments"])
+            }
+            assertEquals(0, budget.usedCalls())
+            assertTrue(backend.calls.isEmpty())
+            assertFalse(tool.execute("corrected", jobs).isError)
+            assertEquals(1, backend.calls.size)
+            assertEquals(jobs["run_id"], backend.calls.single()["run_id"])
+        }
+    }
+
+    private class RecordingBackend(private val response: JsonObject = buildJsonObject { put("ok", true) }) : AgentTool {
         val calls = mutableListOf<JsonObject>()
         override val definition = AgentToolDefinition("github", "Fixture backend", buildJsonObject {})
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
             calls += arguments
-            return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("ok", true) }), false)
+            return AgentToolResult(callId, ToolResultContent.Json(response), false)
         }
     }
 }

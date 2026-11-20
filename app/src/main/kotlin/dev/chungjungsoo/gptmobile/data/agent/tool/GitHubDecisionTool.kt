@@ -62,6 +62,13 @@ internal class GitHubDecisionTool(
                                         buildJsonObject {
                                             put("label", text(80))
                                             put("detail", text(240))
+                                            put(
+                                                "enter_value",
+                                                buildJsonObject {
+                                                    put("type", "boolean")
+                                                    put("description", "Open a field for a commit, tag or branch instead of submitting the option label.")
+                                                }
+                                            )
                                         }
                                     )
                                     put("required", JsonArray(listOf(JsonPrimitive("label"))))
@@ -93,7 +100,11 @@ internal class GitHubDecisionTool(
         val question = arguments.getValue("question").jsonPrimitive.content.trim()
         val context = arguments["context"]?.jsonPrimitive?.content.orEmpty().trim()
         val options = (arguments.getValue("options") as JsonArray).map { item ->
-            GitHubDecisionOption(item.jsonObject.getValue("label").jsonPrimitive.content.trim(), item.jsonObject["detail"]?.jsonPrimitive?.content.orEmpty().trim())
+            GitHubDecisionOption(
+                item.jsonObject.getValue("label").jsonPrimitive.content.trim(),
+                item.jsonObject["detail"]?.jsonPrimitive?.content.orEmpty().trim(),
+                enterValue = item.jsonObject["enter_value"] == JsonPrimitive(true)
+            )
         }
         val proposal = GitHubChatDecision("", chatId, sourceMessageId, profileUid, scope, question, context, options, arguments["recommended"]?.jsonPrimitive?.intOrNull, persistent)
         val id = GitHubRepositoryStateStore.digest(Json.encodeToString(GitHubChatDecision.serializer(), proposal.copy(persistent = false)))

@@ -23,7 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,11 +49,10 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
 
 @Composable
 internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Modifier = Modifier) {
-    val caption = remember(state.phase, state.transcript, state.reply, state.hasDraft) { VoiceCaption.from(state) }
+    val caption = remember(state.phase, state.transcript, state.reply, state.playbackCaption, state.hasDraft) { VoiceCaption.from(state) }
     val colors = MaterialTheme.colorScheme
     Surface(
         modifier = modifier.testTag("voice_live_captions"),
@@ -103,32 +101,10 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
     val accent = MaterialTheme.colorScheme.primary
     val words = remember(caption.text) { caption.wordRanges() }
     val nativeRange = caption.highlightRange(spokenRange, words)
-    var lastEstimatedStart by remember(caption.speaker) { mutableIntStateOf(-1) }
-    var estimatedRange by remember(caption.speaker) { mutableStateOf<IntRange?>(null) }
-    // System TTS reports actual word offsets. Kokoro currently has no per-word
-    // timing callbacks: pace one visible word at a time as a marked estimate.
-    LaunchedEffect(caption.speaker, caption.text, speaking, nativeRange) {
-        if (!speaking || caption.speaker != "AI reply") {
-            estimatedRange = null
-            lastEstimatedStart = -1
-            return@LaunchedEffect
-        }
-        if (nativeRange != null) {
-            estimatedRange = null
-            lastEstimatedStart = nativeRange.first
-            return@LaunchedEffect
-        }
-        for (word in words) {
-            if (word.first <= lastEstimatedStart) continue
-            estimatedRange = word
-            lastEstimatedStart = word.first
-            delay(((word.last - word.first + 1) * 45L).coerceIn(180L, 520L))
-        }
-    }
     // Speech recognition exposes text updates rather than audio word offsets;
     // on microphone input, emphasize the latest recognized word only.
     val observedRange = when {
-        speaking -> nativeRange ?: estimatedRange
+        speaking -> nativeRange
         caption.live && caption.speaker == "You" -> words.lastOrNull()
         else -> null
     }

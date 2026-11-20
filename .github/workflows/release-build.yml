@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     # The measured cold debug phases took 77 minutes, and production lint alone
     # took 27 minutes. Reserve time for release generation, compilation and lint.
-    timeout-minutes: 150
+    timeout-minutes: 175
     env:
       # Native GitHub reporting is available without inventing a service endpoint.
       ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
@@ -163,8 +163,8 @@ jobs:
         timeout-minutes: 25
         run: python3 scripts/gradle_retry.py -- :app:testDebugUnitTest --no-daemon --max-workers=1 --console=plain
       - name: Lint debug in a separate process
-        timeout-minutes: 45
-        run: python3 scripts/gradle_retry.py -- :app:lintDebug --no-daemon --max-workers=1 --console=plain
+        timeout-minutes: 65
+        run: python3 scripts/gradle_retry.py --timeout-seconds 3840 -- :app:lintDebug --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
       # Keep debug/release Room KSP schema writes in separate invocations too.
       # A cold lint run otherwise retains KSP and compiler state in the same JVM.
       - name: Generate release KSP sources

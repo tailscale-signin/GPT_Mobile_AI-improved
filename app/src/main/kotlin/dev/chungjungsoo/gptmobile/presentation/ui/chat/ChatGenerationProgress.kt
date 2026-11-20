@@ -131,16 +131,12 @@ internal fun generationActivityLabel(toolEvents: List<ToolEvent>, timeline: List
         it.status == dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus.RUNNING ||
             it.status == dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus.PENDING
     }
-    // Only changed observations invalidate this label; the visual timer and dots
-    // do not need to rescan retained history.
-    val activity = timeline.lastOrNull { it.type == AssistantTimelineItemType.TEXT || it.type == AssistantTimelineItemType.THINKING }
-    // A header is visible outside the expanded/debug trace. Reuse the same
-    // public projection as the universal preview instead of displaying an
-    // arbitrary statusSummary that may belong to a private delegation.
-    val checkpoint = universalChatPublicCheckpoints(timeline).lastOrNull()
-    return runningTool?.let { smartToolVerb(it.toolName) } ?: checkpoint ?: when (activity?.type) {
-        AssistantTimelineItemType.TEXT -> "Writing"
-        AssistantTimelineItemType.THINKING -> "Thinking"
-        else -> "Preparing response"
-    }
+    if (runningTool != null) return smartToolVerb(runningTool.toolName)
+    return timeline.asReversed().firstNotNullOfOrNull { item ->
+        when (item.type) {
+            AssistantTimelineItemType.TEXT -> "Writing"
+            AssistantTimelineItemType.THINKING -> "Thinking"
+            else -> publicCheckpointLine(item)?.lineSequence()?.firstOrNull()?.trim()
+        }
+    } ?: "Preparing response"
 }

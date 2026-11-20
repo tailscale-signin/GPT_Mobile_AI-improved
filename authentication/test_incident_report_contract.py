@@ -226,10 +226,16 @@ class IncidentReportContractTest(unittest.TestCase):
             "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
             "voice_pronunciation_failure_kind": "UNKNOWN_WORD",
             "voice_pronunciation_unknown_words": 1,
+            "voice_pronunciation_unknown_word_length": 16,
             "voice_pronunciation_audio_queued": True,
         }
         valid = self.capture("VOICE", values)
         self.assertEqual(valid, validate_diagnostics(copy.deepcopy(valid)))
+        for length in (0, 257, True, "private word"):
+            with self.subTest(length=length), self.assertRaises(ValueError):
+                forged = copy.deepcopy(valid)
+                forged["values"]["voice_pronunciation_unknown_word_length"] = length
+                validate_diagnostics(forged)
         for kind in ("private_spoken_word", "UNKNOWN", "", 4, None):
             with self.subTest(kind=kind), self.assertRaises(ValueError):
                 forged = copy.deepcopy(valid)

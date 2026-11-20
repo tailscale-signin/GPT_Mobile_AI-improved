@@ -22,18 +22,65 @@ internal object GitHubCiObservationReport {
             simpleDiagnosis.matches(requirements.single())
     }
 
-    fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject>? {
+    fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject>? =
+        render(task, receipts, now, epoch, checkSnapshotOnly = false)
+
+    fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long, checkSnapshotOnly: Boolean): Pair<String, JsonObject>? {
         if (!matches(task)) return null
-        val eligible = receipts.filterValues { receipt ->
+        val eligible = GitHubStatusEvidence.selected(receipts, null).filterValues { receipt ->
             val observed = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0
             receipt["trusted"] == JsonPrimitive(true) &&
                 receipt["success"] == JsonPrimitive(true) &&
                 receipt["verification_eligible"] != JsonPrimitive(false) &&
                 observed in 1..now &&
-                (receipt["epoch"] == JsonPrimitive(epoch) || receipt["immutable"] == JsonPrimitive(true))
+                (GitHubStatusEvidence.fresh(receipt, now, epoch) || receipt["immutable"] == JsonPrimitive(true))
         }
         val head = eligible.values.lastOrNull { it["head_observation"] == JsonPrimitive(true) }
             ?.text("source_head_sha")?.takeIf(sha::matches) ?: return null
+        val observed = GitHubObservedWorkflowRuns.current(eligible.values, JsonPrimitive(head))
+        val checkReceipt = eligible.entries.lastOrNull { (_, row) ->
+            GitHubStatusEvidence.fresh(row, now, epoch) &&
+                (GitHubStatusEvidence.operation(row, "github_ci", "status") || GitHubStatusEvidence.operation(row, "github_context", "checks")) &&
+                (row.text("source_head_sha") == head || (row["arguments"] as? JsonObject)?.text("commit_sha") == head)
+        }
+        if (checkReceipt != null) {
+            val inventory = if (GitHubStatusEvidence.operation(checkReceipt.value, "github_ci", "status")) {
+                checkSnapshot(checkReceipt.key, checkReceipt.value, head)
+            } else {
+                GitHubStatusEvidence.checks(eligible, head, now, epoch)
+            }
+            if (checkSnapshotOnly && inventory?.complete == true && inventory.outcomes.isNotEmpty()) {
+                val evidence = JsonArray(inventory.receiptIds.map(::JsonPrimitive))
+                val requirements = JsonArray(
+                    GitHubRequestCompletion.requirements(task).map { requirement ->
+                        buildJsonObject {
+                            put("id", GitHubRequestCompletion.id(requirement))
+                            put("requirement", requirement)
+                            put("status", "PENDING")
+                            put("acceptance_state", "NOT_TESTED")
+                        }
+                    }
+                )
+                val counts = inventory.outcomes.entries.joinToString(", ") { (state, count) -> "$count $state" }
+                return "The retained check snapshot for `${head.take(12)}` shows $counts. The workflow diagnosis is incomplete." to buildJsonObject {
+                    put("schema", "github.verification.v1")
+                    put("task_outcome", "PARTIAL")
+                    put("observation_state", "CHECK_SNAPSHOT_ONLY")
+                    put("partial", true)
+                    put("answer_verified", true)
+                    put("claims_verified", true)
+                    put("completion_verified", false)
+                    put("head_sha", head)
+                    put("check_inventory", inventory.row())
+                    put("evidence_receipt_ids", evidence)
+                    put("requirements", requirements)
+                    put("remaining_requirements", requirements)
+                    put("verified_at_ms", now)
+                }
+            }
+            inventory?.let { pendingObservation(task, head, it, observed, eligible, now, epoch) }?.let { return it }
+        }
+        if (checkSnapshotOnly) return null
         val pages = eligible.filterValues { receipt ->
             receipt.text("tool").substringBefore("__") == "github_ci" &&
                 (receipt["arguments"] as? JsonObject)?.text("action") == "runs"
@@ -53,7 +100,6 @@ internal object GitHubCiObservationReport {
         ) {
             return null
         }
-        val observed = GitHubObservedWorkflowRuns.current(eligible.values, JsonPrimitive(head))
         if (observed.isEmpty() || observed.any { it.text("status") != "completed" || it.text("conclusion") !in setOf("success", "skipped", "neutral") || (it["run_attempt"] as? JsonPrimitive)?.intOrNull?.let { attempt -> attempt > 0 } != true }) return null
         // A separate failed/pending check observation must not disappear just because
         // the returned workflow list contains only successful and skipped runs.
@@ -125,6 +171,135 @@ internal object GitHubCiObservationReport {
             "All ${observed.size} observed runs for this revision were completed. Failure-specific job and log investigation, root-cause attribution and code repairs are inapplicable to this returned set.\n\n" +
             "This is a bounded finding from saved receipts. It does not establish that older or unreturned attempts have no failures, that skipped jobs executed, or that all required checks passed. No new tests were run. A particular older failed attempt needs its own run and attempt identity."
         return text to report
+    }
+
+    private fun checkSnapshot(id: String, receipt: JsonObject, head: String): GitHubStatusEvidence.CheckInventory? {
+        // The executor records this summary before paging a large result for the model.
+        val summary = receipt["semantic_summary"] as? JsonObject ?: return null
+        if (summary.text("schema") != "github.semantic-summary.v1" ||
+            summary.text("commit_sha") != head ||
+            summary.text("action") != "status" ||
+            summary.text("operation") != "github_ci" ||
+            summary["check_inventory_complete"] != JsonPrimitive(true) ||
+            summary.text("observed_check_state") != "RUNNING"
+        ) {
+            return null
+        }
+        val counts = summary["check_counts"] as? JsonObject ?: return null
+        val outcomes = linkedMapOf<String, Int>()
+        for ((key, label) in listOf("successful" to "success", "skipped" to "skipped", "in_progress" to "running", "other_completed" to "other", "failed" to "failure")) {
+            val count = (counts[key] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 } ?: return null
+            if (count > 0) outcomes[label] = count
+        }
+        val total = (summary["observed_checks"] as? JsonPrimitive)?.intOrNull ?: return null
+        if (summary["reported_total_checks"] != JsonPrimitive(total) || outcomes.values.sumOf(Int::toLong) != total.toLong()) return null
+        val statuses = (summary["observed_statuses"] as? JsonPrimitive)?.intOrNull ?: return null
+        if (statuses != 0 || summary["reported_total_statuses"] != JsonPrimitive(0)) return null
+        return GitHubStatusEvidence.CheckInventory(setOf(id), total, total, statuses, statuses, complete = true, outcomes = outcomes)
+    }
+
+    /** Join the check snapshot to the active workflow and its job log receipt without asking a model to recount it. */
+    private fun pendingObservation(
+        task: String,
+        head: String,
+        inventory: GitHubStatusEvidence.CheckInventory,
+        runs: List<JsonObject>,
+        receipts: Map<String, JsonObject>,
+        now: Long,
+        epoch: Long
+    ): Pair<String, JsonObject>? {
+        if (!inventory.complete ||
+            inventory.outcomes.getOrDefault("running", 0) == 0 ||
+            inventory.outcomes.keys.any { it !in setOf("running", "success", "neutral", "skipped") }
+        ) {
+            return null
+        }
+        val activeStates = setOf("in_progress", "queued", "waiting", "requested", "pending")
+        if (runs.any { if (it.text("status") == "completed") it.text("conclusion") !in setOf("success", "neutral", "skipped") else it.text("status") !in activeStates }) return null
+        val logs = receipts.entries.lastOrNull { (_, receipt) ->
+            GitHubStatusEvidence.operation(receipt, "github_ci", "logs") &&
+                GitHubStatusEvidence.fresh(receipt, now, epoch)
+        } ?: return null
+        val data = logs.value.data() ?: return null
+        val args = logs.value["arguments"] as? JsonObject ?: return null
+        val jobId = (data["job_id"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 } ?: return null
+        val runId = (data["run_id"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 } ?: return null
+        if (data.text("status") != "PENDING_LOG_AVAILABILITY" ||
+            data["logs_available"] != JsonPrimitive(false) ||
+            data.text("head_sha") != head ||
+            data.text("job_status") !in activeStates ||
+            args.text("job_id").toLongOrNull() != jobId ||
+            args["run_id"] != null &&
+            args.text("run_id").toLongOrNull() != runId
+        ) {
+            return null
+        }
+        val run = runs.singleOrNull { it.text("id").toLongOrNull() == runId && it.text("status") in activeStates } ?: return null
+        val attempt = (run["run_attempt"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 } ?: return null
+        if (args["run_attempt"] != null && args.text("run_attempt").toIntOrNull() != attempt) return null
+        val counts = inventory.outcomes
+        val evidence = JsonArray(
+            receipts.filter { (id, row) ->
+                id in inventory.receiptIds ||
+                    id == logs.key ||
+                    row["head_observation"] == JsonPrimitive(true) &&
+                    row.text("source_head_sha") == head ||
+                    row.text("tool").substringBefore("__") == "github_ci" &&
+                    row.data()?.let { value ->
+                        value["id"] == run["id"] &&
+                            value["run_attempt"] == run["run_attempt"] ||
+                            (value["workflow_runs"] as? JsonArray).orEmpty().contains(run)
+                    } == true
+            }.keys.map(::JsonPrimitive)
+        )
+        val requirements = JsonArray(
+            GitHubRequestCompletion.requirements(task).mapIndexed { index, requirement ->
+                buildJsonObject {
+                    put("id", GitHubRequestCompletion.id(requirement))
+                    put("requirement", requirement)
+                    put("status", if (index == 0) "PASSED" else "PENDING")
+                    put("acceptance_state", if (index == 0) "PASS" else "NOT_TESTED")
+                    put("evidence_receipt_ids", evidence)
+                }
+            }
+        )
+        val neutral = counts["neutral"]?.let { ", $it neutral" }.orEmpty()
+        val watchName = "github_watch_checks" + logs.value.text("tool").substringAfter("github_ci")
+        val subscription = receipts.entries.lastOrNull { (_, row) ->
+            val result = row.data()
+            row.text("tool") == watchName &&
+                result?.get("background_subscription") == JsonPrimitive(true) &&
+                result["run_id"] == JsonPrimitive(runId) &&
+                result.text("head_sha") == head &&
+                result.text("subscription_id").isNotEmpty()
+        }
+        val text = "Of ${inventory.observedChecks} observed checks, ${counts.getOrDefault("success", 0)} succeeded, " +
+            "${counts.getOrDefault("skipped", 0)} ${if (counts["skipped"] == 1) "was" else "were"} skipped$neutral and ${counts.getValue("running")} ${if (counts["running"] == 1) "was" else "were"} still running. No failing checks were returned.\n\n" +
+            "Workflow run `$runId`, attempt $attempt, is still active at `${head.take(12)}`. Logs for job `$jobId` are pending. The workflow outcome remains open." +
+            if (subscription != null) "\n\nBackground monitoring is registered for this run. Updates will appear in its check card." else ""
+        return text to buildJsonObject {
+            put("schema", "github.ci-observation.v1")
+            put("task", task)
+            put("task_outcome", "PARTIAL")
+            put("observation_state", "WAITING_FOR_CI")
+            put("completion_verified", false)
+            put("answer_verified", true)
+            put("claims_verified", true)
+            put("partial", true)
+            put("head_sha", head)
+            put("run_id", runId)
+            put("run_attempt", attempt)
+            put("pending_job_id", jobId)
+            put("watch_tool", watchName)
+            put("background_monitoring_registered", subscription != null)
+            subscription?.let { put("watch_receipt_id", it.key) }
+            put("logs_available", false)
+            put("check_inventory", inventory.row())
+            put("requirements", requirements)
+            put("remaining_requirements", JsonArray(requirements.drop(1)))
+            put("evidence_receipt_ids", evidence)
+            put("verified_at_ms", now)
+        }
     }
 
     private fun JsonObject.data(): JsonObject? = (get("result") as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }

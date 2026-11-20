@@ -15,7 +15,8 @@ class GatewayV14CapabilitiesTest {
             "gateway-v15-capabilities-legacy-mixed.json",
             "gateway-v15-capabilities-full.json",
             "gateway-v16-capabilities-full.json",
-            "gateway-v17-capabilities-full.json"
+            "gateway-v17-capabilities-full.json",
+            "gateway-v18-capabilities-full.json"
         )) {
             val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream(name)).bufferedReader().use { it.readText() }
             val capabilities = json.decodeFromString<GatewayCapabilities>(fixture)
@@ -107,17 +108,17 @@ class GatewayV14CapabilitiesTest {
     }
 
     @Test
-    fun acceptsGateway14Through17AndRejectsUnknownOrMalformedContracts() {
+    fun acceptsGateway14Through18AndRejectsUnknownOrMalformedContracts() {
         val valid = """{"gatewayVersion":"17.0.0","contractVersion":1,"auth":{"mode":"trusted_proxy","apiKeyRequired":false},"desktop":{"managed":true,"maintenanceProtocol":1,"stateSchema":1,"idleUpdates":true,"updateAuthority":"local-manager"}}"""
         val caps = json.decodeFromString<GatewayCapabilities>(valid)
         assertTrue(caps.supportsKeyFreeConnection)
         assertTrue(caps.desktop?.managed == true)
         assertTrue(caps.desktop?.idleUpdates == true)
-        for (version in listOf("14.0.0", "15.0.0", "16.0.0", "16.1.2", "17.0.0", "17.1.2")) {
+        for (version in listOf("14.0.0", "15.0.0", "16.0.0", "16.1.2", "17.0.0", "17.1.2", "18.0.0", "18.1.2")) {
             assertTrue(version, json.decodeFromString<GatewayCapabilities>(valid.replace("17.0.0", version)).supportsKeyFreeConnection)
         }
         for (version in listOf(
-            "13.0.0", "18.0.0", "15.evil", "15.0.0-preview", "15.00.0", "15.0.0.extra", "16.0.0-preview", "16.00.0",
+            "13.0.0", "19.0.0", "15.evil", "15.0.0-preview", "15.00.0", "15.0.0.extra", "16.0.0-preview", "16.00.0",
             "17.evil", "17.0.0-preview", "17.0.0+build.1", "17.00.0", "17.0.00", "017.0.0", "17.0.0.extra", "17.0", " 17.0.0"
         )) {
             assertFalse(version, json.decodeFromString<GatewayCapabilities>(valid.replace("17.0.0", version)).supportsKeyFreeConnection)

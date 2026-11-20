@@ -465,6 +465,85 @@ class GitHubContentFixtureTest {
         }
     }
 
+    @Test fun independentReadSelectionDoesNotLetDeferredFixtureCleanupHideRepositoryReads() {
+        val records = completed().also { it.remove(it.keys.last()) }
+        val definitions = tools.map { definition ->
+            if (definition.name == "github_context") tool("github_context", "status", "changes", "branch", "branch_dependencies", "recovery", "repository") else definition
+        }
+        val task = "Test all GitHub tools with writes"
+        val ordinary = requireNotNull(GitHubTestChecklist.nextCall(task, definitions, records, 100))
+        assertEquals(JsonPrimitive("delete_fixture_branch"), ordinary.arguments["action"])
+        val read = requireNotNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 100))
+        assertEquals("github_context", read.name)
+        assertEquals(JsonPrimitive("repository"), read.arguments["action"])
+        assertFalse(GitHubSelfTestFixtures.complete(records))
+        assertNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 0))
+    }
+
+    @Test fun independentInventoryReadsRemainSelectableBehindFixtureCleanup() {
+        val task = "Test all GitHub tools with writes"
+        for ((name, action) in listOf(
+            "github_context" to "checks",
+            "github_context" to "branches",
+            "github_context" to "commits",
+            "github_pr" to "list",
+            "github_ci" to "workflows",
+            "github_ci" to "runs"
+        )) {
+            val records = completed().also { it.remove(it.keys.last()) }
+            val definitions = if (name == "github_context") {
+                tools.map { if (it.name == name) tool(name, "status", "changes", "branch", "branch_dependencies", "recovery", action) else it }
+            } else {
+                tools + tool(name, action)
+            }
+            val ordinary = requireNotNull(GitHubTestChecklist.nextCall(task, definitions, records, 100))
+            assertEquals(JsonPrimitive("delete_fixture_branch"), ordinary.arguments["action"])
+            val read = requireNotNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 100)) { "$name:$action was hidden by cleanup" }
+            assertEquals(name, read.name)
+            assertEquals(JsonPrimitive(action), read.arguments["action"])
+            assertFalse(GitHubSelfTestFixtures.complete(records))
+            val cleanup = GitHubChecklistBudget.cleanupReserve(records)
+            assertTrue(cleanup > 0)
+            assertNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, cleanup))
+            if (action != "checks") {
+                assertNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, cleanup + GitHubChecklistBudget.VERIFICATION_RESERVE))
+            }
+        }
+    }
+
+    @Test fun independentInventoryReadSkipsWatchSubscriptionWithoutReclassifyingIt() {
+        val records = initial()
+        val runs = ProviderEvent.ToolCall("active-runs", "github_ci", buildJsonObject { put("action", "runs") })
+        records[runs.callId] = receipt(
+            runs,
+            buildJsonObject {
+                put(
+                    "workflow_runs",
+                    JsonArray(
+                        listOf(
+                            buildJsonObject {
+                                put("id", 42)
+                                put("head_sha", origin)
+                                put("status", "in_progress")
+                                put("run_attempt", 1)
+                            }
+                        )
+                    )
+                )
+            }
+        )
+        val definitions = listOf(tool("github_context", "status", "branches"), tool("github_ci", "runs"), tool("github_watch_checks"))
+        val task = "Test all GitHub tools"
+        val watch = requireNotNull(GitHubTestChecklist.nextCall(task, definitions, records, 100))
+        assertEquals("github_watch_checks", watch.name)
+        assertFalse(dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(watch.name, watch.arguments))
+        val read = requireNotNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 100))
+        assertEquals("github_context", read.name)
+        assertEquals(JsonPrimitive("branches"), read.arguments["action"])
+        records[read.callId] = receipt(read, buildJsonObject {})
+        assertNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 99))
+    }
+
     @Test fun requiredLiveExistenceReadRunsBeforeCleanupAndIsRetiredAfterVerifiedAbsence() {
         val records = completed().also { it.remove(it.keys.last()) }
         val cachedCall = ProviderEvent.ToolCall(

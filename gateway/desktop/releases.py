@@ -1,6 +1,7 @@
 """TLS-authenticated official release metadata, digest verification and bounded extraction."""
 import hashlib
 import json
+import time
 import re
 import shutil
 import stat
@@ -22,6 +23,7 @@ def version(value):
 
 
 def choose(releases, current):
+    installed = version(current)
     candidates = []
     for release in releases:
         tag = release.get('tag_name', '')
@@ -29,15 +31,17 @@ def choose(releases, current):
             continue
         try:
             number = tag.removeprefix('gateway-v')
-            if version(number) <= version(current) or version(number)[0] not in {15, 16, 17}:
+            if version(number) <= installed:
                 continue
         except ValueError:
             continue
         expected = f'Gateway-{number}-windows-x64.zip'
         for asset in release.get('assets', []):
+            if not isinstance(asset, dict):
+                raise ValueError('Invalid release asset')
             digest = asset.get('digest') or ''
             url = asset.get('browser_download_url', '')
-            if asset.get('name') != expected or not re.fullmatch(r'sha256:[a-f0-9]{64}', digest):
+            if asset.get('name') != expected or not isinstance(digest, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', digest):
                 continue
             if url != f'https://github.com/{REPOSITORY}/releases/download/{tag}/{expected}':
                 continue
@@ -47,30 +51,66 @@ def choose(releases, current):
     return max(candidates, key=lambda x: version(x['version']), default=None)
 
 
-def check(current, session=None):
-    session = session or requests.Session()
-    session.trust_env = False
-    with session.get(RELEASES_URL, timeout=(10, 20), headers={'Accept': 'application/vnd.github+json'}, stream=True, allow_redirects=False) as response:
-        response.raise_for_status()
-        data = bytearray()
-        for chunk in response.iter_content(65536):
-            data.extend(chunk)
-            if len(data) > 2 * 1024 * 1024:
-                raise ValueError('Release metadata exceeds limit')
-    parsed = json.loads(data)
-    if not isinstance(parsed, list):
-        raise ValueError('Invalid release metadata')
-    return choose(parsed, current)
+def check(current, session=None, *, cancelled=None):
+    if session is None:
+        with requests.Session() as client:
+            client.trust_env = False
+            return check(current, client, cancelled=cancelled)
+    # Android and Windows share this feed. Publication order need not match
+    # semantic version order. Only request pages on the fixed repository URL.
+    best = None
+    newest = version(current)
+    deadline = time.monotonic() + 90
+    for page in range(1, 101):
+        if cancelled and cancelled.is_set():
+            raise InterruptedError('Update check stopped')
+        url = RELEASES_URL if page == 1 else f'{RELEASES_URL}&page={page}'
+        with session.get(url, timeout=(5, 10), headers={'Accept': 'application/vnd.github+json'},
+                         stream=True, allow_redirects=False) as response:
+            if response.status_code != 200:
+                response.raise_for_status()
+                raise ValueError('Unexpected release catalog response')
+            data = bytearray()
+            for chunk in response.iter_content(65536):
+                if cancelled and cancelled.is_set():
+                    raise InterruptedError('Update check stopped')
+                data.extend(chunk)
+                if len(data) > 4 * 1024 * 1024 or time.monotonic() > deadline:
+                    raise ValueError('Release catalog scan exceeded its limit')
+            parsed = json.loads(data)
+            if not isinstance(parsed, list):
+                raise ValueError('Invalid release metadata')
+            for entry in parsed:
+                if not isinstance(entry, dict) or not isinstance(entry.get('tag_name'), str) or not isinstance(entry.get('assets', []), list):
+                    raise ValueError('Invalid release metadata')
+                if entry.get('draft') or entry.get('prerelease') or not entry['tag_name'].startswith('gateway-v'):
+                    continue
+                try:
+                    published = version(entry['tag_name'].removeprefix('gateway-v'))
+                except ValueError:
+                    continue
+                newest = max(newest, published)
+            newer = choose(parsed, best['version'] if best else current)
+            best = newer or best
+            if 'next' not in response.links:
+                if newest > version(best['version'] if best else current):
+                    raise ValueError('The newest stable Gateway release is missing its verified Windows package. Check again later.')
+                return best
+    raise ValueError('Release catalog is incomplete')
 
 
-def download(candidate, target, session=None):
-    session = session or requests.Session()
-    session.trust_env = False
+def download(candidate, target, session=None, *, cancelled=None):
+    if session is None:
+        with requests.Session() as client:
+            client.trust_env = False
+            return download(candidate, target, client, cancelled=cancelled)
     # Revalidate the exact repository URL before any network access.
     expected = f'https://github.com/{REPOSITORY}/releases/download/gateway-v{candidate["version"]}/Gateway-{candidate["version"]}-windows-x64.zip'
     if candidate['url'] != expected or not re.fullmatch('[a-f0-9]{64}', candidate['sha256']):
         raise ValueError('Invalid update destination or digest')
     hasher, size = hashlib.sha256(), 0
+    created = False
+    deadline = time.monotonic() + 1800
     try:
         url = expected
         for _ in range(6):
@@ -92,8 +132,13 @@ def download(candidate, target, session=None):
             if final.scheme != 'https' or final.hostname not in {'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'}:
                 raise ValueError('Untrusted download redirect')
             with Path(target).open('xb') as stream:
+                created = True
                 for chunk in response.iter_content(1024 * 1024):
+                    if cancelled and cancelled.is_set():
+                        raise InterruptedError('Update download stopped')
                     size += len(chunk)
+                    if time.monotonic() > deadline:
+                        raise TimeoutError('Update download timed out')
                     if size > MAX_DOWNLOAD or size > candidate['size']:
                         raise ValueError('Update exceeds declared size')
                     hasher.update(chunk)
@@ -101,7 +146,8 @@ def download(candidate, target, session=None):
         if size != candidate['size'] or hasher.hexdigest() != candidate['sha256']:
             raise ValueError('Update size or SHA-256 mismatch')
     except BaseException:
-        Path(target).unlink(missing_ok=True)
+        if created:
+            Path(target).unlink(missing_ok=True)
         raise
 
 

@@ -371,7 +371,7 @@ class ChatViewModel @Inject constructor(
 
     private val _chatToolConfig = MutableStateFlow(ChatMcpToolConfig())
     val chatToolConfig = _chatToolConfig.asStateFlow()
-    enum class SendPreparation { MODEL_CHECK, GATEWAY_CHECK, QUEUE_SAVE }
+    enum class SendPreparation { ROOM_LOAD, MODEL_CHECK, GATEWAY_CHECK, QUEUE_SAVE, TURN_SAVE }
 
     private val _sendPreparation = MutableStateFlow<Set<SendPreparation>>(emptySet())
     val sendPreparation = _sendPreparation.asStateFlow()
@@ -653,6 +653,7 @@ class ChatViewModel @Inject constructor(
     private var leavingConversation = false
     private var exitOwnsDiagnosticPrivacy = false
 
+    private val initialChatLoad: kotlinx.coroutines.Job
     private var composerRestored = false
     private var modelsRestored = false
     private val draftMutex = Mutex()
@@ -669,7 +670,7 @@ class ChatViewModel @Inject constructor(
             combinedCollectionDecisions?.load()
             combinedCollectionDecisions?.decisions?.collect { refreshCombinedFailures() }
         }
-        fetchChatRoom()
+        val roomLoad = fetchChatRoom()
         viewModelScope.launch {
             combine(
                 _chatRoom.distinctUntilChangedBy { listOf(it.id, it.isTemporary, it.parentChatId, it.branchMessageId, it.activePlatform, it.conversationMode) },
@@ -703,8 +704,15 @@ class ChatViewModel @Inject constructor(
             }
             queue.start()
         }
-        viewModelScope.launch { fetchMessages() }
-        fetchEnabledPlatformsInApp()
+        initialChatLoad = viewModelScope.launch {
+            roomLoad.join()
+            if (_roomLoadError.value == null) {
+                val profiles = fetchEnabledPlatformsInApp()
+                fetchMessages()
+                profiles.join()
+                if (chatRoomId == 0) _isLoaded.value = true
+            }
+        }
         observePersistedMessages()
         observeAgentRuns()
         observeProviderWaitDeadlines()
@@ -857,7 +865,32 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        submitOrQueueQuestion(questionText, _selectedAttachments.value, attempt)
+        val attachments = _selectedAttachments.value
+        if (!initialChatLoad.isCompleted) {
+            updateSendPreparation(SendPreparation.ROOM_LOAD, true)
+            viewModelScope.launch {
+                try {
+                    initialChatLoad.join()
+                    if (leavingConversation || question.text.toString() != questionText || attachments != _selectedAttachments.value) {
+                        attempt.finish("DRAFT_CHANGED_DURING_ROOM_LOAD")
+                    } else if (_roomLoadError.value != null || !_voiceRoomReady.value) {
+                        _attachmentNotice.value = _roomLoadError.value ?: "The conversation could not open. Your draft is kept."
+                        attempt.finish("ROOM_LOAD_FAILED")
+                    } else {
+                        submitOrQueueQuestion(questionText, attachments, attempt)
+                    }
+                } finally {
+                    updateSendPreparation(SendPreparation.ROOM_LOAD, false)
+                }
+            }
+            return
+        }
+        if (!_voiceRoomReady.value || _roomLoadError.value != null) {
+            _attachmentNotice.value = _roomLoadError.value ?: "The conversation could not open. Your draft is kept."
+            attempt.finish("ROOM_LOAD_FAILED")
+            return
+        }
+        submitOrQueueQuestion(questionText, attachments, attempt)
     }
 
     private fun rejectUnavailableFreeProfile(profile: PlatformV2): Boolean {
@@ -1358,10 +1391,20 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Voice uses the normal durable chat dispatcher and never bypasses tool approvals. */
+    var voiceSubmissionRejection: String? = null
+        private set
+
     fun submitVoiceTranscript(text: String): Boolean {
-        if (!_isLoaded.value || !_voiceRoomReady.value || text.isBlank() || !featureSettings.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT)) return false
-        val profileUid = _activePlatformUids.value.singleOrNull()?.takeIf { uid -> _platformsInApp.value.any { it.uid == uid && it.enabled } } ?: return false
-        if (_voiceAdmission.value?.stage in setOf(VoiceAdmissionStage.CHECKING, VoiceAdmissionStage.QUEUED)) return false
+        val profileUid = _activePlatformUids.value.singleOrNull()?.takeIf { uid -> _platformsInApp.value.any { it.uid == uid && it.enabled } }
+        voiceSubmissionRejection = when {
+            !_isLoaded.value || !_voiceRoomReady.value -> "CONVERSATION_STARTING"
+            text.isBlank() -> "VALIDATION_REJECTED"
+            !featureSettings.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT) -> "VOICE_CHAT_DISABLED"
+            profileUid == null -> "PROFILE_UNAVAILABLE"
+            _voiceAdmission.value?.stage in setOf(VoiceAdmissionStage.CHECKING, VoiceAdmissionStage.QUEUED) -> "QUEUE_SAVE_IN_PROGRESS"
+            else -> null
+        }
+        if (voiceSubmissionRejection != null || profileUid == null) return false
         checkpointVoiceDraft(text.trim())
         val request = VoiceTurnAdmission(UUID.randomUUID().toString(), _chatRoom.value.id, profileUid)
         updateVoiceAdmission(request)
@@ -1700,14 +1743,17 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun setConversationReasoning(enabled: Boolean) {
+    fun setConversationReasoning(enabled: Boolean?) {
         _chatToolConfig.update { it.copy(reasoning = enabled) }
         val chatId = _chatRoom.value.id
         if (chatId > 0) {
             viewModelScope.launch {
                 try {
                     conversationDelegationMutex.withLock {
-                        settingRepository.mutateFeatureSettings { latest -> latest.copy(conversationReasoning = latest.conversationReasoning + (chatId to enabled)) }
+                        settingRepository.mutateFeatureSettings { latest ->
+                            val overrides = if (enabled == null) latest.conversationReasoning - chatId else latest.conversationReasoning + (chatId to enabled)
+                            latest.copy(conversationReasoning = overrides)
+                        }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -2234,10 +2280,10 @@ class ChatViewModel @Inject constructor(
                 current.copy(llamaReasoningModes = current.llamaReasoningModes + (profile.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO))
             }
             if (_reasoningAdmissionNotice.value?.profileUid == profileUid) dismissReasoningAdmission()
-            _attachmentNotice.value = if (_chatRoom.value.conversationMode == ConversationMode.COMBINED) {
+            _attachmentNotice.value = if (_chatToolConfig.value.reasoning != null) {
+                "${profile.name} is set to Auto. To use it for new requests here, choose Use profile settings under Conversation reasoning."
+            } else if (_chatRoom.value.conversationMode == ConversationMode.COMBINED) {
                 "${profile.name} now uses Auto for new requests. This turn keeps its accepted reasoning setting and saved replies."
-            } else if (_chatToolConfig.value.reasoning != null) {
-                "${profile.name} now uses Auto for new requests. This conversation still has an explicit reasoning override; change that setting or start a new conversation."
             } else {
                 "${profile.name} now uses Auto. Recheck this profile before retrying."
             }
@@ -3247,14 +3293,16 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun completeChat(
+        onSaved: () -> Unit,
         persistSnapshotFirst: Boolean = false,
         oneMessageUid: String? = null,
         acceptedTools: ChatMcpToolConfig = _chatToolConfig.value,
         attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()
     ) {
-        // Update all the platform loading states to Loading
+        // Room can emit an older window while admission suspends. The submitted turn owns this snapshot.
+        val submittedHistory = _groupedMessages.value
         _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Loading } }
-        val turnIndex = _groupedMessages.value.assistantMessages.lastIndex
+        val turnIndex = submittedHistory.assistantMessages.lastIndex
 
         pendingRunDispatches += 1
         val readinessLease = dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.enter()
@@ -3288,7 +3336,7 @@ class ChatViewModel @Inject constructor(
                     }
                 if (acceptedTools.combined == null && platforms.any { rejectUnavailableFreeProfile(it.value) }) {
                     _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
-                    attempt.finish("PREPARATION_REJECTED")
+                    attempt.finish("FREE_PROFILE_UNAVAILABLE")
                     return@launch
                 }
                 val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
@@ -3298,15 +3346,16 @@ class ChatViewModel @Inject constructor(
                     }
                 }
                 if (platforms.isEmpty()) {
+                    _attachmentNotice.value = "Choose an available profile to send this draft."
                     _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
-                    attempt.finish("PREPARATION_REJECTED")
+                    attempt.finish("NO_AVAILABLE_PLATFORMS")
                     return@launch
                 }
                 val timestamp = currentTimeStamp
-                val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex)
+                val userMessage = submittedHistory.userMessages.getOrNull(turnIndex)
                 if (userMessage == null) {
                     _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
-                    attempt.finish("PREPARATION_REJECTED")
+                    attempt.finish("SUBMITTED_TURN_UNAVAILABLE")
                     return@launch
                 }
                 var dispatchTools = acceptedTools
@@ -3314,8 +3363,8 @@ class ChatViewModel @Inject constructor(
                     dispatchTools = acceptedTools.copy(
                         combined = chatRepository.prepareCombinedTurn(
                             accepted,
-                            _groupedMessages.value.userMessages,
-                            _groupedMessages.value.assistantMessages,
+                            submittedHistory.userMessages,
+                            submittedHistory.assistantMessages,
                             platforms.map { it.value },
                             acceptedTools
                         )
@@ -3363,6 +3412,7 @@ class ChatViewModel @Inject constructor(
                     },
                     startProvider = { persisted ->
                         acceptedRunIds = persisted.runs.map { it.runId }
+                        onSaved()
                         attempt.accepted(acceptedRunIds, persisted.chatRoom.id, persisted.userMessage.id)
                         _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
                         val wasNewConversation = _chatRoom.value.id <= 0
@@ -3473,6 +3523,7 @@ class ChatViewModel @Inject constructor(
                 _attachmentNotice.value = error.message ?: "The accepted request could not start. Your question is kept."
                 showPersistenceFailure(turnIndex, enabledPlatformsInChat.indices.toList(), error)
             } finally {
+                updateSendPreparation(SendPreparation.TURN_SAVE, false)
                 pendingRunDispatches -= 1
                 syncLoadingStates(_agentRunsById.value)
                 drainPromptQueueIfIdle()
@@ -3654,15 +3705,23 @@ class ChatViewModel @Inject constructor(
             platformType = null,
             createdAt = currentTimeStamp
         ).let { addMessage(it) }
-        if (clearComposer && _voiceAdmission.value?.requestId != attempt.requestId) {
-            question.clearText()
-            clearSelectedFiles()
-        }
         profileUid?.let { uid ->
             val index = enabledPlatformsInChat.indexOf(uid)
             if (index >= 0) _indexStates.update { states -> states.dropLast(1) + index }
         }
-        completeChat(oneMessageUid = profileUid, acceptedTools = acceptedTools, attempt = attempt)
+        updateSendPreparation(SendPreparation.TURN_SAVE, true)
+        completeChat(
+            onSaved = {
+                if (clearComposer && _voiceAdmission.value?.requestId != attempt.requestId) {
+                    if (question.text.toString() == questionText) question.clearText()
+                    attachments.forEach { it.preparedFilePath?.let(AttachmentPayloadCache::remove) }
+                    _selectedAttachments.update { current -> current.filterNot { it in attachments } }
+                }
+            },
+            oneMessageUid = profileUid,
+            acceptedTools = acceptedTools,
+            attempt = attempt
+        )
     }
 
     private fun rejectDraftAttachment(
@@ -3787,71 +3846,69 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun fetchChatRoom() {
-        viewModelScope.launch {
-            try {
-                conversationExitWork.awaitPending(chatRoomId)
-                if (chatRoomId > 0) {
-                    try {
-                        combinedSettingsJournal.recover(chatRoomId) { before, after -> chatRepository.applyCombinedChatSettings(before, after) }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (error: Exception) {
-                        _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.FAILED, error.message)
-                    }
+    private fun fetchChatRoom() = viewModelScope.launch {
+        try {
+            conversationExitWork.awaitPending(chatRoomId)
+            if (chatRoomId > 0) {
+                try {
+                    combinedSettingsJournal.recover(chatRoomId) { before, after -> chatRepository.applyCombinedChatSettings(before, after) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.FAILED, error.message)
                 }
-                var room = if (chatRoomId == 0) {
-                    ChatRoomV2(
-                        id = 0,
-                        title = "Untitled Chat",
-                        enabledPlatform = initialPlatformUids,
-                        activePlatform = initialPlatformUids,
-                        conversationMode = requestedConversationMode
-                    )
-                } else {
-                    (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).firstOrNull { it.id == chatRoomId }
-                        ?: run {
-                            _roomLoadError.value = "This conversation is no longer available. Choose a chat to continue."
-                            return@launch
-                        }
-                }
-                if (room.id > 0) {
-                    _combinedConversationIdentity.value = settingRepository.ensureConversationIdentity(room.id)
-                    savedStateHandle["combinedConversationIdentity"] = _combinedConversationIdentity.value
-                }
-                val features = settingRepository.getFeatureSettings()
-                features.conversationGitHub[room.id]?.let { github ->
-                    val normalized = dev.chungjungsoo.gptmobile.data.github.GitHubChatMembership.normalize(room, github)
-                    if (normalized != room) room = chatRepository.updateChatPlatforms(normalized, listOf(github.mainProfileUid))
-                }
-                _chatToolConfig.update {
-                    val workspace = features.conversationGitHub[room.id]
-                    it.copy(
-                        delegation = features.conversationDelegation[room.id],
-                        reasoning = features.conversationReasoning[room.id],
-                        research = features.conversationResearch[room.id],
-                        github = workspace,
-                        allowAllByDefault = if (workspace != null) false else it.allowAllByDefault,
-                        enabledToolIds = workspace?.let { scope -> setOf(scope.connectionUid) } ?: it.enabledToolIds
-                    )
-                }
-                _chatRoom.value = room
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, room.isTemporary)
-                applyChatPlatformState(room)
-                if (!composerRestored) {
-                    if (question.text.isEmpty()) question.edit { append(room.draftText.orEmpty()) }
-                    val restored = runCatching { kotlinx.serialization.json.Json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), room.draftAttachments) }.getOrDefault(emptyList())
-                    _selectedAttachments.value = restored.map(ChatAttachmentDraft::fromAttachment)
-                    composerRestored = true
-                    observeComposerDraft()
-                }
-                if (_platformsInApp.value.isNotEmpty()) initializeChatPlatformModels(_platformsInApp.value)
-                _voiceRoomReady.value = true
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                _roomLoadError.value = "This conversation could not be opened. Return to chat selection and try again."
             }
+            var room = if (chatRoomId == 0) {
+                ChatRoomV2(
+                    id = 0,
+                    title = "Untitled Chat",
+                    enabledPlatform = initialPlatformUids,
+                    activePlatform = initialPlatformUids,
+                    conversationMode = requestedConversationMode
+                )
+            } else {
+                (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).firstOrNull { it.id == chatRoomId }
+                    ?: run {
+                        _roomLoadError.value = "This conversation is no longer available. Choose a chat to continue."
+                        return@launch
+                    }
+            }
+            if (room.id > 0) {
+                _combinedConversationIdentity.value = settingRepository.ensureConversationIdentity(room.id)
+                savedStateHandle["combinedConversationIdentity"] = _combinedConversationIdentity.value
+            }
+            val features = settingRepository.getFeatureSettings()
+            features.conversationGitHub[room.id]?.let { github ->
+                val normalized = dev.chungjungsoo.gptmobile.data.github.GitHubChatMembership.normalize(room, github)
+                if (normalized != room) room = chatRepository.updateChatPlatforms(normalized, listOf(github.mainProfileUid))
+            }
+            _chatToolConfig.update {
+                val workspace = features.conversationGitHub[room.id]
+                it.copy(
+                    delegation = features.conversationDelegation[room.id],
+                    reasoning = features.conversationReasoning[room.id],
+                    research = features.conversationResearch[room.id],
+                    github = workspace,
+                    allowAllByDefault = if (workspace != null) false else it.allowAllByDefault,
+                    enabledToolIds = workspace?.let { scope -> setOf(scope.connectionUid) } ?: it.enabledToolIds
+                )
+            }
+            _chatRoom.value = room
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, room.isTemporary)
+            applyChatPlatformState(room)
+            if (!composerRestored) {
+                if (question.text.isEmpty()) question.edit { append(room.draftText.orEmpty()) }
+                val restored = runCatching { kotlinx.serialization.json.Json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), room.draftAttachments) }.getOrDefault(emptyList())
+                _selectedAttachments.value = restored.map(ChatAttachmentDraft::fromAttachment)
+                composerRestored = true
+                observeComposerDraft()
+            }
+            if (_platformsInApp.value.isNotEmpty()) initializeChatPlatformModels(_platformsInApp.value)
+            _voiceRoomReady.value = true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            _roomLoadError.value = "This conversation could not be opened. Return to chat selection and try again."
         }
     }
 
@@ -3878,27 +3935,25 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun fetchEnabledPlatformsInApp() {
-        viewModelScope.launch {
-            val allPlatforms = settingRepository.fetchPlatformV2s()
+    private fun fetchEnabledPlatformsInApp() = viewModelScope.launch {
+        val allPlatforms = settingRepository.fetchPlatformV2s()
 
-            _platformsInApp.update { allPlatforms }
-            initializeChatPlatformModels(allPlatforms)
-            updateLocalNetworkRequirement(allPlatforms)
-            _enabledPlatformsInApp.update { allPlatforms.filter { it.enabled } }
-            viewModelScope.launch(Dispatchers.Default) {
-                try {
-                    val palette = settingRepository.getFeatureSettings().profileAttributionColors
-                    if (allPlatforms.any { it.uid !in palette }) {
-                        settingRepository.mutateFeatureSettings { current ->
-                            current.copy(profileAttributionColors = dev.chungjungsoo.gptmobile.data.model.ProfileColorRegistry.ensure(current.profileAttributionColors, allPlatforms.map { it.uid }))
-                        }
+        _platformsInApp.update { allPlatforms }
+        initializeChatPlatformModels(allPlatforms)
+        updateLocalNetworkRequirement(allPlatforms)
+        _enabledPlatformsInApp.update { allPlatforms.filter { it.enabled } }
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val palette = settingRepository.getFeatureSettings().profileAttributionColors
+                if (allPlatforms.any { it.uid !in palette }) {
+                    settingRepository.mutateFeatureSettings { current ->
+                        current.copy(profileAttributionColors = dev.chungjungsoo.gptmobile.data.model.ProfileColorRegistry.ensure(current.profileAttributionColors, allPlatforms.map { it.uid }))
                     }
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    // Optional display identity persistence must not block profile loading or generation.
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Optional display identity persistence must not block profile loading or generation.
             }
         }
     }

@@ -159,13 +159,13 @@ internal object GitHubRequestCompletion {
             ?: assessments.first()
     }
 
-    fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis()): JsonObject {
+    fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis(), omittedOptionalClaimIndexes: Set<Int> = emptySet()): JsonObject {
         val informational = informational(task)
         val sessionReview = informational && sessionReview(requestText(task))
         val acceptedClaimStatuses = if (sessionReview) setOf("VERIFIED", "INFERRED", "HISTORICAL") else setOf("VERIFIED", "INFERRED")
         // An explicit unmeasured scope is a limitation, not an unsupported factual
         // claim. It still prevents that requirement from being counted as covered.
-        val factualClaims = claims.filterNot(GitHubEvidencePolicy::explicitlyUnmeasured)
+        val factualClaims = claims.filterIndexed { index, claim -> index !in omittedOptionalClaimIndexes && !GitHubEvidencePolicy.explicitlyUnmeasured(claim) }
         val verified = factualClaims.isNotEmpty() && factualClaims.all { (it["status"] as? JsonPrimitive)?.contentOrNull in acceptedClaimStatuses }
         val requirements = requirements(task)
         val coverage = (answer["requirement_claims"] as? JsonObject).orEmpty()
@@ -181,14 +181,14 @@ internal object GitHubRequestCompletion {
         val rows = requirements.map { requirement ->
             val selected = (coverage[id(requirement)] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.intOrNull }
             val selectedClaims = when {
-                selected.isNotEmpty() -> selected.mapNotNull(claims::getOrNull)
+                id(requirement) in coverage -> selected.mapNotNull(claims::getOrNull)
                 requirement.startsWith("Evidence-backed findings", true) -> claims.filter { it["kind"] in setOf(JsonPrimitive("fact"), JsonPrimitive("excerpt"), JsonPrimitive("inferred"), JsonPrimitive("calculation")) }
                 requirement.startsWith("Recommendations are clearly labeled", true) -> claims.filter { it["kind"] == JsonPrimitive("recommendation") }
                 sessionReview && requirement == requirements.first() -> claims
                 requirements.size == 1 -> claims
                 else -> emptyList()
             }
-            val acceptance = (answer["acceptance"] as? JsonObject)?.get(id(requirement)) as? JsonObject
+            val acceptance = if (informational) null else (answer["acceptance"] as? JsonObject)?.get(id(requirement)) as? JsonObject
             fun claimReceiptIds(claim: JsonObject): Set<String> = buildSet {
                 (claim["receipt_id"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)?.let(::add)
                 (claim["sources"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().forEach { source ->
@@ -291,6 +291,13 @@ internal object GitHubRequestCompletion {
                         reviewBlocker
                     } else if (informational && passed) {
                         if (linkedReceiptIds.isEmpty()) "Verified answer coverage" else "Receipt-supported answer coverage"
+                    } else if (informational) {
+                        when {
+                            selectedClaims.isEmpty() -> "Link this requirement to a checked claim from the retained observations"
+                            !claimsCovered -> "Check the claims mapped to this requirement against their cited observations"
+                            recommendationRequirement && !recommendationClaimed -> "Link a labeled recommendation to verified source observations"
+                            else -> "Link this finding to a trusted successful source observation"
+                        }
                     } else if (!covered && implementedAndTested) {
                         "Matching test evidence is present, but answer coverage for this requirement remains unverified"
                     } else {

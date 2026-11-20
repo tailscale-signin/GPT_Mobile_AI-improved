@@ -51,10 +51,17 @@ class ProviderRejectionDiagnosticsTest {
     @Test fun notFoundDistinguishesOnlyExplicitModelUnavailability() {
         val explicit = ProviderRejectionDiagnostics.response(404, """{"error":{"code":"model_not_found","message":"private model identifier"}}""", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS)
         assertEquals(JsonPrimitive("MODEL_UNAVAILABLE"), explicit["provider_rejection_category"])
+        assertEquals(JsonPrimitive("RETRY_AFTER_CONFIGURATION_CHANGE"), explicit["recovery_action"])
         assertFalse(explicit.toString().contains("private model identifier"))
         val ambiguous = ProviderRejectionDiagnostics.response(404, """{"error":{"code":404,"message":"model_not_found in provider prose"}}""", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS)
         assertEquals(JsonPrimitive("NOT_FOUND"), ambiguous["provider_rejection_category"])
         assertFalse("provider_error_type_hash" in ambiguous)
+        assertFalse("recovery_action" in ambiguous)
+        fun route(endpoint: String) = ProviderRejectionDiagnostics.response(404, "{}", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS, endpoint)
+        val privateRoute = route("https://user:secret@example.test/v1/chat?token=secret")
+        assertEquals(route("https://example.test/v1/chat")["provider_route_hash"], privateRoute["provider_route_hash"])
+        assertTrue(privateRoute["provider_route_hash"] != route("https://example.test/v2/chat")["provider_route_hash"])
+        assertFalse("secret" in privateRoute.toString())
     }
 
     @Test fun httpGoneRecordsStatusCategoryWithoutInventingAModelDeprecation() {

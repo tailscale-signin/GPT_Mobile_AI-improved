@@ -8,7 +8,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationArgumentsTest {
+    @Test fun conflictingReadBoundsUseTheNarrowerIntervalWithOrWithoutAnExplicitAction() {
+        for (action in listOf("", "\"action\":\"ranges\",")) {
+            val requested = args("""{$action"ranges":[{"path":"a","start_line":7,"end_line":60,"max_lines":4}]}""")
+            val corrected = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.boundedReadCorrection("github_read", requested))
+            assertEquals(args("""{$action"ranges":[{"path":"a","start_line":7,"end_line":10}]}"""), corrected)
+            assertTrue(GitHubOperationArguments.errors("github_read", corrected).isEmpty())
+        }
+    }
+
     private fun args(value: String) = Json.parseToJsonElement(value) as JsonObject
+
+    @Test fun contradictoryReadLimitsReturnThePinnedIntersectionAndNoOpEditsAreRejected() {
+        val query = args("""{"ranges":[{"path":"A.kt","start_line":7,"max_lines":3,"end_line":20}]}""")
+        val result = dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.rejection("id", "github_read", query, GitHubOperationTool.definition("github_read").inputSchema)
+        val payload = (result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json).value as JsonObject
+        val corrected = (payload.getValue("correction_call") as JsonObject).getValue("arguments")
+        assertTrue(corrected == args("""{"ranges":[{"path":"A.kt","start_line":7,"end_line":9}]}"""))
+        val noop = args("""{"target_file":"A.kt","search_snippet":"__inspect__","replacement_snippet":"__inspect__"}""")
+        assertTrue(GitHubOperationArguments.errors("github_stage_patch", noop).any { "identical" in it })
+    }
 
     @Test fun repositoryDiscoveryRequiresANonBlankSearchQuery() {
         for (input in listOf("""{"action":"repositories"}""", """{"action":"repositories","query":""}""", """{"action":"repositories","query":"   "}""")) {

@@ -53,12 +53,27 @@ internal fun GatewayControlChatEntry(profile: PlatformV2, model: GatewayControlV
             }
         }
     }
+    val direct by model.direct.collectAsStateWithLifecycle()
+    direct[profile.uid to profile.apiUrl]?.takeIf { state?.phase == GatewayControlPhase.UNPAIRED }?.let { admission ->
+        OutlinedCard(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(profile.name, style = MaterialTheme.typography.titleMedium)
+                    Text(if (admission.enabled) "Engineering on" else "Engineering off", style = MaterialTheme.typography.bodySmall)
+                }
+                if (admission.principalId.startsWith("tailnet:")) {
+                    Switch(admission.enabled, onCheckedChange = { model.toggleDirect(profile) }, enabled = !busy)
+                }
+            }
+        }
+        return
+    }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(profile.name.take(120), style = MaterialTheme.typography.titleMedium)
-                    Text("Engineering · this paired owner", style = MaterialTheme.typography.bodySmall)
+                    Text("Gateway Engineering", style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(
                     checked = snapshot?.desired?.get("engineering_enabled") == JsonPrimitive(true),
@@ -76,7 +91,7 @@ internal fun GatewayControlChatEntry(profile: PlatformV2, model: GatewayControlV
             Text(
                 when {
                     state == null -> "Checking the selected Gateway…"
-                    state.phase == GatewayControlPhase.UNPAIRED -> "Pair this phone with the PC to control Engineering."
+                    state.phase == GatewayControlPhase.UNPAIRED -> "Use Connect phone on the PC for repository access."
                     state.phase == GatewayControlPhase.PAIRING -> "Waiting for PC confirmation."
                     state.phase == GatewayControlPhase.REVOKED -> "This phone's access was revoked."
                     state.phase != GatewayControlPhase.LIVE -> state.message ?: "Last confirmed state · refresh Gateway settings."
@@ -91,7 +106,7 @@ internal fun GatewayControlChatEntry(profile: PlatformV2, model: GatewayControlV
             if (state?.writable == true && !state.engineeringBindingConfirmed && snapshot?.desired?.get("engineering_enabled") == JsonPrimitive(true)) {
                 TextButton(onClick = { confirmBinding = true }, enabled = !busy) { Text("Apply Engineering to this phone") }
             }
-            OutlinedButton(onClick = { details = true }) { Text("Gateway settings") }
+            OutlinedButton(onClick = { details = true }) { Text(if (state?.phase == GatewayControlPhase.UNPAIRED) "Connect phone" else "Gateway settings") }
         }
     }
     if (details) GatewayControlSettingsDialog(onDismiss = { details = false }, initialProfileUid = profile.uid, model = model)

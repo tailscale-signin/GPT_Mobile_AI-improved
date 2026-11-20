@@ -301,10 +301,6 @@ fun OpponentChatBubble(
         if (githubTask != null) gitHubResponsePresentation(text, timeline, holdGitHubAnswer) else null
     }
     val displayedText = githubPresentation?.text ?: text
-    var showedLiveAnswer by remember(contentIdentity) { mutableStateOf(false) }
-    LaunchedEffect(holdGitHubAnswer, displayedText.isNotBlank()) {
-        if (holdGitHubAnswer && displayedText.isNotBlank()) showedLiveAnswer = true
-    }
     val hasFinalGitHubAnswer =
         githubTask != null &&
             !holdGitHubAnswer &&
@@ -316,14 +312,6 @@ fun OpponentChatBubble(
     } else {
         MaterialTheme.colorScheme.onSurface
     }
-    val completionReveal = rememberGitHubCompletionReveal(
-        identity = contentIdentity,
-        inProgress = holdGitHubAnswer,
-        hasFinalAnswer = hasFinalGitHubAnswer,
-        animate = debugSettings.responseAnimation && !showedLiveAnswer,
-        accent = MaterialTheme.colorScheme.primary,
-        settled = finalGitHubColor
-    )
     val displayedTimeline = githubPresentation?.timeline ?: timeline
     val contentTimeline = remember(displayedTimeline, showReasoning, effectiveExecutionTrace) {
         displayedTimeline.filter { if (effectiveExecutionTrace) showReasoning || it.type != AssistantTimelineItemType.THINKING else it.type == AssistantTimelineItemType.TEXT }
@@ -446,7 +434,7 @@ fun OpponentChatBubble(
         Column(modifier = modifier.semantics { stateDescription = senderLabel }) {
             AnimatedVisibility(
                 visible = shouldShowBubble,
-                enter = fadeIn(animationSpec = tween(1500)),
+                enter = androidx.compose.animation.EnterTransition.None,
                 exit = fadeOut(animationSpec = tween(650))
             ) {
                 Column(
@@ -476,94 +464,79 @@ fun OpponentChatBubble(
                         hasUnavailableAssistantOrder(contentTimeline, text, visibleThoughts, processToolEvents.isNotEmpty())
                     }
 
-                    if (githubTask != null && completionReveal.progressVisible && !completionReveal.showAnswer) {
-                        Box(Modifier.alpha(completionReveal.progressAlpha)) {
-                            GitHubLiveProgressCard(
-                                timeline,
-                                githubTask,
-                                toolEvents,
-                                expanded = activityExpanded,
-                                active = false
-                            )
-                        }
-                    }
-                    if (completionReveal.showAnswer) {
-                        Box(Modifier.alpha(completionReveal.answerAlpha)) {
-                            AssistantChronologicalContent(
-                                selectedModel = agentRun?.modelSnapshot,
-                                outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
-                                animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
-                                proseColor = if (hasFinalGitHubAnswer) {
-                                    completionReveal.answerColor
-                                } else {
-                                    profileColorIdentity?.let {
-                                        ProfileAttributionPalette.foreground(
-                                            it,
-                                            bubbleColor.compositeOver(MaterialTheme.colorScheme.background)
-                                        )
-                                    }
-                                },
-                                responseSurface = bubbleColor.compositeOver(MaterialTheme.colorScheme.background),
-                                toolEvents = processToolEvents,
-                                fallbackText = displayedText,
-                                fallbackThoughts = visibleThoughts,
-                                contentIdentity = contentIdentity,
-                                isLoading = isLoading,
-                                debugMode = debugMode,
-                                showExecutionTrace = effectiveExecutionTrace,
-                                responseIcon = if (githubTask != null) {
-                                    {
-                                        IconButton(onClick = { activityExpanded = !activityExpanded }, modifier = Modifier.testTag("github_activity_history").semantics { contentDescription = if (activityExpanded) "Hide activity history" else "Show activity history" }) {
-                                            responseIcon?.invoke()
-                                        }
-                                    }
-                                } else if (isLoading || timeline.any { it.progressCheckpoint } || toolEvents.isNotEmpty()) {
-                                    {
-                                        IconButton(onClick = { activityExpanded = !activityExpanded }, modifier = Modifier.testTag("chat_activity_history")) {
-                                            Icon(
-                                                if (activityExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                                                if (activityExpanded) "Hide activity history" else "Show activity history",
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    responseIcon
-                                },
-                                beforeAnswer = {
-                                    if (githubTask == null && (isLoading || activityExpanded)) {
-                                        UniversalChatActivityFeed(
-                                            task = conversationTask,
-                                            timeline = timeline,
-                                            toolEvents = toolEvents,
-                                            active = isLoading,
-                                            animate = debugSettings.responseAnimation,
-                                            expanded = activityExpanded
-                                        )
-                                    }
-                                    if (githubTask != null && (activityExpanded || holdGitHubAnswer)) {
-                                        GitHubLiveProgressCard(timeline, githubTask, toolEvents, expanded = activityExpanded, active = isLoading)
-                                    }
-                                    if (githubPresentation?.progressOnly == true) {
-                                        Text(if (isLoading) "Progress update" else "Saved progress", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                debugSettings = debugSettings,
-                                debugMemorySources = debugMemorySources,
-                                showReasoning = showReasoning,
-                                isError = isError,
-                                expanded = activityExpanded,
-                                onExpandedChange = { activityExpanded = it },
-                                articleCards = articleCards,
-                                combinedWording = combinedWording,
-                                splitForPassageIndicators = splitForPassageIndicators,
-                                passageIndicators = passageIndicators,
-                                combinedManifest = combinedManifest,
-                                originalSource = originalSource,
-                                loadCombinedBlocks = loadCombinedBlocks
-                            )
-                        }
-                    }
+                    AssistantChronologicalContent(
+                        selectedModel = agentRun?.modelSnapshot,
+                        outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
+                        animateResponse = debugSettings.responseAnimation && !hasFinalGitHubAnswer, timeline = contentTimeline,
+                        proseColor = if (hasFinalGitHubAnswer) {
+                            finalGitHubColor
+                        } else {
+                            profileColorIdentity?.let {
+                                ProfileAttributionPalette.foreground(
+                                    it,
+                                    bubbleColor.compositeOver(MaterialTheme.colorScheme.background)
+                                )
+                            }
+                        },
+                        responseSurface = bubbleColor.compositeOver(MaterialTheme.colorScheme.background),
+                        toolEvents = processToolEvents,
+                        fallbackText = displayedText,
+                        fallbackThoughts = visibleThoughts,
+                        contentIdentity = contentIdentity,
+                        isLoading = isLoading,
+                        debugMode = debugMode,
+                        showExecutionTrace = effectiveExecutionTrace,
+                        responseIcon = if (githubTask != null) {
+                            {
+                                IconButton(onClick = { activityExpanded = !activityExpanded }, modifier = Modifier.testTag("github_activity_history").semantics { contentDescription = if (activityExpanded) "Hide activity history" else "Show activity history" }) {
+                                    responseIcon?.invoke()
+                                }
+                            }
+                        } else if (isLoading || timeline.any { it.progressCheckpoint } || toolEvents.isNotEmpty()) {
+                            {
+                                IconButton(onClick = { activityExpanded = !activityExpanded }, modifier = Modifier.testTag("chat_activity_history")) {
+                                    Icon(
+                                        if (activityExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                        if (activityExpanded) "Hide activity history" else "Show activity history",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        } else {
+                            responseIcon
+                        },
+                        beforeAnswer = {
+                            if (githubTask == null && (isLoading || activityExpanded)) {
+                                UniversalChatActivityFeed(
+                                    task = conversationTask,
+                                    timeline = timeline,
+                                    toolEvents = toolEvents,
+                                    active = isLoading,
+                                    animate = debugSettings.responseAnimation,
+                                    expanded = activityExpanded
+                                )
+                            }
+                            if (githubTask != null && (activityExpanded || holdGitHubAnswer)) {
+                                GitHubLiveProgressCard(timeline, githubTask, toolEvents, expanded = activityExpanded, active = isLoading)
+                            }
+                            if (githubPresentation?.progressOnly == true) {
+                                Text(if (isLoading) "Progress update" else "Saved progress", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        },
+                        debugSettings = debugSettings,
+                        debugMemorySources = debugMemorySources,
+                        showReasoning = showReasoning,
+                        isError = isError,
+                        expanded = activityExpanded,
+                        onExpandedChange = { activityExpanded = it },
+                        articleCards = articleCards,
+                        combinedWording = combinedWording,
+                        splitForPassageIndicators = splitForPassageIndicators,
+                        passageIndicators = passageIndicators,
+                        combinedManifest = combinedManifest,
+                        originalSource = originalSource,
+                        loadCombinedBlocks = loadCombinedBlocks
+                    )
                     if (showTerminalFallback) {
                         Text(
                             text = if (isError) "The response failed before displayable content was returned." else "The model finished without returning displayable text.",

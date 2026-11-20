@@ -44,7 +44,8 @@ class GatewayOwnerControlTest {
     @Test fun pairingRequiresAnUnexpiredExactHttpsOriginAndUniqueFields() {
         val link = "gptmobile://gateway-control?endpoint=https%3A%2F%2F192.168.1.9%3A29444&installation_id=pc&fingerprint=${"a".repeat(64)}&code=${"b".repeat(43)}&expires=1300"
         assertEquals(binding.endpoint, GatewayPairingLink.parse(link, 1000).endpoint)
-        for (invalid in listOf(link + "&installation_id=other", link.replace("https%3A", "http%3A"), link.replace("29444&", "29444%2Fredirect&"), link + "#fragment", link.replace("expires=1300", "expires=1000"), link.replace("expires=1300", "expires=999999"))) {
+        assertEquals("http://192.168.1.9:8090/v1", GatewayPairingLink.parse(link + "&gateway_port=8090", 1000).profileEndpoint)
+        for (invalid in listOf(link + "&gateway_port=65536", link + "&gateway_port=80", link + "&gateway_port=host.example", link + "&installation_id=other", link.replace("https%3A", "http%3A"), link.replace("29444&", "29444%2Fredirect&"), link + "#fragment", link.replace("expires=1300", "expires=1000"), link.replace("expires=1300", "expires=999999"))) {
             assertTrue(invalid, runCatching { GatewayPairingLink.parse(invalid, 1000) }.isFailure)
         }
     }

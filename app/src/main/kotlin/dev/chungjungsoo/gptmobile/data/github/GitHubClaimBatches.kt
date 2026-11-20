@@ -120,21 +120,17 @@ internal object GitHubClaimBatches {
         onValidationStage("CLAIM_COUNT")
         require(request.maxClaims in 1..MAX_CLAIMS && entries.size in 1..request.maxClaims)
         onValidationStage("CLAIM_RECORD")
-        val claims = JsonArray(entries.map(::normalizeClaim))
-        claims.forEach { entry ->
-            val claim = requireNotNull(entry as? JsonObject)
-            when (claim.string("kind")) {
-                "fact", "excerpt" -> validateSource(claim)
-                "inferred", "calculation", "recommendation" -> {
-                    if (claim.string("kind") in setOf("inferred", "recommendation")) require(claim.string("text").length in 1..1200)
-                    val sources = requireNotNull(claim["sources"] as? JsonArray)
-                    require(sources.size in 1..16)
-                    sources.forEach { validateSource(requireNotNull(it as? JsonObject)) }
-                }
-                "not_measured" -> require(claim.string("subject").length in 1..160)
-                else -> error("Unsupported claim kind")
+        val kept = linkedMapOf<Int, JsonObject>()
+        entries.forEachIndexed { index, entry ->
+            try {
+                kept[index] = validateClaim(entry)
+            } catch (failure: IllegalArgumentException) {
+                if (entries.size == 1) throw failure
             }
         }
+        require(kept.isNotEmpty()) { "No valid claim records" }
+        val claims = JsonArray(kept.values.toList())
+        val newIndexes = kept.keys.withIndex().associate { it.value to it.index }
         onValidationStage("REQUIREMENT_MAP")
         val coverage = (answer["requirement_claims"] as? JsonArray)?.let { rows ->
             entryMap(rows, "requirement_id") { it.getValue("claim_indexes") }
@@ -147,7 +143,7 @@ internal object GitHubClaimBatches {
         require(request.requirementIds.containsAll(coverage.keys) && request.requirementIds.containsAll(acceptance.keys))
         coverage.values.forEach { value ->
             val indexes = requireNotNull(value as? JsonArray)
-            require(indexes.all { entry -> (entry as? JsonPrimitive)?.intOrNull?.let { it in claims.indices } == true })
+            require(indexes.all { entry -> (entry as? JsonPrimitive)?.intOrNull?.let { it in entries.indices } == true })
         }
         acceptance.values.forEach { value ->
             val mapping = requireNotNull(value as? JsonObject)
@@ -161,7 +157,14 @@ internal object GitHubClaimBatches {
         }
         return buildJsonObject {
             put("claims", claims)
-            put("requirement_claims", coverage)
+            put(
+                "requirement_claims",
+                JsonObject(
+                    coverage.mapValues { (_, indexes) ->
+                        JsonArray((indexes as JsonArray).mapNotNull { old -> newIndexes[(old as JsonPrimitive).intOrNull]?.let(::JsonPrimitive) })
+                    }
+                )
+            )
             put("acceptance", acceptance)
             put("questions", JsonArray(questions.map(::JsonPrimitive)))
         }
@@ -187,6 +190,22 @@ internal object GitHubClaimBatches {
             put("acceptance", JsonObject(acceptance))
             put("questions", JsonArray(questions.take(2)))
         }
+    }
+
+    private fun validateClaim(entry: JsonElement): JsonObject {
+        val claim = normalizeClaim(entry)
+        when (claim.string("kind")) {
+            "fact", "excerpt" -> validateSource(claim)
+            "inferred", "calculation", "recommendation" -> {
+                if (claim.string("kind") in setOf("inferred", "recommendation")) require(claim.string("text").length in 1..1200)
+                val sources = requireNotNull(claim["sources"] as? JsonArray)
+                require(sources.size in 1..16)
+                sources.forEach { validateSource(requireNotNull(it as? JsonObject)) }
+            }
+            "not_measured" -> require(claim.string("subject").length in 1..160)
+            else -> throw IllegalArgumentException("Unsupported claim kind")
+        }
+        return claim
     }
 
     private fun validateSource(source: JsonObject) {

@@ -138,10 +138,22 @@ class GatewayGraphRepository @Inject constructor(
             if (action == "status" && syncReceipts) {
                 retained.pendingRequestId()?.let { id -> payload = JsonObject(payload + ("confirm_sync_index_request_id" to JsonPrimitive(id))) }
             }
-            val cancelJob = action == "index" && payload.text("job_action") == "cancel"
+            val jobAction = payload.text("job_action")
+            val cancelJob = action == "index" && jobAction == "cancel"
+            val controlJob = action == "index" && jobAction in setOf("cancel", "pause", "resume")
             val durableJobs = capability.codeGraph?.durableIndexJobs == true
+            if (action == "index" && jobAction != null && !durableJobs) throw GatewayGraphAdmissionException("GRAPH_BACKGROUND_UNSUPPORTED", "Update this gateway to control saved index jobs.", "UPDATE_SELECTED_GATEWAY_GRAPH_PROTOCOL")
+            // A model's index request means preparing this revision, not holding
+            // one tool call open through every remote source read. Use the saved
+            // job protocol by default when this host advertises it; an explicit
+            // synchronous request and legacy gateways keep their bounded batches.
+            if (forModel && action == "index" && durableJobs && "background" !in payload && "job_action" !in payload) {
+                payload = JsonObject(payload + ("background" to JsonPrimitive(true)))
+            }
             if (payload["background"] == JsonPrimitive(true) && !durableJobs) payload = JsonObject(payload - "background")
-            val background = action == "index" && payload["background"] == JsonPrimitive(true)
+            // Job controls use the saved-job protocol even when the caller did
+            // not repeat background=true. The gateway routes job_action that way.
+            val background = action == "index" && (payload["background"] == JsonPrimitive(true) || jobAction != null)
             val modelAccess = when {
                 !GatewayGraphSharing.allowed(admitted.profile, admitted.preferences, context) -> "SHARING_DISABLED"
                 GitHubAutonomousEngineeringPolicy.supportsSavedJobs(admitted.profile) -> "PRIVATE_PROFILE_ELIGIBLE"
@@ -149,16 +161,17 @@ class GatewayGraphRepository @Inject constructor(
             }
             var previousStatus: JsonObject? = null
             verifyAdmission(context, expectedGatewayProfileUid, admitted)
-            if (cancelJob) {
+            if (controlJob) {
                 if (!durableJobs) throw GatewayGraphAdmissionException("GRAPH_BACKGROUND_UNSUPPORTED", "Update this gateway to control saved index jobs.", "UPDATE_SELECTED_GATEWAY_GRAPH_PROTOCOL")
                 val saved = client.graph(frozenConfig, boundRequest(context, buildJsonObject { put("action", "status") }))
+                previousStatus = saved
                 verifyResult(context, saved)
                 val job = saved["index_job"] as? JsonObject
                 if (payload.text("job_id").isNullOrBlank() || payload.text("job_id") != job?.text("id")) {
-                    throw GatewayGraphIntegrityException("GRAPH_JOB_CHANGED", "The saved indexing job changed. Refresh its status before stopping it.")
+                    throw GatewayGraphIntegrityException("GRAPH_JOB_CHANGED", "The saved indexing job changed. Refresh its status before changing it.")
                 }
                 val jobGeneration = (payload["job_generation"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
-                if (jobGeneration == null || jobGeneration < 1 || payload["job_generation"] != job?.get("generation")) throw GatewayGraphIntegrityException("GRAPH_JOB_CHANGED", "The saved indexing job was replaced. Refresh its status before stopping the current job.")
+                if (jobGeneration == null || jobGeneration < 1 || payload["job_generation"] != job?.get("generation")) throw GatewayGraphIntegrityException("GRAPH_JOB_CHANGED", "The saved indexing job was replaced. Refresh its status before controlling the current job.")
                 verifyAdmission(context, expectedGatewayProfileUid, admitted)
             }
             if (action == "index" && !cancelJob) {
@@ -169,7 +182,7 @@ class GatewayGraphRepository @Inject constructor(
             }
             // A retained cursor is a server-side precondition. A fresh build first reads
             // the existing snapshot, so reopening the map never restarts saved work.
-            if (action == "index" && !cancelJob && payload.text("index_cursor").isNullOrBlank()) {
+            if (action == "index" && !controlJob && payload.text("index_cursor").isNullOrBlank()) {
                 val saved = client.graph(frozenConfig, boundRequest(context, buildJsonObject { put("action", "status") }))
                 previousStatus = saved
                 verifyResult(context, saved)
@@ -216,8 +229,8 @@ class GatewayGraphRepository @Inject constructor(
                 if (background || cancelJob) {
                     val job = result["index_job"] as? JsonObject
                     if (job?.text("id").isNullOrBlank() || job?.text("state").isNullOrBlank()) throw GatewayGraphIntegrityException("GRAPH_JOB_ACK_MISSING", "The gateway did not confirm its saved indexing job. Check the saved status before continuing.")
-                    if (cancelJob && job?.text("id") != payload.text("job_id")) throw GatewayGraphIntegrityException("GRAPH_JOB_CHANGED", "The indexing reply belongs to a different saved job. Check its status before continuing.")
-                    if (background && attempt != job?.text("request_id") && (job?.get("accepted_request_ids") as? JsonArray).orEmpty().none { (it as? JsonPrimitive)?.contentOrNull == attempt }) throw GatewayGraphIntegrityException("GRAPH_JOB_ACK_MISSING", "The saved job has not acknowledged this request. Check its status before continuing.")
+                    if (controlJob && job?.text("id") != payload.text("job_id")) throw GatewayGraphIntegrityException("GRAPH_JOB_CHANGED", "The indexing reply belongs to a different saved job. Check its status before continuing.")
+                    if (background && !cancelJob && attempt != job?.text("request_id") && (job?.get("accepted_request_ids") as? JsonArray).orEmpty().none { (it as? JsonPrimitive)?.contentOrNull == attempt }) throw GatewayGraphIntegrityException("GRAPH_JOB_ACK_MISSING", "The saved job has not acknowledged this request. Check its status before continuing.")
                 } else {
                     check(result["has_more"] in setOf(JsonPrimitive(true), JsonPrimitive(false))) { "The gateway did not confirm the index batch outcome. Check the saved index before continuing." }
                     check(result["has_more"] != JsonPrimitive(true) || !result.text("index_cursor").isNullOrBlank()) { "The gateway did not return the next indexing cursor. Check the saved index before continuing." }

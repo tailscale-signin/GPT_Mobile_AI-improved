@@ -560,6 +560,16 @@ class VoiceSessionTest {
         assertEquals(VoicePhase.CLOSED, session.state.phase)
     }
 
+    @Test fun aRoomThatIsStillOpeningKeepsTheDictatedDraftAndExplainsWhenToRetry() {
+        val pending = VoiceSession(audio, { false }, {}).also { it.submissionRejection = { "CONVERSATION_STARTING" } }
+        pending.access(true, true, true)
+        pending.resume()
+        audio.listeners.last().final("Keep this question")
+        assertEquals("Keep this question", pending.state.transcript)
+        assertTrue(pending.state.hasDraft)
+        assertTrue(pending.state.notice.orEmpty().contains("finishes opening"))
+    }
+
     @Test fun `failed dispatch and recognition error never retry automatically`() {
         val rejecting = VoiceSession(audio, { false }, {})
         rejecting.access(true, true, true)

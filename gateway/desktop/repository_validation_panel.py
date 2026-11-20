@@ -52,7 +52,7 @@ class RepositoryValidationPanel:
         viewport.pack(side='left', fill='both', expand=True)
         viewport.configure(yscrollcommand=scrollbar.set)
         self.viewport = viewport
-        frame = ttk.Frame(viewport, padding=(14, 10))
+        frame = ttk.Frame(viewport, padding=(14, 4))
         self.content = frame
         window = viewport.create_window((0, 0), window=frame, anchor='nw')
         frame.bind('<Configure>', lambda _: viewport.configure(scrollregion=viewport.bbox(window)))
@@ -64,10 +64,10 @@ class RepositoryValidationPanel:
         self.enable_button.grid(row=0, column=0, sticky='w')
         self.inputs.append(self.enable_button)
         basic = ttk.Frame(frame)
-        basic.grid(row=1, column=0, sticky='ew')
+        basic.grid(row=1, column=0, columnspan=2, sticky='ew')
         basic.columnconfigure(1, weight=1)
         for row, key, label in [(0, 'repository', 'Repository'), (1, 'profile', 'Validation profile')]:
-            ttk.Label(basic, text=label).grid(row=row, column=0, sticky='w', padx=(0, 10), pady=3)
+            ttk.Label(basic, text=label).grid(row=row, column=0, sticky='w', padx=(0, 10), pady=1)
             var = tk.StringVar(master=frame)
             self.fields[key] = var
             control = ttk.Combobox(basic, textvariable=var)
@@ -80,7 +80,7 @@ class RepositoryValidationPanel:
                 self.repository_picker = control
                 control.bind('<<ComboboxSelected>>', lambda _: self.load_repository())
                 control.bind('<Return>', lambda _: self.load_repository())
-            control.grid(row=row, column=1, sticky='ew', pady=3)
+            control.grid(row=row, column=1, sticky='ew', pady=1)
             self.inputs.append(control)
         self.terminal_enabled = tk.BooleanVar(master=frame)
         terminal = ttk.Checkbutton(basic, text='Allow offline task terminal', variable=self.terminal_enabled, command=self.edited)
@@ -162,7 +162,7 @@ class RepositoryValidationPanel:
         for attr, label, command in [('prepare_button', 'Prepare & save', lambda: self.start(True)),
                                      ('check_button', 'Check setup', lambda: self.start(False)),
                                      ('save_button', 'Save policy', self.save), ('reload_button', 'Reload', self.reload)]:
-            button = ttk.Button(buttons, text=label, command=command, padding=(8, 8))
+            button = ttk.Button(buttons, text=label, command=command, padding=(8, 4))
             button.pack(side='left', padx=(0, 4))
             setattr(self, attr, button)
             self.inputs.append(button)

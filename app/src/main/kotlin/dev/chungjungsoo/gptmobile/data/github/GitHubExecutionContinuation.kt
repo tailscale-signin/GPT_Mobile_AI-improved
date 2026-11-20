@@ -190,3 +190,72 @@ internal object GitHubExecutionContinuation {
 
     private val selectorKeys = setOf("action", "owner", "repo", "branch", "ref", "path", "issue_number", "pull_number", "run_id", "job_id", "workflow_id", "expected_head_sha", "commit_sha", "stage_id", "inventory_cursor", "inventory_version")
 }
+
+/** Count completed source decisions only. A changed query or overlapping interval alone is not new evidence. */
+internal class GitHubReadRoundProgress {
+    private val sources = mutableSetOf<String>()
+    private val lastRanges = mutableMapOf<String, MutableList<IntRange>>()
+    private val searchFrontiers = mutableMapOf<String, Int>()
+    private var lastCall: String? = null
+    private var unchanged = 0
+    private var workMillis = 0L
+
+    fun replan(exchange: dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange, elapsedMillis: Long): Boolean {
+        val call = exchange.calls.lastOrNull() ?: return false
+        if (lastCall == call.callId) return false
+        lastCall = call.callId
+        val readsOnly = exchange.calls.all { it.name.githubOperationFamily() in setOf("github_read", "github_search") && "view_cursor" !in it.arguments }
+        var advanced = false
+        if (!readsOnly || exchange.results.size != exchange.calls.size || exchange.results.any { it.isError }) {
+            unchanged = 0
+            workMillis = 0
+            return false
+        }
+        for (result in exchange.results) {
+            val source = ((result.retainedContent ?: result.content) as? dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json)?.value as? JsonObject ?: continue
+            val data = GitHubSemanticSummary.data(source)
+            val revision = data["commit_sha"] ?: continue
+            val search = (data["search_id"] as? JsonPrimitive)?.content
+            val startIndex = (data["interval_start"] as? JsonPrimitive)?.content?.toIntOrNull()
+            val endIndex = (data["interval_end"] as? JsonPrimitive)?.content?.toIntOrNull()
+            if (search != null && startIndex != null && endIndex != null && startIndex >= 0 && endIndex > startIndex) {
+                // Progress through the same pinned search includes pages with zero hits. A changed
+                // query alone does not establish another discovery.
+                val key = "$revision|$search"
+                val previous = searchFrontiers[key]
+                if (previous != null && startIndex == previous && endIndex > previous) advanced = true
+                searchFrontiers[key] = maxOf(previous ?: 0, endIndex)
+            }
+            for (row in (data["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()) {
+                val path = row["path"] ?: continue
+                val key = "$revision|$path|${row["sha"]}"
+                if (sources.add(key)) advanced = true
+                val matches = row["matches"] as? JsonArray
+                matches.orEmpty().filterIsInstance<JsonObject>().forEach { match ->
+                    match["line"]?.let { if (sources.add("$key|$it")) advanced = true }
+                }
+                val start = (row["start_line"] as? JsonPrimitive)?.content?.toIntOrNull() ?: continue
+                val end = (row["end_line"] as? JsonPrimitive)?.content?.toIntOrNull() ?: continue
+                if (start < 1 || end < start) continue
+                if (row["range_complete"] != JsonPrimitive(true)) {
+                    val offset = row["start_offset"]
+                    if (sources.add("$key|$start|$end|$offset")) advanced = true
+                    continue
+                }
+                val ranges = lastRanges.getOrPut(key) { mutableListOf() }
+                if (ranges.none { start >= it.first && end <= it.last }) {
+                    val touching = ranges.filter { it.first <= end.toLong() + 1 && start.toLong() <= it.last.toLong() + 1 }
+                    ranges.removeAll(touching.toSet())
+                    ranges += minOf(start, touching.minOfOrNull { it.first } ?: start)..maxOf(end, touching.maxOfOrNull { it.last } ?: end)
+                    advanced = true
+                }
+            }
+            (data["failed_ranges"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().forEach {
+                if (sources.add("$revision|${it["path"]}|${it["error_code"]}")) advanced = true
+            }
+        }
+        unchanged = if (advanced) 0 else unchanged + 1
+        workMillis = if (advanced) 0 else workMillis + elapsedMillis.coerceAtLeast(0)
+        return unchanged >= 3 || workMillis >= 60_000
+    }
+}

@@ -50,6 +50,8 @@ import kotlinx.coroutines.withContext
 internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, onAnswer: (Int?, String?) -> Unit, onResume: () -> Unit, onStop: () -> Unit) {
     var custom by rememberSaveable(decision.id) { mutableStateOf(false) }
     var answer by rememberSaveable(decision.id) { mutableStateOf("") }
+    val revisionInput = decision.options.any { it.enterValue }
+    val validAnswer = if (revisionInput) dev.chungjungsoo.gptmobile.data.github.GitHubReviewComparison.acceptsBaselineInput(answer) else answer.isNotBlank()
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(24.dp)
     val title = remember(decision.question) { dev.chungjungsoo.gptmobile.data.github.gitHubDecisionTitle(decision.question) }
@@ -68,7 +70,7 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
             if (decision.context.isNotBlank()) Text(decision.context, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
             if (decision.answer == null) {
                 decision.options.forEachIndexed { index, option ->
-                    OutlinedButton(onClick = { onAnswer(index, null) }, modifier = Modifier.fillMaxWidth().testTag("github_decision_option_$index"), shape = RoundedCornerShape(16.dp)) {
+                    OutlinedButton(onClick = { if (option.enterValue) custom = true else onAnswer(index, null) }, modifier = Modifier.fillMaxWidth().testTag("github_decision_option_$index"), shape = RoundedCornerShape(16.dp)) {
                         Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(option.label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
@@ -84,8 +86,8 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
                 }
                 TextButton(onClick = { custom = !custom }) { Text(if (custom) "Hide custom answer" else "Write my own answer") }
                 if (custom) {
-                    OutlinedTextField(value = answer, onValueChange = { answer = it.take(2000) }, modifier = Modifier.fillMaxWidth().testTag("github_decision_custom"), label = { Text("Your preference") }, minLines = 2, maxLines = 5, supportingText = { Text("${answer.length}/2000") })
-                    Button(onClick = { onAnswer(null, answer) }, enabled = answer.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Use my answer") }
+                    OutlinedTextField(value = answer, onValueChange = { answer = it.take(2000) }, modifier = Modifier.fillMaxWidth().testTag("github_decision_custom"), label = { Text(if (revisionInput) "Commit, tag or branch" else "Your preference") }, minLines = 2, maxLines = 5, supportingText = { Text(if (revisionInput) "Enter one revision, for example main or v1.0." else "${answer.length}/2000") })
+                    Button(onClick = { onAnswer(null, answer) }, enabled = validAnswer, modifier = Modifier.fillMaxWidth()) { Text("Use my answer") }
                 }
             } else {
                 decision.bubble()?.let { GitHubDecisionBubble(it) }

@@ -52,7 +52,7 @@ internal fun ChatBottomIndicator(
     // can extend the hold, so streaming layout changes do not reset it.
     var heldVisible by remember(scrollInput, listState) { mutableStateOf(false) }
     val fastUserScroll = scrollInput?.scrollingFasterThanReading == true
-    val userScrolling = listState.isScrollInProgress
+    val userScrolling = listState.isScrollInProgress && (scrollInput?.dragging == true || scrollInput?.userFlingActive == true)
     val hasOlderContent = listState.canScrollForward
     LaunchedEffect(scrollInput, fastUserScroll, userScrolling, hasOlderContent, following) {
         when {

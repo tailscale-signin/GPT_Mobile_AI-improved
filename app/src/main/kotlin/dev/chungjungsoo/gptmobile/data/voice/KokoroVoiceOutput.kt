@@ -542,7 +542,11 @@ internal class KokoroVoiceOutput(
                     continue
                 }
                 playback.synthesizing = true
-                val projection = KokoroSpeechText.projected(segment, model.words::contains)
+                val projection = if (playback.onRange == null) {
+                    KokoroSpeechText.projected(segment, model.words::contains)
+                } else {
+                    KokoroSpeechText.timed(segment, model.words::contains)
+                }
                 val observation = projection.observation
                 playback.knownWords += observation.knownWords
                 playback.initialisms += observation.initialisms
@@ -571,7 +575,7 @@ internal class KokoroVoiceOutput(
                 val units = if (playback.onRange == null) {
                     parts.map { KokoroCaptionPart(it, IntRange.EMPTY) }
                 } else {
-                    kokoroCaptionParts(segment, model.words::contains)
+                    projection.captionParts
                 }
                 for ((part, range) in units) {
                     playback.captions.beginWord()

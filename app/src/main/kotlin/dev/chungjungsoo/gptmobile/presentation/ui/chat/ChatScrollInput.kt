@@ -41,6 +41,8 @@ internal class ChatBottomReturnIntent {
 internal class ChatScrollInput {
     var dragging by mutableStateOf(false)
     var pointerActive = false
+    var userFlingActive by mutableStateOf(false)
+        private set
     var modifier: Modifier = Modifier
     private val readingGate = ChatReadingScrollGate()
     private val bottomIntent = ChatBottomReturnIntent()
@@ -53,6 +55,7 @@ internal class ChatScrollInput {
     }
 
     fun recordFling(velocityDpPerSecond: Float) {
+        userFlingActive = velocityDpPerSecond.isFinite() && velocityDpPerSecond != 0f
         bottomIntent.recordMotion(velocityDpPerSecond)
         scrollingFasterThanReading = readingGate.recordFling(velocityDpPerSecond)
     }
@@ -64,6 +67,7 @@ internal class ChatScrollInput {
     }
 
     fun stopScroll() {
+        userFlingActive = false
         readingGate.stop()
         scrollingFasterThanReading = false
     }

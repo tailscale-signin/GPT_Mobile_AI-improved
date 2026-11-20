@@ -15,7 +15,7 @@ internal data class KokoroPronunciationObservation(
     val failure: KokoroPronunciationFailure?
 )
 
-internal data class KokoroSpeechProjection(val parts: List<String>?, val observation: KokoroPronunciationObservation)
+internal data class KokoroSpeechProjection(val parts: List<String>?, val observation: KokoroPronunciationObservation, val captionParts: List<KokoroCaptionPart> = emptyList())
 
 /** Sherpa's lexicon drops unknown words. Spell explicit initialisms, never an ordinary missing word. */
 internal object KokoroSpeechText {
@@ -40,7 +40,10 @@ internal object KokoroSpeechText {
 
     fun projected(input: String, isKnown: (String) -> Boolean): KokoroSpeechProjection = project(input, markdown = false, isKnown)
 
-    private fun project(input: String, markdown: Boolean, isKnown: (String) -> Boolean): KokoroSpeechProjection {
+    fun timed(input: String, isKnown: (String) -> Boolean): KokoroSpeechProjection =
+        project(input, markdown = false, isKnown, timed = true)
+
+    private fun project(input: String, markdown: Boolean, isKnown: (String) -> Boolean, timed: Boolean = false): KokoroSpeechProjection {
         val clipped = if (input.length <= MAX_INPUT) {
             input
         } else {
@@ -51,20 +54,43 @@ internal object KokoroSpeechText {
         val formatCharacters = invisibleFormat.findAll(projected).count()
         val plain = Normalizer.normalize(projected.replace(invisibleFormat, ""), Normalizer.Form.NFKD)
             .replace(marks, "").replace('’', '\'').replace('−', '-')
+        val captionParts = mutableListOf<KokoroCaptionPart>()
+        // Offsets are UTF-16 in the displayed speech projection. Record the source of each
+        // normalized code unit only when normalization actually changed the string.
+        val origins = if (timed && plain != projected) {
+            buildList<IntRange> {
+                var index = 0
+                while (index < projected.length) {
+                    val end = index + Character.charCount(projected.codePointAt(index))
+                    val source = projected.substring(index, end)
+                    val normalized = Normalizer.normalize(source.replace(invisibleFormat, ""), Normalizer.Form.NFKD).replace(marks, "")
+                    repeat(normalized.length) { add(index until end) }
+                    index = end
+                }
+            }
+        } else {
+            null
+        }
+        var sourceRange = IntRange.EMPTY
         var knownWords = 0
         var initialismWords = 0
         var unknownWords = 0
         var spelledLetters = 0
         fun outcome(parts: List<String>?, failure: KokoroPronunciationFailure? = null) = KokoroSpeechProjection(
             parts,
-            KokoroPronunciationObservation(knownWords, initialismWords, unknownWords, spelledLetters, formatCharacters, failure)
+            KokoroPronunciationObservation(knownWords, initialismWords, unknownWords, spelledLetters, formatCharacters, failure),
+            captionParts
         )
         if (plain.codePoints().anyMatch { it > 127 && Character.isLetterOrDigit(it) }) return outcome(null, KokoroPronunciationFailure.UNSUPPORTED_SCRIPT)
         val result = mutableListOf<String>()
         val part = StringBuilder()
         var words = 0
         fun flush() {
-            if (words > 0) result += part.toString()
+            if (words > 0) {
+                val speech = part.toString()
+                result += speech
+                if (timed) captionParts += KokoroCaptionPart(speech, sourceRange)
+            }
             part.clear()
             words = 0
         }
@@ -80,6 +106,10 @@ internal object KokoroSpeechText {
                 if (words > 0 && value != "\n" && part.length < MAX_PART_CHARS && part.last().isLetter()) part.append(value)
                 if (value[0] in ".!?\n") flush()
                 continue
+            }
+            if (timed) {
+                flush()
+                sourceRange = if (origins == null) match.range else origins[match.range.first].first..origins[match.range.last].last
             }
             val expanded = when {
                 value.any(Char::isDigit) -> spokenNumber(value)

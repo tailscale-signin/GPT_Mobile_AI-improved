@@ -22,8 +22,15 @@ class VoicePcmCaptionsTest {
     }
 
     @Test fun expandedNumbersAndInitialismsKeepTheirSourceWord() {
-        val parts = kokoroCaptionParts("API v2.5, go!", isKnown = { true })
+        val parts = KokoroSpeechText.timed("API v2.5, go!", isKnown = { true }).captionParts
         assertEquals(listOf("a p i", "version two point five,", "go!"), parts.map { it.speech })
         assertEquals(listOf(0..2, 4..7, 10..11), parts.map { it.range })
+    }
+
+    @Test fun normalizationAndWordExpansionKeepOriginalOffsetsAndPronunciation() {
+        val text = "café hol\u00ADiday #12"
+        val timed = KokoroSpeechText.timed(text) { it in setOf("cafe", "holiday", "number", "twelve") }
+        assertEquals(listOf("cafe", "holiday", "number", "twelve"), timed.parts)
+        assertEquals(listOf("café", "hol\u00ADiday", "#", "12"), timed.captionParts.map { text.substring(it.range) })
     }
 }

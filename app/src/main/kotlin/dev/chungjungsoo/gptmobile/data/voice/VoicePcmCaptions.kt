@@ -42,20 +42,3 @@ internal class VoicePcmCaptions {
 }
 
 internal data class KokoroCaptionPart(val speech: String, val range: IntRange)
-
-private val spokenToken = Regex("""[vV]?[+\-]?\p{N}+(?:[.,]\p{N}+)*|[\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*|[^\s]""")
-
-/** The local synthesizer returns PCM without word offsets. Give each source token its own measured audio span. */
-internal fun kokoroCaptionParts(text: String, isKnown: (String) -> Boolean): List<KokoroCaptionPart> = buildList {
-    for (token in spokenToken.findAll(text)) {
-        if (token.value.length == 1 && token.value[0] in ".,!?;:") {
-            if (isNotEmpty()) {
-                val prior = removeAt(lastIndex)
-                add(prior.copy(speech = prior.speech + token.value))
-            }
-        } else {
-            val parts = KokoroSpeechText.projectedParts(token.value, isKnown).orEmpty()
-            for (part in parts) add(KokoroCaptionPart(part, token.range))
-        }
-    }
-}

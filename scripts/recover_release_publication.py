@@ -302,7 +302,8 @@ def stream_download(endpoint, destination, expected_bytes, expected_digest, *, t
             "curl", "--fail", "--location", "--silent", "--show-error",
             "--proto", "=https", "--proto-redir", "=https",
             "--connect-timeout", "30", "--max-time", str(max(1, timeout)),
-            "--header", "Accept: application/vnd.github+json",
+            "--header", ("Accept: application/octet-stream" if "/releases/assets/" in endpoint
+                         else "Accept: application/vnd.github+json"),
             "--header", "Authorization: Bearer " + os.environ["GH_TOKEN"],
             "https://api.github.com/" + endpoint,
         ], stdout=subprocess.PIPE, stderr=errors)
@@ -325,7 +326,7 @@ def stream_download(endpoint, destination, expected_bytes, expected_digest, *, t
             if status != 0:
                 errors.seek(0)
                 diagnostic = errors.read(2048).decode("utf-8", "replace").strip()
-                diagnostic = re.sub(r"https?://[^\\s]+", "[redacted URL]", diagnostic)
+                diagnostic = re.sub(r"https?://[^\s]+", "[redacted URL]", diagnostic)
                 raise ValueError(f"Release download transport failed (curl exit {status}): {diagnostic}")
             require(size == expected_bytes and digest.hexdigest() == expected_digest,
                     "Downloaded bytes disagree with the reviewed digest")

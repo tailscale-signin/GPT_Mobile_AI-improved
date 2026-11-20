@@ -163,8 +163,9 @@ internal data class IssueReportDiagnostics(
 
     companion object {
         const val INCIDENT_DETAIL_FEATURE = "RUNTIME_INCIDENT_DETAILS_V1"
+        internal val requiredSchemaDetailFields = setOf("required_schema_count", "required_catalog_schema_tokens", "required_recovery_schema_tokens", "required_github_operation_tokens")
         private val incidentDetailsByArea = mapOf(
-            "PROVIDER" to setOf("dispatch_gateway_selection_change", "reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),
+            "PROVIDER" to requiredSchemaDetailFields + setOf("dispatch_gateway_selection_change", "reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),
             "APP" to setOf("native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash"),
             "INCIDENT" to setOf("dispatch_gateway_selection_change"),
             "TOOL" to setOf("dispatch_gateway_selection_change", "read_handle_kind", "search_query_length", "search_explicit_mode"),
@@ -304,7 +305,7 @@ internal data class IssueReportDiagnostics(
             "voice_response_to_first_audio_ms",
             "voice_warmup_ms"
         )
-        private val counts = capacityEvidenceCounts + githubSchemaBudgetFields + setOf(
+        private val counts = capacityEvidenceCounts + githubSchemaBudgetFields + requiredSchemaDetailFields + setOf(
             "search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count",
             "tool_budget_bytes_available",
             "github_cooldown_remaining_requests",

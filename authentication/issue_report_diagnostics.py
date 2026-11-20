@@ -320,6 +320,9 @@ ENUMS.update({
 FLAGS.update({"native_trace_truncated", "search_explicit_mode"})
 HASH_FIELDS.update({"native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash"})
 COUNTS.update({"search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count"})
+REQUIRED_SCHEMA_DETAIL_FIELDS = {"required_schema_count", "required_catalog_schema_tokens", "required_recovery_schema_tokens", "required_github_operation_tokens"}
+COUNTS.update(REQUIRED_SCHEMA_DETAIL_FIELDS)
+FIELDS_BY_AREA["PROVIDER"].update(REQUIRED_SCHEMA_DETAIL_FIELDS)
 FIELDS_BY_AREA["PROVIDER"].update({"reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"})
 FIELDS_BY_AREA["APP"].update({"native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash"})
 for area in ("INCIDENT", "PROVIDER", "TOOL"):

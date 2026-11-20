@@ -26,7 +26,16 @@ internal class GitHubToolContextBudgetException(
     val admissionCapacityTokens: Int? get() = budget?.capacity
 
     fun withAdmissionEvidence(evidence: JsonObject): GitHubToolContextBudgetException =
-        GitHubToolContextBudgetException(requiredSchemaTokens, availableSchemaTokens, budget, evidence).also { it.initCause(this) }
+        GitHubToolContextBudgetException(requiredSchemaTokens, availableSchemaTokens, budget, JsonObject(admissionEvidence.orEmpty() + evidence)).also { it.initCause(this) }
+
+    fun withRequiredSchemas(tools: List<AgentToolDefinition>, githubMode: Boolean): GitHubToolContextBudgetException = withAdmissionEvidence(
+        buildJsonObject {
+            put("required_schema_count", tools.size)
+            put("required_catalog_schema_tokens", tools.filter { it.name == ProgressiveToolCatalog.NAME }.sumOf { providerSchemaTokens(it, githubMode) })
+            put("required_recovery_schema_tokens", tools.filter { it.name == "read_recovery_context" }.sumOf { providerSchemaTokens(it, githubMode) })
+            put("required_github_operation_tokens", tools.filter { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null }.sumOf { providerSchemaTokens(it, githubMode) })
+        }
+    )
 
     fun providerFailure() = ProviderEvent.Failed(
         message.orEmpty(),
@@ -155,7 +164,7 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
             (it.name == "read_recovery_context" || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in statusOperations)
     }
     val requiredSchemaTokens = required.sumOf { providerSchemaTokens(it, limits.githubMode) }
-    if (requiredSchemaTokens > remaining) throw GitHubToolContextBudgetException(requiredSchemaTokens, remaining, budget)
+    if (requiredSchemaTokens > remaining) throw GitHubToolContextBudgetException(requiredSchemaTokens, remaining, budget).withRequiredSchemas(required, limits.githubMode)
     remaining -= requiredSchemaTokens
     val requiredNames = required.mapTo(hashSetOf()) { it.name }
     // Preserve a path to the rest of the authorized catalog when a large optional
@@ -178,8 +187,7 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     ToolCatalogDiagnostics.recordOmissions("provider_round", omitted)
     if ((limits.githubMode || limits.githubTask) && !discoveryFits && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
         val needed = visible.filter { ProgressiveToolCatalog.isGitHubTool(it) || it.name in requiredNames }
-            .sumOf { providerSchemaTokens(it, limits.githubMode) }
-        throw GitHubToolContextBudgetException(needed, budget.available, budget)
+        throw GitHubToolContextBudgetException(needed.sumOf { providerSchemaTokens(it, limits.githubMode) }, budget.available, budget).withRequiredSchemas(needed, limits.githubMode)
     }
     return selected
 }
@@ -255,7 +263,11 @@ internal fun planAuthorizedToolContext(
         val currentCosts = ContextBudgetService.breakdown(turns.filter { it.isCurrentTurn }, prompt, emptyList())
         val requestedBudget = GitHubSchemaBudget(normalized.contextTokens, currentCosts.total.toLong(), output, minOf(256, normalized.contextTokens / 16), minOf(8192, normalized.contextTokens / 8), currentCosts)
         val requiredTokens = pinnedSchemas.sumOf { providerSchemaTokens(it, githubMode = true) }
-        val fitted = requestedBudget.fitInitialSchemas(requiredTokens, allowOutputReduction)
+        val fitted = try {
+            requestedBudget.fitInitialSchemas(requiredTokens, allowOutputReduction)
+        } catch (failure: GitHubToolContextBudgetException) {
+            throw failure.withRequiredSchemas(pinnedSchemas, true)
+        }
         admittedGitHubBudget = fitted
         if (fitted.output < output) effectiveLimits = normalized.copy(outputTokens = fitted.output)
     }
@@ -264,7 +276,7 @@ internal fun planAuthorizedToolContext(
     val omittedRequired = pinnedSchemas.filterNot { wanted -> plan.tools.any { it.name == wanted.name } }
     if (omittedRequired.isNotEmpty()) {
         admittedGitHubBudget?.let { budget ->
-            throw GitHubToolContextBudgetException(pinnedSchemas.sumOf { providerSchemaTokens(it, githubMode = true) }, budget.available, budget)
+            throw GitHubToolContextBudgetException(pinnedSchemas.sumOf { providerSchemaTokens(it, githubMode = true) }, budget.available, budget).withRequiredSchemas(pinnedSchemas, true)
         }
         val names = omittedRequired.joinToString { it.name }
         AppLogRecorder.record("ToolCatalog", "REQUIRED_TOOL_BLOCKED · names=$names · reason=CONTEXT_BUDGET · dispatched=false", "W")

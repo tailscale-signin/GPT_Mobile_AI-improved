@@ -47,7 +47,8 @@ class FailureDetailsTest(unittest.TestCase):
             "ACCEPTANCE": {"acceptance_verified_claim_count": 5, "acceptance_unmeasured_claim_count": 2,
                            "acceptance_missing_pointer_hash": "c" * 64, "acceptance_pointer_receipt_hash": "e" * 64},
             "PROVIDER": {"reasoning_probe_enable_thinking": "IDENTICAL_PROMPTS", "reasoning_probe_thinking": "PREFIX_MISMATCH",
-                         "provider_wait_decision_state": "NOT_RECORDED"},
+                         "provider_wait_decision_state": "NOT_RECORDED", "required_schema_count": 3, "required_catalog_schema_tokens": 300,
+                         "required_recovery_schema_tokens": 600, "required_github_operation_tokens": 2135},
         }
         for area, fields in rows.items():
             capture = self.snapshot(area, fields)

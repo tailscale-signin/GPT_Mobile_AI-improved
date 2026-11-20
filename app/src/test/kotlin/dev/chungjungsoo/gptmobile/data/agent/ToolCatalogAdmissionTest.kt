@@ -54,6 +54,8 @@ class ToolCatalogAdmissionTest {
         val withHistory = reject(listOf(history, current))
         val withoutHistory = reject(listOf(current))
         val fields = requireNotNull(withHistory.failureDetails)
+        assertTrue(requireNotNull((fields["required_schema_count"] as? JsonPrimitive)?.content?.toInt()) > 0)
+        assertEquals(JsonPrimitive(providerSchemaTokens(recovery.definition, true)), fields["required_recovery_schema_tokens"])
         assertEquals(withoutHistory.failureDetails, fields)
         assertEquals(withoutHistory.message, withHistory.message)
         assertFalse(withHistory.message.contains("history"))

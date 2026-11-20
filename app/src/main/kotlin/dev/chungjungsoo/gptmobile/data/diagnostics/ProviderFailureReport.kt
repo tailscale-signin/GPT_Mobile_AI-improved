@@ -96,7 +96,7 @@ internal object ProviderFailureReport {
             }
         }
         if (receipt.errorCode == "GITHUB_TOOL_CONTEXT_BUDGET") {
-            for (key in IssueReportDiagnostics.githubSchemaBudgetFields + "admission_tool_result_reserve_tokens") {
+            for (key in IssueReportDiagnostics.githubSchemaBudgetFields + IssueReportDiagnostics.requiredSchemaDetailFields + "admission_tool_result_reserve_tokens") {
                 failure.failureDetails?.get(key)?.let { put(key, it) }
             }
         }

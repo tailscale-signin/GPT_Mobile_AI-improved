@@ -110,6 +110,22 @@ internal object ToolReportDiagnostics {
         // call-bound dispatch receipt proves that no upstream operation ran.
         // Retain the closed reason, never the path or the result preview.
         val pathReceipt = result.executionReceipt
+        if (result.errorCode == "TOOL_NOT_AVAILABLE" &&
+            !result.dispatched &&
+            pathReceipt?.get("schema") == JsonPrimitive("gptmobile.round-tool-catalog.v1") &&
+            pathReceipt["call_id"] == JsonPrimitive(event.callId) &&
+            pathReceipt["dispatched"] == JsonPrimitive(false)
+        ) {
+            put("tool_error_code", "TOOL_UNAVAILABLE")
+            (pathReceipt["available_tool_count"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..100_000 }?.let { put("round_catalog_tool_count", it) }
+        }
+        if (result.errorCode == "INVALID_ARGUMENTS" &&
+            !result.dispatched &&
+            pathReceipt?.get("argument_validation_call_id") == JsonPrimitive(event.callId) &&
+            pathReceipt["reason_code"] == JsonPrimitive("TOOL_ARGUMENT_SCHEMA_REJECTED")
+        ) {
+            (pathReceipt["unknown_field_hashes"] as? JsonArray)?.let { put("unknown_field_hashes", it) }
+        }
         val missingPathPrecheck = event.modelToolName.substringBefore("__") == "github_read" &&
             result.isError &&
             !result.dispatched &&

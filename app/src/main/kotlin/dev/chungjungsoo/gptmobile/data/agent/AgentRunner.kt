@@ -1239,7 +1239,26 @@ class AgentRunner(
                 ToolResultContent.Text("The requested tool '${call.name}' is not available in this round. Nothing was dispatched. Use an exact advertised tool name and its schema. Available tools: " + availableNames.sorted().take(32).joinToString(", ").ifEmpty { "none; answer using the evidence already collected" }),
                 isError = true,
                 dispatched = false,
-                errorCode = "TOOL_NOT_AVAILABLE"
+                errorCode = "TOOL_NOT_AVAILABLE",
+                executionReceipt = if (call.name in availableNames) {
+                    null
+                } else {
+                    buildJsonObject {
+                        put("schema", "gptmobile.round-tool-catalog.v1")
+                        put("call_id", call.callId)
+                        put("reason_code", "UNKNOWN_TOOL")
+                        put("phase", "PREFLIGHT_REJECTED")
+                        put("dispatched", false)
+                        put("retryable", false)
+                        put("available_tool_count", availableNames.size)
+                        // A suggested reader or search tool must actually be available in this round.
+                        when {
+                            call.name.substringAfterLast("__") in setOf("read_url", "firecrawl_scrape", "fetch_url") && "url" in call.arguments && "read_url" in availableNames -> put("suggested_tool", "read_url")
+                            call.name.substringAfterLast("__") in setOf("search", "search_web", "web_search", "firecrawl_search") && "query" in call.arguments && "web_search" in availableNames -> put("suggested_tool", "web_search")
+                            else -> Unit
+                        }
+                    }
+                }
             )
         }
         val message = if (call.callId in hostSuppressedIds) {

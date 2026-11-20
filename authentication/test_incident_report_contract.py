@@ -81,7 +81,7 @@ class IncidentReportContractTest(unittest.TestCase):
                 validate_diagnostics(self.capture(area, {key: invalid}))
 
     def test_interrupted_run_and_unavailable_continuation_keep_their_codes_in_approved_issues(self):
-        for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED"):
+        for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "RESEARCH_PARTIAL"):
             with self.subTest(code=code):
                 report = self.report(self.capture())
                 report.pop("context")
@@ -89,6 +89,16 @@ class IncidentReportContractTest(unittest.TestCase):
                 _, issue = issue_from_report(report)
                 self.assertIn(code, issue["title"])
                 self.assertIn(code, issue["body"])
+
+    def test_catalog_rejections_and_reader_options_survive_the_report_boundary(self):
+        for values in ({"round_catalog_tool_count": 6, "tool_reason_code": "UNKNOWN_TOOL"},
+                       {"argument_field_names": ["excludeDomains"], "argument_field_types": ["STRING"],
+                        "validation_field_names": ["excludeDomains"], "unknown_field_hashes": ["a" * 64]}):
+            capture = self.capture("TOOL", values)
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for values in ({"round_catalog_tool_count": -1}, {"validation_field_names": ["private-value"]}):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", values))
 
     def test_new_provider_terminal_causes_are_accepted_as_closed_diagnostic_values(self):
         for code in ("BUDGET_RESTRICTED", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED"):

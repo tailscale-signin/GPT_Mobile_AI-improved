@@ -5,6 +5,7 @@ internal object IssueReportCodes {
     val allowed = setOf(
         "APP_ERROR",
         "CHAT_FAILED",
+        "RESEARCH_PARTIAL",
         "FREE_PROFILE_UNAVAILABLE",
         "NO_AVAILABLE_PLATFORMS",
         "SUBMITTED_TURN_UNAVAILABLE",

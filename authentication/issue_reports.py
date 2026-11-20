@@ -30,6 +30,7 @@ FEATURES = {"app": "App", "chat": "Chat", "voice": "Voice Chat", "gateway": "Gat
 ERROR_CODES = {
     "APP_ERROR",
     "CHAT_FAILED",
+    "RESEARCH_PARTIAL",
     "FREE_PROFILE_UNAVAILABLE",
     "NO_AVAILABLE_PLATFORMS",
     "SUBMITTED_TURN_UNAVAILABLE",

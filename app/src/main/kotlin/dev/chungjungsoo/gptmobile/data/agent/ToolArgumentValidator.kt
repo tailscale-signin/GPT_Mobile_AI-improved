@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import kotlinx.serialization.json.JsonArray
@@ -132,6 +133,12 @@ internal object ToolArgumentValidator {
                         put("semantic_read_rules", JsonArray(effectiveReadRules.map { JsonPrimitive(it.name) }))
                     }
                     val declaredFields = (schema["properties"] as? JsonObject).orEmpty().keys
+                    put("argument_validation_call_id", callId)
+                    if (schema["additionalProperties"] == JsonPrimitive(false)) {
+                        val hashes = arguments.keys.asSequence().filterNot(declaredFields::contains).sorted().take(8)
+                            .mapNotNull { IssueReportContext.identifierHash("undeclared-tool-field", it) }.map(::JsonPrimitive).toList()
+                        if (hashes.isNotEmpty()) put("unknown_field_hashes", JsonArray(hashes))
+                    }
                     val unknownFields = if (schema["additionalProperties"] == JsonPrimitive(false)) {
                         arguments.keys.filter { it !in declaredFields && it in dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fieldNames }
                     } else {
@@ -213,7 +220,33 @@ internal object ToolArgumentValidator {
         }
     }
 
+    private fun readUrlCorrection(arguments: JsonObject, schema: JsonObject): JsonObject? {
+        val declared = schema["properties"] as? JsonObject ?: return null
+        val corrected = mutableMapOf<String, JsonElement>()
+        for ((key, value) in arguments) {
+            // The server publishes camelCase fields. A snake_case spelling can be mapped only
+            // when every field still has one unique destination in the actual reader schema.
+            val name = if (key in declared) {
+                key
+            } else {
+                declared.keys.singleOrNull {
+                    key.contains('_') && key.replace("_", "").equals(it, ignoreCase = true)
+                } ?: return null
+            }
+            if (name in corrected) return null
+            val type = ((declared[name] as? JsonObject)?.get("type") as? JsonPrimitive)?.content
+            val literal = (value as? JsonPrimitive)?.takeIf { it.isString }?.content
+            corrected[name] = when (type) {
+                "boolean" -> literal?.toBooleanStrictOrNull()?.let(::JsonPrimitive) ?: value
+                "integer" -> literal?.toLongOrNull()?.takeIf { it.toString() == literal }?.let(::JsonPrimitive) ?: value
+                else -> value
+            }
+        }
+        return JsonObject(corrected).takeIf { it != arguments && errors(it, schema).isEmpty() }
+    }
+
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
+        if (toolName == "read_url") return readUrlCorrection(arguments, schema)
         val operation = toolName.githubOperationFamily()
         jobsReadWithoutCursor(toolName, arguments)?.let { fresh ->
             return fresh.takeIf { errors(it, schema).isEmpty() }

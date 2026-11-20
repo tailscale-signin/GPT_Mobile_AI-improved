@@ -3361,7 +3361,9 @@
     "scripts/verify_published_release.py",
     "scripts/verify_release_identity.py",
     "settings-gradle.lockfile",
-    "settings.gradle.kts"
+    "settings.gradle.kts",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/delivery/ResearchDeliverySession.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/delivery/ResearchDeliveryTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.10",

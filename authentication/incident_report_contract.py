@@ -72,6 +72,8 @@ ACTIONS = {
 }
 
 FIELD_NAMES = {
+    'includeLinks', 'includeDomains', 'excludeDomains', 'extractDocument',
+    'documentPageStart', 'documentPageLimit', 'documentTextOffset', 'expectedDocumentSha256',
     'accept',
     'action',
     'artifact_id',
@@ -274,6 +276,7 @@ POLICY_RESPONSE_HEADER_FIELDS = {'status_policy_protection_permission_header_nam
 POLICY_RESPONSE_FIELDS = POLICY_RESPONSE_HEADER_FIELDS | {'status_policy_protection_404_kind', 'status_policy_rules_404_kind'}
 
 TOOL_FIELDS = {
+    'round_catalog_tool_count',
     'url_reader_dns_state', 'url_reader_availability', 'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
     'tool_budget_calls_used', 'tool_budget_calls_limit', 'tool_permission_scope',
     'semantic_read_rules', 'semantic_ci_rules', 'search_validation_field_names', 'dependency_admission_reasons',
@@ -396,7 +399,7 @@ FLAGS = FAILED_EVENT_FIELDS | REMOTE_PAGINATION_FLAGS | {
 }
 
 COUNTS = {
-    'tool_result_bytes_used', 'tool_result_bytes_limit', 'tool_budget_calls_used', 'tool_budget_calls_limit', 'combined_issue_count', 'combined_failed_check_count', 'combined_unverified_check_count', 'combined_repair_rounds',
+    'round_catalog_tool_count', 'tool_result_bytes_used', 'tool_result_bytes_limit', 'tool_budget_calls_used', 'tool_budget_calls_limit', 'combined_issue_count', 'combined_failed_check_count', 'combined_unverified_check_count', 'combined_repair_rounds',
     'dependency_count', 'dependency_failed_count', 'pending_tool_count',
     'claim_extraction_response_characters', 'claim_extraction_max_claims',
     'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count',

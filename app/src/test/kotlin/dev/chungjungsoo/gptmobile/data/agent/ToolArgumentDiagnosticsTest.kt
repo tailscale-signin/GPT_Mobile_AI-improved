@@ -36,6 +36,25 @@ class ToolArgumentDiagnosticsTest {
         put("additionalProperties", false)
     }
 
+    @Test fun readerCorrectionPreservesFiltersAndUnknownKeysStayPrivateInReports() {
+        val schema = Json.parseToJsonElement("""{"type":"object","properties":{"url":{"type":"string"},"includeLinks":{"type":"boolean"},"excludeDomains":{"type":"array","items":{"type":"string"}}},"required":["url"],"additionalProperties":false}""") as JsonObject
+        val args = Json.parseToJsonElement("""{"url":"https://example.invalid","include_links":"true","excludeDomains":["example.org"]}""") as JsonObject
+        val correction = ToolArgumentValidator.rejection("read", "read_url", args, schema)
+        val audience = (correction.content as ToolResultContent.Json).value as JsonObject
+        val recipe = (audience["correction_call"] as JsonObject)["arguments"] as JsonObject
+        assertEquals(args["url"], recipe["url"])
+        assertEquals(args["excludeDomains"], recipe["excludeDomains"])
+        assertEquals(JsonPrimitive(true), recipe["includeLinks"])
+        assertTrue(ToolArgumentValidator.errors(recipe, schema).isEmpty())
+
+        val extra = JsonObject(args + ("privateField" to JsonPrimitive("private-value")))
+        val refused = ToolArgumentValidator.rejection("next", "read_url", extra, schema)
+        assertFalse(((refused.content as ToolResultContent.Json).value as JsonObject).containsKey("correction_call"))
+        val hashes = requireNotNull(refused.executionReceipt)["unknown_field_hashes"] as JsonArray
+        assertEquals(2, hashes.size)
+        assertTrue(hashes.all { (it as JsonPrimitive).content.matches(Regex("[a-f0-9]{64}")) })
+    }
+
     @Test fun watchRequiresAnObservedSelectorAndAcceptsSavedViewContinuations() {
         val schema = GitHubOperationTool.definition("github_watch_checks").inputSchema
         val args = buildJsonObject {

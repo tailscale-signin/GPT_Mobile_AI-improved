@@ -14,13 +14,11 @@ internal object GitHubRecoveryCalls {
         val operation = call.name.githubOperationFamily()
         if (tool == null || operation !in setOf("github_read", "github_search")) return call
         val schema = tool.definition.inputSchema
-        if (ToolArgumentValidator.errors(call.arguments, schema).isEmpty() &&
-            (operation != "github_read" || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors(operation, call.arguments).isEmpty())
-        ) {
-            return call
-        }
+        // A custom or aliased tool may accept a different read contract. Its declared
+        // schema owns admission and its valid invocation must survive replay verbatim.
+        if (ToolArgumentValidator.errors(call.arguments, schema).isEmpty()) return call
         val corrected = when (operation) {
-            "github_read" -> ToolArgumentValidator.boundedReadCorrection(operation, call.arguments)
+            "github_read" -> ToolArgumentValidator.boundedReadCorrection(operation, call.arguments, proposeFiniteIntersection = false)
             "github_search" -> {
                 // Repair only schema-bounded options on the first page. An explicit
                 // index_cursor=0 is the beginning of a search, not an issued

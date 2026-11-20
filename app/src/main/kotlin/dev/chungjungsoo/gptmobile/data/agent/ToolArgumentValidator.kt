@@ -284,7 +284,7 @@ internal object ToolArgumentValidator {
         )
     }
 
-    internal fun boundedReadCorrection(operation: String, arguments: JsonObject): JsonObject? {
+    internal fun boundedReadCorrection(operation: String, arguments: JsonObject, proposeFiniteIntersection: Boolean = true): JsonObject? {
         if (arguments.keys.any { it in setOf("view_cursor", "index_cursor", "evidence_id", "start_offset") }) return null
         if (operation == "github_read") sourceReadArgumentCorrection(arguments)?.let { return it }
         val action = arguments["action"] ?: JsonPrimitive("ranges").takeIf { operation == "github_read" && "ranges" in arguments }
@@ -309,7 +309,9 @@ internal object ToolArgumentValidator {
                     val start = if ("start_line" in range) integer(range["start_line"]) else 1
                     when {
                         end == -1 && count != null && count in 1..2000 -> JsonObject(range - "end_line")
-                        start != null && start >= 1 && end != null && end >= start && count != null && count in 1..2000 ->
+                        // A finite intersection is offered with the rejection. Only the caller
+                        // can accept a narrower explicit window on a subsequent invocation.
+                        proposeFiniteIntersection && start != null && start >= 1 && end != null && end >= start && count != null && count in 1..2000 ->
                             JsonObject(range - "max_lines" + ("end_line" to JsonPrimitive(minOf(end.toLong(), start.toLong() + count - 1).toInt())))
                         else -> range
                     }

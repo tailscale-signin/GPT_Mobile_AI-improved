@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "184da97c36ea55dbc1cf636584b036a5385e4c31081bc2ed850049f9a1f1fc7c",
+  "source_digest": "1053f90d827fb5618c56cfaf82cd58b0155d44dfd4726a6ac494900f219dc647",
   "file_count": 2756,
-  "indexed_line_count": 455080,
+  "indexed_line_count": 455088,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 571,
-      "indexed_line_count": 101126
+      "indexed_line_count": 101134
     },
     {
       "id": "accessibility_and_localization",
@@ -1655,8 +1655,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRecoveryCalls.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "d21e3a254ac1711602e7c45eea6364aefd136147bab3d160e65c285d76cd5c29",
-      "indexed_lines": 101
+      "sha256": "96f941b132c0e7dacd71f957ba3e7c8d028d9071bc1eab5a614f2cfe254a519d",
+      "indexed_lines": 99
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubReplayRecovery.kt",
@@ -1984,8 +1984,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "f7bebb72905b9d435afe7fb69465b6b4a1565da593e352bca2a2cec54596b02e",
-      "indexed_lines": 458
+      "sha256": "afe07ec6faa03a8288d2ed6632a43dd62d0bfe2b32eccdac76b8d657febf3ed5",
+      "indexed_lines": 460
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchCheckpoint.kt",
@@ -13191,8 +13191,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "5b3975e305278a0a9ab2a533bdd88551145bb3819b43c06cce289240c42197bc",
-      "indexed_lines": 387
+      "sha256": "077df42ff1c12b1877ad74bcdcf3ac27d5bef12bfecbec5ca832e8013c9b90fa",
+      "indexed_lines": 395
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMediaReply.kt",

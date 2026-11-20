@@ -29,6 +29,12 @@ class GitHubArgumentAdmissionTest {
                 assertTrue(ToolArgumentValidator.errors(invalid, definition.inputSchema).isNotEmpty())
                 val result = tool.execute("invalid-$end", invalid)
                 assertEquals("INVALID_ARGUMENTS", result.errorCode)
+                if (end > 0) {
+                    val body = (result.content as ToolResultContent.Json).value as JsonObject
+                    val correction = body.getValue("correction_call") as JsonObject
+                    val intended = args("""{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"end_line":$end}]}""")
+                    assertEquals(intended, correction["arguments"])
+                }
                 assertFalse(result.dispatched)
                 assertFalse(result.toolCallBudgetExhausted)
                 assertEquals(0, budget.usedCalls())

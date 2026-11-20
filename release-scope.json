@@ -199,7 +199,8 @@
     "Recover constrained GitHub result pages and bounded source reads, retain the cause of blocked repeat lookups, report additional GitHub operation families, and recover transient voice capture, focus and contraction pronunciation failures.",
     "Simplify the Gateway desktop and phone connection flow. Enable Engineering for verified same-account devices and PC-issued single-repository connections while retaining explicit off choices.",
     "Recover interrupted Kokoro pronunciation, GitHub jobs pagination and unfinished evidence checks, clarify reasoning overrides, and preserve route diagnostics across provider rejections.",
-    "Recover the retained build-144 signed artifacts through canonical draft-tag lookup, exact-source CI gates, complete downloaded-asset and trusted-attestation verification, and same-release-ID publication without rebuilding or replacing bytes."
+    "Recover the retained build-144 signed artifacts through canonical draft-tag lookup, exact-source CI gates, complete downloaded-asset and trusted-attestation verification, and same-release-ID publication without rebuilding or replacing bytes.",
+    "Repair dependent GitHub reads, saved CI log and release lookups, and required tool planning on small model routes. Report the observed cause of policy, reasoning, acceptance and native process failures, and preload all Android test runtimes used by these changes."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -3348,7 +3349,8 @@
     "scripts/recover_release_publication.py",
     "scripts/tests/test_release_recovery.py",
     "scripts/test_verify_published_release_draft.py",
-    "release-recovery.json"
+    "release-recovery.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchPlannerTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.10",

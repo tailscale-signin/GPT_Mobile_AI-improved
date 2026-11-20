@@ -10,10 +10,11 @@ on:
       - '.github/workflows/gateway-stability.yml'
       - 'app/build.gradle.kts'
       - 'release-scope.json'
-      - 'release-recovery.json'
+      # Publication-only changes must still earn an exact-main Gateway receipt.
+      - '.github/workflows/recover-verified-android144-gateway18.yml'
       - 'scripts/recover_release_publication.py'
       - 'scripts/verify_published_release.py'
-      - '.github/workflows/recover-verified-android144-gateway18.yml'
+      - 'release-recovery.json'
   workflow_dispatch:
 permissions:
   contents: read

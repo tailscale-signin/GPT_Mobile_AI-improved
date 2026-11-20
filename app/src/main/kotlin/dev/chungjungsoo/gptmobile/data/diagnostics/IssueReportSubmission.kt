@@ -122,6 +122,7 @@ internal class IssueReportSubmission(
         private const val PROVIDER_TERMINAL_CAUSES_FEATURE = "PROVIDER_TERMINAL_CAUSES_V1"
         private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
+            IssueReportDiagnostics.SELECTED_MODEL_ADMISSION_FEATURE, IssueReportDiagnostics.REVIEW_CATALOG_FEATURE,
             IssueReportDiagnostics.INCIDENT_DETAIL_FEATURE,
             "CLAIM_EXTRACTION_SCHEMA_HASH_V1",
             GitHubAcceptancePublicationEvidence.FEATURE,

@@ -299,8 +299,12 @@ internal object GitHubReviewComparison {
             }
             val failed = prior.takeIf { rows -> rows.map { it.text("repository") to it.text("workspace_branch") }.distinct().size == 1 }
                 ?.lastOrNull()?.takeIf { it["success"] == JsonPrimitive(false) }
+            val authorizedContext = authorizedTools.filter { it.modelVisible && it.name.githubOperationFamily() == "github_context" }
             val observation = when {
-                candidates.isEmpty() -> "STATUS_TOOL_NOT_EXPOSED"
+                candidates.isEmpty() && authorizedContext.isEmpty() -> "STATUS_TOOL_NOT_EXPOSED"
+                candidates.isEmpty() && tools.none { it.modelVisible && it.name == GitHubAuthorizedCatalog.TOOL } -> "STATUS_DISCOVERY_UNAVAILABLE"
+                candidates.isEmpty() && authorizedContext.map { it.name.substringAfter("__", "") }.distinct().size > 1 -> "STATUS_CONNECTION_AMBIGUOUS"
+                candidates.isEmpty() -> "STATUS_ACQUISITION_UNAVAILABLE"
                 selectedTool == null -> "STATUS_ARGUMENTS_UNAVAILABLE"
                 failed != null -> "STATUS_READ_FAILED"
                 else -> "STATUS_RECEIPT_UNUSABLE"

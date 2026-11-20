@@ -97,6 +97,7 @@ internal object IssueReportIncidentCapsule {
     private val toolEventSignedSequences = setOf("tool_event_requested_sequence", "tool_event_previous_max_sequence")
     val toolEventPersistenceFields = toolEventSignedSequences + setOf("tool_event_persistence_operation", "tool_event_persistence_phase", "tool_event_persistence_failure", "tool_event_assigned_sequence", "tool_event_write_attempted")
     val reviewComparisonFields = setOf("review_comparison_state", "review_comparison_policy")
+    val reviewCatalogObservations = setOf("STATUS_DISCOVERY_UNAVAILABLE", "STATUS_CONNECTION_AMBIGUOUS", "STATUS_ACQUISITION_UNAVAILABLE")
     const val GITHUB_POLICY_RESPONSE_FEATURE = "GITHUB_POLICY_RESPONSE_EVIDENCE_V1"
     private val policyResponseHeaderOrder = listOf("REPORTED_OAUTH_SCOPES", "ACCEPTED_OAUTH_SCOPES", "ACCEPTED_GITHUB_PERMISSIONS", "SSO")
     private val policyResponseHeaderFields = setOf("status_policy_protection_permission_header_names", "status_policy_rules_permission_header_names")
@@ -149,7 +150,7 @@ internal object IssueReportIncidentCapsule {
         "provider_error_code_state" to setOf("ABSENT"),
         "provider_error_origin" to setOf("OPENAI_COMPAT_STREAM_ERROR_VALUE"),
         "claim_extraction_validation_stage" to setOf("CLAIM_LIST", "CLAIM_COUNT", "CLAIM_RECORD", "REQUIREMENT_MAP", "QUESTIONS"),
-        "github_prerequisite_observation" to setOf("CATALOG_TOOL_NOT_EXPOSED", "CATALOG_INITIAL_REQUEST_UNAVAILABLE", "STATUS_TOOL_NOT_EXPOSED", "STATUS_ARGUMENTS_UNAVAILABLE", "STATUS_READ_FAILED", "STATUS_RECEIPT_UNUSABLE"),
+        "github_prerequisite_observation" to setOf("CATALOG_TOOL_NOT_EXPOSED", "CATALOG_INITIAL_REQUEST_UNAVAILABLE", "STATUS_TOOL_NOT_EXPOSED", "STATUS_ARGUMENTS_UNAVAILABLE", "STATUS_READ_FAILED", "STATUS_RECEIPT_UNUSABLE") + reviewCatalogObservations,
         "claim_extraction_failure_kind" to setOf("INVALID_JSON", "NON_OBJECT", "SCHEMA_REJECTED"),
         "inventory_pagination_reason" to setOf("MISSING_VERSION", "VERSION_MISMATCH"),
         "remote_pagination_reason" to setOf("INCOMPLETE", "STALLED"),

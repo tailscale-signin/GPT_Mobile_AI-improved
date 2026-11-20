@@ -151,6 +151,11 @@ internal data class IssueReportDiagnostics(
             add("RECOVERY_OBSERVATIONS_V1")
         }
         if (area == "GATEWAY" && (values.keys + omittedFields).any { it in modelPreparationFields }) add(MODEL_PREPARATION_FEATURE)
+        if (area == "PROVIDER") {
+            val selectedModelFailure = (values["provider_failure_code"] as? JsonPrimitive)?.contentOrNull in selectedModelFailureCodes
+            if (selectedModelFailure || (values.keys + omittedFields).any { it in selectedModelObservationFields }) add(SELECTED_MODEL_ADMISSION_FEATURE)
+        }
+        if ((values["github_prerequisite_observation"] as? JsonPrimitive)?.contentOrNull in IssueReportIncidentCapsule.reviewCatalogObservations) add(REVIEW_CATALOG_FEATURE)
         if ((values.keys + omittedFields).any { it in failureDetailFields }) add("INCIDENT_FAILURE_DETAILS_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.dispatchPolicyFields }) add("DISPATCH_POLICY_DIAGNOSTICS_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.policyDiagnostics }) add("CHANGED_POLICY_FIELDS_V1")
@@ -210,6 +215,10 @@ internal data class IssueReportDiagnostics(
         private val transportFields = setOf("github_transport_read_attempts", "github_transport_unanswered_reads", "github_transport_http_responses")
         private val capacityDetailFields = setOf("admission_tool_schema_tokens", "admission_tool_result_reserve_tokens", "admission_attachment_reserve_tokens")
         private val reconciliationFields = conflictFields + transportFields + capacityDetailFields + "acceptance_pending_remote_continuations"
+        const val SELECTED_MODEL_ADMISSION_FEATURE = "SELECTED_MODEL_ADMISSION_V1"
+        const val REVIEW_CATALOG_FEATURE = "REVIEW_CATALOG_OBSERVATION_V1"
+        internal val selectedModelObservationFields = setOf("gateway_model_state", "gateway_model_advertised", "gateway_model_loaded")
+        internal val selectedModelFailureCodes = setOf("SELECTED_MODEL_LOADING", "SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_NOT_AVAILABLE")
         private val reconciliationCodes = setOf("CONVERSATION_CONFLICT", "CLIENT_TOOL_RESULTS_REQUIRED", "GITHUB_CIRCUIT_OPEN", "REASONING_OFF_UNSUPPORTED", "REASONING_ON_UNSUPPORTED")
         internal val reasoningProbeFields = setOf("reasoning_probe_outcome", "reasoning_probe_attempts", "reasoning_probe_age_ms", "reasoning_metadata_age_ms")
         private val admissionFields = reasoningProbeFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "gateway_preflight_candidate_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason", "gateway_preflight_blocker_codes", "gateway_preflight_recovery_actions", "gateway_preflight_discovery_state", "gateway_preflight_candidate_count", "status_policy_recovery")
@@ -286,6 +295,7 @@ internal data class IssueReportDiagnostics(
         )
         private val hashLists = setOf("unmet_criterion_id_hashes", "unmet_criterion_reason_hashes")
         private val flags = profileSelectionFlags + setOf(
+            "gateway_model_advertised", "gateway_model_loaded",
             "native_trace_truncated", "search_explicit_mode",
             "acceptance_fixture_creation_admissible", "status_branch_protected", "status_policy_complete",
             "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed",
@@ -372,7 +382,7 @@ internal data class IssueReportDiagnostics(
 
             "provider_failure_stage" to setOf("ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"),
             "provider_failure_domain" to setOf("PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"),
-            "provider_failure_code" to GatewayCapabilityFailureEvidence.codes + reconciliationCodes + setOf("OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE),
+            "provider_failure_code" to GatewayCapabilityFailureEvidence.codes + reconciliationCodes + selectedModelFailureCodes + setOf("OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE),
             GatewayCapabilityFailureEvidence.KIND to GatewayCapabilityFailureEvidence.kinds,
             GatewayCapabilityFailureEvidence.DECODE_REASON to GatewayCapabilityFailureEvidence.decodeReasons,
             "privacy_reason_code" to PrivacyFailureEvidence.reasonCodes,
@@ -455,7 +465,7 @@ internal data class IssueReportDiagnostics(
             "gateway_model_state", "gateway_failure_category", "gateway_dependency", "gateway_upstream_status", "gateway_upstream_message_code", "gateway_reconciliation_status"
         )
         private val fieldsByArea = mapOf(
-            "PROVIDER" to GatewayCapabilityFailureEvidence.fields + reasoningProbeFields + githubCooldownFields + profileSelectionFields + completionEvidenceFields + capacityEvidenceFields + githubSchemaBudgetFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
+            "PROVIDER" to selectedModelObservationFields + GatewayCapabilityFailureEvidence.fields + reasoningProbeFields + githubCooldownFields + profileSelectionFields + completionEvidenceFields + capacityEvidenceFields + githubSchemaBudgetFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
                 "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash",
                 "provider_failure_stage", "provider_failure_domain", "provider_failure_code",
                 "provider_error_code_state", "provider_error_origin", "chat_failure_code_state",

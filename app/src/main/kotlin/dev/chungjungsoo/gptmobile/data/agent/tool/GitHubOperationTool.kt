@@ -533,8 +533,11 @@ internal class GitHubOperationTool(
         if (!result.isError && data != null) {
             val assessment = pagination.assessPage(operation, resolved, data)
             if (assessment.errorCode != null) {
-                val gap = (assessment.data["pagination_progress"] as? JsonObject)?.get("first_unobserved_page")
-                val repairArguments = gap?.let { page ->
+                val progress = assessment.data["pagination_progress"] as? JsonObject
+                val gap = progress?.get("first_unobserved_page")
+                val repairArguments = if (gap == null) {
+                    if (assessment.errorCode == "GITHUB_PAGINATION_INCOMPLETE") singlePageRunRefresh(effectiveArguments, progress) else null
+                } else {
                     val pinned = if (operation == "github_context" && effectiveArguments["action"] == JsonPrimitive("commits")) {
                         (assessment.data["commit_sha"] as? JsonPrimitive)?.content?.takeIf { sha -> sha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) }
                     } else {
@@ -542,7 +545,7 @@ internal class GitHubOperationTool(
                     }
                     JsonObject(
                         effectiveArguments + buildJsonObject {
-                            put("page", page)
+                            put("page", gap)
                             if (pinned != null) {
                                 put("ref", pinned)
                                 put("commit_sha", pinned)
@@ -562,7 +565,12 @@ internal class GitHubOperationTool(
                                     put("arguments", repairArguments)
                                 }
                             )
-                            put("message", "The requested page was observed. Earlier pages are missing. For a complete inventory, use the supplied correction call and follow its returned continuations. For a sample, keep the observed rows.")
+                            val message = if (gap != null) {
+                                "The requested page was observed. Earlier pages are missing. For a complete inventory, use the supplied correction call and follow its returned continuations. For a sample, keep the observed rows."
+                            } else {
+                                "The workflow run pages overlap. The reported count fits on one page. Use the supplied fresh read with the same filters to verify the inventory."
+                            }
+                            put("message", message)
                         }
                     )
                 }
@@ -609,6 +617,28 @@ internal class GitHubOperationTool(
             put("phase", "PREFLIGHT_REJECTED")
         }
     )
+
+    private fun singlePageRunRefresh(arguments: JsonObject, progress: JsonObject?): JsonObject? {
+        if (operation != "github_ci" || arguments["action"] != JsonPrimitive("runs") || progress == null) return null
+        val total = (progress["reported_total"] as? JsonPrimitive)?.intOrNull ?: return null
+        val unique = (progress["unique_records_observed"] as? JsonPrimitive)?.intOrNull ?: return null
+        val duplicates = (progress["duplicate_records_on_page"] as? JsonPrimitive)?.intOrNull ?: return null
+        val currentSize = (arguments["per_page"] as? JsonPrimitive)?.intOrNull ?: 30
+        val page = (progress["remote_page"] as? JsonPrimitive)?.intOrNull ?: return null
+        if (page < 2 || currentSize !in 1..99 || total !in 1..100 || unique !in 0 until total || duplicates < 1 ||
+            progress["contiguous_from_first_page"] != JsonPrimitive(true)
+        ) {
+            return null
+        }
+        val fresh = JsonObject(
+            arguments + buildJsonObject {
+                put("page", 1)
+                put("per_page", 100)
+                put("verify_live", true)
+            }
+        )
+        return fresh.takeIf { ToolArgumentValidator.errors(it, definition.inputSchema).isEmpty() }
+    }
 
     /** Original rows stay intact, but every consumer must see the same traversal state and exact recipe. */
     private fun withPaginationState(result: AgentToolResult, data: JsonObject): AgentToolResult {

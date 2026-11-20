@@ -128,6 +128,9 @@ FIELDS_BY_AREA = {
     "INCIDENT": COMMON_HASHES | {"original_error_code_hash", "chat_failure_code_state"},
 }
 FIELDS_BY_AREA["PROVIDER"].update(GATEWAY_CAPABILITY_FIELDS)
+FIELDS_BY_AREA["PROVIDER"].update({"gateway_model_state", "gateway_model_advertised", "gateway_model_loaded"})
+FLAGS.update({"gateway_model_advertised", "gateway_model_loaded"})
+ENUMS["provider_failure_code"].update({"SELECTED_MODEL_LOADING", "SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_NOT_AVAILABLE"})
 ENUMS["provider_failure_code"].update({"GATEWAY_CAPABILITY_UNAVAILABLE", "GATEWAY_ISOLATION_UNAVAILABLE"})
 # Bounded diagnostic additions for open issue recovery.
 ENUMS["tool_reason_code"].update({"SAVED_VIEW_CONTEXT_MISMATCH", "SAVED_VIEW_CURSOR_MALFORMED", "GITHUB_PATH_NOT_FOUND"})

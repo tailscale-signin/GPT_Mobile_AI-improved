@@ -80,6 +80,18 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture(area, {key: invalid}))
 
+    def test_selected_model_and_review_prerequisites_survive_submission(self):
+        model = {"provider_failure_code": "SELECTED_MODEL_LOADING", "gateway_model_state": "LOADING",
+                 "gateway_model_advertised": True, "gateway_model_loaded": False}
+        values = validate_diagnostics(self.capture("PROVIDER", model))["values"]
+        self.assertEqual(model, {key: values[key] for key in model})
+        for key, bad in (("gateway_model_loaded", "false"), ("gateway_model_state", "private model name")):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {**model, key: bad}))
+        for reason in ("STATUS_DISCOVERY_UNAVAILABLE", "STATUS_CONNECTION_AMBIGUOUS", "STATUS_ACQUISITION_UNAVAILABLE"):
+            capture = self.capture("INCIDENT", {"github_prerequisite_observation": reason})
+            self.assertEqual(reason, validate_diagnostics(capture)["values"]["github_prerequisite_observation"])
+
     def test_interrupted_run_and_unavailable_continuation_keep_their_codes_in_approved_issues(self):
         for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "RESEARCH_PARTIAL"):
             with self.subTest(code=code):

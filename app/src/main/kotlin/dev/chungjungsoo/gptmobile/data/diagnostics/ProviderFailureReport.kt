@@ -85,6 +85,11 @@ internal object ProviderFailureReport {
                 }
             )
         }
+        if (receipt.errorCode in IssueReportDiagnostics.selectedModelFailureCodes) {
+            for (key in IssueReportDiagnostics.selectedModelObservationFields) {
+                failure.failureDetails?.get(key)?.let { put(key, it) }
+            }
+        }
         if (receipt.errorCode == "GITHUB_PROFILE_LOCKED") {
             for (key in IssueReportDiagnostics.profileSelectionFields) {
                 failure.failureDetails?.get(key)?.let { put(key, it) }

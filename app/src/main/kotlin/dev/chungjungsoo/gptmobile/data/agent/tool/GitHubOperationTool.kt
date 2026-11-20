@@ -625,7 +625,11 @@ internal class GitHubOperationTool(
         val duplicates = (progress["duplicate_records_on_page"] as? JsonPrimitive)?.intOrNull ?: return null
         val currentSize = (arguments["per_page"] as? JsonPrimitive)?.intOrNull ?: 30
         val page = (progress["remote_page"] as? JsonPrimitive)?.intOrNull ?: return null
-        if (page < 2 || currentSize !in 1..99 || total !in 1..100 || unique !in 0 until total || duplicates < 1 ||
+        if (page < 2 ||
+            currentSize !in 1..99 ||
+            total !in 1..100 ||
+            unique !in 0 until total ||
+            duplicates < 1 ||
             progress["contiguous_from_first_page"] != JsonPrimitive(true)
         ) {
             return null

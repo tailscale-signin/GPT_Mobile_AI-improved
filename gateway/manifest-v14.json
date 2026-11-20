@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "18.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "f7bbb16f15448fbd26ccce3d0d569cb67abe94cd",
+  "sourceCommit": "e8006f122beec4eb226b304b5f7ad095d1f7f05e",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -151,7 +151,7 @@
     "desktop/release_checks_dialog.py": "eb0ab8d2ea0681329ab3650f90e642a3e5b49a3efc90fb6adb2c3027b505e445",
     "desktop/releases.py": "51b5b7688b9f9d085d378a2bede07075374f547ce0540de11c94b3364b9dc89b",
     "desktop/repository_validation.py": "572f99ed078660963a509b32c654c3ca33bf0cf4c8b1653216afdc4ae7ae9bad",
-    "desktop/repository_validation_panel.py": "0e7c5d34d2e7b91a0812ada198b47f9589525b17e70b172e693355a424826177",
+    "desktop/repository_validation_panel.py": "b8968baf9eee01f6785fbc76db2a2ad385ddd1decc81246baa43a398289572e7",
     "desktop/requirements-build.txt": "dc0a354074529c728128f45f6df0687f609c40a7854d41bb4c200e36e1611b87",
     "desktop/schedule_panel.py": "9d3299c84b6d863ae7e34029ef9dceec7b07c9f1b215ca1167f8e94814d2bf2b",
     "desktop/smoke_windows.py": "352dea11041c6f39191454b1d5c8e9ce1169b05155c1f9784b88f208c501be0c",

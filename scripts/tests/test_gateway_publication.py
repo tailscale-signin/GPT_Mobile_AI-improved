@@ -18,11 +18,16 @@ from pathlib import Path
 root = Path(os.environ["FIXTURE"])
 version = "17.0.2" if Path.cwd().name == "v17-transition" else "18.0.0"
 state = root / ("remote-" + version + ".json")
+listing_delay = root / ("listing-delay-" + version)
 uploads = root / "uploads" / version
 uploads.mkdir(exist_ok=True)
 r = json.loads(state.read_text()) if state.exists() else None
 args = sys.argv[1:]
 if args[:3] == ["api", "--paginate", "--slurp"]:
+    remaining = int(listing_delay.read_text()) if listing_delay.exists() else 0
+    if remaining:
+        listing_delay.write_text(str(remaining - 1))
+        r = None
     print(json.dumps([[r] if r else []]))
 elif args[:3] == ["api", "--method", "POST"]:
     assert r is None
@@ -30,7 +35,8 @@ elif args[:3] == ["api", "--method", "POST"]:
     r = dict(id=7, tag_name="gateway-v" + version, target_commitish=os.environ["GITHUB_SHA"],
              draft=True, prerelease=False, assets=[], html_url="fixture")
     state.write_text(json.dumps(r))
-    sys.exit(1)  # GitHub stored it but the acknowledgment was lost.
+    listing_delay.write_text(os.environ.get("FIXTURE_LIST_DELAY", "1"))
+    sys.exit(1 if version == "17.0.2" else 0)  # The bridge create reply was lost.
 elif args == ["api", "repos/owner/repo/releases/7"]:
     print(json.dumps(r))
 elif args[:2] == ["release", "upload"]:
@@ -96,11 +102,23 @@ class WindowsPublicationTest(unittest.TestCase):
             gh = root / "gh"
             gh.write_text(GH)
             gh.chmod(0o700)
+            sleep = root / "sleep"
+            sleep.write_text("#!/bin/sh\nexit 0\n")
+            sleep.chmod(0o700)
             env = dict(os.environ, FIXTURE=str(root), GITHUB_SHA=sha, GITHUB_REF="refs/heads/main",
                        GITHUB_REPOSITORY="owner/repo", PATH=str(root)+os.pathsep+os.environ["PATH"])
             def publish():
                 return subprocess.run(["bash", str(ROOT / "scripts/publish_gateway_windows.sh")],
                                       cwd=root, env=env, text=True, capture_output=True)
+            env["FIXTURE_LIST_DELAY"] = "100"
+            delayed = publish()
+            self.assertNotEqual(0, delayed.returncode)
+            self.assertIn("gateway-v18.0.0", delayed.stderr)
+            pending = json.loads((root / "remote-18.0.0.json").read_text())
+            self.assertTrue(pending["draft"])
+            self.assertEqual([], pending["assets"])
+            (root / "listing-delay-18.0.0").unlink()
+            del env["FIXTURE_LIST_DELAY"]
             for attempt in range(2):
                 result = publish()
                 self.assertEqual(0, result.returncode, (attempt, result.stderr))

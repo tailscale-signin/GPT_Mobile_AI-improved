@@ -67,9 +67,22 @@ if [[ "$matches" == '[]' ]]; then
         -f name="Gateway $version for Windows" -F draft=true -f make_latest=false -F body=@release-notes.md --silent; then
         echo 'Checking the result of the Windows draft creation.' >&2
     fi
-    matches=$(lookup)
+    # A successful create can precede visibility in the release listing.
+    # Reconcile the same tag after either response without issuing a second POST.
+    for delay in 0 1 2 4 8 16; do
+        if (( delay > 0 )); then sleep "$delay"; fi
+        matches=$(lookup)
+        if [[ "$matches" != '[]' ]]; then break; fi
+    done
+    if [[ "$matches" == '[]' ]]; then
+        printf '::error::GitHub has not listed the new Windows draft for %s. Retry to reconcile the existing draft.\n' "$tag" >&2
+        exit 1
+    fi
 fi
-release_id=$(jq -er --arg sha "$GITHUB_SHA" '.[0] | select(.target_commitish == $sha and .prerelease == false) | .id | numbers' <<< "$matches")
+if ! release_id=$(jq -er --arg sha "$GITHUB_SHA" '.[0] | select(.target_commitish == $sha and .prerelease == false) | .id | numbers' <<< "$matches"); then
+    printf '::error::The Windows release for %s does not match the pinned source and stable release type.\n' "$tag" >&2
+    exit 1
+fi
 [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
 state="$releases/$release_id"
 assets=("$zip" "$installer" SHA256SUMS.txt smoke-results.json)

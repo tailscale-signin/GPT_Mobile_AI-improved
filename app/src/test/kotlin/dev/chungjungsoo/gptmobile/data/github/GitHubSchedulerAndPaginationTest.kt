@@ -64,17 +64,21 @@ class GitHubSchedulerAndPaginationTest {
     }
 
     @Test fun primaryQuotasAreResourceScopedButSecondaryCooldownIsAccountWide() {
-        val now = System.currentTimeMillis() / 1000
+        val now = 1_700_000_000L
         val quota = GitHubRateLimitManager()
-        quota.record(headersOf("X-RateLimit-Resource" to listOf("search"), "X-RateLimit-Remaining" to listOf("0"), "X-RateLimit-Reset" to listOf((now + 60).toString())))
+        quota.record(headersOf("X-RateLimit-Resource" to listOf("search"), "X-RateLimit-Remaining" to listOf("0"), "X-RateLimit-Reset" to listOf((now + 60).toString())), nowMillis = now * 1000)
         assertTrue(runCatching { quota.requireAvailable("search", now) }.isFailure)
         quota.requireAvailable("core", now)
         quota.requireAvailable("graphql", now)
-        quota.record(headersOf("Retry-After", "30"), 429)
+        quota.record(headersOf("Retry-After", "30"), 429, nowMillis = now * 1000)
         assertTrue(runCatching { quota.requireAvailable("core", now) }.isFailure)
-        quota.requireAvailable("core", now + 31)
-        val date = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(1).format(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
-        quota.record(headersOf("Retry-After", date), 403)
+        assertTrue(runCatching { quota.requireAvailable("core", now + 29) }.isFailure)
+        assertTrue(runCatching { quota.requireAvailable("graphql", now + 29) }.isFailure)
+        quota.requireAvailable("core", now + 30)
+        quota.requireAvailable("graphql", now + 30)
+        assertTrue(runCatching { quota.requireAvailable("search", now + 30) }.isFailure)
+        val date = java.time.Instant.ofEpochSecond(now + 60).atZone(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+        quota.record(headersOf("Retry-After", date), 403, nowMillis = now * 1000)
         assertTrue(quota.retryDelayMillis(now) > 0)
     }
 

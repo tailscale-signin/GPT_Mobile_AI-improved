@@ -400,7 +400,7 @@ class IssueReportIncidentCapsuleTest {
     }
 
     @Test fun everyKnownPolicyNameSurvivesWithoutChangingAuthorityOrUnknownOutcomeEvidence() {
-        assertEquals(67, IssueReportIncidentCapsule.policyFieldNames.size)
+        assertEquals(76, IssueReportIncidentCapsule.policyFieldNames.size)
         for (field in IssueReportIncidentCapsule.policyFieldNames) {
             val context = capture(
                 ReportFeature.CHAT,
@@ -408,7 +408,9 @@ class IssueReportIncidentCapsuleTest {
                 "RECONCILIATION_REQUIRED",
                 mapOf("changed_policy_fields" to listOf(field), "requires_reconciliation" to true, "failed_stage" to "tool_dispatch")
             )
-            val values = requireNotNull(context.diagnostics).values
+            val diagnostic = requireNotNull(context.diagnostics)
+            val values = diagnostic.values
+            assertEquals(field.startsWith("profileBehavior."), IssueReportDiagnostics.PROFILE_BEHAVIOR_FEATURE in diagnostic.requiredServiceFeatures())
             assertEquals(JsonArray(listOf(JsonPrimitive(field))), values["changed_policy_fields"])
             assertEquals(JsonPrimitive("OBSERVED"), values["changed_policy_observation"])
             assertEquals(true, context.requiresReconciliation)

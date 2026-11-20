@@ -2091,6 +2091,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAvailabilityTargetTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAvailabilityTargetsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityDiscoveryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCancellationSemanticsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityFailureEvidenceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayClientDiagnosticsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayContinuationBindingTest.kt",

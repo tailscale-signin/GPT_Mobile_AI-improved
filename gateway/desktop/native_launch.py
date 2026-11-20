@@ -9,6 +9,10 @@ from desktop.configuration import atomic_json
 from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 
 
+NATIVE_VIEWS = ("Overview", "Chat", "Saved", "Jobs", "Tools", "Benchmarks", "Android controls",
+                "Diagnostics", "Settings", "Connect phone", "Advanced settings")
+
+
 def native_executable():
     return Path(sys.executable).parent / 'native' / 'Gateway.Desktop.exe'
 

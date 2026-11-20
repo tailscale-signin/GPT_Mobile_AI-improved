@@ -27,7 +27,8 @@ def main():
     parser.add_argument('--smoke-ui', action='store_true')
     parser.add_argument('--legacy-ui', action='store_true', help='Open the validated host utility inside the existing runtime')
     parser.add_argument('--section', choices=['General', 'Advanced', 'Add-ons', 'GitHub', 'Repository Validation'])
-    parser.add_argument('--view', choices=['Overview', 'Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks', 'Android controls', 'Diagnostics', 'Settings'])
+    from desktop.native_launch import NATIVE_VIEWS
+    parser.add_argument('--view', choices=NATIVE_VIEWS)
     parser.add_argument('--page', choices=['Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks'], help='Compatibility alias for a workspace view')
     args = parser.parse_args()
     if args.headless and args.command != 'supervise':

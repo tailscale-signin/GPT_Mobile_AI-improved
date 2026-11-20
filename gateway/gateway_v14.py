@@ -34,7 +34,7 @@ def build_identity():
 
 
 import gateway_v13 as runtime
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from starlette.datastructures import Headers
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from v14.identity import Admission, principal_can_chat, principal_can_graph
@@ -301,7 +301,16 @@ def cancel(job_id: str, request: Request):
             return {"job_id": job_id, "canceled": canceled, "cancellationRequested": False,
                     "cancellationOutcome": "confirmed" if canceled else "not_canceled",
                     "status": job["status"], "message": "Job already terminal"}
-        return runtime.cancel_gateway_job(job_id)
+        try:
+            return runtime.cancel_gateway_job(job_id)
+        except HTTPException as error:
+            if not job or error.status_code != 409 or error.detail != 'Job cannot be cancelled':
+                raise
+            # An observed but detached worker cannot acknowledge a stop. Retain its state.
+            return JSONResponse({'job_id': job_id, 'status': job.get('status'), 'canceled': False,
+                                 'cancellationRequested': False, 'cancellationOutcome': 'unavailable',
+                                 'reasonCode': 'GATEWAY_JOB_UNAVAILABLE',
+                                 'detail': 'Job cannot be cancelled'}, status_code=409)
 
 
 def capabilities(model=""):

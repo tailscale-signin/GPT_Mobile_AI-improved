@@ -176,6 +176,10 @@ def response_summary(body, admission=None, route=None):
     result = {}
     if isinstance(body, dict):
         result = failure_fields(body, conditions=False)
+        if route == 'maintenance' and body.get('error') in ('work_in_progress', 'prepare_required'):
+            result['reasonCode'] = 'GATEWAY_JOB_IN_PROGRESS' if body['error'] == 'work_in_progress' else 'GATEWAY_NOT_READY'
+        if route == 'job' and body.get('detail') == 'Job cannot be cancelled':
+            result['reasonCode'] = 'GATEWAY_JOB_UNAVAILABLE'
         if route == 'management_settings' and body.get('status') in ('waiting_for_jobs', 'setup_required'):
             reason = body.get('reason')
             result['settingsDisposition'] = reason if reason in ('invalid_backend', 'probe_failed') else body['status']

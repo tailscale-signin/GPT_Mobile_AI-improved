@@ -694,6 +694,20 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(status, 'failed')
         self.assertIsNotNone(finished)
 
+    def test_detached_worker_returns_actionable_conflict_and_retains_its_state(self):
+        import threading
+        self.runtime.register_gateway_job('detached', 'local', 'chat', threading.Event(), None)
+        self.store.claim('detached', 'local:single-user')
+        with self.client() as client:
+            prior = self.runtime.job_registry['detached'].copy()
+            for _ in range(2):
+                response = client.post('/gateway/jobs/detached/cancel')
+                self.assertEqual(409, response.status_code)
+                self.assertEqual('unavailable', response.json()['cancellationOutcome'])
+                self.assertFalse(response.json()['cancellationRequested'])
+                self.assertFalse(response.json()['canceled'])
+            self.assertEqual(prior, self.runtime.job_registry['detached'])
+
     def test_active_cancellation_reports_request_without_claiming_confirmation(self):
         import threading
         self.runtime.register_gateway_job('active', 'local', 'chat', threading.Event(), threading.Event())

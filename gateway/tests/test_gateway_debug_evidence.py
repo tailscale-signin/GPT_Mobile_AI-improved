@@ -65,6 +65,12 @@ class DebugEvidenceTests(unittest.TestCase):
         self.addCleanup(client.close)
         return client
 
+    def test_legacy_conflict_reasons_retain_only_the_known_disposition(self):
+        self.assertEqual({'reasonCode': 'GATEWAY_JOB_UNAVAILABLE'}, response_summary({'detail': 'Job cannot be cancelled'}, route='job'))
+        self.assertEqual({'reasonCode': 'GATEWAY_JOB_IN_PROGRESS'}, response_summary({'error': 'work_in_progress'}, route='maintenance'))
+        self.assertEqual({'reasonCode': 'GATEWAY_NOT_READY'}, response_summary({'error': 'prepare_required'}, route='maintenance'))
+        self.assertEqual({}, response_summary({'error': 'private detail'}, route='maintenance'))
+
     def test_arrival_and_completion_reflect_actual_latency_with_unique_http_ids(self):
         client = self.client()
         responses = [client.get('/gateway/ready', headers={'X-Request-ID': 'logical-check', 'X-Gateway-Retry-Attempt': str(i)}) for i in range(2)]

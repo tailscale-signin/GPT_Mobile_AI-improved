@@ -11,7 +11,6 @@ import dev.chungjungsoo.gptmobile.data.network.SseUtils
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
-import io.ktor.client.call.body
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.bearerAuth
@@ -324,7 +323,7 @@ class GatewayAPIImpl internal constructor(
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/cancel")
         jobPolls.invalidate(gatewayJobObservationIdentity(config), jobId)
         return try {
-            val responseBody = gatewayClientExchange(config, "job", safeRead = false, method = "POST") { requestHeaders ->
+            gatewayClientExchange(config, "job", safeRead = false, method = "POST") { requestHeaders ->
                 networkClient().preparePost(endpoint) {
                     config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                     requestHeaders.forEach { (key, value) -> header(key, value) }
@@ -336,10 +335,13 @@ class GatewayAPIImpl internal constructor(
                     }
                 }.execute { response ->
                     GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
-                    if (response.status.isSuccess()) response.body<String>() else null
+                    if (!response.status.isSuccess() && response.status != HttpStatusCode.Conflict) return@execute null
+                    val receipt = json.decodeFromString<GatewayCancelResult>(response.boundedMetadata(16 * 1024))
+                    receipt.takeIf {
+                        it.jobId == jobId && (response.status.isSuccess() || it.outcome == GatewayCancellationOutcome.UNAVAILABLE && !it.canceled && !it.cancellationRequested)
+                    }
                 }
-            } ?: return null
-            json.decodeFromString<GatewayCancelResult>(responseBody)
+            }
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {

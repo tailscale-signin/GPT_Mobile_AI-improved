@@ -687,7 +687,7 @@ class DebugMiddleware:
             nonlocal status, sent, response_started, response_completed, response_at, completed_at, completed_duration, admission, body_oversize, observed, poll_suppressed
             if message['type'] == 'http.response.start':
                 status = message['status']
-                if observed and context['route'] == 'management_dashboard' and 200 <= status < 400:
+                if observed and context['method'] == 'GET' and context['route'] in {'management_dashboard', 'management_settings'} and 200 <= status < 400:
                     observed = self.store.retain_successful_poll(context['route'])
                     poll_suppressed = not observed
                 additions = {b'x-gateway-instance-id': self.instance_id.encode(), b'x-gateway-debug-protocol': b'2',
@@ -776,7 +776,7 @@ class DebugMiddleware:
                             body = json.loads(response_body)
                         except (ValueError, UnicodeDecodeError, RecursionError):
                             pass
-                    summary = response_summary(body, admission)
+                    summary = response_summary(body, admission, context['route'])
                     duration = completed_duration if completed_duration is not None else max(0, int((time.monotonic() - started) * 1000))
                     self.store.record('gateway_response', status=status, receivedBytes=received, sentBytes=sent,
                                       timestampMs=completed_at or int(self.now() * 1000), responseStartedAtMs=response_at,

@@ -246,6 +246,8 @@ class ControlStore:
         capabilities = {'controlSettings.v1': True}
         if grant and db.execute('SELECT 1 FROM gateway_control_address_devices WHERE device_id=?', (grant['id'],)).fetchone():
             capabilities['privateAddress.v1'] = True
+        if account or capabilities.get('privateAddress.v1') and grant['role'] == 'owner':
+            capabilities['connectionSettings.v1'] = True
         return {'schema': SCHEMA, 'installation_id': self.installation(db), 'principal_id': principal,
                 'revision': row['revision'], 'observed_at': self.now(), 'changed_at': row['changed'], 'changed_by': row['author'],
                 'desired': desired, 'effective': effective, 'pending': pending,
@@ -413,7 +415,10 @@ class ControlStore:
 
     def observe_runtime(self, ready, prerequisites):
         with self.tx() as db:
-            db.execute('INSERT OR REPLACE INTO gateway_control_runtime VALUES (1,?,?,?)',
+            db.execute('INSERT INTO gateway_control_runtime VALUES (1,?,?,?) ON CONFLICT(id) DO UPDATE SET '
+                       'observed=excluded.observed, ready=excluded.ready, prerequisites=excluded.prerequisites '
+                       'WHERE ready != excluded.ready OR prerequisites != excluded.prerequisites '
+                       'OR observed > excluded.observed OR observed <= excluded.observed-30',
                        (self.now(), bool(ready), encoded(prerequisites)))
 
     def receipt(self, principal, command_id, local=False):

@@ -169,10 +169,23 @@ def install_routes(app, conversations, engineering, service, ownership):
     @app.get('/v1/gateway/identity')
     async def identity(request: Request):
         principal = request.state.principal.id
-        return await execute(lambda: {'schema_version': 1, 'protocol_version': 1, 'gateway_id': conversations.gateway_id(),
+        def describe():
+            result = {'schema_version': 1, 'protocol_version': 1, 'gateway_id': conversations.gateway_id(),
             'instance_id': service.instance_id, 'principal_id': principal, 'server_now': conversations.now(),
             'server_time_ms': int(conversations.now() * 1000),
-            'identity_scope': 'shared-network' if principal == 'network:shared' else 'paired-device' if principal.startswith('paired:') else 'user' if principal.startswith('tailnet:') else 'local-machine'})
+            'identity_scope': 'shared-network' if principal == 'network:shared' else 'paired-device' if principal.startswith('paired:') else 'user' if principal.startswith('tailnet:') else 'local-machine'}
+            root = getattr(app.state, 'connected_settings_root', None)
+            if root and principal == 'network:shared' and request.client and not any(
+                    k.startswith(('x-forwarded-', 'tailscale-', 'sec-fetch-')) or k in {'origin', 'forwarded', 'cookie'} for k in request.headers):
+                try:
+                    window = json.loads((root / 'data' / 'phone-connect-window.json').read_text(encoding='utf-8'))
+                    host = (request.scope.get('server') or ('', 0))[0]
+                    if window['host'] == host and window['peer'] == request.client.host and window['expires'] > conversations.now():
+                        result['phone_connection'] = window['link']
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
+            return result
+        return await execute(describe)
 
     @app.get('/gateway/job-catalog')
     @app.get('/v1/gateway/job-catalog')

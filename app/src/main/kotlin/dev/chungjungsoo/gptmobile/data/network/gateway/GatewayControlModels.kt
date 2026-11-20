@@ -25,6 +25,18 @@ internal fun gatewayControlEndpoint(raw: String): String {
     return raw.trimEnd('/')
 }
 
+/** Bare addresses use the installer port. Explicit HTTP(S) URLs keep their original port. */
+internal fun gatewayAddressEndpoint(input: String): URI {
+    val raw = input.trim().substringBefore('#').trimEnd('/')
+    require(raw.isNotBlank() && raw.length <= 2048 && raw.none { it.isWhitespace() || it == '\\' })
+    val explicit = "://" in raw
+    val authority = if (!explicit && !raw.startsWith("[") && raw.count { it == ':' } > 1) "[$raw]" else raw
+    val uri = URI(if (explicit) raw else "http://$authority")
+    require(uri.scheme in setOf("http", "https") && uri.host != null && uri.userInfo == null && uri.query == null)
+    require(uri.rawPath.orEmpty() in setOf("", "/v1") && (uri.port == -1 || uri.port in 1..65535) && !uri.rawAuthority.endsWith(':'))
+    return URI(uri.scheme, null, uri.host.lowercase(), if (!explicit && uri.port == -1) 8090 else uri.port, "/v1", null, null)
+}
+
 internal data class GatewayPairingLink(val endpoint: String, val installationId: String, val fingerprint: String, val code: String, val expiresAt: Long, val gatewayPort: Int? = null) {
     val profileEndpoint: String? get() = gatewayPort?.let { URI("http", null, URI(endpoint).host, it, "/v1", null, null).toString() }
 

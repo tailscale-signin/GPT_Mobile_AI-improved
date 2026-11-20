@@ -177,6 +177,17 @@ internal class GatewayControlRepository @Inject constructor(
         publish(profile, GatewayControlPhase.LIVE, updated, fresh = true)
     }
 
+    suspend fun connectionSettings(profile: PlatformV2, command: JsonObject? = null): JsonObject = mutex(profile.uid).withLock {
+        val binding = requireNotNull(load(profile.uid))
+        check(binding.originalEndpoint == original(profile) && !binding.revoked && !binding.revocationPending && binding.pending == null)
+        val state = requireNotNull(binding.snapshot)
+        check(state.role == "owner" && state.capabilities["connectionSettings.v1"] == JsonPrimitive(true))
+        val response = exchange(binding, if (command == null) "GET" else "PATCH", "/gateway/settings/connection", command?.toString().orEmpty())
+        if (response.status == 409) throw GatewayConnectionSettingsChanged()
+        check(response.status == 200)
+        json.decodeFromString<JsonObject>(response.body)
+    }
+
     suspend fun updateGateway(profile: PlatformV2, target: String?) = mutex(profile.uid).withLock {
         val binding = requireNotNull(load(profile.uid))
         check(binding.originalEndpoint == original(profile) && !binding.revoked && !binding.revocationPending && binding.pending == null)
@@ -439,3 +450,5 @@ internal class GatewayControlRepository @Inject constructor(
 }
 
 private class GatewayControlRevoked : IllegalStateException()
+
+internal class GatewayConnectionSettingsChanged : IllegalStateException()

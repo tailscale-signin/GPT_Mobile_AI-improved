@@ -89,32 +89,48 @@ public partial class MainWindow : Window
         brand.Children.Add(mark);
         brand.Children.Add(Ui.Column(Ui.Text("GPT Mobile", 13, "MutedBrush"), Ui.Text("Gateway", 22, bold: true)));
         var rail = Ui.Column(brand);
-        var collapse = new Button { Content="Collapse menu" };
-        System.Windows.Automation.AutomationProperties.SetName(collapse,"Toggle navigation menu");
-        collapse.Click+=(_,_)=>SetRail(layout.ColumnDefinitions[0].Width.Value > 100);
+        var glyphs = new Dictionary<string, string>
+        {
+            ["Overview"] = "\uE80F", ["Chat"] = "\uE8F2", ["Saved"] = "\uE734", ["Jobs"] = "\uE9F9",
+            ["Diagnostics"] = "\uE9D9", ["Tools"] = "\uE90F", ["Settings"] = "\uE713"
+        };
+        bool compact = Width < 1000;
+        var collapse = new Button();
+        System.Windows.Automation.AutomationProperties.SetName(collapse, "Toggle navigation menu");
+        collapse.Click += (_, _) => SetRail(!compact);
         rail.Children.Add(collapse);
         void SetRail(bool small)
         {
-            layout.ColumnDefinitions[0].Width = new GridLength(small ? 76 : 186);
+            compact = small;
+            layout.ColumnDefinitions[0].Width = new GridLength(small ? 80 : 202);
+            rail.Margin = new Thickness(small ? 10 : 14, 18, small ? 10 : 14, 14);
             brand.Visibility = small ? Visibility.Collapsed : Visibility.Visible;
-            collapse.Content = small ? "☰" : "Collapse menu";
+            collapse.ContentTemplate = null;
+            collapse.Content = Ui.NavigationLabel("\uE700", small ? null : "Collapse menu");
+            collapse.ToolTip = small ? "Expand menu" : "Collapse menu";
+            collapse.Padding = new Thickness(8);
             foreach (var (name, button) in navigation)
             {
                 string title = name == "Overview" ? "Home" : name;
-                button.Content = small ? title[..1] : title; button.ToolTip = title;
-                button.Padding = new Thickness(small ? 4 : 12, 7, 4, 7);
+                button.ContentTemplate = null;
+                button.Content = Ui.NavigationLabel(glyphs[name], small ? null : title);
+                button.HorizontalContentAlignment = small ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+                button.ToolTip = title;
+                button.Padding = new Thickness(small ? 6 : 12, 8, 6, 8);
             }
         }
-        rail.Margin = new Thickness(16, 24, 16, 20);
-        foreach (string name in new[] { "Overview", "Chat", "Saved", "Jobs", "Diagnostics", "Tools", "Settings" })
+        foreach (string name in glyphs.Keys)
         {
             var button = Ui.Button(name == "Overview" ? "Home" : name, () => Navigate(name));
-            button.HorizontalContentAlignment = HorizontalAlignment.Left;
             button.Margin = new Thickness(0, 2, 0, 2);
-            navigation[name] = button; rail.Children.Add(button);
+            navigation[name] = button;
+            rail.Children.Add(button);
         }
-        SizeChanged += (_, _) => { if (Width < 1000) SetRail(true); };
-        SetRail(Width < 1000);
+        SizeChanged += (_, e) =>
+        {
+            if ((e.PreviousSize.Width < 1000) != (e.NewSize.Width < 1000)) SetRail(e.NewSize.Width < 1000);
+        };
+        SetRail(compact);
         var railScroll = new ScrollViewer { Content = rail, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         railScroll.SetResourceReference(BackgroundProperty, "PanelBrush");
         layout.Children.Add(railScroll);
@@ -139,7 +155,7 @@ public partial class MainWindow : Window
             Navigate(Arg(args, "--view") ?? "Overview"); await RefreshSnapshot(); timer.Start();
             if (args.Contains("--smoke-ui")) await Smoke();
         };
-        timer.Tick += async (_, _) => { PollWindowRequests(); await RefreshSnapshot(); };
+        timer.Tick += async (_, _) => { PollWindowRequests(); if (IsVisible && WindowState != WindowState.Minimized) await RefreshSnapshot(); };
         Closing += (_, e) =>
         {
             if (!allowWindowExit && preferences.Flag("tray") && !args.Contains("--smoke-ui")) {e.Cancel=true;Hide();return;}
@@ -204,7 +220,7 @@ public partial class MainWindow : Window
         foreach (string tab in options ?? [])
         {
             var button = Ui.Button(tab, () => Navigate(destination + "/" + tab), tab == section);
-            button.Padding = new Thickness(9, 3, 9, 3); button.MinHeight = 26;
+            button.Padding = new Thickness(12, 6, 12, 6); button.MinHeight = 36;
             sections.Children.Add(button);
         }
         updateInfo = null; checkUpdate = installUpdate = null;

@@ -10,14 +10,15 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayConnectionSettingsChanged
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlPhase
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlState
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayPairingLink
+import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayAddressEndpoint
 import dev.chungjungsoo.gptmobile.data.network.gateway.privateGatewayAddress
 import dev.chungjungsoo.gptmobile.data.repository.ProfileModelCatalog
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
-import java.net.URI
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -58,11 +60,14 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                         val config = ProviderRequestConfig(current.apiUrl, current.token, profileUid = current.uid)
                         val key = current.uid to current.apiUrl
                         if (lastUnavailable?.let { it.first == key && System.nanoTime() - it.second < 30_000_000_000L } == true) return@launch
-                        val admission = engineering.admissionSetting(config, null)
-                        if (admission.principalId.startsWith("tailnet:") || admission.principalId == "local:single-user") {
-                            observeAccount(current, admission)
+                        val identity = engineering.connectionIdentity(config)
+                        if (identity.principal == "network:shared") {
+                            directStates.value -= key
+                            lastUnavailable = key to System.nanoTime()
                         } else {
-                            directStates.value -= (current.uid to current.apiUrl)
+                            val admission = engineering.admissionSetting(config, null)
+                            require(admission.principalId == identity.principal && admission.gatewayId == identity.gatewayId)
+                            observeAccount(current, admission)
                         }
                     } else {
                         directStates.value -= (current.uid to current.apiUrl)
@@ -95,11 +100,9 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
 
     fun connectAddress(address: String, link: String? = null, onConnected: (String) -> Unit) = launchAction {
         val input = address.trim()
-        val privateAddress = privateGatewayAddress(input, System.currentTimeMillis() / 1000)
-        val uri = URI(input.substringBefore('#').trimEnd('/'))
-        require(uri.scheme in setOf("http", "https") && uri.host != null && uri.userInfo == null && uri.rawQuery == null && uri.fragment == null)
-        require(uri.rawPath.orEmpty() in setOf("", "/v1") && (uri.port == -1 || uri.port in 1..65535))
-        val endpoint = "${uri.scheme}://${uri.rawAuthority}/v1"
+        val privateAddress = if ('#' in input) privateGatewayAddress(input, System.currentTimeMillis() / 1000) else null
+        val uri = gatewayAddressEndpoint(input)
+        val endpoint = uri.toString()
         val profiles = settings.fetchPlatformV2s()
         val matching = profiles.filter { it.apiUrl.trimEnd('/') == endpoint }
         require(matching.size <= 1) { "Choose the saved profile for this address." }
@@ -121,16 +124,33 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                 repository.pair(profile, link)
                 null
             }
-            else -> when (val principal = engineering.connectionPrincipal(config)) {
-                "network:shared" -> null
-                else -> engineering.admissionSetting(config, null).also {
-                    require(it.principalId == principal && (principal.startsWith("tailnet:") || principal == "local:single-user"))
+            else -> {
+                repository.refresh(profile)
+                when (repository.states.value[profile.uid]?.phase) {
+                    GatewayControlPhase.UNPAIRED, GatewayControlPhase.REVOKED -> {
+                        val identity = engineering.connectionIdentity(config)
+                        if (identity.principal == "network:shared") {
+                            identity.phoneConnection?.let {
+                                val offer = GatewayPairingLink.parse(it, System.currentTimeMillis() / 1000)
+                                require(offer.installationId == identity.gatewayId && offer.profileEndpoint == endpoint && offer.code.startsWith("lan_"))
+                                repository.connectPrivate(profile, offer)
+                            }
+                            null
+                        } else {
+                            engineering.admissionSetting(config, null).also {
+                                require(it.principalId == identity.principal && it.gatewayId == identity.gatewayId)
+                            }
+                        }
+                    }
+                    GatewayControlPhase.LIVE, GatewayControlPhase.RECONCILING, GatewayControlPhase.CONFLICT -> null
+                    else -> error("Saved Gateway unavailable")
                 }
             }
         }
+
         if (matching.isEmpty()) {
             val models = try {
-                ProfileModelCatalog().load(profile)
+                withTimeoutOrNull(4_000) { ProfileModelCatalog().load(profile) }.orEmpty()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -145,6 +165,12 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
             observeAccount(saved, admission)
         }
         onConnected(saved.uid)
+    }
+
+    suspend fun readConnectionSettings(profile: PlatformV2) = repository.connectionSettings(profile)
+
+    fun saveConnectionSettings(profile: PlatformV2, command: JsonObject, confirmed: (JsonObject) -> Unit) = run(profile) {
+        confirmed(repository.connectionSettings(it, command))
     }
 
     fun updateGateway(profile: PlatformV2, target: String? = null) = run(profile) { repository.updateGateway(it, target) }
@@ -206,9 +232,11 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                 operation()
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (_: GatewayConnectionSettingsChanged) {
+                mutableError.value = "Connection settings changed on the PC. Reload the connection settings and review your edits."
             } catch (_: Exception) {
                 // Do not display remote response bodies, pairing codes, credentials or TLS details.
-                mutableError.value = "Could not verify this operation. Check the Gateway address and connection. For a new LAN connection, copy a fresh private address from the PC."
+                mutableError.value = "Could not verify this operation. Check the Gateway address and connection. For Wi-Fi access, check the phone IP in Connect phone on the PC."
             } finally {
                 mutableBusy.value = false
             }

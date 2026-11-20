@@ -58,6 +58,24 @@ class BenchmarkMaintenanceTests(unittest.TestCase):
                     db.execute('INSERT INTO code_graph_index_jobs VALUES(?)', (status,))
                     self.assertEqual(0, pending_work(runtime, engineering))
 
+    def test_failed_jobs_release_settings_and_show_the_real_remaining_blocker(self):
+        from v14.control_settings import blocking_jobs
+        with sqlite3.connect(':memory:') as db:
+            db.execute('CREATE TABLE gateway_jobs(job_id TEXT, status TEXT)')
+            db.execute('CREATE TABLE engineering_jobs(id TEXT, state TEXT)')
+            db.execute('CREATE TABLE code_graph_index_jobs(id TEXT, state TEXT)')
+            db.execute('CREATE TABLE engineering_copilot_tasks(id TEXT, state TEXT)')
+            db.execute("INSERT INTO engineering_jobs VALUES ('old-failure','FAILED')")
+            db.execute("INSERT INTO engineering_copilot_tasks VALUES ('timeout','TIMED_OUT')")
+            db.execute("INSERT INTO code_graph_index_jobs VALUES ('real-index','RUNNING')")
+            runtime = SimpleNamespace(GATEWAY_DURABLE_JOBS=True)
+            engineering = SimpleNamespace(store=SimpleNamespace(tx=lambda action: action(db)))
+            self.assertEqual(['real-index'], blocking_jobs(runtime, engineering))
+            self.assertEqual(1, pending_work(runtime, engineering))
+            db.execute("UPDATE code_graph_index_jobs SET state='COMPLETED'")
+            self.assertEqual([], blocking_jobs(runtime, engineering))
+            self.assertEqual(0, pending_work(runtime, engineering))
+
     def test_cancelled_index_batch_must_settle_before_upgrade(self):
         for name in ('graph', 'public_graph'):
             with self.subTest(owner=name):

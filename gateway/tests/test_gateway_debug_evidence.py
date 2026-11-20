@@ -226,11 +226,13 @@ class DebugEvidenceTests(unittest.TestCase):
 
     def test_normalized_routes_do_not_export_identifiers_or_queries(self):
         expected = {'/v1/props': 'backend_properties', '/gateway/admin/dashboard': 'management_dashboard',
-                    '/gateway/admin/maintenance': 'maintenance', '/gateway/identity': 'identity',
+                    '/gateway/admin/maintenance': 'maintenance', '/gateway/admin/settings': 'management_settings', '/gateway/identity': 'identity',
                     '/gateway/job-catalog': 'job_catalog', '/gateway/conversations/private/messages': 'messages',
                     '/gateway/commands/private': 'commands', '/gateway/tools': 'tools', '/gateway/session': 'session'}
         for path, kind in expected.items():
             self.assertEqual(kind, route_kind(path))
+        summary = response_summary({'status': 'waiting_for_jobs', 'blocking_jobs': ['private-key', 'private-model']}, route='management_settings')
+        self.assertEqual({'settingsDisposition': 'waiting_for_jobs', 'blockingJobCount': 2}, summary)
         self.client().get('/gateway/conversations/private/messages?token=private-token')
         self.assertNotIn('private', self.store.export())
 

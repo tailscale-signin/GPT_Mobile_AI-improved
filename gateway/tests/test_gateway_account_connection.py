@@ -111,6 +111,12 @@ class SameAccountTests(unittest.TestCase):
             self.assertTrue(owner.engineering_allowed)
             self.assertFalse(owner.local_admin)
             self.assertTrue(account_authorized(config, owner.id))
+            resolver.config = replace(config, host='0.0.0.0')
+            self.assertEqual(owner.id, resolve().id)
+            self.assertTrue(account_authorized(resolver.config, owner.id))
+            self.assertFalse(resolve(local='192.168.1.5').engineering_allowed)
+            self.assertFalse(resolve(local='100.64.9.9').engineering_allowed)
+            resolver.config = config
             for denied in [resolve('192.168.2.1'), resolve(local='127.0.0.1'), resolve(headers={'tailscale-user-login': 'self'}),
                            resolve(headers={'x-forwarded-for': phone}), resolve(headers={'origin': 'https://untrusted.test'})]:
                 self.assertFalse(denied.engineering_allowed)

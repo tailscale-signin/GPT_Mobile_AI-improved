@@ -59,6 +59,20 @@ def setup_interface():
     return '127.0.0.1'
 
 
+def private_lan_ip(value):
+    try:
+        if not isinstance(value, str) or '%' in value:
+            return None
+        ip = ipaddress.ip_address(value)
+        return str(ip) if any(ip in net for net in PRIVATE_LAN_NETWORKS) else None
+    except ValueError:
+        return None
+
+
+PRIVATE_LAN_NETWORKS = tuple(ipaddress.ip_network(net) for net in
+                             ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'))
+
+
 def default_phone_listener(cfg):
     address = ipaddress.ip_address(cfg['bind_host'])
     networks = ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7')

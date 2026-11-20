@@ -115,6 +115,8 @@ def create_app(controller):
                 public_key = payload.get('public_key') if isinstance(payload, dict) else None
                 if not isinstance(public_key, str):
                     raise ControlError('device_key_required')
+                if request.url.path == '/gateway/connect' and token.startswith('lan_') and len(token) == 47:
+                    token = controller.lan_token(token, request.client.host if request.client else None)
                 await asyncio.to_thread(store.pairing_key_allowed, token, public_key)
                 grant = None
             else:
@@ -178,6 +180,12 @@ def create_app(controller):
     @app.get('/gateway/settings')
     async def settings(request: Request):
         return await execute(request, lambda: controller.phone_snapshot(principal(request)))
+
+    @app.api_route('/gateway/settings/connection', methods=['GET', 'PATCH'])
+    async def connection_settings(request: Request):
+        from desktop.workspace_actions import phone_connection_settings
+        command = await request.json() if request.method == 'PATCH' else None
+        return await execute(request, lambda: phone_connection_settings(store, principal(request), command))
 
     @app.post('/gateway/updates')
     async def update(request: Request):

@@ -19,6 +19,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayControlRepositoryTest {
+    @Test
+    fun ipEntryUsesGatewayPortAndPreservesExplicitOrigins() {
+        assertEquals("http://192.168.1.8:8090/v1", gatewayAddressEndpoint("192.168.1.8").toString())
+        assertEquals("http://100.70.2.4:8123/v1", gatewayAddressEndpoint("100.70.2.4:8123").toString())
+        assertEquals("http://[fd7a::1]:8090/v1", gatewayAddressEndpoint("fd7a::1").toString())
+        assertEquals("http://[fd7a::1]:8123/v1", gatewayAddressEndpoint("[fd7a::1]:8123").toString())
+        assertEquals("https://gateway.example/v1", gatewayAddressEndpoint("https://gateway.example/v1/").toString())
+        for (bad in listOf("http://u:p@host", "host:65536", "host?secret=x", "host/path", "ftp://host", "host:")) {
+            assertTrue(bad, runCatching { gatewayAddressEndpoint(bad) }.isFailure)
+        }
+    }
+
     private val json = Json { encodeDefaults = true }
     private val principal = "paired:" + "d".repeat(32)
     private val profile = PlatformV2(uid = "gateway", name = "Studio PC", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.9:8090/v1")

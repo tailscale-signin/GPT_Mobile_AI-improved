@@ -3,13 +3,14 @@ import ipaddress
 import json
 from pathlib import Path
 import socket
+import secrets
 import threading
 import time
 from urllib.parse import urlsplit
 
 import requests
 
-from desktop.configuration import atomic_json, authority, control_host, load, save_public_repository_maps, settings_write_lock
+from desktop.configuration import atomic_json, authority, control_host, load, public_repository_maps, save_public_repository_maps, settings_write_lock
 from desktop.control_store import ControlStore, ControlError, FIELDS, RUNTIME_FIELDS
 
 
@@ -23,9 +24,11 @@ class Controller:
         self.server = None
         self.endpoint = self.fingerprint = ''
         self.allowed_hosts = set()
+        self.lan_window = None
         self.secret = None
         self.last_prerequisites = []
         self.restart_requested = False
+        self.deferred = None
 
     def runtime(self, values=None):
         target = 'http://' + authority(control_host(self.supervisor.cfg), self.supervisor.cfg['port']) + '/gateway/admin/settings'
@@ -38,6 +41,7 @@ class Controller:
             return response.json()
 
     def start_saved(self):
+        (self.supervisor.root / 'data' / 'phone-connect-window.json').unlink(missing_ok=True)
         path = self.supervisor.root / 'data' / 'control-listener.json'
         if path.exists():
             value = json.loads(path.read_text(encoding='utf-8'))
@@ -80,6 +84,7 @@ class Controller:
                 'fingerprint': self.fingerprint if ready else None, 'protocol': 'controlSettings.v1'}
 
     def close(self):
+        self.lan_window = None
         if self.server:
             self.server.close()
 
@@ -101,7 +106,31 @@ class Controller:
                 batch_changed = any(desired[key] != snapshot['effective'][key] for key in ('batch_mode', 'local_validation_workers'))
                 profile_changed = desired['validation_profile'] != status['effective'].get('validation_profile', 'disabled')
                 if needs_runtime or batch_changed or profile_changed:
-                    status = self.runtime(runtime_values)
+                    work = status.get('runtime', {})
+                    blocked = (status.get('pending_work', 0) or status.get('blocking_jobs') or
+                               work.get('activeWorkers') or work.get('activeRequests') or work.get('draining'))
+                    # GET remains authoritative. A busy engine is never asked to drain on every poll.
+                    if blocked:
+                        self.deferred = None
+                        status = dict(status, status='waiting_for_jobs')
+                    else:
+                        # A failed probe or a busy benchmark can outlive a GET round trip.
+                        # Retry independently of UI polling, and immediately for a new revision.
+                        key = (snapshot['revision'], tuple(sorted(status['effective'].items())))
+                        now = time.monotonic()
+                        if self.deferred and self.deferred[0] == key and now < self.deferred[1]:
+                            status = dict(status, **self.deferred[3])
+                        else:
+                            result = self.runtime(runtime_values)
+                            if result.get('status', 'applied') == 'applied':
+                                self.deferred = None
+                            else:
+                                interval = min(60, self.deferred[2] * 2) if self.deferred and self.deferred[0] == key else 5
+                                disposition = {k: result[k] for k in ('status', 'reason', 'blocking_jobs') if k in result}
+                                self.deferred = key, now + interval, interval, disposition
+                            status = result
+                else:
+                    self.deferred = None
                 blockers = status.get('blocking_jobs', [])
                 applied = status.get('status', 'applied') == 'applied'
                 effective = dict(snapshot['effective'])
@@ -115,9 +144,11 @@ class Controller:
                     from v14.engineering_batch_policy import load_policy, save_policy
                     batch_path = self.supervisor.root / 'data' / 'execution-policy.json'
                     batch = load_policy(batch_path)
+                    previous_batch = batch.copy()
                     batch.update(default_mode=desired['batch_mode'], full_enabled=desired['batch_mode'] == 'full',
                                  local_validation_workers=desired['local_validation_workers'])
-                    save_policy(batch_path, batch)
+                    if batch != previous_batch:
+                        save_policy(batch_path, batch)
                     for key in ('batch_mode', 'local_validation_workers'):
                         effective[key] = desired[key]
                 else:
@@ -149,13 +180,14 @@ class Controller:
                 shared_cfg = ('workers', 'active_chats', 'backend', 'start_at_login', 'update_mode', 'update_interval_hours', 'debug_mode')
                 with settings_write_lock(self.supervisor.root):
                     cfg = load(self.supervisor.root)
-                    for key in shared_cfg:
-                        cfg[key] = effective[key]
-                    atomic_json(self.supervisor.root / 'settings.json', cfg, retry_windows_sharing=True)
+                    if any(cfg[key] != effective[key] for key in shared_cfg):
+                        cfg.update({key: effective[key] for key in shared_cfg})
+                        atomic_json(self.supervisor.root / 'settings.json', cfg, retry_windows_sharing=True)
                 # A saved host port/address is a restart preference. Continue
                 # addressing the currently running engine until that restart.
                 self.supervisor.cfg.update({key: effective[key] for key in shared_cfg})
-                save_public_repository_maps(self.supervisor.root, effective['public_repository_maps'])
+                if public_repository_maps(self.supervisor.root) != effective['public_repository_maps']:
+                    save_public_repository_maps(self.supervisor.root, effective['public_repository_maps'])
                 self.store.apply_observed(snapshot['revision'], effective, pending)
             except (requests.RequestException, OSError, ValueError, KeyError):
                 effective = dict(snapshot['effective'])
@@ -179,7 +211,7 @@ class Controller:
         from v14.account_connection import PREFIX, accounts, overlay
         from desktop.configuration import account_engineering
         direct = ((principal == 'local:single-user' and cfg['access'] == 'loopback') or
-                  (isinstance(principal, str) and principal.startswith(PREFIX) and overlay(cfg['bind_host'])
+                  (isinstance(principal, str) and principal.startswith(PREFIX) and (overlay(cfg['bind_host']) or cfg['bind_host'] in {'0.0.0.0', '::'})
                    and account_engineering(self.supervisor.root) and accounts.authorized(cfg['bind_host'], principal)))
         if not direct and (not grant or grant['role'] != 'owner' or 'update_mode' not in json.loads(grant['fields'])):
             raise ControlError('update_permission_required', 403)
@@ -194,6 +226,15 @@ class Controller:
     def patch(self, principal, payload):
         with self.lock:
             return self.store.patch(principal, payload)
+
+    def lan_token(self, ticket, peer):
+        # The discovery ticket is public. Only the selected TCP peer may exchange it,
+        # on the pinned TLS listener, before expiry. The actual grant code stays local.
+        window = self.lan_window
+        if (window and ticket == window['ticket'] and peer == window['peer']
+                and time.monotonic() < window['deadline']):
+            return window['code']
+        raise ControlError('phone_network_access_unavailable', 403)
 
     def connection_port(self):
         # A private invitation can advertise inference only on its own interface.
@@ -237,7 +278,13 @@ class Controller:
                 cfg = self.supervisor.cfg
                 host = payload.get('host', cfg['bind_host'])
                 ip = ipaddress.ip_address(host)
-                if (set(payload) - {'host'} or cfg['access'] != 'network' or
+                phone = None
+                if 'phone_ip' in payload:
+                    from desktop.configuration import private_lan_ip
+                    phone = private_lan_ip(payload['phone_ip'])
+                    if not phone or not private_lan_ip(host) or phone == host or ipaddress.ip_address(phone).version != ip.version:
+                        raise ControlError('choose_private_phone_ip')
+                if (set(payload) - {'host', 'phone_ip'} or cfg['access'] != 'network' or
                         cfg['bind_host'] not in {host, '0.0.0.0', '::'} or ip.is_loopback or ip.is_unspecified or ip.is_multicast):
                     raise ControlError('choose_gateway_network_interface', 409)
                 if not self.server:
@@ -251,6 +298,14 @@ class Controller:
                 repos = sorted(policy['repositories']) if policy['state'] == 'READY' else []
                 issued = self.store.pairing_create({'role': 'owner', 'fields': sorted(FIELDS), 'repositories': repos}, address=True)
                 issued['gateway_port'] = cfg['port']
+                if phone:
+                    ticket = 'lan_' + secrets.token_urlsafe(32)
+                    descriptor = pairing_link(dict(issued, code=ticket), self.endpoint, self.fingerprint)
+                    atomic_json(self.supervisor.root / 'data' / 'phone-connect-window.json', {
+                        'host': host, 'peer': phone, 'expires': issued['expires_at'], 'link': descriptor
+                    })
+                    self.lan_window = dict(ticket=ticket, peer=phone, code=issued['code'], deadline=time.monotonic() + 300)
+                    return {'expires_at': issued['expires_at'], 'host': host, 'port': cfg['port']}
                 fragment = pairing_link(issued, self.endpoint, self.fingerprint).split('?', 1)[1]
                 return {'address': 'http://' + authority(host, cfg['port']) + '/v1#' + fragment}
             if action in {'control-pairing-create', 'control-connect-create'}:

@@ -121,6 +121,60 @@ class PairedControlTlsTests(unittest.TestCase):
                 serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
             self.assertIn(self.call(code, 'POST', '/gateway/connect', {'public_key': other_key}).status_code, (401, 403))
 
+    def test_ip_connection_is_limited_to_selected_peer_and_reuses_device_for_settings(self):
+        from urllib.parse import parse_qs, urlsplit
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from desktop.control_server import create_app
+        from v14.config import Config
+        from v14.identity import Admission
+        from v14.job_catalog import install_routes
+
+        host, phone = '192.168.1.8', '192.168.1.20'
+        self.control.supervisor.cfg.update(access='network', bind_host=host)
+        self.control.endpoint = 'https://' + host + ':8091'
+        self.control.allowed_hosts.add(host + ':8091')
+        self.control.local('control-connect-address', {'host': host, 'phone_ip': phone})
+        app = FastAPI()
+        app.state.connected_settings_root = self.root
+        records = SimpleNamespace(runtime=SimpleNamespace(GATEWAY_DURABLE_JOBS=True), now=time.time,
+                                  gateway_id=lambda: 'tls-integration-pc')
+        install_routes(app, records, None, SimpleNamespace(instance_id='test'), None)
+        app.add_middleware(Admission, config=Config(mode='open_network', host=host, allowed_hosts=(host + ':8090',)))
+        def identity(source, headers=None):
+            with TestClient(app, base_url='http://' + host + ':8090', client=(source, 4321)) as client:
+                return client.get('/v1/gateway/identity', headers=headers or {}).json()
+        self.assertNotIn('phone_connection', identity('192.168.1.21'))
+        self.assertNotIn('phone_connection', identity(phone, {'x-forwarded-for': phone}))
+        link = identity(phone)['phone_connection']
+        ticket = parse_qs(urlsplit(link).query)['code'][0]
+        self.assertNotIn(self.control.lan_window['code'], link)
+        tls = create_app(self.control)
+        def signed(source, token, method, path, payload=None):
+            body = json.dumps(payload).encode() if payload is not None else b''
+            with TestClient(tls, base_url=self.control.endpoint, client=(source, 4321)) as client:
+                return client.request(method, path, content=body, headers=self.headers(token, method, path, body))
+        path = '/gateway/connect'
+        self.assertEqual(403, signed('192.168.1.21', ticket, 'POST', path, {'public_key': self.public}).status_code)
+        grant = signed(phone, ticket, 'POST', path, {'public_key': self.public})
+        self.assertEqual(200, grant.status_code, grant.text)
+        token = grant.json()['token']
+        self.assertEqual(token, signed(phone, ticket, 'POST', path, {'public_key': self.public}).json()['token'])
+        self.control.lan_window['deadline'] = 0
+        self.assertEqual(403, signed(phone, ticket, 'POST', path, {'public_key': self.public}).status_code)
+        current = signed(phone, token, 'GET', '/gateway/settings').json()
+        self.assertTrue(current['capabilities']['connectionSettings.v1'])
+        self.assertTrue(current['desired']['engineering_enabled'])
+        path = '/gateway/settings/connection'
+        original = signed(phone, token, 'GET', path).json()
+        command = {'original': original, 'changes': {'port': 9234, 'shutdown_seconds': 48}}
+        applied = signed(phone, token, 'PATCH', path, command)
+        self.assertEqual(200, applied.status_code, applied.text)
+        self.assertEqual(9234, applied.json()['port'])
+        self.assertEqual(409, signed(phone, token, 'PATCH', path, command).status_code)
+        self.assertEqual(8090, self.control.supervisor.cfg['port'])
+        self.assertEqual(400, signed(phone, token, 'PATCH', path, {'original': applied.json(), 'changes': {'mcp_config': 'arbitrary'}}).status_code)
+
     def test_real_tls_pair_shared_revision_original_receipt_and_revocation(self):
         grant = self.pair()
         initial = self.call(grant['token'], 'GET', '/gateway/settings').json()

@@ -1188,6 +1188,7 @@
       "liveness",
       "maintenance",
       "management_dashboard",
+      "management_settings",
       "messages",
       "models",
       "other",

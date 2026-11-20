@@ -23,7 +23,7 @@ WizardImageBackColor=#001219
 DisableProgramGroupPage=yes
 DisableDirPage=no
 DisableReadyPage=yes
-WizardSizePercent=115
+WizardSizePercent=120
 ShowTasksTreeLines=no
 OutputDir=..\..\dist\windows
 OutputBaseFilename=Gateway-{#GatewayVersion}-windows-x64-setup
@@ -64,6 +64,7 @@ Type: filesandordirs; Name: "{app}\releases"
 
 [Code]
 var
+  PageIcon: TNewStaticText;
   ConnectionPage, AdvancedPage: TInputQueryWizardPage;
   ModePage, UpdatePage: TInputOptionWizardPage;
   RuntimePrepared, InstallFirewall, RepairDamaged, ExistingInstallation: Boolean;
@@ -96,7 +97,7 @@ end;
 procedure InitializeWizard;
 begin
   ModePage := CreateInputOptionPage(wpSelectDir, 'Connect to Gateway',
-    'Choose where you will use this PC.', 'Use the Gateway address in GPT Mobile for chat, saved jobs and Engineering. Setup finds your Tailscale or private network and uses the local model server on port 8080.', True, False);
+    'Choose where you will use this PC.', 'Enter this PC’s IP in GPT Mobile. Use your Tailscale account, or allow your phone’s Wi-Fi IP in Connect phone after setup.', True, False);
   ModePage.Add('My phone and this PC');
   ModePage.Add('Only this PC');
   ModePage.Add('Advanced settings');
@@ -125,9 +126,20 @@ begin
   UpdatePage.Add('Check manually');
   UpdatePage.SelectedValueIndex := 0;
   WizardForm.Font.Name := 'Segoe UI';
+  PageIcon := TNewStaticText.Create(WizardForm);
+  PageIcon.Parent := WizardForm.PageNameLabel.Parent;
+  PageIcon.AutoSize := False;
+  PageIcon.SetBounds(WizardForm.PageNameLabel.Left, WizardForm.PageNameLabel.Top,
+    ScaleX(28), ScaleY(26));
+  PageIcon.Font.Name := 'Segoe MDL2 Assets';
+  PageIcon.Font.Size := 15;
+  PageIcon.ShowAccelChar := False;
+  WizardForm.PageNameLabel.Left := WizardForm.PageNameLabel.Left + ScaleX(34);
+  WizardForm.PageNameLabel.Width := WizardForm.PageNameLabel.Width - ScaleX(34);
   if not HighContrastActive then begin
     WizardForm.MainPanel.Color := $28200B;
     WizardForm.PageNameLabel.Font.Color := $DEFF00;
+    PageIcon.Font.Color := WizardForm.PageNameLabel.Font.Color;
     WizardForm.PageDescriptionLabel.Font.Color := $F7F4E0;
     WizardForm.WelcomeLabel1.Font.Color := $DEFF00;
     WizardForm.FinishedHeadingLabel.Font.Color := $DEFF00;
@@ -228,6 +240,11 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
+  if CurPageID = ModePage.ID then PageIcon.Caption := #$E704
+  else if CurPageID = ConnectionPage.ID then PageIcon.Caption := #$E839
+  else if CurPageID = AdvancedPage.ID then PageIcon.Caption := #$E9D9
+  else if CurPageID = UpdatePage.ID then PageIcon.Caption := #$E895
+  else PageIcon.Caption := #$E713;
   if CurPageID = wpReady then begin
     ExistingInstallation := FileExists(ExpandConstant('{app}\current.json')) or
                             FileExists(ExpandConstant('{app}\settings.json'));

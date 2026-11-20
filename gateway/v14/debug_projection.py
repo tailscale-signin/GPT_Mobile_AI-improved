@@ -8,7 +8,7 @@ from v14.backend_observation import (DEPENDENCIES, FAILURES, MODEL_STATES, UPSTR
 from v14.diagnostic_schema import ENUM_ATTRIBUTES
 
 ROUTES = {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard', 'job', 'engineering',
-          'management_dashboard', 'maintenance', 'identity', 'job_catalog', 'conversations', 'messages',
+          'management_dashboard', 'management_settings', 'maintenance', 'identity', 'job_catalog', 'conversations', 'messages',
           'commands', 'backend_health', 'backend_properties', 'tools', 'connections', 'session',
           'debug', 'doctor', 'browser', 'other'}
 ADMISSION_CODES = {'remote_surface_not_admitted', 'scope_not_granted', 'engineering_scope_required',
@@ -56,7 +56,7 @@ def route_kind(path):
              '/gateway/ready': 'readiness', '/gateway/live': 'liveness', '/gateway/capabilities': 'capabilities',
              '/gateway/v13': 'capabilities', '/gateway/v14': 'capabilities', '/gateway/v15': 'capabilities', '/gateway/v16': 'capabilities', '/gateway/v17': 'capabilities', '/gateway/v18': 'capabilities',
              '/gateway/dashboard': 'dashboard', '/gateway/admin/dashboard': 'management_dashboard',
-             '/gateway/admin/status': 'maintenance', '/gateway/admin/maintenance': 'maintenance',
+             '/gateway/admin/settings': 'management_settings', '/gateway/admin/status': 'maintenance', '/gateway/admin/maintenance': 'maintenance',
              '/gateway/identity': 'identity', '/gateway/job-catalog': 'job_catalog',
              '/gateway/connections': 'connections', '/gateway/session': 'session', '/gateway/admin/doctor': 'doctor'}
     if path in exact:
@@ -104,6 +104,10 @@ def failure_fields(value, *, conditions=True):
     if not isinstance(value, dict):
         return {}
     result = {}
+    if value.get('settingsDisposition') in ('waiting_for_jobs', 'invalid_backend', 'probe_failed', 'setup_required'):
+        result['settingsDisposition'] = value['settingsDisposition']
+    if type(value.get('blockingJobCount')) is int and 0 <= value['blockingJobCount'] <= 64:
+        result['blockingJobCount'] = value['blockingJobCount']
     for field in ('failureCode', 'reasonCode', 'code'):
         candidate = value.get(field)
         if isinstance(candidate, str) and candidate in FAILURE_CODES:
@@ -159,10 +163,15 @@ def failure_fields(value, *, conditions=True):
     return result
 
 
-def response_summary(body, admission=None):
+def response_summary(body, admission=None, route=None):
     result = {}
     if isinstance(body, dict):
         result = failure_fields(body, conditions=False)
+        if route == 'management_settings' and body.get('status') in ('waiting_for_jobs', 'setup_required'):
+            reason = body.get('reason')
+            result['settingsDisposition'] = reason if reason in ('invalid_backend', 'probe_failed') else body['status']
+            if isinstance(body.get('blocking_jobs'), list):
+                result['blockingJobCount'] = min(len(body['blocking_jobs']), 64)
         # Select one primary error envelope. Separate readiness conditions must
         # never lend their dependency/category to a different top-level blocker.
         for key in ('error', 'detail', 'selectedModel'):

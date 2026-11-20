@@ -52,8 +52,32 @@ def schedules(root, action, args):
     return {'id': key}
 
 
+CONNECTION_FIELDS = {'bind_host', 'port', 'network_hostnames', 'shutdown_seconds', 'mcp_config'}
+
+
+def phone_connection_settings(store, principal, command=None):
+    from desktop.control_store import ControlError
+    snapshot = store.snapshot(principal)
+    if snapshot['role'] != 'owner' or not (store.connected_account == principal or snapshot['capabilities'].get('privateAddress.v1')):
+        raise ControlError('connection_settings_owner_required', 403)
+    if command is None:
+        return connection(store.root, 'connection-read', {})['settings']
+    if not isinstance(command, dict) or set(command) != {'original', 'changes'}:
+        raise ControlError('invalid_connection_settings')
+    changes = command['changes']
+    # The MCP file selects executable host processes. Files are installed on the PC.
+    if not isinstance(changes, dict) or not changes or not changes.keys() <= CONNECTION_FIELDS - {'mcp_config'}:
+        raise ControlError('invalid_connection_settings')
+    try:
+        return connection(store.root, 'connection-save', command)['settings']
+    except ValueError as error:
+        if str(error).startswith('Connection settings changed'):
+            raise ControlError('connection_settings_changed', 409) from None
+        raise ControlError('invalid_connection_settings') from None
+
+
 def connection(root, action, args):
-    fields = {'bind_host', 'port', 'network_hostnames', 'shutdown_seconds', 'mcp_config'}
+    fields = CONNECTION_FIELDS
     if action == 'connection-firewall':
         from desktop.firewall import apply
         apply(root, remove=args.get('remove') is True)

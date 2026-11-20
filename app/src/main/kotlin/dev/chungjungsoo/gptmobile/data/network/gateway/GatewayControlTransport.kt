@@ -128,7 +128,7 @@ internal class GatewayControlTransport @Inject constructor(private val keys: Gat
     }
 
     suspend fun accountExchange(binding: GatewayControlBinding, method: String, path: String, body: String): GatewayControlResponse {
-        require(binding.connectedAccount && (path == "/gateway/settings" || path == "/gateway/updates" || path.matches(Regex("/gateway/settings/commands/[A-Za-z0-9_-]{8,100}"))))
+        require(binding.connectedAccount && (path == "/gateway/settings" || path == "/gateway/settings/connection" || path == "/gateway/updates" || path.matches(Regex("/gateway/settings/commands/[A-Za-z0-9_-]{8,100}"))))
         val endpoint = binding.originalEndpoint.removeSuffix("/v1").trimEnd('/') + "/gateway/engineering/connected" + path.removePrefix("/gateway")
         return accountClient.prepareRequest(endpoint) {
             this.method = HttpMethod.parse(method)

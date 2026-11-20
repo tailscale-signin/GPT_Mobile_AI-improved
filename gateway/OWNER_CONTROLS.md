@@ -1,36 +1,8 @@
 # Windows and Android Gateway controls
 
-The Windows supervisor owns shared settings. In **Connect phone**, copy the Gateway address and paste it into GPT Mobile. Engineering starts enabled for a new owner. The model, GitHub connection and host-approved repositories determine which jobs can run.
+Open **Gateway settings** on Android, enter the PC’s IP and tap **Connect**. The default Gateway port is 8090. Engineering starts enabled for a new owner. The PC’s model, GitHub connection and approved repositories determine which jobs can run.
 
-On same-account Tailscale the runtime verifies the socket peer through the local Tailscale daemon. The phone reads and edits its own account settings at the existing address and keeps its existing job identity. On a private LAN, the copied address contains a single-device credential in its URL fragment. GPT Mobile verifies the PC's TLS certificate and signs one connection request using Android Keystore. Only the plain inference URL is saved in the AI profile. A lost response can be recovered by the original device key. Windows lists these devices in **Settings → Advanced → Device access**.
-
-## Optional scoped invitations for older devices and viewers
-
-1. Open **Android controls** in the Windows dashboard. Deliberately select the
-   PC interface reachable from the phone and enable the control listener. Its
-   default port is **8091**. This does not add a firewall rule or expose the
-   listener on every interface.
-2. Create a pairing invitation. Choose Owner or Viewer (read-only) access.
-   Viewer grants have no writable settings. For an owner, choose the repositories this phone may use and
-   whether it may change shared capacity, startup, update and diagnostic
-   preferences. Engineering permission is scoped to this paired owner.
-3. In the Android Gateway controls, select the existing Gateway connection and
-   paste the invitation. Review the target address and certificate fingerprint.
-4. Compare the phone's public-key fingerprint on both devices, then approve the
-   pending claim on the PC. Check confirmation on Android before editing.
-5. Enable Engineering for the paired owner when wanted. The first activation
-   confirms the target PC and scope. The selected inference profile remains a
-   separate choice.
-
-An invitation expires after five minutes and binds one device public key. The
-same device can recover an interrupted delivery within that interval. A new
-device cannot reuse the invitation. Windows can revoke a device, and Android can
-revoke its own grant. Revocation does not delete the Gateway's saved work.
-
-The native **Settings** page has an **Engineering owner** selector. Selecting a
-paired phone edits the same engineering gate shown on that phone. **This
-desktop** is a separate local owner. Capacity and other installation preferences
-remain shared regardless of which owner is selected.
+Same-account Tailscale connections use the device identity verified by the local Tailscale daemon. For first access on a trusted private Wi-Fi network, open **Connect phone** on Windows, enter the phone’s Wi-Fi IP and select **Allow this phone to connect**. Enter the PC’s IP on the phone within five minutes. Windows scopes the offer to the selected socket peer. Android uses the advertised certificate fingerprint and signs its connection over TLS. Subsequent connections use the stored certificate and device key, including after the phone’s IP changes. Windows can revoke the device under **Settings → Devices**. Existing scoped owner and viewer grants retain their permissions.
 
 ## What a setting means
 
@@ -41,6 +13,7 @@ remain shared regardless of which owner is selected.
 | Batch mode and local validation workers | Future work uses the changed preference after the safe boundary. Accepted work retains its bound policy. |
 | Repository validation profile | Windows first approves an immutable snapshot of an existing validated policy. A phone with an explicit grant can select an approved profile within its repository scope; activation waits for the safe boundary and rejects a policy changed on the host. |
 | Model backend and model | A new route is probed before activation. Failure preserves the last effective route. A phone cannot approve a new backend origin. |
+| Network and shutdown | Direct and private-address owners can edit the saved listener IP, port, hostnames and shutdown grace. Changes to the listener activate after a PC restart. The app also shows the selected MCP configuration file. |
 | Public repository maps | Installation preference, applied through the runtime's guarded activation path. |
 | Start at sign-in, updates and diagnostics | Installation preferences. OS operations that cannot be completed under the host account remain pending for local action. |
 

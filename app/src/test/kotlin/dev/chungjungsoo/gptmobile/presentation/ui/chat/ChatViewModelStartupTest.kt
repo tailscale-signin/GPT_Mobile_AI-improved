@@ -1068,7 +1068,7 @@ class ChatViewModelStartupTest {
             throw IllegalStateException("Storage unavailable")
         }
         val model = createViewModel(combined = false, profileLoad = delayed)
-        model.question.edit { append("Keep my first message") }
+        model.question.edit { replace(0, length, "Keep my first message") }
         model.askQuestion()
         model.askQuestion()
         coVerify(exactly = 0) { repository.persistAgentTurn(any()) }

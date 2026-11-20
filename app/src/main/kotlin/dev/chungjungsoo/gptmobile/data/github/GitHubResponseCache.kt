@@ -19,9 +19,10 @@ class GitHubResponseCache(
         val storedAtMillis: Long = System.currentTimeMillis(),
         val immutable: Boolean = false
     )
+    data class DecodedBlob(val content: String, val storedAtMillis: Long = System.currentTimeMillis())
 
     private val entries = LinkedHashMap<String, Entry>(16, 0.75f, true)
-    private val decodedBlobs = LinkedHashMap<String, String>(16, 0.75f, true)
+    private val decodedBlobs = LinkedHashMap<String, DecodedBlob>(16, 0.75f, true)
     private val entrySizes = mutableMapOf<String, Int>()
     private var entryCharacters = 0
     private var blobCharacters = 0
@@ -41,13 +42,15 @@ class GitHubResponseCache(
         }
     }
 
-    @Synchronized fun getDecodedBlob(sha: String): String? = decodedBlobs[sha]
+    @Synchronized fun getDecodedBlob(sha: String): String? = decodedBlobs[sha]?.content
+
+    @Synchronized fun getDecodedBlobObservation(sha: String): DecodedBlob? = decodedBlobs[sha]
 
     @Synchronized fun putDecodedBlob(sha: String, content: String) {
         if (sha.isBlank() || content.length > maxCharacters) return
-        blobCharacters += content.length - (decodedBlobs.put(sha, content)?.length ?: 0)
+        blobCharacters += content.length - (decodedBlobs.put(sha, DecodedBlob(content))?.content?.length ?: 0)
         while (decodedBlobs.size > maxEntries.coerceAtLeast(1) || blobCharacters > maxCharacters) {
-            blobCharacters -= decodedBlobs.remove(decodedBlobs.keys.first())?.length ?: 0
+            blobCharacters -= decodedBlobs.remove(decodedBlobs.keys.first())?.content?.length ?: 0
         }
     }
 

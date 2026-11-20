@@ -29,7 +29,7 @@ internal class GitHubResultViews(
     init {
         require(pageBytes >= 2048)
     }
-    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val sourceRecovery: JsonObject?, val issuedCursors: MutableSet<String> = mutableSetOf(), val failedPersistenceCursors: MutableSet<String> = mutableSetOf(), val compressedSource: ByteArray? = null, val sourceCharacters: Int = 0, val sourceSha256: String? = null) {
+    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val sourceRecovery: JsonObject?, val issuedCursors: MutableSet<String> = mutableSetOf(), val failedPersistenceCursors: MutableSet<String> = mutableSetOf(), val compressedSource: ByteArray? = null, val sourceCharacters: Int = 0, val sourceSha256: String? = null, val sourceCallId: String? = null) {
         val fragmentCount: Int get() = if (compressedSource == null) fragments.size else (sourceCharacters + SOURCE_FRAGMENT_CHARACTERS - 1) / SOURCE_FRAGMENT_CHARACTERS
     }
     private data class EvictedView(
@@ -125,14 +125,14 @@ internal class GitHubResultViews(
         val context = JsonObject((defaults + (value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
         val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + sourceRecovery.toString().toByteArray().size * 2L + 1024
         if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
-        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery, sourceSha256 = GitHubRepositoryStateStore.digest(value.toString()))
+        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery, sourceSha256 = GitHubRepositoryStateStore.digest(value.toString()), sourceCallId = upstream.callId)
         if (small.toString().toByteArray().size <= pageBytes) {
             authorize(entry, small)
             store(id, entry)
             return upstream.copy(
                 content = ToolResultContent.Json(small),
                 executionReceipt = JsonObject(
-                    upstream.executionReceipt.orEmpty() + buildJsonObject {
+                    upstream.executionReceipt.orEmpty() + sourceIdentity(entry) + buildJsonObject {
                         summary?.let { put("semantic_summary", it) }
                         if (upstream.retainedContent != null) {
                             put("retained_original_complete", true)
@@ -151,7 +151,7 @@ internal class GitHubResultViews(
         val retainedRecipes = JsonArray(continuations)
         val completeRecipes = continuations.size <= 128 && retainedRecipes.toString().encodeToByteArray().size <= 64 * 1024
         val receipt = JsonObject(
-            upstream.executionReceipt.orEmpty() + buildJsonObject {
+            upstream.executionReceipt.orEmpty() + sourceIdentity(entry) + buildJsonObject {
                 summary?.let { put("semantic_summary", it) }
                 put("retained_original_complete", completeRecipes)
                 if (completeRecipes) put("retained_remote_continuations", retainedRecipes)
@@ -364,7 +364,13 @@ internal class GitHubResultViews(
                 executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
             )
         }
-        return AgentToolResult(callId, ToolResultContent.Json(page), entry.originalError, errorCode = entry.originalErrorCode, sharedResult = true, dispatched = false)
+        return AgentToolResult(callId, ToolResultContent.Json(page), entry.originalError, errorCode = entry.originalErrorCode, sharedResult = true, dispatched = false, executionReceipt = sourceIdentity(entry))
+    }
+
+    /** A fragment links to its original observation; opening it cannot refresh that observation. */
+    private fun sourceIdentity(entry: Entry): JsonObject = buildJsonObject {
+        entry.sourceSha256?.let { put("saved_view_source_sha256", it) }
+        entry.sourceCallId?.let { put("saved_view_source_call_id", it) }
     }
 
     /** Durable bodies and issued handles are stored separately to avoid rewriting source on every page. */
@@ -383,6 +389,7 @@ internal class GitHubResultViews(
             put("model_name", entry.modelName)
             put("fragments", JsonArray(entry.fragments))
             entry.sourceSha256?.let { put("source_sha256", it) }
+            entry.sourceCallId?.let { put("source_call_id", it) }
             entry.compressedSource?.let {
                 put("source_gzip_base64", Base64.getEncoder().encodeToString(it))
                 put("source_characters", entry.sourceCharacters)
@@ -422,7 +429,9 @@ internal class GitHubResultViews(
         if (encoded != null && compressed == null || fragments.isEmpty() && compressed == null || fragments.size != (snapshot["fragments"] as JsonArray).size) return false
         val sourceCharacters = (snapshot["source_characters"] as? JsonPrimitive)?.intOrNull ?: 0
         val sourceHash = text("source_sha256")
+        val sourceCallId = text("source_call_id")
         if (sourceHash != null && !sourceHash.matches(Regex("[a-f0-9]{64}"))) return false
+        if (sourceCallId != null && (sourceCallId.isBlank() || sourceCallId.length > 512)) return false
         if (compressed != null && (fragments.isNotEmpty() || sourceCharacters !in 1..MAX_SERIALIZED_SOURCE_BYTES || sourceHash?.matches(Regex("[a-f0-9]{64}")) != true)) return false
         if (compressed != null && runCatching { decodeSource(compressed, sourceCharacters, requireNotNull(sourceHash)) }.isFailure) return false
         val pageSize = (snapshot["page_bytes"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 2048..pageBytes } ?: return false
@@ -438,7 +447,7 @@ internal class GitHubResultViews(
         while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + size > capacityBytes)) evict(entries.keys.first())
         val entry = Entry(
             scope, operation, modelName, fragments, metadata, continuations, now() + 10 * 60_000, size.toInt(),
-            originalError, text("original_error_code"), pageSize, context, recovery, issued.toMutableSet(), failed.toMutableSet(), compressed, sourceCharacters, sourceHash
+            originalError, text("original_error_code"), pageSize, context, recovery, issued.toMutableSet(), failed.toMutableSet(), compressed, sourceCharacters, sourceHash, sourceCallId
         )
         entries[id] = entry
         retainedBytes += entry.bytes
@@ -492,6 +501,7 @@ internal class GitHubResultViews(
             put("metadata", if (compact) JsonObject(emptyMap()) else metadata)
             put("fragments", JsonArray(records))
             put("fragment_offset", offset)
+            put("fragment_end", next)
             put("total_fragments", entry.fragmentCount)
             put(
                 "reconstruction",
@@ -523,16 +533,19 @@ internal class GitHubResultViews(
             }
         }
         while (next < entry.fragmentCount) {
-            records += if (source == null) entry.fragments[next] else sourceFragment(source, next)
+            val fragment = if (source == null) entry.fragments[next] else sourceFragment(source, next)
+            val previous = records.lastOrNull()
+            val combined = GitHubSavedFragments.combine(previous, fragment)
+            if (combined == null) records += fragment else records[records.lastIndex] = combined
             next++
             if (envelope().toString().toByteArray().size > pageBytes) {
                 // Retry a blocked first record without optional metadata and alternate handles.
                 // The primary cursor and any final remote continuations stay exact.
-                if (records.size == 1 && !compact) {
+                if (next == offset + 1 && !compact) {
                     compact = true
                     if (envelope().toString().toByteArray().size <= pageBytes) continue
                 }
-                records.removeAt(records.lastIndex)
+                if (combined == null) records.removeAt(records.lastIndex) else records[records.lastIndex] = requireNotNull(previous)
                 next--
                 break
             }
@@ -709,7 +722,7 @@ internal class GitHubResultViews(
         val entry = Entry(
             scope, operation, modelName, emptyList(), metadata, continuations, now() + 10 * 60_000, cost.toInt(),
             upstream.isError, upstream.errorCode, pageBytes, context, recovery,
-            compressedSource = compressed, sourceCharacters = source.length, sourceSha256 = GitHubRepositoryStateStore.digest(source)
+            compressedSource = compressed, sourceCharacters = source.length, sourceSha256 = GitHubRepositoryStateStore.digest(source), sourceCallId = upstream.callId
         )
         val summary = if (display == value) {
             null
@@ -735,7 +748,7 @@ internal class GitHubResultViews(
             content = ToolResultContent.Json(first),
             retainedContent = upstream.retainedContent ?: upstream.content,
             executionReceipt = JsonObject(
-                upstream.executionReceipt.orEmpty() + buildJsonObject {
+                upstream.executionReceipt.orEmpty() + sourceIdentity(entry) + buildJsonObject {
                     put("retained_original_complete", true)
                     put("retained_remote_continuations", JsonArray(continuations))
                     put("saved_result_encoding", "GZIP_JSON_UTF8")

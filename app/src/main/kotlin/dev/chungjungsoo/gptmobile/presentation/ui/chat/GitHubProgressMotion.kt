@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
@@ -29,6 +30,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectPressure
+import kotlinx.coroutines.flow.collect
 
 internal const val GITHUB_PROGRESS_PAN_MILLIS = 1800
 internal const val GITHUB_ACTIVITY_FADE_MILLIS = 1000
@@ -44,28 +46,37 @@ internal fun rememberGitHubActivePreviewTransition(text: String, active: Boolean
     val animationsEnabled = rememberGitHubActivityAnimationsEnabled()
     val enabled = active && animate && animationsEnabled
     val displayedText = remember { mutableStateOf(text) }
+    val latestText by rememberUpdatedState(text)
     val hasBeenActive = remember { mutableStateOf(false) }
     val opacity = remember { Animatable(if (enabled) 0f else 1f) }
-    LaunchedEffect(text, active, animate, animationsEnabled) {
+    LaunchedEffect(active, animate, animationsEnabled) {
         if (!active) {
             // Finalize the last active update before this row becomes history.
-            displayedText.value = text
+            displayedText.value = latestText
             opacity.snapTo(1f)
             hasBeenActive.value = false
         } else if (!enabled) {
-            displayedText.value = text
+            displayedText.value = latestText
             opacity.snapTo(1f)
             hasBeenActive.value = true
-        } else if (!hasBeenActive.value) {
-            displayedText.value = text
-            opacity.snapTo(0f)
-            hasBeenActive.value = true
-            opacity.animateTo(1f, tween(GITHUB_ACTIVE_PREVIEW_ENTRY_FADE_MILLIS, easing = LinearEasing))
-        } else if (displayedText.value != text) {
-            val halfRefresh = GITHUB_ACTIVE_PREVIEW_REFRESH_FADE_MILLIS / 2
-            opacity.animateTo(0f, tween(halfRefresh, easing = LinearEasing))
-            displayedText.value = text
-            opacity.animateTo(1f, tween(halfRefresh, easing = LinearEasing))
+        } else {
+            if (!hasBeenActive.value) {
+                displayedText.value = latestText
+                opacity.snapTo(0f)
+                hasBeenActive.value = true
+                opacity.animateTo(1f, tween(GITHUB_ACTIVE_PREVIEW_ENTRY_FADE_MILLIS, easing = LinearEasing))
+            }
+            // Finish each fade even when receipts arrive faster than the animation.
+            // snapshotFlow coalesces updates while collect is suspended; the midpoint
+            // takes the latest text instead of queueing every intermediate heartbeat.
+            snapshotFlow { latestText }.collect { incoming ->
+                if (displayedText.value != incoming) {
+                    val halfRefresh = GITHUB_ACTIVE_PREVIEW_REFRESH_FADE_MILLIS / 2
+                    opacity.animateTo(0f, tween(halfRefresh, easing = LinearEasing))
+                    displayedText.value = latestText
+                    opacity.animateTo(1f, tween(halfRefresh, easing = LinearEasing))
+                }
+            }
         }
     }
     return if (enabled) {

@@ -279,6 +279,57 @@ class GitHubLiveProgressTest {
         assertEquals(1f, transition.opacity.value, 0.01f)
     }
 
+    @Test fun rapidPreviewUpdatesFinishTheEntryAndCoalesceAtTheRefreshMidpoint() {
+        compose.mainClock.autoAdvance = false
+        var text by mutableStateOf("Reading the first file")
+        lateinit var transition: GitHubActivePreviewTransition
+        compose.setContent { MaterialTheme { transition = rememberGitHubActivePreviewTransition(text, true) } }
+        val clock = compose.mainClock
+        clock.advanceTimeByFrame()
+        repeat(4) { index ->
+            clock.advanceTimeBy(192)
+            compose.runOnIdle { text = "Reading file ${index + 2}" }
+        }
+        clock.advanceTimeBy(160)
+        assertEquals("Reading the first file", transition.text.value)
+        assertTrue("New receipts cannot restart the entry fade", transition.opacity.value > 0.85f)
+        clock.advanceTimeBy(800)
+        assertEquals(text, transition.text.value)
+        assertEquals(1f, transition.opacity.value, 0.01f)
+
+        compose.runOnIdle { text = "Checking one result" }
+        clock.advanceTimeBy(112)
+        compose.runOnIdle { text = "Checking two results" }
+        clock.advanceTimeBy(112)
+        compose.runOnIdle { text = "Checking the newest result" }
+        clock.advanceTimeBy(96)
+        assertEquals("Checking the newest result", transition.text.value)
+        clock.advanceTimeBy(240)
+        assertEquals("The refresh must finish despite newer text", 1f, transition.opacity.value, 0.01f)
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun expandedPreviewStaysOpenAsTheSameActivityUpdates() {
+        var text by mutableStateOf("Inspecting the retained source and its validation evidence. ".repeat(8))
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.width(320.dp).verticalScroll(rememberScrollState())) {
+                    GitHubActivityPreview(text, true, remember { mutableFloatStateOf(0.5f) }, animateEntry = false, lineIdentity = "source-read")
+                }
+            }
+        }
+        compose.onNodeWithTag("github_preview_details").performClick()
+        compose.runOnIdle { text += "The next result is still pending." }
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithTag("github_latest_preview").assertTextEquals(text)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(Int.MAX_VALUE, layouts.single().layoutInput.maxLines)
+        assertEquals("Expanded", compose.onNodeWithTag("github_preview_details").fetchSemanticsNode().config[SemanticsProperties.StateDescription])
+        compose.onNodeWithTag("github_preview_details").performClick()
+        assertEquals("Collapsed", compose.onNodeWithTag("github_preview_details").fetchSemanticsNode().config[SemanticsProperties.StateDescription])
+    }
+
     @Test fun detailedSummariesRemainCompleteInCompactActivity() {
         val summary = "I verified the files changed by this request.\n".repeat(8) + "The remaining check is still running."
         compose.setContent { MaterialTheme { GitHubLiveProgressCard(listOf(line(summary, true).copy(modelAuthored = true)), expanded = false) } }

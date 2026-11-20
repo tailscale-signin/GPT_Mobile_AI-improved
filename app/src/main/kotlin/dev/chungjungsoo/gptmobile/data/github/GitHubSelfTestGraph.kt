@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Revision-bound graph preparation. Index calls retain the repository's durable checkpoint gate. */
@@ -16,8 +17,11 @@ internal object GitHubSelfTestGraph {
     private data class Evidence(val sha: String, val observations: List<JsonObject>, val graph: List<JsonObject>) {
         val preparation = graph.lastOrNull { it.action() in setOf("status", "index") }
         val state = preparation?.takeIf { it["success"] == JsonPrimitive(true) }?.let(GitHubInventoryObservation::planningRoot)
-        val indexed = state?.get("has_more") == JsonPrimitive(false)
+        val job = state?.get("index_job") as? JsonObject
+        val indexed = state?.get("has_more") == JsonPrimitive(false) && (job == null || job.text("state") == "COMPLETED")
     }
+
+    private val pendingJobStates = setOf("QUEUED", "RUNNING", "PAUSED", "INTERRUPTED")
 
     private fun evidence(receipts: List<JsonObject>): Evidence? {
         val trusted = receipts.filter {
@@ -61,6 +65,23 @@ internal object GitHubSelfTestGraph {
         return ProviderEvent.ToolCall(id, tool.name, args)
     }
 
+    /** Acknowledged jobs keep running on the host. Each request observes them once without re-indexing. */
+    fun statusForSavedIndex(tools: List<AgentToolDefinition>, receipts: List<JsonObject>, requestKey: String): ProviderEvent.ToolCall? {
+        val evidence = evidence(receipts) ?: return null
+        val observed = evidence.graph.lastOrNull { it["success"] == JsonPrimitive(true) && it.action() in setOf("status", "index") } ?: return null
+        val job = GitHubInventoryObservation.planningRoot(observed)?.get("index_job") as? JsonObject ?: return null
+        val needsSnapshot = observed.action() == "index" && job.text("state") == "COMPLETED" && evidence.state?.get("has_more") != JsonPrimitive(false)
+        if ((job.text("state") !in pendingJobStates && !needsSnapshot) || job.text("id").isBlank()) return null
+        val generation = (job["generation"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it > 0 } ?: return null
+        val args = buildJsonObject { put("action", "status") }
+        val tool = tools.singleOrNull {
+            it.modelVisible && it.name == observed.text("tool") && ToolArgumentValidator.errors(args, it.inputSchema).isEmpty()
+        } ?: return null
+        val id = "graph-job-status-" + GitHubEvidenceBook.digest("${observed.text("binding")}:${evidence.sha}:${tool.name}:${job.text("id")}:$generation:$requestKey").take(24)
+        if (receipts.any { it["call_id"] == JsonPrimitive(id) }) return null
+        return ProviderEvent.ToolCall(id, tool.name, args)
+    }
+
     fun available(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): List<ProviderEvent.ToolCall> {
         val evidence = evidence(receipts) ?: return emptyList()
         // A failed index can have changed remote state. Only an independently
@@ -75,6 +96,9 @@ internal object GitHubSelfTestGraph {
         }
         val state = evidence.state ?: return emptyList()
         if (evidence.preparation?.get("success") != JsonPrimitive(true)) return emptyList()
+        // An accepted background job owns its cursor. A status read, not another
+        // index mutation, observes progress; stopped jobs require explicit action.
+        if (evidence.job != null && !evidence.indexed) return emptyList()
         val recipes = buildList {
             fun recipe(action: String, vararg fields: Pair<String, JsonElement>) = add(
                 buildJsonObject {
@@ -182,10 +206,26 @@ internal object GitHubSelfTestGraph {
         }
     }
 
-    fun incomplete(action: String, receipt: JsonObject): Boolean {
+    fun incomplete(action: String, receipt: JsonObject): Boolean = incomplete(action, receipt, emptyList())
+
+    fun incomplete(action: String, receipt: JsonObject, receipts: List<JsonObject>): Boolean {
         if (action == "status" || receipt["success"] != JsonPrimitive(true)) return false
         val root = GitHubInventoryObservation.planningRoot(receipt) ?: return false
-        return root.text("status") == "NOT_INDEXED" || action == "index" && root["has_more"] != JsonPrimitive(false)
+        val job = root["index_job"] as? JsonObject
+        val incomplete = root.text("status") == "NOT_INDEXED" ||
+            action == "index" &&
+            (root["has_more"] != JsonPrimitive(false) || job != null && job.text("state") != "COMPLETED")
+        if (!incomplete || action != "index" || job == null || job.text("id").isBlank()) return incomplete
+        val generation = (job["generation"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it > 0 } ?: return true
+        val graph = evidence(receipts)?.graph ?: return true
+        val original = graph.indexOf(receipt).takeIf { it >= 0 } ?: return true
+        val observed = graph.drop(original + 1).lastOrNull { it.action() == "status" && it["success"] == JsonPrimitive(true) }
+            ?.let(GitHubInventoryObservation::planningRoot) ?: return true
+        val completed = observed["index_job"] as? JsonObject ?: return true
+        return completed["id"] != job["id"] ||
+            completed["generation"] != JsonPrimitive(generation) ||
+            completed["state"] != JsonPrimitive("COMPLETED") ||
+            observed["has_more"] != JsonPrimitive(false)
     }
 
     /** A selected repository is already known; distinguish graph preparation from missing source selectors. */
@@ -194,6 +234,7 @@ internal object GitHubSelfTestGraph {
         val evidence = evidence(receipts) ?: return GitHubCriterionBlocker.REPOSITORY_INPUT_REQUIRED
         if (evidence.preparation == null) return GitHubCriterionBlocker.GRAPH_INDEX_REQUIRED
         if (evidence.preparation["success"] != JsonPrimitive(true)) return GitHubCriterionBlocker.GRAPH_INDEX_UNCONFIRMED
+        if (evidence.job != null && !evidence.indexed) return GitHubCriterionBlocker.CONTINUATION_REQUIRED
         if (evidence.state?.text("status") == "NOT_INDEXED") {
             return if (evidence.graph.any { it.action() == "index" }) GitHubCriterionBlocker.GRAPH_INDEX_UNCONFIRMED else GitHubCriterionBlocker.GRAPH_INDEX_REQUIRED
         }
@@ -206,6 +247,9 @@ internal object GitHubSelfTestGraph {
         if (action == "status") return listOf("Authorized graph status for the selected repository, branch and immutable revision")
         if (evidence.preparation == null) return listOf("Successful repository_graph status for the selected revision before preparing its index")
         if (evidence.preparation["success"] != JsonPrimitive(true)) return listOf("Resolve the recorded graph admission or transport failure; reconcile an uncertain index with status on the same gateway before continuing")
+        if (evidence.job != null && !evidence.indexed) {
+            return listOf("Observe the saved indexing job on the same gateway and revision; let active work finish, or explicitly resume a paused job. Do not send another index batch while that job owns the cursor.")
+        }
         if (evidence.state?.text("status") == "NOT_INDEXED") {
             return if (evidence.graph.any { it.action() == "index" }) {
                 listOf("The index attempt is unconfirmed and status has not proved progress; reconcile the retained checkpoint on the original gateway before retrying")

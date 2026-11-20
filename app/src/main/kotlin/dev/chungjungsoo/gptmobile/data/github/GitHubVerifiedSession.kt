@@ -211,6 +211,19 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         if (recoverGraphIndex(tools)) return@flow
+        if (GitHubTestChecklist.integration(task)) {
+            val receipts = evidence.snapshot().first
+            val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls())
+            if (remaining == null || remaining > GitHubChecklistBudget.cleanupReserve(receipts)) {
+                GitHubSelfTestGraph.statusForSavedIndex(tools, receipts.values.toList(), resumeRequestKey)?.let { call ->
+                    validatePublication()
+                    progress("Checking the saved repository indexing job; independent checks can continue")
+                    emit(call)
+                    emit(ProviderEvent.Completed)
+                    return@flow
+                }
+            }
+        }
         refreshDraft?.let { draft ->
             refreshDraft = null
             emitAll(publish(draft, GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION, continuationTools = tools, continuationExchanges = exchanges))
@@ -339,6 +352,19 @@ internal class GitHubVerifiedSession(
                 emit(next.copy(callId = next.callId + "-${receipts.size}"))
                 emit(ProviderEvent.Completed)
                 return@flow
+            }
+            // The host may have finished while the independent audit ran. One
+            // final read can unlock its source queries before saving a partial
+            // report, without polling continuously or repeating the index write.
+            val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls())
+            if (remaining == null || remaining > GitHubChecklistBudget.cleanupReserve(receipts)) {
+                GitHubSelfTestGraph.statusForSavedIndex(tools, receipts.values.toList(), "$resumeRequestKey:after-independent-reads")?.let { call ->
+                    validatePublication()
+                    progress("Checking whether saved indexing finished during the GitHub audit")
+                    emit(call)
+                    emit(ProviderEvent.Completed)
+                    return@flow
+                }
             }
             // Coverage fields come exclusively from the cumulative ledger. No model draft
             // or answer rewrite can supply missing executions or unlock a blocked dependency.
@@ -560,6 +586,23 @@ internal class GitHubVerifiedSession(
             emit(call)
             emit(ProviderEvent.Completed)
         } else {
+            // The earlier graph write remains unconfirmed, but native reads do
+            // not share its index state. Continue the authorized audit after its
+            // one bounded reconciliation read; retain the original obligation.
+            // A fixture mutation or another graph operation cannot use this path.
+            if (GitHubTestChecklist.integration(task) && (remaining == null || remaining > cleanup)) {
+                val independent = withContext(computationDispatcher) {
+                    GitHubTestChecklist.nextIndependentRead(task, tools, receipts, remainingToolCalls())
+                        ?.takeIf { "view_cursor" in it.arguments || (GitHubTransportRecovery.retryNotBefore(receipts.values) ?: 0L) <= now() }
+                }
+                if (independent != null) {
+                    validatePublication()
+                    progress("Continuing independent GitHub reads while the saved graph outcome remains unconfirmed")
+                    emit(independent.copy(callId = independent.callId + "-${receipts.size}"))
+                    emit(ProviderEvent.Completed)
+                    return true
+                }
+            }
             emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.INTEGRATION_CHECKPOINT))
         }
         return true

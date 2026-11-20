@@ -32,7 +32,9 @@ class GitHubResultViewsStressTest {
             assertEquals(offset, page.getValue("fragment_offset").jsonPrimitive.int)
             val records = page.getValue("fragments").jsonArray
             assertTrue(records.isNotEmpty())
-            offset += records.size
+            val end = page.getValue("fragment_end").jsonPrimitive.int
+            assertTrue(end > offset)
+            offset = end
             if (page.getValue("local_page_complete").jsonPrimitive.boolean) {
                 assertEquals(page.getValue("total_fragments").jsonPrimitive.int, offset)
                 return

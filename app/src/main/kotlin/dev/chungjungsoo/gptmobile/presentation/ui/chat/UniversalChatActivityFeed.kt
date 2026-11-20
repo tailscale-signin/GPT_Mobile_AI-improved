@@ -36,9 +36,12 @@ import kotlinx.coroutines.delay
 internal fun universalCoalescedActivityLines(lines: List<String>): List<String> {
     val current = linkedMapOf<String, String>()
     lines.forEach { line ->
-        val counter = GitHubProgressPresentation.liveKey(line)
+        // A multiline public finding may start with a repeated heartbeat or
+        // counter, but its following observations remain independent evidence.
+        val singleLine = '\n' !in line.trim() && '\r' !in line.trim()
+        val counter = if (singleLine) GitHubProgressPresentation.liveKey(line) else null
         val identity = counter?.let { "counter:$it" }
-            ?: GitHubProgressPresentation.semanticActivityKey(line)?.let { "story:$it" }
+            ?: line.takeIf { singleLine }?.let(GitHubProgressPresentation::semanticActivityKey)?.let { "story:$it" }
             ?: "text:${GitHubProgressPresentation.lineKey(line)}"
         if (counter != null) {
             // Move the latest measured count into its actual activation order.
@@ -74,8 +77,9 @@ internal fun publicCheckpointLine(item: AssistantTimelineItem): String? {
         item.recalledFacts.isEmpty() &&
         !isContextDiagnostic(item.content)
     if (!visible) return null
-    return item.content.lineSequence().map { it.trim().trimStart('#', '*', '-', ' ') }
-        .firstOrNull(String::isNotBlank)?.take(280)
+    // The preview owns visual line limits and expansion. Keep every public finding
+    // here so a shared headline cannot erase distinct bodies or their final caveat.
+    return item.content.trim()
 }
 
 /** A request-specific opening without pretending a tool or source has been executed. */

@@ -81,14 +81,38 @@ class UniversalChatActivityFeedTest {
         assertEquals("Reviewing cited sources", generationActivityLabel(emptyList(), listOf(writing, visible)))
     }
 
-    @Test fun richSummaryKeepsOnlyItsFirstPublicHeadline() {
+    @Test fun richSummaryKeepsItsCompletePublicBodyForExpansion() {
         val summary = AssistantTimelineItem(
             AssistantTimelineItemType.NOTICE,
             "### Research findings\n- Three sources were checked",
             progressCheckpoint = true,
             statusSummary = true
         )
-        assertEquals(listOf("Research findings"), universalChatPublicCheckpoints(listOf(summary)))
+        assertEquals(listOf(summary.content), universalChatPublicCheckpoints(listOf(summary)))
+    }
+
+    @Test fun sharedHeadlinesDoNotDiscardDifferentFindingsOrTruncateTheRemainingWork() {
+        fun summary(body: String) = AssistantTimelineItem(
+            AssistantTimelineItemType.NOTICE,
+            "Research findings\n$body",
+            progressCheckpoint = true,
+            statusSummary = true
+        )
+        val first = summary("The sources describe the measured result. ".repeat(12) + "Device validation remains pending.")
+        val second = summary("The comparison uses a different revision. The earlier result still applies only to its recorded source.")
+        assertEquals(listOf(first.content, second.content), universalChatPublicCheckpoints(listOf(first, second)))
+    }
+
+    @Test fun heartbeatAndCounterHeadlinesCannotCoalesceDistinctMultilineFindings() {
+        val lines = listOf(
+            "Tracing recent repository commits\nThe first source changed the read policy.",
+            "Tracing recent repository commits\nThe next source changed the resume action.",
+            "Checks: 1/9\nThe unit tests passed; the build is still running.",
+            "Checks: 1/9\nThe build failed while packaging the universal APK."
+        )
+        assertEquals(lines, universalCoalescedActivityLines(lines))
+        val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, lines.first(), progressCheckpoint = true, statusSummary = true)
+        assertEquals("Tracing recent repository commits", generationActivityLabel(emptyList(), listOf(item)))
     }
 
     @Test fun receiptChartNeedsThreeRealToolCallsAndNeverParsesResultText() {

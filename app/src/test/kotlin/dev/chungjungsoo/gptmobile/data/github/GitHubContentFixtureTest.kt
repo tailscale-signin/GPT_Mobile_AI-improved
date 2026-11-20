@@ -465,6 +465,21 @@ class GitHubContentFixtureTest {
         }
     }
 
+    @Test fun independentReadSelectionDoesNotLetDeferredFixtureCleanupHideRepositoryReads() {
+        val records = completed().also { it.remove(it.keys.last()) }
+        val definitions = tools.map { definition ->
+            if (definition.name == "github_context") tool("github_context", "status", "changes", "branch", "branch_dependencies", "recovery", "repository") else definition
+        }
+        val task = "Test all GitHub tools with writes"
+        val ordinary = requireNotNull(GitHubTestChecklist.nextCall(task, definitions, records, 100))
+        assertEquals(JsonPrimitive("delete_fixture_branch"), ordinary.arguments["action"])
+        val read = requireNotNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 100))
+        assertEquals("github_context", read.name)
+        assertEquals(JsonPrimitive("repository"), read.arguments["action"])
+        assertFalse(GitHubSelfTestFixtures.complete(records))
+        assertNull(GitHubTestChecklist.nextIndependentRead(task, definitions, records, 0))
+    }
+
     @Test fun requiredLiveExistenceReadRunsBeforeCleanupAndIsRetiredAfterVerifiedAbsence() {
         val records = completed().also { it.remove(it.keys.last()) }
         val cachedCall = ProviderEvent.ToolCall(

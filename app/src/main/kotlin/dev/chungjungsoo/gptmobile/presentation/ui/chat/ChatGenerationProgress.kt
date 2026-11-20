@@ -136,7 +136,7 @@ internal fun generationActivityLabel(toolEvents: List<ToolEvent>, timeline: List
         when (item.type) {
             AssistantTimelineItemType.TEXT -> "Writing"
             AssistantTimelineItemType.THINKING -> "Thinking"
-            else -> publicCheckpointLine(item)
+            else -> publicCheckpointLine(item)?.lineSequence()?.firstOrNull()?.trim()
         }
     } ?: "Preparing response"
 }

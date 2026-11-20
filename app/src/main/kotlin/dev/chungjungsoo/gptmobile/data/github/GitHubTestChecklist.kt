@@ -353,6 +353,20 @@ internal object GitHubTestChecklist {
         return null
     }
 
+    /** Unknown graph writes cannot prevent unrelated reads or authorize fixture cleanup. */
+    fun nextIndependentRead(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, remainingToolCalls: Int? = null): ProviderEvent.ToolCall? {
+        if (!integration(task)) return null
+        val nativeTools = tools.filter { it.name.githubOperationFamily() != "repository_graph" }
+        fun read(call: ProviderEvent.ToolCall) = dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments)
+        nextCall(task, nativeTools, receipts, remainingToolCalls)?.takeIf(::read)?.let { return it }
+        if (!GitHubChecklistBudget.acquisitionAllowed(receipts, remainingToolCalls)) return null
+        // The general plan may prioritize a fixture mutation. Choose among the
+        // remaining reads instead of rejecting that first plan and stopping all
+        // acquisition; the deferred cleanup remains a separate obligation.
+        GitHubSelfTestReads.available(nativeTools, trusted(receipts)).firstOrNull(::read)?.let { return it }
+        return continuation(task, nativeTools, receipts, localOnly = false)?.takeIf(::read)
+    }
+
     fun nextCall(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, remainingToolCalls: Int? = null, fixturePreflight: JsonObject? = null): ProviderEvent.ToolCall? {
         if (!integration(task) || tools.isEmpty()) return null
         val observations = trusted(receipts)
@@ -579,7 +593,7 @@ internal object GitHubTestChecklist {
                     successes.any { GitHubEvidenceOrigin.of(it) == "MOCKED" } -> "MOCKED"
                     else -> "NOT_TESTED"
                 }
-                val graphIncomplete = capability.tool == "repository_graph" && latest?.let { GitHubSelfTestGraph.incomplete(capability.action, it) } == true
+                val graphIncomplete = capability.tool == "repository_graph" && latest?.let { GitHubSelfTestGraph.incomplete(capability.action, it, allTrusted) } == true
                 val incomplete = graphIncomplete || latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS")
                 val excluded = capability.tool == "github_context" && capability.action == "repositories"
                 val unsupportedFixture = !readOnly(capability) && !GitHubSelfTestFixtures.supports(capability.tool, capability.action)

@@ -21,10 +21,10 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         val forceLive = kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
         if (immutable && !forceLive) {
-            cache.getDecodedBlob(cacheKey)?.let {
-                GitHubDispatchAccounting.cached(0L, immutable = true)
+            cache.getDecodedBlobObservation(cacheKey)?.let {
+                GitHubDispatchAccounting.cached(it.storedAtMillis, immutable = true)
                 scheduler.recordCacheHit()
-                return Log(it, it.encodeToByteArray().size, true)
+                return Log(it.content, it.content.encodeToByteArray().size, true)
             }
         }
         return scheduler.execute(if (immutable) cacheKey else null, priority = requestPriority) {

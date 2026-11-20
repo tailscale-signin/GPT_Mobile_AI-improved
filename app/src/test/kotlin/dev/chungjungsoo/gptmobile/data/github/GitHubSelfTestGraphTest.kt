@@ -34,6 +34,57 @@ class GitHubSelfTestGraphTest {
         assertTrue(GitHubSelfTestGraph.statusForPendingIndex(pending, listOf(tool), completed, "continue-2") != null)
     }
 
+    @Test fun savedJobsObserveOncePerRequestAndNeverLaunchCompetingCursorBatches() {
+        fun saved(action: String, state: String, complete: Boolean = false) = graph(
+            action,
+            """"has_more":${!complete},"index_cursor":"owned-by-job","index_job":{"id":"saved-job","generation":1,"state":"$state"}"""
+        )
+        val queued = saved("index", "QUEUED")
+        val receipts = listOf(status(), missing(), queued)
+        assertTrue(GitHubSelfTestGraph.available(listOf(tool), receipts).isEmpty())
+        val first = requireNotNull(GitHubSelfTestGraph.statusForSavedIndex(listOf(tool), receipts, "request-1"))
+        assertEquals(json("""{"action":"status"}"""), first.arguments)
+        val running = JsonObject(saved("status", "RUNNING") + ("call_id" to JsonPrimitive(first.callId)))
+        val observed = receipts + running
+        assertNull(GitHubSelfTestGraph.statusForSavedIndex(listOf(tool), observed, "request-1"))
+        assertTrue(GitHubSelfTestGraph.statusForSavedIndex(listOf(tool), observed, "request-2") != null)
+        assertNull(GitHubSelfTestGraph.statusForSavedIndex(emptyList(), observed, "request-2"))
+        assertTrue(GitHubSelfTestGraph.available(listOf(tool), observed).isEmpty())
+        assertEquals(GitHubCriterionBlocker.CONTINUATION_REQUIRED, GitHubSelfTestGraph.blocker("query", observed))
+        assertTrue(GitHubSelfTestGraph.requiredInputs("index", observed).single().contains("saved indexing job"))
+        val completed = observed + saved("status", "COMPLETED", complete = true)
+        assertNull(GitHubSelfTestGraph.statusForSavedIndex(listOf(tool), completed, "request-2"))
+        assertEquals(JsonPrimitive("architecture"), GitHubSelfTestGraph.available(listOf(tool), completed).first().arguments["action"])
+        assertTrue(GitHubSelfTestGraph.incomplete("index", queued, observed))
+        assertFalse(GitHubSelfTestGraph.incomplete("index", queued, completed))
+        for (mismatch in listOf(
+            graph("status", """"has_more":false,"index_job":{"id":"other-job","generation":1,"state":"COMPLETED"}"""),
+            graph("status", """"has_more":false,"index_job":{"id":"saved-job","generation":2,"state":"COMPLETED"}"""),
+            graph("status", """"has_more":false,"index_job":{"id":"saved-job","generation":1,"state":"RUNNING"}"""),
+            graph("status", """"has_more":false,"index_job":{"id":"saved-job","generation":1,"state":"FAILED"}"""),
+            graph("status", """"has_more":false,"index_job":{"id":"saved-job","generation":1,"state":"CANCELLED"}"""),
+            graph("status", """"has_more":false,"index_job":{"id":"saved-job","generation":1,"state":"UNKNOWN"}"""),
+            graph("status", """"has_more":false,"index_job":{"id":"saved-job","generation":1,"state":"COMPLETED"}""", head = "b".repeat(40))
+        )) {
+            assertTrue(GitHubSelfTestGraph.incomplete("index", queued, observed + mismatch))
+        }
+    }
+
+    @Test fun completedJobAcknowledgementGetsItsSnapshotAndForeignJobStateCannotBePolled() {
+        val acknowledgement = graph("index", """"index_job":{"id":"saved-job","generation":1,"state":"COMPLETED"}""")
+        assertTrue(GitHubSelfTestGraph.statusForSavedIndex(listOf(tool), listOf(status(), acknowledgement), "request") != null)
+        val queued = graph("index", """"index_job":{"id":"saved-job","generation":1,"state":"QUEUED"}""")
+        for (foreign in listOf(
+            JsonObject(queued + ("binding" to JsonPrimitive("other-task"))),
+            JsonObject(queued + ("trusted" to JsonPrimitive(false))),
+            JsonObject(queued + ("verification_eligible" to JsonPrimitive(false))),
+            JsonObject(queued + ("repository_role" to JsonPrimitive("READ_SOURCE"))),
+            graph("index", """"index_job":{"id":"saved-job","generation":1,"state":"QUEUED"}""", head = "b".repeat(40))
+        )) {
+            assertNull(GitHubSelfTestGraph.statusForSavedIndex(listOf(tool), listOf(status(), foreign), "request"))
+        }
+    }
+
     @Test fun missingGraphPreparesIndexAndEveryConfirmedBatchUsesItsExactCursor() {
         assertTrue(calls().isEmpty())
         assertEquals(json("""{"action":"index"}"""), calls(missing()).single().arguments)

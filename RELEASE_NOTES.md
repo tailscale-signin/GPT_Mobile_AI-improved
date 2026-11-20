@@ -1,5 +1,7 @@
 # GPT Mobile 0.9.66.9 (build 143) and Windows Gateway 18.0.0
 
+Repository indexing now uses saved background jobs on capable Gateways, and independent GitHub reads can continue while an index is being reconciled. Reviewed read deadlines remain recoverable without treating them as uncertain writes. Saved source pages preserve original observation identity and timestamps, combine adjacent text fragments to reduce model round trips, and retain every source character. Chat progress keeps complete public summaries and expanded details; rapid preview changes finish their fade before showing the newest update.
+
 Windows Setup uses the Gateway workspace theme for connection, update, and advanced settings. The desktop and paired Android controls show the installed version, available version and update progress. Paired owners with update permission can check for stable releases and select a version to install when idle.
 
 Installed v17 updaters first select the 17.0.2 transition release. Once it restarts, check again for v18 or let automatic updates continue. The Windows release workflow builds both packages and exercises the transition using the packaged v18 ZIP.

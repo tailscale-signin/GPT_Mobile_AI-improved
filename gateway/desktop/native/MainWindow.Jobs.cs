@@ -20,7 +20,16 @@ public partial class MainWindow
         public string Title => Data.Text("title", Id);
         public string Kind => Data.Text("job_kind");
         public string State => Data.Text("state");
-        public string Stage => Data.Text("phase", State).Replace('_',' ');
+        public string Stage
+        {
+            get
+            {
+                string phase=Data.Text("phase",State).Replace('_',' ');
+                var batch=Data.Object("batch_progress");
+                return batch.Number("completed") is double done && batch.Number("total") is double total
+                    && total>0 && done>=0 && done<=total ? $"{phase} · {done:N0}/{total:N0}" : phase;
+            }
+        }
         public string Repository => string.Join(" · ", new[] {Data.Text("repository",""),Data.Text("branch","")}.Where(s => s.Length > 0));
         public string Model => Data.Text("profile_name",Data.Text("model","—"));
         public string Next => Data.Text("recovery_action",Data.Text("queue_reason", State switch {
@@ -50,6 +59,14 @@ public partial class MainWindow
     private Action? updateJobFooter, updateInspector;
     private TextBlock? catalogNote;
     private readonly HashSet<string> pins = [];
+    private readonly Dictionary<string,(string Id,double Horizontal)> tablePositions=[];
+    private string TablePositionKey(string tab)=>tab+"|"+jobsFilter+"|"+jobsQuery;
+    private void RememberJobsPosition(string tab)
+    {
+        if (jobsTable is null || !jobsTable.IsVisible) return;
+        if (FullyVisibleRows(jobsTable).FirstOrDefault()?.Item is JobRow first)
+            tablePositions[TablePositionKey(tab)]=(first.Id,Ui.Descendants<ScrollViewer>(jobsTable).FirstOrDefault()?.HorizontalOffset??0);
+    }
     private static readonly string[] JobStates = ["All","running","queued","needs_attention","completed","failed","cancelled","Pinned","Host receipts"];
 
     private async Task RefreshCatalog()
@@ -278,6 +295,7 @@ public partial class MainWindow
             }));
             cancel.IsEnabled=selectedJobs.Any(id=>knownJobs.TryGetValue(id,out var j) && j.Allows("cancel")&&!j.Data.Flag("cancellation_requested"));
             inspector.Children.Add(cancel);
+            inspector.Children.Add(Ui.Button("Full debug export",()=>OpenReports(row.Id)));
             if(row.Data["conversation_id"] is JsonValue cv) inspector.Children.Add(Ui.Button("Open conversation",()=>Run(()=>OpenConversation(cv.ToString()))));
             if(row.Allows("approve")) inspector.Children.Add(Ui.Button("Review merge",()=>Run(()=>ReviewEngineering(row)),true));
         }
@@ -290,7 +308,15 @@ public partial class MainWindow
         };
         void Refilter(){syncingSelection=true;try{view.Refresh();foreach(JobRow j in view)if(selectedJobs.Contains(j.Id)&&!table.SelectedItems.Contains(j)) table.SelectedItems.Add(j);}finally{syncingSelection=false;}Footer();}
         query.TextChanged+=(_,_)=>{jobsQuery=query.Text.Trim();Refilter();}; filter.SelectionChanged+=(_,_)=>{jobsFilter=filter.SelectedItem?.ToString()??"All";Refilter();};
-        updateInspector=Inspect; Refilter();Inspect();FillWindow(grid); if(focusedJob.Length>0 && knownJobs.TryGetValue(focusedJob,out var focus)) table.ScrollIntoView(focus);
+        updateInspector=Inspect; Refilter();Inspect();FillWindow(grid);
+        string positionKey=TablePositionKey(Section);
+        table.Loaded+=(_,_)=>{
+            if(tablePositions.TryGetValue(positionKey,out var position) && knownJobs.TryGetValue(position.Id,out var top) && view.Contains(top)){
+                int index=view.Cast<JobRow>().TakeWhile(row=>row!=top).Count();
+                var scroll=Ui.Descendants<ScrollViewer>(table).FirstOrDefault();
+                scroll?.ScrollToVerticalOffset(index); scroll?.ScrollToHorizontalOffset(position.Horizontal);
+            } else if(focusedJob.Length>0 && knownJobs.TryGetValue(focusedJob,out var focus)) table.ScrollIntoView(focus);
+        };
     }
 
     private bool Confirm(string message) => MessageBox.Show(this,message,"Gateway",MessageBoxButton.YesNo,MessageBoxImage.Question,MessageBoxResult.No)==MessageBoxResult.Yes;

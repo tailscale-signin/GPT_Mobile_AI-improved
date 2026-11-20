@@ -52,7 +52,26 @@ internal sealed class ActivityText : TextBlock
     private string latest="";
     private bool busy, initial=true;
     private readonly Func<bool> reduced;
-    public ActivityText(Func<bool> reduced){this.reduced=reduced;TextWrapping=TextWrapping.Wrap;SetResourceReference(ForegroundProperty,"MutedBrush");FontSize=13;}
+    public ActivityText(Func<bool> reduced){this.reduced=reduced;TextWrapping=TextWrapping.Wrap;SetResourceReference(ForegroundProperty,"MutedBrush");FontSize=13;LineHeight=18;MaxHeight=PublicPreview.CollapsedLines*LineHeight;TextTrimming=TextTrimming.CharacterEllipsis;Unloaded+=(_,_)=>SetActive(false);}
+    private TranslateTransform? accent;
+    public void SetActive(bool active)
+    {
+        bool moving=active && !reduced() && IsLoaded;
+        if (moving == (accent != null)) return;
+        if (accent != null) accent.BeginAnimation(TranslateTransform.XProperty,null);
+        accent=null;
+        SetResourceReference(ForegroundProperty,"MutedBrush");
+        if (!moving) return;
+        var normal=Ui.Brush("TextBrush").Color;
+        var brush=new LinearGradientBrush();
+        brush.GradientStops.Add(new GradientStop(normal,0));
+        brush.GradientStops.Add(new GradientStop(Ui.Brush("PrimaryBrush").Color,.5));
+        brush.GradientStops.Add(new GradientStop(normal,1));
+        brush.StartPoint=new Point(0,0);brush.EndPoint=new Point(1,0);
+        accent=new TranslateTransform();brush.RelativeTransform=accent;Foreground=brush;
+        accent.BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(-1,1,TimeSpan.FromMilliseconds(PublicPreview.ActiveAccentMs))
+            {RepeatBehavior=RepeatBehavior.Forever});
+    }
     public void Present(string value)
     {
         latest=value;

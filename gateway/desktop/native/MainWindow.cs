@@ -178,6 +178,7 @@ public partial class MainWindow : Window
     {
         name = name switch { "Advanced settings" => "Settings/Advanced", "Android controls" => "Settings/Devices",
             "Benchmarks" => "Diagnostics/Benchmarks", "Home" => "Overview", _ => name };
+        if(selectedPage=="Jobs" && Section!="Schedules") RememberJobsPosition(Section);
         var parts = name.Split('/', 2);
         string destination = parts[0];
         if (!Pages.Contains(destination)) destination = "Overview";
@@ -188,7 +189,7 @@ public partial class MainWindow : Window
             lastSection[destination] = section;
         }
         string next = destination + (section is null ? "" : "/" + section);
-        if (route != next && route.Length > 0 && CacheRoute(route) && (uiWork.Count==0 || route.StartsWith("Settings/") && !route.EndsWith("/Devices")))
+        if (route != next && route.Length > 0 && CacheRoute(route))
             views[route] = (page, pageScroll.Content, pageScroll.VerticalOffset);
         bool repeat = next == route;
         route = next; epoch++; selectedPage = destination;
@@ -438,18 +439,21 @@ public partial class MainWindow : Window
             if (page.Opacity != 1) throw new InvalidOperationException("Reduced-motion view is still animating.");
             Ui.Capture(this, System.IO.Path.Combine(root, "native-high-contrast-palette.png"));
             ((App)Application.Current).ApplyContrast();
-            layout.LayoutTransform = new ScaleTransform(1.5, 1.5);
-            Navigate("Settings");
-            await SettleSmokeReads();
-            UpdateLayout();
-            if (pageScroll.ActualWidth < 160 || pageScroll.ActualHeight < 80)
-                throw new InvalidOperationException("Scaled native content has no usable scroll viewport.");
-            Ui.Capture(this, System.IO.Path.Combine(root, "native-simulated-scale-150.png"));
+            double[] scales=[1.0,1.25,1.5,2.0];
+            Width=1366;Height=900;
+            foreach(double scale in scales)
+            {
+                layout.LayoutTransform=new ScaleTransform(scale,scale);
+                Navigate("Settings/Models");await SettleSmokeReads();UpdateLayout();
+                if(pageScroll.ActualWidth<160 || pageScroll.ActualHeight<80)
+                    throw new InvalidOperationException($"No usable settings viewport at {scale:P0}.");
+                if(scale==1.5)Ui.Capture(this,System.IO.Path.Combine(root,"native-simulated-scale-150.png"));
+            }
             layout.LayoutTransform = Transform.Identity; suppressMotion = false;
             File.WriteAllText(System.IO.Path.Combine(root, "native-ui-smoke.json"), JsonSerializer.Serialize(new
             { pages = Pages, width = ActualWidth, height = ActualHeight, highContrast = SystemParameters.HighContrast, animations = SystemParameters.ClientAreaAnimation,
                 visibleCompactRows = visible.Length, catalogReceipts = receiptCount, selectionAndPinsPreserved = observed,
-                highContrastPaletteExercised = true, simulatedLayoutScale = 1.5, reducedMotionExercised = true, focusAndScrollPreserved = true, runtime = "WPF", passed = true }));
+                simulatedScales = scales, highContrastPaletteExercised = true, simulatedLayoutScale = 1.5, reducedMotionExercised = true, focusAndScrollPreserved = true, runtime = "WPF", passed = true }));
             allowWindowExit=true;Close();
         }
         catch (Exception error) { File.WriteAllText(System.IO.Path.Combine(root, "native-ui-failure.txt"), error.Message); Application.Current.Shutdown(1); }

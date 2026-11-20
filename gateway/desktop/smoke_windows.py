@@ -172,7 +172,9 @@ def main():
             assert native['highContrastPaletteExercised'] and native['reducedMotionExercised'] and native['focusAndScrollPreserved']
             assert native['simulatedLayoutScale'] == 1.5
             assert native['visibleCompactRows'] >= 30 and native['catalogReceipts'] >= 105
-            assert native['selectionAndPinsPreserved']
+            assert native['selectionAndPinsPreserved'] and native['simulatedScales'] == [1.0,1.25,1.5,2.0]
+            results.append(f"{native['visibleCompactRows']} fully visible compact job rows at the 1920x1080 reference size; "
+                           f"{native['catalogReceipts']} catalog receipts with selection and pins retained across pagination")
             shutil.copy2(root / 'native-jobs-reference.png', output / 'native-jobs-reference.png')
             for capture in root.glob('native-*.png'):
                 shutil.copy2(capture, output / capture.name)

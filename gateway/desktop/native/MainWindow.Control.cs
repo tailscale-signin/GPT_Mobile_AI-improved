@@ -240,7 +240,6 @@ public partial class MainWindow
 
     private void BuildAndroid()
     {
-        int viewEpoch = epoch;
         var setup = Ui.Column(Ui.Text("Owner controls", 22, bold: true),
             Ui.Text("Pairing uses a separate authenticated TLS channel. A device on the ordinary LAN listener does not inherit owner rights.", 13, "MutedBrush"));
         var addresses = new List<string> { "127.0.0.1" };
@@ -341,11 +340,11 @@ public partial class MainWindow
                 await Call("control-device-revoke", new JsonObject { ["device_id"] = selected.Text("device_id") }); await Devices();
             }))));
         page.Children.Add(Ui.Card(owners));
-        var refreshReviews = BuildHostReviews(viewEpoch);
+        var refreshReviews = BuildHostReviews();
         Run(async () =>
         {
             await Pending(); await Devices(); await refreshReviews();
-            var confirmed = await Call("control-settings-read"); if (epoch != viewEpoch) return;
+            var confirmed = await Call("control-settings-read");
             var listener = confirmed.Object("listener");
             listenerState.Text = listener.Flag("enabled") ? "Enabled · " + listener.Text("endpoint") : "Disabled · choose a reachable interface to pair a phone.";
             if (listener.Flag("enabled") && Uri.TryCreate(listener.Text("endpoint"), UriKind.Absolute, out var endpoint))
@@ -353,7 +352,7 @@ public partial class MainWindow
         });
     }
 
-    private Func<Task> BuildHostReviews(int viewEpoch)
+    private Func<Task> BuildHostReviews()
     {
         var profiles = Ui.Column(Ui.Text("Approved validation profiles", 20, bold: true),
             Ui.Text("Prepare and save the policy in Repository Validation, then approve its immutable snapshot here. Granted phones can select only profiles approved on this PC.", 13, "MutedBrush"));
@@ -368,7 +367,7 @@ public partial class MainWindow
         async Task Profiles()
         {
             var confirmed = await Call("control-settings-read");
-            if (epoch != viewEpoch) return;
+
             installationId = confirmed.Text("installation_id", "");
             profileList.Children.Clear();
             var choices = confirmed.Object("validation_profiles");
@@ -411,7 +410,7 @@ public partial class MainWindow
         async Task Requests()
         {
             var result = await Call("control-host-requests");
-            if (epoch != viewEpoch) return;
+
             var items = result.Array("items").OfType<JsonObject>().Select(item =>
             {
                 var displayed = (JsonObject)item.DeepClone();

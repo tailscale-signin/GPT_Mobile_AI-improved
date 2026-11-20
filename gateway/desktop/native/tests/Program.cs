@@ -68,8 +68,15 @@ preview.Apply(Observation(4,"check","Two checks passed.","finding",200));
 Check(!preview.Summarize(279.9) && preview.Summarize(280), "Later substantive summaries wait 135 seconds");
 for(int i=5;i<=205;i++) preview.Apply(Observation(i,"phase-"+i,"Stage "+i,"activity",300+i));
 Check(preview.Cursor==205 && preview.Lines.Count==20, "Public replay memory is bounded through a burst");
-Check(PublicPreview.FadeInMs==1000 && PublicPreview.RefreshMs==500 && PublicPreview.ReadingMs(1)==1500 &&
-    PublicPreview.ReadingMs(2)==2000 && PublicPreview.ReadingMs(5)==5000, "Preview fades and measured reading speeds match Android");
+var contract = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory,"public-preview-v1.json")))!;
+var motion = contract.Object("motion");
+Check(PublicPreview.FadeInMs==motion.Number("entry_ms") && PublicPreview.RefreshMs==motion.Number("refresh_ms")
+    && PublicPreview.ChangeIntervalMs==motion.Number("change_interval_ms") && PublicPreview.ActiveAccentMs==motion.Number("active_accent_ms")
+    && PublicPreview.CollapsedLines==motion.Number("collapsed_lines"), "Windows preview motion matches the shared public event contract");
+Check(1000*PublicPreview.FirstSummarySeconds==motion.Number("first_finding_ms")
+    && 1000*PublicPreview.NextSummarySeconds==motion.Number("later_finding_ms"), "Findings use the shared summary cadence");
+foreach(var example in contract.Array("reading"))
+    Check(PublicPreview.ReadingMs((int)example!.Number("lines")!)==example.Number("duration_ms"), "Rendered-line reading example matches Android");
 Console.WriteLine($"{count} native bridge contract assertions passed.");
 
 sealed class RepeatedReader(int count) : TextReader

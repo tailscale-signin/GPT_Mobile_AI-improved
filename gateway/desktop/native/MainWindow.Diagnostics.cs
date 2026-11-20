@@ -19,6 +19,27 @@ public partial class MainWindow
     private bool readinessBusy;
     private Action? diagnosticUpdate;
     private string reportJob="";
+    private int reportPeriod;
+    private void OpenReports(string id="",int period=0)
+    {
+        reportJob=id;reportPeriod=period;Navigate("Diagnostics/Reports");
+    }
+    private async Task OpenLastReport()
+    {
+        string path=preferences.Text("lastReportPath","");
+        if(path.Length==0){OpenReports();return;}
+        if(!File.Exists(path))throw new InvalidOperationException("The exported diagnostic ZIP has moved.");
+        using var file=File.OpenRead(path);
+        string digest=Convert.ToHexString(await SHA256.HashDataAsync(file));
+        if(!digest.Equals(preferences.Text("lastReportHash",""),StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("This ZIP has changed since export.");
+        file.Position=0;
+        using var zip=new System.IO.Compression.ZipArchive(file);
+        var entry=zip.GetEntry("manifest.json")??throw new InvalidOperationException("The report manifest is missing.");
+        using var stream=entry.Open();
+        var manifest=await JsonNode.ParseAsync(stream);
+        if(manifest!=null)ShowDetails("Exported report · "+System.IO.Path.GetFileName(path),manifest);
+    }
     private static string Age(JsonNode? obj,string key) => LocalTime(obj.Number(key));
     private static string TimeOf(double? stamp) => stamp is >0 ? DateTimeOffset.FromUnixTimeSeconds((long)stamp.Value).ToLocalTime().ToString("T") : "unobserved";
     private void RefreshReadinessIfDue()
@@ -91,7 +112,7 @@ public partial class MainWindow
         var outcomes=new StackPanel();
         foreach(var row in jobs.Where(j=>j.State is "completed" or "cancelled").Take(4))outcomes.Children.Add(Ui.Button(row.Title+" · "+row.State,()=>OpenJobs(row.State,row.Id)));
         if(manager["updateState"]!=null)outcomes.Children.Add(Ui.Button("Gateway update · "+manager.Text("updateState"),()=>Navigate("Settings/Updates")));
-        if(preferences["lastReport"] is JsonValue last)outcomes.Children.Add(Ui.Button("Exported "+last,()=>Navigate("Diagnostics/Reports")));
+        if(preferences["lastReport"] is JsonValue last)outcomes.Children.Add(Ui.Button("Exported "+last,()=>Run(OpenLastReport)));
         if(outcomes.Children.Count==0)outcomes.Children.Add(Ui.Text("Completed tasks and exports will appear here.",14,"MutedBrush"));
         Pair(page,Card("Needs attention and readiness",attention),Card("Recent outcomes",Ui.Text(CatalogAge,12,"MutedBrush"),outcomes));
     }
@@ -168,11 +189,11 @@ public partial class MainWindow
                     Ui.Text(snapshot.Text("errors","—")+" HTTP errors · since runtime start",14),Ui.Text("Last observed "+TimeOf(snapshot.Number("capturedAt")),12,"MutedBrush"),
                     Ui.Button("Inspect captured events",()=>Navigate("Diagnostics/Events"))));
                 Pair(data,Series("Open workload","openJobs","jobs"),Series("Worker occupancy","workers","active"));
-                data.Children.Add(Ui.Actions(Ui.Button("Review failed tasks",()=>OpenJobs("failed")),Ui.Button("Full debug export",()=>Navigate("Diagnostics/Reports")),
+                data.Children.Add(Ui.Actions(Ui.Button("Review failed tasks",()=>OpenJobs("failed")),Ui.Button("Full debug export",()=>OpenReports()),
                     Ui.Button("Model readiness",()=>Navigate("Settings/Models"))));
             }else{
                 Pair(data,Series("Worker occupancy","workers","active"),Series("Queue depth","queued","waiting"));
-                Pair(data,Series("Model output rate","tokensPerSecond","tokens/s"),UsageCard());
+                Pair(data,Series("Model output rate · all timed rounds","tokensPerSecond","tokens/s"),UsageCard());
                 Pair(data,Series("Host CPU","cpuPercent","%"),Series("Host memory used","memoryGiB","GiB"));
                 var gpu=new StackPanel();foreach(var adapter in history.LastOrDefault().Array("adapters"))
                     gpu.Children.Add(Ui.Text($"{adapter.Text("name")} · {adapter.Text("gpuPercent")}% GPU · {adapter.Text("vramMiB")} MiB VRAM"));
@@ -208,11 +229,11 @@ public partial class MainWindow
             if(failures)table.ItemsSource=filtered.Where(r=>r.Number("status")>=400 || r.Text("event","").Contains("fail",StringComparison.OrdinalIgnoreCase)).GroupBy(r=>r.Text("route",r.Text("event"))+" · "+r.Text("status","failure"))
                 .Select(g=>new {Category=g.Key,Count=g.Count(),Last=TimeOf(g.First().Number("timestampMs")/1000),Receipt=(JsonNode)new JsonArray(g.Take(32).Select(j=>j.DeepClone()).ToArray())}).OrderByDescending(g=>g.Count).ToArray();
             else table.ItemsSource=filtered.Select(r=>new{Time=TimeOf(r.Number("timestampMs")/1000),Component=r.Text("route",r.Text("component","Gateway")),Event=r.Text("event"),Status=r.Text("status","—"),Sequence=r.Text("sequence"),Receipt=(JsonNode)r}).ToArray();
-            note.Text=capture.Flag("available")?$"{rows.Count} captured records displayed of {capture.Text("retained")} retained · successes sampled · observed {TimeOf(capture.Number("observed_at"))}":"No retained transport log. Enable debug recording in Settings → Advanced.";
+            note.Text=capture.Flag("available")?$"{filtered.Length} matching captured records · {rows.Count} loaded of {capture.Text("retained")} retained · successes sampled · observed {TimeOf(capture.Number("observed_at"))}":"No retained transport log. Enable debug recording in Settings → Advanced.";
         }
         async Task Load(){capture=await Call("report-events");rows=capture.Array("items");Filter();}
         void Open(){if(table.SelectedItem is {} s && s.GetType().GetProperty("Receipt")?.GetValue(s) is JsonNode r)ShowDetails("Captured evidence",r);}
-        controls.Children.Add(Ui.Button("Refresh",()=>Run(Load)));controls.Children.Add(Ui.Button("Inspect evidence",Open));controls.Children.Add(Ui.Button("Full debug export",()=>Navigate("Diagnostics/Reports")));
+        controls.Children.Add(Ui.Button("Refresh",()=>Run(Load)));controls.Children.Add(Ui.Button("Inspect evidence",Open));controls.Children.Add(Ui.Button("Full debug export",()=>OpenReports(period:Math.Max(0,period.SelectedIndex))));
         search.TextChanged+=(_,_)=>Filter();period.SelectionChanged+=(_,_)=>Filter();table.MouseDoubleClick+=(_,_)=>Open();FillWindow(body);Run(Load);
     }
 
@@ -220,6 +241,7 @@ public partial class MainWindow
     {
         var body=Ui.Column(Ui.Text("Diagnostic report",21,bold:true));
         var window=Ui.Select(body,"Coverage",new[]{"All retained","Last hour","Last 24 hours","Last seven days"});
+        window.SelectedIndex=reportPeriod;
         var job=Ui.Field(body,"Limit to job ID (optional)",reportJob);
         var summary=Ui.Text("Prepare a preview to inspect included sources, redaction and coverage.",14,"MutedBrush");body.Children.Add(summary);
         JsonObject? preview=null;
@@ -231,6 +253,7 @@ public partial class MainWindow
             if(!Convert.ToHexString(await SHA256.HashDataAsync(source)).Equals(sha,StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Preview changed. Prepare it again.");
             source.Position=0;string temp=picker.FileName+"."+Guid.NewGuid().ToString("N")+".tmp";
             try{using(var target=File.Create(temp))await source.CopyToAsync(target);File.Move(temp,picker.FileName,true);}finally{File.Delete(temp);}
+            preferences["lastReportPath"]=picker.FileName;preferences["lastReportHash"]=sha;
             preferences["lastReport"]=System.IO.Path.GetFileName(picker.FileName);SavePreferences();status.Text="Exported "+picker.FileName+" · SHA-256 "+sha;
         }),true);export.IsEnabled=false;
         int revision=0;

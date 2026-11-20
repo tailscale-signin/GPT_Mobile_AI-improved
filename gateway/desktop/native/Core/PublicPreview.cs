@@ -5,6 +5,7 @@ namespace Gateway.Desktop.Core;
 public sealed class PublicPreview
 {
     public const int FadeInMs=1000, RefreshMs=500, ChangeIntervalMs=3000, FirstSummarySeconds=45, NextSummarySeconds=135;
+    public const int ActiveAccentMs=1800, CollapsedLines=2;
     public static int ReadingMs(int lines) => lines <= 0 ? 0 : lines==1 ? 1500 : 1000*lines;
     public sealed record Line(string Key,string Text,double Time,string Kind);
     private readonly List<Line> lines=[];

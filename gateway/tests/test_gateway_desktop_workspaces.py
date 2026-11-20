@@ -75,6 +75,10 @@ class DesktopWorkspaces(unittest.TestCase):
         a.append('t', 'search', 'tool_start', 'Searching')
         first = a.append('t', 'accepted', 'activity', 'Accepted', conversation='c', job='j')
         repeated = a.append('t', 'accepted', 'activity', 'Accepted', conversation='c', job='j')
+        fixture = Path(__file__).resolve().parents[1] / 'desktop' / 'native' / 'tests' / 'public-preview-v1.json'
+        contract = json.loads(fixture.read_text(encoding='utf-8'))
+        self.assertEqual(set(contract['required_fields']), set(first))
+        self.assertEqual(contract['schema_version'], first['schema_version'])
         self.assertEqual(first['event_id'], repeated['event_id'])
         self.assertEqual(['Searching', 'Accepted'], [x['public_text'] for x in a.replay('c')['items']])
         self.assertEqual([], a.replay('c', first['sequence'])['items'])

@@ -117,9 +117,10 @@ public partial class MainWindow
             foreach(var (turn,slot) in previewViews){
                 if(!previews.TryGetValue(jobTurns.GetValueOrDefault(turn,turn),out var state))continue;
                 bool active=turn==liveTurn || turn==openedConversation?.Text("command_id") || turn==activeEngineeringTurn;
+                slot.Brief.SetActive(active && (engineering || chatMode=="Engineering"));
                 if(active)state.State.Summarize(DateTimeOffset.Now.ToUnixTimeMilliseconds()/1000d);
                 var lines=state.State.Lines;
-                string text=string.Join("\n",lines.TakeLast(2).Select(a=>a.Text));
+                string text=string.Join("\n",lines.TakeLast(PublicPreview.CollapsedLines).Select(a=>a.Text));
                 if(lines.Count==0)continue;
                 slot.Exp.Visibility=Visibility.Visible;
                 if(ReducedMotion || !previousRefresh.TryGetValue(turn,out var last) || (DateTime.UtcNow-last).TotalMilliseconds>=PublicPreview.ChangeIntervalMs){

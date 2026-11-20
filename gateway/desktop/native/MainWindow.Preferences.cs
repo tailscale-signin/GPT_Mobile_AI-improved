@@ -43,7 +43,7 @@ public partial class MainWindow
                 preferences["theme"]=theme.SelectedItem!.ToString();preferences["comfortable"]=comfortable.IsChecked==true;
                 preferences["reduceMotion"]=reduced.IsChecked==true;preferences["enterSend"]=enter.IsChecked==true;SavePreferences();
                 ((App)Application.Current).Appearance=theme.SelectedItem.ToString()!;((App)Application.Current).ApplyContrast();
-                views.Clear();Navigate("Settings/Appearance");status.Text="Appearance saved.";
+                Navigate("Settings/Appearance");status.Text="Appearance saved.";
             },true));page.Children.Add(Ui.Card(panel));return;
         }
         if(Section=="General")
@@ -54,7 +54,7 @@ public partial class MainWindow
             page.Children.Add(Card("Window behavior",panel));
         }
         BuildSettings();
-        if(Section=="Advanced")page.Children.Add(Ui.Actions(Ui.Button("Full debug export",()=>Navigate("Diagnostics/Reports")),
+        if(Section=="Advanced")page.Children.Add(Ui.Actions(Ui.Button("Full debug export",()=>OpenReports()),
             Ui.Button("Device access",()=>Navigate("Settings/Devices"))));
     }
     private void BuildConnection()

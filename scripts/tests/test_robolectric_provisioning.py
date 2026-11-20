@@ -1,6 +1,7 @@
 import hashlib
 import io
 from pathlib import Path
+import re
 import tempfile
 import unittest
 import urllib.error
@@ -21,6 +22,31 @@ class RobolectricProvisioningTest(unittest.TestCase):
         sdk.download(self.target, 'https://repo.maven.apache.org/runtime.jar', self.digest, deadline,
                      opener, wait, clock, jitter, wall_clock)
 
+
+    def test_android_unit_test_sdks_have_pinned_jars_and_poms(self):
+        coordinates = {
+            31: '12-robolectric-7732740-i7',
+            32: '12.1-robolectric-8229987-i7',
+            33: '13-robolectric-9030017-i7',
+            34: '14-robolectric-10818077-i7',
+            35: '15-robolectric-13954326-i7',
+            36: '16-robolectric-13921718-i7',
+        }
+        test_sources = Path(__file__).resolve().parents[2] / 'app/src/test'
+        used = set()
+        for source in test_sources.rglob('*.kt'):
+            for versions in re.findall(r'\bsdk\s*=\s*\[([\d,\s]+)\]', source.read_text(encoding='utf-8')):
+                used.update(int(api) for api in re.findall(r'\d+', versions))
+        self.assertTrue(used)
+        for api in used:
+            with self.subTest(android_api=api):
+                self.assertIn(api, coordinates, 'Record the Robolectric coordinate for this Android API')
+                coordinate = coordinates[api]
+                self.assertIn(coordinate, sdk.SDKS)
+                pins = sdk.SDKS[coordinate]
+                self.assertEqual({'jar', 'pom'}, set(pins))
+                for digest in pins.values():
+                    self.assertRegex(digest, r'^[0-9a-f]{128}$')
 
     def test_preview_and_release_validate_runtimes_before_running_full_unit_suites(self):
         workflows = Path(__file__).resolve().parents[2] / '.github/workflows'

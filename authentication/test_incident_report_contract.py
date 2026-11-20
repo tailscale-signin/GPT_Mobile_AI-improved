@@ -1903,8 +1903,10 @@ class IncidentReportContractTest(unittest.TestCase):
         resolver = (base / "data/agent/tool/AgentToolResolver.kt").read_text()
         self.assertIn('"tool_inventory"', resolver)
         authority_source = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text()
-        override_helper = authority_source.split("internal fun githubOverrideChanges", 1)[1].split("internal fun profileRevision", 1)[0]
-        override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', override_helper) if key != "githubProfileOverride"}
+        override_helper = authority_source.split("internal fun githubOverrideChanges", 1)[1].split("\n    }", 1)[0]
+        reported_keys = re.search(r"return\s+listOf\(([^)]*)\)", override_helper)
+        self.assertIsNotNone(reported_keys)
+        override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', reported_keys.group(1))}
         self.assertEqual(11, len(override_keys))
         self.assertEqual(policy_keys | profile_keys | override_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
         self.assertEqual(67, len(capsule.POLICY_FIELD_NAMES))

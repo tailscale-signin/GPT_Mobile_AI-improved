@@ -15,6 +15,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOutputContinuationSessionTest {
+    @Test fun toolRoundPreambleUsesThePrimarySessionAfterRestoringItsReceipt() = runBlocking {
+        val call = ProviderEvent.ToolCall("read", tool.name, JsonObject(emptyMap()))
+        val exchange = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("source"), false)))
+        var saved: JsonObject? = null
+        val first = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("I'll inspect this file."), call, ProviderEvent.Completed), saveCheckpoint = { saved = it }) { _, _, _ -> error("Unexpected continuation") }
+        first.streamRound(listOf(tool), emptyList()).toList()
+        val primary = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
+                assertEquals(listOf(exchange), exchanges)
+                return flowOf(ProviderEvent.TextDelta("The file contains the regression."), ProviderEvent.Completed)
+            }
+        }
+        val restored = GitHubOutputContinuationSession(primary, readCheckpoint = { saved }, saveCheckpoint = { saved = it }) { _, _, _ -> error("A tool preamble must not open a new model session") }
+        val events = restored.streamRound(listOf(tool), listOf(exchange)).toList()
+        assertEquals("The file contains the regression.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
+    @Test fun cooldownBindsTheOriginalJournalIdentityOfALocallyReplayedPage() = runBlocking {
+        val call = ProviderEvent.ToolCall("page", tool.name, buildJsonObject { put("view_cursor", "issued") })
+        val page = AgentToolResult(call.callId, ToolResultContent.Text("complete local page"), false, dispatched = false)
+        val actual = ToolHandoffReceipt.from(call, page).copy(receiptSource = "TOOL_BATCH_CHECKPOINT")
+        val replay = AgentToolExchange(listOf(call), listOf(page.copy(content = ToolResultContent.Text("shortened page"), sharedResult = true)))
+        val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OPENROUTER", "profile", "model", 30_000, "scope", "PROVIDER_RATE_LIMITED", true)
+        val ctx = buildJsonObject { put("task_binding", "a".repeat(64)) }
+        for (journal in listOf(actual, actual.copy(invocationFingerprint = "f".repeat(64)), actual.copy(requiresReconciliation = true))) {
+            var saved: JsonObject? = null
+            val output = GitHubOutputContinuationSession(
+                session(ProviderEvent.Failed("Provider limit", errorCode = "429", providerLimit = limit)),
+                checkpointContext = ctx,
+                durableToolReceipts = { listOf(journal) },
+                saveCheckpoint = { saved = it }
+            ) { _, _, _ -> error("The wait owns resumption") }
+            output.streamRound(listOf(tool), listOf(replay)).toList()
+            assertEquals(JsonPrimitive("WAITING_PROVIDER_LIMIT"), saved?.get("state"))
+            val digest = GitHubProviderReplayEvidence.protectedJournalDigest(requireNotNull(saved))
+            assertEquals(if (journal == actual) GitHubProviderReplayEvidence.journalDigest(listOf(actual)) else null, digest)
+        }
+    }
+
     private val tool = AgentToolDefinition("github_read", "Read pinned files", JsonObject(emptyMap()))
     private val limited = ProviderEvent.Failed("The response reached its output limit.", transportComplete = true)
     private fun session(vararg events: ProviderEvent) = object : AgentProviderSession {

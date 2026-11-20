@@ -136,12 +136,19 @@ internal class GitHubOutputContinuationSession(
         // round must still use the original session with the now-confirmed results.
         // A handoff made by an interrupted continuation can be reasoning-only;
         // retain its explicit origin even when its visible draft is empty.
-        val restored = handoff?.takeIf {
-            (it["draft"] as? JsonPrimitive)?.contentOrNull?.isNotEmpty() == true ||
-                it["handoff_continuation"] == JsonPrimitive(true)
-        } ?: previous?.takeIf {
-            sameEvidence &&
-                (it["resume_allowed"] != JsonPrimitive(false) && (it["state"] == JsonPrimitive("OUTPUT_LIMIT") || it["resume_allowed"] == JsonPrimitive(true)) || revised && it["state"] == JsonPrimitive("BLOCKED_NO_PROGRESS"))
+        val restored = if (handoff != null) {
+            // A completed tool round can contain a preamble. Its text is not a
+            // truncated answer. Only legacy handoffs lack the explicit origin.
+            handoff.takeIf {
+                it["handoff_continuation"] == JsonPrimitive(true) ||
+                    "handoff_continuation" !in it &&
+                    (it["draft"] as? JsonPrimitive)?.contentOrNull?.isNotEmpty() == true
+            }
+        } else {
+            previous?.takeIf {
+                sameEvidence &&
+                    (it["resume_allowed"] != JsonPrimitive(false) && (it["state"] == JsonPrimitive("OUTPUT_LIMIT") || it["resume_allowed"] == JsonPrimitive(true)) || revised && it["state"] == JsonPrimitive("BLOCKED_NO_PROGRESS"))
+            }
         }
         var draft = (restored?.get("draft") as? JsonPrimitive)?.contentOrNull.orEmpty()
         val draftLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
@@ -615,7 +622,7 @@ internal class GitHubOutputContinuationSession(
             put("recovery_revision", recoveryRevision)
             put("interruption_attempts", interruptionAttempts)
             put("context", checkpointContext)
-            put("completed_results", receiptBoundary)
+            put("completed_results", if (state == "WAITING_PROVIDER_LIMIT") bindWaitReceipts(receiptBoundary) else receiptBoundary)
             put("reconciled_call_ids", JsonArray(settledCallIds.sorted().map(::JsonPrimitive)))
             put(
                 "resume_kind",
@@ -658,6 +665,34 @@ internal class GitHubOutputContinuationSession(
         saveCheckpoint(checkpoint)
         currentCheckpoint = checkpoint
         return checkpoint
+    }
+
+    /** Capture missing source identities from this turn’s journal before saving the wait. */
+    private suspend fun bindWaitReceipts(boundary: JsonArray): JsonArray {
+        val missing = boundary.filterIsInstance<JsonObject>().filter { it["source_result_sha256"] == null }
+        if (missing.isEmpty()) return boundary
+        val fingerprints = missing.mapNotNullTo(mutableSetOf()) { (it["invocation_fingerprint"] as? JsonPrimitive)?.contentOrNull }
+        val journal = durableToolReceipts(fingerprints).associateBy { it.callId }
+        return JsonArray(
+            boundary.map { row ->
+                val saved = row as? JsonObject ?: return@map row
+                if (saved["source_result_sha256"] != null) return@map row
+                val durable = journal[(saved["call_id"] as? JsonPrimitive)?.contentOrNull] ?: return@map row
+                val source = durable.sourceResultSha256 ?: return@map row
+                if (durable.receiptSource != "TOOL_BATCH_CHECKPOINT" ||
+                    durable.requiresReconciliation ||
+                    saved["invocation_fingerprint"] != JsonPrimitive(durable.invocationFingerprint) ||
+                    saved["dispatched"] != JsonPrimitive(durable.dispatched) ||
+                    saved["error_code"] != durable.errorCode?.let(::JsonPrimitive) ||
+                    saved["requires_reconciliation"] != JsonPrimitive(false)
+                ) {
+                    return@map row
+                }
+                // The provider's projection still has its own hash. Only the journal
+                // identifies the original payload, which may have been compacted.
+                JsonObject(saved + mapOf("source_hash_available" to JsonPrimitive(true), "source_result_sha256" to JsonPrimitive(source)))
+            }
+        )
     }
 
     /** Hashing raw retained evidence is CPU work and must not run on the UI collector. */

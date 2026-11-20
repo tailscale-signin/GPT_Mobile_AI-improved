@@ -10,6 +10,43 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubRecoveryCallsTest {
+    @Test fun redundantLogsActionResolvesOnlyForTheExactCursorIssuedByThatLogRead() {
+        val name = "github_ci__selected"
+        val cursor = "00000000-0000-4000-8000-000000000001:47:1536"
+        val source = ProviderEvent.ToolCall(
+            "logs",
+            name,
+            buildJsonObject {
+                put("action", "logs")
+                put("job_id", 42)
+            }
+        )
+        val receipt = buildJsonObject {
+            put("saved_view_id", cursor.substringBefore(':'))
+            put("saved_view_cursor_ids", Json.parseToJsonElement("""["$cursor"]"""))
+        }
+        val result = AgentToolResult(source.callId, ToolResultContent.Text("retained"), false, executionReceipt = receipt)
+        val request = source.copy(
+            callId = "page",
+            arguments = buildJsonObject {
+                put("action", "logs")
+                put("view_cursor", cursor)
+            }
+        )
+        fun route(issuer: ProviderEvent.ToolCall, proposal: ProviderEvent.ToolCall = request) =
+            GitHubRecoveryCalls.resolve(proposal, listOf(AgentToolExchange(listOf(issuer), listOf(result))), mapOf(name to tool(name)))
+        assertEquals(buildJsonObject { put("view_cursor", cursor) }, route(source).arguments)
+        assertEquals(request, route(source.copy(name = "github_ci__other")))
+        assertEquals(request, route(source.copy(arguments = buildJsonObject { put("action", "jobs") })))
+        val altered = request.copy(
+            arguments = buildJsonObject {
+                put("action", "logs")
+                put("view_cursor", cursor + "0")
+            }
+        )
+        assertEquals(altered, route(source, altered))
+    }
+
     private fun tool(name: String) = object : AgentTool {
         override val definition = GitHubOperationTool.definition(name.substringBefore("__"), name)
         override suspend fun execute(callId: String, arguments: JsonObject) = error("Routing must not execute tools")

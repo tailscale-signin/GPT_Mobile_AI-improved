@@ -429,8 +429,11 @@ internal object GitHubOperationArguments {
             }
             "github_release" -> {
                 positive("workflow_run_id")
+                positive("release_id")
+                if (text("action") != "detail") unused("release_id")
                 when (text("action")) {
-                    "detail", "tag", "create_tag", "publish" -> required("tag_name")
+                    "detail" -> if ("release_id" in args) unused("tag_name") else required("tag_name")
+                    "tag", "create_tag", "publish" -> required("tag_name")
                 }
                 if (text("action") == "create_tag" && text("target_commitish").isBlank() && text("ref").isBlank()) errors += "create_tag requires target_commitish or ref from repository discovery"
                 if (text("action") !in setOf("publish")) unused("inputs", "release_strategy")

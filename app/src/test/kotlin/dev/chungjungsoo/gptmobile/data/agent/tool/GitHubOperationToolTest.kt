@@ -412,6 +412,22 @@ class GitHubOperationToolTest {
         valid("github_search", correction.getValue("arguments").jsonObject)
     }
 
+    @Test fun unavailableSourceHandleOffersOnlyTheExplicitlyPinnedRanges() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) =
+                AgentToolResult(callId, ToolResultContent.Text("unknown handle"), true, errorCode = "EVIDENCE_UNAVAILABLE", dispatched = false)
+        }
+        val tool = GitHubOperationTool("github_read", backend, "source-handles", modelName = "github_read__api")
+        val ranges = args("""{"action":"ranges","owner":"owner","repo":"repo","commit_sha":"$sha","ranges":[{"path":"src/Chat.kt","start_line":5,"end_line":9}]}""")
+        val saved = args("""{"evidence_id":"unavailable"}""")
+        val failed = tool.execute("pinned", JsonObject(ranges + saved))
+        val next = result(failed).getValue("data").jsonObject.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive("github_read__api"), next["tool"])
+        assertEquals(ranges, next["arguments"])
+        assertFalse("correction_call" in result(tool.execute("handle-only", saved)).getValue("data").jsonObject)
+    }
+
     @Test fun missingPinnedPathProvidesDiscoveryInsteadOfAnotherGuessedRead() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})

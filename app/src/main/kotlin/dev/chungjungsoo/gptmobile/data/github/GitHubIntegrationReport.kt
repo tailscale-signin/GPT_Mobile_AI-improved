@@ -121,6 +121,13 @@ internal object GitHubIntegrationReport {
         }
         append("**Task outcome: ${if (complete) "acceptance verified" else "partial acceptance"}.** $accepted/${requiredCriteria.size} required task criteria verified. ")
         append("${passedCapabilities.size}/${requiredCapabilities.size} required API capabilities verified; ${capabilities.size - requiredCapabilities.size} capability rows are excluded from that denominator. Task criteria and API capabilities are independent counts.\n\n")
+        val budget = checkpoint["stage_budget"] as JsonObject
+        val stop = stopReason(task, receipts, tools, budget.number("remaining_calls"), checkpoint)
+        if (!complete) {
+            val failed = requiredCapabilities.filter { it.text("status") == "FAILED" }
+            if (failed.isNotEmpty()) append("**Failed operations** · ").append(failed.joinToString(", ") { safe(it.text("id")) }).append(".\n\n")
+            append("**${stop.text("code")}**: ${safe(stop.text("detail"))}\n\n")
+        }
         append("Of the passed required capabilities, ${passedCapabilities.count { it["live_verified"] == JsonPrimitive(true) }} have live response evidence and ${passedCapabilities.count { it["live_verified"] != JsonPrimitive(true) }} qualify only the recorded response scope. Cached or local acceptance does not establish live transport or application/device execution.\n\n")
         append("${exercisedFamilies.size}/${activeFamilies.size} known authorized GitHub operation families have live observations. ")
         append("${exercisedNames.size}/${activeNames.size} known authorized GitHub tools have live observations; these counts retain exact tool names. ")
@@ -201,9 +208,7 @@ internal object GitHubIntegrationReport {
         }
         append("\n### Repository inventory and stop reason\n\n")
         checkpoint.array("inventory_coverage").forEach { row -> append("- ${safe(row.text("tool"))}/${safe(row.text("operation"))}: ${safe(GitHubTestChecklist.inventorySummary(row))}.\n") }
-        val budget = checkpoint["stage_budget"] as JsonObject
-        val stop = stopReason(task, receipts, tools, budget.number("remaining_calls"), checkpoint)
-        append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
+        if (complete) append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
         if ((stop.number("pending_continuations") ?: 0) > 0) {
             append("\nRetained continuation recipes: ${stop.text("pending_continuations")}. Further reads retain the task's scope, authorization and remaining budget.\n")
             append("${stop.text("pending_local_fragments")} local response fragments and ${stop.text("pending_remote_continuations")} remote continuation recipes remain. ")

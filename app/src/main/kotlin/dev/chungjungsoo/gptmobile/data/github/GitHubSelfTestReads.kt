@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Dependency-aware smoke reads. Identifiers retain the resource type that supplied them. */
@@ -129,7 +130,12 @@ internal object GitHubSelfTestReads {
             listOf("tags", "list").forEach { recipe("github_release", it) }
             (release?.get("tag_name") ?: tag?.get("name"))?.let { recipe("github_release", "status", "tag_name" to it) }
             tag?.get("name")?.let { recipe("github_release", "tag", "tag_name" to it) }
-            (release?.get("tag_name") ?: tag?.get("name"))?.let { recipe("github_release", "detail", "tag_name" to it) }
+            val releaseId = (release?.get("id") as? JsonPrimitive)?.takeIf { !it.isString && (it.longOrNull ?: 0) > 0 }
+            if (releaseId != null && tools.any { it.name.githubOperationFamily() == "github_release" && (it.inputSchema["properties"] as? JsonObject)?.containsKey("release_id") == true }) {
+                recipe("github_release", "detail", "release_id" to releaseId)
+            } else {
+                release?.get("tag_name")?.takeIf { release["draft"] != JsonPrimitive(true) }?.let { recipe("github_release", "detail", "tag_name" to it) }
+            }
             // Actions inventory includes deleted and generated workflows. Discover definitions
             // from the pinned source tree instead of assuming the first live ID exists there.
             if (sha != null) recipe("github_ci", "definitions", "commit_sha" to sha)

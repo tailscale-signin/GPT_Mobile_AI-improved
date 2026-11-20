@@ -78,8 +78,14 @@ internal object GitHubRecoveryCalls {
     }
 
     fun resolve(call: ProviderEvent.ToolCall, exchanges: List<AgentToolExchange>, tools: Map<String, AgentTool>): ProviderEvent.ToolCall {
-        val jobs = ToolArgumentValidator.jobsReadWithoutCursor(call.name, call.arguments)
-        if (jobs != null) {
+        val sourceSelector = ToolArgumentValidator.jobsReadWithoutCursor(call.name, call.arguments)
+            ?: call.arguments.takeIf {
+                call.name.githubOperationFamily() == "github_ci" &&
+                    it.keys == setOf("action", "view_cursor") &&
+                    it["action"] == JsonPrimitive("logs") &&
+                    (it["view_cursor"] as? JsonPrimitive)?.isString == true
+            }?.let { JsonObject(it - "view_cursor") }
+        if (sourceSelector != null) {
             val tool = tools[call.name] ?: return call
             val schema = tool.definition.inputSchema
             if (ToolArgumentValidator.errors(call.arguments, schema).isEmpty()) return call
@@ -87,7 +93,7 @@ internal object GitHubRecoveryCalls {
             if (ToolArgumentValidator.errors(page, schema).isNotEmpty() || !GitHubAuthorizationBoundary.isReplayableRead(call.name, page)) return call
             val cursor = page.getValue("view_cursor") as JsonPrimitive
             val viewId = JsonPrimitive(cursor.content.substringBefore(':'))
-            // The source receipt binds the view to its jobs run. A later page of that same view
+            // The source receipt binds the view to its CI operation. A later page of that same view
             // can supply the exact issued cursor, even after the provider replay was compacted.
             var sourceMatches = false
             var cursorIssued = false
@@ -96,7 +102,7 @@ internal object GitHubRecoveryCalls {
                     val receipt = result.executionReceipt ?: continue
                     if (result.isError || receipt["saved_view_id"] != viewId) continue
                     val issuer = exchange.calls.firstOrNull { it.callId == result.callId && it.name == call.name } ?: continue
-                    if ("view_cursor" !in issuer.arguments && jobs.all { (key, value) -> issuer.arguments[key] == value }) sourceMatches = true
+                    if ("view_cursor" !in issuer.arguments && sourceSelector.all { (key, value) -> issuer.arguments[key] == value }) sourceMatches = true
                     if (cursor in (receipt["saved_view_cursor_ids"] as? JsonArray).orEmpty()) cursorIssued = true
                     if (sourceMatches && cursorIssued) return call.copy(arguments = page)
                 }

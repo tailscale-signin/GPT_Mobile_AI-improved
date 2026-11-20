@@ -622,7 +622,7 @@ internal class GitHubResultViews(
             if (action != null) values["action"] = JsonPrimitive(action)
         }
         if (operation == "github_release") {
-            val action = mapOf("tag_context" to "tag", "list_tags" to "tags", "list_releases" to "list", "get_release_by_tag" to "detail")[(continuation["action"] as? JsonPrimitive)?.content]
+            val action = mapOf("tag_context" to "tag", "list_tags" to "tags", "list_releases" to "list", "get_release_by_tag" to "detail", "get_release" to "detail")[(continuation["action"] as? JsonPrimitive)?.content]
             if (action != null) values["action"] = JsonPrimitive(action)
         }
         if (operation == "github_ci") {

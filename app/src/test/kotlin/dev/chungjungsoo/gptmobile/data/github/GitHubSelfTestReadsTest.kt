@@ -9,6 +9,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSelfTestReadsTest {
+    @Test fun releaseDetailUsesTheObservedReleaseIdEvenWhenItsTagHasNoPublishedRelease() {
+        val definition = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_release")
+        val listed = json("""{"trusted":true,"success":true,"tool":"github_release","arguments":{"action":"list"},"result":{"items":[{"id":452622158,"draft":true,"tag_name":"v1"}]}}""")
+        val tags = json("""{"trusted":true,"success":true,"tool":"github_release","arguments":{"action":"tags"},"result":{"items":[{"name":"v1"}]}}""")
+        fun detail(records: List<JsonObject>) = GitHubSelfTestReads.available(listOf(definition), records).singleOrNull { it.arguments["action"] == JsonPrimitive("detail") }
+        val args = requireNotNull(detail(listOf(listed, tags))).arguments
+        assertEquals(JsonPrimitive(452622158), args["release_id"])
+        assertTrue("tag_name" !in args)
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors("github_release", args).isEmpty())
+        val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments("github_release", args)
+        assertEquals(JsonPrimitive("get_release"), native?.get("action"))
+        assertEquals(null, detail(listOf(tags)))
+        val byTag = json("""{"action":"detail","tag_name":"v1"}""")
+        assertEquals(JsonPrimitive("get_release_by_tag"), dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments("github_release", byTag)?.get("action"))
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors("github_release", JsonObject(args + byTag)).isNotEmpty())
+    }
+
     @Test fun completedRunSupportsOneBoundedInlineWatchWithoutInventingASubscriptionOrResource() {
         val sha = "a".repeat(40)
         val watch = AgentToolDefinition("github_watch_checks", "Watch", json("""{"type":"object","properties":{"run_id":{"type":"integer"},"commit_sha":{"type":"string"},"wait_timeout_seconds":{"type":"integer","minimum":1,"maximum":30}},"required":["run_id","commit_sha","wait_timeout_seconds"],"additionalProperties":false}"""))

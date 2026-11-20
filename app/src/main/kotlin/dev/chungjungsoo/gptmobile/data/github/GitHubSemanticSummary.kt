@@ -33,6 +33,22 @@ internal object GitHubSemanticSummary {
             val branchName = if (branch is JsonObject) branch.text("name") else (branch as? JsonPrimitive)?.contentOrNull.orEmpty()
             branchName.takeIf { it.isNotBlank() }?.let { put("branch", it.take(160)) }
             (data.text("default_branch").ifBlank { repository?.text("default_branch").orEmpty() }).takeIf { it.isNotBlank() }?.let { put("default_branch", it.take(160)) }
+            if (operation.githubOperationFamily() == "github_read" && sha.matches(data.text("commit_sha"))) {
+                val item = (data["items"] as? JsonArray)?.firstOrNull() as? JsonObject
+                val start = (item?.get("start_line") as? JsonPrimitive)?.intOrNull
+                val end = (item?.get("end_line") as? JsonPrimitive)?.intOrNull
+                if (item != null && item.text("path").isNotBlank() && start != null && start > 0 && end != null && end >= start) {
+                    put(
+                        "source_range",
+                        buildJsonObject {
+                            put("path", item.text("path").take(256))
+                            put("start", start)
+                            put("end", end)
+                            put("complete", item["range_complete"] == JsonPrimitive(true))
+                        }
+                    )
+                }
+            }
             if (operation.githubOperationFamily() == "github_context" && action in setOf("", "status")) {
                 listOf("open_issue_count", "open_pull_request_count").forEach { key ->
                     (data[key] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }?.let { put(key, it) }

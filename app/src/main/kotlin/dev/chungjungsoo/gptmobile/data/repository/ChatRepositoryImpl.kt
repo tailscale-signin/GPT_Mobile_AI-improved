@@ -6254,7 +6254,10 @@ class ChatRepositoryImpl(
                 reviewedSession
             }
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(latestUser?.content.orEmpty()).conversational) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INTENT_CONVERSATIONAL else dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INTENT_SUBSTANTIVE)
-            val narrator = if (githubProgress != null && latestUser != null && invocationLedger != null) {
+            // Remote progress uses the primary stream's public commentary and tool
+            // results. An extra generation here delays the next tool round and
+            // shares the provider's rate limit with the actual repository work.
+            val narrator = if (githubProgress != null && latestUser != null && invocationLedger != null && platform.isPrivateDestination()) {
                 dev.chungjungsoo.gptmobile.data.github.GitHubProgressNarrator(
                     snapshot = githubProgress::summarySnapshot,
                     openSelected = { prompt, cap ->

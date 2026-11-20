@@ -454,12 +454,27 @@ internal class GitHubOperationTool(
             }
             original.copy(content = ToolResultContent.Json(scoped))
         } else if (operation == "github_read" && original.errorCode == "EVIDENCE_UNAVAILABLE") {
+            val pinnedRead = JsonObject(arguments - "evidence_id").takeIf {
+                (it["commit_sha"] as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}")) == true &&
+                    !(it["ranges"] as? JsonArray).isNullOrEmpty() &&
+                    dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(it, definition.inputSchema).isEmpty() &&
+                    GitHubOperationArguments.errors(operation, it).isEmpty()
+            }
             original.copy(
                 content = ToolResultContent.Json(
                     buildJsonObject {
                         put("schema", "github.arguments.v1")
                         put("error_code", "EVIDENCE_UNAVAILABLE")
-                        put("message", "Source evidence is unavailable in this authorized scope. Use the exact recovery_call to find retained sources, or source_recovery_call from the original receipt to reopen the pinned ranges.")
+                        put("message", if (pinnedRead != null) "The saved source handle was unavailable. The correction_call reads the requested ranges at the specified commit." else "Source evidence is unavailable in this authorized scope. Use the exact recovery_call to find retained sources, or source_recovery_call from the original receipt to reopen the pinned ranges.")
+                        pinnedRead?.let {
+                            put(
+                                "correction_call",
+                                buildJsonObject {
+                                    put("tool", definition.name)
+                                    put("arguments", it)
+                                }
+                            )
+                        }
                         put(
                             "recovery_call",
                             buildJsonObject {
@@ -828,7 +843,7 @@ internal class GitHubOperationTool(
                     "tag" -> "tag_context"
                     "create_tag" -> "create_tag"
                     "list" -> "list_releases"
-                    "detail" -> "get_release_by_tag"
+                    "detail" -> if ("release_id" in args) "get_release" else "get_release_by_tag"
                     else -> return null
                 }
                 "github_issue" -> when (requested) {
@@ -1312,6 +1327,12 @@ internal class GitHubOperationTool(
                         put("description", "Reuse for recovery; a separately requested publication needs a new ID after reconciling the earlier receipt.")
                     }
                     properties["action"] = choice("status", "publish", "tags", "tag", "create_tag", "list", "detail")
+                    properties["release_id"] = buildJsonObject {
+                        put("type", "integer")
+                        put("minimum", 1)
+                        put("maximum", Long.MAX_VALUE)
+                        put("description", "For detail, use the release ID returned by list or status. Select either release_id or tag_name.")
+                    }
                     listOf("tag_name", "target_commitish", "name", "body", "workflow_id", "expected_head_sha", "ref").forEach { properties[it] = field("string") }
                     properties["workflow_run_id"] = buildJsonObject {
                         put("type", "integer")

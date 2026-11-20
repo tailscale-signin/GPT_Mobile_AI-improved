@@ -170,6 +170,44 @@ class ConfiguredDispatchAuthorityTest {
         assertTrue(ConfiguredDispatchAuthority.githubOverrideChanges(before, before).isEmpty())
     }
 
+    @Test fun queuedAndRestoredGithubTasksKeepTheirSubmittedPromptAndRevalidateExecutionSettings() = runTest {
+        val profile = PlatformV2(uid = "profile", name = "Selected", model = "model")
+        val shortcut = dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow("shortcut", "Label", "First prompt")
+        val selected = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(quickWorkflows = listOf(shortcut))
+        val plugin = dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings(githubCopilotEnabled = true)
+        val initial = selectionFeatures(profile.uid).copy(
+            githubProfileOverrides = mapOf(profile.uid to selected),
+            pluginExecution = linkedMapOf("z" to plugin, ToolPluginId.GITHUB to plugin)
+        )
+        var features = initial
+        val settings = selectionSettings({ listOf(profile) }, { features })
+        val guard = ConfiguredDispatchAuthority.capture(settings, profile, 7)
+        val saved = requireNotNull(guard.authority)
+        val legacy = saved.copy(policyRevision = researchHash(ConfiguredDispatchAuthority.policyFields(features, profile.uid, 7, legacy = true).toString()))
+        legacy.validate(settings)
+
+        features = initial.copy(
+            githubProfileOverrides = mapOf(profile.uid to selected.copy(quickWorkflows = listOf(shortcut.copy(prompt = "Future task")))),
+            pluginExecution = initial.pluginExecution.entries.reversed().associate { it.toPair() }
+        )
+        guard.validate()
+        saved.validate(settings)
+        val harmless = features
+        val fence = PreparationReplayFence().apply { dispatched() }
+        for ((field, changed) in listOf(
+            "githubProfileOverride" to harmless.copy(githubProfileOverrides = mapOf(profile.uid to selected.copy(githubTools = false))),
+            "plugins" to harmless.copy(pluginExecution = harmless.pluginExecution + (ToolPluginId.GITHUB to plugin.copy(githubCopilotEnabled = false)))
+        )) {
+            features = changed
+            val stale = runCatching { guard.validate() }.exceptionOrNull() as DispatchPolicyChangedException
+            assertTrue(field in stale.fields)
+            assertFalse(fence.canRebuild(stale, 0))
+            assertFalse(fence.canResumeGitHubChecklist(stale, 0, true))
+            assertTrue(runCatching { saved.validate(settings) }.exceptionOrNull() is ProviderWaitAuthorityChanged)
+            assertTrue(runCatching { legacy.validate(settings) }.exceptionOrNull() is ProviderWaitAuthorityChanged)
+        }
+    }
+
     @Test fun githubSelectionChangeRevokesQueuedRequestsAndRejectsAnotherModel() = runTest {
         val settings = mockk<SettingRepository>()
         val profile = PlatformV2(uid = "selected", name = "Selected", model = "accepted-model")

@@ -12,6 +12,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Host validation shared by native callbacks and ordinary tools. Never guesses identifiers. */
@@ -50,7 +51,9 @@ internal object ToolArgumentValidator {
             else -> ""
         }
         val declared = (schema["properties"] as? JsonObject).orEmpty().keys.sorted().joinToString(", ").take(1000)
-        val cursorGuidance = if (arguments?.containsKey("view_cursor") == true) {
+        val cursorGuidance = if (arguments != null && jobsReadWithoutCursor(toolName, arguments) != null) {
+            "For a fresh jobs list, use action=jobs and the observed run_id. For a saved page, copy the exact cursor-only call from that run's jobs result. "
+        } else if (arguments?.containsKey("view_cursor") == true) {
             "A saved view accepts only the issued view_cursor by itself. Copy the exact continuation_call.arguments; never invent a cursor or combine it with action, owner, repo, page, branch or query. "
         } else {
             ""
@@ -212,6 +215,9 @@ internal object ToolArgumentValidator {
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
         val operation = toolName.githubOperationFamily()
+        jobsReadWithoutCursor(toolName, arguments)?.let { fresh ->
+            return fresh.takeIf { errors(it, schema).isEmpty() }
+        }
         if (operation == "github_search" &&
             arguments.keys.none { it in setOf("view_cursor", "search_id") } &&
             arguments["index_cursor"] in setOf(null, JsonPrimitive(0)) &&
@@ -265,6 +271,16 @@ internal object ToolArgumentValidator {
             }
         }
         return proposal.takeIf { errors(it, schema).isEmpty() }
+    }
+
+    /** A fresh jobs proposal keeps the supplied run ID. A cursor alone needs separate proof of issuance. */
+    internal fun jobsReadWithoutCursor(toolName: String, arguments: JsonObject): JsonObject? {
+        if (arguments["action"] != JsonPrimitive("jobs") || toolName.githubOperationFamily() != "github_ci") return null
+        if (arguments.keys != setOf("action", "run_id", "view_cursor")) return null
+        val cursor = arguments["view_cursor"] as? JsonPrimitive ?: return null
+        val runId = arguments["run_id"] as? JsonPrimitive ?: return null
+        if (!cursor.isString || runId.isString || (runId.longOrNull ?: 0L) <= 0L) return null
+        return JsonObject(arguments - "view_cursor")
     }
 
     internal fun sourceReadArgumentCorrection(arguments: JsonObject): JsonObject? {

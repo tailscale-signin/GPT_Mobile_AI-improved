@@ -179,7 +179,7 @@ internal object GitHubReplayRecovery {
 
     fun compact(content: ToolResultContent, maxChars: Int, consumed: Boolean = false): ToolResultContent? {
         val source = envelope(content) ?: return null
-        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "continuation_options", "remote_continuations", "correction_call", "source_recovery_call", "previous_call_id", "metadata", "recovery_required", "agent_instruction", "reason", "semantic_summary", "retained_original_complete", "source_result_sha256", "receipt_reference") }
+        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "continuation_options", "remote_continuations", "correction_call", "source_recovery_call", "previous_call_id", "metadata", "recovery_required", "recovery_action", "mutation_replay_allowed", "agent_instruction", "reason", "semantic_summary", "retained_original_complete", "source_result_sha256", "receipt_reference") }
         val result = controls.toMutableMap()
         result["replay_compacted"] = JsonPrimitive(true)
         result["previously_delivered"] = JsonPrimitive(consumed)

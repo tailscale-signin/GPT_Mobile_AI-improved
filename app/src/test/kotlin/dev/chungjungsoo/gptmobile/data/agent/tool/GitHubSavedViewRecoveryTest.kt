@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GitHubAuthorizationIdentity
@@ -123,6 +124,26 @@ class GitHubSavedViewRecoveryTest {
         assertTrue((details["saved_view_restore_error_hash"] as JsonPrimitive).content.matches(Regex("[a-f0-9]{64}")))
         assertFalse(details.toString().contains("private storage path"))
         assertFalse(details.toString().contains("IllegalStateException"))
+    }
+
+    @Test fun missingJobsBodyAndInvalidViewIdRequireFreshScopedReadsEvenInReplay() = runBlocking {
+        val store = GitHubSavedViewStore(GitHubRepositoryStateStore(), "account")
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_ci", backend, "scope", views = GitHubResultViews(), loadSavedView = store::loadWithDiagnostics)
+        for ((id, reason) in listOf(java.util.UUID.randomUUID().toString() to "BODY_MISSING", "invalid-id" to "INVALID_VIEW_ID")) {
+            val result = tool.execute(reason, buildJsonObject { put("view_cursor", "$id:0:1536") })
+            assertEquals("SAVED_VIEW_UNAVAILABLE", result.errorCode)
+            assertFalse(result.dispatched)
+            assertEquals(JsonPrimitive(reason), result.executionReceipt?.get("saved_view_restore_state"))
+            val replay = requireNotNull(GitHubReplayRecovery.compact(result.content, 1500))
+            for (response in listOf(body(result), requireNotNull(GitHubReplayRecovery.envelope(replay)))) {
+                assertEquals(JsonPrimitive("START_FRESH_SCOPED_READ"), response["recovery_action"])
+                assertEquals(JsonPrimitive(false), response["mutation_replay_allowed"])
+                assertTrue(response.keys.none { it.endsWith("_call") })
+                assertFalse(response.toString().contains(id))
+            }
+        }
+        assertEquals(0, backend.calls)
     }
 
     @Test fun secondaryStoreFailurePreservesAcceptedMutationReceipt() = runBlocking {

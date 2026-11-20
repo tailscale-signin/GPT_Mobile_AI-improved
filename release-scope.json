@@ -195,7 +195,8 @@
     "Synchronize local voice captions with rendered PCM, preserve the first prompt through initialization and persistence, restore GitHub bottom-follow feedback, and bound the expanded chat header fade.",
     "Exclude native GGUF debugging sections from production Android downloads while preserving both supported ABIs and their runtime backends.",
     "Recover constrained GitHub result pages and bounded source reads, retain the cause of blocked repeat lookups, report additional GitHub operation families, and recover transient voice capture, focus and contraction pronunciation failures.",
-    "Simplify the Gateway desktop and phone connection flow. Enable Engineering for verified same-account devices and PC-issued single-repository connections while retaining explicit off choices."
+    "Simplify the Gateway desktop and phone connection flow. Enable Engineering for verified same-account devices and PC-issued single-repository connections while retaining explicit off choices.",
+    "Recover interrupted Kokoro pronunciation, GitHub jobs pagination and unfinished evidence checks, clarify reasoning overrides, and preserve route diagnostics across provider rejections."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",

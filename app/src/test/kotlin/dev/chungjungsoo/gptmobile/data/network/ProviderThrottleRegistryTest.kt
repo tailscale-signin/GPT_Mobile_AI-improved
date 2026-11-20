@@ -113,6 +113,22 @@ class ProviderThrottleRegistryTest {
         assertEquals(30_000L to 1, registry.reject("account", null))
     }
 
+    @Test fun sharedPoolRejectionsEscalateUntilAcceptanceEvenAcrossIdleRecoveryWindows() {
+        var now = 0L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        val pool = "upstream-pool"
+        for ((index, delay) in listOf(30_000L, 60_000L, 120_000L).withIndex()) {
+            assertEquals(delay to index + 1, registry.reject(pool, null))
+            registry.accepted(pool) // A concurrent success cannot cancel an active cooldown.
+            assertEquals(delay, registry.admit(pool).waitMillis)
+            assertEquals(0L, registry.admit("other-pool").waitMillis)
+            now += delay + 30_000
+            assertEquals(0L, registry.remainingMillis(pool))
+        }
+        registry.accepted(pool)
+        assertEquals(30_000L to 1, registry.reject(pool, null))
+    }
+
     @Test fun waitingForAnUpstreamPoolDoesNotConsumeTheReadyModelPermit() {
         var now = 0L
         val registry = ProviderThrottleRegistry({ now }, { 0 })

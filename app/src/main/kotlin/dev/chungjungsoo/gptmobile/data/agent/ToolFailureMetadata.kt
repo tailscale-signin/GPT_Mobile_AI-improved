@@ -14,10 +14,13 @@ internal object ToolFailureMetadata {
     private val unavailableCode = setOf("", "none", "null", "unknown")
     val authorityInvalidationCodes = setOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE")
 
+    private val authorityStopCodes = authorityInvalidationCodes + dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport.CODE
+
     private fun causes(error: Throwable) = generateSequence(error) { current -> current.cause?.takeUnless { it === current } }.take(16)
 
     fun authorityCode(error: Throwable): String? = causes(error).firstNotNullOfOrNull { cause ->
         when {
+            cause is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport -> dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport.CODE
             cause is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException -> "DISPATCH_POLICY_CHANGED"
             cause is dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected && cause.code in authorityInvalidationCodes -> cause.code
             cause is IllegalStateException && cause.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true -> "DISPATCH_POLICY_CHANGED"
@@ -27,9 +30,9 @@ internal object ToolFailureMetadata {
 
     /** Only structured local control metadata can stop the authority; payload prose cannot. */
     fun authorityCode(result: AgentToolResult): String? =
-        (result.executionReceipt?.get("authority_invalidation_code") as? JsonPrimitive)?.content?.takeIf { it in authorityInvalidationCodes }
-            ?: result.errorCode?.takeIf { result.isError && it in authorityInvalidationCodes }
-            ?: (result.executionReceipt?.get("cause_code") as? JsonPrimitive)?.content?.takeIf { result.isError && it in authorityInvalidationCodes }
+        (result.executionReceipt?.get("authority_invalidation_code") as? JsonPrimitive)?.content?.takeIf { it in authorityStopCodes }
+            ?: result.errorCode?.takeIf { result.isError && it in authorityStopCodes }
+            ?: (result.executionReceipt?.get("cause_code") as? JsonPrimitive)?.content?.takeIf { result.isError && it in authorityStopCodes }
 
     /** Preserve a stronger observed receipt, including success or uncertainty after invocation. */
     fun withAuthorityFailure(result: AgentToolResult, error: Throwable, stage: String): AgentToolResult? {
@@ -79,6 +82,8 @@ internal object ToolFailureMetadata {
         return ProviderEvent.Failed(
             if (unknown) {
                 "Execution authority changed while an earlier operation has an unknown outcome. Reconcile the retained receipts before any mutation; no model or tool continuation was started."
+            } else if (code == dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport.CODE) {
+                "Privacy Mode blocked this tool. Choose a verified text profile to continue chatting."
             } else {
                 "The selected profile, connection or tool configuration changed. Resume to revalidate the current settings and retained receipts. No further model or tool continuation was started."
             },

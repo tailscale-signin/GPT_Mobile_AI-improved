@@ -58,6 +58,36 @@ class GitHubRequestCompletionTest {
         assertTrue(rejected.getValue("receipt_ids").jsonArray.isEmpty())
     }
 
+    @Test fun ciDiagnosisRequiresMappedClaimEvidenceWithoutRequestingAPublishedImplementation() {
+        val request = GitHubWorkflowPreset.selected("diagnose_ci").prompt()
+        val ids = GitHubRequestCompletion.requirements(request).map(GitHubRequestCompletion::id)
+        val disputedClaim = buildJsonObject {
+            put("kind", "fact")
+            put("receipt_id", "ci")
+            put("pointer", "/conclusion")
+            put("value", "success")
+        }
+        val diagnosis = buildJsonObject {
+            put("claims", JsonArray(listOf(disputedClaim)))
+            put("requirement_claims", buildJsonObject { ids.forEach { put(it, JsonArray(listOf(JsonPrimitive(0)))) } })
+            put("acceptance", buildJsonObject { ids.forEach { put(it, buildJsonObject { put("implementation_receipts", JsonArray(listOf(JsonPrimitive("other")))) }) } })
+        }
+        val ci = receipt("status", buildJsonObject { put("conclusion", "failure") })
+        val (text, report) = GitHubEvidencePolicy.render(diagnosis, mapOf("ci" to ci, "other" to ci), 1000, 0, request)
+        val rows = report.getValue("remaining_requirements").jsonArray.map { it.jsonObject }
+        assertEquals(4, rows.size)
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        for (row in rows) {
+            assertEquals(JsonPrimitive("BLOCKED"), row["acceptance_state"])
+            assertEquals(JsonPrimitive("INFORMATIONAL_CLAIMS"), row["acceptance_evaluator_branch"])
+            assertEquals(JsonPrimitive("UNSUPPORTED_CLAIMS"), row["acceptance_mismatch"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("ci"))), row["receipt_ids"])
+            assertFalse("implementation_receipts" in row)
+        }
+        assertTrue("Check the claims mapped to this requirement against their cited observations" in text)
+        assertFalse("published implementation" in text)
+    }
+
     @Test fun compoundChangeRequestsCannotCompleteFromAnUnrelatedReadFact() {
         for (request in listOf("Review the repository and implement feature X", "Can you inspect this repository and then fix the bug?", "Read README.md; update the repository docs", "What changed? Please fix the bug", "Explain the architecture and implement the feature")) {
             assertFalse(request, GitHubRequestCompletion.informational(request))

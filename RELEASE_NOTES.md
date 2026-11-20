@@ -4,7 +4,7 @@ Windows Setup uses the Gateway workspace theme for connection, update, and advan
 
 Installed v17 updaters first select the 17.0.2 transition release. Once it restarts, check again for v18 or let automatic updates continue. The Windows release workflow builds both packages and exercises the transition using the packaged v18 ZIP.
 
-Voice captions follow Kokoro audio playback or word offsets provided by Android speech engines. The composer keeps the first draft until it is saved. Scrolling to the bottom of GitHub chat restores the three-dot follow indicator. Expanded chat headers concentrate the fade near the top.
+Voice captions follow Kokoro audio playback or word offsets provided by Android speech engines. The composer keeps the first draft until it is saved. Scrolling to the bottom of GitHub chat restores the three-dot follow indicator. Expanded chat headers concentrate the fade near the top. Kokoro can spell unfamiliar words and continue speaking. GitHub chat can reopen a saved jobs page when its cursor matches the observed workflow run, and **Continue** can collect missing verification from an unfinished task. The conversation reasoning selector can return to the profile setting after an explicit override.
 
 ## Getting started
 

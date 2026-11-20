@@ -188,7 +188,7 @@ internal object GitHubRequestCompletion {
                 requirements.size == 1 -> claims
                 else -> emptyList()
             }
-            val acceptance = (answer["acceptance"] as? JsonObject)?.get(id(requirement)) as? JsonObject
+            val acceptance = if (informational) null else (answer["acceptance"] as? JsonObject)?.get(id(requirement)) as? JsonObject
             fun claimReceiptIds(claim: JsonObject): Set<String> = buildSet {
                 (claim["receipt_id"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)?.let(::add)
                 (claim["sources"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().forEach { source ->
@@ -291,6 +291,13 @@ internal object GitHubRequestCompletion {
                         reviewBlocker
                     } else if (informational && passed) {
                         if (linkedReceiptIds.isEmpty()) "Verified answer coverage" else "Receipt-supported answer coverage"
+                    } else if (informational) {
+                        when {
+                            selectedClaims.isEmpty() -> "Link this requirement to a checked claim from the retained observations"
+                            !claimsCovered -> "Check the claims mapped to this requirement against their cited observations"
+                            recommendationRequirement && !recommendationClaimed -> "Link a labeled recommendation to verified source observations"
+                            else -> "Link this finding to a trusted successful source observation"
+                        }
                     } else if (!covered && implementedAndTested) {
                         "Matching test evidence is present, but answer coverage for this requirement remains unverified"
                     } else {

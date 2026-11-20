@@ -149,6 +149,13 @@ class GitHubPolicyReadRecoveryTest {
             JsonObject(receipt + ("execution" to JsonObject(execution + ("read_requests" to JsonPrimitive("0"))))),
             JsonObject(receipt + ("execution" to JsonObject(execution + ("mutation_requests" to JsonPrimitive("+0"))))),
             JsonObject(receipt + ("arguments" to json("""{"action":"create","title":"fixture"}"""))),
+            JsonObject(receipt + ("execution" to JsonObject(execution + ("dispatched" to JsonPrimitive(true))))),
+            JsonObject(receipt + ("execution" to JsonObject(execution + ("failed_stage" to JsonPrimitive("delivery"))))),
+            JsonObject(receipt + ("execution" to JsonObject(execution + ("remote_acceptance" to JsonPrimitive("UNKNOWN"))))),
+            JsonObject(receipt + ("execution" to JsonObject(execution + ("requires_reconciliation" to JsonPrimitive("false"))))),
+            JsonObject(receipt + ("execution" to JsonObject(execution + ("read_response_observations" to JsonPrimitive(1))))),
+            JsonObject(receipt + ("execution" to JsonObject(execution + ("phase" to JsonPrimitive("delivery"))))),
+            JsonObject(receipt + ("execution" to JsonObject(execution + ("execution_state" to JsonPrimitive("UNKNOWN_OUTCOME"))))),
             JsonObject(receipt + ("trusted" to JsonPrimitive(false)))
         )
         for (variant in variants) assertNull(variant.toString(), GitHubPolicyReadRecovery.revalidated(variant, GitHubEvidenceBook.digest("new")))

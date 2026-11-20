@@ -1743,14 +1743,17 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun setConversationReasoning(enabled: Boolean) {
+    fun setConversationReasoning(enabled: Boolean?) {
         _chatToolConfig.update { it.copy(reasoning = enabled) }
         val chatId = _chatRoom.value.id
         if (chatId > 0) {
             viewModelScope.launch {
                 try {
                     conversationDelegationMutex.withLock {
-                        settingRepository.mutateFeatureSettings { latest -> latest.copy(conversationReasoning = latest.conversationReasoning + (chatId to enabled)) }
+                        settingRepository.mutateFeatureSettings { latest ->
+                            val overrides = if (enabled == null) latest.conversationReasoning - chatId else latest.conversationReasoning + (chatId to enabled)
+                            latest.copy(conversationReasoning = overrides)
+                        }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -2277,10 +2280,10 @@ class ChatViewModel @Inject constructor(
                 current.copy(llamaReasoningModes = current.llamaReasoningModes + (profile.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO))
             }
             if (_reasoningAdmissionNotice.value?.profileUid == profileUid) dismissReasoningAdmission()
-            _attachmentNotice.value = if (_chatRoom.value.conversationMode == ConversationMode.COMBINED) {
+            _attachmentNotice.value = if (_chatToolConfig.value.reasoning != null) {
+                "${profile.name} is set to Auto. To use it for new requests here, choose Use profile settings under Conversation reasoning."
+            } else if (_chatRoom.value.conversationMode == ConversationMode.COMBINED) {
                 "${profile.name} now uses Auto for new requests. This turn keeps its accepted reasoning setting and saved replies."
-            } else if (_chatToolConfig.value.reasoning != null) {
-                "${profile.name} now uses Auto for new requests. This conversation still has an explicit reasoning override; change that setting or start a new conversation."
             } else {
                 "${profile.name} now uses Auto. Recheck this profile before retrying."
             }

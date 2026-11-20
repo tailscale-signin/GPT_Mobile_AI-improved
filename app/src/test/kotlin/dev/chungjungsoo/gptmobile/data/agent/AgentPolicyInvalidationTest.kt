@@ -19,6 +19,33 @@ import org.junit.Test
 class AgentPolicyInvalidationTest {
     private val args = JsonObject(emptyMap())
 
+    @Test fun privacyModeBlocksTheAnnouncedToolAndAnyFurtherRound() = runTest {
+        val limits = AgentRunLimits(githubTask = true)
+        val write = tool("write_fixture") { error("Privacy Mode must block the tool body") }
+        val checkpoint = ToolBatchCheckpoint(null, "protected")
+        var rounds = 0
+        val session = session {
+            check(++rounds == 1)
+            listOf(ProviderEvent.ToolCall("private", write.definition.name, args), ProviderEvent.Completed)
+        }
+        io.mockk.mockkObject(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.Companion) {
+            io.mockk.every { dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() } returns true
+            val events = AgentRunner(limits, checkpoint).run(session, listOf(write)).toList()
+            val failure = terminal(events)
+            assertEquals("PRIVACY_SERVICE_UNVERIFIED", failure.errorCode)
+            assertEquals(JsonPrimitive("tool_precheck"), failure.failureDetails?.get("failed_stage"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+            assertEquals(1, checkpoint.recoverySnapshot().rejectedCount)
+            assertEquals(0, checkpoint.recoverySnapshot().unknownCount)
+
+            val budget = ToolExecutionBudget(limits)
+            val result = budget.bind(write).execute("budgeted", args)
+            assertEquals("PRIVACY_SERVICE_UNVERIFIED", result.errorCode)
+            assertFalse(result.dispatched)
+            assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
+        }
+    }
+
     @Test fun precheckStopsQueuedWritesAndDiscoveryWhileKeepingCompletedReceipts() = runTest {
         var rounds = 0
         var invocations = 0

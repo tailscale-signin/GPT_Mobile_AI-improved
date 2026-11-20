@@ -217,14 +217,16 @@ internal class GitHubResultViews(
                     buildJsonObject {
                         put("schema", "github.arguments.v1")
                         put("reason", if (unissued) "UNISSUED_CURSOR" else known?.reason ?: "UNAVAILABLE_IN_AUTHORIZED_SCOPE")
-                        put("recovery_action", if (unissued) "START_FRESH_SCOPED_READ" else "REOPEN_ORIGINAL_SOURCE")
+                        put("recovery_action", if (known?.recovery != null) "REOPEN_ORIGINAL_SOURCE" else "START_FRESH_SCOPED_READ")
                         put("mutation_replay_allowed", false)
                         put(
                             "message",
                             if (unissued) {
                                 "This view_cursor was never issued. Do not retry or alter it. Start a fresh authorized source read with observed selectors; do not repeat a mutation."
+                            } else if (known?.recovery != null) {
+                                "Reopen the same immutable source with the exact source_recovery_call."
                             } else {
-                                "The saved page is unavailable. When source_recovery_call is available, reopen the same immutable source with that exact read-only recipe. Otherwise start a fresh authorized read; never replay a mutation."
+                                "The saved page is unavailable. Start a fresh authorized read using selectors from a successful result. Do not guess another cursor or repeat a mutation."
                             }
                         )
                         known?.let { view ->

@@ -122,8 +122,8 @@ fun ChatModelDialog(
     onResearchChanged: (dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection) -> Unit = {},
     onAcademicConsent: () -> Unit = {},
     onSaveResearchDefault: () -> Unit = {},
-    initialReasoning: Boolean = false,
-    onReasoningChanged: (Boolean) -> Unit = {},
+    conversationReasoning: Boolean? = null,
+    onReasoningChanged: (Boolean?) -> Unit = {},
     githubConversation: Boolean = false,
     githubCopilotAvailable: Boolean = false,
     githubCopilotEnabled: Boolean = false,
@@ -418,8 +418,23 @@ fun ChatModelDialog(
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Psychology, null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(10.dp))
-                            Text("Reasoning", Modifier.weight(1f))
-                            Switch(initialReasoning, onReasoningChanged)
+                            Text("Conversation reasoning", Modifier.weight(1f))
+                            Box {
+                                var expanded by remember { mutableStateOf(false) }
+                                val choices = listOf(null to "Use profile settings", true to "On", false to "Off")
+                                TextButton(onClick = { expanded = true }) {
+                                    Text(choices.first { it.first == conversationReasoning }.second)
+                                    Icon(Icons.Rounded.ArrowDropDown, null)
+                                }
+                                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                    choices.forEach { (value, label) ->
+                                        DropdownMenuItem(text = { Text(label) }, onClick = {
+                                            expanded = false
+                                            onReasoningChanged(value)
+                                        })
+                                    }
+                                }
+                            }
                         }
                         Text("Applies immediately to this conversation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {

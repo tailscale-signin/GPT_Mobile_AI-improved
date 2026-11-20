@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
@@ -77,6 +78,31 @@ internal object GitHubRecoveryCalls {
     }
 
     fun resolve(call: ProviderEvent.ToolCall, exchanges: List<AgentToolExchange>, tools: Map<String, AgentTool>): ProviderEvent.ToolCall {
+        val jobs = ToolArgumentValidator.jobsReadWithoutCursor(call.name, call.arguments)
+        if (jobs != null) {
+            val tool = tools[call.name] ?: return call
+            val schema = tool.definition.inputSchema
+            if (ToolArgumentValidator.errors(call.arguments, schema).isEmpty()) return call
+            val page = JsonObject(call.arguments.filterKeys { it == "view_cursor" })
+            if (ToolArgumentValidator.errors(page, schema).isNotEmpty() || !GitHubAuthorizationBoundary.isReplayableRead(call.name, page)) return call
+            val cursor = page.getValue("view_cursor") as JsonPrimitive
+            val viewId = JsonPrimitive(cursor.content.substringBefore(':'))
+            // The source receipt binds the view to its jobs run. A later page of that same view
+            // can supply the exact issued cursor, even after the provider replay was compacted.
+            var sourceMatches = false
+            var cursorIssued = false
+            for (exchange in exchanges.asReversed()) {
+                for (result in exchange.results) {
+                    val receipt = result.executionReceipt ?: continue
+                    if (result.isError || receipt["saved_view_id"] != viewId) continue
+                    val issuer = exchange.calls.firstOrNull { it.callId == result.callId && it.name == call.name } ?: continue
+                    if ("view_cursor" !in issuer.arguments && jobs.all { (key, value) -> issuer.arguments[key] == value }) sourceMatches = true
+                    if (cursor in (receipt["saved_view_cursor_ids"] as? JsonArray).orEmpty()) cursorIssued = true
+                    if (sourceMatches && cursorIssued) return call.copy(arguments = page)
+                }
+            }
+            return call
+        }
         val envelope = call.arguments.takeIf { it.size == 1 }?.entries?.singleOrNull()
             ?.takeIf { it.key in keys }?.value as? JsonObject
         val recipes = exchanges.asReversed().asSequence().flatMap { exchange ->

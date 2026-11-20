@@ -298,7 +298,7 @@ internal object GitHubEvidencePolicy {
         val output = if (!GitHubTaskCoverage.matches(task) && !remaining.isNullOrEmpty()) {
             text + "\n\n## Remaining work\n\n" + remaining.joinToString("\n") { row ->
                 val item = row as JsonObject
-                "- **${item.string("status").lowercase()}:** ${safe(item.string("requirement"))}"
+                "- **${item.string("status").lowercase()}:** ${safe(item.string("requirement"))} — ${safe(item.string("acceptance"))}"
             }
         } else {
             text
@@ -307,7 +307,7 @@ internal object GitHubEvidencePolicy {
     }
 
     /** A formatter outage cannot turn a private draft into proof or erase retained observations. */
-    fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null): Pair<String, JsonObject> {
+    fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, inspectExtractorFailure: Boolean = false): Pair<String, JsonObject> {
         if (GitHubTaskCoverage.matches(task)) return testing(receipts, now, epoch, task, tools, remainingToolCalls, stageBudget, acceptedContract, fixturePreflight)
         val allowHistorical = historicalReview(task)
         val claims = mutableListOf<JsonObject>()
@@ -365,7 +365,7 @@ internal object GitHubEvidencePolicy {
             val result = (resolution["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
             result?.get("keep_fixture") == JsonPrimitive(true)
         }
-        val action = recoveryAction(failureCode, receipts)
+        val action = if (inspectExtractorFailure) "INSPECT_THE_RECORDED_PROVIDER_FAILURE" else recoveryAction(failureCode, receipts)
         val ending = when {
             waitingForApproval ->
                 "**Waiting for approval.** Resolve the existing approval card for its exact task, branch, expected head and staged patch. Generic Continue and Retry are paused." +
@@ -419,7 +419,7 @@ internal object GitHubEvidencePolicy {
                         else -> action
                     }
                 ),
-                "retryable_without_new_input" to JsonPrimitive(!waitingForApproval && rejectedApprovals.isEmpty())
+                "retryable_without_new_input" to JsonPrimitive(!inspectExtractorFailure && !waitingForApproval && rejectedApprovals.isEmpty())
             )
         )
     }
@@ -447,6 +447,7 @@ internal object GitHubEvidencePolicy {
         "RESTORE_REVIEW_COMPARISON_EVIDENCE" -> "Restore the exact head and baseline observations before continuing the source review."
         "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT" -> "Resume the failed saved claim batch with a smaller claim limit; keep completed batches."
         "RESUME_SAVED_BATCH_WITH_SCHEMA_VALIDATION" -> "Resume the failed saved claim batch with strict structured-output validation."
+        "INSPECT_THE_RECORDED_PROVIDER_FAILURE" -> "Inspect the interrupted provider request before resuming its unfinished claim batch."
         "RESUME_UNFINISHED_EXTRACTION_BATCHES" -> "Continue only unfinished claim extraction batches from their saved checkpoint."
         "RETRY_CLAIM_EXTRACTION_FROM_SAVED_RECEIPTS" -> "Retry claim extraction from retained receipts without repeating completed GitHub reads."
         "PUBLISH_RETAINED_EVIDENCE_AND_SAVE_REMAINING_CHECKS" -> "Publish the evidence already gathered and save the remaining checks until an authorized tool allowance is available."

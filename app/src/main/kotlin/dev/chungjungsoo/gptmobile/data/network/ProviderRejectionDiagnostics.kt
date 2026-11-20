@@ -40,8 +40,9 @@ internal object ProviderRejectionDiagnostics {
                     fields["provider_parameter"] == JsonPrimitive("response_format") ||
                     text("message")?.startsWith("Invalid schema for response_format", ignoreCase = true) == true
                 )
-        val configurationRequired = billing || status == 401 || status == 410 || schemaRejected
-        if (!configurationRequired && status != 429) return fields
+        val missingModel = status == 404 && (code == "model_not_found" || text("type") == "model_not_found")
+        val configurationRequired = billing || missingModel || status == 401 || status == 410 || schemaRejected
+        if (!configurationRequired && status != 404 && status != 429) return fields
         return JsonObject(
             fields + buildJsonObject {
                 if (billing) put("provider_rejection_category", "BILLING_UNAVAILABLE")

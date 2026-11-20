@@ -9,16 +9,16 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "4ab8e223e0f34145110218a781528ca359f89f059db75b6075d0543041e90b53"
+    val sourceDigest: String = "5fcd3ca701514bed1d00867fde8d9064b4cfbc6ca7a5a0b2acc59cad3f5fbecf"
     val fileCount: Int = 2757
-    val lineCount: Int = 455512
+    val lineCount: Int = 455647
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8675),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 571, 101305),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 571, 101343),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 200, 9296),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 234, 40457),
-        AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 102, 23305),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 234, 40510),
+        AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 102, 23307),
         AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 31, 4700),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
         AppAuditSourceArea("model_providers", "Model providers and adapters", 64, 9446),
@@ -26,14 +26,14 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14860),
         AppAuditSourceArea("gateway_client", "Android gateway client", 39, 6770),
         AppAuditSourceArea("network", "Networking and readiness", 101, 10228),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 242, 42527),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 242, 42555),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14027),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 44, 4939),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 110, 14752),
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 94, 14047),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 119, 18487),
-        AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 31, 4249),
-        AppAuditSourceArea("voice_and_media", "Voice and media", 32, 6398),
+        AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 31, 4255),
+        AppAuditSourceArea("voice_and_media", "Voice and media", 32, 6406),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4095),
         AppAuditSourceArea("gateway_software", "Companion gateway software", 216, 85048),

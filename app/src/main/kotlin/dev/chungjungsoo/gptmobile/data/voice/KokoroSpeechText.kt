@@ -18,7 +18,7 @@ internal data class KokoroPronunciationObservation(
 
 internal data class KokoroSpeechProjection(val parts: List<String>?, val observation: KokoroPronunciationObservation, val captionParts: List<KokoroCaptionPart> = emptyList())
 
-/** Sherpa's lexicon drops unknown words. Spell explicit initialisms, never an ordinary missing word. */
+/** Sherpa drops unknown keys, so all spoken substitutions must exist in the installed lexicon. */
 internal object KokoroSpeechText {
     private val marks = Regex("""\p{M}+""")
     private val invisibleFormat = Regex("[\u00AD\u200B\u200C\u200D\u2060\uFEFF]")
@@ -77,9 +77,8 @@ internal object KokoroSpeechText {
         var knownWords = 0
         var initialismWords = 0
         var unknownWords = 0
-        var unknownWordLength: Int? = null
         var spelledLetters = 0
-        fun outcome(parts: List<String>?, failure: KokoroPronunciationFailure? = null) = KokoroSpeechProjection(
+        fun outcome(parts: List<String>?, failure: KokoroPronunciationFailure? = null, unknownWordLength: Int? = null) = KokoroSpeechProjection(
             parts,
             KokoroPronunciationObservation(knownWords, initialismWords, unknownWords, spelledLetters, formatCharacters, failure, unknownWordLength),
             captionParts
@@ -102,6 +101,15 @@ internal object KokoroSpeechText {
             if (part.isNotEmpty()) part.append(' ')
             part.append(word)
             words++
+        }
+        fun appendSpelling(key: String): Boolean {
+            // Limit spelling to one unit's word budget. Check every letter before emitting any.
+            if (key.length > MAX_PART_WORDS) return false
+            val letters = key.filter(Char::isLetter).map(Char::toString)
+            if (!letters.all(isKnown)) return false
+            letters.forEach(::appendWord)
+            spelledLetters += letters.size
+            return true
         }
         for (match in token.findAll(plain)) {
             val value = match.value
@@ -142,15 +150,15 @@ internal object KokoroSpeechText {
                             knownWords++
                         } else if (segment in initialisms) {
                             initialismWords++
-                            for (letter in key.filter(Char::isLetter)) {
-                                if (!isKnown(letter.toString())) return outcome(null, KokoroPronunciationFailure.MISSING_LETTER)
-                                appendWord(letter.toString())
-                                spelledLetters++
-                            }
+                            if (!appendSpelling(key)) return outcome(null, KokoroPronunciationFailure.MISSING_LETTER)
                         } else {
                             unknownWords++
-                            unknownWordLength = segment.length.coerceAtMost(256)
-                            return outcome(null, KokoroPronunciationFailure.UNKNOWN_WORD)
+                            if (!appendSpelling(key)) {
+                                // "word" is required by the pack health check, even if a letter is missing.
+                                if (!isKnown("word")) return outcome(null, KokoroPronunciationFailure.UNKNOWN_WORD, key.length.coerceAtMost(256))
+                                if (isKnown("unknown")) appendWord("unknown")
+                                appendWord("word")
+                            }
                         }
                     }
                 }

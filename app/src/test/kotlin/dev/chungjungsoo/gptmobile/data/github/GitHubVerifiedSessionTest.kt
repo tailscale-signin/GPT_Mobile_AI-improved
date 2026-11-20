@@ -225,6 +225,9 @@ class GitHubVerifiedSessionTest {
         for (key in listOf("retryable", "request_replay_allowed", "logical_continuation_allowed")) assertEquals(JsonPrimitive(false), failure.failureDetails?.get(key))
         for (key in listOf("invocation_id", "dispatched", "http_status")) assertFalse(requireNotNull(failure.failureDetails).containsKey(key))
         assertEquals(null, failure.invocationId)
+        assertEquals(JsonPrimitive("INSPECT_THE_RECORDED_PROVIDER_FAILURE"), published?.get("recovery_action"))
+        assertEquals(JsonPrimitive(false), published?.get("retryable_without_new_input"))
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().any { "Inspect the interrupted provider request" in it.text })
         assertEquals(JsonPrimitive(1), published?.get("extraction_batches_completed"))
         assertEquals(JsonPrimitive(2), published?.get("extraction_batches_total"))
         val checkpoint = requireNotNull(book.retainedClaimExtraction())
@@ -233,6 +236,60 @@ class GitHubVerifiedSessionTest {
         assertTrue(batches[0] is JsonObject)
         assertEquals(JsonNull, batches[1])
         assertTrue(events.none { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+    }
+
+    @Test fun explicitContinueCanCollectMissingImplementationEvidenceAfterCompletedExtraction() = runBlocking {
+        val task = GitHubQuickWorkflow.defaults.single { it.id == "improve" }.prompt
+        val tool = AgentToolDefinition("github_read", "Read repository source", JsonObject(emptyMap()))
+        val read = ProviderEvent.ToolCall("source", tool.name, buildJsonObject { put("path", "app.kt") })
+        val next = ProviderEvent.ToolCall("test", tool.name, buildJsonObject { put("path", "test.kt") })
+        val id = GitHubRequestCompletion.id(task)
+        for (mapped in listOf(true, false)) {
+            val stored = mutableMapOf<String, JsonObject>()
+            val book = GitHubEvidenceBook(
+                "b",
+                "o/r",
+                "feature",
+                setOf(tool.name),
+                now = { 1000L },
+                load = { stored[it] },
+                save = { key, value -> stored[key] = value },
+                latestVerdict = { stored.entries.singleOrNull { it.key.startsWith("verification_current_") }?.value }
+            )
+            book.observe(read, AgentToolResult(read.callId, ToolResultContent.Json(buildJsonObject { put("path", "app.kt") }), false))
+            val receiptId = book.snapshot().first.keys.single()
+            val result = if (mapped) {
+                """{"claims":[{"kind":"fact","receipt_id":"$receiptId","pointer":"/path","value":"app.kt"},{"kind":"not_measured","subject":"tests"}],"acceptance":{"$id":{"implementation_receipts":["$receiptId"]}}}"""
+            } else {
+                """{"claims":[{"kind":"fact","receipt_id":"$receiptId","pointer":"/missing","value":"unverified"}]}"""
+            }
+            val initial = GitHubVerifiedSession(answer("Candidate $mapped"), book, task, { 8192 }, { answer(result) }, {}, {}, now = { 1000L })
+            val failure = initial.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+            assertEquals(if (mapped) "GITHUB_TASK_INCOMPLETE" else "GITHUB_EVIDENCE_REQUIRED", failure.errorCode)
+            val branch = if (mapped) "REVISION_TEST_ACCEPTANCE" else "ACCEPTANCE_MAPPING_REQUIRED"
+            assertEquals(JsonPrimitive(branch), book.diagnostic()?.get("requirements")?.jsonArray?.single()?.jsonObject?.get("acceptance_evaluator_branch"))
+            var corrections = 0
+            fun resume(remaining: Int) = GitHubVerifiedSession(
+                answer("Private original draft"), book, task, { 8192 }, { error("Validated batch already saved") }, {}, {}, now = { 1000L },
+                currentRequest = "Continue", remainingToolCalls = { remaining },
+                openExecutionContinuation = { prompt ->
+                    corrections++
+                    assertTrue(id in prompt)
+                    object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(next, ProviderEvent.Completed)
+                    }
+                }
+            )
+            val atReserve = resume(2).streamRound(listOf(tool), emptyList()).toList()
+            assertTrue(atReserve.last() is ProviderEvent.Failed)
+            assertEquals(0, corrections)
+            val resumed = resume(20)
+            val events = resumed.streamRound(listOf(tool), emptyList()).toList()
+            assertEquals(listOf(next), events.filterIsInstance<ProviderEvent.ToolCall>())
+            assertEquals(JsonPrimitive(false), book.diagnostic()?.get("completion_verified"))
+            resumed.streamRound(listOf(tool), emptyList()).toList()
+            assertEquals(1, corrections)
+        }
     }
 
     @Test fun extractionDeadlineCannotReplaceAnAlreadyRecordedProviderFailure() = runTest {
@@ -316,7 +373,9 @@ class GitHubVerifiedSessionTest {
                 },
                 {}, {}, now = { 1000 }, computationDispatcher = StandardTestDispatcher(testScheduler)
             )
-            val failure = gate.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+            val events = gate.streamRound(emptyList(), emptyList()).toList()
+            val failure = events.last() as ProviderEvent.Failed
+            assertTrue(stage, events.filterIsInstance<ProviderEvent.TextDelta>().any { "Continue only unfinished claim extraction batches" in it.text })
             assertEquals(stage, 90_000L, testScheduler.currentTime - started)
             assertEquals(if (stage == "before_provider") 0 else 1, attempts)
             assertEquals("GITHUB_EXTRACTION_TIMEOUT", failure.errorCode)

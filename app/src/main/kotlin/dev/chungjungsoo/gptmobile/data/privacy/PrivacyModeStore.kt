@@ -10,6 +10,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+internal class UnverifiedServiceTransport : IllegalStateException("$CODE: Choose a verified text profile. Your conversation is saved locally.") {
+    companion object {
+        const val CODE = "PRIVACY_SERVICE_UNVERIFIED"
+    }
+}
+
 /** Categories are enabled by default, independently of the OFF-by-default master switch. */
 enum class PrivacyCategory(val title: String, val description: String) {
     IDENTITIES("Names & identities", "People, aliases and personal identifiers"),
@@ -80,7 +86,7 @@ class PrivacyModeStore @Inject constructor(
             ?.getBoolean("privacy_mode_enabled", false) == true
 
         fun requireUnprotectedTransport() {
-            check(!active()) { "PRIVACY_SERVICE_UNVERIFIED: Choose a verified text profile. Your conversation is saved locally." }
+            if (active()) throw UnverifiedServiceTransport()
         }
     }
 

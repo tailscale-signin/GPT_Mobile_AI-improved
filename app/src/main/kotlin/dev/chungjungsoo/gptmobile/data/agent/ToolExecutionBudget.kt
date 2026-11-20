@@ -339,8 +339,8 @@ class ToolExecutionBudget(
                     val sharedContext = physicalContext?.let { CombinedToolDispatchScope(it, physicalIdentity) } ?: kotlin.coroutines.EmptyCoroutineContext
                     val observed = withContext(sharedContext + ToolBudgetScope(this@ToolExecutionBudget)) {
                         currentCoroutineContext().ensureActive()
-                        physicalToolStarted = true
                         dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                        physicalToolStarted = true
                         if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, attributedProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
                     }
                     // A receipt with another call ID cannot establish this call's outcome,
@@ -464,6 +464,8 @@ class ToolExecutionBudget(
                     }
                     if (!physicalToolStarted) {
                         authorityPrecheck(callId, definition.name, error)?.let { rejected ->
+                            statistics?.rejectedBeforeDispatch(statisticsId)
+                            statisticsId = null
                             reason = rejected.errorCode
                             combinedResult = rejected
                             deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED

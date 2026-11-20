@@ -2175,7 +2175,11 @@ class AgentRunner(
                 dispatched = false
             )
         }
-        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+        try {
+            dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+        } catch (blocked: dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport) {
+            return requireNotNull(ToolFailureMetadata.authorityPrecheck(call.callId, call.name, blocked))
+        }
         AgentContractValidation.admission(tool.definition, call.callId)?.let { return it }
         if (!tool.managesExecutionBudget) {
             val errors = ToolArgumentValidator.errors(call.arguments, tool.definition.inputSchema)

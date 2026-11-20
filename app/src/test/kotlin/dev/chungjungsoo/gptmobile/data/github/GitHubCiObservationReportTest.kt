@@ -133,6 +133,11 @@ class GitHubCiObservationReportTest {
         assertTrue(listOf("attempt", "snapshot", "logs").all { JsonPrimitive(it) in ids })
         receipts["logs"] = JsonObject(receipts.getValue("logs") + ("trusted" to JsonPrimitive(false)))
         assertNull(GitHubCiObservationReport.render(task, receipts, now, 2))
+        val (partialText, partial) = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2, checkSnapshotOnly = true))
+        assertTrue(partialText.contains("24"))
+        assertEquals(JsonPrimitive("CHECK_SNAPSHOT_ONLY"), partial["observation_state"])
+        assertEquals(JsonPrimitive(false), partial["completion_verified"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("snapshot"))), partial["evidence_receipt_ids"])
     }
 
     @Test fun sevenSuccessfulAndElevenSkippedRunsFinishOnlyTheBoundedDiagnosis() {

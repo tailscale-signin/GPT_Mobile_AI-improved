@@ -22,7 +22,10 @@ internal object GitHubCiObservationReport {
             simpleDiagnosis.matches(requirements.single())
     }
 
-    fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject>? {
+    fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject>? =
+        render(task, receipts, now, epoch, checkSnapshotOnly = false)
+
+    fun render(task: String, receipts: Map<String, JsonObject>, now: Long, epoch: Long, checkSnapshotOnly: Boolean): Pair<String, JsonObject>? {
         if (!matches(task)) return null
         val eligible = GitHubStatusEvidence.selected(receipts, null).filterValues { receipt ->
             val observed = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0
@@ -46,8 +49,38 @@ internal object GitHubCiObservationReport {
             } else {
                 GitHubStatusEvidence.checks(eligible, head, now, epoch)
             }
+            if (checkSnapshotOnly && inventory?.complete == true && inventory.outcomes.isNotEmpty()) {
+                val evidence = JsonArray(inventory.receiptIds.map(::JsonPrimitive))
+                val requirements = JsonArray(
+                    GitHubRequestCompletion.requirements(task).map { requirement ->
+                        buildJsonObject {
+                            put("id", GitHubRequestCompletion.id(requirement))
+                            put("requirement", requirement)
+                            put("status", "PENDING")
+                            put("acceptance_state", "NOT_TESTED")
+                        }
+                    }
+                )
+                val counts = inventory.outcomes.entries.joinToString(", ") { (state, count) -> "$count $state" }
+                return "The retained check snapshot for `${head.take(12)}` shows $counts. The workflow diagnosis is incomplete." to buildJsonObject {
+                    put("schema", "github.verification.v1")
+                    put("task_outcome", "PARTIAL")
+                    put("observation_state", "CHECK_SNAPSHOT_ONLY")
+                    put("partial", true)
+                    put("answer_verified", true)
+                    put("claims_verified", true)
+                    put("completion_verified", false)
+                    put("head_sha", head)
+                    put("check_inventory", inventory.row())
+                    put("evidence_receipt_ids", evidence)
+                    put("requirements", requirements)
+                    put("remaining_requirements", requirements)
+                    put("verified_at_ms", now)
+                }
+            }
             inventory?.let { pendingObservation(task, head, it, observed, eligible, now, epoch) }?.let { return it }
         }
+        if (checkSnapshotOnly) return null
         val pages = eligible.filterValues { receipt ->
             receipt.text("tool").substringBefore("__") == "github_ci" &&
                 (receipt["arguments"] as? JsonObject)?.text("action") == "runs"

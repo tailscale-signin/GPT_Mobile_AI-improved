@@ -274,6 +274,29 @@ class GitHubReplayRecoveryTest {
         assertEquals(null, GitHubReplayRecovery.repeated(call.copy(arguments = buildJsonObject { put("path", "B.kt") }), exchanges, "Repeat limit"))
     }
 
+    @Test fun rejectedReadIdentifiesThePriorRequestAndPreservesAnUncertainOutcome() {
+        val call = ProviderEvent.ToolCall(
+            "earlier",
+            "github_context__github_api",
+            buildJsonObject {
+                put("action", "resolve")
+                put("ref", "main")
+            }
+        )
+        fun repeatAfter(error: String) = GitHubReplayRecovery.repeated(
+            call.copy(callId = "again"),
+            listOf(AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("blocked"), true, errorCode = error, dispatched = false)))),
+            "Repeat limit"
+        )
+        val rejected = requireNotNull(repeatAfter("NOT_DISPATCHED"))
+        assertEquals("NOT_DISPATCHED", rejected.errorCode)
+        assertFalse(rejected.dispatched)
+        val evidence = (rejected.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("earlier"), evidence["previous_call_id"])
+        assertEquals(JsonPrimitive(1), evidence["prior_attempt_count"])
+        assertEquals(null, repeatAfter("DISPATCH_OUTCOME_UNKNOWN"))
+    }
+
     @Test fun repeatedSuppressionKeepsTheOriginalReferenceAndDoesNotNestWrappers() {
         val call = ProviderEvent.ToolCall("original", "github_read__github_api", buildJsonObject { put("path", "A.kt") })
         val original = AgentToolResult(call.callId, content, false)

@@ -31,7 +31,7 @@ internal object GitHubPatchStager {
                 }
             }
             val occurrence = edit["occurrence"]?.jsonPrimitive?.intOrNull
-            require(positions.isNotEmpty()) { "Exact edit anchor was not found: $path" }
+            require(positions.isNotEmpty()) { "Exact edit anchor was not found: $path. Use github_read at the pinned revision and supply the exact old text before staging." }
             require(occurrence != null || positions.size == 1) { "Ambiguous edit anchor; supply an explicit occurrence: $path" }
             val selected = occurrence ?: 1
             require(selected in 1..positions.size) { "Edit occurrence is outside the original text." }

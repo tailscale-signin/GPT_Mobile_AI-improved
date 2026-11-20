@@ -115,14 +115,20 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
-    @Test fun persistentSystemSilencingDuringReadStopsAfterOneRecorderReplacement() {
+    @Test fun persistentSystemSilencingReleasesEachRecorderBeforeSessionBackoff() {
         val failure = LocalVoiceCaptureException("Input silenced", "MICROPHONE_CAPTURE_SILENCED", "capture_read", retryable = true)
         val first = FakeCapture(readFailure = failure)
         val second = FakeCapture(readFailure = failure)
+        val third = FakeCapture(readFailure = failure)
         val calls = AtomicInteger()
         val decoder = FakeDecoder()
         val fixture = Fixture(decoder, capture = first, captureFactory = {
-            if (calls.incrementAndGet() == 1) first else second.also { assertTrue(first.closed) }
+            when (calls.incrementAndGet()) {
+                1 -> first
+                2 -> second.also { assertTrue(first.closed) }
+                3 -> third.also { assertTrue(second.closed) }
+                else -> error("Unexpected capture attempt")
+            }
         })
         try {
             fixture.audio.listen(fixture.listener)
@@ -130,12 +136,14 @@ class MoonshineVoiceRecognizerTest {
             fixture.worker.shutdown()
             assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
             fixture.drain()
-            assertEquals(2, calls.get())
+            assertEquals(3, calls.get())
             assertEquals(listOf("VOICE_MICROPHONE_BUSY"), fixture.codes)
             assertEquals(listOf(1_000L), fixture.retryDelays)
             assertEquals(1, fixture.retryableErrors.size)
             assertTrue(fixture.finals.isEmpty())
+            assertEquals(1, first.closeCount.get())
             assertEquals(1, second.closeCount.get())
+            assertEquals(1, third.closeCount.get())
         } finally {
             fixture.close()
         }

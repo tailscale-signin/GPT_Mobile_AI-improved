@@ -1262,7 +1262,7 @@ internal class GitHubRepositorySession(
             val path = args.s("target_file").also { GitHubWorkspaceClient.filePath(it) }
             val search = args["search_snippet"]?.jsonPrimitive?.takeIf { it.isString }?.content ?: error("search_snippet is required.")
             val replacement = args["replacement_snippet"]?.jsonPrimitive?.takeIf { it.isString }?.content ?: error("replacement_snippet is required.")
-            require(search.isNotBlank() && search != replacement) { "Supply a non-empty exact anchor and a changed replacement." }
+            require(search.isNotBlank() && search != replacement) { "Use github_read for inspection. Stage a non-empty exact anchor and a changed replacement." }
             JsonArray(
                 listOf(
                     buildJsonObject {

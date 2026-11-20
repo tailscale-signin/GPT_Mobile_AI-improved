@@ -228,10 +228,18 @@ internal object GitHubReplayRecovery {
             // A refused read has no remote result. Keep its last actual blocker available
             // when the identical request reaches the repeat limit.
             if (!dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments)) return null
-            val blocked = exchanges.asReversed().firstNotNullOfOrNull { exchange ->
+            val failures = exchanges.flatMap { exchange ->
                 val ids = exchange.calls.filter { toolRepeatKey(it) == key }.mapTo(mutableSetOf()) { it.callId }
-                exchange.results.lastOrNull { it.callId in ids && it.isError && !it.dispatched && !it.sharedResult && it.errorCode != null && it.errorCode != "NOT_DISPATCHED" }
-            } ?: return null
+                exchange.results.filter { it.callId in ids }
+            }
+            val hasUncertainOutcome = failures.any { result ->
+                result.dispatched ||
+                    !result.isError ||
+                    result.errorCode in ToolResultEnvelope.unknownOutcomeCodes ||
+                    listOf("requires_reconciliation", "requiresReconciliation").any { result.executionReceipt?.get(it) == JsonPrimitive(true) }
+            }
+            if (failures.isEmpty() || hasUncertainOutcome) return null
+            val blocked = failures.lastOrNull { !it.sharedResult && it.errorCode != null && it.errorCode != "NOT_DISPATCHED" } ?: failures.last()
             return AgentToolResult(
                 call.callId,
                 ToolResultContent.Json(
@@ -239,9 +247,10 @@ internal object GitHubReplayRecovery {
                         put("schema", "github.repeat.v1")
                         put("operation", operation)
                         put("status", "REPEAT_LIMIT")
+                        put("prior_attempt_count", failures.size)
                         put("previous_call_id", blocked.callId)
                         put("previous_error_code", blocked.errorCode)
-                        put("message", message)
+                        put("message", if (blocked.errorCode == "NOT_DISPATCHED") "Earlier identical requests were rejected before dispatch. Resolve the prior rejection before retrying." else message)
                         envelope(blocked.content)?.let { prior ->
                             for (field in listOf("correction_call", "recovery_call", "source_recovery_call")) prior[field]?.let { put(field, it) }
                         }

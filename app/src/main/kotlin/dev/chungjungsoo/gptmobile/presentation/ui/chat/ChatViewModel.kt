@@ -3333,7 +3333,7 @@ class ChatViewModel @Inject constructor(
                     }
                 if (acceptedTools.combined == null && platforms.any { rejectUnavailableFreeProfile(it.value) }) {
                     _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
-                    attempt.finish("PREPARATION_REJECTED")
+                    attempt.finish("FREE_PROFILE_UNAVAILABLE")
                     return@launch
                 }
                 val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
@@ -3345,14 +3345,14 @@ class ChatViewModel @Inject constructor(
                 if (platforms.isEmpty()) {
                     _attachmentNotice.value = "Choose an available profile to send this draft."
                     _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
-                    attempt.finish("PREPARATION_REJECTED")
+                    attempt.finish("NO_AVAILABLE_PLATFORMS")
                     return@launch
                 }
                 val timestamp = currentTimeStamp
                 val userMessage = submittedHistory.userMessages.getOrNull(turnIndex)
                 if (userMessage == null) {
                     _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
-                    attempt.finish("PREPARATION_REJECTED")
+                    attempt.finish("SUBMITTED_TURN_UNAVAILABLE")
                     return@launch
                 }
                 var dispatchTools = acceptedTools

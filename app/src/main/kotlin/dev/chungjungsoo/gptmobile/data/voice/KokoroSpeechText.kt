@@ -12,7 +12,8 @@ internal data class KokoroPronunciationObservation(
     val unknownWords: Int,
     val spelledLetters: Int,
     val removedFormatCharacters: Int,
-    val failure: KokoroPronunciationFailure?
+    val failure: KokoroPronunciationFailure?,
+    val unknownWordLength: Int? = null
 )
 
 internal data class KokoroSpeechProjection(val parts: List<String>?, val observation: KokoroPronunciationObservation, val captionParts: List<KokoroCaptionPart> = emptyList())
@@ -23,7 +24,7 @@ internal object KokoroSpeechText {
     private val invisibleFormat = Regex("[\u00AD\u200B\u200C\u200D\u2060\uFEFF]")
     private val token = Regex("""[vV][0-9]+(?:\.[0-9]+)+|[+\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)*|[a-zA-Z]+(?:'[a-zA-Z]+)*|[.,!?;:\n%&#@/+]""")
     private val camelBoundary = Regex("""(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])""")
-    private val initialisms = setOf("AI", "API", "APK", "AAR", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "RAM", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML")
+    private val initialisms = setOf("AI", "API", "APK", "AAR", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "RAM", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML", "VR", "XR", "USB", "DNS", "VPN", "CLI", "IDE", "JSON", "PDF", "NPU", "ASR", "JVM", "PCM")
     private val contractions = mapOf("can't" to "cannot", "won't" to "will not", "don't" to "do not", "doesn't" to "does not", "didn't" to "did not", "isn't" to "is not", "aren't" to "are not", "wasn't" to "was not", "weren't" to "were not", "couldn't" to "could not", "wouldn't" to "would not", "shouldn't" to "should not", "i'm" to "i am", "we're" to "we are", "you're" to "you are", "they're" to "they are", "i've" to "i have", "we've" to "we have", "you've" to "you have", "they've" to "they have")
     private val digits = listOf("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
     private val teens = listOf("ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen")
@@ -76,10 +77,11 @@ internal object KokoroSpeechText {
         var knownWords = 0
         var initialismWords = 0
         var unknownWords = 0
+        var unknownWordLength: Int? = null
         var spelledLetters = 0
         fun outcome(parts: List<String>?, failure: KokoroPronunciationFailure? = null) = KokoroSpeechProjection(
             parts,
-            KokoroPronunciationObservation(knownWords, initialismWords, unknownWords, spelledLetters, formatCharacters, failure),
+            KokoroPronunciationObservation(knownWords, initialismWords, unknownWords, spelledLetters, formatCharacters, failure, unknownWordLength),
             captionParts
         )
         if (plain.codePoints().anyMatch { it > 127 && Character.isLetterOrDigit(it) }) return outcome(null, KokoroPronunciationFailure.UNSUPPORTED_SCRIPT)
@@ -147,6 +149,7 @@ internal object KokoroSpeechText {
                             }
                         } else {
                             unknownWords++
+                            unknownWordLength = segment.length.coerceAtMost(256)
                             return outcome(null, KokoroPronunciationFailure.UNKNOWN_WORD)
                         }
                     }

@@ -273,6 +273,47 @@ class GitHubResultViewsStressTest {
         assertFalse("recovery_call" in stillTooLarge)
     }
 
+    @Test fun smallSavedPagesCanFinishWithALongRouteAndKeepTheUpstreamContinuation() {
+        val views = GitHubResultViews(pageBytes = 4096)
+        val route = "github_context__" + "a".repeat(100)
+        val original = buildJsonObject {
+            put("body", "value ".repeat(600))
+            put(
+                "next_continuation",
+                buildJsonObject {
+                    put("action", "list_commits")
+                    put("page", 2)
+                    put("ref", "b".repeat(40))
+                }
+            )
+        }
+        val shown = views.present("scope", "github_context", route, AgentToolResult("initial", ToolResultContent.Json(original), false))
+        fun recovery(page: JsonObject) = page.getValue("recovery_call").jsonObject.getValue("arguments").jsonObject.getValue("view_cursor").jsonPrimitive.content
+        var issued = recovery(data(shown))
+        val seen = mutableSetOf<String>()
+        while (true) {
+            assertTrue(seen.add(issued) && seen.size < 200)
+            val local = views.read("scope", "github_context", route, issued, "resume")
+            assertFalse(local.dispatched)
+            val page = data(local)
+            if (local.errorCode == "SAVED_VIEW_PAGE_CAPACITY") {
+                val larger = recovery(page)
+                assertEquals(issued.substringBeforeLast(':'), larger.substringBeforeLast(':'))
+                assertTrue(larger.substringAfterLast(':').toInt() > issued.substringAfterLast(':').toInt())
+                issued = larger
+                continue
+            }
+            assertFalse(local.isError)
+            assertTrue(page.toString().encodeToByteArray().size <= issued.substringAfterLast(':').toInt())
+            if (page.getValue("local_page_complete").jsonPrimitive.boolean) {
+                val args = page.getValue("remote_continuations").jsonArray.single().jsonObject.getValue("call").jsonObject.getValue("arguments").jsonObject
+                assertEquals(JsonPrimitive(2), args["page"])
+                break
+            }
+            issued = cursor(page)
+        }
+    }
+
     @Test fun longJsonPointersAreIncludedInFragmentByteAccounting() {
         val views = GitHubResultViews(pageBytes = 2048)
         val key = "k".repeat(320)

@@ -352,7 +352,15 @@ internal class GitHubResultViews(
         val page = page(parts[0], refreshed, offset, modelName, requestedBytes)
         authorize(refreshed, page)
         if (page["page_capacity_exceeded"] == JsonPrimitive(true)) {
-            return AgentToolResult(callId, ToolResultContent.Json(page), true, errorCode = "SAVED_VIEW_PAGE_CAPACITY", sharedResult = true, dispatched = false)
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(page),
+                true,
+                errorCode = "SAVED_VIEW_PAGE_CAPACITY",
+                sharedResult = true,
+                dispatched = false,
+                executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
+            )
         }
         return AgentToolResult(callId, ToolResultContent.Json(page), entry.originalError, errorCode = entry.originalErrorCode, sharedResult = true, dispatched = false)
     }
@@ -533,7 +541,10 @@ internal class GitHubResultViews(
                 put("operation", entry.operation)
                 put("local_page_complete", false)
                 put("page_capacity_exceeded", true)
+                put("requested_page_bytes", pageBytes)
+                put("fragment_offset", offset)
                 if (pageBytes < entry.pageBytes) put("recovery_call", savedCall(modelName, "$id:$offset:${entry.pageBytes}"))
+                entry.sourceRecovery?.takeIf { it.toString().toByteArray().size <= pageBytes / 4 }?.let { put("source_recovery_call", it) }
                 put("message", "This saved record exceeds the admitted page allowance. Increase the result/context allowance or narrow the immutable read; no cursor advanced and no upstream action was repeated.")
             }
         }

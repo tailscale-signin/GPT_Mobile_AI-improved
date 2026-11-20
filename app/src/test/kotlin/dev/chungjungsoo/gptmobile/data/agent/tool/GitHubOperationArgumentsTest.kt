@@ -19,6 +19,16 @@ class GitHubOperationArgumentsTest {
 
     private fun args(value: String) = Json.parseToJsonElement(value) as JsonObject
 
+    @Test fun contradictoryReadLimitsReturnThePinnedIntersectionAndNoOpEditsAreRejected() {
+        val query = args("""{"ranges":[{"path":"A.kt","start_line":7,"max_lines":3,"end_line":20}]}""")
+        val result = dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.rejection("id", "github_read", query, GitHubOperationTool.definition("github_read").inputSchema)
+        val payload = (result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json).value as JsonObject
+        val corrected = (payload.getValue("correction_call") as JsonObject).getValue("arguments")
+        assertTrue(corrected == args("""{"ranges":[{"path":"A.kt","start_line":7,"end_line":9}]}"""))
+        val noop = args("""{"target_file":"A.kt","search_snippet":"__inspect__","replacement_snippet":"__inspect__"}""")
+        assertTrue(GitHubOperationArguments.errors("github_stage_patch", noop).any { "identical" in it })
+    }
+
     @Test fun repositoryDiscoveryRequiresANonBlankSearchQuery() {
         for (input in listOf("""{"action":"repositories"}""", """{"action":"repositories","query":""}""", """{"action":"repositories","query":"   "}""")) {
             assertEquals(listOf("query is required"), GitHubOperationArguments.errors("github_context", args(input)))

@@ -68,6 +68,17 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     fun expectsNumberedRemotePage(operation: String, args: JsonObject): Boolean =
         numberedRemotePage(operation, args)
 
+    private fun fillingFirstPage(key: String, args: JsonObject): Boolean {
+        val end = ends[key] ?: return false
+        val stored = traversals[key] ?: return false
+        return args["verify_live"] != JsonPrimitive(true) &&
+            end.errorCode == "GITHUB_PAGINATION_INCOMPLETE" &&
+            now() - end.at in 0..30_000_000_000L &&
+            !stored.changed &&
+            stored.pages.isNotEmpty() &&
+            1 !in stored.pages
+    }
+
     @Synchronized fun completedPage(operation: String, args: JsonObject): Int? {
         if (!numberedRemotePage(operation, args)) return null
         val key = key(operation, args)
@@ -75,7 +86,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         // A first-page request starts a fresh observation epoch. A live
         // continuation on page 2+ belongs to that same epoch; clearing it
         // would make a complete remote traversal appear to contain one page.
-        if (page(args) == 1) {
+        if (page(args) == 1 && !fillingFirstPage(key, args)) {
             ends.remove(key)
             traversals.remove(key)
             return null
@@ -223,7 +234,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             return Assessment(JsonObject(withoutContinuations + failureBody), "GITHUB_PAGINATION_INCOMPLETE")
         }
         val key = key(operation, args, result)
-        if (page(args) == 1 && operation == "github_context" && args["action"] in setOf(JsonPrimitive("changed_since"), JsonPrimitive("list_commits"))) {
+        if (page(args) == 1 && !fillingFirstPage(key, args) && operation == "github_context" && args["action"] in setOf(JsonPrimitive("changed_since"), JsonPrimitive("list_commits"))) {
             // Page one can resolve a symbolic ref. Restart the traversal under
             // its observed immutable key, which was unavailable before dispatch.
             ends.remove(key)
@@ -255,7 +266,9 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val overlap = identities.count { it in earlier }
         // Branch and PR lists have no reliable total. An overlap across offsets
         // means a shifting collection may also have skipped unseen records.
-        if (overlap > 0 && (branchList || operation == "github_pr" && args["action"] == JsonPrimitive("list_pull_requests"))) state.changed = true
+        if (branchList || operation == "github_pr" && args["action"] == JsonPrimitive("list_pull_requests")) {
+            if (all.size < state.pages.values.sumOf { it.identities.size }) state.changed = true
+        }
         val repeated = identities.isNotEmpty() && overlap == identities.size
         val emptyRemotePage = identities.isEmpty() && result["has_more"] == JsonPrimitive(true) && ((result["upstream_returned"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0) == 0
         val stalled = repeated || emptyRemotePage

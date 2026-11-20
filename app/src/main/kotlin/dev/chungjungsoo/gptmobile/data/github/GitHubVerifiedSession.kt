@@ -765,7 +765,12 @@ internal class GitHubVerifiedSession(
             val publicationFailureCode = if (descendantsSettled) failureCode else "GITHUB_OWNED_DESCENDANTS_PENDING"
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
-            val ciObservation = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
+            val stopped = originalFailure != null || remainingToolCalls() == 0
+            val ciObservation = withContext(computationDispatcher) {
+                val at = now()
+                GitHubCiObservationReport.render(task, receipts, at, epoch)
+                    ?: if (stopped) GitHubCiObservationReport.render(task, receipts, at, epoch, checkSnapshotOnly = true) else null
+            }
             val status = if (GitHubStatusRequest.matches(task)) {
                 val acceptedContract = evidence.acceptedPromptContract()
                 val acceptedCriteria = (acceptedContract?.get("acceptance_criteria") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }

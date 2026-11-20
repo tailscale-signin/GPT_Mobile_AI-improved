@@ -12,6 +12,12 @@ class KokoroSpeechTextTest {
         assertNull(KokoroSpeechText.projectedParts("we're") { it == "we" })
     }
 
+    @Test fun technicalInitialismsContinueWithAlignedCaptionsAndLexiconLetters() {
+        val projection = KokoroSpeechText.timed("VR GPU NPU") { it.length == 1 }
+        assertEquals("v r g p u n p u", projection.parts?.joinToString(" "))
+        assertEquals(listOf(0..1, 3..5, 7..9), projection.captionParts.map { it.range })
+    }
+
     @Test fun projectedStreamChunksKeepNumbersAtChunkStartsInsteadOfReparsingListMarkup() {
         val buffer = VoiceSpeechBuffer()
         val input = "Here is the build 1. Continue with details."
@@ -71,7 +77,7 @@ class KokoroSpeechTextTest {
 
     @Test fun pronunciationObservationsContainOnlyCountsAndFiniteReasons() {
         val projection = KokoroSpeechText.projected("Here GPU unknownprivateword") { it != "unknownprivateword" }
-        assertEquals(KokoroPronunciationObservation(1, 1, 1, 3, 0, KokoroPronunciationFailure.UNKNOWN_WORD), projection.observation)
+        assertEquals(KokoroPronunciationObservation(1, 1, 1, 3, 0, KokoroPronunciationFailure.UNKNOWN_WORD, 18), projection.observation)
         assertTrue(!projection.observation.toString().contains("unknownprivateword"))
         assertEquals(KokoroPronunciationFailure.UNSUPPORTED_SCRIPT, KokoroSpeechText.projected("已完成") { true }.observation.failure)
         assertEquals(KokoroPronunciationFailure.MISSING_LETTER, KokoroSpeechText.projected("GPU") { it != "g" }.observation.failure)

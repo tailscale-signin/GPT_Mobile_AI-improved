@@ -95,7 +95,8 @@ class GitHubRichSummaryRenderTest {
         val text = summary("The source read for Reader.kt returned a result for inspection.")
         compose.setContent { MaterialTheme { GitHubLiveProgressCard(timeline(text), active = false) } }
         compose.waitForIdle()
-        compose.onNodeWithTag("github_activity_rich_summary").assertExists()
+        compose.onNodeWithText("Reader.kt", substring = true).assertExists()
+        compose.onNodeWithTag("github_activity_rich_summary").assertDoesNotExist()
         compose.onNodeWithTag("github_check_count_chart").assertDoesNotExist()
         compose.onNodeWithTag("github_summary_copy_csv").assertDoesNotExist()
     }

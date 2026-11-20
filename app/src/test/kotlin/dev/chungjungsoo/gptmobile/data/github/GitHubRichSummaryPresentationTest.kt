@@ -347,7 +347,8 @@ class GitHubRichSummaryPresentationTest {
         )
         now = 45_000L
         val first = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
-        assertTrue(first.text.startsWith("### "))
+        assertTrue(first.text.contains("Reader.kt"))
+        assertFalse(GitHubRichSummaryPresentation.isRich(first.text))
         progress.observe(ApiState.ProgressCheckpoint("Reviewing another file"))
         now = 90_000L
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })

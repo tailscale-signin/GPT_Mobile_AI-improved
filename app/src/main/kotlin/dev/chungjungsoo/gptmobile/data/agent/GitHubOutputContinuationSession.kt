@@ -137,10 +137,12 @@ internal class GitHubOutputContinuationSession(
         // A handoff made by an interrupted continuation can be reasoning-only;
         // retain its explicit origin even when its visible draft is empty.
         val restored = if (handoff != null) {
-            // A completed tool round can contain a preamble. Its text is not a
-            // truncated answer. Only legacy handoffs lack the explicit origin.
+            // An ordinary preamble stays in the primary session when the
+            // provider still has the results. Evicted or reconciled results
+            // are supplied through the saved task context.
             handoff.takeIf {
                 it["handoff_continuation"] == JsonPrimitive(true) ||
+                    GitHubToolHandoff.needsRecoveryContext(it, evidence.receipts, reconciled) ||
                     "handoff_continuation" !in it &&
                     (it["draft"] as? JsonPrimitive)?.contentOrNull?.isNotEmpty() == true
             }

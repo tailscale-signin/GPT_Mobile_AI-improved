@@ -230,7 +230,17 @@ class GitHubChatProgressTest {
         assertEquals(GitHubProgressPresentation.PreviewKind.WEB, GitHubProgressPresentation.previewKind((received.last() as ApiState.ProgressCheckpoint).text))
         advanceTimeBy(42000)
         runCurrent()
-        assertEquals(2, received.filterIsInstance<ApiState.ActivitySummary>().size)
+        assertEquals(1, received.filterIsInstance<ApiState.ActivitySummary>().size)
+        progress.observe(
+            ApiState.GatewayProgressChanged(
+                GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "read", toolArgs = json("""{"path":"src/Reader.kt"}"""))
+            )
+        )
+        advanceTimeBy(250)
+        runCurrent()
+        val summaries = received.filterIsInstance<ApiState.ActivitySummary>()
+        assertEquals(2, summaries.size)
+        assertTrue(summaries.last().text.contains("Reader.kt"))
         collection.cancel()
         val count = received.size
         advanceTimeBy(30000)

@@ -320,7 +320,7 @@ class InferenceCapabilities:
         # readiness remains responsive while this optional proof is measured.
         result = None
         measured, invalidated = 0, False
-        attempts, outcomes, outcome = 0, set(), None
+        attempts, outcomes, outcome = 0, {}, None
 
         def request_started():
             # Source HTTP requests, including calls that time out. Adapter-level
@@ -344,7 +344,7 @@ class InferenceCapabilities:
                 if all(isinstance(prompt, str) for prompt in prompts):
                     measured += 1
                 if not self._verifies_thinking_toggle(*prompts):
-                    outcomes.add(self._negative_reasoning_outcome(*prompts))
+                    outcomes[parameter] = self._negative_reasoning_outcome(*prompts)
                     continue
                 current = self._probe(route, model, deadline_at=deadline)
                 self.require(current, {'requested_model_id': model,
@@ -376,13 +376,17 @@ class InferenceCapabilities:
                 invalidated = True
                 outcome = self._reasoning_failure_outcome(error)
         if outcome is None:
-            outcome = next(iter(outcomes)) if len(outcomes) == 1 else 'MIXED_NEGATIVE_RESULTS'
+            negatives = set(outcomes.values())
+            outcome = next(iter(negatives)) if len(negatives) == 1 else 'MIXED_NEGATIVE_RESULTS'
         with self.lock:
             self._require_generation(key[:2], generation)
             state = ('VERIFIED' if result is not None else
                      'UNSUPPORTED' if measured == len(candidates) and not invalidated else 'UNVERIFIED')
             self.reasoning_states[key] = state
-            entry = self.clock(), result, {'outcome': outcome, 'attempts': attempts}, state
+            probe = {'outcome': outcome, 'attempts': attempts}
+            if outcome == 'MIXED_NEGATIVE_RESULTS' and outcomes:
+                probe['candidateOutcomes'] = outcomes
+            entry = self.clock(), result, probe, state
             self.reasoning_cache[key] = entry
             self.reasoning_cache.move_to_end(key)
             while len(self.reasoning_cache) > 64:

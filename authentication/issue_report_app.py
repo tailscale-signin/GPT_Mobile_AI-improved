@@ -64,6 +64,7 @@ def create_app(public_url, reporter, rate_key):
                 "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1",
                 "PRIVACY_ELIGIBILITY_EVIDENCE_V1",
                 "GATEWAY_CAPABILITY_EVIDENCE_V1", "STATUS_COVERAGE_EVIDENCE_V1", "AUDIO_FOCUS_MODE_V1", "GITHUB_VALIDATION_CONTEXT_V1",
+                "RUNTIME_INCIDENT_DETAILS_V1",
             ])
         return response
 

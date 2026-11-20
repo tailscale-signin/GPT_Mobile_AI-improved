@@ -77,7 +77,8 @@ internal object GitHubSelfTestReads {
         val issue = records("github_issue", "list", "items", "issues").firstOrNull { "pull_request" !in it }
         val release = records("github_release", "list", "items", "releases").firstOrNull()
             ?: roots("github_release", "status").firstNotNullOfOrNull { root ->
-                ((root["release"] as? JsonObject) ?: root).takeIf { it["tag_name"] is JsonPrimitive }
+                (root["release"] as? JsonObject)?.takeIf { it["tag_name"] is JsonPrimitive }
+                    ?: root.takeIf { it["published"] == JsonPrimitive(true) && it["tag_name"] is JsonPrimitive }
             }
         val tag = records("github_release", "tags", "items", "tags").firstOrNull()
         val paths = records("github_search", "search", "matches", "results", "files", "items")

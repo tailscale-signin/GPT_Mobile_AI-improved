@@ -78,6 +78,38 @@ class GitHubRecoveryCallsTest {
         assertEquals(call, GitHubRecoveryCalls.resolve(call, exchanges, emptyMap()))
     }
 
+    @Test fun savedLogsRequireAnIssuedCursorFromTheSameLogViewAndConnection() {
+        val name = "github_ci__selected"
+        val cursor = "view:47:1536"
+        val page = buildJsonObject { put("view_cursor", cursor) }
+        val request = ProviderEvent.ToolCall("next", name, JsonObject(page + ("action" to kotlinx.serialization.json.JsonPrimitive("logs")))).captureProviderInvocation()
+        val tools = mapOf(name to tool(name))
+        fun exchange(id: String, args: JsonObject, cursors: String, issuer: String = name) = AgentToolExchange(
+            listOf(ProviderEvent.ToolCall(id, issuer, args)),
+            listOf(
+                AgentToolResult(
+                    id,
+                    ToolResultContent.Text("Saved"),
+                    false,
+                    executionReceipt = Json.parseToJsonElement("""{"saved_view_id":"view","saved_view_cursor_ids":[$cursors]}""").jsonObject
+                )
+            )
+        )
+        val logs = buildJsonObject {
+            put("action", "logs")
+            put("job_id", 123)
+        }
+        val source = exchange("source", logs, "")
+        val next = exchange("page", buildJsonObject { put("view_cursor", "view:43:1536") }, "\"$cursor\"")
+        val repaired = GitHubRecoveryCalls.resolve(request, listOf(source, next), tools)
+        assertEquals(page, repaired.arguments)
+        assertEquals(request.providerInvocation(), repaired.providerInvocation())
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(source), tools))
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(next), tools))
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(exchange("source", logs, "", "github_ci__other"), next), tools))
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(exchange("source", buildJsonObject { put("action", "jobs") }, ""), next), tools))
+    }
+
     @Test fun exactMalformedSourceReadBecomesAnAdmittedToolProposalWithOriginalReplayIdentity() {
         val name = "github_read__selected"
         val original = Json.parseToJsonElement("""{"owner":"owner","repo":"repo","path":"src/Reader.kt","start_line":2,"max_lines":12}""").jsonObject

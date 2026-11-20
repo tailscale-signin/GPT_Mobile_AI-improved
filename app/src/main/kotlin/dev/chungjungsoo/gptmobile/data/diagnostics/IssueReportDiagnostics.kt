@@ -56,6 +56,7 @@ internal data class IssueReportDiagnostics(
         }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values.keys + omittedFields).any { it in incidentDetailFields }) add(INCIDENT_DETAIL_FEATURE)
         if ("claim_extraction_schema_hash" in values.keys + omittedFields + unavailableFields) add("CLAIM_EXTRACTION_SCHEMA_HASH_V1")
         if ((values.keys + omittedFields + unavailableFields).any { it in GatewayCapabilityFailureEvidence.fields } ||
             (values["provider_failure_code"] as? JsonPrimitive)?.contentOrNull in GatewayCapabilityFailureEvidence.codes
@@ -161,6 +162,14 @@ internal data class IssueReportDiagnostics(
     }
 
     companion object {
+        const val INCIDENT_DETAIL_FEATURE = "RUNTIME_INCIDENT_DETAILS_V1"
+        private val incidentDetailsByArea = mapOf(
+            "PROVIDER" to setOf("reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"),
+            "APP" to setOf("native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash"),
+            "TOOL" to setOf("read_handle_kind", "search_query_length", "search_explicit_mode"),
+            "ACCEPTANCE" to setOf("acceptance_verified_claim_count", "acceptance_unmeasured_claim_count", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash")
+        )
+        private val incidentDetailFields = incidentDetailsByArea.values.flatten().toSet()
         private val capacityCeilingFields = setOf(
             "admission_route_context_tokens",
             "admission_configured_context_tokens",
@@ -267,6 +276,7 @@ internal data class IssueReportDiagnostics(
         )
         private val commonHashes = setOf("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash")
         private val hashFields = commonHashes + profileSelectionHashes + setOf(
+            "native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash",
             "graph_index_attempt_hash",
             "reasoning_template_hash", "conflict_conversation_hash", "conflict_pending_tool_ids_hash",
             "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash", "provider_cooldown_scope_hash",
@@ -274,6 +284,7 @@ internal data class IssueReportDiagnostics(
         )
         private val hashLists = setOf("unmet_criterion_id_hashes", "unmet_criterion_reason_hashes")
         private val flags = profileSelectionFlags + setOf(
+            "native_trace_truncated", "search_explicit_mode",
             "acceptance_fixture_creation_admissible", "status_branch_protected", "status_policy_complete",
             "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed",
             "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "privacy_zdr_required", "privacy_fallbacks_allowed",
@@ -293,6 +304,7 @@ internal data class IssueReportDiagnostics(
             "voice_warmup_ms"
         )
         private val counts = capacityEvidenceCounts + githubSchemaBudgetFields + setOf(
+            "search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count",
             "tool_budget_bytes_available",
             "github_cooldown_remaining_requests",
             "reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "gateway_preflight_candidate_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total",
@@ -310,6 +322,13 @@ internal data class IssueReportDiagnostics(
         )
         private val finishReasons = setOf("STOP", "TOOL_CALLS", "LENGTH", "CONTENT_FILTER", "OTHER", "UNKNOWN")
         private val enums = mapOf(
+            "provider_wait_decision_state" to setOf("NOT_RECORDED", "ROUTE_MISMATCH", "ELIGIBLE", "INELIGIBLE"),
+            "read_handle_kind" to setOf("SAVED_CURSOR", "NO_HANDLE", "DIGEST_SHAPED", "NONCANONICAL_HANDLE"),
+            "native_trace_format" to setOf("text", "protobuf", "binary", "unknown"),
+            "native_trace_reason" to setOf("no_trace_stream", "empty_trace", "trace_read_failed", "trace_access_failed", "unrecognized_binary_tombstone", "no_recognized_tombstone_fields", "text_prefix_limit", "signal_and_library_frames", "malformed_protobuf", "trace_process_mismatch", "trace_limit_before_evidence", "no_recognized_protobuf_fields", "protobuf_prefix_limit", "protobuf_crashed_thread"),
+            "native_signal" to setOf("SIGABRT", "SIGSEGV", "SIGBUS", "SIGFPE", "SIGILL", "SIGTRAP", "SIGSYS", "SIGKILL", "SIGQUIT", "SIGTERM", "SIGPIPE", "SIGSTKFLT", "SIGXCPU", "SIGXFSZ"),
+            "reasoning_probe_enable_thinking" to dev.chungjungsoo.gptmobile.data.context.reasoningProbeNegatives,
+            "reasoning_probe_thinking" to dev.chungjungsoo.gptmobile.data.context.reasoningProbeNegatives,
             "composer_lifecycle" to setOf("INITIALIZED", "CREATED", "STARTED", "RESUMED", "DESTROYED"),
             "composer_input_mode" to setOf("TOUCH", "KEYBOARD"),
             "reasoning_probe_outcome" to setOf("VERIFIED", "IDENTICAL_PROMPTS", "MISSING_THINK_MARKER", "PREFIX_MISMATCH", "SUFFIX_MISMATCH", "INVALID_PROMPT", "METADATA_CHANGED", "PROBE_UNAVAILABLE", "PROBE_DEADLINE", "MIXED_NEGATIVE_RESULTS"),
@@ -467,7 +486,7 @@ internal data class IssueReportDiagnostics(
             "INCIDENT" to emptyList()
         )
 
-        private fun allowedFields(area: String, version: Int) = fieldsByArea.getValue(area) +
+        private fun allowedFields(area: String, version: Int) = fieldsByArea.getValue(area) + incidentDetailsByArea[area].orEmpty() +
             (if (version >= 2 && area == "GATEWAY") gatewayAdmissionFields else emptySet()) +
             (if (version == 3) IssueReportIncidentCapsule.fieldsFor(area) else emptySet())
 
@@ -532,7 +551,7 @@ internal data class IssueReportDiagnostics(
             var result = snapshot()
             // Bound before preview/approval, and say exactly which otherwise valid fields did not fit.
             while (IssueReport.json.encodeToString(serializer(), result).encodeToByteArray().size > MAX_BYTES && values.isNotEmpty()) {
-                val optional = if (version == 3) values.filterKeys { it !in IssueReportIncidentCapsule.priorityFields && it !in acceptanceScopeFields && it !in githubPrerequisiteFields && it !in GitHubAcceptanceRecoveryEvidence.fields && it !in voiceCapturePlaybackFields && it !in githubSchemaBudgetFields && it !in profileSelectionFields && it !in githubCooldownFields && it !in PrivacyFailureEvidence.fields } else values
+                val optional = if (version == 3) values.filterKeys { it !in IssueReportIncidentCapsule.priorityFields && it !in incidentDetailFields && it !in acceptanceScopeFields && it !in githubPrerequisiteFields && it !in GitHubAcceptanceRecoveryEvidence.fields && it !in voiceCapturePlaybackFields && it !in githubSchemaBudgetFields && it !in profileSelectionFields && it !in githubCooldownFields && it !in PrivacyFailureEvidence.fields } else values
                 val key = (optional.ifEmpty { values }).maxBy { it.key.length + it.value.toString().length }.key
                 val criterionSize = (values[key] as? JsonArray)?.size ?: 0
                 if (version == 3 && key in criterionFields && criterionSize > 1) {
@@ -622,6 +641,7 @@ internal data class IssueReportDiagnostics(
             if (key in flags) return primitive.takeUnless { it.isString }?.booleanOrNull?.let(::JsonPrimitive)
             val number = primitive.takeUnless { it.isString }?.longOrNull ?: return null
             val range = when (key) {
+                "native_trace_frames" -> 0L..16L
                 "reasoning_probe_attempts" -> 0L..4L
                 "composer_generation" -> 1L..16_000_000L
                 "composer_events_dropped" -> 0L..16_000_000L

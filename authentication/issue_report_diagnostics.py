@@ -306,6 +306,24 @@ COUNTS.update({"acceptance_ready_read_count", "acceptance_additional_ready_read_
 FLAGS.update({"acceptance_fixture_creation_admissible", "status_branch_protected", "status_policy_complete"})
 FIELDS_BY_AREA["ACCEPTANCE"].update(ACCEPTANCE_RECOVERY_FIELDS)
 
+REASONING_PROBE_NEGATIVES = {"IDENTICAL_PROMPTS", "MISSING_THINK_MARKER", "PREFIX_MISMATCH", "SUFFIX_MISMATCH", "INVALID_PROMPT"}
+ENUMS.update({
+    "provider_wait_decision_state": {"NOT_RECORDED", "ROUTE_MISMATCH", "ELIGIBLE", "INELIGIBLE"},
+    "read_handle_kind": {"SAVED_CURSOR", "NO_HANDLE", "DIGEST_SHAPED", "NONCANONICAL_HANDLE"},
+    "native_trace_format": {"text", "protobuf", "binary", "unknown"},
+    "native_trace_reason": {"no_trace_stream", "empty_trace", "trace_read_failed", "trace_access_failed", "unrecognized_binary_tombstone", "no_recognized_tombstone_fields", "text_prefix_limit", "signal_and_library_frames", "malformed_protobuf", "trace_process_mismatch", "trace_limit_before_evidence", "no_recognized_protobuf_fields", "protobuf_prefix_limit", "protobuf_crashed_thread"},
+    "native_signal": {"SIGABRT", "SIGSEGV", "SIGBUS", "SIGFPE", "SIGILL", "SIGTRAP", "SIGSYS", "SIGKILL", "SIGQUIT", "SIGTERM", "SIGPIPE", "SIGSTKFLT", "SIGXCPU", "SIGXFSZ"},
+    "reasoning_probe_enable_thinking": REASONING_PROBE_NEGATIVES,
+    "reasoning_probe_thinking": REASONING_PROBE_NEGATIVES,
+})
+FLAGS.update({"native_trace_truncated", "search_explicit_mode"})
+HASH_FIELDS.update({"native_top_frame_hash", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash"})
+COUNTS.update({"search_query_length", "acceptance_verified_claim_count", "acceptance_unmeasured_claim_count"})
+FIELDS_BY_AREA["PROVIDER"].update({"reasoning_probe_enable_thinking", "reasoning_probe_thinking", "provider_wait_decision_state"})
+FIELDS_BY_AREA["APP"].update({"native_trace_reason", "native_trace_format", "native_trace_frames", "native_trace_truncated", "native_signal", "native_top_frame_hash"})
+FIELDS_BY_AREA["TOOL"].update({"read_handle_kind", "search_query_length", "search_explicit_mode"})
+FIELDS_BY_AREA["ACCEPTANCE"].update({"acceptance_verified_claim_count", "acceptance_unmeasured_claim_count", "acceptance_missing_pointer_hash", "acceptance_pointer_receipt_hash"})
+
 CORE_FIELDS = {
     "PROVIDER": {"profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"},
     "TOOL": {"tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "missing_field_count", "invalid_field_count"},
@@ -338,6 +356,8 @@ def _valid_value(key, value):
         return type(value) is bool
     if type(value) is not int:
         return False
+    if key == "native_trace_frames":
+        return 0 <= value <= 16
     if key == "composer_generation":
         return 1 <= value <= 16_000_000
     if key == "composer_events_dropped":

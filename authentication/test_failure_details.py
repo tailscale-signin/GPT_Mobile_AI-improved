@@ -39,6 +39,27 @@ class FailureDetailsTest(unittest.TestCase):
         legacy = self.snapshot("PROVIDER", {"reasoning_capability_age_ms": 8})
         self.assertEqual(legacy, validate_diagnostics(legacy))
 
+    def test_runtime_incident_fields_are_scoped_and_bounded(self):
+        rows = {
+            "APP": {"native_trace_frames": 2, "native_trace_truncated": False, "native_signal": "SIGSEGV",
+                    "native_trace_format": "protobuf", "native_trace_reason": "protobuf_crashed_thread", "native_top_frame_hash": "a" * 64},
+            "TOOL": {"read_handle_kind": "NONCANONICAL_HANDLE", "search_explicit_mode": False, "search_query_length": 10},
+            "ACCEPTANCE": {"acceptance_verified_claim_count": 5, "acceptance_unmeasured_claim_count": 2,
+                           "acceptance_missing_pointer_hash": "c" * 64, "acceptance_pointer_receipt_hash": "e" * 64},
+            "PROVIDER": {"reasoning_probe_enable_thinking": "IDENTICAL_PROMPTS", "reasoning_probe_thinking": "PREFIX_MISMATCH",
+                         "provider_wait_decision_state": "NOT_RECORDED"},
+        }
+        for area, fields in rows.items():
+            capture = self.snapshot(area, fields)
+            self.assertEqual(capture, validate_diagnostics(capture))
+            for key in fields:
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    validate_diagnostics(self.snapshot(area, {key: "private input"}))
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.snapshot("VOICE", {key: fields[key]}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.snapshot("APP", {"native_trace_frames": 17}))
+
     def test_readable_tool_and_recovery_facts_validate_without_private_values(self):
         for area, values in [
             ("TOOL", {"tool_action": "headers", "tool_error_code": "INVALID_ARGUMENTS",

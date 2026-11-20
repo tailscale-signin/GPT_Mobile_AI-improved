@@ -16,6 +16,27 @@ class ToolBatchPlannerTest {
         assertEquals(setOf(first.callId), plan.perToolSuppressedIds)
     }
 
+    @Test fun freshDependentReadsCanRevalidateAnEarlierSuccessfulContextWithinTheCallBudget() {
+        val context = ProviderEvent.ToolCall("context", "github_context", buildJsonObject { put("action", "resolve") })
+        val read = ProviderEvent.ToolCall("read", "github_read", buildJsonObject { put("path", "README.md") })
+        val calls = listOf(context, read)
+        val used = mapOf(toolRepeatKey(context) to 3)
+        val nodes = listOf(ToolBatchNode(context, emptySet(), false), ToolBatchNode(read, setOf(context.callId), true))
+        val available = calls.mapTo(hashSetOf()) { it.name }
+        val admission = planToolBatch(calls, 2, available, used, emptySet(), 3) { it.name }
+        val previous = AgentToolResult("past", ToolResultContent.Text("Resolved"), false)
+        fun history(result: AgentToolResult) = listOf(AgentToolExchange(listOf(context.copy(callId = "past")), listOf(result)))
+        val refresh = contextRefreshPrerequisite(nodes, admission, used, history(previous), 2)
+        assertEquals(context.callId, refresh)
+        val replanned = planToolBatch(calls, 2, available, used, emptySet(), 3, refreshContextId = refresh) { it.name }
+        assertEquals(calls, dependencyClosedPlan(replanned, nodes).executable)
+        assertEquals(2, replanned.acceptedByName.values.sum())
+        assertEquals(null, contextRefreshPrerequisite(nodes, admission, used, history(previous.copy(isError = true)), 2))
+        assertEquals(null, contextRefreshPrerequisite(nodes, admission, used, history(previous), 1))
+        assertEquals(null, contextRefreshPrerequisite(nodes, admission, used + (toolRepeatKey(read) to 1), history(previous), 2))
+        assertEquals(null, contextRefreshPrerequisite(nodes.dropLast(1) + nodes.last().copy(parallelRead = false), admission, used, history(previous), 2))
+    }
+
     @Test fun retainedCallsAfterQueuedCallsDoNotIncreaseFreshDispatchCapacity() {
         val calls = listOf("fresh-1", "fresh-2", "retained").map { ProviderEvent.ToolCall(it, "write", JsonObject(emptyMap())) }
         val plan = planToolBatch(calls, 1, setOf("write"), emptyMap(), emptySet(), 24, setOf("retained")) { it.name }

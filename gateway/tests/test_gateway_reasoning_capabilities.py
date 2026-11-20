@@ -220,6 +220,8 @@ class ReasoningCapabilityTests(unittest.TestCase):
         result = self.capabilities.selected_model('A')
         self.assertEqual('UNSUPPORTED', result['reasoningControlState'])
         self.assertEqual('MIXED_NEGATIVE_RESULTS', result['reasoningProbe']['outcome'])
+        self.assertEqual({'enable_thinking': 'IDENTICAL_PROMPTS', 'thinking': 'PREFIX_MISMATCH'},
+                         result['reasoningProbe']['candidateOutcomes'])
         self.assertEqual(4, result['reasoningProbe']['attempts'])
         self.assertEqual(4, len([call for call in self.calls if call[0] == 'POST']))
 

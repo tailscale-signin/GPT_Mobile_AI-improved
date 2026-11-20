@@ -306,5 +306,5 @@ internal object GitHubReplayRecovery {
         )
     }
 
-    private val deterministicErrors = setOf("INVALID_ARGUMENTS", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")
+    private val deterministicErrors = setOf("EVIDENCE_UNAVAILABLE", "INVALID_ARGUMENTS", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")
 }

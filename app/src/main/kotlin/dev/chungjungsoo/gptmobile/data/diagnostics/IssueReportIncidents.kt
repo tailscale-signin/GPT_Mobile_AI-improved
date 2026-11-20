@@ -594,7 +594,16 @@ internal object IssueReportIncidents {
             ApplicationExitInfo.REASON_ANR -> "APP_NOT_RESPONDING"
             else -> return
         }
-        val evidence = IssueReportContext.fromFields("PROCESS_EXIT", appDiagnosticFields(code), occurredAtMillis = exit.timestamp)
+        val trace = if (code == "NATIVE_CRASH") {
+            try {
+                nativeCrashTraceEvidence(exit.traceInputStream, expectedProcessId = exit.pid)
+            } catch (_: Exception) {
+                NativeCrashTraceEvidence("unavailable", "trace_access_failed")
+            }
+        } else {
+            null
+        }
+        val evidence = IssueReportContext.fromFields("PROCESS_EXIT", appDiagnosticFields(code) + trace?.reportFields().orEmpty(), occurredAtMillis = exit.timestamp)
         evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
         val report = IssueReport.debug(ReportFeature.APP, code, emptyList(), context = evidence)
         persist(report)

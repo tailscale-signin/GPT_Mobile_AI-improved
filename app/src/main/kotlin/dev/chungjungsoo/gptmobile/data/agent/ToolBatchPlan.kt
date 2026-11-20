@@ -22,6 +22,7 @@ internal fun planToolBatch(
     sameToolLimit: Int,
     retainedCallIds: Set<String> = emptySet(),
     settledCallIds: Set<String> = emptySet(),
+    refreshContextId: String? = null,
     scope: (ProviderEvent.ToolCall) -> String
 ): ToolBatchPlan {
     val executable = mutableListOf<ProviderEvent.ToolCall>()
@@ -54,7 +55,7 @@ internal fun planToolBatch(
                 deferred += call
                 hostSuppressed += call.callId
             }
-            !retained && used >= repeatLimit -> {
+            !retained && used >= repeatLimit && call.callId != refreshContextId -> {
                 deferred += call
                 suppressed += call.callId
                 if (!sourceRead) disabled += call.name

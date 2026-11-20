@@ -134,6 +134,24 @@ internal object ToolReportDiagnostics {
             shapeHash(arguments)?.let { put("argument_shape_hash", it) }
             putAll(typeShape(arguments, "argument"))
         }
+        if (result.isError && !result.dispatched && arguments != null) {
+            when (event.modelToolName.githubOperationFamily()) {
+                "github_read" -> if (result.errorCode in setOf("EVIDENCE_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION")) {
+                    val evidence = (arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                    val kind = when {
+                        "view_cursor" in arguments -> "SAVED_CURSOR"
+                        evidence == null -> "NO_HANDLE"
+                        evidence.matches(Regex("[a-f0-9]{64}")) -> "DIGEST_SHAPED"
+                        else -> "NONCANONICAL_HANDLE"
+                    }
+                    put("read_handle_kind", kind)
+                }
+                "github_search" -> if (result.errorCode == "INVALID_ARGUMENTS") {
+                    (arguments["query"] as? JsonPrimitive)?.takeIf { it.isString }?.let { put("search_query_length", it.content.length) }
+                    put("search_explicit_mode", "mode" in arguments)
+                }
+            }
+        }
         val receipt = result.executionReceipt
         // Retain only a bounded hash of an already-captured, sanitized exception
         // type. Never infer one from generic TOOL_FAILURE text or a precheck label.

@@ -15,6 +15,18 @@ internal data class NativeCrashTraceEvidence(
     val relativePcs: List<String> = emptyList(),
     val buildIds: List<String> = emptyList()
 ) {
+    fun reportFields(): Map<String, Any?> = buildMap {
+        put("native_trace_reason", reason)
+        put("native_trace_format", format)
+        put("native_trace_frames", frames.size)
+        put("native_trace_truncated", truncated)
+        signal?.let { put("native_signal", it) }
+        frames.firstOrNull()?.let { first ->
+            val identity = "native-frame-v1|$first"
+            put("native_top_frame_hash", DiagnosticRecordChunks.sha256(identity))
+        }
+    }
+
     fun fields(): String = buildString {
         append("nativeTraceCoverage=").append(coverage)
         append(" · nativeTraceReason=").append(reason)

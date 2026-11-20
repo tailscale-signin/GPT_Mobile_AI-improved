@@ -1259,6 +1259,8 @@ internal class GitHubVerifiedSession(
                             put("retryable", false)
                             put("pending_approvals", delivered["pending_approvals"] ?: (delivered["execution_ledger"] as? JsonObject)?.get("pending_approvals") ?: JsonArray(emptyList()))
                         }
+                    } else if (currentFailure?.failureDetails?.get("stop_reason") == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
+                        JsonObject(GitHubAcceptanceReportDiagnostics.fields(delivered, retainedReport = true) + currentFailure.failureDetails.orEmpty())
                     } else {
                         currentFailure?.failureDetails ?: GitHubTaskLifecycle.acceptanceFailureDetails(delivered, progressCorrections, retainedReport = publication.extractionFailure == null)
                     }

@@ -1038,7 +1038,14 @@ class AgentRunner(
         val dependencyPlan = planIntelligentBatch(dependencyCalls, toolsForBatch).map { node ->
             if (node.call.callId in restoredCompleted) node.copy(dependencies = emptySet(), failureDependencies = emptySet()) else node
         }
-        val admission = planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, restoredCompleted.keys, ::failureScope)
+        fun planAdmission(refreshContextId: String? = null) = planToolBatch(
+            calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes,
+            if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN,
+            restoredRetained, restoredCompleted.keys, refreshContextId, ::failureScope
+        )
+        val initialAdmission = planAdmission()
+        val refreshContext = contextRefreshPrerequisite(dependencyPlan, initialAdmission, toolCallsByName, exchanges, batchAllowance)
+        val admission = refreshContext?.let(::planAdmission) ?: initialAdmission
         val observedAdmission = repeatAdmissionHistory.capture(admission, calls, restoredRetained, restoredCompleted.keys)
         val plan = dependencyClosedPlan(observedAdmission, dependencyPlan, restoredRetained)
         val executableCalls = plan.executable

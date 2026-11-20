@@ -76,6 +76,9 @@ class UniversalChatActivityFeedTest {
         )
         assertEquals("Reviewing cited sources", generationActivityLabel(emptyList(), listOf(visible, private)))
         assertEquals("Preparing response", generationActivityLabel(emptyList(), listOf(private)))
+        val writing = AssistantTimelineItem(AssistantTimelineItemType.TEXT, "A public response")
+        assertEquals("Writing", generationActivityLabel(emptyList(), listOf(visible, writing, private)))
+        assertEquals("Reviewing cited sources", generationActivityLabel(emptyList(), listOf(writing, visible)))
     }
 
     @Test fun richSummaryKeepsOnlyItsFirstPublicHeadline() {

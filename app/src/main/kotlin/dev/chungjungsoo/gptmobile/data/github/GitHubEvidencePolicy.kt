@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
@@ -174,7 +175,7 @@ internal object GitHubEvidencePolicy {
             }
             return verify(claim, receipts, now, epoch, projected, allowHistorical = historicalReview(task))
         }
-        val lines = claims.map { raw ->
+        val renderedLines = claims.map { raw ->
             val claim = raw as? JsonObject ?: error("Malformed claim")
             when (claim.string("kind")) {
                 "calculation" -> {
@@ -239,9 +240,26 @@ internal object GitHubEvidencePolicy {
                 else -> error("Unsupported claim kind")
             }
         }
-        val supportedClaims = checked.filterNot(::explicitlyUnmeasured)
+        // Only an explicit, complete requirement map can identify an optional claim.
+        // Preserve original indexes for required claims during acceptance evaluation.
+        val mapping = answer["requirement_claims"] as? JsonObject
+        val required = GitHubRequestCompletion.requirements(task).map(GitHubRequestCompletion::id)
+        val mapped = mapping?.values?.filterIsInstance<JsonArray>().orEmpty().flatten().mapNotNull { (it as? JsonPrimitive)?.intOrNull }.toSet()
+        val canOmit = required.isNotEmpty() &&
+            required.all { mapping?.get(it) is JsonArray } &&
+            checked.any { it.string("status") in setOf("VERIFIED", "HISTORICAL") }
+        val omitted = if (canOmit) {
+            checked.indices.filterTo(mutableSetOf()) {
+                it !in mapped && checked[it].string("reason") == "POINTER_NOT_IN_EVIDENCE"
+            }
+        } else {
+            emptySet()
+        }
+        val lines = renderedLines.filterIndexed { index, _ -> index !in omitted }
+        val retainedClaims = checked.filterIndexed { index, _ -> index !in omitted }
+        val supportedClaims = retainedClaims.filterNot(::explicitlyUnmeasured)
         val unmeasuredScopes = checked.filter(::explicitlyUnmeasured)
-        val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now)
+        val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now, omittedOptionalClaimIndexes = omitted)
         val checklist = if (GitHubTaskCoverage.matches(task)) {
             GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, stageBudget, acceptedContract)
         } else {
@@ -250,7 +268,8 @@ internal object GitHubEvidencePolicy {
         val report = buildJsonObject {
             put("schema", "github.verification.v1")
             put("verified_at_ms", now)
-            put("claims", JsonArray(checked))
+            put("claims", JsonArray(retainedClaims))
+            if (omitted.isNotEmpty()) put("omitted_optional_claim_count", omitted.size)
             put("verified_claim_count", checked.count { it.string("status") in setOf("VERIFIED", "HISTORICAL") })
             put("historical_claim_count", checked.count { it.string("status") == "HISTORICAL" })
             put("unresolved_claims", JsonArray(supportedClaims.filter { it.string("status") !in setOf("VERIFIED", "INFERRED", "HISTORICAL") }))

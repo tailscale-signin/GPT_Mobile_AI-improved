@@ -195,6 +195,7 @@ internal object GitHubExecutionContinuation {
 internal class GitHubReadRoundProgress {
     private val sources = mutableSetOf<String>()
     private val lastRanges = mutableMapOf<String, MutableList<IntRange>>()
+    private val searchFrontiers = mutableMapOf<String, Int>()
     private var lastCall: String? = null
     private var unchanged = 0
     private var workMillis = 0L
@@ -214,6 +215,17 @@ internal class GitHubReadRoundProgress {
             val source = ((result.retainedContent ?: result.content) as? dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json)?.value as? JsonObject ?: continue
             val data = GitHubSemanticSummary.data(source)
             val revision = data["commit_sha"] ?: continue
+            val search = (data["search_id"] as? JsonPrimitive)?.content
+            val startIndex = (data["interval_start"] as? JsonPrimitive)?.content?.toIntOrNull()
+            val endIndex = (data["interval_end"] as? JsonPrimitive)?.content?.toIntOrNull()
+            if (search != null && startIndex != null && endIndex != null && startIndex >= 0 && endIndex > startIndex) {
+                // Progress through the same pinned search includes pages with zero hits. A changed
+                // query alone does not establish another discovery.
+                val key = "$revision|$search"
+                val previous = searchFrontiers[key]
+                if (previous != null && startIndex == previous && endIndex > previous) advanced = true
+                searchFrontiers[key] = maxOf(previous ?: 0, endIndex)
+            }
             for (row in (data["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()) {
                 val path = row["path"] ?: continue
                 val key = "$revision|$path|${row["sha"]}"

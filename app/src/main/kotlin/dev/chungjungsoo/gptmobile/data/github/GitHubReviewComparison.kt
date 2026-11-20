@@ -26,6 +26,8 @@ internal object GitHubReviewComparison {
     private val labelledBase = Regex("(?i)$baselineSelector[:=][ \\t]*([^\\r\\n]*)")
     private val quotedBaselinePrefix = Regex("(?i)$baselinePrefix$")
     private val literalRef = Regex("[A-Za-z0-9_][A-Za-z0-9._/+@-]{0,254}")
+
+    fun acceptsBaselineInput(text: String): Boolean = literalRef.matches(text.trim())
     private val quotedMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"(?:\\\\.|[^\"\\\\])*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'")
     private val resolutionFailureCodes = GitHubFailurePolicy.codes + setOf(
         "GITHUB_CIRCUIT_OPEN", "GITHUB_TRANSIENT_NETWORK", "GITHUB_REF_UNAVAILABLE", "GITHUB_OPERATION_FAILED",

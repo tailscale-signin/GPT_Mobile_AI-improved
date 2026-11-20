@@ -124,7 +124,7 @@ class GitHubCiObservationReportTest {
         val check = receipt("snapshot", "status", buildJsonObject { put("observationTruncated", true) }, head)
         receipts["snapshot"] = JsonObject(check + ("semantic_summary" to GitHubSemanticSummary.from("github_ci", args, raw)))
         val (text, report) = requireNotNull(GitHubCiObservationReport.render(task, receipts, now, 2))
-        assertTrue(text.contains("24 succeeded, 18 were skipped and 1 were still running"))
+        assertTrue(text.contains("24 succeeded, 18 were skipped and 1 was still running"))
         assertTrue(text.contains("Logs for job `26` are pending"))
         assertEquals(JsonPrimitive(false), report["completion_verified"])
         assertEquals(JsonPrimitive("WAITING_FOR_CI"), report["observation_state"])

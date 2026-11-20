@@ -698,13 +698,17 @@ private fun ChatMarkdownContent(
             val animations = markdownAnimations(animateTextSize = { this })
             val referenceColor = if (LocalGitHubAssistantReferences.current != null) MaterialTheme.colorScheme.primary else null
             val markdownTextStyle = chatMarkdownTypography(answerForeground, referenceColor)
-            val layoutOwner = remember(outputTrace, rendered.contentDigest) { CombinedOperationOwner(runId = outputTrace?.runId, revisionId = rendered.contentDigest, blockId = outputTrace?.partId, digest = rendered.contentDigest, messageId = outputTrace?.messageId, profileUid = outputTrace?.profileUid) }
-            // Replacing a layout lambda invalidates measurement even when its content
-            // and constraints are unchanged. Retain it across unrelated chat updates;
-            // Compose still invalidates text for width, density, font scale and style.
-            val measurementModifier = remember(layoutOwner) {
+            val layoutOwner = remember(rendered.outputTrace, renderedDigest) {
+                val trace = rendered.outputTrace
+                CombinedOperationOwner(runId = trace?.runId, revisionId = renderedDigest, blockId = trace?.partId, digest = renderedDigest, messageId = trace?.messageId, profileUid = trace?.profileUid)
+            }
+            // A new attribution alone must not invalidate a measured paragraph. Read the latest
+            // committed owner when layout actually runs, then retain it through placement.
+            val currentLayoutOwner = remember(contentIdentity) { java.util.concurrent.atomic.AtomicReference(layoutOwner) }
+            SideEffect { currentLayoutOwner.set(layoutOwner) }
+            val measurementModifier = remember(currentLayoutOwner) {
                 Modifier.layout { measurable, constraints ->
-                    val observedOwner = layoutOwner.copy(
+                    val observedOwner = currentLayoutOwner.get().copy(
                         textLayoutContext = dev.chungjungsoo.gptmobile.data.diagnostics.TextLayoutDiagnosticContext(
                             constraints.minWidth,
                             constraints.maxWidth,

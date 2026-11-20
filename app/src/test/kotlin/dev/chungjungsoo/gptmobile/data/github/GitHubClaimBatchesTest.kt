@@ -11,6 +11,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubClaimBatchesTest {
+    @Test fun missingOptionalPointerIsOmittedOnlyWithCompleteExplicitCoverage() {
+        val task = "Report the observed count"
+        val requirement = GitHubRequestCompletion.requirements(task).single()
+        val key = GitHubRequestCompletion.id(requirement)
+        fun report(indexes: String): kotlinx.serialization.json.JsonObject {
+            val answer = Json.parseToJsonElement("""{"claims":[{"kind":"fact","receipt_id":"r","pointer":"/count","value":43},{"kind":"fact","receipt_id":"r","pointer":"/absent","value":5}],"requirement_claims":{"$key":$indexes}}""").jsonObject
+            val receipt = Json.parseToJsonElement("""{"trusted":true,"success":true,"observed_at_ms":1000,"epoch":1,"result":{"count":43}}""").jsonObject
+            return GitHubEvidencePolicy.render(answer, mapOf("r" to receipt), 1000, 1, task).second
+        }
+        val optional = report("[0]")
+        assertEquals(JsonPrimitive(1), optional["omitted_optional_claim_count"])
+        assertEquals(1, (optional.getValue("claims") as JsonArray).size)
+        val required = report("[0,1]")
+        assertEquals(2, (required.getValue("claims") as JsonArray).size)
+        assertEquals(JsonPrimitive(false), required["completion_verified"])
+    }
+
     @Test fun oneMalformedClaimCannotEraseItsNeighboursOrRetargetTheirIndexes() {
         val answer = Json.parseToJsonElement("""{"claims":[{"kind":"fact","pointer":"wrong","receipt_id":"r","value":1},{"kind":"fact","pointer":"/valid","receipt_id":"r","value":2}],"requirement_claims":{"a":[0],"b":[1]}}""").jsonObject
         val batch = GitHubClaimBatches.validate(answer, GitHubClaimBatches.Request("", setOf("a", "b")))

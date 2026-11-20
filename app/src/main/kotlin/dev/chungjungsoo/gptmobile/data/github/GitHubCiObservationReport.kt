@@ -241,7 +241,7 @@ internal object GitHubCiObservationReport {
                 result.text("subscription_id").isNotEmpty()
         }
         val text = "Of ${inventory.observedChecks} observed checks, ${counts.getOrDefault("success", 0)} succeeded, " +
-            "${counts.getOrDefault("skipped", 0)} were skipped$neutral and ${counts.getValue("running")} were still running. No failing checks were returned.\n\n" +
+            "${counts.getOrDefault("skipped", 0)} ${if (counts["skipped"] == 1) "was" else "were"} skipped$neutral and ${counts.getValue("running")} ${if (counts["running"] == 1) "was" else "were"} still running. No failing checks were returned.\n\n" +
             "Workflow run `$runId`, attempt $attempt, is still active at `${head.take(12)}`. Logs for job `$jobId` are pending. The workflow outcome remains open." +
             if (subscription != null) "\n\nBackground monitoring is registered for this run. Updates will appear in its check card." else ""
         return text to buildJsonObject {

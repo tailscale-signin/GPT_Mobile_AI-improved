@@ -159,13 +159,13 @@ internal object GitHubRequestCompletion {
             ?: assessments.first()
     }
 
-    fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis()): JsonObject {
+    fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis(), omittedOptionalClaimIndexes: Set<Int> = emptySet()): JsonObject {
         val informational = informational(task)
         val sessionReview = informational && sessionReview(requestText(task))
         val acceptedClaimStatuses = if (sessionReview) setOf("VERIFIED", "INFERRED", "HISTORICAL") else setOf("VERIFIED", "INFERRED")
         // An explicit unmeasured scope is a limitation, not an unsupported factual
         // claim. It still prevents that requirement from being counted as covered.
-        val factualClaims = claims.filterNot(GitHubEvidencePolicy::explicitlyUnmeasured)
+        val factualClaims = claims.filterIndexed { index, claim -> index !in omittedOptionalClaimIndexes && !GitHubEvidencePolicy.explicitlyUnmeasured(claim) }
         val verified = factualClaims.isNotEmpty() && factualClaims.all { (it["status"] as? JsonPrimitive)?.contentOrNull in acceptedClaimStatuses }
         val requirements = requirements(task)
         val coverage = (answer["requirement_claims"] as? JsonObject).orEmpty()

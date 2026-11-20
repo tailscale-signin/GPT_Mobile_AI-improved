@@ -3,6 +3,12 @@ name: Recover verified Android 144 and Gateway 18 publication
 # One exact, already-signed source. A source-only verification repair must not
 # rebuild or silently retarget a signed artifact to the recovery merge commit.
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/verify_published_release.py
+      - scripts/test_verify_published_release_draft.py
+      - .github/workflows/recover-verified-android144-gateway18.yml
   push:
     branches: [main]
     paths:
@@ -16,9 +22,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify_recovery:
+    name: Verify strict draft and immutable-tag reconciliation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s scripts -p test_verify_published_release_draft.py -v
+
   recover_android:
     name: Reconcile signed Android draft and publish verified bytes
-    if: github.repository == 'tailscale-signin/GPT_Mobile_AI-improved' && github.ref == 'refs/heads/main'
+    needs: verify_recovery
+    if: github.event_name == 'push' && github.repository == 'tailscale-signin/GPT_Mobile_AI-improved' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:

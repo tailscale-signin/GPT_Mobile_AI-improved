@@ -5,7 +5,19 @@ on:
     paths: ['app/**', 'scripts/run_release0950_acceptance.sh', 'scripts/prepare_emulator_ui.py', 'scripts/tests/test_prepare_emulator_ui.py', 'scripts/select_android_test_apk.py', 'scripts/tests/test_select_android_test_apk.py', '.github/workflows/release-0950-acceptance.yml']
   push:
     branches: [main]
-    paths: ['app/**', 'release-scope.json', 'scripts/run_release0950_acceptance.sh', 'scripts/prepare_emulator_ui.py', 'scripts/tests/test_prepare_emulator_ui.py', 'scripts/select_android_test_apk.py', 'scripts/tests/test_select_android_test_apk.py', '.github/workflows/release-0950-acceptance.yml']
+    paths:
+      - 'app/**'
+      - 'release-scope.json'
+      - 'release-recovery.json'
+      - 'scripts/recover_release_publication.py'
+      - 'scripts/verify_published_release.py'
+      - '.github/workflows/recover-verified-android144-gateway18.yml'
+      - 'scripts/run_release0950_acceptance.sh'
+      - 'scripts/prepare_emulator_ui.py'
+      - 'scripts/tests/test_prepare_emulator_ui.py'
+      - 'scripts/select_android_test_apk.py'
+      - 'scripts/tests/test_select_android_test_apk.py'
+      - '.github/workflows/release-0950-acceptance.yml'
   workflow_dispatch:
 permissions:
   contents: read

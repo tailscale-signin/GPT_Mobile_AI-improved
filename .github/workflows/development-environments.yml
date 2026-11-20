@@ -11,6 +11,10 @@ on:
     paths:
       - 'app/build.gradle.kts'
       - 'release-scope.json'
+      - 'release-recovery.json'
+      - 'scripts/recover_release_publication.py'
+      - 'scripts/verify_published_release.py'
+      - '.github/workflows/recover-verified-android144-gateway18.yml'
       - 'gateway/desktop/development_profiles.py'
       - 'gateway/v14/workspace_environment.py'
       - 'gateway/tests/prepared_environment_smoke.py'

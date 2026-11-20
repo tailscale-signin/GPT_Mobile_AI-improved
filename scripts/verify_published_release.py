@@ -115,6 +115,40 @@ def verify_asset_attestations(directory, assets, repository, source, signer_work
     return receipts
 
 
+def resolve_tag_commit(root, tag, source, release, *, published):
+    """Treat only a confirmed missing draft tag as pending, not a commits/422."""
+    full_ref = "refs/tags/" + tag
+    ref = root + "/git/ref/tags/" + tag
+    try:
+        reference = gh_json("api", ref)
+    except subprocess.CalledProcessError as error:
+        if (published or not is_not_found(error)
+                or release.get("draft") is not True or release.get("target_commitish") != source):
+            raise
+        # GitHub's commits/<tag> endpoint can report HTTP 422 before a draft
+        # release materializes the ref. Confirm absence through the Git refs
+        # endpoint and separately prove the immutable source commit exists.
+        target = gh_json("api", root + "/commits/" + source)
+        if not isinstance(target, dict) or immutable_sha(target.get("sha", "")) != source:
+            raise ValueError("Draft release source commit cannot be verified")
+        return None
+    if not isinstance(reference, dict) or reference.get("ref") != full_ref:
+        raise ValueError("Tag ref identity differs from the release tag")
+    target = reference.get("object")
+    if not isinstance(target, dict) or target.get("type") not in ("commit", "tag"):
+        raise ValueError("Git tag reference does not identify a commit or annotated tag")
+    target_sha = immutable_sha(target.get("sha", ""))
+    # The full ref avoids branch-name ambiguity and still peels annotated
+    # tags. A failure here must not fall back to a draft's target.
+    commit = gh_json("api", root + "/commits/" + full_ref)
+    if not isinstance(commit, dict):
+        raise ValueError("Invalid release tag commit response")
+    resolved = immutable_sha(commit.get("sha", ""))
+    if target["type"] == "commit" and resolved != target_sha:
+        raise ValueError("Git tag reference changed while resolving its commit")
+    return resolved
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", required=True)
@@ -134,17 +168,7 @@ def main():
         raise ValueError("Unexpected release tag")
     root = "repos/" + args.repository
     release = resolve_release(root, tag, source, release_id=args.release_id, published=args.published)
-    # GitHub's commit endpoint peels lightweight and annotated tags.
-    try:
-        commit = gh_json("api", root + "/commits/" + tag)
-        sha = immutable_sha(commit.get("sha", ""))
-    except subprocess.CalledProcessError as error:
-        # A newly created draft may not have materialized its tag. Only an
-        # explicit 404 and its immutable target permit upload reconciliation.
-        if (not is_not_found(error) or args.published
-                or release.get("draft") is not True or release.get("target_commitish") != source):
-            raise
-        sha = None
+    sha = resolve_tag_commit(root, tag, source, release, published=args.published)
     names = [item["name"] for item in provenance["assets"]] + ["provenance.json", "SHA256SUMS.txt"]
     if any(Path(name).name != name or not re.fullmatch(r"[A-Za-z0-9_.+-]+", name) for name in names):
         raise ValueError("Unsafe asset filename")

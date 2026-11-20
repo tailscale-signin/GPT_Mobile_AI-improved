@@ -78,7 +78,12 @@ class PublishedReleaseTest(unittest.TestCase):
             ROOT + "/releases/tags/" + TAG: not_found(),
             ROOT + "/releases?per_page=100&page=1": [self.release],
             ROOT + "/releases/17": self.release,
-            ROOT + "/commits/" + TAG: not_found()
+            ROOT + "/git/ref/tags/" + TAG: not_found(),
+            ROOT + "/commits/" + SHA: {"sha": SHA},
+            # GitHub returns 422 when the commit endpoint cannot resolve
+            # a draft tag which has not yet been materialized.
+            ROOT + "/commits/" + TAG: subprocess.CalledProcessError(
+                1, ["gh", "api"], stderr="gh: No commit found for the ref v1.2.3 (HTTP 422)")
         }
         self.requests = []
         self.downloads = []
@@ -125,11 +130,18 @@ class PublishedReleaseTest(unittest.TestCase):
         self.assertEqual(list(self.contents), self.downloads)
         self.assertIn(ROOT + "/releases?per_page=100&page=2", self.requests)
         self.assertIn(ROOT + "/releases/17", self.requests)
+        self.assertIn(ROOT + "/git/ref/tags/" + TAG, self.requests)
+        self.assertNotIn(ROOT + "/commits/" + TAG, self.requests)
+        self.assertNotIn(ROOT + "/commits/refs/tags/" + TAG, self.requests)
+        self.assertIn(ROOT + "/commits/" + SHA, self.requests)
 
     def make_published(self):
         self.release.update(draft=False, published_at="2026-11-07T00:00:00Z")
         self.endpoints[ROOT + "/releases/tags/" + TAG] = self.release
-        self.endpoints[ROOT + "/commits/" + TAG] = {"sha": SHA}
+        self.endpoints[ROOT + "/git/ref/tags/" + TAG] = {
+            "ref": "refs/tags/" + TAG, "object": {"type": "commit", "sha": SHA}
+        }
+        self.endpoints[ROOT + "/commits/refs/tags/" + TAG] = {"sha": SHA}
 
     def test_published_receipt_requires_the_same_id_and_actual_tag_commit(self):
         self.make_published()
@@ -138,7 +150,71 @@ class PublishedReleaseTest(unittest.TestCase):
         self.assertEqual("VERIFIED", receipt["tagState"])
         self.assertEqual("NOT_MEASURED", receipt["installationQualification"])
         self.assertEqual([ROOT + "/releases/17", ROOT + "/releases/tags/" + TAG,
-                          ROOT + "/commits/" + TAG], self.requests)
+                          ROOT + "/git/ref/tags/" + TAG,
+                          ROOT + "/commits/refs/tags/" + TAG], self.requests)
+
+    def test_only_an_explicit_ref_404_permits_a_pending_draft_tag(self):
+        endpoint = ROOT + "/git/ref/tags/" + TAG
+        for status in (401, 403, 422, 429, 500):
+            with self.subTest(status=status):
+                self.requests.clear()
+                self.endpoints[endpoint] = subprocess.CalledProcessError(
+                    1, ["gh", "api"], stderr=f"gh: request failed (HTTP {status})")
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.verify()
+                self.assertEqual(endpoint, self.requests[-1])
+                self.assertEqual([], self.downloads)
+        self.make_published()
+        self.endpoints[endpoint] = not_found()
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.verify("--release-id", "17", "--published")
+        self.assertEqual([], self.downloads)
+        self.assertFalse(self.output.exists())
+
+    def test_existing_tag_peel_errors_do_not_substitute_the_draft_target(self):
+        self.endpoints[ROOT + "/git/ref/tags/" + TAG] = {
+            "ref": "refs/tags/" + TAG, "object": {"type": "commit", "sha": SHA}
+        }
+        endpoint = ROOT + "/commits/refs/tags/" + TAG
+        for status in (404, 422, 403):
+            with self.subTest(status=status):
+                self.requests.clear()
+                self.endpoints[endpoint] = subprocess.CalledProcessError(
+                    1, ["gh", "api"], stderr=f"gh: request failed (HTTP {status})")
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.verify()
+                self.assertEqual(endpoint, self.requests[-1])
+                self.assertEqual([], self.downloads)
+        self.assertFalse(self.output.exists())
+
+    def test_canonical_ref_identity_and_lightweight_commit_must_agree(self):
+        self.endpoints[ROOT + "/commits/refs/tags/" + TAG] = {"sha": SHA}
+        candidates = (
+            {"ref": "refs/heads/" + TAG, "object": {"type": "commit", "sha": SHA}},
+            {"ref": "refs/tags/" + TAG, "object": None},
+            {"ref": "refs/tags/" + TAG, "object": {"type": "tree", "sha": SHA}},
+            {"ref": "refs/tags/" + TAG, "object": {"type": "commit", "sha": "main"}},
+            {"ref": "refs/tags/" + TAG, "object": {"type": "commit", "sha": "c" * 40}},
+        )
+        for candidate in candidates:
+            with self.subTest(candidate=candidate):
+                self.endpoints[ROOT + "/git/ref/tags/" + TAG] = candidate
+                with self.assertRaises(ValueError):
+                    self.verify()
+                self.assertEqual([], self.downloads)
+        self.assertFalse(self.output.exists())
+
+    def test_annotated_tag_is_peeled_using_its_full_ref(self):
+        self.endpoints[ROOT + "/git/ref/tags/" + TAG] = {
+            "ref": "refs/tags/" + TAG, "object": {"type": "tag", "sha": "c" * 40}
+        }
+        self.endpoints[ROOT + "/commits/refs/tags/" + TAG] = {"sha": SHA}
+        receipt = self.verify()
+        self.assertEqual("UPLOAD_VERIFIED", receipt["status"])
+        self.assertEqual("VERIFIED", receipt["tagState"])
+        self.assertEqual(SHA, receipt["sourceSha"])
+        self.assertIn(ROOT + "/commits/refs/tags/" + TAG, self.requests)
+        self.assertNotIn(ROOT + "/commits/" + TAG, self.requests)
 
     def test_published_tag_lookup_does_not_substitute_a_draft(self):
         with self.assertRaises(subprocess.CalledProcessError):
@@ -303,9 +379,16 @@ elif args[0] == "api":
         print(json.dumps([release]))
     elif endpoint == prefix + "/releases/17":
         print(json.dumps(release))
-    elif endpoint == prefix + "/commits/v1.2.3":
+    elif endpoint == prefix + "/commits/" + "a" * 40:
+        print(json.dumps({"sha": "a" * 40}))
+    elif endpoint == prefix + "/git/ref/tags/v1.2.3":
         if release["draft"]:
             missing()
+        print(json.dumps({"ref": "refs/tags/v1.2.3", "object": {"type": "commit", "sha": "a" * 40}}))
+    elif endpoint in (prefix + "/commits/v1.2.3", prefix + "/commits/refs/tags/v1.2.3"):
+        if release["draft"]:
+            print("gh: No commit found for the ref v1.2.3 (HTTP 422)", file=sys.stderr)
+            sys.exit(1)
         print(json.dumps({"sha": "a" * 40}))
     elif endpoint.startswith(prefix + "/releases/assets/"):
         assert args[2:] == ["--header", "Accept: application/octet-stream"]
@@ -385,6 +468,9 @@ class ReleasePublicationWorkflowTest(unittest.TestCase):
                 self.assertEqual(SHA, receipt["sourceSha"])
                 self.assertTrue(receipt["assetSourceVerified"])
                 self.assertEqual(2, len(receipt["assetAttestations"]))
+                self.assertNotIn(["api", "repos/owner/repo/commits/v1.2.3"], state["commands"])
+                self.assertIn(["api", "repos/owner/repo/git/ref/tags/v1.2.3"], state["commands"])
+                self.assertIn(["api", "repos/owner/repo/commits/" + SHA], state["commands"])
 
     def test_wrong_target_or_asset_bytes_stop_before_publication_despite_old_receipt(self):
         for case in ({"wrong_target": True}, {"corrupt_bytes": True}, {"invalid_attestation": True}):

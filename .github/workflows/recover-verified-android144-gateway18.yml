@@ -1,0 +1,140 @@
+name: Recover verified Android 144 and Gateway 18 publication
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/recover-verified-android144-gateway18.yml
+      - scripts/recover_release_publication.py
+      - scripts/tests/test_release_recovery.py
+      - scripts/verify_published_release.py
+      - scripts/tests/test_published_release.py
+      - scripts/test_verify_published_release_draft.py
+      - release-recovery.json
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/recover-verified-android144-gateway18.yml
+      - scripts/recover_release_publication.py
+      - scripts/verify_published_release.py
+      - release-recovery.json
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  # This is deliberately distinct from the publisher lock: the read-only gate
+  # must let the ordinary main publisher finish its unchanged-intent check.
+  group: release-publication-recovery-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  contracts:
+    name: Publication recovery behavior contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify recovery and existing publication contracts
+        run: |
+          python3 -m unittest discover -s scripts/tests -p test_release_recovery.py
+          python3 -m unittest discover -s scripts/tests -p test_published_release.py
+          python3 -m unittest discover -s scripts -p test_verify_published_release_draft.py
+          python3 -m unittest discover -s scripts/tests -p test_release_evidence.py
+          python3 -m unittest discover -s scripts/tests -p test_gateway_publication.py
+          python3 scripts/check_ci_policy.py
+
+  gate:
+    name: Verify original and recovery main sources
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 125
+    outputs:
+      recover: ${{ steps.intent.outputs.recover }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select the reviewed recovery request
+        id: intent
+        run: python3 scripts/recover_release_publication.py intent
+      - name: Require both complete independent main check sets
+        if: steps.intent.outputs.recover == 'true'
+        run: python3 scripts/recover_release_publication.py gate --timeout 6900
+      - name: Retain both source check receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: recovery-gates-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/reports/release-recovery/
+          if-no-files-found: warn
+          retention-days: 30
+
+  android:
+    name: Publish the retained signed Android release
+    if: needs.gate.outputs.recover == 'true'
+    needs: gate
+    concurrency:
+      group: signed-release
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      actions: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reconcile all original bytes and attestations, then publish the same draft
+        run: python3 scripts/recover_release_publication.py android --timeout 300
+      - name: Retain original-source publication receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: recovery-android-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/reports/release-recovery/
+          if-no-files-found: warn
+          retention-days: 30
+
+  gateway:
+    name: Publish the retained Gateway and transition packages
+    if: needs.gate.outputs.recover == 'true'
+    needs: [gate, android]
+    concurrency:
+      group: gateway-release-publication
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 125
+    permissions:
+      contents: write
+      actions: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reverify Android and publish the original tested Windows packages
+        run: python3 scripts/recover_release_publication.py gateway --timeout 300
+      - name: Retain public Gateway download verification receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: recovery-gateway-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/reports/release-recovery/
+          if-no-files-found: warn
+          retention-days: 30

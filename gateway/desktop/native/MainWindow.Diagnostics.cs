@@ -14,7 +14,7 @@ namespace Gateway.Desktop;
 
 public partial class MainWindow
 {
-    private JsonObject readiness = [];
+    private JsonObject readiness = [], workspaceReadiness = [];
     private DateTime readinessAttempt, readinessObserved;
     private bool readinessBusy;
     private Action? diagnosticUpdate;
@@ -25,7 +25,8 @@ public partial class MainWindow
     {
         if(readinessBusy || (DateTime.UtcNow-readinessAttempt).TotalSeconds<30)return;
         readinessBusy=true; readinessAttempt=DateTime.UtcNow;
-        Run(async()=>{try{readiness=await Call("control-settings-read",new JsonObject{["owner_principal"]=settingsOwner});readinessObserved=DateTime.UtcNow;}
+        Run(async()=>{try{readiness=await Call("control-settings-read",new JsonObject{["owner_principal"]=settingsOwner});readinessObserved=DateTime.UtcNow;
+                workspaceReadiness=await Call("workspace-readiness");}
             finally{readinessBusy=false;if(selectedPage=="Overview")RefreshOverview();}});
     }
 
@@ -72,10 +73,16 @@ public partial class MainWindow
         var attention=new StackPanel();
         if(!snapshot.Flag("fresh"))attention.Children.Add(Ui.Button("Gateway observations are stale · Connection",()=>Navigate("Settings/Connection")));
         if(!ready)attention.Children.Add(Ui.Button("Waiting for a model · Models",()=>Navigate("Settings/Models")));
-        var tools=snapshot.Object("capabilityInventory");
-        var gh=tools.Array("tools").FirstOrDefault(r=>r.Text("name","").Contains("github",StringComparison.OrdinalIgnoreCase)&&r.Text("availability","").Contains("AVAILABLE",StringComparison.OrdinalIgnoreCase)&&!r.Text("availability","").Contains("UNAVAILABLE"));
-        attention.Children.Add(Ui.Button(gh==null?"Repository access · Check GitHub":"Repository access · Test a repository",()=>Navigate("Tools/GitHub")));
-        attention.Children.Add(Ui.Button("Validation environment · Check prerequisites",()=>Navigate("Tools/Environments")));
+        string Check(string name)
+        {
+            var observation=workspaceReadiness.Object(name);
+            if(observation["ready"] is null)return "Unchecked";
+            return (observation.Flag("ready")?"Ready":"Needs attention")+" · "+TimeOf(observation.Number("observed"));
+        }
+        var repository=workspaceReadiness.Object("repository").Text("subject","");
+        attention.Children.Add(Ui.Button("Repository access · "+repository+" "+Check("repository"),()=>Navigate("Tools/GitHub")));
+        string policyState=workspaceReadiness["validation_enabled"]==null?"Policy unobserved":workspaceReadiness.Flag("validation_enabled")?"Policy enabled":"Policy disabled";
+        attention.Children.Add(Ui.Button("Validation environment · "+Check("environment")+" · "+policyState,()=>Navigate("Tools/Environments")));
         attention.Children.Add(Ui.Button("Engineering · "+(effective["engineering_enabled"] is null?"Unobserved":effective.Flag("engineering_enabled")?"Enabled":"Disabled")
             +" · "+(readinessObserved==default?"unobserved":readinessObserved.ToLocalTime().ToString("T")),()=>Navigate("Settings/Execution")));
         if(readiness.Array("pending").Count>0)attention.Children.Add(Ui.Button("Review pending settings",()=>Navigate("Settings/Execution")));

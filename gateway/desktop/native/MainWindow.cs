@@ -396,6 +396,31 @@ public partial class MainWindow : Window
                 if (pageScroll.ActualWidth < 300 || pageScroll.ActualHeight < 200) throw new InvalidOperationException("Native page is not usable at minimum size: " + name);
                 Ui.Capture(this, System.IO.Path.Combine(root, "native-" + name.ToLowerInvariant().Replace(' ', '-') + ".png"));
             }
+            // Reference screen with room reserved for the taskbar and non-client chrome.
+            Width=1920; Height=1040;
+            layout.Width=1904; layout.Height=1000;
+            Navigate("Jobs/Tasks"); await SettleSmokeReads(); await RefreshCatalog();
+            UpdateLayout(); await Dispatcher.InvokeAsync(()=>{},System.Windows.Threading.DispatcherPriority.ContextIdle);
+            var table=jobsTable ?? throw new InvalidOperationException("Jobs table unavailable.");
+            var visible=FullyVisibleRows(table);
+            if(visible.Length<30 || visible.Select(row=>((JobRow)row.Item).Id).Distinct().Count()!=visible.Length)
+                throw new InvalidOperationException($"Compact table exposed {visible.Length} distinct full rows at reference size.");
+            var first=(JobRow)visible[0].Item; var second=(JobRow)visible[1].Item;
+            table.SelectedItems.Add(first);table.SelectedItems.Add(second);pins.Add(first.Id);
+            var scroll=Ui.Descendants<ScrollViewer>(table).First();
+            scroll.ScrollToVerticalOffset(8);UpdateLayout();
+            var anchor=((JobRow)FullyVisibleRows(table)[0].Item).Id;
+            catalogPages++;await RefreshCatalog();UpdateLayout();
+            bool observed=table.SelectedItems.Contains(first) && table.SelectedItems.Contains(second) && pins.Contains(first.Id)
+                && FullyVisibleRows(table).Any(row=>((JobRow)row.Item).Id==anchor);
+            int receiptCount=knownJobs.Count;
+            if(!observed || receiptCount<105)throw new InvalidOperationException("Catalog refresh lost the selection, pin, viewport or next page.");
+            var peer=System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(table);
+            if(peer?.GetPattern(System.Windows.Automation.Peers.PatternInterface.Selection)==null)
+                throw new InvalidOperationException("Jobs does not expose UI Automation selection.");
+            Ui.Capture(layout,System.IO.Path.Combine(root,"native-jobs-reference.png"));
+            pins.Remove(first.Id);selectedJobs.Clear();
+            layout.Width=double.NaN;layout.Height=double.NaN;Width=900;Height=600;
             Navigate("Overview"); UpdateLayout();
             var focused = Ui.Descendants<Button>(page).First(); focused.Focus();
             string focusName = System.Windows.Automation.AutomationProperties.GetName(focused);
@@ -423,8 +448,9 @@ public partial class MainWindow : Window
             layout.LayoutTransform = Transform.Identity; suppressMotion = false;
             File.WriteAllText(System.IO.Path.Combine(root, "native-ui-smoke.json"), JsonSerializer.Serialize(new
             { pages = Pages, width = ActualWidth, height = ActualHeight, highContrast = SystemParameters.HighContrast, animations = SystemParameters.ClientAreaAnimation,
+                visibleCompactRows = visible.Length, catalogReceipts = receiptCount, selectionAndPinsPreserved = observed,
                 highContrastPaletteExercised = true, simulatedLayoutScale = 1.5, reducedMotionExercised = true, focusAndScrollPreserved = true, runtime = "WPF", passed = true }));
-            Close();
+            allowWindowExit=true;Close();
         }
         catch (Exception error) { File.WriteAllText(System.IO.Path.Combine(root, "native-ui-failure.txt"), error.Message); Application.Current.Shutdown(1); }
         finally { layout.LayoutTransform = Transform.Identity; suppressMotion = false; ((App)Application.Current).ApplyContrast(); }

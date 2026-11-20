@@ -432,7 +432,8 @@ def desktop_search(payload: dict):
     from gateway_multisearch import search_shape
     from v14.research import sources
     query = payload.get('query')
-    if set(payload) != {'query'} or not isinstance(query, str) or not 1 <= len(query.strip()) <= 4096:
+    probe = payload == {'available': True}
+    if not probe and (set(payload) != {'query'} or not isinstance(query, str) or not 1 <= len(query.strip()) <= 4096):
         return JSONResponse({'error': {'code': 'invalid_query'}}, status_code=400)
     for definition in runtime.get_all_mcp_tools():
         shape = search_shape(definition)
@@ -443,6 +444,8 @@ def desktop_search(payload: dict):
         args[key] = query
         if not set(required) <= args.keys():
             continue
+        if probe:
+            return {'available': True, 'engine': name}
         response = runtime.execute_mcp_tool(name, args)
         records = {}
         if not (isinstance(response, dict) and (response.get('error') or response.get('isError'))):
@@ -451,7 +454,7 @@ def desktop_search(payload: dict):
                 if len(records) == 12:
                     break
         return {'engine': name, 'sources': list(records.values())}
-    return {'engine': None, 'sources': []}
+    return {'available': False, 'engine': None, 'sources': []}
 
 
 @app.get('/gateway/admin/status')

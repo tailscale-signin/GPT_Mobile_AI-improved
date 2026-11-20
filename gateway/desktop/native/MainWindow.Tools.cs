@@ -12,7 +12,7 @@ namespace Gateway.Desktop;
 public partial class MainWindow
 {
     private static readonly JsonSerializerOptions Pretty=new(){WriteIndented=true};
-    private string analysisRevision="", selectedAssistant="";
+    private string selectedAssistant="";
     private static TextBox Editor(string label,string text="",double height=110)
     {
         var box=new TextBox{Text=text,AcceptsReturn=true,AcceptsTab=true,MinHeight=height,MaxHeight=height*2,
@@ -32,9 +32,17 @@ public partial class MainWindow
         var panel=new DockPanel();var controls=new StackPanel();DockPanel.SetDock(controls,Dock.Top);panel.Children.Add(controls);
         var query=Ui.Field(controls,"Find a capability");var category=Ui.Select(controls,"Availability",new[]{"All","Available","Unavailable","Unknown"});
         var list=new ListBox();panel.Children.Add(list);
-        void Load(){var inventory=snapshot.Object("capabilityInventory");Ui.Rows(list,inventory.Array("tools").Where(r=>
-            (query.Text.Length==0||r?.ToJsonString().Contains(query.Text,StringComparison.OrdinalIgnoreCase)==true)
-            &&(category.SelectedIndex==0||r.Text("availability").Equals(category.SelectedItem?.ToString(),StringComparison.OrdinalIgnoreCase))),"name","availability");}
+        void Load()
+        {
+            var rows = snapshot.Object("capabilityInventory").Array("tools").OfType<JsonObject>().Select(source =>
+            {
+                var row = (JsonObject)source.DeepClone();
+                row["availability"] = row["executableNow"] is null ? "Unknown" : row.Flag("executableNow") ? "Available" : "Unavailable";
+                return row;
+            }).Where(row => (query.Text.Length==0 || row.ToJsonString().Contains(query.Text,StringComparison.OrdinalIgnoreCase)) &&
+                (category.SelectedIndex==0 || row.Text("availability")==category.SelectedItem?.ToString()));
+            Ui.Rows(list,rows,"name","availability");
+        }
         controls.Children.Add(Ui.Actions(Ui.Button("Refresh inventory",()=>Run(async()=>{await RefreshSnapshot();Load();})),
             Ui.Button("Capability evidence",()=>{if(Ui.Selected(list) is {} tool)ShowDetails(tool.Text("name"),tool);})));
         list.MouseDoubleClick+=(_,_)=>{if(Ui.Selected(list) is {} tool)ShowDetails(tool.Text("name"),tool);};
@@ -117,14 +125,48 @@ public partial class MainWindow
         var panel=new StackPanel();var repo=Ui.Field(panel,"Repository (owner/name)");var known=new ComboBox();AutomationProperties.SetName(known,"Configured repositories");panel.Children.Add(known);
         var enabled=Ui.Toggle(panel,"Enable repository validation",false);var fields=new StackPanel();var actions=new WrapPanel();
         var note=Ui.Text("Load a repository to see its configuration and revision.",13,"MutedBrush");panel.Children.Add(note);
-        JsonObject options=[];string revision="",loaded="";
+        JsonObject options=[];string revision="",loaded="";string[] profiles=[];
         var inputs=new Dictionary<string,Func<JsonNode?>>();
         JsonObject Values(){var value=(JsonObject)options.DeepClone();foreach(var (key,read) in inputs)value[key]=read();return value;}
         void Render(){
             fields.Children.Clear();inputs.Clear();
             foreach(var key in tests?new[]{"post_merge","allowed_checks","commands","acceptance_map","acceptance_templates"}:
                 new[]{"mirror","profile","image_source","image","timeout_seconds","workspace_terminal","commands","parallel_command_groups","allowed_checks","acceptance_map","acceptance_templates","post_merge"}){
-                if(options[key] is JsonArray or JsonObject){
+                if(key=="profile" && profiles.Length>0){
+                    var selector=Ui.Select(fields,"Validation profile",profiles);selector.SelectedItem=options.Text(key);
+                    inputs[key]=()=>JsonValue.Create(selector.SelectedItem?.ToString()??options.Text(key));
+                }else if(key=="post_merge" && tests){
+                    var release=(JsonObject)options.Object(key).DeepClone();
+                    var records=(JsonArray)release.Array("artifacts").DeepClone();
+                    var group=new StackPanel();fields.Children.Add(Card("Release artifacts",group));
+                    var list=new ListBox{DisplayMemberPath="Label",MaxHeight=140};group.Children.Add(list);
+                    void Artifacts(){list.ItemsSource=records.OfType<JsonObject>().Select(r=>new Choice(r.Text("name")+" · "+r.Text("workflow"),r)).ToList();}
+                    var workflow=Ui.Field(group,"Workflow path",".github/workflows/build.yml");
+                    var name=Ui.Field(group,"Exact artifact name");var limit=Ui.Field(group,"Maximum download (MiB)","64");
+                    group.Children.Add(Ui.Actions(Ui.Button("Add artifact",()=>{
+                        if(string.IsNullOrWhiteSpace(name.Text)||!int.TryParse(limit.Text,out var mb)||mb<1||mb>2048){
+                            status.Text="Enter an artifact name and a valid size.";return;}
+                        records.Add(new JsonObject{["workflow"]=workflow.Text.Trim(),["name"]=name.Text.Trim(),["maximum_bytes"]=(long)mb*1048576});Artifacts();}),
+                        Ui.Button("Remove selected artifact",()=>{if(list.SelectedItem is Choice c){records.Remove(c.Value);Artifacts();}})));
+                    Artifacts();
+                    var checks=new Dictionary<string,List<CheckBox>>();
+                    foreach(var checkType in new[]{"installation_checks","smoke_checks"}){
+                        group.Children.Add(Ui.Text(checkType.Replace('_',' '),14,bold:true));checks[checkType]=[];
+                        var selected=release.Array(checkType).Select(x=>x!.ToString()).ToHashSet();
+                        int index=0;
+                        foreach(var command in options.Array("commands")){
+                            checks[checkType].Add(Ui.Toggle(group,command?.ToJsonString()??"",selected.Contains(index.ToString())));index++;
+                        }
+                    }
+                    inputs[key]=()=>{
+                        var saved=(JsonObject)release.DeepClone();saved["artifacts"]=records.DeepClone();
+                        foreach(var (category,toggles) in checks){
+                            var selected=new JsonArray();for(int i=0;i<toggles.Count;i++)if(toggles[i].IsChecked==true)selected.Add(i);
+                            saved[category]=selected;
+                        }
+                        return saved;
+                    };
+                }else if(options[key] is JsonArray or JsonObject){
                     var box=Editor(key,options[key]!.ToJsonString(Pretty),70);
                     fields.Children.Add(new Expander{Header=key.Replace('_',' '),Content=box,IsExpanded=tests&&key=="post_merge"});
                     inputs[key]=()=>JsonNode.Parse(box.Text);
@@ -138,7 +180,7 @@ public partial class MainWindow
         }
         async Task Load(){
             var r=await Call("workspace-repo-load",new JsonObject{["repository"]=repo.Text.Trim()});
-            options=r.Object("options");loaded=options.Text("repository");revision=r.Text("revision");enabled.IsChecked=r.Flag("enabled");Render();
+            options=r.Object("options");profiles=r.Array("profiles").Select(v=>v!.ToString()).ToArray();loaded=options.Text("repository");revision=r.Text("revision");enabled.IsChecked=r.Flag("enabled");Render();
             note.Text="Editing "+loaded+" · policy "+revision[..Math.Min(12,revision.Length)];
         }
         JsonObject Args(){if(repo.Text.Trim()!=loaded||revision.Length==0)throw new InvalidOperationException("Load this repository first.");
@@ -175,10 +217,10 @@ public partial class MainWindow
             Ui.Button("Save analysis",()=>Run(async()=>{var file=Pick(true,"Gateway analysis|*.json");if(file!=null){var a=Payload();a["path"]=file;await Call("workspace-analysis-save",a);}})),
             Ui.Button("Open analysis",()=>Run(async()=>{var file=Pick(false,"Gateway analysis|*.json");if(file!=null){var r=await Call("workspace-analysis-open",new JsonObject{["path"]=file});code.Text=r.Text("code");input.Text=r.Text("input");}})),
             Ui.Button("Add result to chat",()=>Run(()=>AppendDraft(output.Text))),
-            Ui.Button("Request revision in chat",()=>Run(async()=>{analysisRevision=code.Text;await AppendDraft("Revise this Python analysis:\n```python\n"+code.Text+"\n```");})),
+            Ui.Button("Request revision in chat",()=>Run(async()=>{await AppendDraft("Revise this Python analysis:\n```python\n"+code.Text+"\n```");})),
             Ui.Button("Use selected revision",()=>{
                 var match=System.Text.RegularExpressions.Regex.Match(selectedAssistant,@"```(?:python|py)\s*\r?\n([\s\S]*?)```",System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                if(!match.Success)throw new InvalidOperationException("Select a Python response in Chat first.");code.Text=match.Groups[1].Value.TrimEnd();
+                if(!match.Success){status.Text="Select a Python response in Chat first.";return;}code.Text=match.Groups[1].Value.TrimEnd();
             })));
         page.Children.Add(body);
     }

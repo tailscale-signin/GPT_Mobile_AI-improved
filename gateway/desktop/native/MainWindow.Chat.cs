@@ -18,13 +18,16 @@ public partial class MainWindow
         await connectLock.WaitAsync();
         try{await ConnectCore(force);}finally{connectLock.Release();}
     }
+    private (string Gateway,string Principal)? loadedScope;
     private async Task ConnectCore(bool force)
     {
         if (identity is not null && !force) return;
         var value = await Call("connect");
         var observed = value.Object("identity");
-        if (identity is not null && (observed.Text("gateway_id") != identity.Text("gateway_id") || observed.Text("principal_id") != identity.Text("principal_id")))
-        { openedConversation = null; transcript = []; previews.Clear(); knownJobs.Clear(); jobs.Clear(); selectedJobs.Clear(); jobCounts=[];catalogObserved=default; views.Clear(); }
+        var scope=(observed.Text("gateway_id"),observed.Text("principal_id"));
+        if (loadedScope is not null && loadedScope.Value != scope)
+        { openedConversation = null; transcript = []; previews.Clear(); jobTurns.Clear(); readingPositions.Clear(); eventCursors.Clear(); activityGaps.Clear(); knownJobs.Clear(); jobs.Clear(); selectedJobs.Clear(); jobCounts=[];catalogObserved=default; views.Clear(); }
+        loadedScope=scope;
         identity = (JsonObject)observed.DeepClone();
         models = value.Array("models").Select(item => item?.ToString() ?? "").Where(item => item.Length > 0).ToArray();
         draft = (JsonObject)value.Object("draft").DeepClone();

@@ -132,6 +132,22 @@ class CopilotTaskTests(unittest.TestCase):
             self.tasks.wake.wait(.01)
         self.fail('Supervisor did not checkpoint ' + expected)
 
+    def test_catalog_projects_only_permitted_copilot_population(self):
+        from v14.job_catalog import catalog
+        owned = self.tasks.submit('owner', self.payload)['id']
+        other = self.tasks.submit('second', dict(self.payload, request_id='separate-request'))['id']
+        data = self.store.conversations
+        ownership = SimpleNamespace(owned_job_ids=lambda ids, principal: set())
+        owner = SimpleNamespace(id='owner', scopes={'engineering'}, local_admin=False)
+        page = catalog(data, self.service, owner, ownership, include_copilot=True)
+        self.assertEqual([owned], [row['job_id'] for row in page['items']])
+        self.assertNotIn(other, str(page))
+        self.assertEqual(1, sum(page['state_counts'].values()))
+        self.assertNotIn('cancel', page['items'][0]['allowed_actions'])
+        self.assertEqual([], catalog(data,self.service,owner,ownership)['items'])
+        owner.scopes = set()
+        self.assertEqual([], catalog(data,self.service,owner,ownership,include_copilot=True)['items'])
+
     def test_disabled_and_conversation_consent_never_make_remote_calls(self):
         self.enabled = False
         self.assertFalse(self.tasks.capabilities('owner')['enabled'])

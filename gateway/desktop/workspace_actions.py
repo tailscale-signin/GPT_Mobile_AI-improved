@@ -1,10 +1,30 @@
 """Native operator controls backed by the same stores and validators as the supervisor."""
 from pathlib import Path
+import json
+import time
 import re
 import threading
 
 from desktop import configuration
 from v14.operator_schedule import OperatorSchedule
+
+
+def record_check(root, name, ready, subject=''):
+    # Persist only the observed state and original public repository identifier.
+    configuration.atomic_json(root / 'data' / ('desktop-check-' + name + '.json'),
+                              {'ready': ready, 'subject': subject, 'observed': time.time()})
+
+
+def workspace_readiness(root):
+    from desktop.validation_policy import load_policy_snapshot
+    policy = load_policy_snapshot(root)
+    result = {'validation_enabled': policy['enabled'], 'repositories': len(policy['repositories'])}
+    for name in ('repository', 'environment'):
+        try:
+            result[name] = json.loads((root / 'data' / ('desktop-check-' + name + '.json')).read_text(encoding='utf-8'))
+        except (FileNotFoundError, ValueError):
+            result[name] = {}
+    return result
 
 
 def schedules(root, action, args):
@@ -61,7 +81,7 @@ def repositories(root, action, args):
     repository = validation.repository_name(args.get('repository', ''))
     if action == 'repo-load':
         return {'options': validation.options_for(root, repository, snapshot['repositories']), 'revision': snapshot['revision'],
-                'enabled': snapshot['enabled']}
+                'enabled': snapshot['enabled'], 'profiles': [*validation.PROFILES, validation.CUSTOM_PROFILE]}
     if snapshot['revision'] != args.get('revision'):
         raise ValueError('Repository settings changed. Reload the current revision to review your edits.')
     options = args.get('options') or {}
@@ -88,6 +108,8 @@ def dispatch(root, name, args):
         from desktop.workspace_reports import report
         return report(root, name, args)
     action = name.removeprefix('workspace-')
+    if action == 'readiness':
+        return workspace_readiness(root)
     if action.startswith('connection-'):
         return connection(root, action, args)
     if action.startswith('repo'):
@@ -103,11 +125,19 @@ def dispatch(root, name, args):
             return {'message': note}
         if action == 'github-remove':
             remove_token(root)
+            record_check(root, 'repository', None)
         if action == 'github-copilot':
             configuration.save_copilot_enabled(root, args.get('enabled'))
         source, token = configured_connection(root, cfg)
         if action == 'github-test':
-            return {'message': test_connection(token, args.get('repository', ''))}
+            repo = args.get('repository', '')
+            try:
+                note = test_connection(token, repo)
+            except (ValueError, OSError):
+                record_check(root, 'repository', False, repo[:201])
+                raise
+            record_check(root, 'repository', True if repo else None, repo)
+            return {'message': note}
         return {'source': source, 'configured': bool(token), 'public_maps': configuration.public_repository_maps(root),
                 'copilot': configuration.copilot_enabled(root)}
     if action.startswith('addons-'):
@@ -120,7 +150,9 @@ def dispatch(root, name, args):
     if action.startswith('env-'):
         from desktop import engineering_setup as setup
         if action == 'env-check':
-            return setup.check_environment()
+            result = setup.check_environment()
+            record_check(root, 'environment', result['ready_for_validation'])
+            return result
         if action == 'env-prepare':
             return setup.prepare_and_verify(root)
         if action == 'env-repair-path':

@@ -73,7 +73,7 @@ def chat_send(root, args, output):
         # Never accept a supplied transcript or revision as authority.
         opened = client.read(bound_text(args['conversation_id'])) if args.get('conversation_id') else {}
         conversation = opened.get('conversation')
-        pending = {'command_id': command, 'identity': identity,
+        pending = {'command_id': command, 'identity': identity, 'draft_conversation': args.get('conversation_id') or '',
                    'draft_sha256': hashlib.sha256(prompt.encode()).hexdigest()}
         state.save(draft=prompt, model=model, pending=pending)
 
@@ -120,6 +120,7 @@ def chat_send(root, args, output):
             raise
         if receipt.get('command_id') != command or not receipt.get('conversation_id'):
             raise ValueError('The response needs reconciliation. Check the original send.')
+        journal.save_draft(pending['draft_conversation'], '', model)
         state.save(draft='', pending=None, last_conversation_id=receipt['conversation_id'])
         return receipt
     finally:
@@ -149,6 +150,8 @@ def _reconcile_chat(root):
     elif value.get('conversation_id'):
         # Read and verify saved history before retiring an ambiguous send.
         opened = client.read(value['conversation_id'])
+        if 'draft_conversation' in pending:
+            PublicActivity(root, pending['identity']).save_draft(pending['draft_conversation'], '', '')
         state.save(pending=None, draft='', last_conversation_id=value['conversation_id'])
         value = dict(value, opened=opened)
     return value
@@ -289,6 +292,17 @@ def dispatch(root, action, args, output):
             models = []
         return {'identity': identity, 'models': models, 'privacy': privacy_text(identity),
                 'draft': ChatState(root).value}
+    if action == 'search-availability':
+        connected(root, args.get('identity'))
+        return request(root, 'desktop-search', payload={'available': True})['result']
+    if action == 'draft-context':
+        connected(root, args.get('identity'))
+        cid = bound_text(args.get('conversation_id', ''), 256, blank=True)
+        saved = PublicActivity(root, args['identity']).draft(cid)
+        state = ChatState(root).value
+        if saved is None and not cid and not state.get('contextual_drafts'):
+            saved = {'draft': state['draft'], 'model': state['model']}
+        return dict(saved or {'draft':'','model':''}, pending=state.get('pending'))
     if action == 'job-catalog':
         client = connected(root, args.get('identity'))
         params = {'limit': 100, 'include_copilot': 'true'}
@@ -384,7 +398,15 @@ def dispatch(root, action, args, output):
             state = ChatState(root)
             if state.value.get('pending'):
                 raise ValueError('The original send must be checked before replacing its saved draft.')
-            state.save(draft=bound_text(args.get('draft'), 32000, blank=True), model=bound_text(args.get('model'), 512, blank=True))
+            text = bound_text(args.get('draft'), 32000, blank=True)
+            model = bound_text(args.get('model'), 512, blank=True)
+            if 'conversation_id' in args:
+                connected(root, args.get('identity'))
+                cid = bound_text(args['conversation_id'], 256, blank=True)
+                PublicActivity(root, args['identity']).save_draft(cid, text, model)
+                state.save(contextual_drafts=True, draft='' if cid else text, model=model)
+            else:
+                state.save(draft=text, model=model)
             return {'saved': True}
         finally:
             lock.release()

@@ -149,6 +149,16 @@
       </Setter.Value></Setter>
     </Style>
 
+    <Style TargetType="DataGridColumnHeader">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+      <Setter Property="Padding" Value="4,1" />
+      <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocus}" />
+    </Style>
+    <Style TargetType="Expander">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+      <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocus}" />
+    </Style>
     <Style TargetType="RadioButton">
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
       <Setter Property="MinHeight" Value="36" />

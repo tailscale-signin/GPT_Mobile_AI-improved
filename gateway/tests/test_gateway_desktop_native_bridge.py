@@ -209,6 +209,40 @@ class NativeBridgeTest(unittest.TestCase):
                 release.set(); worker.join(5)
         self.assertEqual([], errors)
 
+    def test_search_forwards_retrieved_sources_and_replays_without_resubmission(self):
+        from desktop.public_activity import PublicActivity
+        args = dict(identity=IDENTITY, command_id='search-turn', model='selected', prompt='Find sources', mode='Search')
+        client = Mock()
+        receipt = dict(command_id='search-turn', conversation_id='thread', job_id='job')
+        sources = [{'title':'Observed document','url':'https://example.org/source','snippet':'Public excerpt'}]
+        def complete(model, prompt, command, **kwargs):
+            self.assertEqual(sources, kwargs['sources'])
+            kwargs['on_event']('accepted',receipt)
+            kwargs['on_event']('delta','An answer [1].')
+            return receipt
+        client.send.side_effect = complete
+        with patch.object(native_bridge,'connected',return_value=client), patch.object(native_bridge,'request',
+                  return_value={'result':{'engine':'web_search','sources':sources}}):
+            native_bridge.chat_send(self.root,args,io.StringIO())
+            events = PublicActivity(self.root,IDENTITY).replay('thread')['items']
+            self.assertEqual('https://example.org/source',next(e for e in events if e['sources'])['sources'][0]['url'])
+            client.request.return_value={'conversation_id':'thread'}
+            replay = native_bridge.dispatch(self.root,'public-activity',dict(identity=IDENTITY,conversation_id='thread',after=0),io.StringIO())
+            self.assertEqual(events,replay['items'])
+            self.assertEqual([],native_bridge.dispatch(self.root,'public-activity',
+                dict(identity=IDENTITY,conversation_id='thread',after=events[-1]['sequence']),io.StringIO())['items'])
+        client.send.assert_called_once()
+
+    def test_failed_search_retires_original_command_before_model_dispatch(self):
+        client = Mock()
+        with patch.object(native_bridge,'connected',return_value=client), patch.object(native_bridge,'request',
+                  return_value={'result':{'engine':None,'sources':[]}}), self.assertRaises(ClientError) as error:
+            native_bridge.chat_send(self.root,dict(identity=IDENTITY,command_id='no-sources',model='selected',
+                                    prompt='Find sources',mode='Search'),io.StringIO())
+        self.assertTrue(error.exception.not_dispatched)
+        self.assertIsNone(ChatState(self.root).value['pending'])
+        client.send.assert_not_called()
+
     def test_chat_retains_command_after_lost_reply_and_refuses_new_send(self):
         client = Mock()
         client.send.side_effect = ClientError('Connection interrupted.', code='connection_unavailable')

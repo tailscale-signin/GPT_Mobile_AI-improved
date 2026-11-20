@@ -66,7 +66,7 @@ Type: filesandordirs; Name: "{app}\releases"
 var
   ConnectionPage, AdvancedPage: TInputQueryWizardPage;
   ModePage, UpdatePage: TInputOptionWizardPage;
-  RuntimePrepared, InstallFirewall, RepairDamaged: Boolean;
+  RuntimePrepared, InstallFirewall, RepairDamaged, ExistingInstallation: Boolean;
 
 function J(Value: String): String;
 begin
@@ -223,6 +223,24 @@ begin
       if not Exec(Validator, 'stop --root "' + ExpandConstant('{app}') + '" --quiet', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
         Result := 'Gateway could not stop safely. Finish any active work and retry.';
     end;
+  end;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = wpReady then begin
+    ExistingInstallation := FileExists(ExpandConstant('{app}\current.json')) or
+                            FileExists(ExpandConstant('{app}\settings.json'));
+    if ExistingInstallation then begin
+      WizardForm.PageNameLabel.Caption := 'Repair or update Gateway';
+      WizardForm.PageDescriptionLabel.Caption := 'Setup checks the existing installation and keeps its settings and saved work.';
+    end;
+  end;
+  if CurPageID = wpFinished then begin
+    if RepairDamaged then
+      WizardForm.FinishedHeadingLabel.Caption := 'Gateway settings recovered'
+    else if ExistingInstallation then
+      WizardForm.FinishedHeadingLabel.Caption := 'Gateway installation repaired or updated';
   end;
 end;
 

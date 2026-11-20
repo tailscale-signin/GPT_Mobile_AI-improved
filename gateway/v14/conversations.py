@@ -136,15 +136,13 @@ class Conversations:
         metadata_schema(db)
         migrate(db, Conversations.identity(db))
         version = db.execute("SELECT value FROM gateway_installation WHERE key='conversation_schema'").fetchone()
-        if version is None or version[0] != SCHEMA_VERSION:
+        if version is None or version[0] not in {'3', SCHEMA_VERSION}:
             db.execute('INSERT OR IGNORE INTO gateway_conversation_catalog(conversation_id) SELECT id FROM gateway_conversations ORDER BY created_at,id')
             db.execute('INSERT OR IGNORE INTO gateway_message_publications SELECT conversation_id,id,revision FROM gateway_messages')
             for row in db.execute('SELECT id,revision,content FROM gateway_messages'):
                 save_message_parts(db, row['id'], row['revision'], row['content'])
             if columns(db, 'gateway_jobs') and 'job_id' in columns(db, 'gateway_jobs'):
                 db.execute("INSERT OR IGNORE INTO gateway_catalog_keys(job_kind,job_id) SELECT 'generation',job_id FROM gateway_jobs ORDER BY created_at,job_id")
-            if columns(db, 'engineering_copilot_tasks'):
-                db.execute("INSERT OR IGNORE INTO gateway_catalog_keys(job_kind,job_id) SELECT 'copilot',id FROM engineering_copilot_tasks ORDER BY rowid")
             if columns(db, 'engineering_jobs'):
                 db.execute("INSERT OR IGNORE INTO gateway_catalog_keys(job_kind,job_id) SELECT 'engineering',id FROM engineering_jobs ORDER BY next_at,id")
                 for row in db.execute("SELECT c.id,c.binding,j.data FROM gateway_conversations c JOIN engineering_jobs j ON c.active_job=j.id WHERE c.active_kind='engineering'").fetchall():
@@ -154,6 +152,9 @@ class Conversations:
                                        'source_sha': request.get('source_sha'), 'base': request['base'], 'execution_binding': job.get('execution_binding')}.items():
                         binding.setdefault(key, value)
                     db.execute('UPDATE gateway_conversations SET binding=? WHERE id=?', (json.dumps(binding), row['id']))
+        if version is None or version[0] != SCHEMA_VERSION:
+            if columns(db, 'engineering_copilot_tasks'):
+                db.execute("INSERT OR IGNORE INTO gateway_catalog_keys(job_kind,job_id) SELECT 'copilot',id FROM engineering_copilot_tasks ORDER BY rowid")
         db.execute("INSERT INTO gateway_installation VALUES('conversation_schema',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE value!=excluded.value", (SCHEMA_VERSION,))
 
     def tx(self, operation):

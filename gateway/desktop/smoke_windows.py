@@ -77,6 +77,30 @@ def stop_checked(root, child, phase, output):
     raise AssertionError(f'{phase}: stop verification failed (acknowledged={acknowledged}, code={exit_code}, state={status.get("state")})')
 
 
+def seed_density_receipts(root):
+    """Populate the installed temporary Gateway with completed, owner-scoped catalog receipts."""
+    import sqlite3
+    from contextlib import closing
+    from desktop.conversation_client import Client
+    from gateway_security import DeviceStore
+    client = Client(root)
+    principal = client.identity()['principal_id']
+    client.request('GET', '/gateway/job-catalog', params={'limit': 1})
+    owner = DeviceStore(root / 'data' / 'auth.sqlite3')
+    now = time.time()
+    with closing(sqlite3.connect(root / 'data' / 'jobs.sqlite3', timeout=20)) as db, db:
+        for index in range(105):
+            job = f'layout-smoke-{index:03d}'
+            stamp = now - (index + 1) * 60
+            public = dict(job_id=job, title=f'Layout qualification {index:03d}', model='offline-density-fixture',
+                          status='completed', stage='finished', created_at=stamp, finished_at=stamp+5,
+                          accepted_at=stamp, last_sequence=1, result_available=True)
+            db.execute('INSERT INTO gateway_jobs(job_id,public_json,result_json,status,created_at,updated_at,finished_at) '
+                       'VALUES(?,?,?,?,?,?,?)', (job, json.dumps(public), '{}', 'completed', stamp, stamp+5, stamp+5))
+            db.execute("INSERT INTO gateway_catalog_keys(job_kind,job_id) VALUES('generation',?)", (job,))
+            owner.claim(job, principal)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--upgrade-archive', type=Path)
@@ -136,7 +160,8 @@ def main():
             for capture in root.glob('dashboard-*.png'):
                 shutil.copy2(capture, output / capture.name)
             results.append('frozen themed dashboard renders all views; observer persists metadata; UI closes without stopping gateway')
-            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=180)
+            seed_density_receipts(root)
+            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=260)
             native = json.loads((root / 'native-ui-smoke.json').read_text(encoding='utf-8'))
             assert native['runtime'] == 'WPF' and native['passed'] is True
             assert native['pages'] == list(NATIVE_VIEWS), native['pages']
@@ -146,6 +171,9 @@ def main():
             assert native['width'] >= 900 and native['height'] >= 600
             assert native['highContrastPaletteExercised'] and native['reducedMotionExercised'] and native['focusAndScrollPreserved']
             assert native['simulatedLayoutScale'] == 1.5
+            assert native['visibleCompactRows'] >= 30 and native['catalogReceipts'] >= 105
+            assert native['selectionAndPinsPreserved']
+            shutil.copy2(root / 'native-jobs-reference.png', output / 'native-jobs-reference.png')
             for capture in root.glob('native-*.png'):
                 shutil.copy2(capture, output / capture.name)
             shutil.copy2(root / 'native-ui-smoke.json', output / 'native-ui-smoke.json')

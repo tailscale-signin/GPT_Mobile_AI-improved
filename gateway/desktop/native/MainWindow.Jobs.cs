@@ -30,7 +30,12 @@ public partial class MainWindow
             ? TimeSpan.FromSeconds(Math.Max(0, end-start)).ToString(end-start>=86400 ? @"d\.hh\:mm" : @"hh\:mm\:ss") : "—";
         public bool Allows(string action) => Data.Array("allowed_actions").Any(v => v?.ToString() == action);
         public event PropertyChangedEventHandler? PropertyChanged;
-        public void Update(JsonObject row) { Data = row; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null)); }
+        public void Update(JsonObject row)
+        {
+            if (JsonNode.DeepEquals(row,Data)) return;
+            Data = row;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
+        }
     }
 
     private readonly ObservableCollection<JobRow> jobs = [];
@@ -83,7 +88,15 @@ public partial class MainWindow
 
     private void SyncJobs(List<JsonObject> records)
     {
-        var seen = new HashSet<string>(); syncingSelection = true;
+        var seen = new HashSet<string>();
+        var table = selectedPage == "Jobs" ? jobsTable : null;
+        var view = CollectionViewSource.GetDefaultView(jobs);
+        var scroll = table == null ? null : Ui.Descendants<ScrollViewer>(table).FirstOrDefault();
+        var visibleBefore = table == null ? [] : view.Cast<JobRow>().Select(j => j.Id).ToArray();
+        var anchor = table is null ? null : FullyVisibleRows(table).FirstOrDefault()?.Item as JobRow;
+        double offset = scroll?.HorizontalOffset ?? 0;
+        var order = new List<JobRow>();
+        syncingSelection = true;
         try
         {
             foreach (var record in records)
@@ -91,6 +104,7 @@ public partial class MainWindow
                 var id = record.Text("job_id"); if (!seen.Add(id)) continue;
                 if (knownJobs.TryGetValue(id, out var old)) old.Update(record);
                 else { var row = new JobRow(record); knownJobs[id] = row; jobs.Add(row); }
+                order.Add(knownJobs[id]);
             }
             // Manager-owned observations can include other phones. They are read-only and have their own filter.
             foreach (var item in snapshot.Array("engineering").OfType<JsonObject>())
@@ -101,13 +115,23 @@ public partial class MainWindow
                     ["job_kind"]="host receipt", ["phase"]=item.Text("status"), ["branch"]=item.Text("branch",""), ["allowed_actions"]=new JsonArray("open") };
                 if (knownJobs.TryGetValue(id, out var existing)) existing.Update(retained);
                 else { var row = new JobRow(retained); jobs.Add(row); knownJobs[id]=row; }
+                order.Add(knownJobs[id]);
             }
             foreach (var id in knownJobs.Keys.Where(id => !seen.Contains(id)).ToArray()) { jobs.Remove(knownJobs[id]); knownJobs.Remove(id); }
-            if (selectedPage == "Jobs" && jobsTable is not null)
+            for (int index = 0; index < order.Count; index++)
+                if (jobs[index] != order[index]) jobs.Move(jobs.IndexOf(order[index]),index);
+            if (table is not null)
             {
-                var view = CollectionViewSource.GetDefaultView(jobs);
-                view.Refresh();
-                foreach (JobRow row in view) if (selectedJobs.Contains(row.Id) && !jobsTable.SelectedItems.Contains(row)) jobsTable.SelectedItems.Add(row);
+                var visibleIds = view.Cast<JobRow>().Select(row => row.Id).ToHashSet();
+                if (jobs.Any(row => (view.Filter?.Invoke(row) ?? true) != visibleIds.Contains(row.Id))) view.Refresh();
+                foreach (JobRow row in view)
+                    if (selectedJobs.Contains(row.Id) && !table.SelectedItems.Contains(row)) table.SelectedItems.Add(row);
+                if (anchor != null && scroll != null && !visibleBefore.SequenceEqual(view.Cast<JobRow>().Select(row => row.Id)))
+                {
+                    int anchorIndex = view.Cast<JobRow>().TakeWhile(row => row.Id != anchor.Id).Count();
+                    if (anchorIndex < table.Items.Count) scroll.ScrollToVerticalOffset(anchorIndex);
+                    scroll.ScrollToHorizontalOffset(offset);
+                }
             }
         }
         finally { syncingSelection = false; }
@@ -133,6 +157,18 @@ public partial class MainWindow
         ScrollViewer.SetCanContentScroll(table,true); AutomationProperties.SetName(table,label);
         return table;
     }
+    private static DataGridRow[] FullyVisibleRows(DataGrid table)
+    {
+        if (!table.IsVisible) return [];
+        var viewport = Ui.Descendants<ScrollContentPresenter>(table).FirstOrDefault();
+        if (viewport == null || viewport.ActualHeight <= 0) return [];
+        return Ui.Descendants<DataGridRow>(viewport)
+            .Where(row => row.IsVisible && row.ActualHeight > 0 && row.Item is JobRow)
+            .Select(row => (row, top: row.TranslatePoint(new Point(0,0),viewport).Y))
+            .Where(pair => pair.top >= -0.5 && pair.top + pair.row.ActualHeight <= viewport.ActualHeight + 0.5)
+            .OrderBy(pair => pair.top).Select(pair => pair.row).ToArray();
+    }
+
     private static DataGridTextColumn Column(DataGrid table, string title, string prop, double width=90)
     {
         var col = new DataGridTextColumn { Header=title, Binding=new Binding(prop), Width=width < 0 ? new DataGridLength(-width,DataGridLengthUnitType.Star) : new DataGridLength(width),
@@ -190,8 +226,7 @@ public partial class MainWindow
         catalogNote=Ui.Text("",12,"MutedBrush"); Grid.SetRow(catalogNote,2); grid.Children.Add(catalogNote);
         void Footer()
         {
-            var scroll=Ui.Descendants<ScrollViewer>(table).FirstOrDefault();
-            int visible=scroll is null || !table.IsVisible ? 0 : Math.Min(view.Cast<object>().Count(),(int)Math.Floor(scroll.ViewportHeight));
+            int visible=FullyVisibleRows(table).Length;
             catalogNote.Text=$"{visible} fully visible · {table.Items.Count} matching · {selectedJobs.Count} selected · {CatalogAge}";
             more.IsEnabled=catalogMore && !catalogBusy;
         }
@@ -200,8 +235,8 @@ public partial class MainWindow
         void Inspect()
         {
             var row=knownJobs.GetValueOrDefault(focusedJob);
-            if (inspector.Tag as string == $"{focusedJob}|{row?.Data.Text("revision")}|{inspectorTab}|{string.Join(',',selectedJobs)}|{string.Join(',',pins)}") return;
-            inspector.Tag=$"{focusedJob}|{row?.Data.Text("revision")}|{inspectorTab}|{string.Join(',',selectedJobs)}|{string.Join(',',pins)}";
+            if (inspector.Tag as string == $"{focusedJob}|{row?.Data.Text("revision")}|{row?.State}|{row?.Next}|{inspectorTab}|{string.Join(',',selectedJobs)}|{string.Join(',',pins)}") return;
+            inspector.Tag=$"{focusedJob}|{row?.Data.Text("revision")}|{row?.State}|{row?.Next}|{inspectorTab}|{string.Join(',',selectedJobs)}|{string.Join(',',pins)}";
             inspector.Children.Clear();
             var choices=selectedJobs.Concat(pins).Distinct().Where(knownJobs.ContainsKey).Select(id=>knownJobs[id]).ToList();
             if (choices.Count>0)

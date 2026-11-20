@@ -17,6 +17,7 @@ public partial class MainWindow
         public Dictionary<string,string> Sources {get;}=[];
     }
     private readonly Dictionary<string,TurnPreview> previews=[];
+    private readonly Dictionary<string,string> jobTurns=[];
     private readonly Dictionary<string,(bool Follow,double Offset)> readingPositions=[];
     private readonly Dictionary<string,long> eventCursors=[];
     private readonly HashSet<string> activityGaps=[];
@@ -41,15 +42,17 @@ public partial class MainWindow
     private async Task AppendDraft(string value)
     {
         await EnsureConnected();if(sending || draft["pending"] is JsonObject)throw new InvalidOperationException("Finish or recover the current send first.");
-        string next=(draft.Text("draft","")+"\n"+value).Trim();
+        var context=await Call("draft-context",WithIdentity(new JsonObject{["conversation_id"]=CID(openedConversation)}));
+        string next=(context.Text("draft","")+"\n"+value).Trim();
         if(next.Length>32000)throw new InvalidOperationException("This selection exceeds the draft limit.");
-        await Call("draft-save",new JsonObject{["draft"]=next,["model"]=draft.Text("model","")});draft["draft"]=next;Navigate("Chat");
+        await Call("draft-save",WithIdentity(new JsonObject{["draft"]=next,["model"]=draft.Text("model",""),["conversation_id"]=CID(openedConversation)}));draft["draft"]=next;Navigate("Chat");
     }
     private void AcceptActivity(JsonNode? ev)
     {
         string turn=ev.Text("turn_id","");if(turn.Length==0)return;
         if(!previews.TryGetValue(turn,out var model))previews[turn]=model=new();
         if(!model.State.Apply(ev))return;
+        if(ev.Text("job_id","") is {Length:>0} job)jobTurns[job]=turn;
         foreach(var r in ev.Array("sources"))if(r.Text("url","") is {Length:>0} url)model.Sources[url]=r.Text("title",url);
         if(previews.Count>800)previews.Remove(previews.Keys.First());
     }
@@ -112,7 +115,7 @@ public partial class MainWindow
         string activeEngineeringTurn=openedConversation?.Text("active_job_id","")??"";
         void Redraw(){
             foreach(var (turn,slot) in previewViews){
-                if(!previews.TryGetValue(turn,out var state))continue;
+                if(!previews.TryGetValue(jobTurns.GetValueOrDefault(turn,turn),out var state))continue;
                 bool active=turn==liveTurn || turn==openedConversation?.Text("command_id") || turn==activeEngineeringTurn;
                 if(active)state.State.Summarize(DateTimeOffset.Now.ToUnixTimeMilliseconds()/1000d);
                 var lines=state.State.Lines;
@@ -140,7 +143,7 @@ public partial class MainWindow
         }
         if(engineering && activeEngineeringTurn.Length>0){string turn=openedConversation!.Text("active_command_id",activeEngineeringTurn);
             Slot(turn);activeEngineeringTurn=turn;}
-        var composer=Editor("Your message",draft.Text("draft",""),48);composer.MaxHeight=118;composer.MaxLength=32000;
+        var composer=Editor("Your message","",48);composer.MaxHeight=118;composer.MaxLength=32000;
         composer.AcceptsTab=false;
         var sendBar=new WrapPanel();var hint=Ui.Text("",12,"MutedBrush");
         var bottom=Ui.Card(Ui.Column(composer,sendBar,hint));bottom.Padding=new Thickness(12);bottom.Margin=new Thickness(0);Grid.SetRow(bottom,2);center.Children.Add(bottom);
@@ -157,21 +160,37 @@ public partial class MainWindow
             Redraw();
         }
         updateLive=Live;updatePreviews=Redraw;Redraw();Live();Models();
+        bool loadingDraft=false;
         var saveTimer=new DispatcherTimer{Interval=TimeSpan.FromMilliseconds(650)};bool dirty=false;long edit=0;
         Task priorSave=Task.CompletedTask;
         async Task Save(){saveTimer.Stop();await priorSave;if(!dirty || sending || preparingSend || draft["pending"]!=null)return;
             string value=composer.Text,exact=model.SelectedItem?.ToString()??"";long version=edit;dirty=false;
-            async Task Write(){try{await Call("draft-save",new JsonObject{["draft"]=value,["model"]=exact});if(version==edit){draft["draft"]=value;draft["model"]=exact;hint.Text="Draft saved";}}
+            async Task Write(){try{await Call("draft-save",WithIdentity(new JsonObject{["draft"]=value,["model"]=exact,["conversation_id"]=cid}));if(version==edit){draft["draft"]=value;draft["model"]=exact;hint.Text="Draft saved";}}
                 catch{if(version==edit)dirty=true;throw;}}
             priorSave=Write();try{await priorSave;}finally{priorSave=Task.CompletedTask;}
         }
         flushComposer=Save;saveTimer.Tick+=(_,_)=>Run(Save);
-        composer.TextChanged+=(_,_)=>{dirty=true;edit++;saveTimer.Stop();saveTimer.Start();};
+        composer.TextChanged+=(_,_)=>{if(loadingDraft)return;dirty=true;edit++;saveTimer.Stop();saveTimer.Start();};
         composer.Unloaded+=(_,_)=>{saveTimer.Stop();if(dirty&&!sending)Run(Save);};
         Button? send=null;
+        bool searchReady=false;
+        async Task Availability(){
+            bool search=modes.SelectedItem?.ToString()=="Search";searchReady=false;
+            if(!search){if(send!=null)send.IsEnabled=!sending;return;}
+            if(send!=null)send.IsEnabled=false;hint.Text="Checking web search…";
+            try{
+                await EnsureConnected();var result=await Call("search-availability",WithIdentity());
+                if(epoch!=viewEpoch || modes.SelectedItem?.ToString()!="Search")return;
+                searchReady=result.Flag("available");
+                hint.Text=searchReady?"Web search · "+result.Text("engine"):"Web search unavailable. Open Tools to configure a search service.";
+            }catch(Exception error){if(epoch==viewEpoch)hint.Text=error.Message;}
+            finally{if(send!=null && modes.SelectedItem?.ToString()=="Search")send.IsEnabled=searchReady&&!sending;}
+        }
+        modes.SelectionChanged+=(_,_)=>Run(Availability);
         async Task Send(){
             if(sending||preparingSend)return;
             string prompt=composer.Text,selected=model.SelectedItem?.ToString()??"",mode=modes.SelectedItem?.ToString()??"Chat";
+            if(mode=="Search"&&!searchReady){hint.Text="Open Tools to configure Web search.";return;}
             if(string.IsNullOrWhiteSpace(prompt)||string.IsNullOrWhiteSpace(selected))throw new InvalidOperationException("Choose a model and enter a message.");
             await Save();if(sending||preparingSend||epoch!=viewEpoch)return;
             preparingSend=true;if(send!=null)send.IsEnabled=false;
@@ -214,7 +233,10 @@ public partial class MainWindow
         FillWindow(layout);
         reader.Loaded+=(_,_)=>{if(bookmarkTarget is {} id && rendered.TryGetValue(id,out var node)){follow.Restore(false,0);node.BringIntoView();bookmarkTarget=null;}
             else if(readingPositions.TryGetValue(readingKey,out var saved))follow.Restore(saved.Follow,saved.Offset);else follow.Jump();};
-        Run(async()=>{await EnsureConnected();if(epoch!=viewEpoch)return;Models();if(!dirty&&composer.Text.Length==0)composer.Text=draft.Text("draft","");
+        Run(async()=>{await EnsureConnected();if(epoch!=viewEpoch)return;Models();var stored=await Call("draft-context",WithIdentity(new JsonObject{["conversation_id"]=cid}));
+            if(epoch!=viewEpoch)return;
+            if(!dirty){loadingDraft=true;try{draft=stored;composer.Text=stored.Text("draft","");Models();}finally{loadingDraft=false;}}
+            await Availability();
             await History();await RefreshChatActivity();if(activityGaps.Contains(cid))hint.Text="Earlier public activity is outside retention.";});
     }
     private string activeJobForStop="";

@@ -3326,7 +3326,8 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubDecisionToolTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRoundProgressTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRoundProgressTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPatchStager.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.9",

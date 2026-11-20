@@ -66,7 +66,7 @@ def run_watch(store, now, fetch=literature):
     with closing(store.connect()) as db, db:
         db.execute('BEGIN IMMEDIATE')
         row = db.execute('''SELECT s.id,s.due,s.period,s.result,w.query,w.results,w.seen FROM schedule s
-                            JOIN publication_watch w ON w.id=s.id WHERE s.due<=? AND w.lease_until<=?
+                            JOIN publication_watch w ON w.id=s.id WHERE s.enabled=1 AND s.due<=? AND w.lease_until<=?
                             ORDER BY s.due, s.id LIMIT 1''', (now, now)).fetchone()
         if row is None:
             return

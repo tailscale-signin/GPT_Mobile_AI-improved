@@ -514,6 +514,8 @@ class Supervisor:
                 'dashboard': lambda: self.open_window('dashboard'), 'settings': lambda: self.open_window('settings'),
                 'restart': lambda: request(self.root, 'restart'), 'stop': lambda: request(self.root, 'stop')}).start()
         def observe():
+            from desktop.host_metrics import HostMetrics
+            metrics = HostMetrics()
             with requests.Session() as client:
                 client.trust_env = False
                 while not self.observer_stop.is_set():
@@ -524,6 +526,7 @@ class Supervisor:
                         snapshot = response.json()
                         if not isinstance(snapshot, dict) or not isinstance(snapshot.get('capturedAt'), (int, float)):
                             raise ValueError('Invalid dashboard observation')
+                        snapshot['measurements'] = metrics.observe(snapshot)
                         atomic_json(self.root / 'dashboard.json', snapshot)
                         atomic_json(self.root / 'data' / 'activity.json', {'activities': snapshot.get('activities', [])})
                     except (requests.RequestException, OSError, ValueError):
@@ -655,6 +658,13 @@ class Supervisor:
                     if accepted:
                         self.publish(state='stopped')
                         return RESTART if action == 'restart' else 0
+                elif action == 'desktop-search':
+                    url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/desktop-search'
+                    response = self.http.post(url, headers={'X-Gateway-Management': self.token},
+                                              json=self._request_payload, timeout=(2, 26), allow_redirects=False)
+                    response.raise_for_status()
+                    self.respond({'id': ident, 'accepted': True, 'result': response.json()})
+                    ident = None
                 elif action == 'read-retained-work':
                     job_id = self._request_payload.get('job_id')
                     if set(self._request_payload) != {'job_id'} or not isinstance(job_id, str) or not re.fullmatch(r'(?:eng_|cp_)[a-f0-9]{32}', job_id):

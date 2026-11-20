@@ -364,10 +364,6 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 val coverage = if (facts["workflow_inventory_complete"] == JsonPrimitive(true)) "complete captured inventory" else "incomplete captured inventory"
                 return observation("${quantity(count, "workflow definition")} found", "The workflow inventory contains ${quantity(count, "definition")} ($coverage). Listing definitions does not execute validation.")
             }
-            count(facts, "open_pull_requests_observed")?.let { count ->
-                val coverage = if (facts["open_pull_request_inventory_complete"] == JsonPrimitive(true)) "complete captured list" else "incomplete captured list"
-                return observation("${quantity(count, "open pull request")} observed", "Observed ${quantity(count, "open pull request")} ($coverage); review and check status still need inspection.")
-            }
             if (facts["required_checks_state"] == JsonPrimitive("UNKNOWN")) {
                 return observation("Required-check policy is unavailable", "Required-check policy${focusClause(args)} is unavailable; merge readiness cannot be established.", problem = true)
             }

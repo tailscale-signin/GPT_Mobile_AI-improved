@@ -19,7 +19,7 @@ import uuid
 admission_context = contextvars.ContextVar('gateway_conversation_admission', default=None)
 TERMINAL = {'completed', 'failed', 'cancelled', 'canceled', 'interrupted', 'COMPLETED', 'CANCELLED', 'FAILED'}
 FEATURES = {'job_catalog_v1': True, 'conversation_sync_v1': True, 'conversation_message_parts_v1': True, 'durable_detach_v1': True, 'command_outcomes_v1': True, 'conversation_metadata_v1': True, 'saved_messages_v1': True}
-SCHEMA_VERSION = '3'
+SCHEMA_VERSION = '4'
 MESSAGE_PAGE_BYTES = 1_900_000
 MESSAGE_PART_BYTES = 256 * 1024
 
@@ -143,6 +143,8 @@ class Conversations:
                 save_message_parts(db, row['id'], row['revision'], row['content'])
             if columns(db, 'gateway_jobs') and 'job_id' in columns(db, 'gateway_jobs'):
                 db.execute("INSERT OR IGNORE INTO gateway_catalog_keys(job_kind,job_id) SELECT 'generation',job_id FROM gateway_jobs ORDER BY created_at,job_id")
+            if columns(db, 'engineering_copilot_tasks'):
+                db.execute("INSERT OR IGNORE INTO gateway_catalog_keys(job_kind,job_id) SELECT 'copilot',id FROM engineering_copilot_tasks ORDER BY rowid")
             if columns(db, 'engineering_jobs'):
                 db.execute("INSERT OR IGNORE INTO gateway_catalog_keys(job_kind,job_id) SELECT 'engineering',id FROM engineering_jobs ORDER BY next_at,id")
                 for row in db.execute("SELECT c.id,c.binding,j.data FROM gateway_conversations c JOIN engineering_jobs j ON c.active_job=j.id WHERE c.active_kind='engineering'").fetchall():

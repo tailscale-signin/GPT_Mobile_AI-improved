@@ -32,7 +32,7 @@ internal sealed class BridgeClient(string root, string runtime)
                 var frame = BridgeFrame.Parse(line);
                 if (frame.Event == "error") failure = frame.Value?["message"]?.ToString() ?? "Gateway could not confirm the action.";
                 else if (frame.Event == "result") result = frame.Value as JsonObject ?? new JsonObject { ["items"] = frame.Value?.DeepClone() };
-                else if (frame.Event is "delta" or "accepted") progress?.Invoke(frame.Event, frame.Value);
+                else if (frame.Event is "delta" or "accepted" or "activity") progress?.Invoke(frame.Event, frame.Value);
             }
             await child.WaitForExitAsync();
             await stderr;

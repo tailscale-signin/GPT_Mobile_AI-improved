@@ -32,20 +32,28 @@ public partial class MainWindow
     private void BuildSettings()
     {
         int viewEpoch = epoch;
-        BuildUpdateCard();
-        page.Children.Add(Ui.Card(Ui.Column(Ui.Text("Reading confirmed settings…", 20, bold: true),
-            Ui.Text("The Gateway owns the effective values. Running jobs keep their accepted configuration.", color: "MutedBrush"),
-            Ui.Actions(Ui.Button("Host connection settings", () => OpenUtility("settings")), Ui.Button("Start Gateway", () => Run(async () => { await Call("runtime-start"); Navigate("Advanced settings"); }))))));
+        string tab=Section, currentRoute=route;
+        if(tab=="Updates")BuildUpdateCard();
+        var body = Ui.Column(Ui.Text("Reading confirmed settings…",16,"MutedBrush"));
+        page.Children.Add(Ui.Card(body));
         Run(async () =>
         {
-            var devices = await Call("control-devices");
-            var current = await Call("control-settings-read", new JsonObject { ["owner_principal"] = settingsOwner });
-            if (viewEpoch != epoch) return;
-            page.Children.Clear(); BuildUpdateCard();
+            var principal=settingsOwner;
+            var current = await Call("control-settings-read", new JsonObject { ["owner_principal"] = principal });
+            var devices = tab=="Execution" ? await Call("control-devices") : new JsonObject();
+            body.Children.Clear();
             var effective = current.Object("effective"); var desired = current.Object("desired");
             var writable = current.Array("writable_fields").Select(item => item?.ToString()).ToHashSet();
-            var body = Ui.Column(Ui.Text("Confirmed configuration", 22, bold: true),
-                Ui.Text($"Revision {current.Text("revision")} · changed by {current.Text("changed_by")} · installation {current.Text("installation_id")}", 13, "MutedBrush"));
+            var visible = tab switch
+            {
+                "Models" => new[]{"backend","model"}, "Execution" => new[]{"engineering_enabled","workers","active_chats","batch_mode","local_validation_workers","validation_profile"},
+                "Updates" => new[]{"update_mode","update_interval_hours"}, "General" => new[]{"start_at_login"},
+                _ => new[]{"debug_mode","public_repository_maps"}
+            };
+            writable.IntersectWith(visible);
+            body.Children.Add(Ui.Text($"{tab} · confirmed revision {current.Text("revision")}",20,bold:true));
+            body.Children.Add(Ui.Text($"Changed by {current.Text("changed_by")} · {current.Text("principal_id")}",13,"MutedBrush"));
+            if(tab=="Execution"){
             var owners = new List<OwnerChoice> { new("local:single-user", "This desktop") };
             owners.AddRange(devices.Array("items").OfType<JsonObject>().Where(device => !device.Flag("revoked") && device.Text("role") == "owner")
                 .Select(device => new OwnerChoice(device.Text("principal_id"), device.Text("name", "Paired owner"))));
@@ -54,9 +62,10 @@ public partial class MainWindow
             body.Children.Add(owner);
             owner.SelectionChanged += (_, _) =>
             {
-                if (owner.SelectedItem is OwnerChoice choice && choice.Principal != settingsOwner) { settingsOwner = choice.Principal; Navigate("Advanced settings"); }
+                if (owner.SelectedItem is OwnerChoice choice && choice.Principal != settingsOwner) { settingsOwner = choice.Principal; Navigate(currentRoute); }
             };
             body.Children.Add(Ui.Text("Engineering applies only to the selected owner. Capacity, model route, startup and update settings apply to this PC.", 13, "MutedBrush"));
+            }
             var readers = new Dictionary<string, Func<JsonNode?>>();
             void Toggle(string key, string name)
             {
@@ -128,7 +137,7 @@ public partial class MainWindow
                 });
                 ShowDetails("Original settings outcome", result);
                 status.Text = "Original settings receipt · " + result.Text("status").Replace('_', ' ') + " · revision " + result.Text("revision");
-                if (viewEpoch == epoch) Navigate("Advanced settings");
+                if (route == currentRoute) Navigate(currentRoute);
             }));
             retryOriginal.IsEnabled = savedCommand.Object("payload").Count > 0;
             if (savedCommand.Count > 0)
@@ -147,19 +156,26 @@ public partial class MainWindow
                     ["owner_principal"] = current.Text("principal_id"), ["installation_id"] = current.Text("installation_id"),
                     ["expected_revision"] = current["revision"]?.DeepClone(), ["command_id"] = "desktop-" + Guid.NewGuid().ToString("N"), ["changes"] = changes
                 }); }
-                catch { if (viewEpoch == epoch) Navigate("Advanced settings"); throw; }
+                catch (Exception error) {
+                    var latest=await Call("control-settings-read",new JsonObject{["owner_principal"]=current.Text("principal_id")});
+                    status.Text=$"{error.Message} · observed revision {latest.Text("revision")}. Your proposed values are still shown.";
+                    savedCommand=latest.Object("native_pending");retryOriginal.IsEnabled=savedCommand.Object("payload").Count>0;
+                    throw new InvalidOperationException(status.Text,error);
+                }
                 status.Text = "Settings receipt · " + result.Text("status").Replace('_', ' ') + " · revision " + result.Text("revision");
-                if (viewEpoch == epoch) Navigate("Advanced settings");
-            }), true), Ui.Button("Reload", () => Navigate("Advanced settings")),
+                if (route == currentRoute) Navigate(currentRoute);
+            }), true), Ui.Button("Reload", () => Navigate(currentRoute)),
                 Ui.Button("Read original receipt", () => Run(async () =>
                 {
-                    var pending = current.Object("native_pending");
+                    var pending = savedCommand;
                     if (pending.Count == 0) throw new InvalidOperationException("No unconfirmed desktop settings command is retained. Reload to check again.");
                     var result = await Call("control-settings-command", new JsonObject { ["command_id"] = pending.Text("command_id"),
                         ["owner_principal"] = pending.Text("owner_principal", "local:single-user") });
-                    ShowDetails("Original settings receipt", result); Navigate("Advanced settings");
-                })), retryOriginal, Ui.Button("Host connection and firewall", () => OpenUtility("settings"))));
-            page.Children.Add(Ui.Card(body));
+                    ShowDetails("Original settings receipt", result); Navigate(currentRoute);
+                })), retryOriginal, Ui.Button("Host connection and firewall", () => Navigate("Settings/Connection"))));
+            if(tab=="Models")body.Children.Add(Ui.Button("Discover exact model IDs",()=>Run(async()=>{
+                await EnsureConnected(true);ShowDetails("Advertised models",new JsonArray(models.Select(m=>(JsonNode?)JsonValue.Create(m)).ToArray()));
+            })));
         });
     }
 
@@ -178,7 +194,7 @@ public partial class MainWindow
             if (!System.Net.IPAddress.TryParse(host, out var ip) || System.Net.IPAddress.IsLoopback(ip))
             {
                 hint.Text = "This Gateway is listening only on this PC. Choose your private network interface, then restart Gateway.";
-                form.Children.Add(Ui.Button("Network settings", () => OpenUtility("settings"), true));
+                form.Children.Add(Ui.Button("Network settings", () => Navigate("Settings/Connection"), true));
                 return;
             }
             ComboBox? adapter = null;
@@ -216,8 +232,8 @@ public partial class MainWindow
                 form.Children.Add(Ui.Button("Network and firewall settings", () => Navigate("Android controls")));
             var availability = Ui.Column(Ui.Text("Engineering", 20, bold: true),
                 Ui.Text("New connections start with Engineering enabled. Saved jobs use the GitHub account and repositories configured on this PC.", color: "MutedBrush"),
-                Ui.Actions(Ui.Button("GitHub connection", () => OpenUtility("github-settings")),
-                    Ui.Button("Repositories", () => OpenUtility("github-settings", "Repository Validation"))));
+                Ui.Actions(Ui.Button("GitHub connection", () => Navigate("Tools/GitHub")),
+                    Ui.Button("Repositories", () => Navigate("Tools/Repositories"))));
             page.Children.Add(Ui.Card(availability));
         });
     }
@@ -259,7 +275,8 @@ public partial class MainWindow
         }
         setup.Children.Add(Ui.Actions(enable, Ui.Button("Allow private control-port access", () => Run(() => Firewall(false))),
             Ui.Button("Remove control-port rule", () => Run(() => Firewall(true)))));
-        page.Children.Add(Ui.Card(setup));
+        page.Children.Add(Ui.Button("Connect a phone by address",()=>Navigate("Connect phone"),true));
+        page.Children.Add(new Expander{Header="Advanced control listener and private firewall",Content=Ui.Card(setup)});
         var grant = Ui.Column(Ui.Text("Pair a phone", 20, bold: true));
         var name = Ui.Field(grant, "Device name", "My Android phone");
         var access = Ui.Select(grant, "Phone access", ["Owner", "Viewer (read-only)"], "Owner");
@@ -298,7 +315,7 @@ public partial class MainWindow
             ShowPairingInvitation(result, role);
             status.Text = "Invitation created. Compare the phone key fingerprint before approving its claim below.";
         }), true)));
-        page.Children.Add(Ui.Card(grant));
+        page.Children.Add(new Expander{Header="Legacy device invitations",Content=Ui.Card(grant)});
         var approvals = Ui.Column(Ui.Text("Pending device approvals", 20, bold: true));
         var pendingList = new ListBox { Height = 180 }; approvals.Children.Add(pendingList);
         async Task Pending() => Ui.Rows(pendingList, (await Call("control-pairing-list")).Array("items"), "device_name", "state");
@@ -364,7 +381,7 @@ public partial class MainWindow
             foreach (var origin in origins)
                 backendList.Children.Add(Ui.Text(origin?.ToString() ?? "Unavailable origin", 13, "MutedBrush"));
         }
-        profiles.Children.Add(Ui.Actions(Ui.Button("Open repository validation", () => OpenUtility("github-settings", "Repository Validation")),
+        profiles.Children.Add(Ui.Actions(Ui.Button("Open repository validation", () => Navigate("Tools/Repositories")),
             Ui.Button("Approve current validation profile", () => Run(async () =>
             {
                 if (MessageBox.Show(this, "Approve the repository validation policy currently saved on this PC as an immutable choice for granted phone controls? Existing jobs keep their original policy.",

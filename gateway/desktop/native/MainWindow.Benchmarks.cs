@@ -13,7 +13,7 @@ public partial class MainWindow
         var body = Ui.Column(Ui.Text("Measure a model through this Gateway", 20, bold: true));
         var model = Ui.Select(body, "Exact model", models);
         var suite = Ui.Select(body, "Suite", ["Quick check", "Batch comparison", "Repository coding"]);
-        var preset = Ui.Select(body, "Run length", ["quick", "deep"]);
+        var preset = Ui.Select(body, "Run length", ["quick", "standard", "deep"]);
         body.Children.Add(Ui.Text("Quick check and HTTP batch comparison need no Docker. Repository coding runs isolated fixtures in an approved sandbox. Scores do not certify live GitHub or native GPU batching.", 13, "MutedBrush"));
         var runs = new ListBox { Height = 220 }; JsonObject? observedRun = null; string? before = null;
         var metric = Ui.Text("Select a saved run for its measured score and evidence.", 15, "MutedBrush");
@@ -67,8 +67,11 @@ public partial class MainWindow
                 ["preset"] = preset.SelectedItem?.ToString(), ["request_id"] = "desktop-" + Guid.NewGuid().ToString("N") });
             status.Text = "Benchmark accepted by Gateway. Closing this window keeps it running."; await History();
         }), true), Ui.Button("Check original submission", () => Run(async () => { ShowDetails("Benchmark receipt", await Call("benchmark-reconcile")); await History(); })),
-            Ui.Button("Setup coding sandbox", () => OpenUtility("benchmark-settings")),
-            Ui.Button("Detailed comparison workspace", () => OpenUtility("dashboard", "Benchmarks"))));
+            Ui.Button("Setup coding sandbox", () => Navigate("Tools/Environments")),
+            Ui.Button("Production qualification", () => Run(async () => {
+                var file=new Microsoft.Win32.OpenFileDialog{Filter="Qualification manifest|*.json"};
+                if(file.ShowDialog(this)==true)ShowDetails("Production qualification",await Call("workspace-qualification",new JsonObject{["path"]=file.FileName}));
+            }))));
         body.Children.Add(runs); body.Children.Add(metric); body.Children.Add(graph);
         body.Children.Add(Ui.Actions(Ui.Button("Refresh history", () => Run(() => History())),
             Ui.Button("Earlier runs", () => Run(async () => { if (before is not null) await History(true); })),

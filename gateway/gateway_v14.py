@@ -427,6 +427,33 @@ def live():
     return {'live': True, 'version': VERSION, 'instanceId': service.instance_id, 'draining': service.snapshot()['draining']}
 
 
+@app.post('/gateway/admin/desktop-search')
+def desktop_search(payload: dict):
+    from gateway_multisearch import search_shape
+    from v14.research import sources
+    query = payload.get('query')
+    if set(payload) != {'query'} or not isinstance(query, str) or not 1 <= len(query.strip()) <= 4096:
+        return JSONResponse({'error': {'code': 'invalid_query'}}, status_code=400)
+    for definition in runtime.get_all_mcp_tools():
+        shape = search_shape(definition)
+        if not shape:
+            continue
+        name, key, props, required = shape
+        args = {field: props[field]['default'] for field in required if field in props and 'default' in props[field]}
+        args[key] = query
+        if not set(required) <= args.keys():
+            continue
+        response = runtime.execute_mcp_tool(name, args)
+        records = {}
+        if not (isinstance(response, dict) and (response.get('error') or response.get('isError'))):
+            for url, record in sources(response):
+                records.setdefault(url, record)
+                if len(records) == 12:
+                    break
+        return {'engine': name, 'sources': list(records.values())}
+    return {'engine': None, 'sources': []}
+
+
 @app.get('/gateway/admin/status')
 async def admin_status():
     return await asyncio.to_thread(diagnostics, runtime, service)

@@ -89,7 +89,7 @@ def main():
         return serve(root)
     if args.command in {'dashboard', 'settings', 'github-settings'} and not args.legacy_ui:
         from desktop.native_launch import show
-        view = args.view or {'dashboard': 'Overview', 'settings': 'Settings', 'github-settings': 'Tools'}[args.command]
+        view = args.view or {'dashboard': 'Overview', 'settings': 'Connection', 'github-settings': 'GitHub'}[args.command]
         result = show(root, view=view, smoke=args.smoke_ui)
         if result is not None:
             return result

@@ -35,6 +35,7 @@ def launch_installed_dashboard(root):
 
 
 def show(root, view='Overview', smoke=False):
+    view = {'Connection': 'Settings/Connection', 'GitHub': 'Tools/GitHub'}.get(view, view)
     executable = native_executable()
     if os.name != 'nt' or not getattr(sys, 'frozen', False) or not executable.is_file():
         return None

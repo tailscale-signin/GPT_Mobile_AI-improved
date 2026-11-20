@@ -35,7 +35,7 @@ public partial class MainWindow
         BuildUpdateCard();
         page.Children.Add(Ui.Card(Ui.Column(Ui.Text("Reading confirmed settings…", 20, bold: true),
             Ui.Text("The Gateway owns the effective values. Running jobs keep their accepted configuration.", color: "MutedBrush"),
-            Ui.Actions(Ui.Button("Host connection settings", () => OpenUtility("settings")), Ui.Button("Start Gateway", () => Run(async () => { await Call("runtime-start"); Navigate("Settings"); }))))));
+            Ui.Actions(Ui.Button("Host connection settings", () => OpenUtility("settings")), Ui.Button("Start Gateway", () => Run(async () => { await Call("runtime-start"); Navigate("Advanced settings"); }))))));
         Run(async () =>
         {
             var devices = await Call("control-devices");
@@ -54,7 +54,7 @@ public partial class MainWindow
             body.Children.Add(owner);
             owner.SelectionChanged += (_, _) =>
             {
-                if (owner.SelectedItem is OwnerChoice choice && choice.Principal != settingsOwner) { settingsOwner = choice.Principal; Navigate("Settings"); }
+                if (owner.SelectedItem is OwnerChoice choice && choice.Principal != settingsOwner) { settingsOwner = choice.Principal; Navigate("Advanced settings"); }
             };
             body.Children.Add(Ui.Text("Engineering applies only to the selected owner. Capacity, model route, startup and update settings apply to this PC.", 13, "MutedBrush"));
             var readers = new Dictionary<string, Func<JsonNode?>>();
@@ -128,7 +128,7 @@ public partial class MainWindow
                 });
                 ShowDetails("Original settings outcome", result);
                 status.Text = "Original settings receipt · " + result.Text("status").Replace('_', ' ') + " · revision " + result.Text("revision");
-                if (viewEpoch == epoch) Navigate("Settings");
+                if (viewEpoch == epoch) Navigate("Advanced settings");
             }));
             retryOriginal.IsEnabled = savedCommand.Object("payload").Count > 0;
             if (savedCommand.Count > 0)
@@ -147,19 +147,75 @@ public partial class MainWindow
                     ["owner_principal"] = current.Text("principal_id"), ["installation_id"] = current.Text("installation_id"),
                     ["expected_revision"] = current["revision"]?.DeepClone(), ["command_id"] = "desktop-" + Guid.NewGuid().ToString("N"), ["changes"] = changes
                 }); }
-                catch { if (viewEpoch == epoch) Navigate("Settings"); throw; }
+                catch { if (viewEpoch == epoch) Navigate("Advanced settings"); throw; }
                 status.Text = "Settings receipt · " + result.Text("status").Replace('_', ' ') + " · revision " + result.Text("revision");
-                if (viewEpoch == epoch) Navigate("Settings");
-            }), true), Ui.Button("Reload", () => Navigate("Settings")),
+                if (viewEpoch == epoch) Navigate("Advanced settings");
+            }), true), Ui.Button("Reload", () => Navigate("Advanced settings")),
                 Ui.Button("Read original receipt", () => Run(async () =>
                 {
                     var pending = current.Object("native_pending");
                     if (pending.Count == 0) throw new InvalidOperationException("No unconfirmed desktop settings command is retained. Reload to check again.");
                     var result = await Call("control-settings-command", new JsonObject { ["command_id"] = pending.Text("command_id"),
                         ["owner_principal"] = pending.Text("owner_principal", "local:single-user") });
-                    ShowDetails("Original settings receipt", result); Navigate("Settings");
+                    ShowDetails("Original settings receipt", result); Navigate("Advanced settings");
                 })), retryOriginal, Ui.Button("Host connection and firewall", () => OpenUtility("settings"))));
             page.Children.Add(Ui.Card(body));
+        });
+    }
+
+    private void BuildConnectPhone()
+    {
+        int viewEpoch = epoch;
+        var form = Ui.Column(Ui.Text("Connect to this PC", 22, bold: true));
+        page.Children.Add(Ui.Card(form, true));
+        Run(async () =>
+        {
+            var current = await Call("control-settings-read");
+            if (epoch != viewEpoch) return;
+            string direct = current.Text("account_connection_url", "");
+            if (direct.Length > 0)
+            {
+                var url = Ui.Field(form, "Gateway address for your Tailscale devices", direct);
+                url.IsReadOnly = true;
+                form.Children.Add(Ui.Text("Use this address in your phone’s Gateway profile. Devices signed into your PC’s Tailscale account connect automatically.", 13, "MutedBrush"));
+                form.Children.Add(Ui.Button("Copy Gateway address", () => { Clipboard.SetText(direct); status.Text = "Gateway address copied."; }, true));
+            }
+            var listener = current.Object("listener");
+            string endpoint = listener.Text("endpoint", "");
+            bool listening = Uri.TryCreate(endpoint, UriKind.Absolute, out var active) && !active.IsLoopback;
+            var addresses = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(item => item.OperationalStatus == OperationalStatus.Up)
+                .SelectMany(item => item.GetIPProperties().UnicastAddresses).Select(item => item.Address)
+                .Where(ip => ip.AddressFamily == AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(ip))
+                .Select(ip => ip.ToString()).Distinct().ToArray();
+            string[] repos = current.Array("connection_repositories").Select(item => item?.ToString() ?? "").ToArray();
+            if (direct.Length > 0)
+            {
+                var otherNetwork = new StackPanel();
+                form.Children.Add(new Expander { Header = "Connect on another network", Content = otherNetwork, Foreground = Ui.Brush("TextBrush") });
+                form = otherNetwork;
+            }
+            ComboBox? host = null;
+            if (!listening && addresses.Length > 1) host = Ui.Select(form, "PC network address", addresses);
+            if (!listening && addresses.Length == 0)
+            { form.Children.Add(Ui.Text("Connect this PC to your network, then try again.", color: "MutedBrush")); return; }
+            var repository = Ui.Field(form, "Repository (owner/name)", repos.Length == 1 ? repos[0] : "");
+            form.Children.Add(Ui.Text("Engineering starts on for this repository. Scan the private link with your phone.", 13, "MutedBrush"));
+            var connect = Ui.Button("Show connection code", () => Run(async () =>
+            {
+                string repo = repository.Text.Trim().ToLowerInvariant();
+                if (repo.Length == 0) throw new InvalidOperationException("Enter the repository to connect.");
+                if (!listening)
+                {
+                    string address = host?.SelectedItem?.ToString() ?? addresses[0];
+                    await Call("control-enable", new JsonObject { ["host"] = address, ["port"] = 8091 });
+                    listening = true;
+                }
+                var value = await Call("control-connect-create", new JsonObject { ["name"] = "Android phone", ["role"] = "owner",
+                    ["fields"] = new JsonArray(JsonValue.Create("engineering_enabled")), ["repositories"] = new JsonArray(JsonValue.Create(repo)) });
+                if (epoch == viewEpoch) ShowPairingInvitation(value, "owner", repo);
+            }), true);
+            form.Children.Add(connect);
         });
     }
 
@@ -257,7 +313,7 @@ public partial class MainWindow
         async Task Devices() => Ui.Rows(deviceList, (await Call("control-devices")).Array("items"), "name", "role");
         owners.Children.Add(Ui.Actions(Ui.Button("Refresh devices", () => Run(Devices)),
             Ui.Button("Edit this owner's settings", () =>
-            { if (Ui.Selected(deviceList) is { } device) { settingsOwner = device.Text("principal_id"); Navigate("Settings"); } }),
+            { if (Ui.Selected(deviceList) is { } device) { settingsOwner = device.Text("principal_id"); Navigate("Advanced settings"); } }),
             Ui.Button("Revoke access", () => Run(async () =>
             {
                 var selected = Ui.Selected(deviceList) ?? throw new InvalidOperationException("Select a paired device.");
@@ -370,13 +426,13 @@ public partial class MainWindow
         return async () => { await Profiles(); await Requests(); };
     }
 
-    private void ShowPairingInvitation(JsonObject value, string role)
+    private void ShowPairingInvitation(JsonObject value, string role, string? repository = null)
     {
-        var dialog = new Window { Owner = this, Title = "Pair your Android phone", Width = 720, Height = 560,
+        var dialog = new Window { Owner = this, Title = repository == null ? "Device invitation" : "Connect phone", Width = 720, Height = 560,
             MinWidth = 500, MinHeight = 450, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        var body = Ui.Column(Ui.Text("Pair your Android phone", 26, bold: true),
-            Ui.Text(role == "viewer" ? "Viewer access · read-only settings and status · no writable controls" : "Owner access · only the granted settings and repository scope", 13, "PrimaryBrush"),
-            Ui.Text("Open this private invitation in GPT Mobile. Return here to compare and approve the phone's public-key fingerprint.", color: "MutedBrush"));
+        var body = Ui.Column(Ui.Text(repository == null ? "Device invitation" : "Connect phone", 26, bold: true),
+            Ui.Text(repository != null ? repository : role == "viewer" ? "Viewer access · read-only settings and status · no writable controls" : "Owner access · only the granted settings and repository scope", 13, "PrimaryBrush"),
+            Ui.Text(repository != null ? "Scan with your phone or copy the link to your phone. It expires in two minutes." : "Open this private invitation in GPT Mobile. Return here to compare and approve the phone's public-key fingerprint.", color: "MutedBrush"));
         body.Margin = new Thickness(24);
         if (value.Text("qr_png_base64", "") is { Length: > 0 and < 1048576 } encoded)
         {
@@ -390,12 +446,12 @@ public partial class MainWindow
             }
             catch (Exception error) when (error is FormatException or IOException or NotSupportedException) { }
         }
-        var link = Ui.Field(body, "Pairing invitation", value.Text("link", "")); link.IsReadOnly = true; link.TextWrapping = TextWrapping.Wrap; link.Height = 120;
+        var link = Ui.Field(body, "Private connection link", value.Text("link", "")); link.IsReadOnly = true; link.TextWrapping = TextWrapping.Wrap; link.Height = 120;
         body.Children.Add(Ui.Text("Endpoint: " + value.Text("endpoint"), 13));
         body.Children.Add(Ui.Text("Server certificate fingerprint: " + value.Text("fingerprint"), 13));
         if (value.Number("expires_at") is { } expiry)
             body.Children.Add(Ui.Text("Expires: " + DateTimeOffset.FromUnixTimeSeconds((long)expiry).ToLocalTime().ToString("g"), 13, "MutedBrush"));
-        body.Children.Add(Ui.Actions(Ui.Button("Copy invitation", () => { Clipboard.SetText(link.Text); status.Text = "Private pairing invitation copied. It expires automatically."; }, true),
+        body.Children.Add(Ui.Actions(Ui.Button("Copy link", () => { Clipboard.SetText(link.Text); status.Text = "Private pairing invitation copied. It expires automatically."; }, true),
             Ui.Button("Close", () => dialog.Close())));
         dialog.Content = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         dialog.PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) dialog.Close(); }; dialog.ShowDialog();

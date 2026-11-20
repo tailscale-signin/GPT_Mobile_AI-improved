@@ -193,14 +193,20 @@ Each scenario uses an authorized job in the designated test repository. The runn
 
 ## Chat, saved messages and benchmarks
 
-New prompt opens the selected-model composer; Ctrl+Enter sends. Saved offers
+Chat opens the selected-model composer. Ctrl+Enter sends. Saved offers
 history search, bookmarks, favorites and archiving. Advanced setup is optional.
 See [Gateway 18 contracts](../V17_DESKTOP.md) for conversation identity, benchmark
 scope, safe recovery and upgrade behavior.
 
-## Android owner controls
+## Connect a phone
 
-Open **Android controls** on the PC, deliberately choose a reachable LAN or VPN
+On Home, select **Connect phone**. When the PC listens on its Tailscale address, enter the displayed Gateway address in the phone’s Gateway settings. Devices signed into the same Tailscale account use their existing device identity. Engineering starts enabled for that device. Its switch remembers later changes. Repository credentials and a ready model are still needed for tasks that use them.
+
+For a private LAN connection, choose a repository on the PC and scan the two-minute link on your phone. Tap **Connect**. When the model listener shares that interface, the phone can create the Gateway profile directly from the link. The PC grants Engineering for that repository. Keep the link private until the phone connects.
+
+## Additional device permissions
+
+Open **Settings → Advanced → Device access** on the PC, deliberately choose a reachable LAN or VPN
 interface, and enable the separate TLS settings endpoint. The default loopback
 interface is for this PC only and cannot create a phone invitation. Create a
 short-lived invitation with the intended fields and repository scope; copy its

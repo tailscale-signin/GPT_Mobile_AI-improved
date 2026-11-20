@@ -198,6 +198,9 @@ def build_window(root, parent=None, section='General'):
 
     addons = sections['Add-ons']
     title(addons, 'Extend your gateway', 'Manage configured PC tools.')
+    from desktop.configuration import account_engineering
+    account = tk.BooleanVar(value=account_engineering(root))
+    ttk.Checkbutton(advanced, text='Engineering for my Tailscale devices', variable=account).grid(row=23, column=0, columnspan=3, sticky='w', pady=6)
     values['engineering'] = tk.BooleanVar(value=cfg['engineering'])
     field(addons, 3, 'mcp_config', 'MCP configuration file')
     addon_buttons = ttk.Frame(addons)
@@ -298,6 +301,7 @@ def build_window(root, parent=None, section='General'):
                         updated[name] = int(variable.get()) if type(cfg[name]) is int else variable.get()
                 updated = validate(updated)
                 atomic_json(root / 'settings.json', updated)
+                atomic_json(root / 'data' / 'account-engineering.json', {'enabled': account.get()})
                 cfg.update(updated)
             if copilot_jobs.get() != copilot_saved:
                 save_copilot_enabled(root, copilot_jobs.get())

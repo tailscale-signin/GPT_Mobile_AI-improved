@@ -58,7 +58,14 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
     val error by model.error.collectAsStateWithLifecycle()
     var selected by rememberSaveable(initialProfileUid, initialPairingLink) { mutableStateOf(initialProfileUid) }
     var menu by remember { mutableStateOf(false) }
-    val profile = profiles.singleOrNull { it.uid == selected }
+    val linkedAddress = remember(initialPairingLink) {
+        initialPairingLink?.let { runCatching { GatewayPairingLink.parse(it, System.currentTimeMillis() / 1000).profileEndpoint }.getOrNull() }
+    }
+    val profile = when {
+        selected != null -> profiles.singleOrNull { it.uid == selected }
+        linkedAddress != null -> profiles.singleOrNull { it.apiUrl.trimEnd('/') == linkedAddress }
+        else -> profiles.singleOrNull()
+    }
     val lifecycle = LocalLifecycleOwner.current
     LaunchedEffect(profile, lifecycle) {
         if (profile != null) {
@@ -75,21 +82,43 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
         title = { Text("Gateway settings") },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box {
-                    OutlinedButton(onClick = { menu = true }, enabled = !busy) { Text(profile?.name?.take(120) ?: "Choose Gateway connection") }
-                    DropdownMenu(menu, { menu = false }) {
-                        profiles.forEach { candidate ->
-                            DropdownMenuItem(text = { Text(candidate.name.take(120)) }, onClick = {
-                                selected = candidate.uid
-                                model.clearError()
-                                menu = false
-                            })
+                if (profiles.isNotEmpty() && linkedAddress == null) {
+                    Box {
+                        OutlinedButton(onClick = { menu = true }, enabled = !busy) { Text(profile?.name?.take(120) ?: "Choose Gateway connection") }
+                        DropdownMenu(menu, { menu = false }) {
+                            profiles.forEach { candidate ->
+                                DropdownMenuItem(text = { Text(candidate.name.take(120)) }, onClick = {
+                                    selected = candidate.uid
+                                    model.clearError()
+                                    menu = false
+                                })
+                            }
                         }
                     }
                 }
-                if (profiles.isEmpty()) Text("Add a private Llama or Ollama Gateway connection in AI Profiles. Your inference profile stays separate.")
+                if (linkedAddress != null && profile == null) {
+                    Text(linkedAddress)
+                    OutlinedButton(onClick = { model.connectAddress(linkedAddress, initialPairingLink) { selected = it } }, enabled = !busy) { Text("Connect to this PC") }
+                } else if (profiles.isEmpty() && initialPairingLink == null) {
+                    var address by rememberSaveable { mutableStateOf("") }
+                    Text("On your PC, open Connect phone and copy the Gateway address.")
+                    OutlinedTextField(address, { address = it.take(512) }, label = { Text("Gateway address") }, singleLine = true)
+                    OutlinedButton(onClick = { model.connectAddress(address) { selected = it } }, enabled = address.isNotBlank() && !busy) { Text("Connect") }
+                } else if (profiles.isEmpty()) {
+                    Text("Add this PC’s private Gateway address in AI Profiles, then reopen the connection link.")
+                }
                 profile?.let {
-                    GatewayControlSettingsContent(it, states[it.uid] ?: GatewayControlState(targetName = it.name), busy, model, initialPairingLink)
+                    val direct by model.direct.collectAsStateWithLifecycle()
+                    val admission = direct[it.uid to it.apiUrl]?.takeIf { _ -> states[it.uid]?.phase == GatewayControlPhase.UNPAIRED && initialPairingLink == null }
+                    if (admission != null) {
+                        Text("Connected", style = MaterialTheme.typography.titleMedium)
+                        Text(if (admission.enabled) "Engineering on" else "Engineering off")
+                        if (admission.principalId.startsWith("tailnet:")) {
+                            Switch(admission.enabled, onCheckedChange = { _ -> model.toggleDirect(it) }, enabled = !busy)
+                        }
+                    } else {
+                        GatewayControlSettingsContent(it, states[it.uid] ?: GatewayControlState(targetName = it.name), busy, model, initialPairingLink)
+                    }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
@@ -101,7 +130,7 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
 @Composable
 private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayControlState, busy: Boolean, model: GatewayControlViewModel, initialPairingLink: String? = null) {
     var pairLink by remember(profile.uid, initialPairingLink) { mutableStateOf(initialPairingLink.orEmpty()) }
-    var showPairing by remember(profile.uid, initialPairingLink) { mutableStateOf(initialPairingLink != null) }
+    var showPairing by remember(profile.uid, initialPairingLink) { mutableStateOf(initialPairingLink != null && !state.writable) }
     var engineeringConfirmation by remember(profile.uid) { mutableStateOf(false) }
     var revokeConfirmation by remember(profile.uid) { mutableStateOf(false) }
     var draft by remember(profile.uid) { mutableStateOf<Map<String, JsonElement>>(emptyMap()) }
@@ -113,9 +142,15 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
             draftRevision = null
         }
     }
+    LaunchedEffect(state.writable) {
+        if (state.writable) {
+            showPairing = false
+            pairLink = ""
+        }
+    }
     val live = state.writable && !busy
     val label = when (state.phase) {
-        GatewayControlPhase.UNPAIRED -> "Needs pairing on the PC"
+        GatewayControlPhase.UNPAIRED -> "Connect to Gateway"
         GatewayControlPhase.PAIRING -> "Waiting for PC confirmation"
         GatewayControlPhase.LIVE -> when {
             snapshot?.pending?.isNotEmpty() == true -> "Requested settings need attention"
@@ -129,8 +164,8 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
         GatewayControlPhase.REVOKED -> "Access revoked"
     }
     Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-    Text("Applies to ${profile.name.take(120)}. Engineering is scoped to your paired owner; capacity and maintenance settings affect this PC.", style = MaterialTheme.typography.bodySmall)
-    state.targetEndpoint?.let { Text("Paired PC: $it", style = MaterialTheme.typography.labelSmall) }
+
+    state.targetEndpoint?.let { Text("Connected PC · $it", style = MaterialTheme.typography.labelSmall) }
     state.receivedAtMillis?.let { at -> Text("Last confirmed ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(at))}", style = MaterialTheme.typography.labelSmall) }
     state.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     state.deviceFingerprint?.let { fingerprint ->
@@ -143,18 +178,18 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
         }
     }
     if (showPairing || state.phase in setOf(GatewayControlPhase.UNPAIRED, GatewayControlPhase.REVOKED, GatewayControlPhase.PAIRING)) {
-        Text("On the PC, open Android controls, create a pairing link and approve this phone. The app checks the PC certificate and keeps its device key on this Android installation.", style = MaterialTheme.typography.bodySmall)
+        Text("Open Connect phone on your PC and scan or paste its connection link.", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(
             pairLink,
             { if (it.length <= 4096) pairLink = it },
-            label = { Text("Pairing link from the PC") },
+            label = { Text("Connection link") },
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth().testTag("gateway_pairing_link"),
             enabled = !busy
         )
         val preview = remember(pairLink) { runCatching { GatewayPairingLink.parse(pairLink, System.currentTimeMillis() / 1000) }.getOrNull() }
         preview?.let {
-            Text("Control address: ${it.endpoint}\nCertificate: ${it.fingerprint.chunked(8).joinToString(" ")}", style = MaterialTheme.typography.labelSmall)
+            Text(it.endpoint, style = MaterialTheme.typography.labelSmall)
         }
         Row {
             OutlinedButton(onClick = {
@@ -162,12 +197,12 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
                 pairLink = ""
                 showPairing = false
                 model.pair(profile, submitted)
-            }, enabled = preview != null && !busy) { Text("Request pairing") }
+            }, enabled = preview != null && !busy) { Text("Connect") }
             if (state.phase == GatewayControlPhase.PAIRING) TextButton(onClick = { model.finishPairing(profile) }, enabled = !busy) { Text("Check confirmation") }
         }
     }
     if (state.phase == GatewayControlPhase.STALE && !showPairing) {
-        TextButton(onClick = { showPairing = true }) { Text("Pair again on the PC") }
+        TextButton(onClick = { showPairing = true }) { Text("Reconnect") }
     }
     if (snapshot != null && state.phase !in setOf(GatewayControlPhase.UNPAIRED, GatewayControlPhase.PAIRING)) {
         Text("${if (snapshot.role == "owner") "Paired owner" else "Viewer"} · Revision ${snapshot.revision} · ${snapshot.installationId.takeLast(12)}", style = MaterialTheme.typography.labelSmall)
@@ -194,7 +229,7 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Engineering", style = MaterialTheme.typography.titleMedium)
-                        Text("Allow new jobs from this paired owner. Existing jobs keep their IDs and run state.", style = MaterialTheme.typography.bodySmall)
+                        Text("Run jobs for your connected repositories.", style = MaterialTheme.typography.bodySmall)
                     }
                     Switch(desiredEngineering, onCheckedChange = { on ->
                         if (on && !state.engineeringBindingConfirmed) {
@@ -210,7 +245,11 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
                 }
             }
         }
-        GatewayControlField.entries.filter { it != GatewayControlField.ENGINEERING && it.wire in snapshot.desired }.forEach { field ->
+        var advanced by remember(profile.uid) { mutableStateOf(false) }
+        if (GatewayControlField.entries.any { it != GatewayControlField.ENGINEERING && it.wire in snapshot.writableFields }) {
+            TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced settings" else "Advanced settings") }
+        }
+        GatewayControlField.entries.filter { advanced && it != GatewayControlField.ENGINEERING && it.wire in snapshot.writableFields && it.wire in snapshot.desired }.forEach { field ->
             val value = draft[field.wire] ?: snapshot.desired.getValue(field.wire)
             val choices = when (field) {
                 GatewayControlField.VALIDATION_PROFILE -> snapshot.validationProfiles

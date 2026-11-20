@@ -28,7 +28,8 @@ data class GitHubChatProfileOverride(
     val sampling: GitHubSamplingSettings = GitHubSamplingSettings(),
     val copilotExecutionOwner: GitHubCopilotExecutionOwner = GitHubCopilotExecutionOwner.ANDROID_DIRECT,
     val graphSharingConsent: String? = null,
-    val workspaceCheckConsent: String? = null
+    val workspaceCheckConsent: String? = null,
+    val engineeringGatewayDefaultApplied: Boolean = false
 )
 
 /** Selects the task controller. GitHub executes accepted cloud work in either mode. */

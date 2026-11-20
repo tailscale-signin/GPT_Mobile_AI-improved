@@ -29,6 +29,12 @@ public partial class MainWindow
     {
         int viewEpoch = epoch;
         var panel = Ui.Column(Ui.Text(openedConversation?.Text("title", "New conversation") ?? "New conversation", 22, bold: true));
+        if (openedConversation != null)
+        {
+            var start = Ui.Button("New chat", () => { openedConversation = null; transcript = []; Navigate("Chat"); });
+            start.IsEnabled = !sending;
+            panel.Children.Add(start);
+        }
         string? retainedModel = openedConversation?.Text("model", "");
         var choices = retainedModel is { Length: > 0 } ? models.Append(retainedModel).Distinct().ToArray() : models;
         var model = Ui.Select(panel, "Model", choices, retainedModel ?? draft.Text("model", ""));

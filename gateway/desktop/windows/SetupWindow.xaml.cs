@@ -75,8 +75,9 @@ public partial class SetupWindow : Window
         planPath = path;
         smoke = smokeMode;
         pages = [EditionPage, ConnectionPage, ChecksPage, FinishPage];
-        Listener.ItemsSource = Interfaces();
-        Listener.SelectedIndex = 0;
+        var networks = Interfaces();
+        Listener.ItemsSource = networks;
+        Listener.SelectedItem = networks.FirstOrDefault(item => item.Label.StartsWith("Tailscale · ", StringComparison.OrdinalIgnoreCase)) ?? networks[0];
         Port.TextChanged += (_, _) => DescribeListener();
         Listener.SelectionChanged += (_, _) => DescribeListener();
         if (!smoke && File.Exists(planPath)) RestorePlan();

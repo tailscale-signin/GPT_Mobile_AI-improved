@@ -163,6 +163,27 @@ class ControlSettingsTests(unittest.TestCase):
         with self.assertRaises(ControlError):
             self.store.snapshot('network:shared')
 
+    def test_pc_connection_enables_only_its_repository_and_preserves_later_off_on_retry(self):
+        scope = {'role': 'owner', 'fields': ['engineering_enabled'], 'repositories': ['owner/repo']}
+        for invalid in [dict(scope, fields=sorted(FIELDS)), dict(scope, repositories=[]), dict(scope, role='viewer')]:
+            with self.assertRaises(ControlError):
+                self.store.pairing_create(invalid, connect=True)
+        link = self.store.pairing_create(scope, connect=True)
+        claim = {'installation_id': link['installation_id'], 'device_name': 'Phone', 'public_key': self.public_key}
+        self.assertEqual('approved', self.store.pairing_claim(link['code'], claim)['state'])
+        with self.assertRaises(ControlError):
+            self.store.pairing_claim(link['code'], dict(claim, public_key='another-key'))
+        request = {'pairing_id': link['pairing_id'], 'public_key': self.public_key}
+        result, status = self.store.pairing_finish(link['code'], request, self.secret)
+        self.assertEqual(200, status)
+        self.assertTrue(result['engineering_connection'])
+        owner = result['principal_id']
+        self.assertTrue(self.store.snapshot(owner)['effective']['engineering_enabled'])
+        self.assertEqual(['owner/repo'], self.store.snapshot(owner)['repositories'])
+        self.store.patch(owner, self.command({'engineering_enabled': False}))
+        self.assertEqual(result, self.store.pairing_finish(link['code'], request, self.secret)[0])
+        self.assertFalse(self.store.snapshot(owner)['desired']['engineering_enabled'])
+
     def test_pairing_requires_local_confirmation_and_preserves_delivery_identity(self):
         invitation = self.store.pairing_create({'repositories': ['owner/repo']})
         payload = {'installation_id': 'installed-pc-123', 'device_name': 'Android', 'public_key': self.public_key}

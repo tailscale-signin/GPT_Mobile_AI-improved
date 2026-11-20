@@ -424,7 +424,7 @@ class ControlStore:
     def digest(value):
         return hashlib.sha256(value.encode()).hexdigest()
 
-    def pairing_create(self, payload):
+    def pairing_create(self, payload, *, connect=False):
         name = payload.get('name', 'Android phone')
         fields = payload.get('fields', sorted(FIELDS))
         repositories = payload.get('repositories', [])
@@ -434,15 +434,19 @@ class ControlStore:
                 or not isinstance(repositories, list) or len(repositories) > 256
                 or any(not isinstance(x, str) or not REPOSITORY.fullmatch(x) for x in repositories)):
             raise ControlError('invalid_pairing_scope')
+        # A PC-issued connection link grants exactly one named repository. Wider
+        # management grants continue through the fingerprint-confirmation flow.
+        if connect and (role != 'owner' or fields != ['engineering_enabled'] or len(repositories) != 1):
+            raise ControlError('invalid_connection_scope')
         code, ident = secrets.token_urlsafe(32), uuid.uuid4().hex
         with self.tx() as db:
             installation = self.installation(db)
             db.execute('DELETE FROM gateway_control_pairing WHERE expires<=?', (self.now(),))
             if db.execute('SELECT COUNT(*) FROM gateway_control_pairing').fetchone()[0] >= 16:
                 raise ControlError('too_many_pairing_invitations', 429)
-            expires = int(self.now()) + 300
+            expires = int(self.now()) + (120 if connect else 300)
             db.execute('INSERT INTO gateway_control_pairing VALUES (?,?,?,?,?,NULL,NULL,?,?,?)',
-                       (ident, self.digest(code), name, expires, 'unused', encoded(sorted(set(fields))), encoded(sorted(set(repositories))), role))
+                       (ident, self.digest(code), name, expires, 'connect_ready' if connect else 'unused', encoded(sorted(set(fields))), encoded(sorted(set(repositories))), role))
         return {'pairing_id': ident, 'code': code, 'installation_id': installation, 'expires_at': expires}
 
     def pairing_claim(self, code, payload):
@@ -459,10 +463,12 @@ class ControlStore:
                 raise ControlError('pairing_expired_or_used', 401)
             if row['public_key'] and row['public_key'] != payload['public_key']:
                 raise ControlError('pairing_expired_or_used', 401)
-            if row['state'] == 'unused':
-                db.execute("UPDATE gateway_control_pairing SET name=?,state='awaiting_confirmation',device_id=?,public_key=? WHERE id=?",
-                           (name, uuid.uuid4().hex, payload['public_key'], row['id']))
-            return {'pairing_id': row['id'], 'state': 'awaiting_confirmation' if row['state'] == 'unused' else row['state'], 'expires_at': row['expires']}
+            state = row['state']
+            if state in {'unused', 'connect_ready'}:
+                state = 'connect_approved' if state == 'connect_ready' else 'awaiting_confirmation'
+                db.execute("UPDATE gateway_control_pairing SET name=?,state=?,device_id=?,public_key=? WHERE id=?",
+                           (name, state, uuid.uuid4().hex, payload['public_key'], row['id']))
+            return {'pairing_id': row['id'], 'state': 'approved' if state == 'connect_approved' else state, 'expires_at': row['expires']}
 
     def pairing_key_allowed(self, code, public_key):
         # Refuse unknown invitations before consuming replay-cache entries for
@@ -500,7 +506,7 @@ class ControlStore:
                              (payload['pairing_id'], self.digest(code), self.now())).fetchone()
             if not row or row['public_key'] != payload['public_key'] or row['state'] == 'denied':
                 raise ControlError('pairing_expired_or_used', 401)
-            if row['state'] != 'approved':
+            if row['state'] not in {'approved', 'connect_approved'}:
                 return {'pairing_id': row['id'], 'state': 'awaiting_confirmation'}, 202
             # Reconstruct the same response after a lost delivery. Only its hash
             # is stored; the server secret is protected separately from exports.
@@ -510,9 +516,10 @@ class ControlStore:
             device = self.device(db, 'paired:' + row['device_id'])
             if not device:
                 raise ControlError('access_revoked', 401)
-            db.execute('INSERT OR IGNORE INTO engineering_admission_settings VALUES (?,0,0)', ('paired:' + row['device_id'],))
+            quick = row['state'] == 'connect_approved'
+            db.execute('INSERT OR IGNORE INTO engineering_admission_settings VALUES (?,?,0)', ('paired:' + row['device_id'], int(quick)))
             return {'token': token, 'installation_id': self.installation(db), 'principal_id': 'paired:' + row['device_id'],
-                    'device_id': row['device_id'], 'role': row['role']}, 200
+                    'device_id': row['device_id'], 'role': row['role'], 'engineering_connection': quick}, 200
 
     def authenticate(self, token):
         if not token or len(token) > 256:

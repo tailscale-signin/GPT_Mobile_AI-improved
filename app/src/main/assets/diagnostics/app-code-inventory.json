@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "1053f90d827fb5618c56cfaf82cd58b0155d44dfd4726a6ac494900f219dc647",
-  "file_count": 2756,
-  "indexed_line_count": 455088,
+  "source_digest": "4ab8e223e0f34145110218a781528ca359f89f059db75b6075d0543041e90b53",
+  "file_count": 2757,
+  "indexed_line_count": 455512,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 571,
-      "indexed_line_count": 101134
+      "indexed_line_count": 101305
     },
     {
       "id": "accessibility_and_localization",
@@ -94,7 +94,7 @@
       "id": "gateway_client",
       "label": "Android gateway client",
       "file_count": 39,
-      "indexed_line_count": 6765
+      "indexed_line_count": 6770
     },
     {
       "id": "network",
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 242,
-      "indexed_line_count": 42526
+      "indexed_line_count": 42527
     },
     {
       "id": "research",
@@ -165,8 +165,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 215,
-      "indexed_line_count": 84801
+      "file_count": 216,
+      "indexed_line_count": 85048
     },
     {
       "id": "authentication_service",
@@ -6814,8 +6814,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatPolicy.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "b5d6eeac65678e8638e3c000a78d24f38e520ea5b578cd75eb6be6669fe75723",
-      "indexed_lines": 161
+      "sha256": "5b735dfa79fe6313616b43a2dc06164e159b92dc73949abe56a04d7a542c5f39",
+      "indexed_lines": 162
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt",
@@ -10048,8 +10048,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayControlModels.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "0356ed509868b8bc13ad5b2abbd28784d4038a9d1b4a793ef27001143383b7bb",
-      "indexed_lines": 262
+      "sha256": "9091227376e95adbb196c1e5517af95a695a1fe5a05fc6e686bc074d56c46c5d",
+      "indexed_lines": 266
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayControlNegotiation.kt",
@@ -10062,8 +10062,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayControlRepository.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "c19ea1b53277c2b567208dc40728bcb6edcbe08624801295eb1bff6144b41b92",
-      "indexed_lines": 388
+      "sha256": "49621d1bd8ecf3c59e3bba44607d926c8f374533369698f1e7ac01d72bfa7de0",
+      "indexed_lines": 389
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayControlTransport.kt",
@@ -13261,7 +13261,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "7dc985fbb71b9a9b1b64a7263060b96d4bd1ae78aa5732b451f835dc76ef812c",
+      "sha256": "7bfda6f3bcf5ea49f7f444cacc661688ad7e1e1b5c54b9591fc931bf40a4d6a7",
       "indexed_lines": 3288
     },
     {
@@ -14962,22 +14962,22 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlChatEntry.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "0c82beabb8b423d8c8c192d1843faf4c95154078d3d3c575fdc35cbc92e084f1",
-      "indexed_lines": 112
+      "sha256": "4e5cba5a620247c52c339dd542b40c12abfdfe07f26d5df6347f3d3032ba0e28",
+      "indexed_lines": 127
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlSettingsPanel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "d59730c1b605319ccc48a52cacd6353532729ed021683f561de69e1b2f433684",
-      "indexed_lines": 377
+      "sha256": "317f6ed80d0f59f848c6afd84536415d32e0cdfff477e0b7baeb64648bd8afad",
+      "indexed_lines": 416
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayControlViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "8f8fad2515bada4317ed0c0513fc1d7cfd3334fbe398db457c280b92bb54fe5e",
-      "indexed_lines": 80
+      "sha256": "25fec3017b815ae3116f5b67eb60c59ec271a35dbbfc92b534c50ae7f1e6485b",
+      "indexed_lines": 197
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayDiagnosticPanel.kt",
@@ -15172,7 +15172,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubProgrammerSettings.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "65d0db5ab8dea2396dfcf527e08f0c06c8ba729daa0e8829af558dbcf4fc8725",
+      "sha256": "81e20f62aaa6a2af33d2344310d04f084f50313116608774b17cc472f0f455d4",
       "indexed_lines": 431
     },
     {
@@ -17972,8 +17972,8 @@
       "path": "gateway/desktop/configuration.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "d38820064481dd0a74fda5b2fb87d0b7b023c9477b7a372aeebb6028cfa06d72",
-      "indexed_lines": 200
+      "sha256": "f9be6ad575ec9d91efe642bd4faa58bcc5933bd042f9b3f934b77f24f7b24fbd",
+      "indexed_lines": 210
     },
     {
       "path": "gateway/desktop/control_security.py",
@@ -17986,22 +17986,22 @@
       "path": "gateway/desktop/control_server.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "34e42aeade2ef4dc819ee8ce286eca049bc1325e5eee167ee7d52d793e81c8de",
-      "indexed_lines": 281
+      "sha256": "12414a58d820b2058888f27d8f7acb9bcc3aa1c39186e46e7ef9ed8e3e1c3b9b",
+      "indexed_lines": 286
     },
     {
       "path": "gateway/desktop/control_settings.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "7c33c478ab5f55215fb98709f0bbbb9d453319cf41da23dc0bad3943bd866e79",
-      "indexed_lines": 246
+      "sha256": "9dcced54e546ef0d498d41f4ae6265bd525479bc2141dd4138c922e77d027b1d",
+      "indexed_lines": 266
     },
     {
       "path": "gateway/desktop/control_store.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "2bfaf9281a66cde24d73184089b450d626b75984c913bac3098162c431b0f21c",
-      "indexed_lines": 564
+      "sha256": "4499112e14d677f1b7921991d5f07219a79cbbc56e2869fce3efc6086e6eb2d7",
+      "indexed_lines": 571
     },
     {
       "path": "gateway/desktop/conversation_client.py",
@@ -18168,22 +18168,22 @@
       "path": "gateway/desktop/native/MainWindow.Chat.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "5d4159e994fc329967e3cd62b6b473309334209d4484a7293da940686ee06c9d",
-      "indexed_lines": 197
+      "sha256": "7ba0b5391d2aaa5b96ae46acbddb800f51e490f2a92329acf57fa5174ff15309",
+      "indexed_lines": 203
     },
     {
       "path": "gateway/desktop/native/MainWindow.Control.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "41dc3d639e0f24feb7273739dbff2cbfc3431e3b7fb72d6c7df3240524962350",
-      "indexed_lines": 403
+      "sha256": "12f2d0a2ca352bb8cf0cafc4a0c76893ab36e7f91b9692df5d6c52eb778a65d7",
+      "indexed_lines": 459
     },
     {
       "path": "gateway/desktop/native/MainWindow.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "b3405cfccf82bbf953ef46daf33409e91238365733bec64344a78dd7b8f5541d",
-      "indexed_lines": 480
+      "sha256": "887eed914e88ea80a34dade2260a020d09d3f3a4549b7c148ac83c69389651e5",
+      "indexed_lines": 503
     },
     {
       "path": "gateway/desktop/native/Ui.cs",
@@ -18196,7 +18196,7 @@
       "path": "gateway/desktop/native_bridge.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "d8b784f64b4889536fd1b69d4f4c7d69537e03dd02a9372033e259c12a784ce8",
+      "sha256": "055a70ea4e511f9fdb1c8c524a8487b7880d5d74dd626a496c9af58fe7e344c3",
       "indexed_lines": 409
     },
     {
@@ -18287,8 +18287,8 @@
       "path": "gateway/desktop/ui.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "ee6fbb7c45c1552f1ca219d610c3c582fc360b665bfb883f7c62b6566549444b",
-      "indexed_lines": 414
+      "sha256": "6ef0803ea56d40f46a9f0451727e16af7c57cc7eba7400c99b2778e933dd709e",
+      "indexed_lines": 418
     },
     {
       "path": "gateway/desktop/validation_policy.py",
@@ -18315,15 +18315,15 @@
       "path": "gateway/desktop/windows/SetupWindow.xaml",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "d61f8fa726d161186db220cca6c4daa33b19a5d75693809881ffa237e137b42c",
+      "sha256": "6257f4366f04d52d5c3597ea35bb8cb14877bfac28c168bf6bcd94d3dac0efad",
       "indexed_lines": 70
     },
     {
       "path": "gateway/desktop/windows/SetupWindow.xaml.cs",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "d0cc4d2ec4b257063198dcb20564f72b42272cd60c36ba8f08329408f11fdf52",
-      "indexed_lines": 315
+      "sha256": "b95ebfffde0f2b62b15a20c7fa21187080a59fa288f054d49d2bb96dfc26c425",
+      "indexed_lines": 316
     },
     {
       "path": "gateway/desktop/windows/Theme.xaml",
@@ -18466,6 +18466,13 @@
       "indexed_lines": 656
     },
     {
+      "path": "gateway/v14/account_connection.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "ece65c53b2931596318cf95ba8f05bd7becc1c2a522e09a9375cdc1287e420b1",
+      "indexed_lines": 98
+    },
+    {
       "path": "gateway/v14/actions.py",
       "area_id": "gateway_software",
       "kind": "source",
@@ -18595,8 +18602,8 @@
       "path": "gateway/v14/config.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "63b285faf7d6e9822a7c1f68f761d203e59a7f6d617b732d98c06a031f3bdaa3",
-      "indexed_lines": 78
+      "sha256": "b822ef2a3b4743ecee1d1d0844bdecab8e7e9202d16343b552967f8994d7193d",
+      "indexed_lines": 80
     },
     {
       "path": "gateway/v14/contracts.py",
@@ -18693,8 +18700,8 @@
       "path": "gateway/v14/engineering.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "066c079e8f707f74a904cdc77f2371babb825d0cd1f781aa1a68666bf1b869f9",
-      "indexed_lines": 1719
+      "sha256": "ece14741c3c687e55bcda8a68af680f0eb57f3759ace4afa015e26cc641a67a9",
+      "indexed_lines": 1720
     },
     {
       "path": "gateway/v14/engineering_artifacts.py",
@@ -18959,8 +18966,8 @@
       "path": "gateway/v14/identity.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "dee04156bb378a2b1d22306fb6284a53f63650f4d7f51e2c0a0ec4fd236419ed",
-      "indexed_lines": 212
+      "sha256": "13da6bf1bdba056bd96e546c2d485a50eb438e0878841445c2a2c4ed6c8d8a84",
+      "indexed_lines": 226
     },
     {
       "path": "gateway/v14/inference_budget.py",
@@ -19071,7 +19078,7 @@
       "path": "gateway/v14/package.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "a76847f996bb793f20737a7d14fa5df1280781f8c2d1328fe5386bebe29a66d6",
+      "sha256": "cb1118973314430a304cbf4653d509581a063b5b11b3dd848e2d855bbd71fb4f",
       "indexed_lines": 32
     },
     {

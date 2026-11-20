@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import socket
 import threading
+from urllib.parse import urlsplit
 
 import requests
 
@@ -187,6 +188,14 @@ class Controller:
         with self.lock:
             return self.store.patch(principal, payload)
 
+    def connection_port(self):
+        # A private invitation can advertise inference only on its own interface.
+        cfg = self.supervisor.cfg
+        host = urlsplit(self.endpoint).hostname
+        if host and cfg['access'] == 'network' and cfg['bind_host'] in {host, '0.0.0.0', '::'}:
+            return cfg['port']
+        return None
+
     def local(self, action, payload):
         payload = dict(payload or {})
         owner = payload.pop('owner_principal', 'local:single-user')
@@ -196,6 +205,15 @@ class Controller:
             if action == 'control-settings-read':
                 value = self.store.snapshot(owner, local=True)
                 value['listener'] = self.description()
+                from desktop.configuration import account_engineering
+                from v14.account_connection import overlay
+                cfg = self.supervisor.cfg
+                if overlay(cfg['bind_host']) and account_engineering(self.supervisor.root):
+                    value['account_connection_url'] = 'http://' + authority(cfg['bind_host'], cfg['port']) + '/v1'
+
+                from desktop.validation_policy import load_policy_snapshot
+                policy = load_policy_snapshot(self.supervisor.root)
+                value['connection_repositories'] = sorted(policy['repositories']) if policy['state'] == 'READY' else []
                 value['engineering_prerequisites'] = self.last_prerequisites
                 return value
             if action == 'control-settings-patch':
@@ -204,12 +222,14 @@ class Controller:
                 return self.store.receipt(owner, payload['command_id'], local=True)
             if action == 'control-enable':
                 return self.enable(payload)
-            if action == 'control-pairing-create':
+            if action in {'control-pairing-create', 'control-connect-create'}:
                 if not self.description()['enabled']:
                     raise ControlError('control_listener_required', 412)
                 from desktop.control_server import pairing_link
-                value = self.store.pairing_create(payload)
+                value = self.store.pairing_create(payload, connect=action == 'control-connect-create')
                 value.update(endpoint=self.endpoint, fingerprint=self.fingerprint)
+                if action == 'control-connect-create' and (port := self.connection_port()):
+                    value['gateway_port'] = port
                 value['link'] = pairing_link(value, self.endpoint, self.fingerprint)
                 return value
             if action == 'control-pairing-list':

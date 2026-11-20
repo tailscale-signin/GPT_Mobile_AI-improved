@@ -156,6 +156,16 @@ def authority(host, port):
     return f'[{host}]:{port}' if ':' in host else f'{host}:{port}'
 
 
+def account_engineering(root):
+    path = Path(root) / 'data' / 'account-engineering.json'
+    try:
+        return json.loads(path.read_text(encoding='utf-8')) == {'enabled': True}
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def environment(root, cfg, management_token=''):
     cfg = validate(cfg)
     root = Path(root).resolve()
@@ -187,7 +197,7 @@ def environment(root, cfg, management_token=''):
                GATEWAY_AUTH_MODE='open_network' if cfg['access'] == 'network' else 'loopback',
                GATEWAY_ALLOWED_HOSTS=json.dumps(hosts),
                GATEWAY_ALLOWED_ORIGINS=json.dumps([] if cfg['access'] == 'network' else ['http://' + h for h in hosts]),
-               GATEWAY_REMOTE_ENGINEERING=str(cfg['engineering']).lower(), GATEWAY_MANAGEMENT_TOKEN=management_token,
+               GATEWAY_ACCOUNT_ENGINEERING=str(account_engineering(root)).lower(), GATEWAY_REMOTE_ENGINEERING=str(cfg['engineering']).lower(), GATEWAY_MANAGEMENT_TOKEN=management_token,
                GATEWAY_COPILOT_ENABLED=str(copilot_enabled(root)).lower(),
                GATEWAY_PUBLIC_REPOSITORY_MAPS=str(public_repository_maps(root)).lower(), GATEWAY_DESKTOP_ROOT=str(root),
                GATEWAY_ACTIVITY_STATE=str(data / 'activity.json'),

@@ -17,9 +17,9 @@
         <StackPanel>
           <TextBlock x:Name="Heading" Focusable="True" FontSize="32" FontWeight="SemiBold" Margin="0,0,0,16"/>
           <StackPanel x:Name="EditionPage">
-            <RadioButton x:Name="Standard" IsChecked="True" Content="Standard Gateway"/>
-            <TextBlock Margin="22,0,0,12" Foreground="{DynamicResource MutedBrush}" Text="Chat with a local model and reconnect to saved work."/>
-            <RadioButton x:Name="Engineering" Content="GitHub Engineering"/>
+            <RadioButton x:Name="Standard" IsChecked="True" Content="Gateway"/>
+            <TextBlock Margin="22,0,0,12" Foreground="{DynamicResource MutedBrush}" Text="Connect your phone for chat and repository work."/>
+            <RadioButton x:Name="Engineering" Content="Also set up local build tools"/>
             <TextBlock Margin="22,0,0,12" Foreground="{DynamicResource MutedBrush}" Text="Also open the Git, WSL and Docker setup assistant for isolated repository tests."/>
           </StackPanel>
           <StackPanel x:Name="ConnectionPage" Visibility="Collapsed">

@@ -15,7 +15,7 @@ namespace Gateway.Desktop;
 
 public partial class MainWindow : Window
 {
-    internal static readonly string[] Pages = ["Overview", "Chat", "Saved", "Jobs", "Tools", "Benchmarks", "Android controls", "Diagnostics", "Settings"];
+    internal static readonly string[] Pages = ["Overview", "Chat", "Saved", "Jobs", "Tools", "Benchmarks", "Android controls", "Diagnostics", "Settings", "Connect phone", "Advanced settings"];
     private readonly string root;
     private readonly BridgeClient bridge;
     private readonly StackPanel page = new();
@@ -66,16 +66,13 @@ public partial class MainWindow : Window
         var rail = Ui.Column(Ui.Text("GPT MOBILE", 12, "PrimaryBrush", true), Ui.Text("Gateway", 28, bold: true),
             Ui.Text(Environment.MachineName, 13, "MutedBrush"));
         rail.Margin = new Thickness(16, 24, 16, 20);
-        rail.Children.Add(Ui.Button("＋ New prompt", () => { openedConversation = null; transcript = []; Navigate("Chat"); }, true));
-        rail.Children.Add(Ui.Text("WORKSPACE", 11, "MutedBrush"));
-        foreach (string name in Pages)
+        foreach (string name in new[] { "Overview", "Chat", "Saved", "Jobs", "Settings" })
         {
-            var button = Ui.Button(name, () => Navigate(name));
+            var button = Ui.Button(name == "Overview" ? "Home" : name, () => Navigate(name));
             button.HorizontalContentAlignment = HorizontalAlignment.Left;
             button.Margin = new Thickness(0, 2, 0, 2);
             navigation[name] = button; rail.Children.Add(button);
         }
-        rail.Children.Add(Ui.Text("Closing this window keeps accepted Gateway work running.", 12, "MutedBrush"));
         var railScroll = new ScrollViewer { Content = rail, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         railScroll.SetResourceReference(BackgroundProperty, "PanelBrush");
         layout.Children.Add(railScroll);
@@ -135,15 +132,18 @@ public partial class MainWindow : Window
     {
         if (!Pages.Contains(name)) name = "Overview";
         updateInfo = null; checkUpdate = installUpdate = null;
-        selectedPage = name; epoch++; page.Children.Clear(); pageScroll.ScrollToTop(); heading.Text = name;
+        selectedPage = name; epoch++; page.Children.Clear(); pageScroll.ScrollToTop(); heading.Text = name == "Overview" ? "Home" : name;
+        string section = navigation.ContainsKey(name) ? name : "Settings";
         foreach (var (key, button) in navigation)
         {
-            button.SetResourceReference(BackgroundProperty, key == name ? "RaisedBrush" : "PanelBrush");
-            button.SetResourceReference(ForegroundProperty, key == name ? "PrimaryBrush" : "MutedBrush");
+            button.SetResourceReference(BackgroundProperty, key == section ? "RaisedBrush" : "PanelBrush");
+            button.SetResourceReference(ForegroundProperty, key == section ? "PrimaryBrush" : "MutedBrush");
         }
         subtitle.Text = name switch
         {
-            "Overview" => "Measured activity and health for " + Environment.MachineName,
+            "Overview" => Environment.MachineName,
+            "Connect phone" => "Give your phone access to a repository on this PC",
+            "Settings" => "Connection and updates",
             "Chat" => "Your selected model · saved on this Gateway",
             "Saved" => "Conversations, favorites and bookmarked messages",
             "Jobs" => "Accepted work stays with the Gateway when this window closes",
@@ -160,10 +160,12 @@ public partial class MainWindow : Window
             case "Saved": BuildSaved(); break;
             case "Jobs": BuildJobs(); break;
             case "Tools": BuildTools(); break;
-            case "Benchmarks": BuildBenchmarks(); break;
+            case "Benchmarks": BuildBenchmarks(); BuildUsage(); break;
             case "Android controls": BuildAndroid(); break;
             case "Diagnostics": BuildDiagnostics(); break;
-            case "Settings": BuildSettings(); break;
+            case "Settings": BuildBasicSettings(); break;
+            case "Advanced settings": BuildSettings(); break;
+            case "Connect phone": BuildConnectPhone(); break;
         }
         if (!suppressMotion && SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast)
             page.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)));
@@ -180,7 +182,7 @@ public partial class MainWindow : Window
             snapshot = await Call("snapshot");
             RefreshUpdateCard();
             bool fresh = snapshot.Flag("fresh");
-            connection.Text = $"{Environment.MachineName.ToUpperInvariant()}  /  {snapshot.Object("manager").Text("state", "Unavailable")}  ·  {(fresh ? "Live observation" : "Offline or stale observation")}";
+            connection.Text = fresh ? "●  Live" : "○  Offline · last known status";
             if (selectedPage == "Overview")
             {
                 overviewRefreshPending |= !JsonNode.DeepEquals(OverviewData(previous), OverviewData(snapshot));
@@ -220,13 +222,25 @@ public partial class MainWindow : Window
         var manager = snapshot.Object("manager");
         bool running = manager.Text("state") == "running";
         string backend = manager.Text("backend", "Not observed");
-        var hero = Ui.Column(Ui.Text(running ? "Gateway is running" : "Gateway · " + manager.Text("state", "not observed"), 28, bold: true),
-            Ui.Text(running && backend != "ready" ? "Gateway installed · model offline or not ready. Update the model connection in Settings." : "Model backend: " + backend, color: "MutedBrush"),
-            Ui.Actions(Ui.Button("New prompt", () => Navigate("Chat"), true),
-                Ui.Button(running ? "Restart when idle" : "Start Gateway", () => Run(async () =>
-                { await Call(running ? "runtime-control" : "runtime-start", running ? new JsonObject { ["action"] = "restart" } : null); status.Text = "Request acknowledged. Runtime health will confirm the result."; })),
-                Ui.Button("Connection settings", () => Navigate("Settings"))));
+        bool ready = running && snapshot.Flag("fresh") && backend == "ready";
+        var hero = Ui.Column(Ui.Text(ready ? "Ready to work" : running ? "Waiting for model" : "Gateway " + manager.Text("state", "unavailable"), 28, bold: true),
+            Ui.Text("Model backend · " + backend, 14, "MutedBrush"),
+            Ui.Actions(Ui.Button("Connect phone", () => Navigate("Connect phone"), true),
+                Ui.Button(ready ? "Open chat" : running ? "Connection settings" : "Start Gateway", () =>
+                {
+                    if (ready) Navigate("Chat");
+                    else if (running) OpenUtility("settings");
+                    else Run(async () => { await Call("runtime-start"); await RefreshSnapshot(); });
+                })));
         page.Children.Add(Ui.Card(hero, true));
+        var activity = new ListBox { MaxHeight = 250 };
+        Ui.Rows(activity, snapshot.Array("activities").Reverse().Take(8), "name");
+        page.Children.Add(Ui.Card(Ui.Column(Ui.Text("Recent activity", 20, bold: true),
+            activity.Items.Count == 0 ? Ui.Text("No recent activity has been observed.", color: "MutedBrush") : activity)));
+    }
+
+    private void BuildUsage()
+    {
         var usage = snapshot.Object("usage"); var service = snapshot.Object("service");
         var tiles = new WrapPanel();
         void Metric(string label, string value, string note)
@@ -253,10 +267,19 @@ public partial class MainWindow : Window
             }
         }
         page.Children.Add(Ui.Card(history));
-        var activity = new ListBox { MaxHeight = 250 };
-        Ui.Rows(activity, snapshot.Array("activities").Reverse().Take(8), "name");
-        page.Children.Add(Ui.Card(Ui.Column(Ui.Text("Recent activity", 20, bold: true),
-            activity.Items.Count == 0 ? Ui.Text("No recent activity has been observed.", color: "MutedBrush") : activity)));
+    }
+
+    private void BuildBasicSettings()
+    {
+        page.Children.Add(Ui.Card(Ui.Column(Ui.Text("Connection", 20, bold: true),
+            Ui.Actions(Ui.Button("Connect phone", () => Navigate("Connect phone"), true),
+                Ui.Button("Host connection", () => OpenUtility("settings"))))));
+        BuildUpdateCard();
+        var options = Ui.Column(Ui.Actions(Ui.Button("Runtime settings", () => Navigate("Advanced settings")),
+            Ui.Button("Device access", () => Navigate("Android controls")),
+            Ui.Button("Tools", () => Navigate("Tools")), Ui.Button("Benchmarks", () => Navigate("Benchmarks")),
+            Ui.Button("Diagnostics", () => Navigate("Diagnostics"))));
+        page.Children.Add(new Expander { Header = "Advanced", Content = options, Foreground = Ui.Brush("TextBrush"), Margin = new Thickness(0, 12, 0, 8) });
     }
 
     private void BuildJobs()

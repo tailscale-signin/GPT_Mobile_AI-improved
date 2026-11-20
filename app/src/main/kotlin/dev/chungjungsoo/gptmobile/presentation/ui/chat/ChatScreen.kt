@@ -1220,7 +1220,7 @@ private fun ChatScreenContent(
                 }
                 if (chatToolConfig.github != null) {
                     chatToolConfig.github?.let { github ->
-                        val ownerTarget = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(appAllPlatforms, featureSettings.githubProfileOverrides[github.mainProfileUid]?.engineeringGatewayProfileUid)
+                        val ownerTarget = dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile(appAllPlatforms, featureSettings.githubProfileOverrides[github.mainProfileUid]?.engineeringGatewayProfileUid ?: github.mainProfileUid)
                         if (ownerTarget != null) {
                             item(key = "gateway-owner-control") {
                                 dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayControlChatEntry(ownerTarget)

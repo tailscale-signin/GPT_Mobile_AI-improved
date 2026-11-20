@@ -157,6 +157,8 @@ def create_app(controller):
             value, status = await asyncio.to_thread(store.pairing_finish, request.state.control_token, payload, controller.secret)
             if status == 200:
                 value.update(endpoint=controller.endpoint, fingerprint=controller.fingerprint)
+                if value.get('engineering_connection') and (port := controller.connection_port()):
+                    value['gateway_port'] = port
             return JSONResponse(value, status_code=status)
         except ControlError as error:
             return JSONResponse({'error': {'code': error.code}}, status_code=error.status)
@@ -260,8 +262,11 @@ def create_app(controller):
 
 
 def pairing_link(value, endpoint, fingerprint):
-    return 'gptmobile://gateway-control?' + urlencode({'endpoint': endpoint, 'installation_id': value['installation_id'],
-                                                     'fingerprint': fingerprint, 'code': value['code'], 'expires': value['expires_at']})
+    fields = {'endpoint': endpoint, 'installation_id': value['installation_id'],
+              'fingerprint': fingerprint, 'code': value['code'], 'expires': value['expires_at']}
+    if 'gateway_port' in value:
+        fields['gateway_port'] = value['gateway_port']
+    return 'gptmobile://gateway-control?' + urlencode(fields)
 
 
 class ControlServer:

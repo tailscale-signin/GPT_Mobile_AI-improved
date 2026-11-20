@@ -470,10 +470,11 @@ internal class KokoroVoiceOutput(
                     main.postDelayed(watchdog, KOKORO_FOCUS_PAUSE_MAX_MS)
                 }
                 else -> {
+                    val mode = runCatching { audioManager?.mode }.getOrNull()
                     playback.diagnostics?.playbackFocus(
                         if (focusResult == null) VoiceDiagnosticTrace.Focus.ERROR else VoiceDiagnosticTrace.Focus.DENIED,
                         attempt,
-                        when (runCatching { audioManager?.mode }.getOrNull()) {
+                        when (mode) {
                             null -> null
                             AudioManager.MODE_NORMAL -> VoiceDiagnosticTrace.PlaybackAudioMode.NORMAL
                             AudioManager.MODE_RINGTONE -> VoiceDiagnosticTrace.PlaybackAudioMode.RINGTONE
@@ -482,8 +483,9 @@ internal class KokoroVoiceOutput(
                             else -> VoiceDiagnosticTrace.PlaybackAudioMode.OTHER
                         }
                     )
-                    if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && attempt == 1) {
-                        main.postDelayed({ acquireFocus(attempt + 1) }, 250)
+                    val retryDelay = kokoroFocusRetryDelay(attempt, mode)
+                    if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && retryDelay != null) {
+                        main.postDelayed({ acquireFocus(attempt + 1) }, retryDelay)
                     } else {
                         val message = if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED) {
                             "Android denied audio focus. When the call or other audio ends, return to Voice and tap replay on this reply."

@@ -518,7 +518,29 @@ internal class GitHubOperationTool(
         if (!result.isError && data != null) {
             val assessment = pagination.assessPage(operation, resolved, data)
             if (assessment.errorCode != null) {
-                return withPaginationState(result, assessment.data).copy(
+                val progress = assessment.data["pagination_progress"] as? JsonObject
+                val missing = (progress?.get("first_unobserved_page") as? JsonPrimitive)?.intOrNull
+                val collection = operation == "github_pr" &&
+                    arguments["action"] in setOf(null, JsonPrimitive("list")) ||
+                    operation == "github_context" &&
+                    arguments["action"] in setOf(JsonPrimitive("commits"), JsonPrimitive("branches"))
+                val recovered = if (missing != null && collection) {
+                    JsonObject(
+                        assessment.data + buildJsonObject {
+                            put("message", "The terminal page was observed with a gap. For an exhaustive inventory, read the missing page and follow its continuation. Keep existing observations for a bounded sample.")
+                            put(
+                                "correction_call",
+                                buildJsonObject {
+                                    put("tool", definition.name)
+                                    put("arguments", JsonObject(arguments + ("page" to JsonPrimitive(missing))))
+                                }
+                            )
+                        }
+                    )
+                } else {
+                    assessment.data
+                }
+                return withPaginationState(result, recovered).copy(
                     executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("traversal_state" to assessment.data.getValue("traversal_state"), "has_more" to JsonPrimitive(false), "pagination_progress" to assessment.data.getValue("pagination_progress"))),
                     isError = true,
                     errorCode = assessment.errorCode
@@ -571,7 +593,7 @@ internal class GitHubOperationTool(
             else -> null
         }
         val stateFields = setOf("pagination_progress", "has_more", "complete", "continuation", "continuation_call", "remote_continuations", "next_page", "traversal_state", "upstream_has_more", "reason", "message")
-        val evidence = source?.let { JsonObject(it.filterKeys { key -> key !in stateFields } + data.filterKeys { key -> key in stateFields }) }
+        val evidence = source?.let { JsonObject(it.filterKeys { key -> key !in stateFields } + data.filterKeys { key -> key in stateFields || key == "correction_call" }) }
         return result.copy(content = ToolResultContent.Json(data), retainedContent = evidence?.let { ToolResultContent.Json(it) } ?: retained)
     }
 

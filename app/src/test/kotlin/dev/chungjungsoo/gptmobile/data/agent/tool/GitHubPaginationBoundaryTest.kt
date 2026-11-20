@@ -19,6 +19,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPaginationBoundaryTest {
+    @Test fun sparseBranchInventoryIdentifiesTheFirstMissingPage() {
+        val boundary = GitHubPaginationBoundary()
+        fun read(page: Int, more: Boolean): GitHubPaginationBoundary.Assessment {
+            val args = json("""{"action":"list_branches","page":$page,"per_page":100}""")
+            return boundary.assessPage("github_context", args, json("""{"has_more":$more,"items":[{"name":"branch-$page"}]}"""))
+        }
+        read(1, true)
+        read(2, true)
+        val last = read(61, false)
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", last.errorCode)
+        assertEquals(JsonPrimitive(3), last.data.getValue("pagination_progress").jsonObject["first_unobserved_page"])
+    }
+
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
 
     @Test fun commitHistoryUsesTheObservedRevisionAcrossIssuedPagesAndFreshReads() {

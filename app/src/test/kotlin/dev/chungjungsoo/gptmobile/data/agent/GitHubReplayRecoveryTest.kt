@@ -18,6 +18,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReplayRecoveryTest {
+    @Test fun aRepeatLimitedRefLookupKeepsTheLastUndispatchedBlocker() {
+        val call = ProviderEvent.ToolCall(
+            "first",
+            "github_context",
+            buildJsonObject {
+                put("action", "resolve")
+                put("ref", "main")
+            }
+        )
+        val failure = AgentToolResult(call.callId, ToolResultContent.Text("Lookup unavailable"), true, errorCode = "GITHUB_NOT_CONFIGURED", dispatched = false)
+        val history = listOf(AgentToolExchange(listOf(call), listOf(failure)))
+        val replay = requireNotNull(GitHubReplayRecovery.repeated(call.copy(callId = "repeat"), history, "Repeat limit"))
+        val content = (replay.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("GITHUB_NOT_CONFIGURED"), content["previous_error_code"])
+        assertEquals(JsonPrimitive("first"), content["previous_call_id"])
+        assertFalse(replay.dispatched)
+    }
+
     @Test fun issuedLargerPagesBatchRecoveryWithinTheActualReplayAllowanceAndSurviveRestart() {
         val views = GitHubResultViews()
         val original = "retained-".repeat(600)

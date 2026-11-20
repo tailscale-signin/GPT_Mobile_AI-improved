@@ -34,6 +34,14 @@ import org.robolectric.util.ReflectionHelpers
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class AndroidVoiceCaptureTest {
+    @Test fun aSecondSilencedReadCanReopenOnlyBeforeCapturingAudio() {
+        val silenced = LocalVoiceCaptureException("silenced", "MICROPHONE_CAPTURE_SILENCED", "capture_read", retryable = true)
+        assertTrue(mayRecreateVoiceCapture(silenced, 2, 0))
+        assertFalse(mayRecreateVoiceCapture(silenced, 3, 0))
+        assertFalse(mayRecreateVoiceCapture(silenced, 2, 1))
+        assertFalse(mayRecreateVoiceCapture(LocalVoiceCaptureException("partial", silenced.code, silenced.phase, retryable = true, capturedSamples = 1), 2, 0))
+    }
+
     @Test fun diagnosticCountsFollowActualReadsAndDeniedFocusWithoutCapturingAudio() {
         val fixture = Fixture()
         val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, {})

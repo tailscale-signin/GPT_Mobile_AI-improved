@@ -1,15 +1,17 @@
 """Drive real update-cycle decisions with controlled catalog and staging completion."""
 from concurrent.futures import Future
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
+import sqlite3
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop.configuration import atomic_json
-from desktop.manager import UpdateCycle
+from desktop.manager import Supervisor, UpdateCycle
 
 
 class UpdateCycleTests(unittest.TestCase):
@@ -29,6 +31,25 @@ class UpdateCycleTests(unittest.TestCase):
 
     def tick(self, action=None):
         return self.cycle.tick(action, 'receipt' if action else None, self.cfg, False)
+
+    def test_update_backup_closes_the_live_database_on_success_and_failure(self):
+        source = self.host.root / 'data' / 'benchmarks.sqlite3'
+        source.parent.mkdir()
+        with closing(sqlite3.connect(source)) as db:
+            db.execute('create table runs(id integer)')
+        from v14.journal import backup_database
+        for fails in (False, True):
+            with self.subTest(fails=fails):
+                with patch('desktop.manager.backup_database', wraps=backup_database,
+                           side_effect=OSError('disk full') if fails else None) as backup:
+                    if fails:
+                        with self.assertRaises(OSError):
+                            Supervisor.backup(self.host)
+                    else:
+                        Supervisor.backup(self.host)
+                live = backup.call_args.args[0]
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    live.execute('select 1')
 
     def test_manual_install_waits_for_catalog_staging_and_idle_without_second_click(self):
         self.tick('install')

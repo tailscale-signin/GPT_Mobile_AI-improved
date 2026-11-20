@@ -359,7 +359,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                         runCatching { capture?.close() }
                         capture = null
                         try {
-                            Thread.sleep(200)
+                            Thread.sleep(if (run.captureAttempts.get() == 1) 200L else 800L)
                         } catch (_: InterruptedException) {
                             Thread.currentThread().interrupt()
                             return

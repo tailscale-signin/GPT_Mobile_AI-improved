@@ -310,6 +310,10 @@ internal object ToolReportDiagnostics {
         }
         val resolved = receipt?.get("resolved_arguments") as? JsonObject
         resolved?.let {
+            if (action == null && receipt?.get("call_id") == JsonPrimitive(result.callId) && receipt["schema"] == JsonPrimitive("github.dispatch.v1")) {
+                (it["action"] as? JsonPrimitive)?.takeIf { value -> value.isString }?.contentOrNull
+                    ?.takeIf { name -> name in IssueReportIncidentCapsule.actions }?.let { name -> put("native_tool_action", name) }
+            }
             shapeHash(it)?.let { hash -> put("resolved_argument_shape_hash", hash) }
             putAll(typeShape(it, "resolved_argument"))
         }

@@ -1391,10 +1391,20 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Voice uses the normal durable chat dispatcher and never bypasses tool approvals. */
+    var voiceSubmissionRejection: String? = null
+        private set
+
     fun submitVoiceTranscript(text: String): Boolean {
-        if (!_isLoaded.value || !_voiceRoomReady.value || text.isBlank() || !featureSettings.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT)) return false
-        val profileUid = _activePlatformUids.value.singleOrNull()?.takeIf { uid -> _platformsInApp.value.any { it.uid == uid && it.enabled } } ?: return false
-        if (_voiceAdmission.value?.stage in setOf(VoiceAdmissionStage.CHECKING, VoiceAdmissionStage.QUEUED)) return false
+        val profileUid = _activePlatformUids.value.singleOrNull()?.takeIf { uid -> _platformsInApp.value.any { it.uid == uid && it.enabled } }
+        voiceSubmissionRejection = when {
+            !_isLoaded.value || !_voiceRoomReady.value -> "CONVERSATION_STARTING"
+            text.isBlank() -> "VALIDATION_REJECTED"
+            !featureSettings.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT) -> "VOICE_CHAT_DISABLED"
+            profileUid == null -> "PROFILE_UNAVAILABLE"
+            _voiceAdmission.value?.stage in setOf(VoiceAdmissionStage.CHECKING, VoiceAdmissionStage.QUEUED) -> "QUEUE_SAVE_IN_PROGRESS"
+            else -> null
+        }
+        if (voiceSubmissionRejection != null || profileUid == null) return false
         checkpointVoiceDraft(text.trim())
         val request = VoiceTurnAdmission(UUID.randomUUID().toString(), _chatRoom.value.id, profileUid)
         updateVoiceAdmission(request)

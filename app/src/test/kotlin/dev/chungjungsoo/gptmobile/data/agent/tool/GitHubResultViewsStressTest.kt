@@ -20,6 +20,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubResultViewsStressTest {
+    @Test fun savedSearchWithALongConnectionNameStillAdvancesWithinTheRequestedBudget() {
+        val views = GitHubResultViews(pageBytes = 2048)
+        val model = "github_search__" + "connection".repeat(18)
+        val raw = AgentToolResult("source", ToolResultContent.Json(JsonPrimitive("value ".repeat(1000))), false)
+        var page = data(views.present("scope", "github_search", model, raw))
+        var offset = 0
+        repeat(200) {
+            assertFalse(page.containsKey("page_capacity_exceeded"))
+            assertTrue(page.toString().encodeToByteArray().size <= 2048)
+            assertEquals(offset, page.getValue("fragment_offset").jsonPrimitive.int)
+            val records = page.getValue("fragments").jsonArray
+            assertTrue(records.isNotEmpty())
+            offset += records.size
+            if (page.getValue("local_page_complete").jsonPrimitive.boolean) {
+                assertEquals(page.getValue("total_fragments").jsonPrimitive.int, offset)
+                return
+            }
+            val cursor = page.getValue("continuation_call").jsonObject.getValue("arguments").jsonObject.getValue("view_cursor").jsonPrimitive.content
+            page = data(views.read("scope", "github_search", model, cursor, "next"))
+        }
+        throw AssertionError("The saved search did not finish")
+    }
+
     @Test fun completeSourceAndRemoteRecipesAreRetainedOutsideTheDisplayPage() {
         val views = GitHubResultViews(pageBytes = 2048)
         val source = buildJsonObject {

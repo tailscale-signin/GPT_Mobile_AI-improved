@@ -1,5 +1,6 @@
 """Per-user supervisor and transactional same-schema updates; never terminates active work."""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -412,7 +413,7 @@ class Supervisor:
     def backup(self):
         destination = self.root / 'data' / 'backups' / ('before-update-' + uuid.uuid4().hex)
         for path in (self.root / 'data').glob('*.sqlite3'):
-            with sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True) as db:
+            with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)) as db:
                 backup_database(db, destination / path.name)
         # Keep the latest three complete backup sets; failed backup aborts activation.
         backups = sorted(destination.parent.glob('before-update-*'), key=lambda p: p.stat().st_mtime, reverse=True)

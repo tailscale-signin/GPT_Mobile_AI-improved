@@ -291,6 +291,7 @@ CONTEXT_ENUMS = {
               "final_synthesis", "delivery", "lifecycle", "voice_capture", "audio_focus", "capture_configuration", "capture_initialization", "capture_start", "capture_read", "retrieval", "precheck", "redirect_precheck", "voice_recognition", "voice_playback"},
     "provider": {"OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OLLAMA", "OPENROUTER", "LLAMA", "GATEWAY", "LOCAL", "CUSTOM", "LITERT_LM", "FREE", "NVIDIA"},
     "operation": {"github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_commit",
+                  "github_watch_checks", "github_stage_patch", "github_write", "github_release", "github_repository", "github_decide",
                   "github_review", "github_engineering", "repository_graph", "mcp", "web_search", "read_url", "voice_capture",
                   "voice_recognition", "voice_playback"},
     "remoteAcceptance": {"YES", "NO", "UNKNOWN"},

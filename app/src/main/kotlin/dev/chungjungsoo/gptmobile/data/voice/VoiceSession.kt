@@ -112,6 +112,7 @@ class VoiceSession(
     init {
         audio.bindDiagnostics(diagnosticProbe)
     }
+    internal var submissionRejection: () -> String? = { null }
     private var waiting = false
     private var draftPending = false
     private var draftGeneration = 0L
@@ -205,7 +206,15 @@ class VoiceSession(
             }
         } else {
             draftPending = true
-            fail("Could not send this turn. Open chat to review your profile and connection.", failureFields = VoiceAdmissionFailureDiagnostics.submission())
+            val reason = submissionRejection()
+            val notice = when (reason) {
+                "CONVERSATION_STARTING" -> "Your words are saved. Retry when this conversation finishes opening."
+                "PROFILE_UNAVAILABLE" -> "Choose an enabled voice profile, then retry this message."
+                "QUEUE_SAVE_IN_PROGRESS" -> "The previous voice message is still being accepted. Your words are ready to retry."
+                "VOICE_CHAT_DISABLED" -> "Enable Voice Chat to send this message."
+                else -> "Could not send this turn. Open chat to review your profile and connection."
+            }
+            fail(notice, failureFields = reason?.let(VoiceAdmissionFailureDiagnostics::rejected) ?: VoiceAdmissionFailureDiagnostics.submission())
         }
     }
     fun admission(stage: VoiceAdmissionStage, reason: String? = null, requestId: String? = null) {

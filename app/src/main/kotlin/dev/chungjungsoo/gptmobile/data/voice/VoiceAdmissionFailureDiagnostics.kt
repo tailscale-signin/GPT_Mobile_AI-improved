@@ -8,7 +8,7 @@ internal object VoiceAdmissionFailureDiagnostics {
     // Explicit rejection outcomes emitted by SendAttemptTrace or voice admission restoration/queue observation.
     // Never fingerprint arbitrary notice text or a reason supplied by another request.
     private val rejectionReasons = setOf(
-        "VALIDATION_REJECTED", "GATEWAY_QUEUE_SELECTION_BLOCKED", "PROFILE_UNAVAILABLE",
+        "VALIDATION_REJECTED", "GATEWAY_QUEUE_SELECTION_BLOCKED", "PROFILE_UNAVAILABLE", "VOICE_CHAT_DISABLED",
         "REASONING_CAPABILITY_CHECK_PENDING", "COMPOSER_CHANGED_DURING_REASONING_CHECK",
         "REASONING_CAPABILITY_REJECTED", "REASONING_CAPABILITY_CHECK_CANCELLED", "REASONING_CAPABILITY_CHECK_UNAVAILABLE",
         "GATEWAY_ADMISSION_CHECK_PENDING", "GATEWAY_CONVERSATION_READ_ONLY", "GATEWAY_ADMISSION_UNCONFIRMED",

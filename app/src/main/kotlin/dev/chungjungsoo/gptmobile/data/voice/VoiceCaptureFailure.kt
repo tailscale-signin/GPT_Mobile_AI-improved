@@ -31,4 +31,4 @@ internal class LocalVoiceCaptureException(
 
 /** Never restart after accepting audio: replay could silently discard part of a spoken turn. */
 internal fun mayRecreateVoiceCapture(failure: LocalVoiceCaptureException, attempts: Int, capturedChunks: Int): Boolean =
-    failure.retryable && failure.phase != "audio_focus" && attempts == 1 && capturedChunks == 0 && failure.capturedSamples == 0L
+    failure.retryable && failure.phase != "audio_focus" && (attempts == 1 || attempts == 2 && failure.code == "MICROPHONE_CAPTURE_SILENCED") && capturedChunks == 0 && failure.capturedSamples == 0L

@@ -8,6 +8,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationArgumentsTest {
+    @Test fun conflictingReadBoundsUseTheNarrowerIntervalWithOrWithoutAnExplicitAction() {
+        for (action in listOf("", "\"action\":\"ranges\",")) {
+            val requested = args("""{$action"ranges":[{"path":"a","start_line":7,"end_line":60,"max_lines":4}]}""")
+            val corrected = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.boundedReadCorrection("github_read", requested))
+            assertEquals(args("""{$action"ranges":[{"path":"a","start_line":7,"end_line":10}]}"""), corrected)
+            assertTrue(GitHubOperationArguments.errors("github_read", corrected).isEmpty())
+        }
+    }
+
     private fun args(value: String) = Json.parseToJsonElement(value) as JsonObject
 
     @Test fun repositoryDiscoveryRequiresANonBlankSearchQuery() {

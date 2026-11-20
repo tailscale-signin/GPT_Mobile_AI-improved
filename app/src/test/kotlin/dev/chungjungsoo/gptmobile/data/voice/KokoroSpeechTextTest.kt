@@ -6,6 +6,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KokoroSpeechTextTest {
+    @Test fun anOutOfLexiconContractionUsesKnownWordsAtItsOriginalCaptionRange() {
+        val projection = KokoroSpeechText.timed("We're here") { it in setOf("we", "are", "here") }
+        assertEquals(listOf(KokoroCaptionPart("we are", 0..4), KokoroCaptionPart("here", 6..9)), projection.captionParts)
+        assertNull(KokoroSpeechText.projectedParts("we're") { it == "we" })
+    }
+
     @Test fun projectedStreamChunksKeepNumbersAtChunkStartsInsteadOfReparsingListMarkup() {
         val buffer = VoiceSpeechBuffer()
         val input = "Here is the build 1. Continue with details."

@@ -270,6 +270,12 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             terminal && (!contiguous || !consistent) -> "GITHUB_PAGINATION_INCOMPLETE"
             else -> null
         }
+        val firstMissing = if (terminal && !contiguous && !stalled && !state.changed && result["pagination_inconsistent"] != JsonPrimitive(true)) {
+            // At most 512 observed pages, even if a remote page number is very large.
+            state.pages.keys.sorted().fold(1) { missing, observed -> if (observed == missing) missing + 1 else missing }
+        } else {
+            null
+        }
         if (terminal || stalled) ends[key] = End(number, now(), error)
         while (ends.size > 128) ends.remove(ends.keys.first())
         val progress = buildJsonObject {
@@ -282,6 +288,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             put("duplicate_records_on_page", collections.values.sumOf { it.size } - identities.size + overlap)
             state.total?.let { put("reported_total", it) }
             put("contiguous_from_first_page", contiguous)
+            firstMissing?.let { put("first_unobserved_page", it) }
             put("upstream_changed_during_traversal", state.changed)
             put("complete", terminal && contiguous && consistent && !stalled)
             put("acceptance_status", "NOT_MEASURED")

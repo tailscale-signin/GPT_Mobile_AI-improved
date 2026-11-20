@@ -287,7 +287,8 @@ internal object ToolArgumentValidator {
     internal fun boundedReadCorrection(operation: String, arguments: JsonObject): JsonObject? {
         if (arguments.keys.any { it in setOf("view_cursor", "index_cursor", "evidence_id", "start_offset") }) return null
         if (operation == "github_read") sourceReadArgumentCorrection(arguments)?.let { return it }
-        return when (operation to arguments["action"]) {
+        val action = arguments["action"] ?: JsonPrimitive("ranges").takeIf { operation == "github_read" && "ranges" in arguments }
+        return when (operation to action) {
             "github_ci" to JsonPrimitive("runs") -> {
                 val conclusion = arguments["conclusion"]?.takeIf { it == JsonPrimitive("failure") } ?: return null
                 if (arguments["status"] !in setOf(null, JsonPrimitive("completed"), conclusion)) return null
@@ -303,10 +304,14 @@ internal object ToolArgumentValidator {
                 val ranges = arguments["ranges"] as? JsonArray ?: return null
                 val corrected = ranges.map { value ->
                     val range = value as? JsonObject ?: return null
-                    if (range["end_line"] == JsonPrimitive(-1) && integer(range["max_lines"])?.let { it in 1..2000 } == true) {
-                        JsonObject(range - "end_line")
-                    } else {
-                        range
+                    val end = integer(range["end_line"])
+                    val count = integer(range["max_lines"])
+                    val start = if ("start_line" in range) integer(range["start_line"]) else 1
+                    when {
+                        end == -1 && count != null && count in 1..2000 -> JsonObject(range - "end_line")
+                        start != null && start >= 1 && end != null && end >= start && count != null && count in 1..2000 ->
+                            JsonObject(range - "max_lines" + ("end_line" to JsonPrimitive(minOf(end.toLong(), start.toLong() + count - 1).toInt())))
+                        else -> range
                     }
                 }
                 val correctedRanges = JsonArray(corrected)

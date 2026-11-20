@@ -14,7 +14,11 @@ internal object GitHubRecoveryCalls {
         val operation = call.name.githubOperationFamily()
         if (tool == null || operation !in setOf("github_read", "github_search")) return call
         val schema = tool.definition.inputSchema
-        if (ToolArgumentValidator.errors(call.arguments, schema).isEmpty()) return call
+        if (ToolArgumentValidator.errors(call.arguments, schema).isEmpty() &&
+            (operation != "github_read" || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors(operation, call.arguments).isEmpty())
+        ) {
+            return call
+        }
         val corrected = when (operation) {
             "github_read" -> ToolArgumentValidator.boundedReadCorrection(operation, call.arguments)
             "github_search" -> {

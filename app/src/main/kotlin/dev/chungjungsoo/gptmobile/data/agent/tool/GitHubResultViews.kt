@@ -473,18 +473,21 @@ internal class GitHubResultViews(
         }
         val records = mutableListOf<JsonObject>()
         var next = offset
+        var compact = false
         fun envelope(): JsonObject = buildJsonObject {
             val complete = next == entry.fragmentCount
             put("schema", SCHEMA)
             put("operation", entry.operation)
             put("local_page_complete", complete)
-            put("metadata", metadata)
+            put("metadata", if (compact) JsonObject(emptyMap()) else metadata)
             put("fragments", JsonArray(records))
             put("fragment_offset", offset)
             put("total_fragments", entry.fragmentCount)
             put(
                 "reconstruction",
-                if (source != null) {
+                if (compact) {
+                    "Use fragment offsets to reconstruct the original result."
+                } else if (source != null) {
                     "Join json_text values by UTF-16 offset, verify each chunk and the source SHA-256, then parse JSON. Finish local pages before remote continuation."
                 } else if (pageBytes < 2048) {
                     "JSON pointers; UTF-16 string offsets. Read every local page before remote continuation."
@@ -496,14 +499,14 @@ internal class GitHubResultViews(
             put("recovery_call", savedCall(modelName, "$id:$offset:${recoveryPageBytes(pageBytes)}"))
             // Small-context pages keep their historical envelope. Larger pages
             // issue exact alternatives so the runner can honor a later budget.
-            if (pageBytes >= 2048) put("recovery_options", savedOptions(modelName, id, offset, entry.pageBytes, MIN_RECOVERY_PAGE_BYTES))
-            entry.sourceRecovery?.takeIf { it.toString().toByteArray().size <= pageBytes / 4 }?.let { put("source_recovery_call", it) }
+            if (!compact && pageBytes >= 2048) put("recovery_options", savedOptions(modelName, id, offset, entry.pageBytes, MIN_RECOVERY_PAGE_BYTES))
+            entry.sourceRecovery?.takeIf { !compact && it.toString().toByteArray().size <= pageBytes / 4 }?.let { put("source_recovery_call", it) }
             if (!complete) {
                 put(
                     "continuation_call",
                     savedCall(modelName, "$id:$next:$pageBytes")
                 )
-                if (pageBytes >= 2048) put("continuation_options", savedOptions(modelName, id, next, entry.pageBytes, pageBytes))
+                if (!compact && pageBytes >= 2048) put("continuation_options", savedOptions(modelName, id, next, entry.pageBytes, pageBytes))
             } else if (entry.continuations.isNotEmpty()) {
                 put("remote_continuations", JsonArray(entry.continuations))
                 if (entry.continuations.size == 1) put("continuation_call", entry.continuations.single().getValue("call"))
@@ -513,6 +516,12 @@ internal class GitHubResultViews(
             records += if (source == null) entry.fragments[next] else sourceFragment(source, next)
             next++
             if (envelope().toString().toByteArray().size > pageBytes) {
+                // Retry a blocked first record without optional metadata and alternate handles.
+                // The primary cursor and any final remote continuations stay exact.
+                if (records.size == 1 && !compact) {
+                    compact = true
+                    if (envelope().toString().toByteArray().size <= pageBytes) continue
+                }
                 records.removeAt(records.lastIndex)
                 next--
                 break
@@ -524,6 +533,7 @@ internal class GitHubResultViews(
                 put("operation", entry.operation)
                 put("local_page_complete", false)
                 put("page_capacity_exceeded", true)
+                if (pageBytes < entry.pageBytes) put("recovery_call", savedCall(modelName, "$id:$offset:${entry.pageBytes}"))
                 put("message", "This saved record exceeds the admitted page allowance. Increase the result/context allowance or narrow the immutable read; no cursor advanced and no upstream action was repeated.")
             }
         }

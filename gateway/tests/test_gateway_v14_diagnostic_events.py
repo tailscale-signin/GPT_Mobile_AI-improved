@@ -77,6 +77,20 @@ class DiagnosticJournalTests(unittest.TestCase):
         self.assertTrue(all(row['bounded_attributes']['gateway_admission_code'] == 'remote_surface_not_admitted' for row in rows))
         self.assertNotIn(b'client_metadata_accepted', raw)
 
+    def test_unknown_android_errors_keep_only_closed_source_hints_in_the_export(self):
+        allowed = {'source_event_type': 'unclassified_error', 'source_recorder_family': 'research',
+                   'source_error_class': 'research_schema'}
+        private = {key: 'private-recorder-detail' for key in allowed}
+        rows = [{**event(i), 'owner': 'android', 'category': 'unknown', 'stage': 'unknown', 'severity': 'error',
+                 'error_code': 'UNKNOWN_CAUSE', 'bounded_attributes': attributes}
+                for i, attributes in enumerate((allowed, private), 1)]
+        self.store.ingest('paired-owner', batch(rows))
+        _, exported, raw = unpack(self.store.export('paired-owner', SESSION))
+        self.assertEqual(allowed, exported[0]['bounded_attributes'])
+        self.assertEqual({}, exported[1].get('bounded_attributes', {}))
+        self.assertTrue(all(row['error_code'] == 'UNKNOWN_CAUSE' for row in exported))
+        self.assertNotIn(b'private-recorder-detail', raw)
+
     def test_metadata_projection_discards_unknown_acknowledgment_and_admission_text(self):
         result = sanitize_event(event(1, bounded_attributes={'client_metadata_acknowledgment': 'private credential',
                                                            'gateway_admission_code': 'https://private.example/token'}))

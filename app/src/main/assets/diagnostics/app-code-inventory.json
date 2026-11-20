@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6fcbda9bda56402c4083c86182d8e1c609cfa0b841bb0031306a5fe73b89f6e6",
+  "source_digest": "7a76179b606bbfa6fdfe7ff2609b1dcfd20488d1f000375cb8023f25cee7bdce",
   "file_count": 2771,
-  "indexed_line_count": 459305,
+  "indexed_line_count": 459331,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -94,7 +94,7 @@
       "id": "gateway_client",
       "label": "Android gateway client",
       "file_count": 39,
-      "indexed_line_count": 6895
+      "indexed_line_count": 6919
     },
     {
       "id": "network",
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 229,
-      "indexed_line_count": 87445
+      "indexed_line_count": 87447
     },
     {
       "id": "authentication_service",
@@ -9992,8 +9992,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAppDiagnosticProjection.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "7c557c3e037e52c2e21367c911c377380a6faea93e1dd96b3870a9be279e1bf7",
-      "indexed_lines": 230
+      "sha256": "b0feb91d5eb84c1ffda193538ce95647a88a3781af0e28c840b0c56a097729c5",
+      "indexed_lines": 252
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAvailability.kt",
@@ -10139,8 +10139,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSchema.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "32e2f25ef2a536f07072a679e69555bbe7bb63268a5d9936949b52ebc71aeeb9",
-      "indexed_lines": 58
+      "sha256": "e0c33e89449fcf4e2c36fbd11d4aec673b8e525098ba05d46c7abf10e868a2fa",
+      "indexed_lines": 60
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSpool.kt",
@@ -18784,8 +18784,8 @@
       "path": "gateway/v14/diagnostic_schema.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "a57a548a8ee332d1f7427c152f19b61d5f5b44fd9fd0f8ea01761caec48cb81f",
-      "indexed_lines": 54
+      "sha256": "7b34db737552e24d1ede8d209c8f38640994cadc6d3e967253b13f4cf4a9a838",
+      "indexed_lines": 56
     },
     {
       "path": "gateway/v14/diagnostic_support.py",

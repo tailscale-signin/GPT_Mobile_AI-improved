@@ -13,6 +13,28 @@ class GatewayAppDiagnosticProjectionTest {
     private val run = "11111111-1111-1111-1111-111111111111"
     private val invocation = "22222222-2222-2222-2222-222222222222"
 
+    @Test fun unknownCausesRetainTheRecorderAndLocalClassificationWithoutExportingFreeText() {
+        val spoofed = mapOf("source_recorder_family" to "gateway", "source_error_class" to "fatal", "detail" to "private-event-body")
+        val malformed = structuredDiagnosticEventMessage("OBSERVED", spoofed + ("outcome" to "invalid_response"))
+        val research = requireNotNull(gatewayAppDiagnosticProjection(AppLogEntry(1000, "E", "ResearchExamine", malformed)))
+        val attrs = research["bounded_attributes"] as JsonObject
+        assertEquals(JsonPrimitive("UNKNOWN_CAUSE"), research["error_code"])
+        assertEquals(JsonPrimitive("unknown"), research["dispatch_state"])
+        assertEquals(JsonPrimitive("research"), attrs["source_recorder_family"])
+        assertEquals(JsonPrimitive("research_schema"), attrs["source_error_class"])
+        assertEquals(JsonPrimitive("unclassified_error"), attrs["source_event_type"])
+        assertFalse(research.toString().contains("private-event-body"))
+        val message = structuredDiagnosticEventMessage("OBSERVED", spoofed)
+        val unknown = requireNotNull(gatewayAppDiagnosticProjection(AppLogEntry(1000, "E", "private-recorder", message)))
+        val fallback = unknown["bounded_attributes"] as JsonObject
+        assertEquals(JsonPrimitive("other"), fallback["source_recorder_family"])
+        assertEquals(JsonPrimitive("error"), fallback["source_error_class"])
+        assertFalse(unknown.toString().contains("private-recorder"))
+        val healthy = requireNotNull(gatewayAppDiagnosticProjection(AppLogEntry(1000, "I", "Agent", message)))["bounded_attributes"] as JsonObject
+        assertNull(healthy["source_recorder_family"])
+        assertNull(healthy["source_error_class"])
+    }
+
     @Test fun rejectedToolProjectionRetainsBoundedIdentityAndProofWithoutArgumentValues() {
         val message = structuredDiagnosticEventMessage(
             "Finished",

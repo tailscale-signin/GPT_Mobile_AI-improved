@@ -1278,7 +1278,36 @@
       "frame_timing",
       "typed_warning",
       "unclassified_warning",
+      "unclassified_error",
       "verdict_evidence"
+    ],
+    "source_recorder_family": [
+      "platform",
+      "voice",
+      "gateway",
+      "model",
+      "provider",
+      "research",
+      "github",
+      "tools",
+      "conversation",
+      "storage",
+      "other"
+    ],
+    "source_error_class": [
+      "error",
+      "reported_failure",
+      "fatal",
+      "historical_process_crash",
+      "research_schema",
+      "model_compatibility",
+      "mcp_connectivity",
+      "native_operation_failure",
+      "native_cleanup_failure",
+      "native_exit_evidence",
+      "memory_pressure",
+      "protected_settings_access",
+      "other"
     ],
     "mcp_rpc_error_code": [
       "-32700",

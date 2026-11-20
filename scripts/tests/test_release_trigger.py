@@ -1,15 +1,18 @@
 """Exercise automatic release selection through its actual Git/Actions interface."""
 
+import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "check_release_trigger.py"
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "scripts/check_release_trigger.py"
 BASE_CONFIG = 'android {\n    versionCode = 122\n    versionName = "0.9.53.0"\n}\n'
 
 
@@ -81,6 +84,38 @@ class ReleaseTriggerTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("publish=false\n", output)
 
+    def test_android_successor_requests_both_publications_with_unchanged_gateway(self):
+        gateway = self.root / "gateway/v14/__init__.py"
+        gateway.parent.mkdir(parents=True)
+        gateway.write_text('VERSION = "18.0.0"\n', encoding="utf-8")
+        previous_config = 'android {\n    versionCode = 143\n    versionName = "0.9.66.9"\n}\n'
+        self.config.write_text(previous_config, encoding="utf-8")
+        scope = self.root / "release-scope.json"
+        manifest = dict(version="0.9.66.9", versionCode=143,
+                        publicationRequest=dict(android="0.9.66.9", versionCode=143, gateway="18.0.0"))
+        scope.write_text(json.dumps(manifest), encoding="utf-8")
+        self.git("add", "app/build.gradle.kts", "gateway/v14/__init__.py", "release-scope.json")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                 "commit", "-qm", "Previous coordinated request")
+        before = self.git("rev-parse", "HEAD").strip()
+
+        self.config.write_text(previous_config.replace("143", "144").replace("0.9.66.9", "0.9.66.10"),
+                               encoding="utf-8")
+        manifest.update(version="0.9.66.10", versionCode=144,
+                        publicationRequest=dict(android="0.9.66.10", versionCode=144, gateway="18.0.0"))
+        scope.write_text(json.dumps(manifest), encoding="utf-8")
+        result, output = self.run_trigger(before=before)
+        self.assertEqual((0, "publish=true\npublish_gateway=true\n"),
+                         (result.returncode, output), result.stderr)
+
+        self.git("add", "app/build.gradle.kts", "release-scope.json")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                 "commit", "-qm", "Successor coordinated request")
+        (self.root / "outputs").unlink()
+        scope.write_text(json.dumps(dict(manifest, description="Release notes correction")), encoding="utf-8")
+        result, output = self.run_trigger(before=self.git("rev-parse", "HEAD").strip())
+        self.assertEqual((0, "publish=false\n"), (result.returncode, output), result.stderr)
+
     def test_either_version_field_change_requires_full_release_validation(self):
         for config in (
             BASE_CONFIG.replace("0.9.53.0", "0.9.54.0"),
@@ -125,6 +160,40 @@ class ReleaseTriggerTests(unittest.TestCase):
         result, output = self.run_trigger(event="pull_request")
         self.assertNotEqual(0, result.returncode)
         self.assertEqual("", output)
+
+
+class ReleaseWorkflowCoverageTests(unittest.TestCase):
+    def test_each_publisher_input_triggers_every_required_main_workflow(self):
+        def module(name, relative):
+            spec = importlib.util.spec_from_file_location(name, ROOT / relative)
+            value = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(value)
+            return value
+
+        workflows = module("release_workflow_filters", "gateway/v14/engineering_workflows.py")
+        checks = module("release_required_checks", "scripts/await_release_checks.py")
+        manifest = json.loads((ROOT / "release-scope.json").read_text(encoding="utf-8"))
+        required = checks.required_workflows(manifest)
+        sources = {}
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            source = path.read_text(encoding="utf-8")
+            match = re.search(r"^name:\s*(.+)$", source, re.MULTILINE)
+            self.assertIsNotNone(match, str(path))
+            name = workflows.literal(match[1])
+            self.assertNotIn(name, sources, f"Ambiguous workflow name: {name}")
+            sources[name] = source
+
+        publisher = workflows.push_filters(sources["Publish Signed Release"])
+        release_inputs = ["app/build.gradle.kts", "release-scope.json"]
+        self.assertEqual(release_inputs, publisher["paths"])
+        for changed_path in release_inputs:
+            self.assertTrue(workflows.applies(publisher, "main", [changed_path]))
+            for name in required:
+                with self.subTest(workflow=name, changed_path=changed_path):
+                    self.assertIn(name, sources)
+                    filters = workflows.push_filters(sources[name])
+                    self.assertTrue(workflows.applies(filters, "main", [changed_path]),
+                                    f"{name} must run on the same main commit as the publisher")
 
 
 if __name__ == "__main__":

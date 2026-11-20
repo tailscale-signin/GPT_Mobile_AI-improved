@@ -24,6 +24,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolCatalogAdmissionTest {
+    @Test fun verified5632TokenRouteKeepsRequiredSchemasAndTheSelectedOutput() {
+        val budget = GitHubSchemaBudget(capacity = 5632, input = 3241, output = 512, safety = 256, toolResults = 704)
+        val fitted = budget.fitInitialSchemas(required = 1096, allowOutputReduction = false)
+        assertEquals(919L, budget.available)
+        assertEquals(1096L, fitted.available)
+        assertEquals(527, fitted.toolResults)
+        assertEquals(512, fitted.output)
+        assertEquals(budget, budget.fitInitialSchemas(900, false))
+        assertThrows(GitHubToolContextBudgetException::class.java) { budget.fitInitialSchemas(1112, true) }
+        val definition = AgentToolDefinition("github_context", "Read repository context", buildJsonObject { put("type", "object") })
+        val plan = ContextBudgetService.plan(emptyList(), "", listOf(definition), TokenBudgetSettings(contextTokens = 5632, outputTokens = 512), fitted.toolResults)
+        assertEquals(527 * 3, plan.toolResultBytes)
+        assertEquals(listOf(definition), plan.tools)
+    }
+
     @Test fun initialAdmissionBreakdownExcludesOldHistoryAndRetainsNoPromptText() {
         val recovery = object : AgentTool {
             override val definition = AgentToolDefinition("read_recovery_context", "Recovery contract ".repeat(1000), buildJsonObject { put("type", "object") })

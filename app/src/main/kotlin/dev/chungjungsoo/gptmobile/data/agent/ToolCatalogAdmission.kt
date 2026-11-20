@@ -118,6 +118,21 @@ private fun githubSchemaBudgetMessage(requiredSchemaTokens: Long, availableSchem
 
 internal data class GitHubSchemaBudget(val capacity: Int, val input: Long, val output: Int, val safety: Int, val toolResults: Int? = null, val promptCosts: ContextCostBreakdown? = null) {
     val available: Long get() = (capacity.toLong() - input - output - safety - (toolResults ?: 0)).coerceAtLeast(0)
+
+    /** Share the bounded prompt window between required schemas and the next tool result. */
+    fun fitInitialSchemas(required: Long, allowOutputReduction: Boolean): GitHubSchemaBudget {
+        if (required <= available) return this
+        val minimumOutput = if (allowOutputReduction) minOf(output, 512) else output
+        val reserve = requireNotNull(toolResults)
+        val minimumResults = minOf(reserve, 512)
+        val remaining = capacity.toLong() - input - safety - required
+        if (remaining < minimumOutput.toLong() + minimumResults) {
+            val smallest = copy(output = minimumOutput, toolResults = minimumResults)
+            throw GitHubToolContextBudgetException(required, smallest.available, smallest)
+        }
+        val resultTokens = minOf(reserve.toLong(), remaining - minimumOutput).toInt()
+        return copy(output = minOf(output.toLong(), remaining - resultTokens).toInt(), toolResults = resultTokens)
+    }
 }
 
 internal fun providerSchemaTokens(tool: AgentToolDefinition, githubMode: Boolean): Long = ProgressiveToolCatalog.schemaTokens(tool).toLong() + if (githubMode) 16 else 0
@@ -240,21 +255,12 @@ internal fun planAuthorizedToolContext(
         val currentCosts = ContextBudgetService.breakdown(turns.filter { it.isCurrentTurn }, prompt, emptyList())
         val requestedBudget = GitHubSchemaBudget(normalized.contextTokens, currentCosts.total.toLong(), output, minOf(256, normalized.contextTokens / 16), minOf(8192, normalized.contextTokens / 8), currentCosts)
         val requiredTokens = pinnedSchemas.sumOf { providerSchemaTokens(it, githubMode = true) }
-        val minimumOutput = minOf(output, 512)
-        val smallerBudget = requestedBudget.copy(output = minimumOutput)
-        admittedGitHubBudget = requestedBudget
-        if (requiredTokens > requestedBudget.available) {
-            if (!allowOutputReduction || requiredTokens > smallerBudget.available) {
-                val budget = if (allowOutputReduction) smallerBudget else requestedBudget
-                throw GitHubToolContextBudgetException(requiredTokens, budget.available, budget)
-            }
-            val recoveredOutput = minimumOutput + minOf((output - minimumOutput).toLong(), smallerBudget.available - requiredTokens).toInt()
-            effectiveLimits = normalized.copy(outputTokens = recoveredOutput)
-            admittedGitHubBudget = requestedBudget.copy(output = recoveredOutput)
-        }
+        val fitted = requestedBudget.fitInitialSchemas(requiredTokens, allowOutputReduction)
+        admittedGitHubBudget = fitted
+        if (fitted.output < output) effectiveLimits = normalized.copy(outputTokens = fitted.output)
     }
     val prioritized = (pinnedSchemas + advertised.filter { it.name == ProgressiveToolCatalog.NAME } + advertised).distinctBy { it.name }
-    val plan = ContextBudgetService.plan(turns, prompt, prioritized, effectiveLimits)
+    val plan = ContextBudgetService.plan(turns, prompt, prioritized, effectiveLimits, admittedGitHubBudget?.toolResults)
     val omittedRequired = pinnedSchemas.filterNot { wanted -> plan.tools.any { it.name == wanted.name } }
     if (omittedRequired.isNotEmpty()) {
         admittedGitHubBudget?.let { budget ->

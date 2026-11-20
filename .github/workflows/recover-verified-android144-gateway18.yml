@@ -1,0 +1,171 @@
+name: Recover verified Android 144 and Gateway 18 publication
+
+# One exact, already-signed source. A source-only verification repair must not
+# rebuild or silently retarget a signed artifact to the recovery merge commit.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/recover-verified-android144-gateway18.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verified-android144-gateway18-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover_android:
+    name: Reconcile signed Android draft and publish verified bytes
+    if: github.repository == 'tailscale-signin/GPT_Mobile_AI-improved' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: write
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: c823d7a9f7e1d3927000ec30b151c1b6122da503
+      SIGNED_RUN: "44708736353"
+      WINDOWS_RUN: "44708736379"
+      RELEASE_ID: "452622158"
+      RELEASE_TAG: v0.9.66.10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refuse different release identities or an out-of-date main
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"
+          grep -q 'versionName = "0.9.66.10"' app/build.gradle.kts
+          grep -q 'versionCode = 144' app/build.gradle.kts
+          grep -q 'VERSION = "18.0.0"' gateway/v14/__init__.py
+          python3 - <<'PY'
+          import json
+          scope = json.load(open("release-scope.json"))
+          assert scope["version"] == "0.9.66.10" and scope["versionCode"] == 144
+          assert scope["publicationRequest"] == {
+              "android": "0.9.66.10", "versionCode": 144, "gateway": "18.0.0"
+          }
+          PY
+          for run in 44708736370 44708736429 44708736392 44708736529 44708736521 44708736379 44708736436 44708736341; do
+            evidence=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" \
+              --jq '[.head_sha,.status,.conclusion] | @tsv')
+            test "$evidence" = "$(printf '%s\tcompleted\tsuccess' "$SOURCE_SHA")"
+          done
+          job=$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/136212126980" \
+            --jq '[.head_sha,.status,.conclusion] | @tsv')
+          test "$job" = "$(printf '%s\tcompleted\tsuccess' "$SOURCE_SHA")"
+      - name: Run missing-tag reconciliation regressions
+        run: python3 -m unittest discover -s scripts -p test_verify_published_release_draft.py -v
+      - name: Retrieve exactly the original attested and signed Android artifacts
+        run: |
+          gh run download "$SIGNED_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "signed-release-$SOURCE_SHA" --dir release-artifacts
+      - name: Match existing draft by ID, immutable source, every downloaded byte and attestation
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_published_release.py \
+            --repository "$GITHUB_REPOSITORY" --artifacts release-artifacts \
+            --release-id "$RELEASE_ID" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-build.yml" \
+            --output recovery-upload-verification.json
+          jq -e --arg sha "$SOURCE_SHA" --arg tag "$RELEASE_TAG" \
+            '.status == "UPLOAD_VERIFIED" and .sourceSha == $sha and .tag == $tag and .assetSourceVerified == true' \
+            recovery-upload-verification.json
+      - name: Publish only that verified draft, then verify public bytes and signer receipts
+        run: |
+          set -euo pipefail
+          state="repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
+          draft=$(gh api "$state" --jq '.draft')
+          if [[ "$draft" == true ]]; then
+            gh api --method PATCH "$state" -F draft=false --silent
+          elif [[ "$draft" != false ]]; then
+            echo "::error::Unable to establish release draft state"; exit 1
+          fi
+          # GitHub creates a real tag when the draft becomes public.
+          found=false
+          for attempt in 1 2 3 4 5 6 7 8; do
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" \
+              --jq .ref | grep -Fx "refs/tags/$RELEASE_TAG"; then
+              found=true; break
+            fi
+            sleep 5
+          done
+          [[ "$found" == true ]]
+          python3 scripts/verify_published_release.py \
+            --repository "$GITHUB_REPOSITORY" --artifacts release-artifacts \
+            --release-id "$RELEASE_ID" --published \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-build.yml" \
+            --output recovery-published-verification.json
+          jq -e --arg sha "$SOURCE_SHA" \
+            '.status == "PUBLISHED_VERIFIED" and .sourceSha == $sha and .assetSourceVerified == true' \
+            recovery-published-verification.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: recovered-android-release-receipts
+          path: recovery-*-verification.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  recover_gateway:
+    name: Publish tested Gateway 18 and v17 transition from the original commit
+    needs: recover_android
+    if: github.repository == 'tailscale-signin/GPT_Mobile_AI-improved' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: gateway-release-publication
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: c823d7a9f7e1d3927000ec30b151c1b6122da503
+      WINDOWS_RUN: "44708736379"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: c823d7a9f7e1d3927000ec30b151c1b6122da503
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refuse a newer unreviewed main or an unverified Android release
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)" = "$GITHUB_SHA"
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v0.9.66.10")
+          jq -e --arg sha "$SOURCE_SHA" \
+            '.draft == false and .prerelease == false and .published_at != null and .target_commitish == $sha and (.assets | length) == 10' \
+            <<< "$release"
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$WINDOWS_RUN")
+          jq -e --arg sha "$SOURCE_SHA" \
+            '.head_sha == $sha and .status == "completed" and .conclusion == "success"' <<< "$run"
+      - name: Retrieve original source-matched Windows installation and updater packages
+        run: gh run download "$WINDOWS_RUN" --repo "$GITHUB_REPOSITORY" --name Gateway-Windows-x64 --dir dist/windows
+      - name: Verify checksums, smoke receipts, archive provenance, publish primary and transition
+        run: |
+          set -euo pipefail
+          # The package source remains the original signed-and-validated main
+          # commit. Do not pretend recovery-workflow source built these binaries.
+          export GITHUB_SHA="$SOURCE_SHA"
+          export GITHUB_REF=refs/heads/main
+          bash scripts/publish_gateway_windows.sh
+      - name: Verify the two stable Windows identities and public asset manifests
+        run: |
+          set -euo pipefail
+          for pair in "gateway-v18.0.0 18.0.0" "gateway-v17.0.2 17.0.2"; do
+            read -r tag version <<< "$pair"
+            receipt=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag")
+            jq -e --arg tag "$tag" --arg sha "$SOURCE_SHA" \
+              '.tag_name == $tag and .target_commitish == $sha and .draft == false and .prerelease == false and .published_at != null and (.assets | length) == 4' \
+              <<< "$receipt"
+          done

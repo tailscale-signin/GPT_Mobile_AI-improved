@@ -48,10 +48,12 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
 
     private val directStates = MutableStateFlow<Map<Pair<String, String>, GatewayAdmissionSetting>>(emptyMap())
     val direct = directStates.asStateFlow()
+    private val networkSettings = MutableStateFlow<Map<Pair<String, String>, JsonObject>>(emptyMap())
+    val networkOverview = networkSettings.asStateFlow()
     private var refreshJob: Job? = null
     private var lastUnavailable: Pair<Pair<String, String>, Long>? = null
 
-    fun refresh(profile: PlatformV2) {
+    fun refresh(profile: PlatformV2, forceNetwork: Boolean = false) {
         if (refreshJob?.isActive == true || action?.isActive == true) return
         refreshJob = viewModelScope.launch {
             try {
@@ -61,9 +63,10 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                     if (repository.states.value[current.uid]?.phase == GatewayControlPhase.UNPAIRED) {
                         val config = ProviderRequestConfig(current.apiUrl, current.token, profileUid = current.uid)
                         val key = current.uid to current.apiUrl
-                        if (lastUnavailable?.let { it.first == key && System.nanoTime() - it.second < 30_000_000_000L } == true) return@launch
+                        if (!forceNetwork && lastUnavailable?.let { it.first == key && System.nanoTime() - it.second < 30_000_000_000L } == true) return@launch
                         val identity = engineering.connectionIdentity(config)
                         if (identity.principal == "network:shared") {
+                            showNetworkOverview(key, identity.networkSettings)
                             directStates.value -= key
                             lastUnavailable = key to System.nanoTime()
                         } else {
@@ -80,6 +83,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                 throw cancelled
             } catch (_: Exception) {
                 val key = profile.uid to profile.apiUrl
+                showNetworkOverview(key, null)
                 lastUnavailable = key to System.nanoTime()
                 directStates.value -= key
                 if (repository.states.value[profile.uid]?.phase != GatewayControlPhase.UNPAIRED) {
@@ -87,6 +91,10 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                 }
             }
         }
+    }
+
+    private fun showNetworkOverview(key: Pair<String, String>, overview: JsonObject?) {
+        networkSettings.value = if (overview == null) networkSettings.value - key else networkSettings.value + (key to overview)
     }
 
     private suspend fun observeAccount(profile: PlatformV2, admission: GatewayAdmissionSetting) {
@@ -132,6 +140,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                     GatewayControlPhase.UNPAIRED, GatewayControlPhase.REVOKED -> {
                         val identity = engineering.connectionIdentity(config)
                         if (identity.principal == "network:shared") {
+                            showNetworkOverview(profile.uid to profile.apiUrl, identity.networkSettings)
                             identity.phoneConnection?.let {
                                 val offer = GatewayPairingLink.parse(it, System.currentTimeMillis() / 1000)
                                 require(offer.installationId == identity.gatewayId && offer.profileEndpoint == endpoint && offer.code.startsWith("lan_"))

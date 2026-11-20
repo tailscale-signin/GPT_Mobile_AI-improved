@@ -73,6 +73,24 @@ PRIVATE_LAN_NETWORKS = tuple(ipaddress.ip_network(net) for net in
                              ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'))
 
 
+def shared_settings_overview(root, destination, peer):
+    """Project the saved non-secret settings for a direct private-network connection."""
+    if not private_lan_ip(destination) or not private_lan_ip(peer):
+        return {}
+    cfg = load(root)
+    wildcard = '::' if ':' in destination else '0.0.0.0'
+    if cfg['access'] != 'network' or cfg['bind_host'] not in {destination, wildcard}:
+        return {}
+    from v14.engineering_batch_policy import load_policy
+    batch = load_policy(Path(root) / 'data' / 'execution-policy.json')
+    result = {key: cfg[key] for key in ('workers', 'active_chats', 'shutdown_seconds', 'start_at_login',
+                                        'update_mode', 'update_interval_hours', 'debug_mode')}
+    result.update(listen_port=cfg['port'], batch_mode=batch['default_mode'],
+                  local_validation_workers=batch['local_validation_workers'], mcp_configured=bool(cfg['mcp_config']),
+                  public_repository_maps=public_repository_maps(root))
+    return result
+
+
 def default_phone_listener(cfg):
     address = ipaddress.ip_address(cfg['bind_host'])
     networks = ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7')

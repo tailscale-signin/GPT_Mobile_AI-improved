@@ -132,6 +132,7 @@ class PairedControlTlsTests(unittest.TestCase):
 
         host, phone = '192.168.1.8', '192.168.1.20'
         self.control.supervisor.cfg.update(access='network', bind_host=host)
+        atomic_json(self.root / 'settings.json', self.control.supervisor.cfg)
         self.control.endpoint = 'https://' + host + ':8091'
         self.control.allowed_hosts.add(host + ':8091')
         self.control.local('control-connect-address', {'host': host, 'phone_ip': phone})
@@ -144,7 +145,11 @@ class PairedControlTlsTests(unittest.TestCase):
         def identity(source, headers=None):
             with TestClient(app, base_url='http://' + host + ':8090', client=(source, 4321)) as client:
                 return client.get('/v1/gateway/identity', headers=headers or {}).json()
-        self.assertNotIn('phone_connection', identity('192.168.1.21'))
+        shared = identity('192.168.1.21')
+        self.assertNotIn('phone_connection', shared)
+        self.assertEqual(2, shared['network_settings']['workers'])
+        self.assertNotIn('network_settings', identity(phone, {'x-forwarded-for': phone}))
+        self.assertNotIn('network_settings', identity('8.8.8.8'))
         self.assertNotIn('phone_connection', identity(phone, {'x-forwarded-for': phone}))
         link = identity(phone)['phone_connection']
         ticket = parse_qs(urlsplit(link).query)['code'][0]

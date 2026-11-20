@@ -177,9 +177,15 @@ def install_routes(app, conversations, engineering, service, ownership):
             root = getattr(app.state, 'connected_settings_root', None)
             if root and principal == 'network:shared' and request.client and not any(
                     k.startswith(('x-forwarded-', 'tailscale-', 'sec-fetch-')) or k in {'origin', 'forwarded', 'cookie'} for k in request.headers):
+                host = (request.scope.get('server') or ('', 0))[0]
+                try:
+                    from desktop.configuration import shared_settings_overview
+                    if overview := shared_settings_overview(root, host, request.client.host):
+                        result['network_settings'] = overview
+                except (OSError, TypeError, ValueError):
+                    pass
                 try:
                     window = json.loads((root / 'data' / 'phone-connect-window.json').read_text(encoding='utf-8'))
-                    host = (request.scope.get('server') or ('', 0))[0]
                     if window['host'] == host and window['peer'] == request.client.host and window['expires'] > conversations.now():
                         result['phone_connection'] = window['link']
                 except (OSError, ValueError, KeyError, TypeError):

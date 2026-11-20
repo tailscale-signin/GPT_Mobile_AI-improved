@@ -143,8 +143,14 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
                 }
                 profile?.let {
                     val direct by model.direct.collectAsStateWithLifecycle()
+                    val overviews by model.networkOverview.collectAsStateWithLifecycle()
+                    val overview = overviews[it.uid to it.apiUrl]?.takeIf { _ -> initialPairingLink == null && states[it.uid]?.phase == GatewayControlPhase.UNPAIRED }
                     val admission = direct[it.uid to it.apiUrl]?.takeIf { _ -> states[it.uid]?.phase == GatewayControlPhase.UNPAIRED && initialPairingLink == null }
-                    if (admission != null) {
+                    if (overview != null) {
+                        GatewayNetworkOverview(overview)
+                        Text("To edit server settings, connect through your Tailscale account or allow this phone on the PC.", style = MaterialTheme.typography.bodyMedium)
+                        TextButton(onClick = { model.refresh(it, forceNetwork = true) }, enabled = !busy) { Text("Refresh settings") }
+                    } else if (admission != null) {
                         Text("Connected", style = MaterialTheme.typography.titleMedium)
                         Text(if (admission.enabled) "Engineering on" else "Engineering off")
                         if (admission.principalId.startsWith("tailnet:")) {
@@ -159,6 +165,40 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
     )
+}
+
+private val sharedSettingLabels = listOf(
+    "listen_port" to "Gateway port",
+    "workers" to "Workers",
+    "active_chats" to "Active chat limit",
+    "batch_mode" to "Batch mode",
+    "local_validation_workers" to "Validation workers",
+    "public_repository_maps" to "Public repository maps",
+    "mcp_configured" to "MCP configuration file selected",
+    "shutdown_seconds" to "Shutdown grace (seconds)",
+    "start_at_login" to "Start at sign-in",
+    "update_mode" to "Update policy",
+    "update_interval_hours" to "Update interval (hours)",
+    "debug_mode" to "Diagnostic logging"
+)
+
+@Composable
+private fun GatewayNetworkOverview(overview: JsonObject) {
+    OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Rounded.Computer, null)
+                Text("Server settings · view only", style = MaterialTheme.typography.titleMedium)
+            }
+            sharedSettingLabels.forEach { (key, label) ->
+                val value = overview[key] as? JsonPrimitive ?: return@forEach
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Text(value.booleanOrNull?.let { if (it) "On" else "Off" } ?: value.content.take(40), style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+        }
+    }
 }
 
 @Composable

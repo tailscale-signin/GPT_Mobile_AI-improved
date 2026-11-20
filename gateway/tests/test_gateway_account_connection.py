@@ -64,6 +64,24 @@ class SameAccountTests(unittest.TestCase):
                     self.assertEqual(403, stranger.get(path, headers=headers).status_code)
             self.assertEqual([], store.devices())
 
+    def test_plain_private_ip_shows_operational_settings_without_creating_a_grant(self):
+        from desktop.configuration import shared_settings_overview
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            host, phone = '192.168.1.41', '192.168.1.17'
+            atomic_json(root / 'settings.json', {'bind_host': host, 'workers': 3, 'tailnet_user': 'private-owner',
+                                                'network_hostnames': 'internal-host', 'backend': 'https://private-backend.test'})
+            values = shared_settings_overview(root, host, phone)
+            self.assertEqual(3, values['workers'])
+            self.assertEqual(8090, values['listen_port'])
+            self.assertFalse(values['mcp_configured'])
+            self.assertEqual({'listen_port', 'workers', 'active_chats', 'local_validation_workers', 'batch_mode',
+                             'mcp_configured', 'public_repository_maps', 'debug_mode', 'start_at_login', 'update_mode',
+                             'update_interval_hours', 'shutdown_seconds'}, set(values))
+            for destination, peer in [('192.168.1.42', phone), (host, '8.8.8.8'), (host, '127.0.0.1')]:
+                self.assertEqual({}, shared_settings_overview(root, destination, peer))
+            self.assertFalse((root / 'data' / 'jobs.sqlite3').exists())
+
     def test_installer_selects_interface_once_and_repair_preserves_explicit_choices(self):
         from desktop.configuration import installer_settings
         with tempfile.TemporaryDirectory() as temp:

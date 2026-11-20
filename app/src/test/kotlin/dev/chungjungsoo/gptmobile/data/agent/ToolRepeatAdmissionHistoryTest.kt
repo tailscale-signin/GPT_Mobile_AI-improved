@@ -45,16 +45,18 @@ class ToolRepeatAdmissionHistoryTest {
 
     @Test fun lastUnsentCauseRequiresCompleteOwnedHistoryAndContainsOnlyPublicCodes() {
         val history = ToolRepeatAdmissionHistory(runId)
-        val prior = call("prior")
-        charge(history, listOf(prior))
+        val prior = call("prior", "custom_tool")
+        charge(history, listOf(prior), limit = 1)
         history.observe(prior, result(prior, error = "private-unrecognized-code", dispatched = false))
-        val refused = call("refused")
+        val refused = call("refused", "custom_tool")
         val captured = capture(history, refused, prior = 1, limit = 1)
         assertEquals("OTHER", fields(captured, refused)[ToolRepeatAdmissionHistory.LAST_UNSENT_CODE])
         assertFalse(fields(captured, refused).toString().contains("private-unrecognized-code"))
         assertNull(fields(captured, refused, "other-run")[ToolRepeatAdmissionHistory.LAST_UNSENT_CODE])
-        val partial = call("partial")
-        assertNull(fields(capture(history, partial, prior = 3), partial)[ToolRepeatAdmissionHistory.LAST_UNSENT_CODE])
+        val partial = call("partial", "custom_tool")
+        val partialFields = fields(capture(history, partial, prior = 3, limit = 1), partial)
+        assertEquals("PARTIAL", partialFields["dependency_repeat_prior_coverage"])
+        assertNull(partialFields[ToolRepeatAdmissionHistory.LAST_UNSENT_CODE])
     }
 
     @Test fun dependencyRefundsKeepTheOriginalProvisionalReferenceWithoutChargingIt() {

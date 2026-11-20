@@ -4,15 +4,47 @@ import json
 import os
 from pathlib import Path
 import runpy
+import shutil
+import uuid
 import sys
 
 # Source development and PyInstaller use the same import roots.
 SOURCE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(SOURCE))
-from desktop.configuration import DEFAULTS, atomic_json, environment, load, validate
+from desktop.configuration import DEFAULTS, atomic_json, default_phone_listener, environment, installer_settings, load, validate
 from desktop.manager import read_pointer, release_path, request, startup_registration, supervise
 from desktop.releases import validate_release, version
 from v14.state_lock import StateDirectoryLock
+
+
+def retain_damaged(root, filename):
+    folder = root / 'data' / 'setup-recovery'
+    folder.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(root / filename, folder / (uuid.uuid4().hex + '-' + filename))
+
+
+def installed_before_setup(root, candidate, *, save_recovery=False):
+    pointer = root / 'current.json'
+    if not pointer.exists():
+        return None
+    try:
+        previous = read_pointer(root)['version']
+    except (KeyError, TypeError, ValueError):
+        # A damaged pointer cannot establish a rollback target. Protect any newer
+        # installed release and keep the original bytes for local recovery.
+        for folder in (root / 'releases').glob('*'):
+            try:
+                installed = version(folder.name)
+            except ValueError:
+                continue
+            if (folder / 'release.json').is_file() and installed > version(candidate):
+                raise ValueError('Repair this installation with its newer Gateway installer.')
+        if save_recovery:
+            retain_damaged(root, 'current.json')
+        return None
+    if version(candidate) < version(previous):
+        raise ValueError('This PC already has a newer Gateway. Use its installed update option.')
+    return previous
 
 
 def main():
@@ -21,6 +53,8 @@ def main():
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--version')
     parser.add_argument('--headless', action='store_true', help='Run the supervisor without desktop UI')
+    parser.add_argument('--repair-damaged', action='store_true')
+    parser.add_argument('--setup-network', action='store_true')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--error-file', type=Path)
     parser.add_argument('--settings-file', type=Path)
@@ -30,7 +64,14 @@ def main():
     from desktop.native_launch import NATIVE_VIEWS
     parser.add_argument('--view', choices=NATIVE_VIEWS)
     parser.add_argument('--page', choices=['Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks'], help='Compatibility alias for a workspace view')
-    args = parser.parse_args()
+    argv = sys.argv[1:]
+    if not argv and getattr(sys, 'frozen', False):
+        root = Path(sys.executable).resolve().parent.parent.parent
+        if not (root / 'current.json').is_file():
+            raise ValueError('Open the Gateway setup installer to install or repair this copy.')
+        from desktop.native_launch import launch_installed_dashboard
+        return launch_installed_dashboard(root)
+    args = parser.parse_args(argv)
     if args.headless and args.command != 'supervise':
         parser.error('--headless requires the supervise command')
     root = args.root.resolve()
@@ -78,7 +119,8 @@ def main():
     if args.command in {'firewall', 'remove-firewall'}:
         from desktop.firewall import apply
         if args.command == 'firewall' or (root / 'firewall.json').exists():
-            apply(root, remove=args.command == 'remove-firewall')
+            if not args.setup_network or load(root)['access'] == 'network':
+                apply(root, remove=args.command == 'remove-firewall', include_control=args.setup_network)
         if args.command == 'remove-firewall' and (root / 'phone-firewall.json').exists():
             apply(root, remove=True, phone=True)
         return 0
@@ -102,11 +144,17 @@ def main():
         sys.argv = ['gateway.py', 'serve' if args.command == 'serve-engine' else 'validate-config']
         runpy.run_path(str(SOURCE / 'gateway.py'), run_name='__main__')
         return 0
-    if args.command in {'validate-settings', 'configure'} and args.version and (root / 'current.json').exists():
-        if version(args.version) < version(read_pointer(root)['version']):
-            raise ValueError('This PC already has a newer Gateway. Use its installed update option.')
     if args.command == 'validate-settings':
-        load(root) if (root / 'settings.json').exists() else validate(json.loads(args.settings_file.read_text(encoding='utf-8-sig')))
+        if args.version:
+            installed_before_setup(root, args.version)
+        try:
+            installer_settings(root, args.settings_file)
+        except (ValueError, TypeError) as error:
+            if not (root / 'settings.json').is_file():
+                raise
+            if args.error_file:
+                args.error_file.write_text(str(error), encoding='utf-8-sig')
+            return 12
         return 0
     if args.command == 'configure':
         # Installer only writes config/pointer after the existing supervisor has stopped.
@@ -114,11 +162,21 @@ def main():
         lock.acquire()
         try:
             validate_release(release_path(root, args.version), args.version)
-            cfg = load(root) if (root / 'settings.json').exists() else validate(json.loads(args.settings_file.read_text(encoding='utf-8-sig')) if args.settings_file else DEFAULTS)
-            previous = read_pointer(root)['version'] if (root / 'current.json').exists() else None
-            if previous and args.version != previous:
-                if version(args.version) < version(previous):
-                    raise ValueError('Installer downgrade refused; use the compatible newer installer')
+            previous = installed_before_setup(root, args.version, save_recovery=True)
+            try:
+                cfg = installer_settings(root, args.settings_file)
+            except (ValueError, TypeError):
+                if not args.repair_damaged or not (root / 'settings.json').is_file():
+                    raise
+                retain_damaged(root, 'settings.json')
+                cfg = validate({'bind_host': '127.0.0.1'})
+            if not (root / 'settings.json').exists():
+                from desktop.configuration import save_copilot_enabled
+                if not (root / 'data' / 'copilot-settings.json').exists():
+                    save_copilot_enabled(root, True)
+                listener = default_phone_listener(cfg)
+                if listener and not (root / 'data' / 'control-listener.json').exists():
+                    atomic_json(root / 'data' / 'control-listener.json', listener)
             atomic_json(root / 'settings.json', cfg)
             atomic_json(root / 'current.json', {'version': args.version, 'previous': previous, 'pending': bool(previous and previous != args.version)})
             startup_registration(root, cfg['start_at_login'])

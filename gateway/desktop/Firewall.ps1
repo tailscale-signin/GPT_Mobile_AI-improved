@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][ValidatePattern('^GPTMobileGateway-[a-f0-9]{24}(-phone)?$')][string]$RuleName,
     [ValidateRange(1024,65535)][int]$Port = 8090,
+    [ValidateRange(1024,65535)][int]$ControlPort,
     [string]$BindAddress = '0.0.0.0',
     [switch]$Remove
 )
@@ -15,7 +16,9 @@ $localAddress = $BindAddress
 if ($BindAddress -eq '0.0.0.0' -or $BindAddress -eq '::') { $localAddress = 'Any' }
 # One installation-specific rule, replaced only after an explicit user action.
 Get-NetFirewallRule -Name $RuleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+$ports = @($Port)
+if ($PSBoundParameters.ContainsKey('ControlPort')) { $ports += $ControlPort }
 New-NetFirewallRule -Name $RuleName -DisplayName 'GPT Mobile Gateway (private LAN)' `
     -Direction Inbound -Action Allow -Enabled True -Profile Private `
-    -Protocol TCP -LocalPort $Port -LocalAddress $localAddress `
+    -Protocol TCP -LocalPort $ports -LocalAddress $localAddress `
     -RemoteAddress LocalSubnet -EdgeTraversalPolicy Block | Out-Null

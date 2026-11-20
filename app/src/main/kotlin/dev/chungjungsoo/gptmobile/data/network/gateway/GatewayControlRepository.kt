@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
 import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
@@ -102,12 +103,13 @@ internal class GatewayControlRepository @Inject constructor(
 
     private suspend fun exchange(binding: GatewayControlBinding, method: String, path: String, body: String = ""): GatewayControlResponse {
         check(!binding.revoked) { "This phone's Gateway access was revoked. Pair it again on the PC." }
+        if (binding.connectedAccount) return transport.accountExchange(binding, method, path, body)
         return transport.exchange(binding.endpoint, binding.fingerprint, binding.installationId, binding.token, binding.keyAlias, method, path, body)
     }
 
     private suspend fun snapshot(binding: GatewayControlBinding): GatewayControlSnapshot {
         val response = exchange(binding, "GET", "/gateway/settings")
-        if (response.status in setOf(401, 403)) throw GatewayControlRevoked()
+        if (!binding.connectedAccount && response.status in setOf(401, 403)) throw GatewayControlRevoked()
         check(response.status == 200) { "Gateway settings are unavailable. Reconnect to read their current state." }
         return json.decodeFromString<GatewayControlSnapshot>(response.body).validate(binding.installationId, binding.principalId)
     }
@@ -155,6 +157,26 @@ internal class GatewayControlRepository @Inject constructor(
         }
     }
 
+    suspend fun connectAccount(profile: PlatformV2, admission: GatewayAdmissionSetting) = mutex(profile.uid).withLock {
+        require(admission.connectedSettings && (admission.principalId.startsWith("tailnet:device-") || admission.principalId == "local:single-user"))
+        val endpoint = original(profile)
+        val saved = load(profile.uid)
+        if (saved?.originalEndpoint == endpoint) {
+            check(saved.connectedAccount && saved.principalId == admission.principalId && saved.installationId == admission.gatewayId)
+            check(saved.pending == null && !saved.revoked)
+        } else {
+            check(saved?.pending == null)
+        }
+        val binding = GatewayControlBinding(
+            profileUid = profile.uid, originalEndpoint = endpoint, endpoint = endpoint, fingerprint = "",
+            installationId = admission.gatewayId, principalId = admission.principalId, deviceId = "", role = "owner",
+            token = "", keyAlias = "", engineeringBindingConfirmed = true, connectedAccount = true
+        )
+        val updated = binding.copy(snapshot = snapshot(binding), lastConfirmedAtMillis = System.currentTimeMillis())
+        save(updated)
+        publish(profile, GatewayControlPhase.LIVE, updated, fresh = true)
+    }
+
     suspend fun updateGateway(profile: PlatformV2, target: String?) = mutex(profile.uid).withLock {
         val binding = requireNotNull(load(profile.uid))
         check(binding.originalEndpoint == original(profile) && !binding.revoked && !binding.revocationPending && binding.pending == null)
@@ -170,19 +192,45 @@ internal class GatewayControlRepository @Inject constructor(
         publish(profile, GatewayControlPhase.LIVE, binding, "Request accepted. Waiting for the Gateway to report its update status.")
     }
 
-    suspend fun pair(profile: PlatformV2, link: String) = mutex(profile.uid).withLock {
+    suspend fun pair(profile: PlatformV2, link: String) = beginConnection(profile, GatewayPairingLink.parse(link, System.currentTimeMillis() / 1000), false)
+
+    suspend fun connectPrivate(profile: PlatformV2, address: GatewayPairingLink) = beginConnection(profile, address, true)
+
+    private suspend fun beginConnection(profile: PlatformV2, parsed: GatewayPairingLink, privateAddress: Boolean) = mutex(profile.uid).withLock {
         val endpoint = original(profile)
-        val parsed = GatewayPairingLink.parse(link, System.currentTimeMillis() / 1000)
         require(parsed.profileEndpoint == null || parsed.profileEndpoint == endpoint) { "This link belongs to another Gateway address." }
         val alias = "gptmobile_gateway_control_${gatewayControlDigest(profile.uid + parsed.endpoint)}"
         val previous = load(profile.uid)
-        check(previous?.pending == null) { "Reconcile the original Gateway change before replacing its pairing." }
-        val pending = GatewayControlPairing(profile.uid, endpoint, parsed.endpoint, parsed.fingerprint, parsed.installationId, parsed.code, parsed.expiresAt, alias, keys.publicKey(alias), gatewayPort = parsed.gatewayPort)
+        if (privateAddress &&
+            previous != null &&
+            !previous.revoked &&
+            previous.engineeringBindingConfirmed &&
+            previous.installationId == parsed.installationId &&
+            previous.originalEndpoint == endpoint &&
+            previous.endpoint == parsed.endpoint &&
+            previous.fingerprint == parsed.fingerprint
+        ) {
+            val confirmed = try {
+                snapshot(previous)
+            } catch (_: GatewayControlRevoked) {
+                null
+            }
+            if (confirmed?.capabilities?.get("privateAddress.v1") == JsonPrimitive(true)) {
+                if (previous.pending != null) {
+                    reconcile(profile, previous)
+                } else {
+                    val updated = previous.copy(snapshot = confirmed, lastConfirmedAtMillis = System.currentTimeMillis())
+                    save(updated)
+                    publish(profile, GatewayControlPhase.LIVE, updated, fresh = true)
+                }
+                return@withLock
+            }
+        }
+        check(previous?.pending == null) { "Reconcile the original Gateway change before replacing its connection." }
+        val pending = GatewayControlPairing(profile.uid, endpoint, parsed.endpoint, parsed.fingerprint, parsed.installationId, parsed.code, parsed.expiresAt, alias, keys.publicKey(alias), gatewayPort = parsed.gatewayPort, privateAddress = privateAddress)
         savePairing(pending)
-        publish(profile, GatewayControlPhase.PAIRING, previous, "Requesting owner confirmation on the selected PC…", deviceFingerprint = gatewayControlDigest(pending.publicKey))
-        val claimed = claim(pending)
-        savePairing(claimed)
-        finishLocked(profile, claimed)
+        if (!privateAddress) publish(profile, GatewayControlPhase.PAIRING, previous, "Requesting owner confirmation on the selected PC…", deviceFingerprint = gatewayControlDigest(pending.publicKey))
+        finishLocked(profile, pending)
     }
 
     private suspend fun claim(pending: GatewayControlPairing): GatewayControlPairing {
@@ -208,13 +256,17 @@ internal class GatewayControlRepository @Inject constructor(
     private suspend fun finishLocked(profile: PlatformV2, saved: GatewayControlPairing) {
         var pending = saved
         require(pending.originalEndpoint == original(profile) && pending.expiresAt > System.currentTimeMillis() / 1000)
-        // Claim is idempotent for this retained code and key, including a lost first response.
-        if (pending.pairingId == null) pending = claim(pending).also { savePairing(it) }
-        val body = buildJsonObject {
-            put("pairing_id", pending.pairingId)
-            put("public_key", pending.publicKey)
-        }.toString()
-        val response = transport.exchange(pending.endpoint, pending.fingerprint, pending.installationId, pending.code, pending.keyAlias, "POST", "/gateway/pairing/finish", body)
+        val response = if (pending.privateAddress) {
+            val body = buildJsonObject { put("public_key", pending.publicKey) }.toString()
+            transport.exchange(pending.endpoint, pending.fingerprint, pending.installationId, pending.code, pending.keyAlias, "POST", "/gateway/connect", body)
+        } else {
+            if (pending.pairingId == null) pending = claim(pending).also { savePairing(it) }
+            val body = buildJsonObject {
+                put("pairing_id", pending.pairingId)
+                put("public_key", pending.publicKey)
+            }.toString()
+            transport.exchange(pending.endpoint, pending.fingerprint, pending.installationId, pending.code, pending.keyAlias, "POST", "/gateway/pairing/finish", body)
+        }
         if (response.status == 202) {
             publish(profile, GatewayControlPhase.PAIRING, message = "Waiting for the PC to approve this device.", deviceFingerprint = gatewayControlDigest(pending.publicKey))
             return
@@ -353,7 +405,7 @@ internal class GatewayControlRepository @Inject constructor(
     private suspend fun reconcile(profile: PlatformV2, binding: GatewayControlBinding) {
         val command = requireNotNull(binding.pending)
         val response = exchange(binding, "GET", "/gateway/settings/commands/${command.commandId}")
-        if (response.status in setOf(401, 403)) throw GatewayControlRevoked()
+        if (!binding.connectedAccount && response.status in setOf(401, 403)) throw GatewayControlRevoked()
         if (response.status == 200) {
             acceptReceipt(profile, binding, json.decodeFromString<GatewayControlReceipt>(response.body))
         } else {
@@ -363,7 +415,7 @@ internal class GatewayControlRepository @Inject constructor(
 
     suspend fun revoke(profile: PlatformV2) = mutex(profile.uid).withLock {
         var binding = requireNotNull(load(profile.uid))
-        require(binding.originalEndpoint == original(profile) && binding.pending == null)
+        require(!binding.connectedAccount && binding.originalEndpoint == original(profile) && binding.pending == null)
         binding = binding.copy(revocationPending = true)
         save(binding)
         val response = exchange(binding, "DELETE", "/gateway/devices/self")

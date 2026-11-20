@@ -166,56 +166,59 @@ public partial class MainWindow
     private void BuildConnectPhone()
     {
         int viewEpoch = epoch;
-        var form = Ui.Column(Ui.Text("Connect to this PC", 22, bold: true));
+        var form = Ui.Column(Ui.Text("Gateway address", 22, bold: true));
+        var hint = Ui.Text("Reading this PC’s connection…", 15, "MutedBrush"); form.Children.Add(hint);
         page.Children.Add(Ui.Card(form, true));
         Run(async () =>
         {
             var current = await Call("control-settings-read");
             if (epoch != viewEpoch) return;
             string direct = current.Text("account_connection_url", "");
+            string host = current.Text("gateway_host", "");
+            if (!System.Net.IPAddress.TryParse(host, out var ip) || System.Net.IPAddress.IsLoopback(ip))
+            {
+                hint.Text = "This Gateway is listening only on this PC. Choose your private network interface, then restart Gateway.";
+                form.Children.Add(Ui.Button("Network settings", () => OpenUtility("settings"), true));
+                return;
+            }
+            ComboBox? adapter = null;
+            if (ip.Equals(System.Net.IPAddress.Any) || ip.Equals(System.Net.IPAddress.IPv6Any))
+            {
+                var choices = NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up)
+                    .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address)
+                    .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a))
+                    .Select(a => a.ToString()).Distinct().ToArray();
+                if (choices.Length == 0) { hint.Text = "Connect this PC to your private network and reopen this page."; return; }
+                adapter = Ui.Select(form, "PC interface", choices);
+            }
+            hint.Text = direct.Length > 0 ? "Enter this address in GPT Mobile on a device signed in to the same Tailscale account."
+                : "Copy the private address into GPT Mobile → Gateway settings → Connect. Use it within five minutes. Your phone remembers this PC.";
             if (direct.Length > 0)
             {
-                var url = Ui.Field(form, "Gateway address for your Tailscale devices", direct);
-                url.IsReadOnly = true;
-                form.Children.Add(Ui.Text("Use this address in your phone’s Gateway profile. Devices signed into your PC’s Tailscale account connect automatically.", 13, "MutedBrush"));
-                form.Children.Add(Ui.Button("Copy Gateway address", () => { Clipboard.SetText(direct); status.Text = "Gateway address copied."; }, true));
+                var field = Ui.Field(form, "Server", direct);
+                field.IsReadOnly = true;
             }
-            var listener = current.Object("listener");
-            string endpoint = listener.Text("endpoint", "");
-            bool listening = Uri.TryCreate(endpoint, UriKind.Absolute, out var active) && !active.IsLoopback;
-            var addresses = NetworkInterface.GetAllNetworkInterfaces()
-                .Where(item => item.OperationalStatus == OperationalStatus.Up)
-                .SelectMany(item => item.GetIPProperties().UnicastAddresses).Select(item => item.Address)
-                .Where(ip => ip.AddressFamily == AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(ip))
-                .Select(ip => ip.ToString()).Distinct().ToArray();
-            string[] repos = current.Array("connection_repositories").Select(item => item?.ToString() ?? "").ToArray();
-            if (direct.Length > 0)
+            var copy = Ui.Button(direct.Length > 0 ? "Copy address" : "Copy private address", () => Run(async () =>
             {
-                var otherNetwork = new StackPanel();
-                form.Children.Add(new Expander { Header = "Connect on another network", Content = otherNetwork, Foreground = Ui.Brush("TextBrush") });
-                form = otherNetwork;
-            }
-            ComboBox? host = null;
-            if (!listening && addresses.Length > 1) host = Ui.Select(form, "PC network address", addresses);
-            if (!listening && addresses.Length == 0)
-            { form.Children.Add(Ui.Text("Connect this PC to your network, then try again.", color: "MutedBrush")); return; }
-            var repository = Ui.Field(form, "Repository (owner/name)", repos.Length == 1 ? repos[0] : "");
-            form.Children.Add(Ui.Text("Engineering starts on for this repository. Scan the private link with your phone.", 13, "MutedBrush"));
-            var connect = Ui.Button("Show connection code", () => Run(async () =>
-            {
-                string repo = repository.Text.Trim().ToLowerInvariant();
-                if (repo.Length == 0) throw new InvalidOperationException("Enter the repository to connect.");
-                if (!listening)
+                string address = direct;
+                if (address.Length == 0)
                 {
-                    string address = host?.SelectedItem?.ToString() ?? addresses[0];
-                    await Call("control-enable", new JsonObject { ["host"] = address, ["port"] = 8091 });
-                    listening = true;
+                    var result = await Call("control-connect-address", new JsonObject { ["host"] = adapter?.SelectedItem?.ToString() ?? host });
+                    address = result.Text("address", "");
+                    if (address.Length == 0) throw new InvalidOperationException("The Gateway could not prepare a private address.");
                 }
-                var value = await Call("control-connect-create", new JsonObject { ["name"] = "Android phone", ["role"] = "owner",
-                    ["fields"] = new JsonArray(JsonValue.Create("engineering_enabled")), ["repositories"] = new JsonArray(JsonValue.Create(repo)) });
-                if (epoch == viewEpoch) ShowPairingInvitation(value, "owner", repo);
+                if (epoch != viewEpoch) return;
+                Clipboard.SetText(address);
+                status.Text = "Gateway address copied.";
             }), true);
-            form.Children.Add(connect);
+            form.Children.Add(copy);
+            if (direct.Length == 0)
+                form.Children.Add(Ui.Button("Network and firewall settings", () => Navigate("Android controls")));
+            var availability = Ui.Column(Ui.Text("Engineering", 20, bold: true),
+                Ui.Text("New connections start with Engineering enabled. Saved jobs use the GitHub account and repositories configured on this PC.", color: "MutedBrush"),
+                Ui.Actions(Ui.Button("GitHub connection", () => OpenUtility("github-settings")),
+                    Ui.Button("Repositories", () => OpenUtility("github-settings", "Repository Validation"))));
+            page.Children.Add(Ui.Card(availability));
         });
     }
 

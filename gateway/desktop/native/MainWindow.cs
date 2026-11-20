@@ -59,12 +59,20 @@ public partial class MainWindow : Window
         MinWidth = Math.Min(740, workArea.Width); MinHeight = Math.Min(480, workArea.Height);
         Width = Math.Min(1220, workArea.Width); Height = Math.Min(820, workArea.Height);
         UseLayoutRounding = SnapsToDevicePixels = true;
+        SetResourceReference(BackgroundProperty, "CanvasBrush");
+        SetResourceReference(ForegroundProperty, "TextBrush");
+        FontFamily = new FontFamily("Segoe UI");
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         var layout = new Grid();
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(210) });
         layout.ColumnDefinitions.Add(new ColumnDefinition());
-        var rail = Ui.Column(Ui.Text("GPT MOBILE", 12, "PrimaryBrush", true), Ui.Text("Gateway", 28, bold: true),
-            Ui.Text(Environment.MachineName, 13, "MutedBrush"));
+        var mark = new Image { Width = 44, Height = 44, HorizontalAlignment = HorizontalAlignment.Left,
+            Source = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/gateway.png")) };
+        var brand = new DockPanel { Margin = new Thickness(0, 0, 0, 24) };
+        DockPanel.SetDock(mark, Dock.Left); mark.Margin = new Thickness(0, 0, 10, 0);
+        brand.Children.Add(mark);
+        brand.Children.Add(Ui.Column(Ui.Text("GPT Mobile", 13, "MutedBrush"), Ui.Text("Gateway", 22, bold: true)));
+        var rail = Ui.Column(brand);
         rail.Margin = new Thickness(16, 24, 16, 20);
         foreach (string name in new[] { "Overview", "Chat", "Saved", "Jobs", "Settings" })
         {
@@ -91,7 +99,7 @@ public partial class MainWindow : Window
         Grid.SetColumn(workspace, 1); layout.Children.Add(workspace); Content = layout;
         Loaded += async (_, _) =>
         {
-            await RefreshSnapshot(); Navigate(Arg(args, "--view") ?? "Overview"); timer.Start();
+            Navigate(Arg(args, "--view") ?? "Overview"); await RefreshSnapshot(); timer.Start();
             if (args.Contains("--smoke-ui")) await Smoke();
         };
         timer.Tick += async (_, _) => { PollWindowRequests(); await RefreshSnapshot(); };
@@ -142,7 +150,7 @@ public partial class MainWindow : Window
         subtitle.Text = name switch
         {
             "Overview" => Environment.MachineName,
-            "Connect phone" => "Give your phone access to a repository on this PC",
+            "Connect phone" => "Use this PC from GPT Mobile",
             "Settings" => "Connection and updates",
             "Chat" => "Your selected model · saved on this Gateway",
             "Saved" => "Conversations, favorites and bookmarked messages",
@@ -223,8 +231,9 @@ public partial class MainWindow : Window
         bool running = manager.Text("state") == "running";
         string backend = manager.Text("backend", "Not observed");
         bool ready = running && snapshot.Flag("fresh") && backend == "ready";
-        var hero = Ui.Column(Ui.Text(ready ? "Ready to work" : running ? "Waiting for model" : "Gateway " + manager.Text("state", "unavailable"), 28, bold: true),
-            Ui.Text("Model backend · " + backend, 14, "MutedBrush"),
+        var hero = Ui.Column(Ui.Text("Gateway server", 14, "PrimaryBrush", true),
+            Ui.Text(ready ? "Ready to connect" : running ? "Waiting for a model" : "Gateway " + manager.Text("state", "starting"), 30, bold: true),
+            Ui.Text(ready ? "Chat and jobs are available on this PC." : running ? "Start the model server or choose a backend in Settings." : "You can open Settings while the server starts.", 15, "MutedBrush"),
             Ui.Actions(Ui.Button("Connect phone", () => Navigate("Connect phone"), true),
                 Ui.Button(ready ? "Open chat" : running ? "Connection settings" : "Start Gateway", () =>
                 {
@@ -233,6 +242,13 @@ public partial class MainWindow : Window
                     else Run(async () => { await Call("runtime-start"); await RefreshSnapshot(); });
                 })));
         page.Children.Add(Ui.Card(hero, true));
+        var service = snapshot.Object("service");
+        var work = Ui.Column(Ui.Text("Jobs", 20, bold: true),
+            Ui.Text(snapshot.Flag("fresh")
+                ? $"{snapshot.Text("openJobs", "0")} open · {service.Text("activeWorkers", "0")} workers active"
+                : "Waiting for the server to report activity.", 14, "MutedBrush"),
+            Ui.Button("View jobs", () => Navigate("Jobs")));
+        page.Children.Add(Ui.Card(work));
         var activity = new ListBox { MaxHeight = 250 };
         Ui.Rows(activity, snapshot.Array("activities").Reverse().Take(8), "name");
         page.Children.Add(Ui.Card(Ui.Column(Ui.Text("Recent activity", 20, bold: true),

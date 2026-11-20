@@ -24,7 +24,7 @@ MAX_INPUT = 512 * 1024
 PROTOCOL = 'gptmobile.desktop.v1'
 CONTROL_ACTIONS = {
     'control-settings-read', 'control-settings-patch', 'control-settings-command', 'control-settings-retry',
-    'control-connect-create', 'control-pairing-create', 'control-pairing-list', 'control-pairing-confirm',
+    'control-connect-address', 'control-connect-create', 'control-pairing-create', 'control-pairing-list', 'control-pairing-confirm',
     'control-devices', 'control-device-revoke', 'control-enable',
     'control-validation-approve', 'control-host-requests', 'control-host-request-review',
     'control-backend-approve',

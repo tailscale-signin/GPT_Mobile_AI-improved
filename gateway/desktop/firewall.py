@@ -32,7 +32,7 @@ def control_listener(root):
     return dict(port=port, bind_host=str(address), access='network')
 
 
-def apply(root, remove=False, *, phone=False):
+def apply(root, remove=False, *, phone=False, include_control=False):
     if os.name != 'nt':
         raise RuntimeError('Windows Firewall is available on Windows only')
     root = Path(root)
@@ -49,6 +49,10 @@ def apply(root, remove=False, *, phone=False):
     args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
             os.path.join(os.path.dirname(__file__), 'Firewall.ps1'), '-RuleName', name]
     args += ['-Remove'] if remove else ['-Port', str(cfg['port']), '-BindAddress', cfg['bind_host']]
+    if include_control and not remove and not phone and (root / 'data' / 'control-listener.json').is_file():
+        listener = control_listener(root)
+        if listener['bind_host'] == cfg['bind_host']:
+            args += ['-ControlPort', str(listener['port'])]
     if ctypes.windll.shell32.IsUserAnAdmin():
         result = subprocess.run([powershell, *args], check=False)
     else:

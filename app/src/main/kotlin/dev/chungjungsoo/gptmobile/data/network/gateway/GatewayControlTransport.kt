@@ -108,6 +108,39 @@ internal data class GatewayControlResponse(val status: Int, val body: String)
 /** No redirects, implicit retries, shared inference credentials, diagnostic logging or public trust fallback. */
 @Singleton
 internal class GatewayControlTransport @Inject constructor(private val keys: GatewayControlDeviceKeys) {
+    private val accountClient by lazy {
+        HttpClient(OkHttp) {
+            expectSuccess = false
+            followRedirects = false
+            install(HttpTimeout) {
+                connectTimeoutMillis = 5_000
+                requestTimeoutMillis = 30_000
+            }
+            engine {
+                config {
+                    proxy(java.net.Proxy.NO_PROXY)
+                    followRedirects(false)
+                    followSslRedirects(false)
+                    retryOnConnectionFailure(false)
+                }
+            }
+        }
+    }
+
+    suspend fun accountExchange(binding: GatewayControlBinding, method: String, path: String, body: String): GatewayControlResponse {
+        require(binding.connectedAccount && (path == "/gateway/settings" || path == "/gateway/updates" || path.matches(Regex("/gateway/settings/commands/[A-Za-z0-9_-]{8,100}"))))
+        val endpoint = binding.originalEndpoint.removeSuffix("/v1").trimEnd('/') + "/gateway/engineering/connected" + path.removePrefix("/gateway")
+        return accountClient.prepareRequest(endpoint) {
+            this.method = HttpMethod.parse(method)
+            header("X-Gateway-Installation-ID", binding.installationId)
+            header("X-Gateway-Principal-ID", binding.principalId)
+            if (body.isNotEmpty()) {
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+        }.execute { GatewayControlResponse(it.status.value, it.boundedMetadata(256 * 1024)) }
+    }
+
     private val clients = linkedMapOf<String, HttpClient>()
 
     private fun client(endpoint: String, fingerprint: String): HttpClient = synchronized(clients) {

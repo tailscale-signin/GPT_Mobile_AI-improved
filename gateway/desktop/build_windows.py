@@ -59,10 +59,6 @@ def main():
         for path in sorted(bundle.rglob('*')):
             if path.is_file():
                 zipped.write(path, path.relative_to(bundle).as_posix())
-    setup_ui = output / 'setup-ui'
-    subprocess.run(['dotnet', 'publish', str(GATEWAY / 'desktop/windows/GatewaySetup.csproj'),
-                    '-c', 'Release', '--artifacts-path', str(ROOT / 'build/windows-setup'),
-                    '-o', str(setup_ui)], check=True)
     subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
                     str(GATEWAY / 'desktop/windows/Build-SetupArtwork.ps1'), str(output / 'setup-sidebar.png')], check=True)
     compiler = Path(os.environ.get('ISCC', r'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'))

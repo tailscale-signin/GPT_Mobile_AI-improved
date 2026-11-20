@@ -436,6 +436,12 @@ class GatewayEngineeringClient internal constructor(
             ?: error("The gateway returned an invalid repository operation status.")
     }
 
+    internal suspend fun connectionPrincipal(config: ProviderRequestConfig): String {
+        val identity = json.parseToJsonElement(request(config, "identity", root = "gateway")).jsonObject
+        require(!identity["gateway_id"]?.jsonPrimitive?.contentOrNull.isNullOrBlank())
+        return requireNotNull(identity["principal_id"]?.jsonPrimitive?.contentOrNull)
+    }
+
     internal suspend fun admissionSetting(config: ProviderRequestConfig, previous: GatewayAdmissionSetting?): GatewayAdmissionSetting {
         val path = "admission-settings"
         if (previous == null) return json.decodeFromString(request(config, path))

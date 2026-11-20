@@ -31,7 +31,7 @@ internal static class Ui
     {
         var result = new Border { Child = child, CornerRadius = new CornerRadius(hero ? 24 : 20),
             Padding = new Thickness(20), BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 16) };
-        result.SetResourceReference(Border.BackgroundProperty, "PanelBrush");
+        result.SetResourceReference(Border.BackgroundProperty, hero ? "RaisedBrush" : "PanelBrush");
         result.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
         return result;
     }

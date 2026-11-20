@@ -55,6 +55,16 @@ internal data class GatewayPairingLink(val endpoint: String, val installationId:
     }
 }
 
+/** The fragment is consumed locally. Only the inference URL belongs in profiles or history. */
+internal fun privateGatewayAddress(address: String, nowSeconds: Long): GatewayPairingLink? {
+    val uri = URI(address)
+    val fragment = uri.rawFragment ?: return null
+    val target = address.substringBefore('#').trimEnd('/')
+    val parsed = GatewayPairingLink.parse("gptmobile://gateway-control?$fragment", nowSeconds)
+    require(parsed.profileEndpoint == target && parsed.gatewayPort != null)
+    return parsed
+}
+
 internal enum class GatewayControlField(val wire: String, val label: String, val ownerOnly: Boolean = false, val minimum: Int? = null, val maximum: Int? = null, val choices: List<String> = emptyList()) {
     ENGINEERING("engineering_enabled", "Engineering", true),
     WORKERS("workers", "Worker limit", minimum = 1, maximum = 16),
@@ -210,7 +220,7 @@ internal fun gatewayControlRoute(config: dev.chungjungsoo.gptmobile.data.network
         "Confirm Engineering for this paired PC in Gateway settings before continuing."
     }
     require(retainedInstallation == null || retainedInstallation == exact.installationId)
-    return exact
+    return exact.takeUnless { it.connectedAccount }
 }
 
 @Serializable
@@ -230,7 +240,8 @@ internal data class GatewayControlBinding(
     val revocationPending: Boolean = false,
     val pending: GatewayControlCommand? = null,
     val snapshot: GatewayControlSnapshot? = null,
-    val lastConfirmedAtMillis: Long? = null
+    val lastConfirmedAtMillis: Long? = null,
+    val connectedAccount: Boolean = false
 )
 
 @Serializable
@@ -245,7 +256,8 @@ internal data class GatewayControlPairing(
     val keyAlias: String,
     val publicKey: String,
     val pairingId: String? = null,
-    val gatewayPort: Int? = null
+    val gatewayPort: Int? = null,
+    val privateAddress: Boolean = false
 )
 
 internal enum class GatewayControlPhase { UNPAIRED, PAIRING, LIVE, SAVING, RECONCILING, STALE, CONFLICT, REVOKED }

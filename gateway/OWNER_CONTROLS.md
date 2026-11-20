@@ -1,11 +1,10 @@
-# Paired Windows and Android controls
+# Windows and Android Gateway controls
 
-The Windows supervisor owns the shared Gateway settings. The native dashboard
-uses local IPC; a paired Android installation uses a separate HTTPS listener.
-Both read the same installation identity, settings revision and command journal.
-The existing key-free inference listener keeps its existing access model.
+The Windows supervisor owns shared settings. In **Connect phone**, copy the Gateway address and paste it into GPT Mobile. Engineering starts enabled for a new owner. The model, GitHub connection and host-approved repositories determine which jobs can run.
 
-## Pair a phone
+On same-account Tailscale the runtime verifies the socket peer through the local Tailscale daemon. The phone reads and edits its own account settings at the existing address and keeps its existing job identity. On a private LAN, the copied address contains a single-device credential in its URL fragment. GPT Mobile verifies the PC's TLS certificate and signs one connection request using Android Keystore. Only the plain inference URL is saved in the AI profile. A lost response can be recovered by the original device key. Windows lists these devices in **Settings → Advanced → Device access**.
+
+## Optional scoped invitations for older devices and viewers
 
 1. Open **Android controls** in the Windows dashboard. Deliberately select the
    PC interface reachable from the phone and enable the control listener. Its
@@ -91,7 +90,7 @@ bindings and conversation owners are not migrated to a new identity.
 
 ## Authentication and authority
 
-The control listener uses a pinned TLS certificate. Android retains its P-256
+The private-LAN control listener uses a pinned TLS certificate. Android retains its P-256
 private key in Android Keystore and the grant in the encrypted, non-backup
 credential vault. Requests bind the HTTP method, path, installation, timestamp,
 nonce and exact body digest to a device signature. Replayed, expired, unsigned,

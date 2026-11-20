@@ -13,6 +13,7 @@ import time
 from types import SimpleNamespace
 import unittest
 import uuid
+from unittest.mock import patch
 
 import requests
 from cryptography.hazmat.primitives import hashes, serialization
@@ -82,6 +83,43 @@ class PairedControlTlsTests(unittest.TestCase):
         grant = response.json()
         self.assertEqual(invitation['fingerprint'], grant['fingerprint'])
         return grant
+
+    def test_private_address_one_exchange_restores_same_grant_and_writes_shared_settings(self):
+        from desktop.control_store import FIELDS
+        from urllib.parse import parse_qs, urlsplit
+        # Map the fixture's TLS socket to its test inference address. All requests
+        # below traverse the real listener, certificate verification and device signatures.
+        self.control.supervisor.cfg.update(access='network', bind_host='192.168.1.8')
+        with patch.object(self.control, 'connection_port', return_value=8090):
+            original = self.control.endpoint
+            self.control.endpoint = 'https://192.168.1.8:8091'
+            try:
+                address = self.control.local('control-connect-address', {})['address']
+            finally:
+                self.control.endpoint = original
+            uri = urlsplit(address)
+            self.assertEqual('http://192.168.1.8:8090/v1', uri._replace(fragment='').geturl())
+            code = parse_qs(uri.fragment)['code'][0]
+            body = {'public_key': self.public}
+            first = self.call(code, 'POST', '/gateway/connect', body)
+            self.assertEqual(200, first.status_code, first.text)
+            grant = first.json()
+            retry = self.call(code, 'POST', '/gateway/connect', body)
+            self.assertEqual(grant, retry.json())
+            initial = self.call(grant['token'], 'GET', '/gateway/settings').json()
+            self.assertEqual(FIELDS, set(initial['writable_fields']))
+            self.assertTrue(initial['desired']['engineering_enabled'])
+            command = {'installation_id': initial['installation_id'], 'expected_revision': initial['revision'],
+                       'command_id': uuid.uuid4().hex, 'changes': {'workers': 3, 'active_chats': 9}}
+            receipt = self.call(grant['token'], 'PATCH', '/gateway/settings', command)
+            self.assertEqual(200, receipt.status_code)
+            self.assertEqual(3, self.control.local('control-settings-read', {})['desired']['workers'])
+            self.assertEqual(1, len(self.control.store.devices()))
+            other = ec.generate_private_key(ec.SECP256R1())
+            self.key = other
+            other_key = base64.b64encode(other.public_key().public_bytes(
+                serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
+            self.assertIn(self.call(code, 'POST', '/gateway/connect', {'public_key': other_key}).status_code, (401, 403))
 
     def test_real_tls_pair_shared_revision_original_receipt_and_revocation(self):
         grant = self.pair()

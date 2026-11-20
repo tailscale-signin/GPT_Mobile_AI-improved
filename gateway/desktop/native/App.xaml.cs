@@ -8,6 +8,27 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (e.Args.Length == 0)
+        {
+            // Double-clicks also go through the installed version pointer and the one-window lock.
+            string launcher = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Start-Gateway.ps1"));
+            try
+            {
+                if (!File.Exists(launcher)) throw new FileNotFoundException("Run the Gateway installer to set up this PC.");
+                var start = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"))
+                    { UseShellExecute = false, CreateNoWindow = true };
+                foreach (var arg in new[] { "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", launcher, "-Command", "dashboard" })
+                    start.ArgumentList.Add(arg);
+                System.Diagnostics.Process.Start(start)?.Dispose();
+                Shutdown();
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(error.Message, "Open Gateway", MessageBoxButton.OK, MessageBoxImage.Error);
+                Shutdown(1);
+            }
+            return;
+        }
         ApplyContrast();
         SystemParameters.StaticPropertyChanged += (_, args) =>
         {

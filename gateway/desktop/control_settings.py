@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import socket
 import threading
+import time
 from urllib.parse import urlsplit
 
 import requests
@@ -174,7 +175,13 @@ class Controller:
     def phone_update_action(self, payload):
         principal = payload.get('principal')
         grant = self.store.grant(principal) if isinstance(principal, str) else None
-        if not grant or grant['role'] != 'owner' or 'update_mode' not in json.loads(grant['fields']):
+        cfg = self.supervisor.cfg
+        from v14.account_connection import PREFIX, accounts, overlay
+        from desktop.configuration import account_engineering
+        direct = ((principal == 'local:single-user' and cfg['access'] == 'loopback') or
+                  (isinstance(principal, str) and principal.startswith(PREFIX) and overlay(cfg['bind_host'])
+                   and account_engineering(self.supervisor.root) and accounts.authorized(cfg['bind_host'], principal)))
+        if not direct and (not grant or grant['role'] != 'owner' or 'update_mode' not in json.loads(grant['fields'])):
             raise ControlError('update_permission_required', 403)
         if set(payload) == {'principal', 'action'} and payload['action'] == 'check':
             return 'check'
@@ -208,6 +215,8 @@ class Controller:
                 from desktop.configuration import account_engineering
                 from v14.account_connection import overlay
                 cfg = self.supervisor.cfg
+                value['gateway_host'] = cfg['bind_host']
+                value['gateway_port'] = cfg['port']
                 if overlay(cfg['bind_host']) and account_engineering(self.supervisor.root):
                     value['account_connection_url'] = 'http://' + authority(cfg['bind_host'], cfg['port']) + '/v1'
 
@@ -222,6 +231,28 @@ class Controller:
                 return self.store.receipt(owner, payload['command_id'], local=True)
             if action == 'control-enable':
                 return self.enable(payload)
+            if action == 'control-connect-address':
+                from desktop.control_server import pairing_link
+                from desktop.validation_policy import load_policy_snapshot
+                cfg = self.supervisor.cfg
+                host = payload.get('host', cfg['bind_host'])
+                ip = ipaddress.ip_address(host)
+                if (set(payload) - {'host'} or cfg['access'] != 'network' or
+                        cfg['bind_host'] not in {host, '0.0.0.0', '::'} or ip.is_loopback or ip.is_unspecified or ip.is_multicast):
+                    raise ControlError('choose_gateway_network_interface', 409)
+                if not self.server:
+                    self.enable({'host': host, 'port': 8091 if cfg['port'] != 8091 else 8092})
+                deadline = time.monotonic() + 3
+                while not self.description()['enabled'] and self.server.thread.is_alive() and time.monotonic() < deadline:
+                    time.sleep(.03)
+                if not self.description()['enabled'] or urlsplit(self.endpoint).hostname != host or not self.connection_port():
+                    raise ControlError('control_listener_unavailable', 409)
+                policy = load_policy_snapshot(self.supervisor.root)
+                repos = sorted(policy['repositories']) if policy['state'] == 'READY' else []
+                issued = self.store.pairing_create({'role': 'owner', 'fields': sorted(FIELDS), 'repositories': repos}, address=True)
+                issued['gateway_port'] = cfg['port']
+                fragment = pairing_link(issued, self.endpoint, self.fingerprint).split('?', 1)[1]
+                return {'address': 'http://' + authority(host, cfg['port']) + '/v1#' + fragment}
             if action in {'control-pairing-create', 'control-connect-create'}:
                 if not self.description()['enabled']:
                     raise ControlError('control_listener_required', 412)

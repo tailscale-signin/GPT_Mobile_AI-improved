@@ -86,21 +86,10 @@ def main():
     results=[]
     with tempfile.TemporaryDirectory(prefix='Gateway smoke ü ') as temp:
         root=Path(temp)/'Gateway install'
-        # Drive the four native setup pages and validate the plan, including an offline model.
-        from configparser import ConfigParser
-        plan_file = Path(temp) / 'native setup.ini'
-        subprocess.run([str(output / 'setup-ui' / 'GatewaySetup.exe'), '--smoke', str(plan_file)], check=True, timeout=45)
-        plan = ConfigParser(interpolation=None)
-        with plan_file.open(encoding='utf-16') as source:
-            plan.read_file(source)
-        settings = validate({'backend': plan['setup']['backend'], 'port': int(plan['setup']['port']),
-                             'bind_host': plan['setup']['bind']})
-        assert settings['access'] == 'loopback' and settings['backend'] == 'http://127.0.0.1:1'
-        assert plan['setup']['engineeringSetup'] == '0' and plan['setup']['advanced'] == '1'
-        assert [plan.getint('setup', key) for key in ('workers', 'chats', 'grace', 'updates')] == [7, 11, 42, 1]
-        for name in ('edition', 'connection', 'checks', 'advanced'):
-            shutil.copy2(Path(temp) / f'setup-{name}.png', output / f'setup-{name}.png')
-        results.append('native four-step setup rejects invalid ports and accepts an offline model on loopback')
+        # Drive the shipped installer itself before testing unattended install and repair.
+        from desktop.windows.setup_smoke import check_wizard
+        check_wizard(installer, root, output)
+        results.append('interactive setup opens, validates custom settings and returns to the recommended path')
         cmd=[str(installer),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=',f'/DIR={root}']
         subprocess.run(cmd,check=True,timeout=120)
         results.append('fresh per-user install with spaces and Unicode')
@@ -210,7 +199,13 @@ def main():
             assert pointer['version']==VERSION and pointer['failedVersion']==candidate
             results.append('candidate startup failure rolls back through stable launcher')
             stop_checked(root, child, 'post-rollback stop', output)
+            # Repair must work even when the old executable and version pointer cannot launch.
+            (root / 'current.json').write_text('{damaged pointer', encoding='utf-8')
+            exe.rename(exe.with_suffix('.missing'))
+            exe.with_suffix('.missing').unlink()
             subprocess.run(cmd,check=True,timeout=120)
+            assert exe.is_file() and json.loads((root/'current.json').read_text())['version'] == VERSION
+            assert any((root/'data'/'setup-recovery').glob('*-current.json'))
             assert json.loads((root/'settings.json').read_text(encoding='utf-8'))==cfg
             assert (root/'data'/'preserve.txt').read_text()=='user data'
             results.append('repair install retains settings and persistent data')

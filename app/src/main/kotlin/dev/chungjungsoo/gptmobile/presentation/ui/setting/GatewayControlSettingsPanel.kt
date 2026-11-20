@@ -96,16 +96,29 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
                         }
                     }
                 }
+                var addConnection by remember { mutableStateOf(false) }
                 if (linkedAddress != null && profile == null) {
                     Text(linkedAddress)
                     OutlinedButton(onClick = { model.connectAddress(linkedAddress, initialPairingLink) { selected = it } }, enabled = !busy) { Text("Connect to this PC") }
-                } else if (profiles.isEmpty() && initialPairingLink == null) {
-                    var address by rememberSaveable { mutableStateOf("") }
-                    Text("On your PC, open Connect phone and copy the Gateway address.")
-                    OutlinedTextField(address, { address = it.take(512) }, label = { Text("Gateway address") }, singleLine = true)
-                    OutlinedButton(onClick = { model.connectAddress(address) { selected = it } }, enabled = address.isNotBlank() && !busy) { Text("Connect") }
-                } else if (profiles.isEmpty()) {
-                    Text("Add this PC’s private Gateway address in AI Profiles, then reopen the connection link.")
+                } else if (initialPairingLink == null) {
+                    if (profiles.isNotEmpty()) {
+                        TextButton(onClick = { addConnection = !addConnection }, enabled = !busy) {
+                            Text(if (addConnection) "Close address entry" else "Connect by address")
+                        }
+                    }
+                    if (profiles.isEmpty() || addConnection) {
+                        // A LAN address may include a one-use credential. Keep it out of saved instance state.
+                        var address by remember { mutableStateOf("") }
+                        Text("Copy the address from Connect phone on your PC.")
+                        OutlinedTextField(address, { address = it.take(4096) }, label = { Text("Gateway address") }, singleLine = true, visualTransformation = if ('#' in address) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None)
+                        OutlinedButton(onClick = {
+                            model.connectAddress(address) {
+                                selected = it
+                                address = ""
+                                addConnection = false
+                            }
+                        }, enabled = address.isNotBlank() && !busy) { Text("Connect") }
+                    }
                 }
                 profile?.let {
                     val direct by model.direct.collectAsStateWithLifecycle()
@@ -177,8 +190,12 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
             }
         }
     }
-    if (showPairing || state.phase in setOf(GatewayControlPhase.UNPAIRED, GatewayControlPhase.REVOKED, GatewayControlPhase.PAIRING)) {
-        Text("Open Connect phone on your PC and scan or paste its connection link.", style = MaterialTheme.typography.bodySmall)
+    if (!showPairing && state.phase in setOf(GatewayControlPhase.UNPAIRED, GatewayControlPhase.REVOKED)) {
+        Text("Use the PC’s private Gateway address for server settings and Engineering.", style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = { showPairing = true }) { Text("Use a legacy invitation") }
+    }
+    if (showPairing || state.phase == GatewayControlPhase.PAIRING) {
+        Text("Paste the invitation from the PC’s device access settings.", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(
             pairLink,
             { if (it.length <= 4096) pairLink = it },
@@ -202,10 +219,10 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
         }
     }
     if (state.phase == GatewayControlPhase.STALE && !showPairing) {
-        TextButton(onClick = { showPairing = true }) { Text("Reconnect") }
+        TextButton(onClick = { model.refresh(profile) }) { Text("Reconnect") }
     }
     if (snapshot != null && state.phase !in setOf(GatewayControlPhase.UNPAIRED, GatewayControlPhase.PAIRING)) {
-        Text("${if (snapshot.role == "owner") "Paired owner" else "Viewer"} · Revision ${snapshot.revision} · ${snapshot.installationId.takeLast(12)}", style = MaterialTheme.typography.labelSmall)
+        Text("${if (snapshot.role == "owner") "Connected owner" else "Viewer"} · Revision ${snapshot.revision} · ${snapshot.installationId.takeLast(12)}", style = MaterialTheme.typography.labelSmall)
         snapshot.updates?.let { update ->
             OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -291,7 +308,7 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
                 }, enabled = !busy) { Text("Discard draft") }
             }
         }
-        if ("host_request" in snapshot.writableFields) {
+        if (advanced && "host_request" in snapshot.writableFields) {
             var requestMenu by remember(profile.uid) { mutableStateOf(false) }
             Box {
                 OutlinedButton(onClick = { requestMenu = true }, enabled = live && snapshot.hostRequests.none { it.status == "waiting_pc" }) { Text("Request PC review") }
@@ -315,7 +332,7 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
                 }
             }
         }
-        if (snapshot.role == "owner") TextButton(onClick = { revokeConfirmation = true }, enabled = !busy && state.phase !in setOf(GatewayControlPhase.REVOKED, GatewayControlPhase.RECONCILING)) { Text("Revoke this phone") }
+        if (advanced && snapshot.principalId.startsWith("paired:") && snapshot.role == "owner") TextButton(onClick = { revokeConfirmation = true }, enabled = !busy && state.phase !in setOf(GatewayControlPhase.REVOKED, GatewayControlPhase.RECONCILING)) { Text("Revoke this phone") }
     }
     state.pendingCommand?.let { pending ->
         OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {

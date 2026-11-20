@@ -14,6 +14,7 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlPhase
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlState
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayPairingLink
+import dev.chungjungsoo.gptmobile.data.network.gateway.privateGatewayAddress
 import dev.chungjungsoo.gptmobile.data.repository.ProfileModelCatalog
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.net.URI
@@ -59,8 +60,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                         if (lastUnavailable?.let { it.first == key && System.nanoTime() - it.second < 30_000_000_000L } == true) return@launch
                         val admission = engineering.admissionSetting(config, null)
                         if (admission.principalId.startsWith("tailnet:") || admission.principalId == "local:single-user") {
-                            directStates.value = directStates.value + (key to admission)
-                            if (admission.enabled) selectGateway(current)
+                            observeAccount(current, admission)
                         } else {
                             directStates.value -= (current.uid to current.apiUrl)
                         }
@@ -82,8 +82,21 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
         }
     }
 
+    private suspend fun observeAccount(profile: PlatformV2, admission: GatewayAdmissionSetting) {
+        val key = profile.uid to profile.apiUrl
+        if (admission.connectedSettings) {
+            repository.connectAccount(profile, admission)
+            directStates.value -= key
+        } else {
+            directStates.value = directStates.value + (key to admission)
+        }
+        if (admission.enabled) selectGateway(profile)
+    }
+
     fun connectAddress(address: String, link: String? = null, onConnected: (String) -> Unit) = launchAction {
-        val uri = URI(address.trim().trimEnd('/'))
+        val input = address.trim()
+        val privateAddress = privateGatewayAddress(input, System.currentTimeMillis() / 1000)
+        val uri = URI(input.substringBefore('#').trimEnd('/'))
         require(uri.scheme in setOf("http", "https") && uri.host != null && uri.userInfo == null && uri.rawQuery == null && uri.fragment == null)
         require(uri.rawPath.orEmpty() in setOf("", "/v1") && (uri.port == -1 || uri.port in 1..65535))
         val endpoint = "${uri.scheme}://${uri.rawAuthority}/v1"
@@ -97,15 +110,23 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
             apiUrl = endpoint
         )
         require(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile))
-        val admission = if (link == null) {
-            engineering.admissionSetting(ProviderRequestConfig(endpoint, null, profileUid = profile.uid), null).also {
-                require(it.principalId.startsWith("tailnet:") || it.principalId == "local:single-user")
+        val config = ProviderRequestConfig(endpoint, profile.token, profileUid = profile.uid)
+        val admission = when {
+            privateAddress != null -> {
+                repository.connectPrivate(profile, privateAddress)
+                null
             }
-        } else {
-            require(GatewayPairingLink.parse(link, System.currentTimeMillis() / 1000).profileEndpoint == endpoint)
-            repository.pair(profile, link)
-            require(repository.states.value[profile.uid]?.engineeringBindingConfirmed == true)
-            null
+            link != null -> {
+                require(GatewayPairingLink.parse(link, System.currentTimeMillis() / 1000).profileEndpoint == endpoint)
+                repository.pair(profile, link)
+                null
+            }
+            else -> when (val principal = engineering.connectionPrincipal(config)) {
+                "network:shared" -> null
+                else -> engineering.admissionSetting(config, null).also {
+                    require(it.principalId == principal && (principal.startsWith("tailnet:") || principal == "local:single-user"))
+                }
+            }
         }
         if (matching.isEmpty()) {
             val models = try {
@@ -121,8 +142,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
         if (admission == null) {
             selectConnectedGateway(saved)
         } else {
-            directStates.value = directStates.value + ((saved.uid to saved.apiUrl) to admission)
-            if (admission.enabled) selectGateway(saved)
+            observeAccount(saved, admission)
         }
         onConnected(saved.uid)
     }
@@ -188,7 +208,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                 throw cancelled
             } catch (_: Exception) {
                 // Do not display remote response bodies, pairing codes, credentials or TLS details.
-                mutableError.value = "Could not verify this operation. Refresh the connection or open a new link from the Gateway PC."
+                mutableError.value = "Could not verify this operation. Check the Gateway address and connection. For a new LAN connection, copy a fresh private address from the PC."
             } finally {
                 mutableBusy.value = false
             }

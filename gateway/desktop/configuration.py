@@ -4,6 +4,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
 import time
 import uuid
@@ -29,6 +30,51 @@ def settings_write_lock(root):
         yield
     finally:
         lock.release()
+
+
+def setup_interface():
+    """Choose an active account VPN or Windows Private IPv4 interface once, during setup."""
+    from v14.account_connection import local_cli, overlay
+    account = local_cli('status', '--json')
+    if account.get('BackendState') == 'Running':
+        addresses = (account.get('Self') or {}).get('TailscaleIPs') or []
+        for value in addresses:
+            if overlay(value) and ':' not in value:
+                return value
+    if os.name == 'nt':
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        script = ('Get-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue | '
+                  'ForEach-Object { Get-NetIPAddress -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4 '
+                  '-AddressState Preferred -ErrorAction SilentlyContinue } | Select-Object -ExpandProperty IPAddress')
+        try:
+            run = subprocess.run([str(powershell), '-NoProfile', '-NonInteractive', '-Command', script],
+                                 capture_output=True, timeout=6, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            private = tuple(map(ipaddress.ip_network, ('10.0.0.0/8', '192.168.0.0/16', '172.16.0.0/12')))
+            for line in run.stdout.decode('ascii', errors='ignore').splitlines():
+                ip = ipaddress.ip_address(line.strip())
+                if any(ip in block for block in private):
+                    return str(ip)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    return '127.0.0.1'
+
+
+def default_phone_listener(cfg):
+    address = ipaddress.ip_address(cfg['bind_host'])
+    networks = ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7')
+    from v14.account_connection import overlay
+    if not overlay(str(address)) and any(address in ipaddress.ip_network(net) for net in networks):
+        return {'host': str(address), 'port': 8091 if cfg['port'] != 8091 else 8092}
+    return None
+
+
+def installer_settings(root, path):
+    if (Path(root) / 'settings.json').exists():
+        return load(root)
+    requested = json.loads(Path(path).read_text(encoding='utf-8-sig')) if path else {}
+    if isinstance(requested, dict) and requested.get('bind_host') == 'auto':
+        requested['bind_host'] = setup_interface()
+    return validate(requested)
 
 
 def validate(value):

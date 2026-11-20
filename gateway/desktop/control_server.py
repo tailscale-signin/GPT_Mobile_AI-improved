@@ -107,7 +107,7 @@ def create_app(controller):
                 raise ControlError('device_credential_required', 401)
             with store.tx() as db:
                 identity = store.installation(db)
-            pairing = request.url.path in {'/gateway/pairing/claim', '/gateway/pairing/finish'}
+            pairing = request.url.path in {'/gateway/pairing/claim', '/gateway/pairing/finish', '/gateway/connect'}
             if pairing:
                 if request.method != 'POST':
                     raise ControlError('invalid_pairing_method', 405)
@@ -144,6 +144,18 @@ def create_app(controller):
             if error.code == 'settings_changed_elsewhere':
                 result['snapshot'] = await asyncio.to_thread(store.snapshot, principal(request))
             return JSONResponse(result, status_code=error.status)
+
+    @app.post('/gateway/connect')
+    async def connect(request: Request):
+        payload = await request.json()
+        def issue():
+            if not isinstance(payload, dict) or set(payload) != {'public_key'}:
+                raise ControlError('invalid_connection_request')
+            if not (port := controller.connection_port()):
+                raise ControlError('gateway_address_changed', 409)
+            value = store.connect_address(request.state.control_token, payload['public_key'], controller.secret)
+            return dict(value, endpoint=controller.endpoint, fingerprint=controller.fingerprint, gateway_port=port)
+        return await execute(request, issue)
 
     @app.post('/gateway/pairing/claim')
     async def claim(request: Request):

@@ -30,8 +30,6 @@ jobs:
         run: dotnet run --project gateway/desktop/native/tests/Gateway.Native.Contracts.csproj -c Release
       - name: Cross-build native Windows dashboard
         run: dotnet build gateway/desktop/native/Gateway.Desktop.csproj -c Release
-      - name: Cross-build canonical setup
-        run: dotnet build gateway/desktop/windows/GatewaySetup.csproj -c Release
 
   windows-installer:
     runs-on: windows-latest

@@ -118,9 +118,10 @@ def validate_changes(changes, current, *, local=False, listener=None, approved_b
 
 
 class ControlStore:
-    def __init__(self, root, now=time.time, *, listener=None):
+    def __init__(self, root, now=time.time, *, listener=None, connected_account=None):
         self.root, self.now = Path(root), now
         self.listener = listener
+        self.connected_account = connected_account
         self.path = self.root / 'data' / 'jobs.sqlite3'
 
     @contextmanager
@@ -147,6 +148,7 @@ class ControlStore:
             'CREATE TABLE IF NOT EXISTS gateway_control_rejections (principal TEXT NOT NULL, id TEXT NOT NULL, digest TEXT NOT NULL, receipt TEXT NOT NULL, PRIMARY KEY(principal,id))',
             'CREATE TABLE IF NOT EXISTS gateway_control_devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, public_key TEXT NOT NULL, token_hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, fields TEXT NOT NULL, repositories TEXT NOT NULL, revoked INTEGER NOT NULL, created REAL NOT NULL)',
             'CREATE TABLE IF NOT EXISTS gateway_control_pairing (id TEXT PRIMARY KEY, code_hash TEXT UNIQUE NOT NULL, name TEXT NOT NULL, expires REAL NOT NULL, state TEXT NOT NULL, device_id TEXT, public_key TEXT, fields TEXT NOT NULL, repositories TEXT NOT NULL, role TEXT NOT NULL)',
+            'CREATE TABLE IF NOT EXISTS gateway_control_address_devices (device_id TEXT PRIMARY KEY)',
             'CREATE TABLE IF NOT EXISTS gateway_control_nonces (principal TEXT NOT NULL, nonce TEXT NOT NULL, expires REAL NOT NULL, PRIMARY KEY(principal,nonce))',
             'CREATE TABLE IF NOT EXISTS engineering_admission_settings (principal TEXT PRIMARY KEY, enabled INTEGER NOT NULL, revision INTEGER NOT NULL)',
             'CREATE TABLE IF NOT EXISTS gateway_control_runtime (id INTEGER PRIMARY KEY, observed REAL NOT NULL, ready INTEGER NOT NULL, prerequisites TEXT NOT NULL)',
@@ -180,6 +182,10 @@ class ControlStore:
         from desktop.phone_policies import state
         policy = state(self.root)
         old = db.execute('SELECT revision FROM gateway_control_policy_observation WHERE id=1').fetchone()
+        if not old or old[0] != policy['revision']:
+            repos = sorted(policy['repositories']) if policy['state'] == 'READY' else []
+            db.execute('UPDATE gateway_control_devices SET repositories=? WHERE revoked=0 AND id IN '
+                       '(SELECT device_id FROM gateway_control_address_devices)', (encoded(repos),))
         if old and old[0] != policy['revision']:
             row = db.execute('SELECT desired,effective,pending FROM gateway_control_settings WHERE id=1').fetchone()
             desired = dict(json.loads(row['desired']), validation_profile=policy['profile_id'])
@@ -220,7 +226,8 @@ class ControlStore:
         self._sync_host_policy(db)
         row = db.execute('SELECT * FROM gateway_control_settings WHERE id=1').fetchone()
         grant = self.device(db, principal)
-        if not local and not grant:
+        account = self.connected_account is not None and principal == self.connected_account
+        if not local and not grant and not account:
             raise ControlError('access_revoked', 401)
         owner = db.execute('SELECT enabled,revision FROM engineering_admission_settings WHERE principal=?', (principal,)).fetchone()
         enabled = bool(owner['enabled']) if owner else not principal.startswith('paired:')
@@ -236,14 +243,17 @@ class ControlStore:
             pending.append({'field': 'engineering_enabled', 'reason': 'setup_required', 'blocking_jobs': [], 'prerequisites': prerequisites})
         from desktop.phone_policies import choices
         repositories = json.loads(grant['repositories']) if grant else []
+        capabilities = {'controlSettings.v1': True}
+        if grant and db.execute('SELECT 1 FROM gateway_control_address_devices WHERE device_id=?', (grant['id'],)).fetchone():
+            capabilities['privateAddress.v1'] = True
         return {'schema': SCHEMA, 'installation_id': self.installation(db), 'principal_id': principal,
                 'revision': row['revision'], 'observed_at': self.now(), 'changed_at': row['changed'], 'changed_by': row['author'],
                 'desired': desired, 'effective': effective, 'pending': pending,
-                'writable_fields': sorted(FIELDS if local else json.loads(grant['fields']) if grant['role'] == 'owner' else []),
-                'role': 'owner' if local else grant['role'],
-                'capabilities': {'controlSettings.v1': True},
+                'writable_fields': sorted(FIELDS if local or account else json.loads(grant['fields']) if grant['role'] == 'owner' else []),
+                'role': 'owner' if local or account else grant['role'],
+                'capabilities': capabilities,
                 'repositories': repositories,
-                'validation_profiles': choices(db, None if local else repositories),
+                'validation_profiles': choices(db, None if local or account else repositories),
                 'approved_backends': self._backend_options(db, desired['backend']),
                 'host_requests': self._host_requests(db, principal),
                 'engineering_prerequisites': prerequisites}
@@ -424,7 +434,7 @@ class ControlStore:
     def digest(value):
         return hashlib.sha256(value.encode()).hexdigest()
 
-    def pairing_create(self, payload, *, connect=False):
+    def pairing_create(self, payload, *, connect=False, address=False):
         name = payload.get('name', 'Android phone')
         fields = payload.get('fields', sorted(FIELDS))
         repositories = payload.get('repositories', [])
@@ -445,8 +455,9 @@ class ControlStore:
             if db.execute('SELECT COUNT(*) FROM gateway_control_pairing').fetchone()[0] >= 16:
                 raise ControlError('too_many_pairing_invitations', 429)
             expires = int(self.now()) + (120 if connect else 300)
+            state = 'address_ready' if address else 'connect_ready' if connect else 'unused'
             db.execute('INSERT INTO gateway_control_pairing VALUES (?,?,?,?,?,NULL,NULL,?,?,?)',
-                       (ident, self.digest(code), name, expires, 'connect_ready' if connect else 'unused', encoded(sorted(set(fields))), encoded(sorted(set(repositories))), role))
+                       (ident, self.digest(code), name, expires, state, encoded(sorted(set(fields))), encoded(sorted(set(repositories))), role))
         return {'pairing_id': ident, 'code': code, 'installation_id': installation, 'expires_at': expires}
 
     def pairing_claim(self, code, payload):
@@ -508,18 +519,40 @@ class ControlStore:
                 raise ControlError('pairing_expired_or_used', 401)
             if row['state'] not in {'approved', 'connect_approved'}:
                 return {'pairing_id': row['id'], 'state': 'awaiting_confirmation'}, 202
-            # Reconstruct the same response after a lost delivery. Only its hash
-            # is stored; the server secret is protected separately from exports.
-            token = base64.urlsafe_b64encode(hmac.new(secret, ('control-device:' + row['device_id']).encode(), hashlib.sha256).digest()).decode().rstrip('=')
-            db.execute('INSERT OR IGNORE INTO gateway_control_devices VALUES (?,?,?,?,?,?,?,0,?)',
-                       (row['device_id'], row['name'], row['public_key'], self.digest(token), row['role'], row['fields'], row['repositories'], self.now()))
-            device = self.device(db, 'paired:' + row['device_id'])
-            if not device:
-                raise ControlError('access_revoked', 401)
-            quick = row['state'] == 'connect_approved'
-            db.execute('INSERT OR IGNORE INTO engineering_admission_settings VALUES (?,?,0)', ('paired:' + row['device_id'], int(quick)))
-            return {'token': token, 'installation_id': self.installation(db), 'principal_id': 'paired:' + row['device_id'],
-                    'device_id': row['device_id'], 'role': row['role'], 'engineering_connection': quick}, 200
+            return self._issue_device(db, row, secret, row['state'] == 'connect_approved'), 200
+
+    def connect_address(self, code, public_key, secret):
+        with self.tx() as db:
+            row = db.execute('SELECT * FROM gateway_control_pairing WHERE code_hash=? AND expires>?',
+                             (self.digest(code), self.now())).fetchone()
+            if not row or row['state'] not in {'address_ready', 'address_connected'}:
+                raise ControlError('address_expired', 401)
+            if row['state'] == 'address_ready':
+                db.execute("UPDATE gateway_control_pairing SET state='address_connected',device_id=?,public_key=? WHERE id=?",
+                           (uuid.uuid4().hex, public_key, row['id']))
+                row = db.execute('SELECT * FROM gateway_control_pairing WHERE id=?', (row['id'],)).fetchone()
+            if row['public_key'] != public_key:
+                raise ControlError('address_already_used', 403)
+            result = self._issue_device(db, row, secret, True)
+            db.execute('INSERT OR IGNORE INTO gateway_control_address_devices VALUES (?)', (row['device_id'],))
+            from desktop.phone_policies import state
+            policy = state(self.root)
+            repos = sorted(policy['repositories']) if policy['state'] == 'READY' else []
+            db.execute('UPDATE gateway_control_devices SET repositories=? WHERE id=?', (encoded(repos), row['device_id']))
+            return result
+
+    def _issue_device(self, db, row, secret, quick):
+        # Reconstruct the same response after a lost delivery. Only its hash
+        # is stored; the server secret is protected separately from exports.
+        token = base64.urlsafe_b64encode(hmac.new(secret, ('control-device:' + row['device_id']).encode(), hashlib.sha256).digest()).decode().rstrip('=')
+        db.execute('INSERT OR IGNORE INTO gateway_control_devices VALUES (?,?,?,?,?,?,?,0,?)',
+                   (row['device_id'], row['name'], row['public_key'], self.digest(token), row['role'], row['fields'], row['repositories'], self.now()))
+        device = self.device(db, 'paired:' + row['device_id'])
+        if not device:
+            raise ControlError('access_revoked', 401)
+        db.execute('INSERT OR IGNORE INTO engineering_admission_settings VALUES (?,?,0)', ('paired:' + row['device_id'], int(quick)))
+        return {'token': token, 'installation_id': self.installation(db), 'principal_id': 'paired:' + row['device_id'],
+                'device_id': row['device_id'], 'role': row['role'], 'engineering_connection': quick}
 
     def authenticate(self, token):
         if not token or len(token) > 256:

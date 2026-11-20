@@ -1,6 +1,8 @@
 """Local-only runtime activation for settings owned by the Windows supervisor."""
 import asyncio
 import json
+import os
+from pathlib import Path
 import re
 import time
 
@@ -46,7 +48,91 @@ def probe_backend(origin, model):
             raise ValueError('The selected model is not reported by this backend')
 
 
+def connected_settings_root(config):
+    directory = os.environ.get('GATEWAY_DESKTOP_ROOT')
+    if not directory or os.environ.get('GATEWAY_DESKTOP_MANAGED') != '1' or not config.control_journal:
+        return None
+    root = Path(directory).resolve()
+    return root if Path(config.control_journal).resolve() == root / 'data' / 'jobs.sqlite3' else None
+
+
+def install_connected_settings(app, root, config):
+    app.state.connected_settings = True
+    from desktop.control_store import ControlError, ControlStore, ID
+    from v14.account_connection import PREFIX
+    from v14.identity import account_authorized
+
+    def account(request):
+        principal = request.state.principal.id
+        if (any(k.startswith(('x-forwarded-', 'tailscale-', 'sec-fetch-')) or k in {'origin', 'cookie', 'forwarded', 'x-gateway-control-principal'} for k in request.headers)
+                or not (config.mode == 'loopback' and principal == 'local:single-user'
+                        or principal.startswith(PREFIX) and account_authorized(config, principal))):
+            raise ControlError('connected_account_required', 403)
+        return principal
+
+    async def dispatch(request, command=None, updates=False):
+        try:
+            raw = await request.body()
+            if len(raw) > 32768:
+                raise ControlError('control_request_too_large', 413)
+            def handle():
+                principal = account(request)
+                store = ControlStore(root, connected_account=principal)
+                # Bind reads, writes and receipt lookups to the installation originally selected by Android.
+                if request.headers.get('x-gateway-principal-id') != principal:
+                    raise ControlError('connected_account_changed', 409)
+                with store.tx() as db:
+                    if request.headers.get('x-gateway-installation-id') != store.installation(db):
+                        raise ControlError('installation_changed', 409)
+                if updates:
+                    from desktop.manager import ManagerRequestError, request as send
+                    body = json.loads(raw)
+                    if not isinstance(body, dict) or 'principal' in body:
+                        raise ControlError('invalid_update_request')
+                    try:
+                        send(root, 'phone-update', payload=dict(body, principal=principal))
+                    except ManagerRequestError as exc:
+                        raise ControlError(exc.code or 'update_not_accepted', exc.status or 409) from None
+                    return {'accepted': True}
+                if command is not None:
+                    if not ID.fullmatch(command):
+                        raise ControlError('invalid_settings_command')
+                    return store.receipt(principal, command)
+                if request.method == 'PATCH':
+                    return store.patch(principal, json.loads(raw))
+                result = store.snapshot(principal)
+                try:
+                    status = json.loads((root / 'status.json').read_text(encoding='utf-8'))
+                    if status.get('version'):
+                        result['updates'] = {'installed': status['version'], 'state': status.get('updateState', 'unchecked'),
+                                             'available': status.get('availableVersion')}
+                except (OSError, ValueError):
+                    pass
+                return result
+            return await asyncio.to_thread(handle)
+        except ControlError as exc:
+            return JSONResponse({'error': {'code': exc.code}}, status_code=exc.status)
+        except (ValueError, TypeError, UnicodeError):
+            return JSONResponse({'error': {'code': 'invalid_settings_command'}}, status_code=400)
+
+    async def settings(request: Request):
+        return await dispatch(request)
+
+    async def receipt(command: str, request: Request):
+        return await dispatch(request, command=command)
+
+    async def update(request: Request):
+        return await dispatch(request, updates=True)
+
+    for prefix in ('/gateway/engineering/connected', '/v1/gateway/engineering/connected'):
+        app.add_api_route(prefix + '/settings', settings, methods=['GET', 'PATCH'])
+        app.add_api_route(prefix + '/settings/commands/{command}', receipt, methods=['GET'])
+        app.add_api_route(prefix + '/updates', update, methods=['POST'])
+
+
 def install_control_settings(app, runtime, state, engineering, config):
+    if root := connected_settings_root(config):
+        install_connected_settings(app, root, config)
     from desktop.phone_policies import runtime_active
     current = {'workers': config.max_workers, 'active_chats': config.max_active_chats,
                'backend': runtime.LLAMA_BASE.rstrip('/'), 'model': '',

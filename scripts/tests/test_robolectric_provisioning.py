@@ -5,6 +5,7 @@ import re
 import tempfile
 import unittest
 import urllib.error
+from unittest.mock import patch
 
 from scripts import provision_robolectric_sdks as sdk
 
@@ -152,6 +153,42 @@ class RobolectricProvisioningTest(unittest.TestCase):
         self.assertEqual([15, 30, 20], delays)
         self.assertEqual(self.body, self.target.read_bytes())
         self.assertFalse(list(self.target.parent.glob('*.part')))
+
+    def test_primary_404_on_pinned_pom_rotates_and_requires_the_same_bytes(self):
+        version = '14-robolectric-10818077-i7'
+        suffix = f'/{version}/android-all-instrumented-{version}.pom'
+        primary = sdk.BASE + suffix
+        self.assertEqual(sdk.SDKS[version]['pom'], sdk.PINNED_CENTRAL_ARTIFACTS[primary])
+        for mirror_bytes in (self.body, b'different content'):
+            with self.subTest(verified=mirror_bytes == self.body):
+                self.target.unlink(missing_ok=True)
+                calls = []
+
+                def opener(url, timeout):
+                    calls.append(url)
+                    if url == primary:
+                        raise urllib.error.HTTPError(url, 404, 'edge cache miss', {}, None)
+                    return io.BytesIO(mirror_bytes)
+
+                with patch.dict(sdk.PINNED_CENTRAL_ARTIFACTS, {primary: self.digest}):
+                    if mirror_bytes == self.body:
+                        sdk.download(self.target, primary, self.digest, 100, opener, lambda _: None, lambda: 0)
+                        self.assertEqual(self.body, self.target.read_bytes())
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'SHA-512'):
+                            sdk.download(self.target, primary, self.digest, 100, opener, lambda _: None, lambda: 0)
+                        self.assertFalse(self.target.exists())
+                self.assertEqual([primary, sdk.MAVEN_CENTRAL_ALTERNATE_BASE + suffix], calls)
+
+    def test_primary_404_does_not_rotate_when_the_pin_differs(self):
+        url = next(iter(sdk.PINNED_CENTRAL_ARTIFACTS))
+        def missing(request, timeout):
+            self.assertEqual(request, url)
+            raise urllib.error.HTTPError(request, 404, 'missing', {}, None)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            sdk.download(self.target, url, self.digest, 100, missing, lambda _: self.fail('unrecognized pin retried'), lambda: 0)
+        self.assertFalse(self.target.exists())
 
     def test_canonical_404_still_fails_without_using_any_mirror(self):
         canonical = f"{sdk.BASE}/sample/runtime.jar"

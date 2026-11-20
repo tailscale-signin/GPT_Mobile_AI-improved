@@ -49,6 +49,10 @@ MAVEN_CENTRAL_ALTERNATE_BASE = "https://repo1.maven.org/maven2/org/robolectric/a
 # transport when both canonical Central hosts share an HTTP 429 throttle.
 # Every jar/POM is still checked against the same publisher-pinned SHA-512.
 GOOGLE_MAVEN_CENTRAL_BASE = "https://maven-central.storage-download.googleapis.com/maven2/org/robolectric/android-all-instrumented"
+PINNED_CENTRAL_ARTIFACTS = {
+    f"{BASE}/{version}/android-all-instrumented-{version}.{extension}": digest
+    for version, artifacts in SDKS.items() for extension, digest in artifacts.items()
+}
 TRANSIENT_STATUS = {408, 429, 500, 502, 503, 504}
 TRANSIENT_ATTEMPTS = 3
 THROTTLED_ATTEMPTS = 6
@@ -124,16 +128,15 @@ def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=
             return
         except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as error:
             selected = sources[attempt % len(sources)]
-            # The lagging public mirror may not have a recently published
-            # artifact. A mirror-only 404 is not proof the pinned coordinate is
-            # absent from Central. Never retry a 404 from the original origin.
-            stale_mirror = (
+            # Central edges can miss an already published POM. A primary 404 may
+            # rotate only for an exact repository-owned URL and its matching pin.
+            missing_at_edge = (
                 isinstance(error, urllib.error.HTTPError)
                 and error.code == 404
-                and selected != url
                 and len(sources) > 1
+                and (selected != url or PINNED_CENTRAL_ARTIFACTS.get(url) == digest)
             )
-            if isinstance(error, urllib.error.HTTPError) and error.code not in TRANSIENT_STATUS and not stale_mirror:
+            if isinstance(error, urllib.error.HTTPError) and error.code not in TRANSIENT_STATUS and not missing_at_edge:
                 raise
             throttled = isinstance(error, urllib.error.HTTPError) and error.code == 429
             if throttled:

@@ -117,3 +117,45 @@ def check_wizard(installer, root, output):
     finally:
         if process.poll() is None:
             subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=10)
+
+
+def check_installed_launch(root, runtime, wait_state):
+    """Open the installed desktop as a user would, then reopen it with the other executable."""
+    from desktop.manager import request
+
+    user = ctypes.WinDLL('user32', use_last_error=True)
+    user.FindWindowW.argtypes = (wintypes.LPCWSTR, wintypes.LPCWSTR)
+    user.FindWindowW.restype = wintypes.HWND
+    user.IsWindowVisible.argtypes = (wintypes.HWND,)
+    user.PostMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+
+    def dashboard():
+        handle = user.FindWindowW(None, 'GPT Mobile · Gateway')
+        return handle if handle and user.IsWindowVisible(handle) else None
+
+    def await_window(condition, description):
+        deadline = time.monotonic() + 40
+        while time.monotonic() < deadline:
+            found = condition()
+            if found:
+                return found
+            time.sleep(.2)
+        raise RuntimeError(description)
+
+    signal = root / 'show-native.json'
+    signal.unlink(missing_ok=True)
+    (root / 'status.json').unlink(missing_ok=True)
+    try:
+        subprocess.run([str(runtime)], check=True, timeout=40)
+        first_window = await_window(dashboard, 'Double-clicking Gateway.exe did not open the installed dashboard')
+        wait_state(root, 'running')
+        subprocess.run([str(runtime.parent / 'native' / 'Gateway.Desktop.exe')], check=True, timeout=40)
+        await_window(signal.is_file, 'Second launch did not reach the existing dashboard')
+        if dashboard() != first_window:
+            raise AssertionError('Reopening Gateway replaced the active dashboard')
+    finally:
+        handle = dashboard()
+        if handle:
+            user.PostMessageW(handle, 0x0010, 0, 0)  # WM_CLOSE
+            await_window(lambda: not dashboard(), 'The dashboard did not close')
+        request(root, 'stop')

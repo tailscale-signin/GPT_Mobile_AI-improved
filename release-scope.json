@@ -3326,6 +3326,7 @@
     "gateway/contracts/v18/gateway-v18-capabilities-full.json",
     "gateway/desktop/build_v17_transition.py",
     "gateway/desktop/windows/Build-SetupArtwork.ps1",
+    "gateway/desktop/windows/setup_smoke.py",
     "gateway/tests/test_gateway_desktop_updates.py",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptionsTest.kt",

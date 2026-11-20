@@ -41,7 +41,7 @@ The installer cannot guarantee a flawless installation on every PC. Interactive 
 
 The running supervisor adds the app's robot icon to the Windows notification area. Click it to open **Gateway Dashboard**; right-click for settings, restart and stop. Its tooltip shows observed clients and open jobs. The dashboard has its own matching taskbar icon and Start menu shortcut; setup also offers an optional desktop shortcut. Closing the dashboard leaves the gateway running.
 
-The packaged dashboard is a native WPF workspace using GPT Mobile's dark teal, cyan and purple palette, rounded controls, keyboard focus indicators and system high contrast colors. Its navigation contains **Overview, Chat, Saved, Jobs, Tools, Benchmarks, Android controls, Diagnostics and Settings**. Overview shows measured output, active workers, open jobs and seven days of saved token measurements. Jobs contains actual saved chat, Engineering and Copilot work; recent tool operations and observed devices remain separate observations. Missing measurements and stale snapshots stay visibly unavailable.
+The packaged dashboard is a native WPF workspace using GPT Mobile's dark teal, cyan and purple palette, rounded controls, keyboard focus indicators and system high contrast colors. The sidebar opens **Home**, **Chat**, **Saved**, **Jobs** and **Settings**. Home shows the connection, recent activity, open jobs and measured usage. Settings groups tools, benchmarks, device access, diagnostics and runtime preferences under **Advanced**. Jobs contains actual saved chat, Engineering and Copilot work; recent tool operations and observed devices remain separate observations. Missing measurements and stale snapshots stay visibly unavailable.
 
 Chat uses the exact selected model and principal-bound Gateway conversation API. **Save draft** retains the composer on this PC; a send persists its original command before dispatch. **Check send** reads that command after an interruption without resubmitting it. Saved provides conversation search, favorites, archive and message bookmarks. Benchmark runs and evidence use the existing Gateway-owned service, so closing the window does not transfer execution into the desktop. Copilot cloud tasks retain their GitHub URL and report when remote cancellation is unsupported.
 
@@ -194,12 +194,6 @@ Chat opens the selected-model composer. Ctrl+Enter sends. Saved offers
 history search, bookmarks, favorites and archiving. Advanced setup is optional.
 See [Gateway 18 contracts](../V17_DESKTOP.md) for conversation identity, benchmark
 scope, safe recovery and upgrade behavior.
-
-## Connect a phone
-
-On Home, select **Connect phone**. When the PC listens on its Tailscale address, enter the displayed Gateway address in the phone’s Gateway settings. Devices signed into the same Tailscale account use their existing device identity. Engineering starts enabled for that device. Its switch remembers later changes. Repository credentials and a ready model are still needed for tasks that use them.
-
-For a private LAN connection, choose a repository on the PC and scan the two-minute link on your phone. Tap **Connect**. When the model listener shares that interface, the phone can create the Gateway profile directly from the link. The PC grants Engineering for that repository. Keep the link private until the phone connects.
 
 ## Additional device permissions
 

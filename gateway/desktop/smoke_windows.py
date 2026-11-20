@@ -87,7 +87,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='Gateway smoke ü ') as temp:
         root=Path(temp)/'Gateway install'
         # Drive the shipped installer itself before testing unattended install and repair.
-        from desktop.windows.setup_smoke import check_wizard
+        from desktop.windows.setup_smoke import check_installed_launch, check_wizard
         check_wizard(installer, root, output)
         results.append('interactive setup opens, validates custom settings and returns to the recommended path')
         cmd=[str(installer),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=',f'/DIR={root}']
@@ -209,6 +209,8 @@ def main():
             assert json.loads((root/'settings.json').read_text(encoding='utf-8'))==cfg
             assert (root/'data'/'preserve.txt').read_text()=='user data'
             results.append('repair install retains settings and persistent data')
+            check_installed_launch(root, exe, wait_state)
+            results.append('both installed executables open one dashboard without arguments and start the repaired supervisor')
             if upgrade:
                 from unittest.mock import patch
                 from desktop import releases, windows_job

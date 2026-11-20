@@ -42,6 +42,7 @@ internal object IssueReportIncidentCapsule {
 
     /** Serialized production policy/profile keys only; never scope IDs or settings values. */
     val policyFieldNames = setOf(
+        "profileBehavior.delegationEnabled", "profileBehavior.delegationCloudPermission", "profileBehavior.crawlersEnabled", "profileBehavior.crawlerToolIds", "profileBehavior.maxCrawlPages", "profileBehavior.toolPluginStates", "profileBehavior.researchDepthOverride", "profileBehavior.researchEnabledOverride", "profileBehavior.academicSourcesAllowed",
         "githubProfileOverride.webSearch", "githubProfileOverride.githubTools", "githubProfileOverride.engineeringMode", "githubProfileOverride.maximumContext", "githubProfileOverride.engineeringMemory", "githubProfileOverride.allowCloudEngineeringMemory", "githubProfileOverride.workflowPreset", "githubProfileOverride.quickWorkflows", "githubProfileOverride.engineeringGatewayProfileUid", "githubProfileOverride.executionBatchMode", "githubProfileOverride.sampling",
         "assist", "assistPolicy", "budget", "conversationDelegation", "conversationGateway",
         "conversationResearch", "delegation", "engineering", "githubProfileOverride", "githubProfileSelection",
@@ -85,6 +86,7 @@ internal object IssueReportIncidentCapsule {
     const val REPEAT_HISTORY_FEATURE = "TOOL_REPEAT_HISTORY_EVIDENCE_V1"
     private val repeatHistoryHashFields = setOf("dependency_repeat_prior_call_id_hashes", "dependency_repeat_batch_call_id_hashes")
     val repeatHistoryListFields = repeatHistoryHashFields + "dependency_repeat_prior_outcomes"
+    const val LAST_UNSENT_CODE = "dependency_repeat_last_unsent_code"
     val repeatHistoryFields = repeatHistoryListFields + setOf("dependency_repeat_prior_coverage", "dependency_repeat_batch_coverage")
     private val repeatHistoryOutcomes = setOf("UNOBSERVED", "DISPATCHED_SUCCESS", "DISPATCHED_FAILURE", "NOT_DISPATCHED", "SHARED_RESULT", "UNKNOWN_OUTCOME")
     const val GITHUB_CI_SEMANTIC_FEATURE = "GITHUB_CI_SEMANTIC_EVIDENCE_V1"
@@ -175,6 +177,7 @@ internal object IssueReportIncidentCapsule {
         "fixture_approval_state" to setOf("READY", "CONDITIONAL", "UNKNOWN"),
         "branch_protection_observation" to policyObservation,
         "branch_rules_observation" to policyObservation,
+        LAST_UNSENT_CODE to setOf("INVALID_ARGUMENTS", "NOT_DISPATCHED", "EVIDENCE_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_REF_UNAVAILABLE", "GITHUB_REPOSITORY_UNAVAILABLE", "TOOL_UNAVAILABLE", "UNKNOWN_TOOL", "GITHUB_VALIDATION_FAILED", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "TOOL_PRECHECK_FAILED", "PRECHECK_REJECTED", "OTHER"),
         "dependency_repeat_prior_coverage" to setOf("COMPLETE", "PARTIAL", "UNAVAILABLE"),
         "dependency_repeat_batch_coverage" to setOf("COMPLETE", "PARTIAL", "UNAVAILABLE"),
         "status_policy_protection_404_kind" to setOf("NOT_FOUND", "OTHER_404", "EXPLICIT_BRANCH_NOT_PROTECTED"),
@@ -320,7 +323,7 @@ internal object IssueReportIncidentCapsule {
     }
 
     fun fieldsFor(area: String): Set<String> = common + when (area) {
-        "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields + repeatHistoryFields + inventoryPaginationFields
+        "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields + repeatHistoryFields + LAST_UNSENT_CODE + inventoryPaginationFields
         "INCIDENT" -> setOf("github_prerequisite_observation") + combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure", "provider_error_code_state", "provider_error_origin")
         "ACCEPTANCE" -> setOf("github_prerequisite_observation") + acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + policyResponseFields + GitHubAcceptancePublicationEvidence.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
         "GATEWAY" -> gatewayFields
@@ -388,7 +391,7 @@ internal object IssueReportIncidentCapsule {
 
     /** History is one observed group; the pre-existing admission operands remain independently valid without it. */
     fun repeatHistoryAligned(values: Map<String, JsonElement>, currentCallIdHash: JsonElement? = null): Boolean {
-        if (repeatHistoryFields.none { it in values }) return true
+        if (repeatHistoryFields.none { it in values }) return LAST_UNSENT_CODE !in values
         if (!(repeatHistoryFields + repeatAdmissionFields).all { it in values }) return false
         if (text(values["dependency_repeat_scope"]) !in setOf("TOOL_NAME", "TOOL_NAME_AND_ARGUMENTS")) return false
         fun count(key: String) = (values[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it in 0L..16_000_000L }
@@ -400,6 +403,11 @@ internal object IssueReportIncidentCapsule {
         val prior = validValue("dependency_repeat_prior_call_id_hashes", values.getValue("dependency_repeat_prior_call_id_hashes")) as? JsonArray ?: return false
         val batch = validValue("dependency_repeat_batch_call_id_hashes", values.getValue("dependency_repeat_batch_call_id_hashes")) as? JsonArray ?: return false
         val outcomes = validValue("dependency_repeat_prior_outcomes", values.getValue("dependency_repeat_prior_outcomes")) as? JsonArray ?: return false
+        if (LAST_UNSENT_CODE in values &&
+            (text(values["dependency_repeat_prior_coverage"]) != "COMPLETE" || outcomes.lastOrNull() != JsonPrimitive("NOT_DISPATCHED"))
+        ) {
+            return false
+        }
         if (prior.size != outcomes.size || (prior + batch).distinct().size != prior.size + batch.size) return false
         if (listOfNotNull(values["call_id_hash"], currentCallIdHash).any { it in prior || it in batch }) return false
         fun covered(key: String, retained: Int, count: Long): Boolean = when (text(values[key])) {
@@ -565,7 +573,7 @@ internal object IssueReportIncidentCapsule {
     data class CausalIdentity(val runHash: String, val causeHash: String, val provenance: String, val code: String)
 
     private fun policySection(field: String?): String? = when (field?.substringBefore('.')) {
-        "profile" -> "PROFILE"
+        "profile", "profileBehavior" -> "PROFILE"
         "budget" -> "BUDGET"
         "spend" -> "SPEND"
         "tools", "plugins", "tool_inventory" -> "TOOLS"

@@ -151,6 +151,26 @@ internal object ToolReportDiagnostics {
             putAll(typeShape(arguments, "argument"))
         }
         if (result.isError && !result.dispatched && arguments != null) {
+            if (result.errorCode == "INVALID_ARGUMENTS" && action != null && arguments.keys == setOf("action")) {
+                if (action == "stage") put("tool_action", action)
+                val family = when (event.toolName.githubOperationFamily()) {
+                    "repository_workspace" -> "REPOSITORY_WORKSPACE"
+                    "repository_graph" -> "REPOSITORY_GRAPH"
+                    "github" -> "GITHUB_NATIVE"
+                    in dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.names -> "GITHUB_OPERATION"
+                    else -> "OTHER"
+                }
+                put("action_only_tool_family", family)
+                val receipt = result.executionReceipt
+                val validatorCall = receipt?.get("argument_validation_call_id")
+                val validation = when {
+                    receipt.isNullOrEmpty() -> "NO_RECEIPT"
+                    validatorCall == JsonPrimitive(event.callId) -> "CALL_BOUND_VALIDATOR"
+                    validatorCall != null -> "VALIDATOR_CALL_MISMATCH"
+                    else -> "NO_VALIDATOR_ID"
+                }
+                put("action_only_validation", validation)
+            }
             when (event.modelToolName.githubOperationFamily()) {
                 "github_read" -> if (result.errorCode in setOf("EVIDENCE_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION")) {
                     val evidence = (arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content

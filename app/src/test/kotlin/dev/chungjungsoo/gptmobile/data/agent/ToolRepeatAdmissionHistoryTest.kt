@@ -32,6 +32,7 @@ class ToolRepeatAdmissionHistoryTest {
         assertEquals("COMPLETE", fields["dependency_repeat_prior_coverage"])
         assertEquals(emptyList<String>(), fields["dependency_repeat_batch_call_id_hashes"])
         assertEquals("COMPLETE", fields["dependency_repeat_batch_coverage"])
+        assertEquals("INVALID_ARGUMENTS", fields[ToolRepeatAdmissionHistory.LAST_UNSENT_CODE])
         assertEquals(3, fields["dependency_repeat_prior_admissions"])
         assertEquals(0, fields["dependency_repeat_batch_admissions"])
         assertEquals(3, fields["dependency_repeat_used"])
@@ -40,6 +41,20 @@ class ToolRepeatAdmissionHistoryTest {
         assertFalse(fields.toString().contains("private.invalid"))
         assertFalse(fields.toString().contains("prior-1"))
         assertFalse(fields.toString().contains(runId))
+    }
+
+    @Test fun lastUnsentCauseRequiresCompleteOwnedHistoryAndContainsOnlyPublicCodes() {
+        val history = ToolRepeatAdmissionHistory(runId)
+        val prior = call("prior")
+        charge(history, listOf(prior))
+        history.observe(prior, result(prior, error = "private-unrecognized-code", dispatched = false))
+        val refused = call("refused")
+        val captured = capture(history, refused, prior = 1, limit = 1)
+        assertEquals("OTHER", fields(captured, refused)[ToolRepeatAdmissionHistory.LAST_UNSENT_CODE])
+        assertFalse(fields(captured, refused).toString().contains("private-unrecognized-code"))
+        assertNull(fields(captured, refused, "other-run")[ToolRepeatAdmissionHistory.LAST_UNSENT_CODE])
+        val partial = call("partial")
+        assertNull(fields(capture(history, partial, prior = 3), partial)[ToolRepeatAdmissionHistory.LAST_UNSENT_CODE])
     }
 
     @Test fun dependencyRefundsKeepTheOriginalProvisionalReferenceWithoutChargingIt() {

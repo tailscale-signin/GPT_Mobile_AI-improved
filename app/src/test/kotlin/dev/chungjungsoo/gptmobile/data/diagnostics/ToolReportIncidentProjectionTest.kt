@@ -290,6 +290,27 @@ class ToolReportIncidentProjectionTest {
         assertFalse(ToolReportDiagnostics.fields(event.copy(modelToolName = "github_issue"), result).containsKey("remote_pagination_reason"))
     }
 
+    @Test fun stageOnlyReportsTheRecordedToolFamilyAndValidatorOwnership() {
+        val event = event("""{"action":"stage"}""").copy(toolName = "repository_workspace", modelToolName = "workspace__private-id")
+        val result = AgentToolResult(event.callId, ToolResultContent.Text("private result"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        val fields = ToolReportDiagnostics.fields(event, result)
+        val diagnostics = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("stage"), diagnostics.values["tool_action"])
+        assertEquals(JsonPrimitive("REPOSITORY_WORKSPACE"), diagnostics.values["action_only_tool_family"])
+        assertEquals(JsonPrimitive("NO_RECEIPT"), diagnostics.values["action_only_validation"])
+        assertTrue(IssueReportDiagnostics.ACTION_ONLY_FEATURE in diagnostics.requiredServiceFeatures())
+        assertFalse(diagnostics.toString().contains("private"))
+        val bound = buildJsonObject { put("argument_validation_call_id", event.callId) }
+        val other = buildJsonObject { put("argument_validation_call_id", "private-other-call") }
+        val unidentified = buildJsonObject { put("message", "private") }
+        for ((receipt, expected) in listOf(bound to "CALL_BOUND_VALIDATOR", other to "VALIDATOR_CALL_MISMATCH", unidentified to "NO_VALIDATOR_ID")) {
+            val observed = ToolReportDiagnostics.fields(event, result.copy(executionReceipt = receipt))
+            assertEquals(expected, observed["action_only_validation"])
+        }
+        assertFalse("action_only_validation" in ToolReportDiagnostics.fields(event, result.copy(callId = "wrong")))
+        assertFalse("action_only_validation" in ToolReportDiagnostics.fields(event.copy(arguments = """{"action":"stage","path":"private"}"""), result))
+    }
+
     private fun event(arguments: String) = ToolEvent("private-event", "private-run", 1, "private-call", null, null, "github_issue", "github_issue", arguments, null, null, "FAILED")
 
     @Test fun genericGitHubPrecheckOnlyReportsHashesFromExactObservedExceptionReceipt() {

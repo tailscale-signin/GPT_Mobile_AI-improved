@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.context
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.research.researchHash
@@ -93,7 +94,8 @@ internal object ConfiguredDispatchAuthority {
                 it == "budget" && allowsAcceptedTokenPlan(capturedFeatures.tokenBudget, currentFeatures.tokenBudget, platform.uid)
             }.sorted()
             if (changed.isNotEmpty()) {
-                throw DispatchPolicyChangedException(changed + githubOverrideChanges(capturedFields, currentFields), gatewaySelectionChange(capturedFields, currentFields))
+                val details = githubOverrideChanges(capturedFields, currentFields) + profileBehaviorChanges(capturedFields, currentFields)
+                throw DispatchPolicyChangedException(changed + details, gatewaySelectionChange(capturedFields, currentFields))
             }
         }
     }
@@ -104,6 +106,13 @@ internal object ConfiguredDispatchAuthority {
         val current = (after["githubProfileOverride"] as? JsonObject).orEmpty()
         return listOf("webSearch", "githubTools", "engineeringMode", "maximumContext", "engineeringMemory", "allowCloudEngineeringMemory", "workflowPreset", "quickWorkflows", "engineeringGatewayProfileUid", "executionBatchMode", "sampling")
             .filter { previous[it] != current[it] }.map { "githubProfileOverride.$it" }
+    }
+
+    private fun profileBehaviorChanges(before: JsonObject, after: JsonObject): List<String> {
+        val previous = before["profile"] as? JsonObject ?: return emptyList()
+        val current = after["profile"] as? JsonObject ?: return emptyList()
+        return listOf("delegationEnabled", "delegationCloudPermission", "crawlersEnabled", "crawlerToolIds", "maxCrawlPages", "toolPluginStates", "researchDepthOverride", "researchEnabledOverride", "academicSourcesAllowed")
+            .filter { previous[it] != current[it] }.map { "profileBehavior.$it" }
     }
 
     internal fun gatewaySelectionChange(before: JsonObject, after: JsonObject): String? {
@@ -158,6 +167,15 @@ internal object ConfiguredDispatchAuthority {
         fun matches(candidate: JsonObject): Boolean = researchHash(candidate.toString()) == revision ||
             researchHash(JsonObject(candidate + ("tools" to legacyTools)).toString()) == revision
         if (matches(fields)) return true
+        // Earlier checkpoints serialized an unset profile as null and kept collection insertion order.
+        val rawProfile = Json.encodeToJsonElement(features.profileBehavior[uid])
+        val previous = JsonObject(fields + ("profile" to rawProfile))
+        if (matches(previous)) return true
+        if ((features.profileBehavior[uid] ?: ProfileBehaviorSettings()) == ProfileBehaviorSettings() &&
+            matches(JsonObject(fields + ("profile" to kotlinx.serialization.json.JsonNull)))
+        ) {
+            return true
+        }
         // Waits captured before canonicalization included prompt shortcuts and plugin insertion order.
         val legacy = policyFields(features, uid, chatId, scopeProfile, legacy = true)
         return legacy.toString() != fields.toString() && matches(legacy)
@@ -169,7 +187,9 @@ internal object ConfiguredDispatchAuthority {
             // Quote refresh timestamps and provenance are telemetry, not authority.
             // Keep the actual rates and limits so a cost-changing edit still blocks dispatch.
             put("spend", Json.encodeToJsonElement(features.spendBudget.copy(prices = features.spendBudget.prices.filterKeys { !scopeProfile || it == uid && features.spendBudget.enforced }.mapValues { (_, price) -> price.copy(checkedAt = 0, source = "") })))
-            put("profile", Json.encodeToJsonElement(features.profileBehavior[uid]))
+            val behavior = features.profileBehavior[uid] ?: ProfileBehaviorSettings()
+            val canonicalBehavior = behavior.copy(crawlerToolIds = behavior.crawlerToolIds.toSortedSet(), toolPluginStates = behavior.toolPluginStates.toSortedMap())
+            put("profile", if (legacy) Json.encodeToJsonElement(features.profileBehavior[uid]) else Json.encodeToJsonElement(canonicalBehavior))
             val plugins = Json.encodeToJsonElement(features.pluginExecution) as JsonObject
             put("plugins", if (legacy) plugins else JsonObject(plugins.toSortedMap()))
             // Persisting an explicit default is not a permission change. Keep

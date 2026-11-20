@@ -162,6 +162,7 @@ FIELD_NAMES = {
 
 # Counts cover supplied array entries; omitted counts distinct known names beyond the retained eight.
 POLICY_FIELD_NAMES = {
+    'profileBehavior.delegationEnabled', 'profileBehavior.delegationCloudPermission', 'profileBehavior.crawlersEnabled', 'profileBehavior.crawlerToolIds', 'profileBehavior.maxCrawlPages', 'profileBehavior.toolPluginStates', 'profileBehavior.researchDepthOverride', 'profileBehavior.researchEnabledOverride', 'profileBehavior.academicSourcesAllowed',
     'assist',
     'assistPolicy',
     'budget',
@@ -259,6 +260,7 @@ COMMON = {
 
 TOOL_REPEAT_COUNTS = {'dependency_repeat_prior_admissions', 'dependency_repeat_batch_admissions', 'dependency_repeat_used', 'dependency_repeat_limit'}
 TOOL_REPEAT_FIELDS = TOOL_REPEAT_COUNTS | {'dependency_repeat_scope'}
+LAST_UNSENT_CODE = 'dependency_repeat_last_unsent_code'
 REPEAT_HISTORY_HASH_FIELDS = {'dependency_repeat_prior_call_id_hashes', 'dependency_repeat_batch_call_id_hashes'}
 REPEAT_HISTORY_LIST_FIELDS = REPEAT_HISTORY_HASH_FIELDS | {'dependency_repeat_prior_outcomes'}
 REPEAT_HISTORY_FIELDS = REPEAT_HISTORY_LIST_FIELDS | {'dependency_repeat_prior_coverage', 'dependency_repeat_batch_coverage'}
@@ -543,6 +545,7 @@ ENUMS = {
     'fixture_approval_state': {'READY', 'CONDITIONAL', 'UNKNOWN'},
     'branch_protection_observation': POLICY_OBSERVATION,
     'branch_rules_observation': POLICY_OBSERVATION,
+    LAST_UNSENT_CODE: {'INVALID_ARGUMENTS', 'NOT_DISPATCHED', 'EVIDENCE_UNAVAILABLE', 'SAVED_VIEW_UNAVAILABLE', 'GITHUB_REF_UNAVAILABLE', 'GITHUB_REPOSITORY_UNAVAILABLE', 'TOOL_UNAVAILABLE', 'UNKNOWN_TOOL', 'GITHUB_VALIDATION_FAILED', 'GITHUB_NOT_FOUND_OR_INACCESSIBLE', 'TOOL_PRECHECK_FAILED', 'PRECHECK_REJECTED', 'OTHER'},
     'dependency_repeat_prior_coverage': {'COMPLETE', 'PARTIAL', 'UNAVAILABLE'},
     'dependency_repeat_batch_coverage': {'COMPLETE', 'PARTIAL', 'UNAVAILABLE'},
     'status_policy_protection_404_kind': {'NOT_FOUND', 'OTHER_404', 'EXPLICIT_BRANCH_NOT_PROTECTED'},
@@ -631,7 +634,7 @@ ENUM_LISTS = {
 
 
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS, 'INCIDENT': {'github_prerequisite_observation'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | {LAST_UNSENT_CODE} | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS, 'INCIDENT': {'github_prerequisite_observation'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
@@ -716,7 +719,7 @@ def aligned(values):
 
 def repeat_history_aligned(values, current_call_id_hash=None):
     if not REPEAT_HISTORY_FIELDS & values.keys():
-        return True
+        return LAST_UNSENT_CODE not in values
     if not (REPEAT_HISTORY_FIELDS | TOOL_REPEAT_FIELDS) <= values.keys():
         return False
     if not isinstance(values['dependency_repeat_scope'], str) or values['dependency_repeat_scope'] not in {'TOOL_NAME', 'TOOL_NAME_AND_ARGUMENTS'}:
@@ -727,6 +730,8 @@ def repeat_history_aligned(values, current_call_id_hash=None):
     if prior_count + batch_count != used or used < limit or any(not valid_value(key, values[key]) for key in REPEAT_HISTORY_LIST_FIELDS):
         return False
     prior, batch, outcomes = (values[key] for key in ('dependency_repeat_prior_call_id_hashes', 'dependency_repeat_batch_call_id_hashes', 'dependency_repeat_prior_outcomes'))
+    if LAST_UNSENT_CODE in values and (values['dependency_repeat_prior_coverage'] != 'COMPLETE' or outcomes[-1:] != ['NOT_DISPATCHED']):
+        return False
     if (len(prior) != len(outcomes) or len(set(prior + batch)) != len(prior) + len(batch) or
             any(current in prior + batch for current in (values.get('call_id_hash'), current_call_id_hash) if current is not None)):
         return False

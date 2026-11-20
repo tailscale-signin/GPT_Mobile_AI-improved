@@ -276,6 +276,16 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_diagnostics(forged)
 
+    def test_action_only_precheck_accepts_bounded_context(self):
+        fields = {"tool_action": "stage", "action_only_tool_family": "REPOSITORY_WORKSPACE", "action_only_validation": "NO_RECEIPT"}
+        observed = self.capture("TOOL", fields)
+        self.assertEqual(observed, validate_diagnostics(copy.deepcopy(observed)))
+        for key in ("action_only_tool_family", "action_only_validation"):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {**fields, key: "private-freeform"}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"action_only_validation": "NO_RECEIPT"}))
+
     def test_copilot_actions_and_tool_precheck_reasons_roundtrip_without_raw_tool_arguments(self):
         reasons = (
             "TOOL_ARGUMENT_SCHEMA_REJECTED",
@@ -732,6 +742,20 @@ class IncidentReportContractTest(unittest.TestCase):
                 for key in capsule.REPEAT_HISTORY_FIELDS:
                     self.assertIn(f"| {key} |", issue["body"])
                 self.assertFalse({"remote_acceptance", "requires_reconciliation", "request_replay_allowed"} & capture["values"].keys())
+
+    def test_last_unsent_reason_requires_an_observed_owned_prior_rejection(self):
+        values = self.repeat_history(outcomes=["NOT_DISPATCHED"])
+        evidence = {**values, capsule.LAST_UNSENT_CODE: "INVALID_ARGUMENTS"}
+        observed = self.capture("TOOL", evidence)
+        self.assertEqual(observed, validate_diagnostics(copy.deepcopy(observed)))
+        for fields in ({"dependency_repeat_last_unsent_code": "OTHER"},
+                       {**evidence, capsule.LAST_UNSENT_CODE: "private-text"},
+                       {**evidence, "dependency_repeat_prior_outcomes": ["DISPATCHED_SUCCESS"]},
+                       {**self.repeat_history(prior_count=2, outcomes=["NOT_DISPATCHED"], prior_coverage="PARTIAL"), capsule.LAST_UNSENT_CODE: "OTHER"}):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", fields))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {capsule.LAST_UNSENT_CODE: "OTHER"}))
 
     def test_repeat_history_rejects_partial_malformed_incoherent_and_self_linked_values(self):
         good = self.repeat_history()
@@ -1930,8 +1954,11 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertIsNotNone(reported_keys)
         override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', reported_keys.group(1))}
         self.assertEqual(11, len(override_keys))
-        self.assertEqual(policy_keys | profile_keys | override_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
-        self.assertEqual(67, len(capsule.POLICY_FIELD_NAMES))
+        behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
+        behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
+        self.assertEqual(9, len(behavior_keys))
+        self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
+        self.assertEqual(76, len(capsule.POLICY_FIELD_NAMES))
 
     def test_exception_capture_survives_validation_without_claiming_provider_dispatch(self):
         for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH", "PROVIDER_ADAPTER_STREAM_CATCH", "CHAT_REPOSITORY_ERROR_VALUE"):

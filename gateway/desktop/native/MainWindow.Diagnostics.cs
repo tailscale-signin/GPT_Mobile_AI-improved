@@ -69,9 +69,11 @@ public partial class MainWindow
     {
         var manager=snapshot.Object("manager");var service=snapshot.Object("service");var effective=readiness.Object("effective");
         bool running=snapshot.Flag("fresh")&&manager.Text("state")=="running";bool ready=running&&manager.Text("backend")=="ready";
+        string observedModel = effective.Text("model", "Unobserved");
+        if (string.IsNullOrWhiteSpace(observedModel)) observedModel = "Backend default";
         var hero=Ui.Column(Ui.Text(Environment.MachineName+"   ·   Gateway "+snapshot.Text("version","—"),14,"PrimaryBrush",true),
             Ui.Text(ready?"Ready to connect":running?"Waiting for a model":snapshot.Count==0?"Connecting to Gateway":"Gateway "+manager.Text("state","offline"),26,bold:true),
-            Ui.Text($"Runtime {manager.Text("state")}   ·   Backend {manager.Text("backend")}   ·   Model {effective.Text("model","unobserved")}   ·   Observed {TimeOf(snapshot.Number("capturedAt"))}",14,"MutedBrush"));
+            Ui.Text($"Runtime {manager.Text("state")}   ·   Backend {manager.Text("backend")}   ·   Model {observedModel}   ·   Observed {TimeOf(snapshot.Number("capturedAt"))}",14,"MutedBrush"));
         hero.Children.Add(Ui.Actions(Ui.Button("Connect phone",()=>Navigate("Connect phone"),true),
             Ui.Button(ready?"Open chat":"Model settings",()=>Navigate(ready?"Chat":"Settings/Models")),
             Ui.Button("Connection settings",()=>Navigate("Settings/Connection"))));

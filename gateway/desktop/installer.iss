@@ -35,6 +35,10 @@ UninstallDisplayIcon={app}\releases\{#GatewayVersion}\Gateway.exe
 SetupLogging=yes
 SetupIconFile=assets\gateway.ico
 
+[LangOptions]
+DialogFontName=Segoe UI
+DialogFontSize=10
+
 [Files]
 Source: "..\..\dist\windows\Gateway\*"; DestDir: "{app}\releases\{#GatewayVersion}"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "Start-Gateway.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -136,6 +140,9 @@ begin
   PageIcon.ShowAccelChar := False;
   WizardForm.PageNameLabel.Left := WizardForm.PageNameLabel.Left + ScaleX(34);
   WizardForm.PageNameLabel.Width := WizardForm.PageNameLabel.Width - ScaleX(34);
+  WizardForm.PageDescriptionLabel.Width := WizardForm.PageDescriptionLabel.Width -
+    (WizardForm.PageNameLabel.Left - WizardForm.PageDescriptionLabel.Left);
+  WizardForm.PageDescriptionLabel.Left := WizardForm.PageNameLabel.Left;
   if not HighContrastActive then begin
     WizardForm.MainPanel.Color := $28200B;
     WizardForm.PageNameLabel.Font.Color := $DEFF00;

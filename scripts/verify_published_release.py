@@ -117,6 +117,7 @@ def verify_asset_attestations(directory, assets, repository, source, signer_work
 
 def resolve_tag_commit(root, tag, source, release, *, published):
     """Treat only a confirmed missing draft tag as pending, not a commits/422."""
+    full_ref = "refs/tags/" + tag
     ref = root + "/git/ref/tags/" + tag
     try:
         reference = gh_json("api", ref)
@@ -128,14 +129,24 @@ def resolve_tag_commit(root, tag, source, release, *, published):
         # release materializes the ref. Confirm absence through the Git refs
         # endpoint and separately prove the immutable source commit exists.
         target = gh_json("api", root + "/commits/" + source)
-        if immutable_sha(target.get("sha", "")) != source:
+        if not isinstance(target, dict) or immutable_sha(target.get("sha", "")) != source:
             raise ValueError("Draft release source commit cannot be verified")
         return None
-    if not isinstance(reference, dict) or reference.get("ref") != "refs/tags/" + tag:
+    if not isinstance(reference, dict) or reference.get("ref") != full_ref:
         raise ValueError("Tag ref identity differs from the release tag")
-    # GitHub peels lightweight and annotated tags through the commits endpoint.
-    commit = gh_json("api", root + "/commits/" + tag)
-    return immutable_sha(commit.get("sha", ""))
+    target = reference.get("object")
+    if not isinstance(target, dict) or target.get("type") not in ("commit", "tag"):
+        raise ValueError("Git tag reference does not identify a commit or annotated tag")
+    target_sha = immutable_sha(target.get("sha", ""))
+    # The full ref avoids branch-name ambiguity and still peels annotated
+    # tags. A failure here must not fall back to a draft's target.
+    commit = gh_json("api", root + "/commits/" + full_ref)
+    if not isinstance(commit, dict):
+        raise ValueError("Invalid release tag commit response")
+    resolved = immutable_sha(commit.get("sha", ""))
+    if target["type"] == "commit" and resolved != target_sha:
+        raise ValueError("Git tag reference changed while resolving its commit")
+    return resolved
 
 
 def main():

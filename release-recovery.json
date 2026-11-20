@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "sourceSha": "c823d7a9f7e1d3927000ec30b151c1b6122da503",
+  "android": {
+    "version": "0.9.66.10",
+    "versionCode": 144,
+    "tag": "v0.9.66.10",
+    "releaseId": 452622158,
+    "runId": 44708736353,
+    "runAttempt": 1,
+    "validationJobId": 136212126980,
+    "buildJobId": 136252354161,
+    "artifact": {
+      "id": 14625218270,
+      "name": "signed-release-c823d7a9f7e1d3927000ec30b151c1b6122da503",
+      "bytes": 697459802,
+      "sha256": "a988dfef8ba10943e7e8660d3ecc435cfc74fb03298bb8aaaafbae3ade99c7ae"
+    },
+    "certificateSha256": "5c97847a2ff1eadab864a7f7561d8291b1d421f3a27a32e21fbe2dc7ff365d15",
+    "assets": [
+      {
+        "id": 771609427,
+        "name": "app-arm64-v8a-release.apk",
+        "bytes": 160664927,
+        "sha256": "c21d0053dd0eb5f59a392a4381765eda3f976183d078808299a0e1f74ee93351"
+      },
+      {
+        "id": 771609428,
+        "name": "app-arm64-v8a-release.apk.idsig",
+        "bytes": 1275775,
+        "sha256": "e102b72c748b9fa4775d28b34bad8e96dfaa3ced5f105d0b583ac98bf8a028c7"
+      },
+      {
+        "id": 771609422,
+        "name": "app-release.aab",
+        "bytes": 231038552,
+        "sha256": "2854ef2074d98bbfb4b9fd8201f4514b8d9181102ae3a43073d09a53dce2b0c5"
+      },
+      {
+        "id": 771609431,
+        "name": "app-universal-release.apk",
+        "bytes": 217928024,
+        "sha256": "88a7435cde6225ec5624d94a0c50ec6930a937d3b3f555de818870713d743ee5"
+      },
+      {
+        "id": 771609441,
+        "name": "app-universal-release.apk.idsig",
+        "bytes": 1726335,
+        "sha256": "d8a13cff4709014c32360b0bb0a99dac7cbfc7236d15d3d67cdbd73d49df6c61"
+      },
+      {
+        "id": 771609450,
+        "name": "app-x86_64-release.apk",
+        "bytes": 95631433,
+        "sha256": "4bd1f33deab4a258262ca6e980393865b65e3f0f076d8c7fae1858e4a6fdb94b"
+      },
+      {
+        "id": 771609466,
+        "name": "app-x86_64-release.apk.idsig",
+        "bytes": 763775,
+        "sha256": "924808fa334eeb7031cf8e5e18e641d637f8cdd452bca863d228017d7abf2ef7"
+      },
+      {
+        "id": 771609495,
+        "name": "optional-payload-inventory.json",
+        "bytes": 3360,
+        "sha256": "4a6d10374cbdf5af2c576e564b953feec20d10cf81861635a44d517138c4f544"
+      },
+      {
+        "id": 771609513,
+        "name": "provenance.json",
+        "bytes": 3748,
+        "sha256": "efd14cd97e328f43f70f6a42a963424185684bd9da3862b98025328eaa4d37e4"
+      },
+      {
+        "id": 771609426,
+        "name": "SHA256SUMS.txt",
+        "bytes": 437,
+        "sha256": "0e117e69edc6e2de5f3e1e9507ca928699c6e2953cf3298a9dba81c7d6f73ae8"
+      }
+    ]
+  },
+  "windows": {
+    "version": "18.0.0",
+    "bridgeVersion": "17.0.2",
+    "runId": 44708736379,
+    "runAttempt": 1,
+    "artifact": {
+      "id": 14617650067,
+      "name": "Gateway-Windows-x64",
+      "bytes": 395388013,
+      "sha256": "df94def2fef846ed5c00e621545f8700f5b6382600ab485642e1c7cc7c8a2831"
+    }
+  }
+}

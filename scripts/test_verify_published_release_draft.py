@@ -37,8 +37,8 @@ class DraftReleaseTagVerificationTest(unittest.TestCase):
     def test_existing_ref_is_resolved_and_peeled(self):
         def fake(*arguments):
             if "/git/ref/tags/" in arguments[-1]:
-                return {"ref": "refs/tags/" + TAG, "object": {"type": "tag"}}
-            self.assertEqual(arguments[-1], ROOT + "/commits/" + TAG)
+                return {"ref": "refs/tags/" + TAG, "object": {"type": "tag", "sha": "c" * 40}}
+            self.assertEqual(arguments[-1], ROOT + "/commits/refs/tags/" + TAG)
             return {"sha": SOURCE}
         with patch("verify_published_release.gh_json", side_effect=fake):
             self.assertEqual(resolve_tag_commit(ROOT, TAG, SOURCE, DRAFT, published=False), SOURCE)

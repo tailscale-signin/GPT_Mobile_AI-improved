@@ -725,6 +725,10 @@ class GitHubOperationToolTest {
         assertFalse(read.execute("active", cursor).isError)
         clock = 18 * 60_000L
         assertFalse(read.execute("active-again", cursor).isError)
+        clock = 27 * 60_000L
+        val foreign = GitHubOperationTool("github_read", backend, "task-B", views = views).execute("foreign", cursor)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)
+        assertFalse(foreign.dispatched)
         val mixed = read.execute("mixed", JsonObject(cursor + ("commit_sha" to JsonPrimitive(sha))))
         assertEquals("INVALID_ARGUMENTS", mixed.errorCode)
         assertFalse(mixed.dispatched)
@@ -737,7 +741,39 @@ class GitHubOperationToolTest {
         assertFalse(expired.dispatched)
         val diagnostic = (expired.content as ToolResultContent.Json).value.jsonObject
         assertEquals(JsonPrimitive("EXPIRED"), diagnostic["reason"])
+        // An opaque evidence handle supplies no repository, revision or ranges
+        // from which to invent a new immutable source request after expiry.
+        assertEquals(JsonPrimitive("START_FRESH_SCOPED_READ"), diagnostic["recovery_action"])
+        assertEquals(JsonPrimitive(false), diagnostic["mutation_replay_allowed"])
+        assertFalse("source_recovery_call" in diagnostic)
+        assertTrue(diagnostic.getValue("message").jsonPrimitive.content.contains("fresh authorized read"))
+        assertEquals(1, backend.calls.size)
+    }
+
+    @Test fun expiredPinnedSourcePreservesItsExactImmutableRecoveryWithoutDispatch() = runBlocking {
+        var clock = 0L
+        val request = args("""{"owner":"owner","repo":"repo","commit_sha":"$sha","ranges":[{"path":"README.md","start_line":1,"end_line":1}]}""")
+        val backend = Backend().also {
+            it.body = buildJsonObject {
+                put("commit_sha", sha)
+                put("content", "captured ".repeat(2000))
+            }
+        }
+        val views = GitHubResultViews(now = { clock }, pageBytes = 2048)
+        val read = GitHubOperationTool("github_read", backend, "pinned-source", views = views)
+        val cursor = continuation(result(read.execute("first", request)))
+        clock = 11 * 60_000L
+        val expired = read.execute("expired", cursor)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", expired.errorCode)
+        assertFalse(expired.dispatched)
+        val diagnostic = result(expired)
+        assertEquals(JsonPrimitive("EXPIRED"), diagnostic["reason"])
+        assertEquals(JsonPrimitive("REOPEN_ORIGINAL_SOURCE"), diagnostic["recovery_action"])
+        assertEquals(JsonPrimitive(false), diagnostic["mutation_replay_allowed"])
         assertTrue(diagnostic.getValue("message").jsonPrimitive.content.contains("same immutable source"))
+        val recovery = diagnostic.getValue("source_recovery_call").jsonObject
+        assertEquals(JsonPrimitive("github_read"), recovery["tool"])
+        assertEquals(request, recovery["arguments"])
         assertEquals(1, backend.calls.size)
     }
 

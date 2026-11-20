@@ -14,16 +14,17 @@
     "Classify proven read-only plugin deadlines without inventing unknown mutation outcomes; preserve real permission revocations.",
     "Retain original observation timestamps and source identity through saved-result reads.",
     "Reduce saved-source page amplification while retaining every character and exact authorized cursors.",
-    "Coalesce rapid preview updates, finish each fade, and preserve expanded details while their content changes."
+    "Coalesce rapid preview updates, finish each fade, preserve expanded details and distinct multiline rows, and retain the latest visible text when animations are re-enabled."
   ],
   "validation": {
-    "focused_regressions": "PASS: 7 configured-plugin tests, 14 graph planning tests, 25 CI-log/saved-page tests, 9 universal activity-feed tests and 2 Compose animation regressions. Current-source Android CI remains required for full graph session, evidence-book integration and native UI rendering; the local native rendering process was killed before producing a result.",
+    "focused_regressions": "PASS: 7 configured-plugin tests, 14 graph planning tests, 25 CI-log/saved-page tests, 5 current-source saved-evidence integration tests, 2 current-source expiry/renewal cases, 10 universal activity-feed tests, 4 reduced-motion tests and 3 live-preview/expansion regressions. Current-source Android CI remains required for the complete integrated follow-up.",
     "canonical_fast": "PASS: 555 host tests plus CI policy, architecture/source inventories, dependency catalog, schema/metadata, resources, regex, secrets and whitespace checks, repeated after the follow-up integration.",
-    "current_head_ci": "PENDING",
+    "current_head_ci": "Preceding head d192f9a passed production and test compilation, graph integration, all 20 live-progress methods, Windows packaging and CodeQL. Its complete Android run executed 11,750 tests with 5 skips and 3 failures: reduced-motion text replay, an unsupported fact-verification expectation for inferred advice, and an immutable recovery expectation without immutable source identity. This follow-up repairs those three findings; a fresh exact-head CI run is required.",
     "main_ci": "PENDING",
     "publication": "PENDING",
     "physical_android_windows": "NOT_RUN",
     "release_packaging": "Existing link-time debug stripping preserves allocated native sections and dynamic symbols. Measured compressed savings of 34,458,305 bytes exceed the historical 10,494,296-byte universal APK overage. Final exact-source signed APK size remains a release gate."
   },
-  "evidence_scope": "Complete retained-history capture: all 20 stage hashes and reconstructed records checked; 10 retained runs, not a claim of complete installed-device acceptance."
+  "evidence_scope": "Complete retained-history capture: all 20 stage hashes and reconstructed records checked; 10 retained runs, not a claim of complete installed-device acceptance.",
+  "checkpoint_scope": "Pre-push source checkpoint. Final CI and publication evidence is recorded by the workflows associated with PR #1900."
 }

@@ -111,8 +111,23 @@ class UniversalChatActivityFeedTest {
             "Checks: 1/9\nThe build failed while packaging the universal APK."
         )
         assertEquals(lines, universalCoalescedActivityLines(lines))
+        assertEquals(lines.size, lines.map(::universalActivityLineIdentity).distinct().size)
+        assertEquals(
+            universalActivityLineIdentity(lines.first()),
+            universalActivityLineIdentity("  TRACING RECENT REPOSITORY COMMITS\r\nThe first source changed the read policy...  ")
+        )
         val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, lines.first(), progressCheckpoint = true, statusSummary = true)
         assertEquals("Tracing recent repository commits", generationActivityLabel(emptyList(), listOf(item)))
+    }
+
+    @Test fun changingSingleLineCountersAndHeartbeatsKeepTheirRowIdentity() {
+        assertEquals(universalActivityLineIdentity("Checks: 1 / 9"), universalActivityLineIdentity("Checks: 4 / 9"))
+        assertEquals(universalActivityLineIdentity("Files: 1 / 3"), universalActivityLineIdentity("Files: 2 / 3"))
+        assertEquals(universalActivityLineIdentity("Reading recent changes"), universalActivityLineIdentity("Commit history result received"))
+        assertEquals(
+            listOf("Reading relevant files", "Checks: 4 / 9"),
+            universalCoalescedActivityLines(listOf("Checks: 1 / 9", "Reading relevant files", "Checks: 4 / 9"))
+        )
     }
 
     @Test fun receiptChartNeedsThreeRealToolCallsAndNeverParsesResultText() {

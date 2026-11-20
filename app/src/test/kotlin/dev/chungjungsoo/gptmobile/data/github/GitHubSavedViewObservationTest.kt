@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -107,7 +108,15 @@ class GitHubSavedViewObservationTest {
             assertTrue(text.contains("Inspect the failed job logs at this recorded revision"))
             assertFalse(text.contains("Unverified interpretation"))
             assertFalse(text.contains("published implementation receipt"))
-            assertEquals(JsonPrimitive(true), report["claims_verified"])
+            val renderedClaims = report.getValue("claims").jsonArray
+            assertEquals(2, renderedClaims.size)
+            for (renderedClaim in renderedClaims) {
+                assertEquals(JsonPrimitive("INFERRED"), renderedClaim.jsonObject["status"])
+                assertEquals(JsonPrimitive("VERIFIED"), renderedClaim.jsonObject.getValue("sources").jsonArray.single().jsonObject["status"])
+            }
+            assertEquals(JsonArray(emptyList()), report["unresolved_claims"])
+            // Supported advice remains inference, even when its source facts verify.
+            assertEquals(JsonPrimitive(false), report["claims_verified"])
             assertEquals(JsonPrimitive(false), report["completion_verified"])
         }
     }

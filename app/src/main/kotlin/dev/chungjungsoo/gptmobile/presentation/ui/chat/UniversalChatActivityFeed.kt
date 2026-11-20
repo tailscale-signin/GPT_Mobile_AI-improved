@@ -32,18 +32,24 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 import kotlinx.coroutines.delay
 
+/** Coalescing and rendering must agree on which public updates share a row. */
+internal fun universalActivityLineIdentity(line: String): String {
+    val text = line.trim()
+    // A multiline finding can start with a heartbeat or counter while its
+    // following observations still need their own row and expansion state.
+    if ('\n' !in text && '\r' !in text) {
+        GitHubProgressPresentation.liveKey(text)?.let { return "counter:$it" }
+        GitHubProgressPresentation.semanticActivityKey(text)?.let { return "story:$it" }
+    }
+    return "text:${GitHubProgressPresentation.lineKey(text)}"
+}
+
 /** Deduplicate old counter ticks without discarding distinct public findings. */
 internal fun universalCoalescedActivityLines(lines: List<String>): List<String> {
     val current = linkedMapOf<String, String>()
     lines.forEach { line ->
-        // A multiline public finding may start with a repeated heartbeat or
-        // counter, but its following observations remain independent evidence.
-        val singleLine = '\n' !in line.trim() && '\r' !in line.trim()
-        val counter = if (singleLine) GitHubProgressPresentation.liveKey(line) else null
-        val identity = counter?.let { "counter:$it" }
-            ?: line.takeIf { singleLine }?.let(GitHubProgressPresentation::semanticActivityKey)?.let { "story:$it" }
-            ?: "text:${GitHubProgressPresentation.lineKey(line)}"
-        if (counter != null) {
+        val identity = universalActivityLineIdentity(line)
+        if (identity.startsWith("counter:")) {
             // Move the latest measured count into its actual activation order.
             current.remove(identity)
             current[identity] = line
@@ -139,7 +145,7 @@ internal fun UniversalChatActivityFeed(
     val motion = rememberGitHubProgressMotion(active && animate)
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         visible.forEachIndexed { index, line ->
-            val identity = "universal:" + (GitHubProgressPresentation.liveKey(line) ?: GitHubProgressPresentation.semanticActivityKey(line) ?: line)
+            val identity = "universal:" + universalActivityLineIdentity(line)
             key(identity) {
                 GitHubActivityPreview(
                     raw = line,

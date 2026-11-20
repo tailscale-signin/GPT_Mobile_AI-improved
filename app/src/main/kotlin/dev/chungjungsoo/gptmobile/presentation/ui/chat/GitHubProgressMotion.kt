@@ -59,6 +59,9 @@ internal fun rememberGitHubActivePreviewTransition(text: String, active: Boolean
             displayedText.value = latestText
             opacity.snapTo(1f)
             hasBeenActive.value = true
+            // Keep the retained animation text current while motion is disabled,
+            // so enabling it cannot briefly replay an older activity message.
+            snapshotFlow { latestText }.collect { displayedText.value = it }
         } else {
             if (!hasBeenActive.value) {
                 displayedText.value = latestText

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "dfd2fea844780f291449db8a0c6c246675c09a28362c5a4e0062923cac1382b5",
+  "source_digest": "f9621cbdf671a127a0ec36e07a900d96670f522ab26beec879b98ba5ff8944e0",
   "file_count": 2758,
-  "indexed_line_count": 455882,
+  "indexed_line_count": 455891,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 571,
-      "indexed_line_count": 101358
+      "indexed_line_count": 101367
     },
     {
       "id": "accessibility_and_localization",
@@ -13730,8 +13730,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubProgressMotion.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "6bd3095e9cbf2089c3c8ed056572cf8cc749eaabe08f68cbc4bb129a40dbad83",
-      "indexed_lines": 152
+      "sha256": "9afdb11379ee09817d781e6737445e785741c5ed526a2be2e0eccf66dc8098df",
+      "indexed_lines": 155
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptAnchor.kt",
@@ -14129,8 +14129,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/UniversalChatActivityFeed.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "e60e146bd40c91352288d757bd62e2470b885db7cea05e046a6f64049b9ad7ac",
-      "indexed_lines": 273
+      "sha256": "0931a132b20201d015bf6bb89924f720a4b5fbe29da43b97869635209dbc790a",
+      "indexed_lines": 279
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/UniversalMarketplaceResults.kt",

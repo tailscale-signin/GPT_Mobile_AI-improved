@@ -132,7 +132,7 @@ internal class GitHubVerifiedSession(
                     null,
                     GitHubAcceptancePublicationEvidence.Entry.TASK_DEADLINE,
                     failureCode = "GITHUB_TASK_INCOMPLETE",
-                    originalFailure = GitHubExecutionLimits.expiredTaskFailure()
+                    originalFailure = observeExpiredDeadline(GitHubExecutionLimits.expiredTaskFailure(GitHubExecutionLimits.DeadlineCheck.VERIFIED_SESSION_ENTRY))
                 )
             )
             return@flow
@@ -737,8 +737,11 @@ internal class GitHubVerifiedSession(
         )
     }
 
+    private suspend fun observeExpiredDeadline(failure: ProviderEvent.Failed) =
+        failure.copy(failureDetails = JsonObject(failure.failureDetails.orEmpty() + evidence.deadlineTiming()))
+
     override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
-        if (failure.failureDetails?.get("stop_reason") == kotlinx.serialization.json.JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
+        val observed = if (failure.failureDetails?.get("stop_reason") == kotlinx.serialization.json.JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")) {
             if (GitHubTaskContinuity.diagnostic(currentRequest)) {
                 validatePublication()
                 val (receipts, _) = evidence.snapshot()
@@ -750,6 +753,9 @@ internal class GitHubVerifiedSession(
                 emitAll(deliverRetainedReport())
                 return@flow
             }
+            observeExpiredDeadline(failure)
+        } else {
+            failure
         }
         if (failure.errorCode == "DISPATCH_POLICY_CHANGED" || failure.message.startsWith("DISPATCH_POLICY_CHANGED:")) {
             emit(failure.copy(errorCode = "DISPATCH_POLICY_CHANGED", taskOutcome = "CONFIGURATION_INVALIDATED"))
@@ -771,9 +777,9 @@ internal class GitHubVerifiedSession(
                         )
                     )
                 }
-                emit(failure)
+                emit(observed)
             } else {
-                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.RETAINED_FAILURE, failureCode = failure.errorCode, originalFailure = failure))
+                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.RETAINED_FAILURE, failureCode = observed.errorCode, originalFailure = observed))
             }
         }
     }

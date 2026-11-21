@@ -285,6 +285,12 @@ ENUMS.update({field: COMPOSER_EVENTS for field in COMPOSER_EVENT_FIELDS})
 ENUMS["composer_lifecycle"] = {"INITIALIZED", "CREATED", "STARTED", "RESUMED", "DESTROYED"}
 ENUMS["composer_input_mode"] = {"TOUCH", "KEYBOARD"}
 FLAGS.update({"composer_focused", "composer_ime_visible", "composer_enabled", "composer_window_focused"})
+SEARCH_ATTEMPT_FIELDS = {"search_attempt_count", "search_dispatched_attempt_count", "search_budget_rejected_attempt_count"}
+COUNTS.update(SEARCH_ATTEMPT_FIELDS)
+ENUMS["search_failure_observation"] = {"UPSTREAM_CHALLENGE", "NO_ENGINE_SUCCEEDED"}
+ENUMS["catalog_selector_state"] = {"MIXED_INVENTORY_SELECTORS", "ACTION_NOT_STRING", "ACTION_WITHOUT_NAMES", "NAMES_NOT_ARRAY",
+                                   "NAMES_CONTAIN_NON_STRING", "ACTION_REQUIRES_ONE_NAME", "OTHER_SCHEMA_CONSTRAINT"}
+FIELDS_BY_AREA["TOOL"].update(SEARCH_ATTEMPT_FIELDS | {"search_failure_observation", "catalog_selector_state"})
 COUNTS.add("tool_budget_bytes_available")
 FIELDS_BY_AREA["TOOL"].update({"tool_budget_bytes_available", "graph_index_attempt_hash"})
 HASH_FIELDS.add("graph_index_attempt_hash")
@@ -300,11 +306,18 @@ FIELDS_BY_AREA["VOICE"].update(VOICE_CAPTURE_PLAYBACK_FIELDS | VOICE_PACK_STATUS
 
 # Exact retained prerequisite and policy-read observations; no names, IDs or raw errors.
 ACCEPTANCE_RECOVERY_FIELDS = {
+    "acceptance_prerequisite_blockers", "acceptance_acquisition_allowed", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum",
+    "task_deadline_check", "task_deadline_observation", "task_deadline_window_seconds", "task_deadline_overdue_seconds",
     "acceptance_preparation_state", "acceptance_ready_read_count", "acceptance_additional_ready_read_count",
     "acceptance_fixture_creation_admissible", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count",
     "status_policy_protection_http_status", "status_policy_rules_http_status",
     "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint", "status_missing_observations",
 }
+ENUMS["task_deadline_check"] = {"BEFORE_TOOL_RESTORE", "BEFORE_MODEL_LOOP", "MODEL_LOOP_TIMEOUT", "VERIFIED_SESSION_ENTRY"}
+ENUMS["task_deadline_observation"] = {"CONTRACT_UNAVAILABLE", "NO_ACCEPTED_DEADLINE", "TIMING_UNAVAILABLE", "WINDOW_OPEN", "WINDOW_EXPIRED"}
+ENUM_LISTS["acceptance_prerequisite_blockers"] = {"OUT_OF_SCOPE", "REPOSITORY_SCOPE_EXCLUDED", "OPERATION_IDENTITY_REQUIRED", "AUTHORIZATION_REQUIRED", "HISTORICAL_CONTRACT_CHANGED", "APPROVAL_REQUIRED", "FIXTURE_APPROVAL_STATE_UNKNOWN", "FIXTURE_APPROVAL_MODE_REQUIRED", "LIVE_EVIDENCE_REQUIRED", "CONTINUATION_REQUIRED", "PRECHECK_REJECTED", "OPERATION_FAILED", "USER_DECISION_REQUIRED", "CHECK_SUBSCRIPTION_REQUIRED", "OWNED_FIXTURE_REQUIRED", "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "REPOSITORY_INPUT_REQUIRED", "GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED", "REPOSITORY_LIFECYCLE_REQUIRED", "EXECUTION_NOT_EXERCISED", "BLOCKER_DETAIL_NOT_RECORDED"}
+COUNTS.update({"task_deadline_window_seconds", "task_deadline_overdue_seconds", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum"})
+FLAGS.add("acceptance_acquisition_allowed")
 ENUMS["acceptance_preparation_state"] = {"CLEANUP_RESERVE_ACTIVE", "OWNED_FIXTURE_STEP_PREPARED", "BOUNDED_READS_PREPARED", "NO_PENDING_CAPABILITY_PREREQUISITES", "PREREQUISITES_REQUIRED"}
 ENUMS["status_policy_recovery_hint"] = {"CHECK_AUTHENTICATION", "CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION", "CHECK_POLICY_READ_PERMISSIONS", "WAIT_RATE_LIMIT", "REFRESH_POLICY_OBSERVATIONS"}
 ENUM_LISTS["status_missing_observations"] = {"BRANCH_HEAD", "COMMITS", "OPEN_PULLS", "COMMIT_CHECKS", "LATEST_WORKFLOW", "REQUIRED_POLICY", "RECENT_FAILURES", "REVIEW_DECISIONS"}
@@ -389,6 +402,8 @@ def _valid_value(key, value):
         return 100 <= value <= 599
     if key == "model_preparation_load_requests":
         return 0 <= value <= 1
+    if key in SEARCH_ATTEMPT_FIELDS:
+        return 0 <= value <= 1024
     if key == "conflict_pending_tool_count":
         return 0 <= value <= 128
     if key == "conflict_handoff_sequence":

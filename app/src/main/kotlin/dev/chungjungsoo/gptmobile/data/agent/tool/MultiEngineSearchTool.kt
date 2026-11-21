@@ -526,6 +526,17 @@ class MultiEngineSearchTool(
                 )
                 put("providerCount", selected.size)
                 put("completedProviders", initial.count { !it.result.isError })
+                if (failed && errorCode != null) {
+                    put("errorCode", errorCode)
+                    put("attemptCount", allAttempts.size)
+                    put("dispatchedAttemptCount", allAttempts.count { it.result.dispatched })
+                    put(
+                        "budgetRejectedAttemptCount",
+                        allAttempts.count {
+                            !it.result.dispatched && it.result.isError && it.result.errorCode in setOf("BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED")
+                        }
+                    )
+                }
                 put("returnedSources", merged.sources.size)
                 put("retryable", errorCode != null && searchFailureRetryable(errorCode))
                 put("childCallIds", JsonArray(allAttempts.map { JsonPrimitive(it.result.callId) }))

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import java.net.URI
 import java.nio.charset.StandardCharsets
@@ -158,17 +159,20 @@ class AgentRunner(
     }
 
     private fun runWithRepairScope(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): Flow<AgentRunEvent> = flow {
-        if (minOf(limits.runTimeoutMillis, remainingTaskMillis?.invoke() ?: Long.MAX_VALUE) <= 0L) {
+        val acceptedAtEntry = remainingTaskMillis?.invoke()
+        if (minOf(limits.runTimeoutMillis, acceptedAtEntry ?: Long.MAX_VALUE) <= 0L) {
             // An expired accepted task may deliver retained evidence, but must not
             // restore queued calls or start the model loop. Delivery remains
             // cancellable and is not charged a fabricated five-second work budget.
-            if (limits.githubTask) {
-                deliverExpiredTask(session)
+            // Legacy callers can supply the accepted limit directly. When the task owns a
+            // deadline clock, only that clock can expire the durable task.
+            if (limits.githubTask && (remainingTaskMillis == null || acceptedAtEntry != null && acceptedAtEntry <= 0L)) {
+                deliverExpiredTask(session, GitHubExecutionLimits.DeadlineCheck.BEFORE_TOOL_RESTORE)
             } else {
                 emit(
                     AgentRunEvent.Provider(
                         ProviderEvent.Failed(
-                            "The accepted task time budget has ended. Completed work is saved; increase the budget before continuing.",
+                            "The time limit for this run has ended. Completed work is saved. Check the run budget before continuing.",
                             errorCode = "RUN_DEADLINE_REACHED",
                             taskOutcome = "PARTIAL",
                             failureDetails = buildJsonObject {
@@ -218,7 +222,7 @@ class AgentRunner(
         val acceptedRemainingMillis = remainingTaskMillis?.invoke()
         val runTimeoutMillis = minOf(limits.runTimeoutMillis, acceptedRemainingMillis ?: Long.MAX_VALUE)
         if (limits.githubTask && runTimeoutMillis <= 0L) {
-            deliverExpiredTask(session)
+            deliverExpiredTask(session, GitHubExecutionLimits.DeadlineCheck.BEFORE_MODEL_LOOP)
             return@flow
         }
         val finishedInTime = if (runTimeoutMillis < Long.MAX_VALUE) {
@@ -232,7 +236,7 @@ class AgentRunner(
 
         if (finishedInTime == null) {
             if (limits.githubTask && acceptedRemainingMillis == runTimeoutMillis) {
-                deliverExpiredTask(session)
+                deliverExpiredTask(session, GitHubExecutionLimits.DeadlineCheck.MODEL_LOOP_TIMEOUT)
             } else if (limits.githubTask && exchanges.isNotEmpty()) {
                 finishFromRetained(guardedSession, ProviderEvent.Failed("Agent run timed out after $runTimeoutMillis ms. Completed receipts are retained; unfinished work can be resumed.", errorCode = "RUN_DEADLINE_REACHED"), true)
             } else {
@@ -769,10 +773,10 @@ class AgentRunner(
         }
     }
 
-    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.deliverExpiredTask(session: AgentProviderSession) {
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.deliverExpiredTask(session: AgentProviderSession, check: GitHubExecutionLimits.DeadlineCheck) {
         // A diagnostic reply may complete, but it cannot finish the original
         // execution checkpoint or discard its outstanding cleanup obligations.
-        session.retainedFailureResponse(dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.expiredTaskFailure()).collect {
+        session.retainedFailureResponse(GitHubExecutionLimits.expiredTaskFailure(check)).collect {
             emit(AgentRunEvent.Provider(it))
         }
     }

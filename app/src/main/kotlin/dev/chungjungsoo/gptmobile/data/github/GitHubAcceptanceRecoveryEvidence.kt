@@ -11,6 +11,7 @@ import kotlinx.serialization.json.put
 
 /** Small closed projection of the actual retained preparation; it cannot dispatch or approve work. */
 internal object GitHubAcceptanceRecoveryEvidence {
+    val deadlineObservations = setOf("CONTRACT_UNAVAILABLE", "NO_ACCEPTED_DEADLINE", "TIMING_UNAVAILABLE", "WINDOW_OPEN", "WINDOW_EXPIRED")
     val preparationStates = setOf("CLEANUP_RESERVE_ACTIVE", "OWNED_FIXTURE_STEP_PREPARED", "BOUNDED_READS_PREPARED", "NO_PENDING_CAPABILITY_PREREQUISITES", "PREREQUISITES_REQUIRED")
     val operationFamilies = setOf("github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_decide", "github_review", "github_engineering", "github_repository", "repository_graph")
     val policyRecoveryHints = setOf("CHECK_AUTHENTICATION", "CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION", "CHECK_POLICY_READ_PERMISSIONS", "WAIT_RATE_LIMIT", "REFRESH_POLICY_OBSERVATIONS")
@@ -26,11 +27,21 @@ internal object GitHubAcceptanceRecoveryEvidence {
     )
     val statusObservationCodes = statusObservations.values.toSet()
     val fields = setOf(
+        "acceptance_prerequisite_blockers", "acceptance_acquisition_allowed", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum",
+        "task_deadline_check", "task_deadline_observation", "task_deadline_window_seconds", "task_deadline_overdue_seconds",
         "acceptance_preparation_state", "acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_fixture_creation_admissible", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count",
         "status_missing_observations", "status_policy_protection_http_status", "status_policy_rules_http_status", "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint"
     )
 
     fun fields(verdict: JsonObject): JsonObject = buildJsonObject {
+        val failure = verdict["original_failure"] as? JsonObject
+        if (failure?.text("stop_reason") == "ACCEPTED_TASK_DEADLINE_REACHED") {
+            failure.text("task_deadline_check").takeIf { check -> GitHubExecutionLimits.DeadlineCheck.entries.any { it.name == check } }?.let { put("task_deadline_check", it) }
+            failure.text("task_deadline_observation").takeIf { it in deadlineObservations }?.let { put("task_deadline_observation", it) }
+            for (field in listOf("task_deadline_window_seconds", "task_deadline_overdue_seconds")) {
+                failure.number(field)?.takeIf { it in 0..16_000_000 }?.let { put(field, it) }
+            }
+        }
         val checklist = verdict["test_checklist"] as? JsonObject
         val preparation = checklist?.get("preparation") as? JsonObject
         if (preparation?.text("schema") == "github.integration-preparation.v1") {
@@ -38,6 +49,17 @@ internal object GitHubAcceptanceRecoveryEvidence {
             for ((source, destination) in listOf("ready_read_count" to "acceptance_ready_read_count", "additional_ready_read_count" to "acceptance_additional_ready_read_count")) {
                 preparation.number(source)?.takeIf { it in 0..16_000_000 }?.let { put(destination, it) }
             }
+            val budget = preparation["budget"] as? JsonObject
+            if (budget?.get("remaining_known") == JsonPrimitive(true)) {
+                (budget["acquisition_allowed"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("acceptance_acquisition_allowed", it) }
+            }
+            for ((source, destination) in listOf("cleanup_reserve" to "acceptance_cleanup_reserve", "fixture_start_minimum" to "acceptance_fixture_start_minimum")) {
+                budget?.number(source)?.takeIf { it in 0..16_000_000 }?.let { put(destination, it) }
+            }
+            val blockers = (preparation["blockers"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+                .filter { (it["required_capability_ids"] as? JsonArray)?.isNotEmpty() == true }
+                .mapNotNull { GitHubCriterionBlocker.from(it.text("code"))?.name }.distinct().take(8)
+            if (blockers.isNotEmpty()) put("acceptance_prerequisite_blockers", JsonArray(blockers.map(::JsonPrimitive)))
             (preparation["owned_fixture_creation_admissible"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("acceptance_fixture_creation_admissible", it) }
         }
         val ledger = verdict["acceptance_ledger"] as? JsonObject

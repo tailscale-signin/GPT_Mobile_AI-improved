@@ -221,6 +221,23 @@ class DebugEvidenceTests(unittest.TestCase):
         self.assertEqual('b7654', manifest['versions'][-1]['backendBuildVersion'])
         self.assertEqual('observed', manifest['buildIdentity']['backendBuildStatus'])
 
+    def test_conflict_export_keeps_its_serving_build_and_marks_legacy_rows_without_one(self):
+        from v14.debug_projection import response_summary
+        self.store.record('gateway_response', route='other', status=409, observation=response_summary(
+            {'status': 'waiting_for_jobs', 'effective': {'private': 'private-value'}}, route='other', status=409))
+        self.store.records.append({'event': 'gateway_response', 'route': 'other', 'status': 409, 'bootId': 'f' * 32, 'instanceId': '2' * 32})
+        with zipfile.ZipFile(io.BytesIO(self.store.export_bundle())) as archive:
+            manifest = json.loads(archive.read('manifest.json'))
+            transport = archive.read('gateway-debug.jsonl')
+        rows = [json.loads(line) for line in transport.splitlines()]
+        self.assertEqual('settings_waiting', rows[0]['observation']['conflictEnvelope'])
+        self.assertEqual('1' * 40, rows[0]['provenance']['sourceCommit'])
+        self.assertNotIn('provenance', rows[1])
+        self.assertEqual(1, manifest['buildIdentity']['errorResponsesWithRevision'])
+        self.assertEqual(1, manifest['buildIdentity']['errorResponsesWithoutRevision'])
+        self.assertNotIn(b'private-value', transport)
+        self.assertEqual({'conflictEnvelope': 'body_unavailable'}, response_summary(None, status=409))
+
     def test_expected_restriction_is_named_without_accepting_unadmitted_metadata(self):
         client = self.client(Config(mode='open_network', host='0.0.0.0'), peer='192.168.1.50')
         self.assertEqual(403, client.get('/health', headers={'X-Gateway-Client-Diagnostics': '{"schemaVersion":1,"androidSdk":36}'}).status_code)
@@ -233,7 +250,8 @@ class DebugEvidenceTests(unittest.TestCase):
     def test_normalized_routes_do_not_export_identifiers_or_queries(self):
         expected = {'/v1/props': 'backend_properties', '/gateway/admin/dashboard': 'management_dashboard',
                     '/gateway/admin/maintenance': 'maintenance', '/gateway/admin/settings': 'management_settings', '/gateway/identity': 'identity',
-                    '/gateway/job-catalog': 'job_catalog', '/gateway/conversations/private/messages': 'messages',
+                    '/gateway/admin/engineering-admission': 'management_admission', '/gateway/admin/desktop-search': 'management_search',
+                    '/gateway/admin/retained-work/private': 'management_retained_work', '/gateway/job-catalog': 'job_catalog', '/gateway/conversations/private/messages': 'messages',
                     '/gateway/commands/private': 'commands', '/gateway/tools': 'tools', '/gateway/session': 'session'}
         for path, kind in expected.items():
             self.assertEqual(kind, route_kind(path))

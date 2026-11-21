@@ -22,6 +22,20 @@ import org.junit.Test
 /** Exercises the runner's retry decision and the durable generation boundary together. */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubLogicalContinuationRunnerTest {
+    @Test fun exhaustedRunAllowancePreservesAnUnexpiredOrUntimedAcceptedTask() = runTest {
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> =
+                error("Admission must stop before opening the provider")
+        }
+        for (remaining in listOf(60_000L, null)) {
+            val events = AgentRunner(AgentRunLimits(githubTask = true, runTimeoutMillis = 0), remainingTaskMillis = { remaining }).run(session, emptyList()).toList()
+            val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals("RUN_DEADLINE_REACHED", failure.errorCode)
+            assertEquals("PARTIAL", failure.taskOutcome)
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        }
+    }
+
     @Test fun expiredTaskDeliversSavedResultsWithoutRestoringQueuedWritesOrFiveSecondTimeout() = runTest {
         val checkpoint = ToolBatchCheckpoint(null, "expired-task")
         checkpoint.enqueue(listOf(ProviderEvent.ToolCall("queued-write", "github_write", JsonObject(emptyMap()))))

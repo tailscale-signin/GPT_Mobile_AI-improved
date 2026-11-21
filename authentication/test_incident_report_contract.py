@@ -1251,6 +1251,32 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertIsNotNone(match)
         self.assertEqual(capsule.ENUM_LISTS[key], set(re.findall(r'"([^"\n]+)"', match.group(1))))
 
+    def test_search_failure_counts_and_catalog_selector_are_bounded(self):
+        fields = {"search_failure_observation": "NO_ENGINE_SUCCEEDED", "search_attempt_count": 3,
+                  "search_dispatched_attempt_count": 1, "search_budget_rejected_attempt_count": 1,
+                  "catalog_selector_state": "ACTION_WITHOUT_NAMES"}
+        validate_diagnostics(self.capture("TOOL", fields))
+        for key, value in fields.items():
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {key: 1025 if type(value) is int else "private"}))
+            with self.subTest(area="ACCEPTANCE", key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {key: value}))
+
+    def test_deadline_and_acquisition_evidence_are_bounded_and_acceptance_scoped(self):
+        values = {"task_deadline_check": "BEFORE_TOOL_RESTORE", "task_deadline_observation": "WINDOW_EXPIRED",
+                  "task_deadline_window_seconds": 60, "task_deadline_overdue_seconds": 0,
+                  "acceptance_acquisition_allowed": False, "acceptance_cleanup_reserve": 0,
+                  "acceptance_fixture_start_minimum": 6, "acceptance_prerequisite_blockers": ["OWNED_FIXTURE_REQUIRED"]}
+        validate_diagnostics(self.capture("ACCEPTANCE", values))
+        for field, bad in (("task_deadline_check", "private text"), ("task_deadline_observation", "unknown clock"),
+                           ("task_deadline_window_seconds", -1), ("task_deadline_overdue_seconds", 16000001),
+                           ("acceptance_acquisition_allowed", "false"), ("acceptance_cleanup_reserve", -1),
+                           ("acceptance_fixture_start_minimum", "6"), ("acceptance_prerequisite_blockers", ["private-id"])):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {field: bad}))
+            with self.subTest(wrong_area=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {field: values[field]}))
+
     def test_acceptance_recovery_evidence_preserves_unknown_policy_and_prerequisites(self):
         values = {
             "acceptance_preparation_state": "PREREQUISITES_REQUIRED",

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
 import dev.chungjungsoo.gptmobile.data.agent.ToolInventoryPaginationEvidence
 import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
@@ -27,6 +28,29 @@ internal object ToolReportDiagnostics {
     private val graphReasons = setOf("GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER")
     private val phases = setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED")
 
+    private fun searchFailure(event: ToolEvent?, result: AgentToolResult): String? {
+        if (event == null || event.callId != result.callId || !result.isError) return null
+        val receipt = result.executionReceipt ?: return null
+        if (receipt["schema"] != JsonPrimitive("gptmobile.search-operation.v1") ||
+            receipt["callId"] != JsonPrimitive(result.callId) ||
+            receipt["errorCode"] != JsonPrimitive(result.errorCode) ||
+            receipt["state"] != JsonPrimitive(if (result.dispatched) "FAILED" else "PRECHECK_REJECTED")
+        ) {
+            return null
+        }
+        val aggregate = receipt["phase"] == JsonPrimitive("SEARCH_AGGREGATION") &&
+            receipt["provider"] == JsonPrimitive("selected_search_engines") &&
+            receipt["completedProviders"] == JsonPrimitive(0)
+        val directResponse = event.modelToolName.substringBefore("__") == "web_search" &&
+            receipt["phase"] == JsonPrimitive("PROVIDER_RESPONSE") &&
+            (receipt["requestSent"] == JsonPrimitive(true) || receipt["bodyReceived"] == JsonPrimitive(true))
+        return when {
+            result.errorCode == "CHALLENGE" && result.dispatched && (aggregate || directResponse) -> "UPSTREAM_CHALLENGE"
+            result.errorCode == "SEARCH_PROVIDERS_UNAVAILABLE" && aggregate -> "NO_ENGINE_SUCCEEDED"
+            else -> null
+        }
+    }
+
     /** The public alias describes the retained earlier index; the unsent current result stays unchanged. */
     fun reportCode(event: ToolEvent?, result: AgentToolResult): String? {
         val receipt = result.executionReceipt
@@ -48,7 +72,12 @@ internal object ToolReportDiagnostics {
             receipt["requires_reconciliation"] == JsonPrimitive(true) &&
             receipt["repair_action"] == JsonPrimitive("CHECK_SAVED_INDEX") &&
             receipt["recovery_action"] == JsonPrimitive("RECONCILE_OUTCOME")
-        return if (savedIndexPrecheck) "RECONCILIATION_REQUIRED" else IssueReportCodes.toolResult(result.errorCode)
+        if (savedIndexPrecheck) return "RECONCILIATION_REQUIRED"
+        return when (searchFailure(event, result)) {
+            "UPSTREAM_CHALLENGE" -> "SOURCE_ACCESS_BLOCKED"
+            "NO_ENGINE_SUCCEEDED" -> "SOURCE_UNAVAILABLE"
+            else -> IssueReportCodes.toolResult(result.errorCode)
+        }
     }
 
     fun fields(event: ToolEvent?, result: AgentToolResult, precheckReason: String? = null): Map<String, Any?> = buildMap {
@@ -60,6 +89,21 @@ internal object ToolReportDiagnostics {
         put("tool_name_hash", IssueReportContext.identifierHash("tool-name", event.modelToolName))
         putAll(ToolInventoryPaginationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
         putAll(dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
+        searchFailure(event, result)?.let { observation ->
+            put("search_failure_observation", observation)
+            val receipt = requireNotNull(result.executionReceipt)
+            if (receipt["phase"] == JsonPrimitive("SEARCH_AGGREGATION")) {
+                fun count(key: String) = (receipt[key] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 0..1024 }
+                val attempted = count("attemptCount")
+                val sent = count("dispatchedAttemptCount")
+                val refused = count("budgetRejectedAttemptCount")
+                if (attempted != null && sent != null && refused != null && sent + refused <= attempted && (sent > 0) == result.dispatched) {
+                    put("search_attempt_count", attempted)
+                    put("search_dispatched_attempt_count", sent)
+                    put("search_budget_rejected_attempt_count", refused)
+                }
+            }
+        }
         result.errorCode?.takeIf { it in errors }?.let { put("tool_error_code", it) }
         if (event.modelToolName == "read_url" &&
             result.errorCode in setOf("DNS_FAILED", "DNS_RECOVERY") &&
@@ -172,6 +216,20 @@ internal object ToolReportDiagnostics {
                 put("action_only_validation", validation)
             }
             when (event.modelToolName.githubOperationFamily()) {
+                ProgressiveToolCatalog.NAME -> if (result.errorCode == "INVALID_ARGUMENTS") {
+                    val names = arguments["names"]
+                    val selector = when {
+                        arguments.keys.any { it in setOf("inventory_cursor", "inventory_version") } &&
+                            arguments.keys.any { it in setOf("query", "action", "names") } -> "MIXED_INVENTORY_SELECTORS"
+                        "action" in arguments && (arguments["action"] as? JsonPrimitive)?.isString != true -> "ACTION_NOT_STRING"
+                        "action" in arguments && names == null -> "ACTION_WITHOUT_NAMES"
+                        names != null && names !is JsonArray -> "NAMES_NOT_ARRAY"
+                        names is JsonArray && names.any { (it as? JsonPrimitive)?.isString != true } -> "NAMES_CONTAIN_NON_STRING"
+                        "action" in arguments && names is JsonArray && names.size != 1 -> "ACTION_REQUIRES_ONE_NAME"
+                        else -> "OTHER_SCHEMA_CONSTRAINT"
+                    }
+                    put("catalog_selector_state", selector)
+                }
                 "github_read" -> if (result.errorCode in setOf("EVIDENCE_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION")) {
                     val evidence = (arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
                     val kind = when {

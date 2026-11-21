@@ -659,6 +659,11 @@ internal class GitHubEvidenceBook(
         taskContract = accepted
     }
 
+    suspend fun deadlineTiming(): JsonObject {
+        val contract = (taskContract ?: load("task_contract"))?.takeIf { it["binding"] == JsonPrimitive(binding) && it["repository"] == JsonPrimitive(repository) }
+        return GitHubExecutionLimits.deadlineTiming(contract, now())
+    }
+
     suspend fun remainingTaskMillis(): Long? = ((taskContract ?: load("task_contract"))?.get("deadline_at_ms") as? JsonPrimitive)?.longOrNull
         ?.let { (it - now()).coerceAtLeast(0) }
 

@@ -23,6 +23,9 @@ internal object ToolArgumentValidator {
     /** Give the model the failed constraint, never a second copy of the whole tool catalog. */
     fun repairMessage(toolName: String, errors: List<String>, schema: JsonObject, arguments: JsonObject? = null): String {
         val guidance = when (toolName.githubOperationFamily()) {
+            ProgressiveToolCatalog.NAME ->
+                "Search for tools using query. To inspect an action, supply names with exactly one tool name and a string action. " +
+                    "For the first inventory page use {}. For later pages copy the returned continuation_call. "
             "github_write" ->
                 "Each files item must contain its own non-empty repository-relative path. " +
                     "For a replacement supply path and complete content; for a deletion supply path, delete=true and the observed expected_blob_sha. " +

@@ -20,6 +20,67 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolReportIncidentProjectionTest {
+    @Test fun searchFailuresKeepOnlyBoundCountsFromTheSameFailedSearch() {
+        val call = event("""{"query":"private keywords"}""").copy(modelToolName = "web_search")
+        val receipt = buildJsonObject {
+            put("schema", "gptmobile.search-operation.v1")
+            put("callId", call.callId)
+            put("errorCode", "SEARCH_PROVIDERS_UNAVAILABLE")
+            put("phase", "SEARCH_AGGREGATION")
+            put("provider", "selected_search_engines")
+            put("state", "FAILED")
+            put("completedProviders", 0)
+            put("attemptCount", 3)
+            put("dispatchedAttemptCount", 1)
+            put("budgetRejectedAttemptCount", 1)
+        }
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("private provider response"), true, errorCode = "SEARCH_PROVIDERS_UNAVAILABLE", executionReceipt = receipt)
+        assertEquals("SOURCE_UNAVAILABLE", ToolReportDiagnostics.reportCode(call, result))
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(call, result), 1_800_000_000_000))
+        assertEquals(JsonPrimitive(3), capture.values["search_attempt_count"])
+        assertEquals(JsonPrimitive(1), capture.values["search_dispatched_attempt_count"])
+        assertEquals(JsonPrimitive(1), capture.values["search_budget_rejected_attempt_count"])
+        assertTrue("TASK_AND_TOOL_FAILURE_DETAILS_V1" in capture.requiredServiceFeatures())
+        assertFalse(capture.toString().contains("private"))
+        for (key in listOf("callId", "schema", "errorCode", "state", "phase", "provider", "completedProviders")) {
+            assertNull(key, ToolReportDiagnostics.reportCode(call, result.copy(executionReceipt = JsonObject(receipt - key))))
+        }
+        val challenge = result.copy(
+            errorCode = "CHALLENGE",
+            executionReceipt = buildJsonObject {
+                put("schema", "gptmobile.search-operation.v1")
+                put("callId", call.callId)
+                put("errorCode", "CHALLENGE")
+                put("phase", "PROVIDER_RESPONSE")
+                put("requestSent", true)
+                put("state", "FAILED")
+            }
+        )
+        assertEquals("SOURCE_ACCESS_BLOCKED", ToolReportDiagnostics.reportCode(call, challenge))
+        assertNull(ToolReportDiagnostics.reportCode(call.copy(callId = "different"), challenge))
+        assertNull(ToolReportDiagnostics.reportCode(call, challenge.copy(dispatched = false)))
+    }
+
+    @Test fun rejectedDiscoveryRetainsOnlyTheSelectorShape() {
+        val invalid = mapOf(
+            """{"action":"search"}""" to "ACTION_WITHOUT_NAMES",
+            """{"action":"search","names":"private-tool"}""" to "NAMES_NOT_ARRAY",
+            """{"action":"search","names":[]}""" to "ACTION_REQUIRES_ONE_NAME",
+            """{"action":"search","names":[123]}""" to "NAMES_CONTAIN_NON_STRING",
+            """{"action":false,"names":["private-tool"]}""" to "ACTION_NOT_STRING",
+            """{"query":"private term","inventory_cursor":2}""" to "MIXED_INVENTORY_SELECTORS"
+        )
+        for ((args, expected) in invalid) {
+            val call = event(args).copy(modelToolName = "discover_available_tools")
+            val result = AgentToolResult(call.callId, ToolResultContent.Text("private value"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            val fields = ToolReportDiagnostics.fields(call, result)
+            val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+            assertEquals(JsonPrimitive(expected), capture.values["catalog_selector_state"])
+            assertFalse(capture.toString().contains("private"))
+            assertFalse(ToolReportDiagnostics.fields(call, result.copy(dispatched = true)).containsKey("catalog_selector_state"))
+        }
+    }
+
     @Test fun githubMissingPathKeepsCallBoundReasonWithoutDisclosingTheRequestedPath() {
         val event = event("""{"action":"ranges","ranges":[{"path":"PRIVATE_FILE_PATH"}]}""").copy(modelToolName = "github_read__selected")
         val receipt = buildJsonObject {

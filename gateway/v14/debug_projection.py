@@ -8,7 +8,7 @@ from v14.backend_observation import (DEPENDENCIES, FAILURES, MODEL_STATES, UPSTR
 from v14.diagnostic_schema import ENUM_ATTRIBUTES
 
 ROUTES = {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard', 'job', 'engineering',
-          'management_dashboard', 'management_settings', 'maintenance', 'identity', 'job_catalog', 'conversations', 'messages',
+          'management_dashboard', 'management_settings', 'management_admission', 'management_search', 'management_retained_work', 'maintenance', 'identity', 'job_catalog', 'conversations', 'messages',
           'commands', 'backend_health', 'backend_properties', 'tools', 'connections', 'session',
           'debug', 'doctor', 'browser', 'other'}
 ADMISSION_CODES = {'remote_surface_not_admitted', 'scope_not_granted', 'engineering_scope_required',
@@ -66,11 +66,12 @@ def route_kind(path):
              '/gateway/v13': 'capabilities', '/gateway/v14': 'capabilities', '/gateway/v15': 'capabilities', '/gateway/v16': 'capabilities', '/gateway/v17': 'capabilities', '/gateway/v18': 'capabilities',
              '/gateway/dashboard': 'dashboard', '/gateway/admin/dashboard': 'management_dashboard',
              '/gateway/admin/settings': 'management_settings', '/gateway/admin/status': 'maintenance', '/gateway/admin/maintenance': 'maintenance',
+             '/gateway/admin/engineering-admission': 'management_admission', '/gateway/admin/desktop-search': 'management_search',
              '/gateway/identity': 'identity', '/gateway/job-catalog': 'job_catalog',
              '/gateway/connections': 'connections', '/gateway/session': 'session', '/gateway/admin/doctor': 'doctor'}
     if path in exact:
         return exact[path]
-    for prefix, kind in (('/gateway/jobs', 'job'), ('/gateway/engineering', 'engineering'),
+    for prefix, kind in (('/gateway/admin/retained-work', 'management_retained_work'), ('/gateway/jobs', 'job'), ('/gateway/engineering', 'engineering'),
                          ('/gateway/commands', 'commands'), ('/gateway/tools', 'tools'), ('/gateway/mcp', 'tools'),
                          ('/gateway/debug', 'debug'), ('/gateway/admin/debug', 'debug')):
         if path == prefix or path.startswith(prefix + '/'):
@@ -113,6 +114,9 @@ def failure_fields(value, *, conditions=True):
     if not isinstance(value, dict):
         return {}
     result = {}
+    if choice(value.get('conflictEnvelope'), {'settings_waiting', 'settings_setup', 'settings_revision_changed', 'structured_error',
+                                               'detail_present', 'unclassified_json', 'body_unavailable'}):
+        result['conflictEnvelope'] = value['conflictEnvelope']
     if value.get('settingsDisposition') in ('waiting_for_jobs', 'invalid_backend', 'probe_failed', 'setup_required'):
         result['settingsDisposition'] = value['settingsDisposition']
     if type(value.get('blockingJobCount')) is int and 0 <= value['blockingJobCount'] <= 64:
@@ -172,7 +176,7 @@ def failure_fields(value, *, conditions=True):
     return result
 
 
-def response_summary(body, admission=None, route=None):
+def response_summary(body, admission=None, route=None, status=None):
     result = {}
     if isinstance(body, dict):
         result = failure_fields(body, conditions=False)
@@ -216,6 +220,19 @@ def response_summary(body, admission=None, route=None):
             if isinstance(service, dict):
                 states['process'] = failure_fields({'draining': service.get('draining')}, conditions=False)
             result['conditions'] = {key: value for key, value in states.items() if value}
+    if status == 409:
+        # Retain the envelope class even when the route or the inner error code is unknown.
+        if not isinstance(body, dict):
+            envelope = 'body_unavailable'
+        elif body.get('status') in ('waiting_for_jobs', 'setup_required') and isinstance(body.get('effective'), dict):
+            envelope = 'settings_waiting' if body['status'] == 'waiting_for_jobs' else 'settings_setup'
+        elif isinstance(body.get('error'), dict):
+            envelope = 'settings_revision_changed' if body['error'].get('code') == 'ENGINEERING_SETTINGS_CHANGED' else 'structured_error'
+        elif 'detail' in body:
+            envelope = 'detail_present'
+        else:
+            envelope = 'unclassified_json'
+        result['conflictEnvelope'] = envelope
     if choice(admission, ADMISSION_CODES):
         result.update(failureCode=admission, dependency='process', retryable=False)
     return result

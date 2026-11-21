@@ -319,6 +319,12 @@ class ConversationCompletionReplayTest {
         assertTrue("publish_release" in ids("Publish a release"))
         assertTrue("publish_release" in ids("Fix the build, then publish this release"))
         assertFalse("publish_release" in ids("Publish the PR comment"))
+        assertTrue("draft_pr" in ids("Open a draft PR for this branch"))
+        assertTrue("create_pr" in ids("Create a pull request"))
+        assertTrue("create_pr" in ids("Read the old draft PR and create a new PR"))
+        assertTrue("draft_pr" in ids("Fix the bug then push as a PR draft"))
+        assertFalse("draft_pr" in ids("Fix the bug in a draft PR and open the test file"))
+        assertFalse("create_pr" in ids("Open PR #42 and inspect the tests"))
         val withBuild = ids("Fix the build failure")
         assertEquals(withBuild.distinct(), withBuild)
     }

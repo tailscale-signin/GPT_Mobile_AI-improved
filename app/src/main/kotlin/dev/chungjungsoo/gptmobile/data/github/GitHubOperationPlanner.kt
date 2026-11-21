@@ -16,12 +16,16 @@ object GitHubOperationPlanner {
         // Scope each verb to its own clause so "fix the bug but do not merge" keeps the fix.
         val clauses = normalized.split(Regex("""[.!?;\n]|\b(?:then|but|and)\b""")).map(String::trim)
         val readOnly = GitHubChecklistScope.readOnly(goal)
-        fun requests(verbs: String): Boolean {
+        fun requested(verbs: String): String? {
+            if (readOnly) return null
             val verb = Regex("""^(?:(?:please|also|now|finally)\s+|(?:can|could|would) you\s+|i (?:want|need) you to\s+)*(?:$verbs)\b""")
-            return !readOnly && clauses.any(verb::containsMatchIn)
+            return clauses.firstNotNullOfOrNull { verb.find(it)?.value }
         }
+        fun requests(verbs: String) = requested(verbs) != null
         val wantsRelease = requests("""publish(?: (?:it|(?:(?:this|the|a|our|an?) (?:signed |new )?)?release|(?:(?:the|this) )?version|v?\d)|$)|release(?! notes\b)|tag""") &&
             !Regex("""(?i)\b(?:do not|don't|never|without) (?:publish|publishing|release|releasing|tag|tagging)\b""").containsMatchIn(goal)
+        val prTarget = """(?:(?:new|draft)\s+)*(?:pr|pull request)(?:\s+draft)?(?!\s*(?:#|\d)|\s+(?:review|comment|file|details)\b)"""
+        val requestedPr = requested("""(?:create|raise|prepare|submit)\s+(?:(?:a|the)\s+)?$prTarget|open\s+(?:a\s+|new\s+|draft\s+)$prTarget|push(?:\s+(?:it|this|them|the (?:changes|branch)))?\s+as\s+(?:a\s+)?$prTarget""")
         val wantsMerge = requests("merge")
         val wantsWrite = requests("fix|repair|patch|change|implement|update|refactor|add|stage")
         val lifecycle = GitHubRepositoryLifecycle.intent(goal)
@@ -57,7 +61,11 @@ object GitHubOperationPlanner {
             if (wantsWrite) add(step("prerequisites", "Check the selected source revision, readable files, available test command and environment, and write scope once. Continue an independent step when a dependency blocks another."))
             add(step("search_repository", "Use the persistent lexical index and explicit continuation until relevant paths are covered."))
             add(step("read_ranges", "Load a bounded multi-file bundle concurrently, inspect its revision-bound import graph and related tests, and retain evidence handles and immutable blob SHAs. Lexical hints do not establish compiler resolution."))
-            if (listOf("review", "pull request", "pr ").any(normalized::contains)) add(step("pr_context", "Page PR files and checks with expected_head so a moving PR cannot mix revisions."))
+            if (requestedPr != null) {
+                add(step("pr_context", "Resolve the working head and base, then check for an existing matching pull request before creation."))
+            } else if (listOf("review", "pull request", "pr ").any(normalized::contains)) {
+                add(step("pr_context", "Page PR files and checks with expected_head so a moving PR cannot mix revisions."))
+            }
             if (listOf("debug", "failure", "ci", "build").any(normalized::contains)) add(step(if (wantsWrite) "baseline_ci_failure_digest" else "ci_failure_digest", "Read the latest failed job at the selected branch and inspect failure context throughout the bounded log."))
             if (wantsWrite) {
                 add(step("select_defect", "Select one actionable correctness issue with a source range, expected behavior, and the observation that would disprove it.", "read_ranges"))
@@ -68,9 +76,11 @@ object GitHubOperationPlanner {
                 add(step("commit_staged_patch", "Commit the reviewed stage with its original expected_head_sha; never force-update."))
                 add(step("diff", "Inspect the resulting compare data and changed-file statistics."))
                 add(step("ci_failure_digest", "Inspect bounded full CI logs for late failures at the new commit, expanding relevant line ranges."))
-                if (requests("open|create|prepare|push") && Regex("""(?i)\b(?:draft|pr|pull request)\b""").containsMatchIn(goal)) {
-                    add(step("draft_pr", "Create or update the requested draft pull request and retain its URL and head.", "commit_staged_patch", "diff"))
-                }
+            }
+            if (requestedPr != null) {
+                val draft = Regex("""(?i)\b(?:draft (?:pr|pull request)|(?:pr|pull request) draft)\b""").containsMatchIn(requestedPr)
+                val dependencies = if (wantsWrite) arrayOf("commit_staged_patch", "diff", "pr_context") else arrayOf("pr_context")
+                add(step(if (draft) "draft_pr" else "create_pr", "Create or update the requested ${if (draft) "draft " else ""}pull request at the verified head and retain its URL.", *dependencies))
             }
             if (wantsMerge) add(step("merge_gate", "Merge only after explicit user intent and required checks/reviews pass."))
             if (wantsRelease) {

@@ -15,11 +15,13 @@ import io.mockk.mockk
 import io.mockk.verify
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.InputStream
 import java.io.RandomAccessFile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -98,10 +100,16 @@ class LocalModelStreamCopyTest {
             }
         }
         every { resolver.openInputStream(uri) } returns input
-        coEvery { repository.importPersisted(input, "model.gguf", "job", any(), any()) } throws CancellationException("cancelled")
+        val cancellation = CancellationException("cancelled")
+        coEvery { repository.importPersisted(any(), "model.gguf", "job", any(), any()) } coAnswers {
+            assertEquals("GGUF", firstArg<InputStream>().readBytes().decodeToString())
+            throw cancellation
+        }
         val result = runCatching { LocalModelSourceImport.execute(context, repository, LocalModelSource(uri, LocalModelSource.Kind.FILE, LocalModelSource.Mode.COPY), "job", {}, {}) }
-        assertTrue(result.exceptionOrNull() is CancellationException)
+        assertSame(cancellation, result.exceptionOrNull())
         assertTrue(closed)
+        coVerify(exactly = 1) { repository.importPersisted(any(), "model.gguf", "job", any(), any()) }
+        verify(exactly = 1) { resolver.openInputStream(uri) }
     }
 
     @Test fun unsupportedAndUnsafeNamesAreRejectedBeforeCopying() = runBlocking {

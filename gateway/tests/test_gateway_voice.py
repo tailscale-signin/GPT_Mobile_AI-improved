@@ -117,11 +117,15 @@ class VoiceProtocolTests(unittest.TestCase):
             self.assertEqual(symbols[' '], 16)
             reordered = '\r\n'.join(reversed(original.decode('utf-8').splitlines())).encode('utf-8')
             self.assertEqual(frontend_symbols(reordered), symbols)
-            swapped = original.decode('utf-8').replace('h 50\n', 'h 54\n').replace('l 54\n', 'l 50\n').encode('utf-8')
-            path.write_bytes(swapped)
-            with self.assertRaises(VoiceError) as mismatch:
-                load_pack(directory)
-            self.assertEqual(mismatch.exception.code, 'VOICE_FRONTEND_MISMATCH')
+            permuted = dict(symbols)
+            permuted['h'], permuted['l'] = symbols['l'], symbols['h']
+            self.assertNotEqual(sorted(permuted.items()), sorted(symbols.items()))
+            for newline in ('\n', '\r\n'):
+                swapped = newline.join(f'{symbol} {identifier}' for symbol, identifier in permuted.items()).encode('utf-8')
+                path.write_bytes(swapped)
+                with self.subTest(newline=repr(newline)), self.assertRaises(VoiceError) as mismatch:
+                    load_pack(directory)
+                self.assertEqual(mismatch.exception.code, 'VOICE_FRONTEND_MISMATCH')
             (Path(directory) / 'lexicon-us-en.txt').write_text('hello h ə l ˈ O\n', encoding='utf-8')
             with self.assertRaises(VoiceError):
                 prepare(directory)
@@ -531,11 +535,27 @@ serve(parser.parse_args().directory, factory=Synthetic)
             self.assertEqual(configuration(), (None, None))
             config = dict(schema_version=1, enabled=True, python=str(interpreter), model_directory=str(root))
             setting.write_text(json.dumps(config))
-            self.assertEqual(configuration(), (str(root), str(interpreter)))
+            expected = (str(root.resolve()), str(interpreter.parent.resolve() / interpreter.name))
+            self.assertEqual(configuration(), expected)
             setting.write_text(json.dumps(dict(config, python=sys.executable)))
             self.assertEqual(configuration(), (None, None))
             setting.write_text(json.dumps(dict(config, enabled=False)))
             self.assertEqual(configuration(), (None, None))
+            if os.name != 'nt':
+                # Real POSIX venvs commonly link bin/python to the system binary.
+                # The managed entry point stays valid, but the target is not an
+                # interchangeable configured interpreter outside that venv.
+                interpreter.unlink()
+                interpreter.symlink_to(sys.executable)
+                setting.write_text(json.dumps(config))
+                self.assertEqual(configuration(), expected)
+                setting.write_text(json.dumps(dict(config, python=sys.executable)))
+                self.assertEqual(configuration(), (None, None))
+                alias = root / 'directory-alias'
+                alias.symlink_to(root, target_is_directory=True)
+                setting.write_text(json.dumps(dict(config, python=str(alias / interpreter.relative_to(root)), model_directory=str(alias))))
+                with patch.dict(os.environ, {'GATEWAY_DESKTOP_ROOT': str(alias)}):
+                    self.assertEqual(configuration(), expected)
 
     def test_oversize_child_frame_is_bounded_and_child_is_stopped(self):
         from v14.voice_process import MAX_RESPONSE_BYTES
@@ -574,7 +594,7 @@ class VoiceSetupTests(unittest.TestCase):
             self.assertTrue(backend.closed)
             enabled = json.loads((root / 'data' / 'voice-cuda.json').read_text())
             self.assertIs(enabled['enabled'], True)
-            self.assertEqual(enabled['model_directory'], str(model))
+            self.assertEqual(enabled['model_directory'], str(model.resolve()))
 
 
 if __name__ == '__main__':

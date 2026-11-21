@@ -61,7 +61,8 @@ class DiagnosticIncidentTrackerTest {
         assertFalse(frame.first)
         assertEquals(header.id, exception.id)
         assertEquals(header.id, frame.id)
-        assertFalse(classifyDiagnostic("E", "Android", "java.lang.SecurityException: asus_leak_detect_proj").actionable)
+        assertFalse(classifyDiagnostic("E", "Android", "E/System (42): java.lang.SecurityException: Settings key: <asus_leak_detect_proj> is not readable").actionable)
+        assertTrue(classifyDiagnostic("E", "Android", "java.lang.SecurityException: asus_leak_detect_proj").actionable)
     }
 
     @Test fun interleavedAndroidTagsAndProcessesKeepIndependentStacks() {

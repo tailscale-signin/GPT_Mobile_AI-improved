@@ -36,10 +36,17 @@ def configuration():
             return None, None
         interpreter, directory = Path(config['python']), Path(config['model_directory'])
         expected = root / 'addons' / 'voice-cuda' / 'venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
-        if (not interpreter.is_absolute() or interpreter.absolute() != expected.absolute() or not interpreter.is_file()
+        if (not interpreter.is_absolute() or not interpreter.is_file()
                 or not directory.is_absolute() or not directory.is_dir()):
             return None, None
-        return str(directory.resolve()), str(interpreter.absolute())
+        # Windows may spell the same installed directory using an 8.3 alias.
+        # Resolve its parent, keeping the venv executable entry point: resolving
+        # a POSIX bin/python symlink would also admit its system interpreter.
+        interpreter = interpreter.parent.resolve(strict=True) / interpreter.name
+        expected = expected.parent.resolve(strict=True) / expected.name
+        if interpreter != expected:
+            return None, None
+        return str(directory.resolve()), str(interpreter)
     except (OSError, ValueError, TypeError, KeyError):
         return None, None
 

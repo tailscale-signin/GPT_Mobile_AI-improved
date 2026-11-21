@@ -70,6 +70,7 @@ internal object GitHubEvidenceExcerpts {
                     val path = (value["path"] as? JsonPrimitive)?.contentOrNull ?: resource
                     val start = (value["start_line"] as? JsonPrimitive)?.intOrNull?.coerceAtLeast(1) ?: firstLine
                     for ((key, child) in value) {
+                        if (found.size >= MAX_EXCERPTS) break
                         if (secret.containsMatchIn(key)) continue
                         val next = "$pointer/${key.replace("~", "~0").replace("/", "~1")}"
                         val text = (child as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
@@ -77,9 +78,12 @@ internal object GitHubEvidenceExcerpts {
                             // Do not send credentials in source excerpts to another model or into exports.
                             val clean = (dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(JsonPrimitive(text.take(48_000))) as JsonPrimitive).content
                             var offset = start
-                            for (lines in clean.lineSequence().take(240).chunked(24)) {
+                            val sourceLines = clean.lineSequence().take(241).toList()
+                            val sourceTruncated = text.length > 48_000 || sourceLines.size > 240
+                            for (lines in sourceLines.asSequence().take(240).chunked(24)) {
                                 if (found.size >= MAX_EXCERPTS) break
-                                val chunk = lines.joinToString("\n").take(MAX_TEXT)
+                                val joined = lines.joinToString("\n")
+                                val chunk = joined.take(MAX_TEXT)
                                 val end = offset + chunk.count { it == '\n' }
                                 val id = "$next#L$offset-L$end"
                                 found[id] = buildJsonObject {
@@ -97,12 +101,12 @@ internal object GitHubEvidenceExcerpts {
                                             else -> "description"
                                         }
                                     )
-                                    put("truncated", chunk.length < lines.joinToString("\n").length)
-                                    put("source_truncated", text.length > 48_000 || clean.lineSequence().take(241).count() > 240)
+                                    put("truncated", chunk.length < joined.length)
+                                    put("source_truncated", sourceTruncated)
                                 }
                                 offset += lines.size
                             }
-                        } else if (key !in fields) {
+                        } else if (child is JsonObject || child is JsonArray) {
                             visit(child, next, depth + 1, path, start, itemRevision)
                         }
                     }

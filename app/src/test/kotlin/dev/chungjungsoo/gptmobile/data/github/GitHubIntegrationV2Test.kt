@@ -48,7 +48,7 @@ class GitHubIntegrationV2Test {
             assertTrue(request, target in plan)
             assertEquals(request, listOf(target), plan.getValue("merge_gate").getValue("depends_on").jsonArray.map { it.jsonPrimitive.content })
         }
-        for (request in listOf("Review the build, merge policy and release notes.", "Do not fix the bug, merge it or publish it.")) {
+        for (request in listOf("Review the build, merge policy and release notes.", "Review the build, patch notes, release metadata and merge policy.", "Do not fix the bug, merge it or publish it.")) {
             val steps = GitHubOperationPlanner.plan(request).map { it.jsonObject.getValue("id").jsonPrimitive.content }
             assertFalse(request, steps.any { it in setOf("stage_patch", "draft_pr", "create_pr", "merge_gate", "publish_release") })
         }

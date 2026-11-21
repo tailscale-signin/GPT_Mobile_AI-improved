@@ -14,15 +14,12 @@ object GitHubOperationPlanner {
         val normalized = goal.lowercase()
         // A noun such as "release notes" or "staging" does not request publication.
         // Scope each verb to its own clause so "fix the bug but do not merge" keeps the fix.
-        val negated = Regex("""^(?:(?:please|also)\s+)*(?:do not|don['’]t|never|without|no)\b""")
-        val clauses = normalized.split(Regex("""[.!?;\n]|\b(?:then|but|and)\b""")).flatMap { clause ->
-            clause.split(',').map(String::trim).takeWhile { !negated.containsMatchIn(it) }
-        }
+        val clauses = normalized.split(Regex("""[.!?;\n]|\b(?:then|but|and)\b""")).map(String::trim)
         val readOnly = GitHubChecklistScope.readOnly(goal)
-        fun requested(verbs: String): String? {
+        fun requested(verbs: String, candidates: List<String> = clauses): String? {
             if (readOnly) return null
             val verb = Regex("""^(?:(?:please|also|now|finally)\s+|(?:can|could|would) you\s+|i (?:want|need) you to\s+)*(?:$verbs)\b""")
-            return clauses.firstNotNullOfOrNull { verb.find(it)?.value }
+            return candidates.firstNotNullOfOrNull { verb.find(it)?.value }
         }
         fun requests(verbs: String) = requested(verbs) != null
         val wantsRelease = requests("""publish(?: (?:it|(?:(?:this|the|a|our|an?) (?:signed |new )?)?release|(?:(?:the|this) )?version|v?\d)|$)|release(?! notes\b)|tag""") &&
@@ -32,7 +29,15 @@ object GitHubOperationPlanner {
         val prStep = requestedPr?.let {
             if (Regex("""\b(?:draft (?:pr|pull request)|(?:pr|pull request) draft)\b""").containsMatchIn(it)) "draft_pr" else "create_pr"
         }
-        val wantsMerge = requests("""merge(?![\s-]+(?:polic(?:y|ies)|strateg(?:y|ies)|conflicts?|checks?|queue|status)\b)""")
+        // A comma can introduce a list of nouns ("patch notes, release metadata").
+        // Only accept a merge command there when its object identifies a PR or branch.
+        val negated = Regex("""^(?:(?:please|also)\s+)*(?:do not|don['’]t|never|without|no)\b""")
+        val commaItems = clauses.flatMap { clause ->
+            clause.split(',').map(String::trim).takeWhile { !negated.containsMatchIn(it) }.drop(1)
+        }
+        val mergeObject = """(?:it|them|#\d+|(?:this|that|the|our|these|those)\s+(?:open\s+)?(?:prs?|pull requests?|branches|branch)|(?:prs?|pull requests?)\s*#?\d+)"""
+        val wantsMerge = requests("""merge(?![\s-]+(?:polic(?:y|ies)|strateg(?:y|ies)|conflicts?|checks?|queue|status)\b)""") ||
+            requested("""merge\s+$mergeObject""", commaItems) != null
         val wantsWrite = requests("fix|repair|patch|change|implement|update|refactor|add|stage")
         val lifecycle = GitHubRepositoryLifecycle.intent(goal)
 

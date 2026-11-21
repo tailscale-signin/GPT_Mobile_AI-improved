@@ -313,26 +313,8 @@ internal object GitHubEvidencePolicy {
     fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, inspectExtractorFailure: Boolean = false): Pair<String, JsonObject> {
         if (GitHubTaskCoverage.matches(task)) return testing(receipts, now, epoch, task, tools, remainingToolCalls, stageBudget, acceptedContract, fixturePreflight)
         val allowHistorical = historicalReview(task)
-        val claims = mutableListOf<JsonObject>()
-        for ((id, receipt) in receipts.entries.sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }) {
-            if (claims.size >= 16) break
-            // Skip ineligible receipts before traversing their potentially large results.
-            if (receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true)) continue
-            val observedAt = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0
-            if (observedAt <= 0 || observedAt > now) continue
-            for ((pointer, value) in facts(receipt["result"] ?: JsonNull)) {
-                if (Regex("/(?:check_runs|workflow_runs|jobs)/[0-9]+/").containsMatchIn(pointer) && !Regex("(?:/data)?/workflow_runs/0/(?:name|status|conclusion|head_branch|head_sha)").matches(pointer)) continue
-                if (pointer.substringAfterLast('/') !in setOf("full_name", "default_branch", "sha", "commit_sha", "head_sha", "state", "status", "conclusion", "checks", "number", "draft", "name", "path", "total_paths", "indexed_blobs")) continue
-                if (claims.size >= 16) break
-                val claim = buildJsonObject {
-                    put("kind", "fact")
-                    put("receipt_id", id)
-                    put("pointer", pointer)
-                    put("value", value)
-                }
-                if (verify(claim, receipts, now, epoch, allowHistorical = allowHistorical).string("status") in setOf("VERIFIED", "HISTORICAL")) claims += claim
-            }
-        }
+        val fallback = fallbackClaims(receipts, now, epoch, task, allowHistorical)
+        val claims = fallback.claims.toMutableList()
         claims += buildJsonObject {
             put("kind", "not_measured")
             put(
@@ -379,12 +361,16 @@ internal object GitHubEvidencePolicy {
                     if (keepRejectedFixture) "Fixture intentionally retained by the user's Keep fixture choice." else "The fixture is queued for cleanup reconciliation and branch absence verification."
             else -> "**Task incomplete.** These observations and retained evidence do not establish unverified changes, tests or merges.\n\n**Next action:** ${recoveryText(action)}"
         }
-        val text = established + observations + operations + missingComparison + "\n\n" + ending
+        val fallbackScope = if (fallback.omitted > 0) "\n\nThis bounded summary inspected ${fallback.inspected} of ${fallback.candidates} successful trusted receipts. Omitted observations remain retained; their absence from this summary does not establish absence from the repository." else ""
+        val text = established + observations + operations + missingComparison + fallbackScope + "\n\n" + ending
         return text to JsonObject(
             report + mapOf(
                 "partial" to JsonPrimitive(true),
                 "answer_available" to JsonPrimitive(true),
                 "fallback" to JsonPrimitive("receipt_only"),
+                "fallback_candidate_receipts" to JsonPrimitive(fallback.candidates),
+                "fallback_inspected_receipts" to JsonPrimitive(fallback.inspected),
+                "fallback_omitted_receipts" to JsonPrimitive(fallback.omitted),
                 "resume_required" to JsonPrimitive(!rejectedApprovals.isNotEmpty()),
                 "failure_code" to (failureCode?.let(::JsonPrimitive) ?: JsonNull),
                 "task_state" to JsonPrimitive(
@@ -426,6 +412,110 @@ internal object GitHubEvidencePolicy {
                 "retryable_without_new_input" to JsonPrimitive(!inspectExtractorFailure && !waitingForApproval && rejectedApprovals.isEmpty())
             )
         )
+    }
+
+    /** Select meaningful source facts; request recipes and repeated revision aliases are not extra findings. */
+    private data class FallbackSelection(val claims: List<JsonObject>, val candidates: Int, val inspected: Int) {
+        val omitted: Int get() = candidates - inspected
+    }
+
+    private fun fallbackClaims(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String, allowHistorical: Boolean): FallbackSelection {
+        data class Candidate(val claim: JsonObject, val identity: String, val priority: Int)
+        val controls = setOf("continuation_call", "continuation_calls", "source_recovery_call", "remote_continuations", "next_call", "arguments", "request", "semantic_summary", "execution", "tool_budget", "retained_remote_continuations")
+        val allowed = setOf("full_name", "default_branch", "sha", "commit_sha", "head_sha", "base_sha", "state", "state_reason", "status", "conclusion", "checks", "number", "draft", "name", "title", "path", "total_paths", "indexed_blobs", "scanned_files", "returned", "total_candidate_files", "matches_complete")
+        val candidates = mutableListOf<Candidate>()
+        val issueTask = Regex("(?i)\\bissues?\\b").containsMatchIn(task)
+        val ciTask = Regex("(?i)\\b(?:CI|checks?|builds?|tests?)\\b").containsMatchIn(task)
+        val eligible = receipts.entries.filter { (_, receipt) ->
+            val at = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0
+            receipt["success"] == JsonPrimitive(true) && receipt["trusted"] == JsonPrimitive(true) && receipt["verification_eligible"] != JsonPrimitive(false) && at > 0 && at <= now
+        }.sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }
+        val recent = eligible.take(96)
+        val recentIds = recent.mapTo(mutableSetOf()) { it.key }
+        // Reserve a small slice for earlier relevant observations. Later inventory
+        // polling must not erase an issue finding, nor scan an entire failed run.
+        val earlierRelevant = eligible.asSequence().filter { it.key !in recentIds }.filter { (_, receipt) ->
+            when (receipt.string("tool").githubOperationFamily()) {
+                "github_issue" -> issueTask
+                "github_ci", "github_watch_checks" -> ciTask
+                "github_read", "github_search", "github_pr" -> true
+                else -> false
+            }
+        }.sortedBy { (_, receipt) ->
+            when {
+                issueTask && receipt.string("tool").githubOperationFamily() == "github_issue" -> 0
+                ciTask && receipt.string("tool").githubOperationFamily() in setOf("github_ci", "github_watch_checks") -> 0
+                else -> 1
+            }
+        }.take(32).toList()
+        val inspected = (recent + earlierRelevant).sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }
+        for ((id, receipt) in inspected) {
+            val observed = facts(receipt["result"] ?: JsonNull)
+            val family = receipt.string("tool").githubOperationFamily()
+            for ((pointer, value) in observed) {
+                val parts = pointer.trim('/').split('/').map { it.replace("~1", "/").replace("~0", "~") }
+                val field = parts.last()
+                if (field !in allowed || parts.any { it in controls }) continue
+                if (Regex("/(?:check_runs|workflow_runs|jobs)/[0-9]+/").containsMatchIn(pointer) && !Regex("(?:/data)?/workflow_runs/0/(?:name|status|conclusion|head_branch|head_sha)").matches(pointer)) continue
+                val claim = buildJsonObject {
+                    put("kind", "fact")
+                    put("receipt_id", id)
+                    put("pointer", pointer)
+                    put("value", value)
+                }
+                if (verify(claim, receipts, now, epoch, observations = observed, allowHistorical = allowHistorical).string("status") !in setOf("VERIFIED", "HISTORICAL")) continue
+                val priority = when {
+                    issueTask && family == "github_issue" && field in setOf("title", "state", "state_reason") -> 0
+                    ciTask && field in setOf("state", "status", "conclusion", "checks") -> 1
+                    field == "title" -> 2
+                    field in setOf("state", "status", "conclusion", "state_reason") -> 3
+                    field in setOf("path", "number", "name") -> 4
+                    field in setOf("sha", "commit_sha", "head_sha", "base_sha") -> 8
+                    else -> 6
+                }
+                val candidate = Candidate(claim, fallbackIdentity(id, receipt, parts), priority)
+                if (candidates.none { it.identity == candidate.identity }) {
+                    candidates += candidate
+                    // Retain a bounded choice set while inspecting later task-relevant
+                    // receipts; a large archive must not allocate every candidate claim.
+                    if (candidates.size > 64) {
+                        val worstPriority = candidates.maxOf { it.priority }
+                        candidates.removeAt(candidates.indexOfLast { it.priority == worstPriority })
+                    }
+                }
+            }
+        }
+        return FallbackSelection(candidates.sortedBy { it.priority }.distinctBy { it.identity }.take(16).map { it.claim }, eligible.size, inspected.size)
+    }
+
+    private fun fallbackIdentity(receiptId: String, receipt: JsonObject, parts: List<String>): String {
+        val args = (receipt["arguments"] as? JsonObject) ?: JsonObject(emptyMap())
+        val family = receipt.string("tool").githubOperationFamily()
+        var node: JsonElement? = receipt["result"]
+        var resource = listOf("issue_number", "pull_number", "job_id", "run_id", "path").firstNotNullOfOrNull { key -> args[key]?.let { "${if (key in setOf("issue_number", "pull_number")) "number" else key}:$it" } }.orEmpty()
+        (node as? JsonObject)?.let { row ->
+            listOf("number", "path", "id").firstNotNullOfOrNull { key -> row[key]?.let { "$key:$it" } }?.let { resource = it }
+        }
+        for (part in parts.dropLast(1)) {
+            node = when (val parent = node) {
+                is JsonObject -> parent[part]
+                is JsonArray -> part.toIntOrNull()?.let(parent::getOrNull)
+                else -> null
+            }
+            (node as? JsonObject)?.let { row ->
+                listOf("number", "path", "id").firstNotNullOfOrNull { key -> row[key]?.let { "$key:$it" } }?.let { resource = it }
+            }
+        }
+        val field = parts.last()
+        val revision = field in setOf("commit_sha", "head_sha") || parts.takeLast(2) == listOf("head", "sha") || field == "sha" && resource.isEmpty() && family == "github_context" && args.string("action") in setOf("resolve", "branch", "status")
+        val meaning = when {
+            revision -> "observed_revision"
+            resource.isNotEmpty() && field in setOf("number", "title", "state", "state_reason", "path", "name", "status", "conclusion") -> field
+            else -> parts.filterNot { it == "data" || it.toIntOrNull() != null }.joinToString("/")
+        }
+        val branch = args["ref"] ?: args["branch"] ?: receipt["branch"]
+        val sourceRevision = if (receipt["immutable"] == JsonPrimitive(true) && !revision) receipt["source_head_sha"] else null
+        return listOf(receipt["repository"] ?: receiptId, branch, if (revision && resource.isEmpty()) "repository" else family, resource, sourceRevision, meaning).joinToString("|")
     }
 
     private fun recoveryAction(failureCode: String?, receipts: Map<String, JsonObject>): String = when {
@@ -735,17 +825,18 @@ internal object GitHubEvidencePolicy {
         else -> {
             val parts = pointer.trim('/').split('/')
             var parent: JsonElement? = receipt?.get("result")
-            var pullRequest: JsonObject? = null
+            var numberedResource: JsonObject? = null
+            val family = receipt?.string("tool")?.githubOperationFamily()
             for (part in parts.dropLast(1)) {
                 parent = when (val item = parent) {
                     is JsonObject -> item[part.replace("~1", "/").replace("~0", "~")]
                     is JsonArray -> part.toIntOrNull()?.let { item.getOrNull(it) }
                     else -> null
                 }
-                if (receipt?.string("tool")?.githubOperationFamily() == "github_pr" && (parent as? JsonObject)?.get("number") is JsonPrimitive) pullRequest = parent
+                if (family in setOf("github_pr", "github_issue") && (parent as? JsonObject)?.get("number") is JsonPrimitive) numberedResource = parent
             }
             if ("/workflow_runs/" in pointer) return "Workflow run · " + parts.last().replace('_', ' ')
-            val subject = pullRequest?.let { "PR #${it.string("number")}" } ?: (parent as? JsonObject)?.let { obj ->
+            val subject = numberedResource?.let { "${if (family == "github_issue") "Issue" else "PR"} #${it.string("number")}" } ?: (parent as? JsonObject)?.let { obj ->
                 if ("/pull_requests/" in pointer || "/pull_request/" in pointer) {
                     (obj["number"] as? JsonPrimitive)?.contentOrNull?.let { "PR #$it" }
                 } else {

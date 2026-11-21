@@ -296,6 +296,7 @@ internal object GitHubRequestCompletion {
                             reviewBlocker != null -> "COMPARISON_REQUIRED"
                             selectedClaims.isEmpty() -> "NO_MATCHING_CLAIMS"
                             missingReceiptIds.isNotEmpty() -> "LINKED_RECEIPT_INELIGIBLE"
+                            informational && receipts.isEmpty() -> "ACCEPTANCE_EVIDENCE_MISSING"
                             !claimsCovered -> "UNSUPPORTED_CLAIMS"
                             !covered -> "ACCEPTANCE_EVIDENCE_MISSING"
                             !informational && acceptance == null -> "ACCEPTANCE_MAPPING_REQUIRED"
@@ -314,6 +315,7 @@ internal object GitHubRequestCompletion {
                         if (linkedReceiptIds.isEmpty()) "Verified answer coverage" else "Receipt-supported answer coverage"
                     } else if (informational) {
                         when {
+                            receipts.isEmpty() -> "No repository observations were collected for this answer. Use an authorized source read for the request, then verify its claims; the answer and task remain unverified."
                             selectedClaims.isEmpty() -> "Link this requirement to a checked claim from the retained observations"
                             !claimsCovered -> "Check the claims mapped to this requirement against their cited observations"
                             recommendationRequirement && !recommendationClaimed -> "Link a labeled recommendation to verified source observations"

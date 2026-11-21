@@ -11,9 +11,10 @@ class ToolRunContext(val runId: String) : AbstractCoroutineContextElement(Key) {
 }
 fun AgentTool.withRunContext(runId: String): AgentTool {
     val original = this
-    return object : OwnedAgentTool {
+    return object : OwnedAgentTool, ProgressiveCatalogCarrier {
         override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = original.withChildBudget(bind).withRunContext(runId)
         override val definition = original.definition
+        override val progressiveCatalog get() = original.argumentCatalog()
         override val searchValidationOwner get() = original.searchValidationOwner
         override val managesExecutionBudget = original.managesExecutionBudget
         override val coordinatesChildWork = original.coordinatesChildWork

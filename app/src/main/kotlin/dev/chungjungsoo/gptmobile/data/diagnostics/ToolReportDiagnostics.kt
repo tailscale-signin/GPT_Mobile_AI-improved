@@ -272,6 +272,7 @@ internal object ToolReportDiagnostics {
                             arguments.keys.any { it in setOf("query", "action", "names") } -> "MIXED_INVENTORY_SELECTORS"
                         "action" in arguments && (arguments["action"] as? JsonPrimitive)?.isString != true -> "ACTION_NOT_STRING"
                         "action" in arguments && names == null -> "ACTION_WITHOUT_NAMES"
+                        names == kotlinx.serialization.json.JsonNull -> "NAMES_NULL"
                         names != null && names !is JsonArray -> "NAMES_NOT_ARRAY"
                         names is JsonArray && names.any { (it as? JsonPrimitive)?.isString != true } -> "NAMES_CONTAIN_NON_STRING"
                         "action" in arguments && names is JsonArray && names.size != 1 -> "ACTION_REQUIRES_ONE_NAME"
@@ -489,6 +490,17 @@ internal object ToolReportDiagnostics {
             }
             shapeHash(it)?.let { hash -> put("resolved_argument_shape_hash", hash) }
             putAll(typeShape(it, "resolved_argument"))
+        }
+        if (event.modelToolName.substringBefore("__") == "github_issue" &&
+            result.isError &&
+            result.callId == event.callId &&
+            result.errorCode == "INVALID_ARGUMENTS" &&
+            !result.dispatched &&
+            receipt?.get("issue_continuation_rejected") == JsonPrimitive(true)
+        ) {
+            receipt?.get("issue_continuation_state")?.let { value ->
+                IssueReportIncidentCapsule.validValue("issue_continuation_state", value)?.let { put("issue_continuation_state", it) }
+            }
         }
         val validationFields = listOf("missing_fields", "invalid_fields", "validation_field_names").flatMap { key ->
             (receipt?.get(key) as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull }

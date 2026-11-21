@@ -131,8 +131,9 @@ class ToolExecutionBudget(
         statisticsIdentity: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(tool.definition.name),
         authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true },
         definitionOverride: AgentToolDefinition? = null
-    ): AgentTool = object : PreparableAgentTool, OwnedAgentTool, ApprovedReadOnlyAgentTool {
+    ): AgentTool = object : PreparableAgentTool, OwnedAgentTool, ApprovedReadOnlyAgentTool, ProgressiveCatalogCarrier {
         override val definition = definitionOverride ?: tool.definition
+        override val progressiveCatalog get() = tool.argumentCatalog()
         override val searchValidationOwner get() = tool.searchValidationOwner
         override val approvedReadOnly = (tool as? ApprovedReadOnlyAgentTool)?.approvedReadOnly == true
         override val managesExecutionBudget = true
@@ -163,7 +164,7 @@ class ToolExecutionBudget(
             // operation tool. Normalize safe reads before both schema admission
             // and authorization; keep the original invocation in its journal.
             val arguments = GitHubRecoveryCalls.repairSourceRead(
-                ProviderEvent.ToolCall(callId, definition.name, arguments),
+                ProviderEvent.ToolCall(callId, definition.name, tool.argumentCatalog()?.canonicalArguments(arguments) ?: arguments),
                 tool
             ).arguments
             val signature = "$executionOwner:${tool.definition.name}:" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments)

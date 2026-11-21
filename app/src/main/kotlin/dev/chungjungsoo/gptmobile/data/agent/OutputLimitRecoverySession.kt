@@ -71,9 +71,9 @@ internal class OutputLimitRecoverySession(
                     }
                 }
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
-                emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_UNAVAILABLE: The saved answer is retained, but its continuation could not fit the context or reach the provider.", errorCode = "OUTPUT_CONTINUATION_UNAVAILABLE"))
+                emit(OutputContinuationFailure.opening(failure, ContinuationTrigger.RESTORED_DRAFT, answer.length, continuations + 1, effectiveOutputCap))
                 return@flow
             }
             continuations = 1
@@ -181,7 +181,8 @@ internal class OutputLimitRecoverySession(
                 if (completedAnswerLength != null && recovering) {
                     emit(ProviderEvent.Notice("The earlier answer is saved. Its additional continuation did not finish; any unmet length requirement still applies.", persistent = true))
                 }
-                emit(if (earlierComplete) original.copy(transportComplete = true, errorCode = original.errorCode ?: "CONTINUATION_REQUIREMENT_UNMET") else original)
+                val retained = if (earlierComplete) original.copy(transportComplete = true, errorCode = original.errorCode ?: "CONTINUATION_REQUIREMENT_UNMET") else original
+                emit(if (recovering) OutputContinuationFailure.annotate(retained, answer.length, continuations + transientRetries, effectiveOutputCap) else retained)
             }
             if (limitFailure && answer.isBlank() && !continueEmptyOutput) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "FAILED")
@@ -293,9 +294,9 @@ internal class OutputLimitRecoverySession(
                     }
                 }
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
-                retainedFailure(ProviderEvent.Failed("Automatic continuation could not fit the context or reach the provider. The partial answer and completed tool results are saved."))
+                retainedFailure(OutputContinuationFailure.opening(failure, trigger, answer.length, continuations + transientRetries, effectiveOutputCap))
                 return@flow
             }
         }

@@ -11,7 +11,7 @@ import kotlinx.serialization.json.put
 
 /** The task binding includes connection/account authority; resource and revision fields remain exact. */
 internal object GitHubActionIdentity {
-    val prListDefaults = setOf("owner", "repo", "state", "page", "per_page", "response_detail")
+    val prListDefaults = setOf("owner", "repo", "state", "head", "base", "sort", "direction", "page", "per_page", "response_detail")
 
     /** Match the native facade default before tracing, deduplication and receipt binding. */
     fun canonicalArguments(tool: String, arguments: JsonObject): JsonObject {

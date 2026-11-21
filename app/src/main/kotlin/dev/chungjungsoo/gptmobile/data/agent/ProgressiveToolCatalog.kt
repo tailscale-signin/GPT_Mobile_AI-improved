@@ -1,9 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -122,6 +124,7 @@ class ProgressiveToolCatalog(
         ).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
     private val advertisedContracts = mutableSetOf<String>()
+    private var advertisedSelectorContracts = emptyMap<String, Pair<String, String>>()
 
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.
     private val acquiredQueryKeys = mutableMapOf<String, String>()
@@ -222,6 +225,13 @@ class ProgressiveToolCatalog(
                         }
                     )
                     put(
+                        "catalog_only",
+                        buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Search only the currently authorized visible catalog; do not acquire tools from other connections.")
+                        }
+                    )
+                    put(
                         "inventory_cursor",
                         buildJsonObject {
                             put("type", "integer")
@@ -244,7 +254,7 @@ class ProgressiveToolCatalog(
                 JsonArray(
                     listOf(
                         buildJsonObject {
-                            put("properties", JsonObject(listOf("query", "names", "inventory_cursor", "inventory_version").associateWith { JsonObject(emptyMap()) }))
+                            put("properties", JsonObject(listOf("query", "names", "catalog_only", "inventory_cursor", "inventory_version").associateWith { JsonObject(emptyMap()) }))
                             put("additionalProperties", false)
                         },
                         buildJsonObject {
@@ -341,6 +351,10 @@ class ProgressiveToolCatalog(
     @Synchronized
     internal fun recordSelection(allowed: List<AgentToolDefinition>, selected: List<AgentToolDefinition>) {
         selected.filter { it.name in candidates }.forEach { advertisedContracts += "${it.name}:${contractFingerprint(it)}" }
+        advertisedSelectorContracts = selected.filter { it.modelVisible }.mapNotNull { selectedTool ->
+            candidates[selectedTool.name]?.takeIf { it.modelVisible && selectedTool == presented(it) }
+                ?.let { it.name to (contractFingerprint(it) to contractFingerprint(selectedTool)) }
+        }.toMap()
         val omitted = selectionOmissions(allowed)
         val identity = fingerprint(selected.joinToString { it.name + contractFingerprint(it) } + omitted.toSortedMap())
         if (identity == lastSelection) {
@@ -354,7 +368,25 @@ class ProgressiveToolCatalog(
         ToolCatalogDiagnostics.recordOmissions("catalog", omitted, schemaAllowance.toLong(), inventoryNames = (candidates.keys + allowed.map { it.name }).toSet())
     }
 
+    /** Normalize only unused null selectors and exact names from the current advertised contract. */
+    @Synchronized
+    internal fun canonicalArguments(arguments: JsonObject): JsonObject {
+        if (arguments.keys.any { it !in setOf("query", "names", "action", "catalog_only") }) return arguments
+        val normalized = arguments.filterNot { (key, value) -> key in setOf("query", "names") && value == JsonNull }.toMutableMap()
+        val name = (normalized["names"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (name != null) {
+            val candidate = candidates[name]?.takeIf { it.modelVisible && name.length in 1..160 } ?: return arguments
+            if (advertisedSelectorContracts[name] != (contractFingerprint(candidate) to contractFingerprint(presented(candidate)))) return arguments
+            normalized["names"] = JsonArray(listOf(JsonPrimitive(name)))
+        }
+        val corrected = JsonObject(normalized)
+        return corrected.takeIf { ToolArgumentValidator.errors(it, definition.inputSchema).isEmpty() } ?: arguments
+    }
+
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        val arguments = canonicalArguments(arguments)
+        val invalid = ToolArgumentValidator.errors(arguments, definition.inputSchema)
+        if (invalid.isNotEmpty()) return ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, invalid)
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
         if (("inventory_cursor" in arguments || "inventory_version" in arguments) && (query.isNotBlank() || names.isNotEmpty() || "action" in arguments)) {
@@ -363,7 +395,7 @@ class ProgressiveToolCatalog(
         if ("action" in arguments && names.size != 1) {
             return AgentToolResult(callId, ToolResultContent.Text("Search with query alone. To select an action, pass exactly one returned tool in names together with action."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
-        if (acquireCold != null && "inventory_cursor" !in arguments) {
+        if (acquireCold != null && "inventory_cursor" !in arguments && arguments["catalog_only"] != JsonPrimitive(true)) {
             // Cache exact unknown names per catalog version. Broad/empty discovery remains retryable.
             // Never suspend while holding the selection monitor.
             val key = query.trim().lowercase(java.util.Locale.ROOT) + "|" + names.sorted().joinToString("|")
@@ -807,13 +839,21 @@ class ProgressiveToolCatalog(
     }
 }
 
+/** Carry only this run's local catalog through trusted provenance and budget wrappers. */
+internal interface ProgressiveCatalogCarrier {
+    val progressiveCatalog: ProgressiveToolCatalog?
+}
+
+internal fun AgentTool.argumentCatalog(): ProgressiveToolCatalog? = this as? ProgressiveToolCatalog
+    ?: (this as? ProgressiveCatalogCarrier)?.progressiveCatalog
+
 internal fun AgentProviderSession.withToolCatalog(catalog: ProgressiveToolCatalog): AgentProviderSession = object : AgentProviderSession {
     override val handlesToolsInternally = this@withToolCatalog.handlesToolsInternally
-    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> =
-        this@withToolCatalog.streamRound(
-            catalog.selected(tools).also { selected ->
-                catalog.recordSelection(tools, selected)
-            },
-            exchanges
-        )
+    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
+        val selected = catalog.selected(tools)
+        catalog.recordSelection(tools, selected)
+        return this@withToolCatalog.streamRound(selected, exchanges).map { event ->
+            if (event is ProviderEvent.RequestConfigured) event.copy(advertisedToolCount = selected.count { it.modelVisible }) else event
+        }
+    }
 }

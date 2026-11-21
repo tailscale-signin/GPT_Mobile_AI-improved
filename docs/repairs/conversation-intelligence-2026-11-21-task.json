@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "9a50912fdeb0bde59a83ea32764e0b403b19e620",
+  "parent_pr": 2126,
+  "source_sha": "ad26151b2916bf25feb20bcb99c5f233e7de790d",
+  "working_branch": "fix/offline-kokoro-release-publication-2026-11-21",
+  "intent": "Implement the part-6 conversation/intelligence audit and every current open diagnostic issue. Preserve concurrent work on the existing PR. For unresolved runtime causes, improve targeted incident collection before closing the intake report. Merge only after current-head required verification and GitHub merge policy pass.",
+  "status": "IMPLEMENTED_AWAITING_CI",
+  "intake_issues": [
+    2214,
+    2215,
+    2218,
+    2220,
+    2222,
+    2223,
+    2224,
+    2225,
+    2226,
+    2227,
+    2228,
+    2229,
+    2230,
+    2231,
+    2232,
+    2233,
+    2234,
+    2235,
+    2236,
+    2237,
+    2238
+  ],
+  "requirements": [
+    {
+      "id": "verification",
+      "title": "Typed verifier failures, retained useful partial findings and truthful acceptance",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "continuity",
+      "title": "Semantic findings, accepted goal and next-action continuity across compaction",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "tool_contracts",
+      "title": "Advertised and executed PR filters agree; exact continuation and precheck diagnostics",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "search",
+      "title": "Bounded slow-file recovery with explicit incomplete source coverage",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "recovery",
+      "title": "Consistent recovery decisions and typed provider/checkpoint/continuation causes",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "progress",
+      "title": "Retire matching recovered blockers and show meaningful milestones",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "diagnostics",
+      "title": "Critical low-memory evidence and precise data for causes not yet reproduced",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "integration",
+      "title": "Preserve source/approval/replay fences, run behavior regressions and canonical validation",
+      "status": "IN_PROGRESS"
+    },
+    {
+      "id": "closure",
+      "title": "Record each issue's code action and verification before closure",
+      "status": "PENDING"
+    },
+    {
+      "id": "merge",
+      "title": "Refresh concurrent head/base, satisfy all applicable checks and merge policy",
+      "status": "PENDING"
+    }
+  ],
+  "validation": {
+    "snapshot": "Recorded before publication of the repair commit. Exact final CI, issue closure and merge receipts are maintained on PR #2126.",
+    "local": {
+      "repository_fast": {
+        "status": "PASS",
+        "tests": 589
+      },
+      "authentication": {
+        "status": "PASS",
+        "tests": 190
+      },
+      "production_kotlin_formatting": {
+        "status": "PASS",
+        "changed_files": 53
+      },
+      "test_kotlin_formatting": {
+        "status": "PASS",
+        "changed_files": 32
+      },
+      "source_inventory_release_scope_and_diff": "PASS",
+      "ksp_debug": "PASS",
+      "android_annotation_processing": {
+        "status": "WORKER_EXIT_WITHOUT_SOURCE_DIAGNOSTIC",
+        "detail": "Separate KSP passed. KAPT workers exited under normal and bounded local heap configurations; a lower-heap stalled attempt was stopped. No Android compilation/test pass is claimed from these attempts."
+      },
+      "focused_android_classes": 45,
+      "isolated_source_probes": {
+        "pr_query_tests": 3,
+        "semantic_summary_and_memory_tests": 7,
+        "scope": "Actual selected production classes with boundary stubs; not full Android validation"
+      },
+      "focused_contract_execution": {
+        "status": "PASS",
+        "tests": 100,
+        "test_classes": 5,
+        "production_sources": 13,
+        "compiler": "Kotlin 2.4.20 / JDK 21",
+        "scope": "Actual current sources against existing baseline app dependencies; no handwritten stubs. This is not full Android/Gradle/KAPT validation."
+      }
+    },
+    "github": {
+      "status": "REQUIRED_BEFORE_MERGE",
+      "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2126",
+      "required_contexts": [
+        "Required verification",
+        "Analyze (java-kotlin)"
+      ],
+      "required_app_id": 15368,
+      "strict_base": true,
+      "additional_gate": "Every applicable latest workflow for the final head must complete successfully; no missing, skipped, cancelled or previous-revision job is treated as a passing applicable check."
+    }
+  },
+  "concurrency": {
+    "public_branch_policy": "One existing PR branch; root alone commits/pushes/merges; no forced ref updates.",
+    "starting_head": "ad26151b2916bf25feb20bcb99c5f233e7de790d"
+  },
+  "disposition_policy": "Close each current intake only after its code repair or targeted diagnostic improvement is verified. Unknown historic causes and missing physical-device proof remain explicitly disclosed in the issue resolution."
+}

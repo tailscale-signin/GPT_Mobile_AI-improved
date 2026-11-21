@@ -122,7 +122,7 @@ internal fun providerConnectivityWait(
 
 /** A durable wait follows an observed rejection, never a message containing "429". */
 private fun providerHttpLimitDecision(config: ProviderRequestConfig, model: String, receivedPayload: Boolean, error: Exception, prefixDigest: String?): ProviderLimitDecision? {
-    val failure = error as? ProviderHttpFailure ?: return null
+    val failure = transportRateLimitFailure(error) ?: return null
     if (failure.status != 429 || !(failure.knownNotAccepted || failure.checkpointContinuationAllowed) || config.profileUid.isNullOrBlank() || model.isBlank()) return null
     if (config.lockedModel != null && config.lockedModel != model) return null
     val retryAt = failure.retryAtMillis ?: return null
@@ -141,4 +141,17 @@ private fun providerHttpLimitDecision(config: ProviderRequestConfig, model: Stri
         checkpointContinuationAllowed = failure.checkpointContinuationAllowed,
         limitSource = failure.limitSource
     )
+}
+
+/** Transport wrappers can retain an observed rejection; application refusals cannot authorize a wait. */
+private fun transportRateLimitFailure(error: Exception): ProviderHttpFailure? {
+    var current: Throwable? = error
+    repeat(8) {
+        val cause = current ?: return null
+        if (cause is kotlinx.coroutines.CancellationException) return null
+        if (cause is ProviderHttpFailure) return cause
+        if (cause !is java.io.IOException && cause !is java.util.concurrent.CompletionException && cause !is java.util.concurrent.ExecutionException) return null
+        current = cause.cause?.takeUnless { it === cause }
+    }
+    return null
 }

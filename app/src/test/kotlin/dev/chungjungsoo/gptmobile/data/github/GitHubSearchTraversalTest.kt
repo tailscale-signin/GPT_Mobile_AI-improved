@@ -21,6 +21,97 @@ class GitHubSearchTraversalTest {
     private val head = "a".repeat(40)
     private val tree = "b".repeat(40)
 
+    @Test fun repeatedBlobDeadlineDefersOneExactFileAndResumesLaterFilesWithoutClaimingCoverage() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val slow = AtomicInteger()
+        val fast = AtomicInteger()
+        var simulateSlowBlob = false
+        fun content() = buildJsonObject {
+            put("encoding", "base64")
+            put("content", Base64.getEncoder().encodeToString("fun needle() = 1".toByteArray()))
+        }
+        fun session() = GitHubRepositorySession(
+            "account",
+            "connection",
+            "chat",
+            "task",
+            store,
+            { path ->
+                when {
+                    "/commits/" in path -> buildJsonObject {
+                        put("sha", head)
+                        put("commit", buildJsonObject { put("tree", buildJsonObject { put("sha", tree) }) })
+                    }
+                    "/git/trees/" in path -> buildJsonObject {
+                        put("truncated", false)
+                        put(
+                            "tree",
+                            JsonArray(
+                                (1..2).map { index ->
+                                    buildJsonObject {
+                                        put("path", "src/File$index.kt")
+                                        put("sha", "%040x".format(index))
+                                        put("type", "blob")
+                                        put("size", 16)
+                                    }
+                                }
+                            )
+                        )
+                    }
+                    path.endsWith("/git/blobs/${"%040x".format(1)}") -> {
+                        if (simulateSlowBlob) {
+                            slow.incrementAndGet()
+                            kotlinx.coroutines.awaitCancellation()
+                        } else {
+                            content()
+                        }
+                    }
+                    "/git/blobs/" in path -> {
+                        fast.incrementAndGet()
+                        content()
+                    }
+                    else -> error("Unexpected request $path")
+                }
+            },
+            { _, _ -> error("Search must never mutate") },
+            searchBlobTimeoutMs = 500
+        )
+        val warm = session()
+        val warmFirst = warm.execute("search_repository", "owner", "repo", args("literal", 1)).jsonObject
+        val warmLast = warm.execute("search_repository", "owner", "repo", warmFirst.getValue("continuation").jsonObject).jsonObject
+        assertEquals(JsonPrimitive(true), warmLast["complete"])
+        simulateSlowBlob = true
+        val first = kotlinx.coroutines.withContext(GitHubDispatchAccounting(forceLiveReads = true, record = {})) {
+            session().execute("search_repository", "owner", "repo", args("literal", 1)).jsonObject
+        }
+        assertEquals(JsonPrimitive(0), first["interval_end"])
+        assertEquals(JsonPrimitive(1), first["no_progress_attempts"])
+        assertEquals(JsonPrimitive(0), first["total_deferred_files"])
+        // A new session retains the retry boundary and the pinned query identity.
+        val restored = session()
+        val second = kotlinx.coroutines.withContext(GitHubDispatchAccounting(forceLiveReads = true, record = {})) {
+            restored.execute("search_repository", "owner", "repo", first.getValue("continuation").jsonObject).jsonObject
+        }
+        assertEquals(first["search_id"], second["search_id"])
+        assertEquals(JsonPrimitive(1), second["interval_end"])
+        assertEquals(JsonPrimitive(2), second["no_progress_attempts"])
+        val deferred = second.getValue("deferred_files").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("src/File1.kt"), deferred["path"])
+        assertEquals(JsonPrimitive("%040x".format(1)), deferred["sha"])
+        assertEquals(JsonPrimitive("REPEATED_READ_DEADLINE"), deferred["reason"])
+        val last = restored.execute("search_repository", "owner", "repo", second.getValue("continuation").jsonObject).jsonObject
+        assertEquals("An earlier fully covered page cannot erase this chain's deferred prefix", JsonPrimitive(false), last["cache_hit"])
+        assertEquals(JsonPrimitive("src/File2.kt"), last.getValue("items").jsonArray.single().jsonObject["path"])
+        assertEquals(JsonPrimitive(true), last["traversal_complete"])
+        assertEquals(JsonPrimitive(false), last["has_more"])
+        assertEquals(JsonPrimitive(false), last["complete"])
+        assertEquals(JsonPrimitive(false), last["matches_complete"])
+        assertEquals(JsonPrimitive(1), last["total_skipped_files"])
+        assertEquals(JsonPrimitive(1), last["total_deferred_files"])
+        assertEquals(2, slow.get())
+        assertEquals(1, fast.get())
+    }
+
     private class Fixture(val session: GitHubRepositorySession, val blobs: AtomicInteger)
 
     private fun fixture(count: Int, source: String = "fun needle() = 1", truncated: Boolean = false): Fixture {

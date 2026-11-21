@@ -42,4 +42,16 @@ internal fun <T> withGitHubSchemaAdmissionEvidence(
         )
     }
     throw failure.withAdmissionEvidence(evidence)
+} catch (failure: dev.chungjungsoo.gptmobile.data.context.RequestCapacityException) {
+    // Input can fail before schema selection. Bind the same immutable owner and
+    // consumed capacity observations, without changing or retrying that admission.
+    throw failure.withPlanningObservation(
+        dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.PlanningObservation(
+            profileUid.takeIf(String::isNotBlank)?.let(::researchHash),
+            model.takeIf(String::isNotBlank)?.let(::researchHash),
+            configuredOutputTokens,
+            capacity,
+            planningContextTokens
+        )
+    )
 }

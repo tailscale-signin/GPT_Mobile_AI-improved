@@ -28,6 +28,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubEvidencePolicyTest {
+    @Test fun receiptOnlyFallbackKeepsIssueFindingsInsteadOfRepeatedRevisionRecipes() {
+        val head = "a".repeat(40)
+        fun receipt(tool: String, arguments: String, result: String, time: Long = 1000) = json("""{"tool":"$tool","arguments":$arguments,"repository":"owner/repo","branch":"main","trusted":true,"success":true,"observed_at_ms":$time,"epoch":0,"result":$result}""")
+        val receipts = linkedMapOf(
+            "issue" to receipt("github_issue", """{"action":"get","issue_number":2229}""", """{"number":2229,"title":"Verifier drops the final answer","state":"open"}"""),
+            "index" to receipt("github_context", """{"action":"index"}""", """{"commit_sha":"$head","continuation_call":{"arguments":{"commit_sha":"$head","path":"not-an-observation.kt"}},"total_paths":6279}"""),
+            "search" to receipt("github_search", """{"query":"verification"}""", """{"head_sha":"$head","scanned_files":0,"returned":0,"matches_complete":false}"""),
+            "branch" to receipt("github_context", """{"action":"branch"}""", """{"commit_sha":"$head","sha":"$head"}""", 1001)
+        )
+        val (text, report) = GitHubEvidencePolicy.partial(receipts, 1001, 0, "Fix all repo issues")
+        val facts = report.getValue("claims").jsonArray.map { it.jsonObject }.filter { it["kind"] == JsonPrimitive("fact") }
+        assertEquals(1, facts.count { it["observed"] == JsonPrimitive(head) })
+        assertTrue(facts.any { it["observed"] == JsonPrimitive("Verifier drops the final answer") })
+        assertFalse(facts.any { it.getValue("pointer").toString().contains("continuation_call") })
+        assertFalse(text.contains("not-an-observation.kt"))
+        assertTrue(text.contains("Task incomplete"))
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+    }
+
+    @Test fun fallbackDedupeKeepsDifferentIssuesAndRepositoryRevisionScopes() {
+        val first = json("""{"tool":"github_issue","arguments":{"action":"list"},"repository":"owner/repo","branch":"main","trusted":true,"success":true,"observed_at_ms":1000,"epoch":0,"result":{"items":[{"number":42,"title":"Same symptom","state":"open"},{"number":43,"title":"Same symptom","state":"open"}]}}""")
+        val updated = json("""{"tool":"github_issue","arguments":{"action":"get","issue_number":42},"repository":"owner/repo","branch":"main","trusted":true,"success":true,"observed_at_ms":1001,"epoch":0,"result":{"number":42,"title":"Same symptom","state":"closed"}}""")
+        val (_, report) = GitHubEvidencePolicy.partial(mapOf("list" to first, "updated" to updated), 1001, 0, "Inspect issues")
+        val facts = report.getValue("claims").jsonArray.map { it.jsonObject }.filter { it["kind"] == JsonPrimitive("fact") }
+        assertEquals(2, facts.count { it["observed"] == JsonPrimitive("Same symptom") })
+        assertEquals(1, facts.count { it["observed"] == JsonPrimitive("closed") })
+        assertEquals(1, facts.count { it["observed"] == JsonPrimitive("open") })
+        assertTrue(facts.any { it["receipt_id"] == JsonPrimitive("updated") && it["pointer"] == JsonPrimitive("/state") })
+    }
+
+    @Test fun emergencyFallbackBoundsReceiptTraversalAndReservesSpaceForEarlierIssueFindings() {
+        val issue = json("""{"tool":"github_issue","arguments":{"action":"get","issue_number":42},"repository":"owner/repo","branch":"main","trusted":true,"success":true,"observed_at_ms":1,"epoch":0,"result":{"number":42,"title":"Original useful diagnosis","state":"open"}}""")
+        val receipts = linkedMapOf("issue" to issue)
+        repeat(180) { index ->
+            receipts["context-$index"] = json("""{"tool":"github_context","arguments":{"action":"index"},"repository":"owner/repo","branch":"main","trusted":true,"success":true,"observed_at_ms":${index + 2},"epoch":0,"result":{"commit_sha":"${"a".repeat(40)}","source_recovery_call":{"path":"recipe-only.kt"},"remote_continuations":[{"head_sha":"${"b".repeat(40)}"}]}}""")
+        }
+        val (text, report) = GitHubEvidencePolicy.partial(receipts, 1000, 0, "Fix all issues")
+        assertTrue(report.getValue("fallback_inspected_receipts").jsonPrimitive.long <= 128)
+        assertTrue(report.getValue("fallback_omitted_receipts").jsonPrimitive.long > 0)
+        assertTrue(text.contains("Original useful diagnosis"))
+        assertFalse(text.contains("recipe-only.kt"))
+        assertTrue(text.contains("Omitted observations remain retained"))
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+    }
+
     @Test fun authorizedPolicyCatalogDoesNotAdvertiseInternalAliases() = runBlocking {
         var saved: JsonObject? = null
         val book = GitHubEvidenceBook("binding", "owner/repo", "main", emptySet(), save = { _, value -> saved = value })

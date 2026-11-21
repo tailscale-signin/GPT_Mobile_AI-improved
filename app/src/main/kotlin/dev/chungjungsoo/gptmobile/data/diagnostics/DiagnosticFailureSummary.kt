@@ -249,6 +249,33 @@ internal fun diagnosticFailureSummary(
             put("prior_interruption_code", record("prior_interruption_code", retainedFailure))
         }
         put("recovery_action", record("recovery_action", recoveryAction))
+        // This bounded envelope survives when large workspace/log stages are
+        // deferred. Keep the actual cause's phase and safe stack identity, never
+        // an exception message or a successful earlier invocation's failure.
+        for (key in listOf("verification_phase", "continuation_cause", "continuation_trigger", "continuation_saved_characters", "continuation_attempt_count", "continuation_output_cap", "checkpoint_mismatch_reason", "observed_checkpoint_state")) {
+            causal.firstNotNullOfOrNull { item ->
+                listOfNotNull(item.payload["verification_failure"] as? JsonObject, item.payload["failure_details"] as? JsonObject, item.payload)
+                    .firstNotNullOfOrNull { row -> row[key]?.let { IssueReportIncidentCapsule.validValue(key, it) } }
+                    ?.let { item.source to it }
+            }?.let { (source, value) ->
+                put(key, value)
+                sources[key] = JsonPrimitive(source)
+            }
+        }
+        for (key in listOf("exception_fingerprint", "observed_checkpoint_digest")) {
+            readFrom(causal, key)?.takeIf { it.value.matches(Regex("[a-f0-9]{64}")) }?.let { put(key, record(key, it)) }
+        }
+        causal.firstNotNullOfOrNull { item ->
+            listOfNotNull(item.payload["verification_failure"] as? JsonObject, item.payload["failure_details"] as? JsonObject, item.payload)
+                .firstNotNullOfOrNull { row -> row["cause_types"] as? JsonArray }
+                ?.let { item.source to it }
+        }?.let { (source, types) ->
+            val safe = types.take(16).filter { it is JsonPrimitive && it.isString && it.content.matches(Regex("[A-Za-z0-9_.$]{1,160}")) }
+            if (safe.isNotEmpty()) {
+                put("cause_types", JsonArray(safe))
+                sources["cause_types"] = JsonPrimitive(source)
+            }
+        }
         recovery.firstNotNullOfOrNull { it.payload["original_interruption"] }?.let { put("original_interruption", it) }
         for (key in listOf("dispatched", "retryable", "request_replay_allowed", "remote_acceptance", "dispatch_state")) {
             causal.firstOrNull { it.payload[key] != null && it.payload[key] != JsonNull }?.let { item ->

@@ -8,6 +8,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationArgumentsTest {
+    @Test fun advertisedPullRequestFiltersAgreeWithAdmissionAndDefaultListSelection() {
+        val definition = GitHubOperationTool.definition("github_pr")
+        val selected = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(definition, "list"))
+        val filters = args("""{"head":"owner:feature/a","base":"main","state":"open","sort":"updated","direction":"asc"}""")
+        val explicit = JsonObject(filters + ("action" to kotlinx.serialization.json.JsonPrimitive("list")))
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(explicit, selected.inputSchema).isEmpty())
+        assertTrue(GitHubOperationArguments.errors("github_pr", explicit).isEmpty())
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(filters, definition.inputSchema).isEmpty())
+        assertTrue(GitHubOperationArguments.errors("github_pr", filters).isEmpty())
+        assertEquals("list_pull_requests", (GitHubOperationTool.nativeArguments("github_pr", filters)?.get("action") as kotlinx.serialization.json.JsonPrimitive).content)
+        for (action in listOf("context", "headers", "comments", "reviews")) {
+            assertTrue(GitHubOperationArguments.errors("github_pr", args("""{"action":"$action","pull_number":7,"head":"owner:feature/a"}""")).isNotEmpty())
+        }
+    }
+
     @Test fun conflictingReadBoundsUseTheNarrowerIntervalWithOrWithoutAnExplicitAction() {
         for (action in listOf("", "\"action\":\"ranges\",")) {
             val requested = args("""{$action"ranges":[{"path":"a","start_line":7,"end_line":60,"max_lines":4}]}""")

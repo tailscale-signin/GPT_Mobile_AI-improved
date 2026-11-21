@@ -122,6 +122,7 @@ internal class IssueReportSubmission(
         private const val PROVIDER_TERMINAL_CAUSES_FEATURE = "PROVIDER_TERMINAL_CAUSES_V1"
         private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
+            IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE,
             IssueReportDiagnostics.SELECTED_MODEL_ADMISSION_FEATURE, IssueReportDiagnostics.REVIEW_CATALOG_FEATURE, IssueReportDiagnostics.ACTION_ONLY_FEATURE,
             IssueReportDiagnostics.REPEAT_PRIOR_CAUSE_FEATURE, IssueReportDiagnostics.PROFILE_BEHAVIOR_FEATURE,
             IssueReportDiagnostics.SEARCH_READINESS_FEATURE, IssueReportDiagnostics.SILENCED_INPUT_FEATURE,
@@ -171,6 +172,12 @@ internal class IssueReportSubmission(
                     code(event)?.let(REPORT_EVENT::matchEntire)?.groupValues?.get(1)
                 }
             return buildSet {
+                if ("GITHUB_VERIFICATION_INTERNAL_ERROR" in codes ||
+                    codes.any { it in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES } ||
+                    code(context?.get("recoveryAction")) in setOf("INSPECT_VERIFICATION_FAILURE", "INSPECT_CONTINUATION_FAILURE", "REPLAN_REQUEST_BUDGET", "SEND_ORIGINAL_REQUEST")
+                ) {
+                    add(IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE)
+                }
                 if (PrivacyFailureEvidence.CODE in codes) add(PrivacyFailureEvidence.FEATURE)
                 if ("OUTPUT_CONTINUATION_NO_PROGRESS" in codes ||
                     "PROVIDER_INVOCATION_FAILED" in codes ||

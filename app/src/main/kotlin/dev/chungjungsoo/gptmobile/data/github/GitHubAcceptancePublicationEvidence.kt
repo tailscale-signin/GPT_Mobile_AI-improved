@@ -47,7 +47,7 @@ internal object GitHubAcceptancePublicationEvidence {
         "acceptance_draft_state" to Draft.entries.map { it.name }.toSet(),
         "acceptance_publication_entry" to Entry.entries.map { it.name }.toSet()
     )
-    private val counts = setOf("acceptance_extraction_planned_batches", "acceptance_receipt_snapshot_count", "acceptance_claim_count")
+    private val counts = setOf("acceptance_extraction_planned_batches", "acceptance_receipt_snapshot_count", "acceptance_claim_count", "acceptance_advertised_tool_count")
     private val tokens = setOf("acceptance_extraction_required_tokens", "acceptance_extraction_input_limit_tokens")
     val observationFields = setOf("acceptance_publication_entry", "acceptance_claim_trust_failures")
     val fields = enums.keys + counts + tokens + observationFields
@@ -77,7 +77,8 @@ internal object GitHubAcceptancePublicationEvidence {
         requiredTokens: Int? = null,
         inputLimitTokens: Int? = null,
         entry: Entry? = null,
-        trustFailures: List<TrustFailure> = emptyList()
+        trustFailures: List<TrustFailure> = emptyList(),
+        advertisedToolCount: Int? = null
     ): JsonObject = buildJsonObject {
         put("schema", SCHEMA)
         put("acceptance_publication_source", source.name)
@@ -86,6 +87,7 @@ internal object GitHubAcceptancePublicationEvidence {
         // state or guard operands to the replacement report.
         if (source != Source.EVIDENCE_ADVANCED) {
             entry?.let { put("acceptance_publication_entry", it.name) }
+            advertisedToolCount?.takeIf { it in 0..16_000_000 }?.let { put("acceptance_advertised_tool_count", it) }
             if (source == Source.CLAIM_EXTRACTION && trustFailures.isNotEmpty()) put("acceptance_claim_trust_failures", JsonArray(trustFailures.distinct().map { JsonPrimitive(it.name) }))
             put(
                 "acceptance_draft_state",

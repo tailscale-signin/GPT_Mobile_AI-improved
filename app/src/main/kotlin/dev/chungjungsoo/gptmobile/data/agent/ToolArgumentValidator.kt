@@ -249,6 +249,20 @@ internal object ToolArgumentValidator {
     }
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
+        if (toolName == ProgressiveToolCatalog.NAME &&
+            arguments.keys.all { it in setOf("query", "names", "action", "catalog_only") } &&
+            arguments["names"] in setOf(null, JsonNull)
+        ) {
+            val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() && it.content.length <= 160 }?.content
+            val query = (arguments["query"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }?.content
+            if (action != null && (arguments["query"] in setOf(null, JsonNull) || query != null)) {
+                val discovery = buildJsonObject {
+                    put("query", query ?: action)
+                    put("catalog_only", true)
+                }
+                return discovery.takeIf { errors(it, schema).isEmpty() }
+            }
+        }
         if (toolName == ProgressiveToolCatalog.NAME && arguments.keys.all { it in setOf("query", "names") }) {
             val selectors = JsonObject(arguments.filterValues { it != JsonNull })
             return selectors.takeIf { it != arguments && errors(it, schema).isEmpty() }

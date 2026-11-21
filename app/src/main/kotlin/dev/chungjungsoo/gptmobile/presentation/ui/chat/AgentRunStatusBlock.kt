@@ -173,6 +173,12 @@ internal fun agentRunUserFacingError(error: String): String? {
             "The task has not met all requirements. Review the saved progress and continue from verified checkpoints."
         "GITHUB_EVIDENCE_REQUIRED" ->
             "The requested verification evidence is incomplete. Inspect the missing checks before marking this task done."
+        "GITHUB_VERIFICATION_INTERNAL_ERROR" ->
+            "The final verification stopped unexpectedly. Review the saved findings and diagnostic details; task completion has not been confirmed."
+        "PROVIDER_WAIT_OUTCOME_UNKNOWN" ->
+            "Saved work includes an unconfirmed tool outcome. Reconcile that operation before continuing with another write."
+        in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES ->
+            "The saved recovery state changed or is unavailable. Review the current task's recovery details and retained evidence before continuing."
         "DISPATCH_OUTCOME_UNKNOWN" ->
             "The tool outcome is unconfirmed. Reconcile the original remote operation before attempting another write."
         "INVALID_ARGUMENTS" ->

@@ -10,6 +10,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolExchangeCompactorTest {
+    @Test fun compactKeepsIssueFindingAcrossRepeatedConsumedSummaryProjection() {
+        val summary = buildJsonObject {
+            put("schema", "github.semantic-summary.v1")
+            put("operation", "github_issue")
+            put(
+                "resource_observations",
+                kotlinx.serialization.json.JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("number", 2229)
+                            put("title", "Verifier loses the final answer")
+                            put("state", "open")
+                        }
+                    )
+                )
+            )
+            put("legacy_metadata", "x".repeat(3000))
+        }
+        val call = ProviderEvent.ToolCall("issue", "github_issue", buildJsonObject { put("issue_number", 2229) })
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("raw issue body ".repeat(1000)), false, executionReceipt = buildJsonObject { put("semantic_summary", summary) })
+        val first = ToolExchangeCompactor.compact(listOf(AgentToolExchange(listOf(call), listOf(result))), 2000, 512, consumedCallIds = setOf(call.callId))
+        val replayWithoutReceipt = first.map { it.copy(results = it.results.map { row -> row.copy(executionReceipt = null) }) }
+        val second = ToolExchangeCompactor.compact(replayWithoutReceipt, 2000, 512, consumedCallIds = setOf(call.callId))
+        val visible = (second.single().results.single().content as ToolResultContent.Json).value.toString()
+        assertTrue(visible.contains("Verifier loses the final answer"))
+        assertTrue(visible.contains("2229"))
+        assertEquals(call, second.single().calls.single())
+        assertEquals(call.callId, second.single().results.single().callId)
+        assertTrue(ToolExchangeCompactor.estimateTokens(second) <= 2000)
+    }
+
     @Test fun replayCompactionDiagnosticsUseHighWaterMarksInsteadOfEveryRound() {
         val gate = ReplayCompactionLogGate(slowProjectionMicros = 50_000)
 

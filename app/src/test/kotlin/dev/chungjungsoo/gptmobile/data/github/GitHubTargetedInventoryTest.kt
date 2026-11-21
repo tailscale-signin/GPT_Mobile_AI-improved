@@ -16,6 +16,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubTargetedInventoryTest {
+    @Test fun everyIssueCursorRejectionKeepsItsTypedCauseAndNeverQueriesAnotherPage() = runTest {
+        var calls = 0
+        val inspection = GitHubInspection { error("Cursor rejection cannot fall back to a REST page") }
+        val query: suspend (String, JsonObject) -> JsonObject = { _, _ ->
+            calls++
+            Json.parseToJsonElement("""{"data":{"repository":{"issues":{"totalCount":2,"pageInfo":{"hasNextPage":true,"endCursor":"private-relay-cursor"},"nodes":[{"id":"issue-1","number":1,"state":"OPEN"}]}}}}""").jsonObject
+        }
+        val first = inspection.execute("list_issues", "/repos/owner/repo", JsonObject(emptyMap()), 1, query)
+        val next = first.getValue("continuation").jsonObject
+        val states = GitHubInspection.InvalidIssueContinuation.State.entries
+        for (state in states) {
+            val arguments = when (state) {
+                GitHubInspection.InvalidIssueContinuation.State.MISSING_AFTER -> JsonObject(next - "after")
+                GitHubInspection.InvalidIssueContinuation.State.MALFORMED_AFTER -> JsonObject(next + ("after" to JsonPrimitive("private-malformed")))
+                GitHubInspection.InvalidIssueContinuation.State.FILTER_MISMATCH -> JsonObject(next + ("state" to JsonPrimitive("closed")))
+                else -> next
+            }
+            val page = when (state) {
+                GitHubInspection.InvalidIssueContinuation.State.PAGE_MISMATCH -> 3
+                GitHubInspection.InvalidIssueContinuation.State.INITIAL_PAGE_WITH_AFTER -> 1
+                else -> 2
+            }
+            val graphQl = query.takeUnless { state == GitHubInspection.InvalidIssueContinuation.State.AUTHENTICATED_CONNECTION_REQUIRED }
+            val failure = runCatching { inspection.execute("list_issues", "/repos/owner/repo", arguments, page, graphQl) }.exceptionOrNull()
+            assertTrue(state.name, failure is GitHubInspection.InvalidIssueContinuation)
+            val typed = failure as GitHubInspection.InvalidIssueContinuation
+            assertEquals(state, typed.state)
+            assertTrue("after" in typed.fields)
+            assertFalse(typed.message.orEmpty().contains("private"))
+        }
+        assertEquals(1, calls)
+    }
+
     @Test fun authenticatedIssuesUseTypedCursorWithFrozenFilters() = runTest {
         var calls = 0
         val inspection = GitHubInspection { error("Authenticated issue pagination should not use a mixed REST page") }

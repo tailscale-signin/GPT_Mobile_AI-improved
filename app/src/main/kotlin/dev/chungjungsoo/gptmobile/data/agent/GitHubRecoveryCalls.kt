@@ -85,6 +85,7 @@ internal object GitHubRecoveryCalls {
                     it["action"] == JsonPrimitive("logs") &&
                     (it["view_cursor"] as? JsonPrimitive)?.isString == true
             }?.let { JsonObject(it - "view_cursor") }
+            ?: inventoryReadWithoutCursor(call)
         if (sourceSelector != null) {
             val tool = tools[call.name] ?: return call
             val schema = tool.definition.inputSchema
@@ -93,7 +94,7 @@ internal object GitHubRecoveryCalls {
             if (ToolArgumentValidator.errors(page, schema).isNotEmpty() || !GitHubAuthorizationBoundary.isReplayableRead(call.name, page)) return call
             val cursor = page.getValue("view_cursor") as JsonPrimitive
             val viewId = JsonPrimitive(cursor.content.substringBefore(':'))
-            // The source receipt binds the view to its CI operation. A later page of that same view
+            // The source receipt binds the view to its read operation. A later page of that same view
             // can supply the exact issued cursor, even after the provider replay was compacted.
             var sourceMatches = false
             var cursorIssued = false
@@ -108,6 +109,12 @@ internal object GitHubRecoveryCalls {
                 }
             }
             return call
+        }
+        exactIssueContinuation(call, exchanges)?.let { arguments ->
+            val tool = tools[call.name] ?: return call
+            if (GitHubAuthorizationBoundary.isReplayableRead(call.name, arguments) && ToolArgumentValidator.errors(arguments, tool.definition.inputSchema).isEmpty()) {
+                return call.copy(arguments = arguments)
+            }
         }
         val envelope = call.arguments.takeIf { it.size == 1 }?.entries?.singleOrNull()
             ?.takeIf { it.key in keys }?.value as? JsonObject
@@ -127,5 +134,44 @@ internal object GitHubRecoveryCalls {
         val tool = tools[name] ?: return call
         if (!GitHubAuthorizationBoundary.isReplayableRead(name, arguments) || ToolArgumentValidator.errors(arguments, tool.definition.inputSchema).isNotEmpty()) return call
         return call.copy(name = name, arguments = arguments)
+    }
+
+    private fun inventoryReadWithoutCursor(call: ProviderEvent.ToolCall): JsonObject? {
+        if ((call.arguments["view_cursor"] as? JsonPrimitive)?.isString != true || call.arguments.size < 2) return null
+        val selector = JsonObject(call.arguments - "view_cursor")
+        val action = (selector["action"] as? JsonPrimitive)?.content
+        val eligible = when (call.name.githubOperationFamily()) {
+            "github_context" -> action == "branches"
+            "github_issue", "github_pr" -> action == "list"
+            else -> false
+        }
+        return selector.takeIf { eligible && GitHubAuthorizationBoundary.isReplayableRead(call.name, it) }
+    }
+
+    /** Fill only the omitted opaque cursor of one exact issued recipe; never invent a page. */
+    private fun exactIssueContinuation(call: ProviderEvent.ToolCall, exchanges: List<AgentToolExchange>): JsonObject? {
+        if (call.name.githubOperationFamily() != "github_issue" ||
+            call.arguments["action"] != JsonPrimitive("list") ||
+            "after" in call.arguments ||
+            "view_cursor" in call.arguments ||
+            (call.arguments["page"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.let { it > 1 } != true
+        ) {
+            return null
+        }
+        return exchanges.asReversed().asSequence().flatMap { exchange ->
+            exchange.results.asReversed().asSequence().filterNot { it.isError }.mapNotNull { result ->
+                val issuer = exchange.calls.firstOrNull { it.callId == result.callId && it.name == call.name }
+                    ?: return@mapNotNull null
+                if (!GitHubAuthorizationBoundary.isReplayableRead(issuer.name, issuer.arguments)) return@mapNotNull null
+                GitHubReplayRecovery.envelope(result.content)?.get("continuation_call") as? JsonObject
+            }
+        }
+            .filter { it["tool"] == JsonPrimitive(call.name) }
+            .mapNotNull { it["arguments"] as? JsonObject }
+            .filter { recipe ->
+                (recipe["after"] as? JsonPrimitive)?.let { it.isString && it.content.isNotBlank() } == true &&
+                    JsonObject(recipe - "after") == call.arguments
+            }
+            .distinct().take(2).toList().singleOrNull()
     }
 }

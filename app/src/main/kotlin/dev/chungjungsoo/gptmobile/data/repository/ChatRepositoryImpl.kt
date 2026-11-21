@@ -2007,7 +2007,10 @@ class ChatRepositoryImpl(
                 acceptedRecovery
             }
             if (recovery == null) {
-                emit(localAdmissionError("OUTPUT_CONTINUATION_UNAVAILABLE", "There is no saved task to resume. Send the original request before using Continue or Retry.", "planning"))
+                val failure = dev.chungjungsoo.gptmobile.data.agent.OutputContinuationFailure.unavailable(
+                    dev.chungjungsoo.gptmobile.data.agent.OutputContinuationFailure.Cause.NO_SAVED_TASK
+                )
+                emit(ApiState.Error(failure.message, errorCode = failure.errorCode, taskOutcome = failure.taskOutcome, failureDetails = failure.failureDetails))
                 return@authorizedRun
             }
             val savedUserTurns = recovery.savedUserTurns
@@ -6053,6 +6056,14 @@ class ChatRepositoryImpl(
                     }
                 ) { draft, exchanges, tools ->
                     val selected = catalog?.selected(tools) ?: tools
+                    val retainedReceipts = verifiedEvidence.snapshot().first
+                    val workingBrief = withContext(Dispatchers.Default) {
+                        dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryPolicy.workingBrief(
+                            verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask,
+                            chatToolConfig?.github,
+                            retainedReceipts
+                        )
+                    }
                     val capacity = minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768)
                     val allowance = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.resolve(capacity, resolvedOutputCap, "github-output-continuation")
                     require(allowance.output > 0) { "CONTINUATION_CONTEXT_CAPACITY: No output allowance remains." }
@@ -6064,7 +6075,8 @@ class ChatRepositoryImpl(
                         "Finish the next outstanding GitHub requirement using the accepted task and retained receipts. Prefer a short conclusion with receipt references. If a tool is still required, request that tool directly. Never repeat completed operations or claim unverified completion.",
                         exchanges,
                         advertisedTools = selected,
-                        fitProviderBudget = true
+                        fitProviderBudget = true,
+                        retainedTaskContext = workingBrief
                     )
                     val reopened = openPrimarySession(continuation.turns, "github-output-continuation", textOnly = selected.isEmpty(), passOutputTokens = continuation.outputTokens, continuationPrefixDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(draft))
                     catalog?.let { reopened.withToolCatalog(it) } ?: reopened

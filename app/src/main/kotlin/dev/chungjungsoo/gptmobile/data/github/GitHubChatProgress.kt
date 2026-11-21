@@ -36,7 +36,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var lastPreviewKey = ""
     private val livePreviews = mutableMapOf<String, String>()
     private val recentSteps = ArrayDeque<String>()
-    private var lastProblem: String? = null
+    private data class Problem(val text: String, val requiredResolutions: Set<String>)
+    private val activeProblems = linkedMapOf<String, Problem>()
     private var revision = 0L
     private var pendingSummary: ApiState.ActivitySummary? = null
     private var pendingSummaryRevision = -1L
@@ -51,6 +52,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private val blockedCalls = mutableSetOf<Pair<String, String>>()
     private val observedProgress = linkedSetOf<Triple<String, Int, String>>()
     private val resultObservations = linkedMapOf<String, ResultObservation>()
+    private val savedResults = linkedSetOf<String>()
     private var responseStarted = false
     private var terminal = false
 
@@ -141,6 +143,11 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     /** Consume existing bounded facts; never parse or hash a raw tool body on the progress path. */
     @Synchronized fun observeResult(call: ProviderEvent.ToolCall, result: AgentToolResult): String? {
         if (terminal || result.isError || call.callId != result.callId || "view_cursor" in call.arguments) return null
+        val saved = result.sharedResult || result.executionReceipt?.get("read_source") == JsonPrimitive("RETAINED")
+        if (saved) {
+            savedResults += call.callId
+            while (savedResults.size > 256) savedResults.remove(savedResults.first())
+        }
         val facts = (result.executionReceipt?.get("semantic_summary") as? JsonObject)
             ?: listOf(result.retainedContent, result.content).firstNotNullOfOrNull { content ->
                 (((content as? ToolResultContent.Json)?.value as? JsonObject)?.get("semantic_summary") as? JsonObject)
@@ -150,7 +157,6 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         ) {
             return null
         }
-        val saved = result.sharedResult || result.executionReceipt?.get("read_source") == JsonPrimitive("RETAINED")
         val observation = semanticObservation(call.name, call.arguments, facts, saved) ?: return null
         resultObservations[call.callId] = observation
         while (resultObservations.size > 256) resultObservations.remove(resultObservations.keys.first())
@@ -170,6 +176,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 val terminalKey = progress.toolCallId?.takeIf(String::isNotBlank)?.let { scope to it }
                 val name = progress.toolName.orEmpty()
                 val operation = operation(name, progress.toolArgs)
+                val problemScope = problemScope(scope, name, progress.toolArgs)
                 val eventName = if (progress.event in setOf("tool_finished", "tool_completed")) {
                     when (progress.status?.lowercase(java.util.Locale.ROOT)) {
                         "failed", "error" -> "tool_failed"
@@ -201,7 +208,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         selectedAuthoredSummary = false
                         activity = milestone(name, true, false, progress.toolArgs)
                         nextStep = "inspect the ${operation.subject} error and identify whether a corrected request or connection recovery is needed"
-                        rememberStep(observation(name, true, false, progress.toolArgs), problem = true)
+                        rememberStep(observation(name, true, false, progress.toolArgs), problemScope = problemScope)
                     }
                     "tool_blocked" -> {
                         if (terminalKey in terminalCalls || terminalKey != null && !blockedCalls.add(terminalKey)) return
@@ -212,7 +219,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         selectedAuthoredSummary = false
                         activity = "${operation.subject.replaceFirstChar(Char::uppercase)} blocked${sourceFocus(progress.toolArgs).let { if (it.isBlank()) "" else " · $it" }}"
                         nextStep = "inspect the recorded blocker and identify the required approval, setup or correction before continuing"
-                        rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} is blocked; the requested action has not been verified.", problem = true)
+                        rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} is blocked; the requested action has not been verified.", problemScope = problemScope)
                     }
                     "tool_completed", "tool_finished", "tool_skipped" -> {
                         if (terminalKey != null && !terminalCalls.add(terminalKey)) return
@@ -225,11 +232,19 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                             selectedAuthoredSummary = false
                             activity = "${operation.subject.replaceFirstChar(Char::uppercase)} skipped${sourceFocus(progress.toolArgs).let { if (it.isBlank()) "" else " · $it" }}"
                             nextStep = "check why the ${operation.subject} was skipped before treating it as validation evidence"
-                            rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} was skipped; it did not provide an executed validation result.", problem = true)
+                            rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} was skipped; it did not provide an executed validation result.", problemScope = problemScope)
                             return
                         }
                         completed++
                         val observed = resultObservations.remove(progress.toolCallId)
+                        val saved = savedResults.remove(progress.toolCallId)
+                        if (observed?.problem != true && observed?.saved != true && !saved) {
+                            resolveProblem(problemScope, observed?.resolvedConditions.orEmpty())?.let {
+                                selectedAuthoredSummary = false
+                                pendingSummary = null
+                                rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} is available again. The remaining task still needs verification.")
+                            }
+                        }
                         if (observed != null || sourceFocus(progress.toolArgs).isNotBlank()) selectedAuthoredSummary = false
                         val nextPreview = observed?.preview ?: previewSequence.offer(
                             previewEvent(name, progress.toolArgs, GitHubPreviewPhase.RESULT)
@@ -240,7 +255,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                             pendingSummary = null
                         }
                         if (observed != null || sourceFocus(progress.toolArgs).isNotBlank() || operation.mutation) {
-                            rememberStep(observed?.summary ?: observation(name, false, false, progress.toolArgs), problem = observed?.problem == true)
+                            rememberStep(observed?.summary ?: observation(name, false, false, progress.toolArgs), problemScope = problemScope.takeIf { observed?.problem == true }, requiredResolutions = observed?.unresolvedConditions.orEmpty(), resolvedConditions = observed?.resolvedConditions.orEmpty())
                         } else {
                             revision++
                         }
@@ -273,6 +288,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 pendingSummary = null
                 activity = ""
                 resultObservations.clear()
+                savedResults.clear()
             }
             else -> Unit
         }
@@ -287,18 +303,31 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         completed,
         failures,
         GitHubProgressPresentation.taskLabel(activity),
-        recentSteps.takeLast(6).let { steps -> lastProblem?.takeUnless(steps::contains)?.let { listOf(it) + steps } ?: steps },
+        recentSteps.takeLast(6).let { steps -> activeProblems.values.toList().takeLast(4).map { it.text }.filterNot(steps::contains) + steps },
         GitHubProgressPresentation.taskLabel(nextStep),
         pending = activeCalls.size,
         skipped = skipped,
         blocked = blocked
     )
 
-    private fun rememberStep(step: String, problem: Boolean = false) {
-        if (problem) lastProblem = step.take(320)
+    private fun rememberStep(step: String, problemScope: String? = null, requiredResolutions: Set<String> = emptySet(), resolvedConditions: Set<String> = emptySet()) {
+        if (problemScope != null) {
+            val unresolved = activeProblems[problemScope]?.requiredResolutions.orEmpty() - resolvedConditions + requiredResolutions
+            activeProblems.put(problemScope, Problem(step.take(320), unresolved))?.let { prior -> recentSteps.remove(prior.text) }
+            while (activeProblems.size > 64) activeProblems.remove(activeProblems.keys.first())
+        }
         if (recentSteps.lastOrNull() != step) recentSteps.addLast(step.take(320))
         while (recentSteps.size > 8) recentSteps.removeFirst()
         revision++
+    }
+
+    private fun resolveProblem(scope: String, resolvedConditions: Set<String>): Problem? {
+        val problem = activeProblems[scope] ?: return null
+        // A successful HTTP result alone cannot clear a failed check or unknown policy.
+        if (!resolvedConditions.containsAll(problem.requiredResolutions)) return null
+        activeProblems.remove(scope)
+        recentSteps.remove(problem.text)
+        return problem
     }
 
     private fun nextFor(operation: Operation): String = if (integrationCoverage) {
@@ -315,16 +344,34 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         internal fun summaryInterval(hasPublishedFindings: Boolean): Long =
             if (hasPublishedFindings) FOLLOW_UP_SUMMARY_INTERVAL_MS else FIRST_SUMMARY_INTERVAL_MS
         private data class Operation(val preview: String, val subject: String, val next: String, val mutation: Boolean = false)
-        private data class ResultObservation(val preview: String, val summary: String, val problem: Boolean = false)
+        private data class ResultObservation(
+            val preview: String,
+            val summary: String,
+            val problem: Boolean = false,
+            val saved: Boolean = false,
+            val unresolvedConditions: Set<String> = emptySet(),
+            val resolvedConditions: Set<String> = emptySet()
+        )
+
+        private fun problemScope(job: String, name: String, args: JsonObject?): String {
+            val canonical = GitHubActionIdentity.canonicalArguments(name, args ?: JsonObject(emptyMap()))
+            val selectors = setOf("action", "owner", "repo", "ref", "branch", "commit_sha", "path", "ranges", "query", "pull_number", "pr_number", "issue_number", "run_id", "job_id", "tag_name", "release_id", "view_cursor")
+            // Keep full source/revision identity; display labels are deliberately shortened
+            // and can collide. Pagination/invalid optional fields do not change the resource.
+            return JsonArray(listOf(JsonPrimitive(job), JsonPrimitive(name.githubOperationFamily()), JsonPrimitive(name.substringAfter("__", "")), JsonObject(canonical.filterKeys { it in selectors }.toSortedMap()))).toString()
+        }
 
         private fun semanticObservation(name: String, args: JsonObject, facts: JsonObject, saved: Boolean): ResultObservation? {
             if (operation(name, args).mutation) return null
             fun count(source: JsonObject, key: String) = (source[key] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
             fun quantity(value: Int, noun: String) = "$value $noun" + if (value == 1) "" else "s"
-            fun observation(preview: String, summary: String, problem: Boolean = false): ResultObservation = ResultObservation(
+            fun observation(preview: String, summary: String, problem: Boolean = false, unresolvedConditions: Set<String> = emptySet(), resolvedConditions: Set<String> = emptySet()): ResultObservation = ResultObservation(
                 (if (saved) "Saved results: " else "") + preview + sourceFocus(args).let { if (it.isBlank()) "" else " · $it" },
                 if (saved) "From saved results: ${summary.replaceFirstChar(Char::lowercase)} Current state still needs verification." else summary,
-                problem
+                problem,
+                saved,
+                unresolvedConditions,
+                resolvedConditions
             )
             val range = facts["source_range"] as? JsonObject
             if (name.githubOperationFamily() == "github_read" && range != null) {
@@ -351,7 +398,36 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 if (successful != null && skipped != null && running != null && failed != null && other != null) {
                     val values = "$successful successful, $skipped skipped, $running in progress, $failed failed" + if (other > 0) ", $other other completed" else ""
                     val coverage = if (facts["check_inventory_complete"] == JsonPrimitive(true)) "complete captured list" else "incomplete captured list"
-                    return observation("Checks observed: $values", "Recorded checks${focusClause(args)}: $values ($coverage). These are existing results, not a new validation run.", failed > 0)
+                    val unknownPolicy = facts["required_checks_state"] == JsonPrimitive("UNKNOWN")
+                    val policy = if (unknownPolicy) " Required-check policy is unavailable; merge readiness remains unknown." else ""
+                    val unresolved = buildSet {
+                        if (failed > 0) add("FAILED_CHECKS")
+                        if (unknownPolicy) add("REQUIRED_POLICY")
+                    }
+                    val resolved = buildSet {
+                        if (failed == 0 && facts["check_inventory_complete"] == JsonPrimitive(true)) add("FAILED_CHECKS")
+                        if (facts["required_checks_state"] in setOf(JsonPrimitive("VERIFIED_NONE"), JsonPrimitive("VERIFIED_PRESENT"))) add("REQUIRED_POLICY")
+                    }
+                    return observation("Checks observed: $values", "Recorded checks${focusClause(args)}: $values ($coverage). These are existing results, not a new validation run.$policy", unresolved.isNotEmpty(), unresolved, resolved)
+                }
+            }
+            val resources = (facts["resource_observations"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            resources.firstOrNull()?.let { resource ->
+                val number = count(resource, "number")
+                val title = (resource["title"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)?.let(GitHubProgressPresentation::taskLabel)
+                val kind = if (resource["resource"] == JsonPrimitive("issue")) "Issue" else "PR"
+                val state = (resource["state"] as? JsonPrimitive)?.contentOrNull?.takeIf { it in setOf("open", "closed", "merged") }
+                if (number != null && title != null) {
+                    val more = if (resources.size > 1) " Other captured resources remain available for inspection." else ""
+                    return observation("$kind #$number: $title", "$kind #$number reports “$title”${state?.let { " and is $it" }.orEmpty()}.$more")
+                }
+            }
+            if (name.githubOperationFamily() == "github_search") {
+                val returned = count(facts, "returned")
+                val scanned = count(facts, "scanned_files")
+                if (returned != null && scanned != null) {
+                    val coverage = if (facts["search_complete"] == JsonPrimitive(true)) "The recorded search coverage is complete." else "Search coverage is incomplete; unscanned files remain unresolved."
+                    return observation("${quantity(returned, "matching file")} in the search page", "This search page returned ${quantity(returned, "matching file")} after inspecting ${quantity(scanned, "file")}. $coverage")
                 }
             }
             val issues = count(facts, "open_issue_count")
@@ -365,7 +441,10 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 return observation("${quantity(count, "workflow definition")} found", "The workflow inventory contains ${quantity(count, "definition")} ($coverage). Listing definitions does not execute validation.")
             }
             if (facts["required_checks_state"] == JsonPrimitive("UNKNOWN")) {
-                return observation("Required-check policy is unavailable", "Required-check policy${focusClause(args)} is unavailable; merge readiness cannot be established.", problem = true)
+                return observation("Required-check policy is unavailable", "Required-check policy${focusClause(args)} is unavailable; merge readiness cannot be established.", problem = true, unresolvedConditions = setOf("REQUIRED_POLICY"))
+            }
+            if (facts["required_checks_state"] in setOf(JsonPrimitive("VERIFIED_NONE"), JsonPrimitive("VERIFIED_PRESENT"))) {
+                return observation("Required-check policy is available", "Required-check policy${focusClause(args)} is available for the next readiness assessment.", resolvedConditions = setOf("REQUIRED_POLICY"))
             }
             count(facts, "changed_files_observed")?.let { count ->
                 return observation("${quantity(count, "changed file")} observed", "The comparison${focusClause(args)} contains ${quantity(count, "observed changed file")}; source review remains unverified.")

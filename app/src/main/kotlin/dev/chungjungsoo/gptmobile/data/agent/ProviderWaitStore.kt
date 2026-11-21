@@ -403,11 +403,15 @@ class ProviderWaitStore @Inject constructor(
 
     private suspend fun recoveryForWait(row: ProviderWait, saved: ProviderWaitCheckpoint, failure: ProviderRecoveryFailure): ProviderRecoveryFailure {
         val expected = saved.decision?.gitHubCheckpoint
+        var observedCheckpoint: JsonObject? = null
+        var checkpointRead = false
         val original = failure.original ?: expected?.let { checkpoint ->
             val digest = JsonPrimitive(checkpoint.digest)
             val recorded = saved.recoveryFailure?.takeIf { it["checkpoint_digest"] == digest }
             (recorded?.get("original_interruption") as? JsonObject) ?: try {
                 val source = workspace?.protectedSynthesisCheckpoint("github-output:${checkpoint.binding}")
+                observedCheckpoint = source
+                checkpointRead = workspace != null
                 source?.takeIf {
                     checkpoint.matches(it) || (it["latest_recovery_failure"] as? JsonObject)?.get("checkpoint_digest") == digest
                 }?.let(ProviderRecoveryFailure::interruption)
@@ -418,7 +422,12 @@ class ProviderWaitStore @Inject constructor(
                 null
             }
         }
-        return ProviderRecoveryFailure(failure.code, ProviderRecoveryFailure.retainedInterruption(original), ProviderRecoveryFailure.correlation(expected, saved.resumeClaimId, row.fence, row.runId))
+        val observation = if (expected != null && failure.code == "PROVIDER_WAIT_CHECKPOINT_CHANGED" && checkpointRead) {
+            ProviderRecoveryFailure.checkpointCorrelation(expected, observedCheckpoint)
+        } else {
+            JsonObject(ProviderRecoveryFailure.retainedDetails(saved.recoveryFailure).orEmpty() + failure.correlation)
+        }
+        return ProviderRecoveryFailure(failure.code, ProviderRecoveryFailure.retainedInterruption(original), JsonObject(observation + ProviderRecoveryFailure.correlation(expected, saved.resumeClaimId, row.fence, row.runId)))
     }
 
     private suspend fun synchronizeRecoveryCheckpointSafely(row: ProviderWait, code: String) {

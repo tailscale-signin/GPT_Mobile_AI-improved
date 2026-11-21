@@ -125,6 +125,7 @@ internal fun providerExceptionDetails(
                 put("retryable", false)
                 put("request_replay_allowed", false)
                 put("repair", "REPLAN_REQUEST_BUDGET")
+                put("recovery_action", "REPLAN_REQUEST_BUDGET")
                 put("prompt_tokens", error.promptTokens)
                 put("safety_tokens", error.safetyTokens)
                 error.outputTokens?.let { put("output_allowance", it) }

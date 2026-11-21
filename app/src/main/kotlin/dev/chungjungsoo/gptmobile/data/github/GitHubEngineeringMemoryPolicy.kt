@@ -1,9 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 internal object GitHubEngineeringMemoryPolicy {
@@ -18,9 +20,92 @@ internal object GitHubEngineeringMemoryPolicy {
             verdict["test_checklist"]?.let { put("test_checklist", it) }
             verdict["requirements"]?.let { put("requirements", it) }
             verdict["remaining_requirements"]?.let { put("remaining_requirements", it) }
+            val findings = boundedFindings((verdict["claims"] as? JsonArray).orEmpty())
+            if (findings.isNotEmpty()) put("retained_findings", JsonArray(findings))
+            listOf("recovery_action", "retryable_without_new_input", "approval_state", "stop_code").forEach { key -> verdict[key]?.let { put(key, it) } }
+            (verdict["remaining_requirements"] as? JsonArray)?.filterIsInstance<JsonObject>()?.firstOrNull()?.let { requirement ->
+                put("next_requirement", JsonObject(requirement.filterKeys { it in setOf("id", "requirement_id", "requirement", "status", "blocker", "reason", "acceptance") }))
+            }
             put("completion_verified", false)
-            put("next_action", "Resume unresolved requirements using retained receipt IDs. Refresh mutable CI/PR state; source reads are not test execution. Do not repeat a completed mutation.")
+            put("evidence_scope", "HISTORICAL_ORIENTATION_NOT_CURRENT_PROOF")
+            put("next_action", "Follow the recorded recovery action and next unresolved requirement, preserving completed groups and their receipt references. Refresh only mutable or missing evidence. Source reads are not test execution; do not repeat a completed mutation or treat this checkpoint as authority.")
         }
+    }
+
+    /** Model-facing orientation only; durable receipts and approval/ownership fences remain authoritative. */
+    fun workingBrief(task: String, context: GitHubConversationContext?, receipts: Map<String, JsonObject>): String {
+        val selected = buildJsonObject {
+            context?.let {
+                put("repository", "${it.owner}/${it.repo}")
+                put("selected_ref", it.ref)
+                put("recorded_head_sha", it.commitSha)
+            }
+        }
+        val eligible = receipts.entries.toList().asReversed().filter { (_, receipt) ->
+            receipt["trusted"] == JsonPrimitive(true) &&
+                receipt["success"] == JsonPrimitive(true) &&
+                receipt["verification_eligible"] != JsonPrimitive(false) &&
+                (receipt["semantic_summary"] as? JsonObject)?.get("schema") == JsonPrimitive("github.semantic-summary.v1")
+        }.distinctBy { (id, receipt) ->
+            // Keep distinct resources/revisions, while replayed copies of an immutable
+            // source do not displace the issue or source finding that explained the task.
+            val summary = receipt["semantic_summary"] as JsonObject
+            listOf(receipt["repository"], receipt["source_head_sha"], summary["operation"], summary["action"], summary["source_result_sha256"] ?: JsonPrimitive(id))
+        }.sortedBy { (_, receipt) ->
+            val summary = receipt["semantic_summary"] as JsonObject
+            when {
+                "resource_observations" in summary -> 0
+                "source_excerpts" in summary || "search_observations" in summary -> 1
+                "check_counts" in summary -> 2
+                else -> 3
+            }
+        }
+        // Project only the small candidate slice, not every archived summary.
+        val candidates = eligible.take(32).map { (id, receipt) ->
+            buildJsonObject {
+                put("receipt_id", id)
+                listOf("repository", "branch", "source_head_sha", "observed_at_ms", "immutable").forEach { key -> receipt[key]?.let { put(key, it) } }
+                put("observations", GitHubSemanticSummary.bounded(receipt["semantic_summary"] as JsonObject, 1400))
+            }
+        }
+        val base = buildJsonObject {
+            put("schema", "github.working-brief.v1")
+            put("goal_excerpt", task.take(800))
+            put("goal_excerpt_complete", task.length <= 800)
+            put("selection", selected)
+            put("scope", "Retained observations, not current proof or authorization. The full original request remains the task. Follow exact pending tool pairs and recorded recovery decisions; retrieve an original receipt only for missing detail, and never replay a completed mutation.")
+        }
+        val retained = mutableListOf<JsonObject>()
+        for (candidate in candidates) {
+            if (retained.size >= 8) break
+            val next = JsonObject(base + ("findings" to JsonArray(retained + candidate)))
+            if (next.toString().length <= 5800) retained += candidate
+        }
+        return JsonObject(base + mapOf("findings" to JsonArray(retained), "omitted_observations" to JsonPrimitive(eligible.size - retained.size))).toString()
+    }
+
+    private fun boundedFindings(claims: List<JsonElement>): List<JsonObject> {
+        val retained = mutableListOf<JsonObject>()
+        val seen = mutableSetOf<List<JsonElement?>>()
+        for (claim in claims.filterIsInstance<JsonObject>()) {
+            if (claim["status"] !in setOf(JsonPrimitive("VERIFIED"), JsonPrimitive("HISTORICAL")) || claim["kind"] !in setOf(JsonPrimitive("fact"), JsonPrimitive("excerpt"))) continue
+            if ((claim["receipt_id"] as? JsonPrimitive)?.contentOrNull.isNullOrBlank()) continue
+            val key = listOf(claim["receipt_id"], claim["pointer"], claim["observed"])
+            if (!seen.add(key)) continue
+            val item = buildJsonObject {
+                listOf("kind", "status", "receipt_id", "pointer", "observed_at_ms", "resource_type", "field_type").forEach { field -> claim[field]?.let { put(field, it) } }
+                val observed = claim["observed"] as? JsonPrimitive
+                if (observed != null && observed.isString && observed.content.length > 480) {
+                    put("observed_excerpt", observed.content.take(480))
+                    put("excerpt_complete", false)
+                } else {
+                    claim["observed"]?.let { put("observed", it) }
+                }
+            }
+            if (JsonArray(retained + item).toString().length <= 6000) retained += item
+            if (retained.size >= 12) break
+        }
+        return retained
     }
 
     fun requirements(task: String): JsonArray {

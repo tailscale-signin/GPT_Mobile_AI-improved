@@ -5,7 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** Numeric observations only; runtime identities and prompt contents never enter this projection. */
+/** Bounded admission observations; raw identities and prompt contents never enter this projection. */
 internal fun capacityAdmissionEvidence(error: RequestCapacityException, monotonicMillis: Long): JsonObject = buildJsonObject {
     fun observedCount(key: String, value: Long?) {
         value?.takeIf { it in 0..16_000_000L }?.let { put(key, it) }
@@ -29,6 +29,16 @@ internal fun capacityAdmissionEvidence(error: RequestCapacityException, monotoni
             observedCount("admission_current_request_tokens", plan.costs.currentMessage.toLong())
             observedCount("admission_attachment_reserve_tokens", plan.costs.attachments.toLong())
         }
+    }
+    error.planningObservation?.let { observation ->
+        observation.profileHash?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let { put("profile_hash", it) }
+        observation.modelHash?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let { put("model_hash", it) }
+        observedCount("configured_output_limit", observation.configuredOutputTokens?.toLong())
+        observedCount("admission_route_context_tokens", observation.capacity.verifiedRouteTokens?.toLong())
+        observedCount("admission_catalog_context_tokens", observation.capacity.catalogTokens?.toLong())
+        val smallerDeclaredPlan = observation.planningContextTokens.takeIf { it in 1 until observation.capacity.tokens }
+        val configured = listOfNotNull(observation.capacity.configuredTokens, smallerDeclaredPlan).minOrNull()
+        observedCount("admission_configured_context_tokens", configured?.toLong())
     }
     error.budget?.let { budget ->
         for ((component, field) in listOf(

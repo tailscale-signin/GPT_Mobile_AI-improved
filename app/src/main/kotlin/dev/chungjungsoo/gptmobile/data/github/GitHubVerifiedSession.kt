@@ -70,6 +70,7 @@ internal class GitHubVerifiedSession(
     private var refreshDraft: String? = null
     private var providerStepResumed = false
     private var statusPlanTools: List<AgentToolDefinition> = emptyList()
+    private var observedAdvertisedToolCount: Int? = null
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
     private fun failureCauses(error: Throwable): Sequence<Throwable> =
@@ -102,6 +103,7 @@ internal class GitHubVerifiedSession(
     }
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        observedAdvertisedToolCount = null
         if (GitHubStatusRequest.matches(task)) statusPlanTools = tools
         val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(GitHubTaskContinuity.request(task))
         if (intent.conversational) {
@@ -673,6 +675,7 @@ internal class GitHubVerifiedSession(
     }
 
     private suspend fun FlowCollector<ProviderEvent>.collectDraft(session: AgentProviderSession, tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): DraftRound {
+        observedAdvertisedToolCount = null
         val draft = StringBuilder()
         var calls = false
         var completed = false
@@ -680,6 +683,10 @@ internal class GitHubVerifiedSession(
         var providerFailure: ProviderEvent.Failed? = null
         session.streamRound(tools, exchanges).collect { event ->
             when (event) {
+                is ProviderEvent.RequestConfigured -> {
+                    event.advertisedToolCount?.takeIf { it in 0..16_000_000 }?.let { observedAdvertisedToolCount = it }
+                    emit(event)
+                }
                 is ProviderEvent.TextDelta -> {
                     check(draft.length.toLong() + event.text.length <= 1_048_576) { "GitHub verification draft exceeds capacity" }
                     draft.append(event.text)
@@ -800,6 +807,7 @@ internal class GitHubVerifiedSession(
         resumeAcceptance: Boolean = false
     ): Flow<ProviderEvent> = flow {
         val verificationStarted = System.nanoTime()
+        var verificationPhase = GitHubVerificationFault.Phase.DESCENDANTS
         suspend fun restartPublication(): Boolean {
             if (verificationRestart >= MAX_VERIFICATION_RESTARTS) return false
             validatePublication()
@@ -824,9 +832,12 @@ internal class GitHubVerifiedSession(
             // fixture cleanup or reconciliation receipt to this accepted run.
             val descendantsSettled = awaitOwnedDescendants(OWNED_DESCENDANT_WAIT_MILLIS)
             val publicationFailureCode = if (descendantsSettled) failureCode else "GITHUB_OWNED_DESCENDANTS_PENDING"
+            verificationPhase = GitHubVerificationFault.Phase.AUTHORITY
             validatePublication()
+            verificationPhase = GitHubVerificationFault.Phase.SNAPSHOT
             val (receipts, epoch) = evidence.snapshot()
             val stopped = originalFailure != null || remainingToolCalls() == 0
+            verificationPhase = GitHubVerificationFault.Phase.RECEIPT_RENDERING
             val ciObservation = withContext(computationDispatcher) {
                 val at = now()
                 GitHubCiObservationReport.render(task, receipts, at, epoch)
@@ -858,6 +869,7 @@ internal class GitHubVerifiedSession(
             } else {
                 null
             }
+            verificationPhase = GitHubVerificationFault.Phase.CLAIM_PLANNING
             val verificationPlan = if (draft == null || status != null || coverage != null || ciObservation != null) {
                 null
             } else {
@@ -865,7 +877,9 @@ internal class GitHubVerifiedSession(
                 withContext(computationDispatcher) { verificationRequests(draft, receipts) }
             }
             val requests = (verificationPlan as? VerificationPlan.Ready)?.requests
+            verificationPhase = GitHubVerificationFault.Phase.CLAIM_EXTRACTION
             val extraction = requests?.let { extract(requireNotNull(draft), it, receipts, epoch) }
+            verificationPhase = GitHubVerificationFault.Phase.ACCEPTANCE_RENDERING
             val rendered = status ?: coverage ?: ciObservation ?: extraction?.rendered ?: partial(receipts, epoch, publicationFailureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE")
             // Claim extraction and deterministic rendering can be slower than an
             // owned tool receipt reaching the evidence book. Never publish a
@@ -913,6 +927,7 @@ internal class GitHubVerifiedSession(
             } else {
                 renderedText
             }
+            verificationPhase = GitHubVerificationFault.Phase.PUBLICATION
             validatePublication()
             val retention = evidence.retentionStatus()
             val retentionComplete = retention["evidence_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(true)
@@ -1027,7 +1042,8 @@ internal class GitHubVerifiedSession(
                             rejectedPlan?.requiredTokens,
                             rejectedPlan?.inputLimitTokens,
                             entry,
-                            trustFailures
+                            trustFailures,
+                            advertisedToolCount = observedAdvertisedToolCount
                         )
                     )
                 }
@@ -1095,6 +1111,11 @@ internal class GitHubVerifiedSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
+            failureCauses(failure).filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+            failureCauses(failure).firstOrNull {
+                it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
+                    it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied
+            }?.let { throw it }
             val policy = failureCauses(failure).filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
             if (policy != null) {
                 evidence.retainVerdict(
@@ -1107,21 +1128,42 @@ internal class GitHubVerifiedSession(
                     }
                 )
                 throw policy
-            } else {
-                if (originalFailure != null) {
-                    emit(ProviderEvent.TextDelta("The task was interrupted before verification finished. Completed operations remain saved; no completion is claimed.\n\nOriginal failure: ${originalFailure.message}\n\nVerification also could not finish: ${failure.message.orEmpty().take(400)}", dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, originalFailure.invocationId)))
-                    emit(originalFailure)
-                } else {
-                    emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(400)}. Not available / Not measured. Retained evidence can be inspected or refreshed.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
-                }
             }
-            return@flow
+            // Revalidate access before reading/publishing even the minimal saved
+            // evidence report. Do not call the failed renderer a second time.
+            validatePublication()
+            val (saved, epoch) = evidence.snapshot()
+            val fallback = GitHubVerificationFault.partial(failure, verificationPhase, saved, originalFailure)
+            Publication(fallback.text, true, fallback.report, epoch, saved.keys, fallback.failure)
         }
         // Collector exceptions must propagate unchanged; they are not formatter failures.
         val (text, partial, report) = publication
         val retained = evidence.snapshot().first
-        val currentProgress = GitHubExecutionContinuation.progressKeys(retained)
-        val staleReceiptIds = GitHubExecutionContinuation.staleReceiptIds(report)
+        val internalFault = report["verification_internal_error"] == JsonPrimitive(true)
+        suspend fun advancedInternalFault(responseDelivered: Boolean): ProviderEvent.Failed {
+            val (currentReceipts, currentEpoch) = evidence.snapshot()
+            val failure = requireNotNull(publication.extractionFailure)
+            return failure.copy(
+                message = failure.message + if (responseDelivered) {
+                    " More evidence arrived during delivery. The partial report describes its captured receipt set; it does not verify the newer evidence."
+                } else {
+                    " More evidence arrived before the partial report could be delivered. The older report was withheld; inspect the saved results and verification diagnostic before resuming."
+                },
+                failureDetails = JsonObject(
+                    failure.failureDetails.orEmpty() + buildJsonObject {
+                        put("checkpoint_failure_code", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION")
+                        put("verification_epoch_started", publication.epoch)
+                        put("verification_epoch_observed", currentEpoch)
+                        put("verification_receipts_started", publication.receiptIds.size)
+                        put("verification_receipts_observed", currentReceipts.size)
+                        put("response_delivered", responseDelivered)
+                        put("completion_verified", false)
+                    }
+                )
+            )
+        }
+        val currentProgress = if (internalFault) emptySet() else GitHubExecutionContinuation.progressKeys(retained)
+        val staleReceiptIds = if (internalFault) emptySet() else GitHubExecutionContinuation.staleReceiptIds(report)
         if (partial &&
             draft != null &&
             originalFailure == null &&
@@ -1193,6 +1235,12 @@ internal class GitHubVerifiedSession(
             throw ProgressCheckpointFailure(failure, originalFailure)
         }
         if (!prepared) {
+            if (internalFault) {
+                // A stale emergency snapshot cannot re-enter the failed normal
+                // renderer. Preserve the typed fault without publishing old facts.
+                emit(advancedInternalFault(responseDelivered = false))
+                return@flow
+            }
             if (restartPublication()) return@flow
             emit(
                 ProviderEvent.Failed(
@@ -1215,6 +1263,10 @@ internal class GitHubVerifiedSession(
             expectedReceiptIds = publication.receiptIds
         )
         if (delivered == null) {
+            if (internalFault) {
+                emit(advancedInternalFault(responseDelivered = true))
+                return@flow
+            }
             emit(
                 ProviderEvent.Failed(
                     "GitHub evidence changed during answer delivery. Resume verification to include the new receipts.",
@@ -1231,7 +1283,7 @@ internal class GitHubVerifiedSession(
         // Only the extraction attempted by this publication owns its live failure
         // and invocation. Its claim checkpoint is resumed separately from primary
         // generation; it cannot authorize generic provider-wait replay.
-        val currentFailure = originalFailure ?: publication.extractionFailure?.takeUnless { unresolved }
+        val currentFailure = publication.extractionFailure?.takeIf { internalFault } ?: originalFailure ?: publication.extractionFailure?.takeUnless { unresolved }
         val approvalIsPrimary = waitingApproval && currentFailure == null && !unresolved
         val monitoring = delivered["background_monitoring_registered"] == JsonPrimitive(true) &&
             currentFailure == null &&

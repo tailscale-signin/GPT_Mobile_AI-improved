@@ -22,6 +22,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolReportIncidentProjectionTest {
+    @Test fun issuePaginationRejectionPreservesClosedCauseAndSchemaNamesWithoutCursorValues() {
+        val call = event("""{"action":"list","page":2,"after":"private cursor value"}""")
+        val receipt = buildJsonObject {
+            put("issue_continuation_rejected", true)
+            put("issue_continuation_state", "FILTER_MISMATCH")
+            put("validation_field_names", JsonArray(listOf(JsonPrimitive("after"), JsonPrimitive("state"), JsonPrimitive("private field"))))
+        }
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("private error detail"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false, executionReceipt = receipt)
+        val fields = ToolReportDiagnostics.fields(call, result)
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("FILTER_MISMATCH"), capture.values["issue_continuation_state"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("after"), JsonPrimitive("state"))), capture.values["validation_field_names"])
+        assertFalse(capture.toString().contains("private"))
+        assertFalse("issue_continuation_state" in ToolReportDiagnostics.fields(call.copy(callId = "different"), result))
+        assertFalse("issue_continuation_state" in ToolReportDiagnostics.fields(call, result.copy(dispatched = true)))
+        assertFalse("issue_continuation_state" in ToolReportDiagnostics.fields(call, result.copy(executionReceipt = JsonObject(receipt - "issue_continuation_rejected"))))
+    }
+
     @Test fun searchFailuresKeepOnlyBoundCountsFromTheSameFailedSearch() {
         val call = event("""{"query":"private keywords"}""").copy(modelToolName = "web_search")
         val receipt = buildJsonObject {
@@ -114,6 +132,8 @@ class ToolReportIncidentProjectionTest {
     @Test fun rejectedDiscoveryRetainsOnlyTheSelectorShape() {
         val invalid = mapOf(
             """{"action":"search"}""" to "ACTION_WITHOUT_NAMES",
+            """{"action":"search","names":null}""" to "NAMES_NULL",
+            """{"names":null}""" to "NAMES_NULL",
             """{"action":"search","names":"private-tool"}""" to "NAMES_NOT_ARRAY",
             """{"action":"search","names":[]}""" to "ACTION_REQUIRES_ONE_NAME",
             """{"action":"search","names":[123]}""" to "NAMES_CONTAIN_NON_STRING",
@@ -126,6 +146,10 @@ class ToolReportIncidentProjectionTest {
             val fields = ToolReportDiagnostics.fields(call, result)
             val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
             assertEquals(JsonPrimitive(expected), capture.values["catalog_selector_state"])
+            if (expected == "NAMES_NULL") {
+                assertTrue(JsonPrimitive("names") in (capture.values["argument_field_names"] as? JsonArray).orEmpty())
+                assertTrue(JsonPrimitive("NULL") in (capture.values["argument_field_types"] as? JsonArray).orEmpty())
+            }
             assertFalse(capture.toString().contains("private"))
             assertFalse(ToolReportDiagnostics.fields(call, result.copy(dispatched = true)).containsKey("catalog_selector_state"))
         }

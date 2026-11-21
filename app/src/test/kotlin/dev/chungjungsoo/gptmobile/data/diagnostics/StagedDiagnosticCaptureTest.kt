@@ -27,6 +27,30 @@ import org.junit.Test
 class StagedDiagnosticCaptureTest {
     private val available = DiagnosticCaptureOptions(minimumHeadroomBytes = 0)
 
+    @Test fun reducedMemoryUsesSingleRowPagesBeforeAnyCriticalSourceAllocation() = temporary { directory ->
+        runBlocking {
+            val observedPages = mutableListOf<Int>()
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "critical-reduced-memory",
+                listOf(
+                    stage("latest", critical = true) { sink ->
+                        observedPages += sink.sourcePageSize
+                        sink.record("retained terminal state")
+                    },
+                    stage("journal") { sink ->
+                        observedPages += sink.sourcePageSize
+                        sink.record("retained receipt")
+                    }
+                ),
+                available.copy(reducedMemory = true, memorySampler = { memory(headroom = 3L * 1024 * 1024) })
+            )
+            assertEquals(listOf(1, 1), observedPages)
+            assertEquals(2L, result.usefulRecords)
+            assertTrue(result.complete)
+        }
+    }
+
     @Test fun skippedHeapRetryRetainsItsOwnAdmissionSampleWithoutAnotherSourceAttempt() = temporary { directory ->
         runBlocking {
             val mib = 1024L * 1024

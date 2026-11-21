@@ -109,7 +109,7 @@ data class ProviderFailureReceipt(
             "GITHUB_REVIEW_BUDGET_EXHAUSTED",
             "GITHUB_CIRCUIT_OPEN", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE",
             "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_EXTRACTION_OUTPUT_LIMIT",
-            "GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_OPERATION_BLOCKED", "GITHUB_RUN_INTERRUPTED", "GITHUB_TASK_INCOMPLETE", "GITHUB_UNEXPECTED_RESPONSE",
+            "GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_OPERATION_BLOCKED", "GITHUB_RUN_INTERRUPTED", "GITHUB_TASK_INCOMPLETE", "GITHUB_UNEXPECTED_RESPONSE", "GITHUB_VERIFICATION_INTERNAL_ERROR",
             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_DISABLED", "OUTPUT_CONTINUATION_NO_PROGRESS",
             "OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_PROTOCOL_INVALID",
             "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "CLIENT_TOOL_RESULTS_REQUIRED", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED",
@@ -167,7 +167,7 @@ data class ProviderFailureReceipt(
                 dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.isPreflightRole(role) || role.endsWith("-preflight") || reviewStage == "review_compatibility" || failedStage == "review_compatibility" || code == "GITHUB_REVIEW_INCOMPATIBLE" -> ProviderFailureStage.REVIEW_COMPATIBILITY
                 role.startsWith("github-review") || reviewStage == "answer_review" || failedStage == "answer_review" || code.startsWith("GITHUB_REVIEW_") -> ProviderFailureStage.ANSWER_REVIEW
                 failedStage in setOf("gateway_recovery", "delivery") -> ProviderFailureStage.DELIVERY
-                role == "github-claim-extraction" || code.startsWith("GITHUB_EVIDENCE_") || code.startsWith("GITHUB_EXTRACTION_") -> ProviderFailureStage.CLAIM_VERIFICATION
+                role == "github-claim-extraction" || code.startsWith("GITHUB_EVIDENCE_") || code.startsWith("GITHUB_EXTRACTION_") || code == "GITHUB_VERIFICATION_INTERNAL_ERROR" -> ProviderFailureStage.CLAIM_VERIFICATION
                 "continuation" in role -> ProviderFailureStage.CONTINUATION
                 role == "github-delivery" -> ProviderFailureStage.DELIVERY
                 else -> ProviderFailureStage.GENERATION
@@ -208,7 +208,7 @@ data class ProviderFailureReceipt(
                     githubRateResponse -> FailureDomain.TOOL_EXECUTION
                     classified.isUserInputRequired || classified.isEngineeringSetup || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
-                    code == "GITHUB_TASK_INCOMPLETE" || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION
+                    code in setOf("GITHUB_TASK_INCOMPLETE", "GITHUB_VERIFICATION_INTERNAL_ERROR") || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION
                     code in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES -> FailureDomain.APPLICATION_VERIFICATION
                     code in setOf("TOOL_OUTCOME_UNKNOWN", "INVALID_ARGUMENTS", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "GITHUB_OPERATION_BLOCKED") -> FailureDomain.TOOL_EXECUTION
                     invocationId != null || status != null || code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES || code in setOf("TRANSPORT_ERROR", "OUTPUT_LIMIT", "INCOMPLETE_PROVIDER_STREAM", "PROVIDER_INVOCATION_FAILED") -> FailureDomain.PROVIDER

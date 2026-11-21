@@ -5,6 +5,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AgentRunTerminalDiagnosticsTest {
+    @Test fun internalVerificationFailureKeepsItsOwnTerminalReasonAndInspectionAction() {
+        val failure = ProfileFailureRecord.classify("GITHUB_VERIFICATION_INTERNAL_ERROR")
+        val terminal = AgentRunTerminalDiagnostics.from(AgentRunStatus.PARTIAL, failure)
+        assertEquals("GITHUB_VERIFICATION_INTERNAL_ERROR", terminal.reason)
+        assertEquals("verification", terminal.stage)
+        assertEquals("INSPECT_VERIFICATION_FAILURE", terminal.recoveryAction)
+        assertEquals(null, terminal.dispatched)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, terminal.remoteAcceptance)
+    }
+
     @Test fun legacyValidationFailurePointsToHostRepairWithoutInventingDispatch() {
         val failure = ProfileFailureRecord.classify("VALIDATION_POLICY_REQUIRED: validation is not configured")
         val result = AgentRunTerminalDiagnostics.from(AgentRunStatus.BLOCKED, failure)

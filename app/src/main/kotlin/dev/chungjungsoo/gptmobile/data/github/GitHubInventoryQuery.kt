@@ -38,6 +38,8 @@ internal object GitHubInventoryQuery {
             normalized["action"] = JsonPrimitive("list_pull_requests")
             normalized.putIfAbsent("state", JsonPrimitive("all"))
             normalized.putIfAbsent("per_page", JsonPrimitive(20))
+            normalized.putIfAbsent("sort", JsonPrimitive("created"))
+            normalized.putIfAbsent("direction", JsonPrimitive(GitHubPullRequestQuery.defaultDirection((normalized["sort"] as? JsonPrimitive)?.content.orEmpty())))
         }
         if (commits) {
             normalized["action"] = JsonPrimitive("list_commits")

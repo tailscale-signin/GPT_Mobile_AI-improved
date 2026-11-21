@@ -94,6 +94,31 @@ class ProviderLimitDecisionTest {
         assertFalse(providerLimitDecision(paid, "selected", true, ProviderHttpFailure(429, 2_000, knownNotAccepted = true))!!.knownNotAccepted)
     }
 
+    @Test fun wrappedShortRejectionRetainsDeadlineAndDoesNotReplayReceivedOutput() {
+        val paid = ProviderRequestConfig("https://openrouter.ai/api/v1", "credential", profileUid = "saved", providerType = "OPENROUTER", lockedModel = "selected")
+        val rejection = ProviderHttpFailure(429, 4_013, knownNotAccepted = true, observedAtMillis = 10_000, retrySource = "RETRY_AFTER")
+        val wrapped = java.util.concurrent.CompletionException(java.io.IOException("stream rejected", rejection))
+        val waiting = requireNotNull(providerLimitDecision(paid, "selected", false, wrapped))
+        assertEquals(14_013L, waiting.retryAt)
+        assertEquals("RETRY_AFTER", waiting.retrySource)
+        assertTrue(waiting.mayWait)
+        assertFalse(requireNotNull(providerLimitDecision(paid, "selected", true, wrapped)).mayWait)
+        assertNull(providerLimitDecision(paid, "different", false, wrapped))
+        assertNull(providerLimitDecision(paid.copy(profileUid = null), "selected", false, wrapped))
+    }
+
+    @Test fun cancellationApplicationRefusalsAndUntypedMessagesCannotBecomeRateLimitWaits() {
+        val paid = ProviderRequestConfig("https://openrouter.ai/api/v1", "credential", profileUid = "saved")
+        val rejection = ProviderHttpFailure(429, 4_000, knownNotAccepted = true)
+        val cancelled = kotlinx.coroutines.CancellationException("Stopped").apply { initCause(rejection) }
+        assertNull(providerLimitDecision(paid, "selected", false, java.io.IOException(cancelled)))
+        assertNull(providerLimitDecision(paid, "selected", false, IllegalStateException("recovery changed", rejection)))
+        assertNull(providerLimitDecision(paid, "selected", false, java.io.IOException("HTTP 429 retry after 4")))
+        var deeplyWrapped: Exception = rejection
+        repeat(8) { deeplyWrapped = java.io.IOException(deeplyWrapped) }
+        assertNull(providerLimitDecision(paid, "selected", false, deeplyWrapped))
+    }
+
     @Test fun onlyAnUnacceptedExplicitContinuationCarriesItsSavedPrefix() {
         val digest = "a".repeat(64)
         val failure = FreeAiRateLimitException(FreeAiProvider.LLM7, 60, retryAt = 60_123L)

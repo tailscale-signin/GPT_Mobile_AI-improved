@@ -2,6 +2,16 @@
 
 Chat now shows animated dots while following the bottom, inline generation progress, a numbered table of contents and a Statistics tab. Model attribution labels have been removed from the answer body. Voice and transcript views now show live microphone captions. During reply generation captions hide, then fade in over two seconds as speech starts, with a bold theme-coloured highlight on the spoken word. This build also improves discovery argument repair, Gateway connection timing, voice focus recovery and diagnostic evidence.
 
+## Conversation continuity and issue reporting
+
+Long repository conversations retain useful issue and source findings, the original request and the next unfinished requirement across continuations. Progress warnings clear when the matching operation recovers. Search can advance past a repeatedly unreadable file while showing the remaining coverage gap.
+
+GitHub PR filters and saved pagination now agree with their advertised tool contracts. Tool discovery recovers narrowly defined selector mistakes without executing an unselected action. Internal verification faults, saved-checkpoint changes and continuation failures retain their actual causes and recovery guidance. Requests that exceed the known context budget keep their planning observations for diagnosis.
+
+Reports collect bounded verification, continuation, checkpoint and cursor evidence, and low-memory exports begin with a smaller raw-record capture. New conversation-recovery fields require a hosted reporter advertising CONVERSATION_RECOVERY_DIAGNOSTICS_V1; an older service keeps the exact approved report pending. The historical numeric-cast location and affected-phone performance remain unverified.
+
+Implementation, issue mapping and validation limits: [conversation repair map](docs/repairs/conversation-intelligence-2026-11-21.md).
+
 ## Voice performance and speech backends
 
 Voice now reuses verified model installations and the loaded Moonshine model while creating a fresh recognition stream for each turn. Quick, Natural and Thoughtful listening styles, a Done speaking button and configurable microphone frame sizes make turn-taking adjustable. A navigation-owned warm runtime survives rotation and brief interruptions while capture and playback pause immediately.

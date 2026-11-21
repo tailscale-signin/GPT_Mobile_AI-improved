@@ -130,6 +130,7 @@ FIELDS_BY_AREA = {
     "INCIDENT": COMMON_HASHES | {"original_error_code_hash", "chat_failure_code_state"},
 }
 FIELDS_BY_AREA["PROVIDER"].update(GATEWAY_CAPABILITY_FIELDS)
+ENUMS["provider_failure_code"].update(capsule.CONVERSATION_RECOVERY_CODES | {"OUTPUT_CONTINUATION_UNAVAILABLE"})
 FIELDS_BY_AREA["PROVIDER"].update({"gateway_model_state", "gateway_model_advertised", "gateway_model_loaded"})
 FLAGS.update({"gateway_model_advertised", "gateway_model_loaded"})
 ENUMS["provider_failure_code"].update({"SELECTED_MODEL_LOADING", "SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_NOT_AVAILABLE"})
@@ -299,7 +300,7 @@ FIELDS_BY_AREA["INCIDENT"].update({"reconciliation_source", "reconciliation_trac
 FIELDS_BY_AREA["TOOL"].update({"url_reader_refusal", "round_catalog_discovery_available", "graph_transport_kind"})
 COUNTS.update(SEARCH_ATTEMPT_FIELDS)
 ENUMS["search_failure_observation"] = {"UPSTREAM_CHALLENGE", "NO_ENGINE_SUCCEEDED"}
-ENUMS["catalog_selector_state"] = {"MIXED_INVENTORY_SELECTORS", "ACTION_NOT_STRING", "ACTION_WITHOUT_NAMES", "NAMES_NOT_ARRAY",
+ENUMS["catalog_selector_state"] = {"MIXED_INVENTORY_SELECTORS", "ACTION_NOT_STRING", "ACTION_WITHOUT_NAMES", "NAMES_NOT_ARRAY", "NAMES_NULL",
                                    "NAMES_CONTAIN_NON_STRING", "ACTION_REQUIRES_ONE_NAME", "OTHER_SCHEMA_CONSTRAINT"}
 FIELDS_BY_AREA["TOOL"].update(SEARCH_ATTEMPT_FIELDS | {"search_failure_observation", "catalog_selector_state"})
 COUNTS.add("tool_budget_bytes_available")

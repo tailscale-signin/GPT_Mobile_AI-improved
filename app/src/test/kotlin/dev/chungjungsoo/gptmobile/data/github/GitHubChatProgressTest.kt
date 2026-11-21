@@ -20,6 +20,63 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatProgressTest {
+    @Test fun matchingCorrectedRequestRetiresItsOldBlockerWithoutClaimingTaskCompletion() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Fix issues on the selected branch") { clock }
+        progress.tick()
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_failed", toolName = "github_pr", toolCallId = "bad-list", toolArgs = json("""{"action":"list","head":"fix/branch"}"""))))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_pr", toolCallId = "corrected-list", toolArgs = json("""{"action":"list"}"""))))
+        clock = 45_000
+        val text = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
+        assertTrue(text.contains("available again"))
+        assertFalse(text.contains("needs attention") || text.contains(" failed"))
+        assertTrue(text.contains("still needs verification"))
+        assertEquals(1, progress.summarySnapshot().failed)
+        assertEquals(1, progress.summarySnapshot().completed)
+    }
+
+    @Test fun aDifferentFullPathOrSavedResultCannotClearTheSourceFailure() {
+        val progress = GitHubChatProgress { 0L }
+        val failedArgs = json("""{"path":"first/src/Reader.kt","commit_sha":"${"a".repeat(40)}"}""")
+        val otherArgs = json("""{"path":"second/src/Reader.kt","commit_sha":"${"a".repeat(40)}"}""")
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_failed", toolName = "github_read", toolCallId = "failed", toolArgs = failedArgs)))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "other", toolArgs = otherArgs)))
+        val cached = ProviderEvent.ToolCall("cached", "github_read", failedArgs)
+        progress.observeResult(cached, AgentToolResult(cached.callId, ToolResultContent.Text("saved result"), false, sharedResult = true))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = cached.name, toolCallId = cached.callId, toolArgs = cached.arguments)))
+        assertTrue(progress.summarySnapshot().recentSteps.any { it.contains("failed") })
+        assertFalse(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+    }
+
+    @Test fun incompleteHealthyCheckPageCannotClearAnObservedFailure() {
+        val progress = GitHubChatProgress { 0L }
+        val args = json("""{"action":"checks","commit_sha":"${"a".repeat(40)}"}""")
+        fun complete(id: String, failed: Int, complete: Boolean) {
+            val facts = json("""{"schema":"github.semantic-summary.v1","operation":"github_context","check_counts":{"successful":1,"skipped":0,"in_progress":0,"failed":$failed,"other_completed":0},"check_inventory_complete":$complete}""")
+            val call = ProviderEvent.ToolCall(id, "github_context", args)
+            progress.observeResult(call, AgentToolResult(id, ToolResultContent.Text("bounded"), false, executionReceipt = kotlinx.serialization.json.buildJsonObject { put("semantic_summary", facts) }))
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = call.name, toolCallId = id, toolArgs = args)))
+        }
+        complete("bad-checks", 1, true)
+        complete("partial-healthy", 0, false)
+        assertTrue(progress.summarySnapshot().recentSteps.any { it.contains("1 failed") })
+        assertFalse(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+        complete("all-healthy", 0, true)
+        assertFalse(progress.summarySnapshot().recentSteps.any { it.contains("1 failed") })
+        assertTrue(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+    }
+
+    @Test fun issueProgressNamesTheObservedProblemWithoutRepeatingItsRawReport() {
+        val progress = GitHubChatProgress { 0L }
+        val args = json("""{"action":"get","issue_number":2229}""")
+        val source = json("""{"number":2229,"title":"Verifier drops the final answer","state":"open","body":"private raw report"}""")
+        val facts = GitHubSemanticSummary.from("github_issue", args, source)
+        val call = ProviderEvent.ToolCall("issue", "github_issue", args)
+        val preview = progress.observeResult(call, AgentToolResult(call.callId, ToolResultContent.Text("raw"), false, executionReceipt = kotlinx.serialization.json.buildJsonObject { put("semantic_summary", facts) }))
+        assertTrue(preview.orEmpty().contains("Verifier drops the final answer"))
+        assertFalse(preview.orEmpty().contains("private raw report"))
+    }
+
     @Test fun ciPresetStartsWithTheActualInvestigationAndOnlyReturnedLinesBecomeFindings() {
         var clock = 0L
         val progress = GitHubChatProgress(GitHubWorkflowPreset.selected("diagnose_ci").prompt()) { clock }

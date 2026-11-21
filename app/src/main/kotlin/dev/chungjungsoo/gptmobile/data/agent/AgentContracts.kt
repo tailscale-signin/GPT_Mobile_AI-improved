@@ -76,7 +76,9 @@ sealed interface ProviderEvent {
         val finalResponseFormat: String? = null,
         val localAdmissionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.LocalAdmissionReceipt? = null,
         val providerOutputCeiling: Int? = null,
-        val serializedOutputTokens: Int? = null
+        val serializedOutputTokens: Int? = null,
+        /** Observed at the selected streamRound catalog; absent is not an empty catalog. */
+        val advertisedToolCount: Int? = null
     ) : ProviderEvent
 
     // GatewayProgressUpdate is observational only. AgentRunner must never

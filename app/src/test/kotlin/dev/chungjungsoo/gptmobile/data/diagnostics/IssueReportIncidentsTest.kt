@@ -32,6 +32,57 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportIncidentsTest {
+    @Test fun internalVerificationFaultPublishesSafeCauseAndApplicationFramesInsteadOfEvidenceMissing() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fault = dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.partial(
+            ClassCastException("private evidence and credential"),
+            dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.Phase.CLAIM_PLANNING,
+            emptyMap(),
+            null
+        ).failure
+        IssueReportIncidents.chatFailure(fault.errorCode, false, null, requireNotNull(fault.failureDetails))
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("GITHUB_VERIFICATION_INTERNAL_ERROR", report.errorCode)
+        assertEquals("ClassCastException", report.errorType)
+        assertTrue(report.frames.any { it.contains("IssueReportIncidentsTest") })
+        assertEquals(JsonPrimitive("CLAIM_PLANNING"), report.context?.diagnostics?.values?.get("verification_phase"))
+        assertEquals("INSPECT_VERIFICATION_FAILURE", report.context?.recoveryAction)
+        assertTrue(report.context?.exceptionFingerprint != null)
+        assertFalse(report.approvedPayload().contains("private evidence"))
+    }
+
+    @Test fun checkpointMismatchAndPayloadRejectionKeepDistinctPublicCauses() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val expected = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint("a".repeat(64), "b".repeat(64))
+        val observed = buildJsonObject {
+            put("state", "TOOL_RESULTS_READY")
+            put("private_field", "private checkpoint body")
+        }
+        val mismatch = ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", correlation = ProviderRecoveryFailure.checkpointCorrelation(expected, observed)).event()
+        IssueReportIncidents.chatFailure(mismatch.errorCode, false, null, requireNotNull(mismatch.failureDetails))
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", report.errorCode)
+        val values = requireNotNull(report.context?.diagnostics?.values)
+        assertEquals(JsonPrimitive("STATE_CHANGED"), values["checkpoint_mismatch_reason"])
+        assertEquals(JsonPrimitive("TOOL_RESULTS_READY"), values["observed_checkpoint_state"])
+        assertTrue(values["provider_wait_observed_checkpoint_hash"] != null)
+        assertFalse(report.approvedPayload().contains("private checkpoint body"))
+        assertFalse(report.approvedPayload().contains("b".repeat(64)))
+
+        val rejected = dev.chungjungsoo.gptmobile.data.agent.OutputContinuationFailure.opening(
+            dev.chungjungsoo.gptmobile.data.network.ProviderHttpFailure(413, null, knownNotAccepted = true),
+            dev.chungjungsoo.gptmobile.data.agent.ContinuationTrigger.RESTORED_DRAFT,
+            100,
+            1,
+            6144
+        )
+        IssueReportIncidents.chatFailure(rejected.errorCode, false, null, requireNotNull(rejected.failureDetails) + ("provider" to JsonPrimitive("OPENROUTER")))
+        val payload = IssueReportIncidents.pending.value.single { it.errorCode == "PROVIDER_PAYLOAD_ERROR" }
+        assertEquals(413, payload.context?.httpStatus)
+        assertEquals(JsonPrimitive("HTTP_REJECTED"), payload.context?.diagnostics?.values?.get("continuation_cause"))
+        assertEquals("REPLAN_REQUEST_BUDGET", payload.context?.recoveryAction)
+    }
+
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
     @Before
@@ -571,7 +622,7 @@ class IssueReportIncidentsTest {
         IssueReportIncidents.chatFailure(failure.errorCode, true, null, requireNotNull(failure.failureDetails))
         val report = IssueReportIncidents.pending.value.single()
         val context = requireNotNull(report.context)
-        assertEquals("CHAT_FAILED", report.errorCode)
+        assertEquals("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", report.errorCode)
         assertEquals(7, context.schemaVersion)
         assertEquals("lifecycle", context.stage)
         assertEquals("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", context.reasonCode)

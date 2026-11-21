@@ -35,6 +35,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun noncanonicalContinuationHandlesReturnSchemaAndFieldDiagnosticsBeforeDispatch() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Noncanonical handles must not dispatch")
+        }
+        for (handle in listOf("cursor", "next_cursor", "tracking_id", "evidence_id")) {
+            val tool = GitHubOperationTool("github_issue", backend, "handle-diagnostics-$handle")
+            val result = tool.execute("bad-handle", buildJsonObject { put(handle, "private-handle") })
+            assertTrue(result.isError)
+            assertFalse(result.dispatched)
+            val receipt = requireNotNull(result.executionReceipt)
+            assertEquals(JsonPrimitive("SAVED_VIEW_CURSOR_MALFORMED"), receipt["reason_code"])
+            assertEquals(JsonArray(listOf(JsonPrimitive(handle))), receipt["validation_field_names"])
+            assertEquals(JsonPrimitive(1), receipt["invalid_field_count"])
+            assertTrue(receipt.containsKey("tool_schema_hash"))
+        }
+    }
+
     @Test fun incompleteRepositorySelectorProducesTypedPreDispatchEvidence() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})

@@ -126,7 +126,10 @@ class DiagnosticStageSink internal constructor(
         private set
     private var committed = progress()
     private var sourceRecord: DiagnosticSourceRecord? = null
-    internal val sourcePageSize: Int get() = if (options.cooperativeHeapRecovery) 1 else 16
+
+    // Bound source materialization on the first reduced-memory pass, not only
+    // after an allocation failure has already interrupted critical evidence.
+    internal val sourcePageSize: Int get() = if (options.reducedMemory || options.cooperativeHeapRecovery) 1 else 16
     internal var heapDeferral: JsonObject? = null
         private set
     private var minimumObservedHeadroomBytes: Long? = null

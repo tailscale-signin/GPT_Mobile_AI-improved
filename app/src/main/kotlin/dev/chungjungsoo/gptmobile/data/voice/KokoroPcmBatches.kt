@@ -1,10 +1,29 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+/** Immutable view into a phrase owned by the queue until its last slice has played. */
+internal data class VoicePcmSlice(val samples: FloatArray, val offset: Int, val size: Int) {
+    init {
+        require(offset >= 0 && size > 0 && offset <= samples.size - size)
+    }
+}
+
 /** Bounds queued audio by time as well as count; one native callback may contain seconds of PCM. */
 internal object KokoroPcmBatches {
     const val DURATION_MS = 100
     const val QUEUE_BATCHES = 60
     const val QUEUE_LIMIT_MS = DURATION_MS * QUEUE_BATCHES
+
+    fun slices(samples: FloatArray, sampleRate: Int, offer: (VoicePcmSlice) -> Boolean): Boolean {
+        require(sampleRate in 8_000..48_000)
+        val frames = sampleRate * DURATION_MS / 1_000
+        var offset = 0
+        while (offset < samples.size) {
+            val count = minOf(frames, samples.size - offset)
+            if (!offer(VoicePcmSlice(samples, offset, count))) return false
+            offset += count
+        }
+        return true
+    }
 
     fun emit(samples: FloatArray, sampleRate: Int, offer: (FloatArray) -> Boolean): Boolean {
         require(sampleRate in 8_000..48_000)

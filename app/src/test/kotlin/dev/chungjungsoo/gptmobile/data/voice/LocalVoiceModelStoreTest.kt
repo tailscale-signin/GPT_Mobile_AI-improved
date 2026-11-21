@@ -80,6 +80,64 @@ class LocalVoiceModelStoreTest {
         assertEquals(LocalVoiceModelStatus.NOT_INSTALLED, store.state.value.status)
     }
 
+    @Test fun cachedVerificationCannotOutliveAnExpectedSizeChangeInTheManifest() = runBlocking {
+        val root = files.newFolder()
+        val initial = LocalVoiceModelStore(root, listOf(asset)) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String) = LocalVoiceAssetStream(ByteArrayInputStream(contents), contents.size.toLong())
+                override fun cancel() = Unit
+            }
+        }
+        initial.install()
+        assertTrue(initial.acquireUse())
+        initial.releaseUse()
+        val changed = LocalVoiceModelStore(root, listOf(asset.copy(bytes = asset.bytes + 1))) {
+            error("Recognition must never download a model")
+        }
+        assertFalse(changed.acquireUse())
+    }
+
+    @Test fun verifiedInstallReusesItsDigestUntilFilesChangeOrExplicitVerificationRuns() = runBlocking {
+        val hashes = AtomicInteger()
+        val store = LocalVoiceModelStore(files.newFolder(), listOf(asset), assetDigest = { file ->
+            hashes.incrementAndGet()
+            hash(file.readBytes())
+        }) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String) = LocalVoiceAssetStream(ByteArrayInputStream(contents), asset.bytes)
+                override fun cancel() = Unit
+            }
+        }
+        store.install()
+        assertTrue(store.acquireUse())
+        store.releaseUse()
+        val verified = hashes.get()
+        repeat(5) {
+            assertTrue(store.acquireUse())
+            store.releaseUse()
+        }
+        assertEquals(verified, hashes.get())
+        store.refresh()
+        assertEquals(verified + 1, hashes.get())
+        val model = File(store.modelDirectory(), asset.name)
+        val priorTime = java.nio.file.Files.getLastModifiedTime(model.toPath())
+        model.writeBytes(ByteArray(contents.size))
+        java.nio.file.Files.setLastModifiedTime(model.toPath(), priorTime)
+        assertFalse(store.acquireUse())
+    }
+
+    @Test fun replacingAnAssetWithASameSizedSymlinkInvalidatesTheVerifiedLease() = runBlocking {
+        val store = store { ByteArrayInputStream(contents) }
+        store.install()
+        assertTrue(store.acquireUse())
+        store.releaseUse()
+        val model = File(store.modelDirectory(), asset.name)
+        val other = files.newFile().also { it.writeBytes(contents) }
+        assertTrue(model.delete())
+        java.nio.file.Files.createSymbolicLink(model.toPath(), other.toPath())
+        assertFalse(store.acquireUse())
+    }
+
     @Test fun archiveCannotPublishUntilTheExpandedFilesVerify() = runBlocking {
         val expanded = asset.copy(name = "voice.onnx", urls = emptyList())
         for (correct in listOf(false, true)) {

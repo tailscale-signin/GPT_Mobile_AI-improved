@@ -62,9 +62,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
+import dev.chungjungsoo.gptmobile.data.voice.VoiceInterruptionStatus
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
@@ -87,7 +89,11 @@ internal data class VoiceConversationUiState(
     val preferencesApplied: Boolean,
     val waitingApproval: Boolean,
     val draft: String,
-    val outputLevel: kotlinx.coroutines.flow.StateFlow<Float?>? = null
+    val outputLevel: kotlinx.coroutines.flow.StateFlow<Float?>? = null,
+    val inputLevel: kotlinx.coroutines.flow.StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceInputLevel>? = null,
+    val captionCursor: kotlinx.coroutines.flow.StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor>? = null,
+    val handsFreeInterruption: Boolean = false,
+    val interruptionState: kotlinx.coroutines.flow.StateFlow<VoiceInterruptionStatus>? = null
 )
 
 internal class VoiceConversationActions(
@@ -108,7 +114,8 @@ internal class VoiceConversationActions(
     val toggleMicrophone: () -> Unit,
     val toggleCaptions: () -> Unit = {},
     val openAudioRoute: () -> Unit,
-    val end: () -> Unit
+    val end: () -> Unit,
+    val doneSpeaking: () -> Unit = {}
 )
 
 @Composable
@@ -190,16 +197,16 @@ private fun VoiceConversationStatus(state: VoiceConversationUiState, actions: Vo
         val status: @Composable () -> Unit = {
             VoiceStatusChip(state)
             Text(
-                voiceListeningHint(state.session),
+                voiceListeningHint(state.session, state.handsFreeInterruption),
                 Modifier.padding(top = 6.dp, bottom = 10.dp),
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center
             )
-            VoiceWave(state.session, Modifier.widthIn(max = 420.dp).fillMaxWidth().height(if (compact) 64.dp else 104.dp).clearAndSetSemantics {}, state.outputLevel)
+            VoiceWave(state.session, Modifier.widthIn(max = 420.dp).fillMaxWidth().height(if (compact) 64.dp else 104.dp).clearAndSetSemantics {}, state.outputLevel, state.inputLevel)
         }
         val content: @Composable () -> Unit = {
-            if (state.captions) VoiceLiveCaptions(state.session, compact, Modifier.widthIn(max = 560.dp).fillMaxWidth())
+            if (state.captions) VoiceLiveCaptions(state.session, compact, Modifier.widthIn(max = 560.dp).fillMaxWidth(), state.captionCursor)
             VoiceConversationSetup(state, actions)
             VoiceConversationRecovery(state, actions)
         }
@@ -262,6 +269,10 @@ private fun VoiceConversationSetup(state: VoiceConversationUiState, actions: Voi
 
 @Composable
 private fun VoiceConversationRecovery(state: VoiceConversationUiState, actions: VoiceConversationActions) {
+    val interruption = state.interruptionState?.collectAsStateWithLifecycle()?.value
+    if (state.handsFreeInterruption && state.session.phase == VoicePhase.SPEAKING && interruption == VoiceInterruptionStatus.UNAVAILABLE) {
+        Text("Hands-free interruption needs local speech and echo cancellation on this audio route. Tap the microphone to interrupt.", Modifier.testTag("voice_interruption_unavailable"), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+    }
     if (state.session.hasDraft && state.session.phase != VoicePhase.REVIEWING) {
         TextButton(onClick = actions.listen, enabled = state.enabled && state.voiceReady && state.preferencesApplied) { Text("Review captured text") }
     }
@@ -270,6 +281,7 @@ private fun VoiceConversationRecovery(state: VoiceConversationUiState, actions: 
         Button(onClick = actions.sendDraft, enabled = state.draft.isNotBlank()) { Text("Send") }
         TextButton(onClick = actions.recordAgain) { Text("Record again") }
     }
+    if (state.session.phase == VoicePhase.LISTENING) TextButton(onClick = actions.doneSpeaking, modifier = Modifier.testTag("voice_done_speaking")) { Text("Done speaking") }
     state.session.notice?.let {
         Text(it, Modifier.padding(top = 16.dp).widthIn(max = 360.dp), style = MaterialTheme.typography.bodyMedium, color = if (state.remaining > 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
     }
@@ -282,9 +294,9 @@ private fun VoiceConversationRecovery(state: VoiceConversationUiState, actions: 
     if (state.waitingApproval || state.session.phase == VoicePhase.ERROR || !state.enabled || !state.recognitionReady) TextButton(onClick = actions.openChat) { Text("Continue in chat") }
 }
 
-private fun voiceListeningHint(state: VoiceState): String = when {
+private fun voiceListeningHint(state: VoiceState, handsFreeInterruption: Boolean): String = when {
     state.phase == VoicePhase.PREPARING -> "Your reply is getting ready to play"
-    state.phase == VoicePhase.SPEAKING -> "Listening resumes after the reply"
+    state.phase == VoicePhase.SPEAKING -> if (handsFreeInterruption) "Speak to interrupt when echo cancellation is available" else "Listening resumes after the reply"
     state.phase == VoicePhase.LISTENING -> "Go ahead, I’m listening"
     state.phase == VoicePhase.THINKING -> "Preparing your reply"
     state.muted -> "Unmute when you’re ready to speak"

@@ -215,6 +215,7 @@ com.mikepenz:multiplatform-markdown-renderer-code-android:0.45.0=releaseRuntimeC
 com.mikepenz:multiplatform-markdown-renderer-code:0.45.0=releaseRuntimeClasspath
 com.mikepenz:multiplatform-markdown-renderer-m3-android:0.45.0=releaseRuntimeClasspath
 com.mikepenz:multiplatform-markdown-renderer:0.45.0=releaseRuntimeClasspath
+com.qualcomm.qti:onnxruntime-android-qnn:2.7.0=releaseRuntimeClasspath
 com.qualcomm.qti:qnn-runtime:2.51.0=releaseRuntimeClasspath
 com.squareup.okhttp3:okhttp-android:5.5.0=releaseRuntimeClasspath
 com.squareup.okhttp3:okhttp:5.5.0=releaseRuntimeClasspath

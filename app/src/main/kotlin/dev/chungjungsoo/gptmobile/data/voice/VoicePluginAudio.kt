@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+
 internal enum class KokoroVoice(val speakerId: Int, val label: String, val lexicon: String) {
     HEART(3, "Heart · US English", KokoroModelPack.US_LEXICON),
     ADAM(11, "Adam · US English", KokoroModelPack.US_LEXICON),
@@ -12,6 +15,7 @@ internal enum class KokoroVoice(val speakerId: Int, val label: String, val lexic
 
 internal interface KokoroOutput {
     val outputLevel: kotlinx.coroutines.flow.StateFlow<Float?>? get() = null
+    val synthesisFeedback: kotlinx.coroutines.flow.StateFlow<VoiceSynthesisFeedback>? get() = null
     val reportsPlaybackStart: Boolean get() = false
     fun bindPlaybackStarted(started: (() -> Unit)?) = Unit
     fun bindSpokenRange(spoken: SpokenRangeObserver?) = Unit
@@ -26,6 +30,10 @@ internal interface KokoroOutput {
         openReply(voice, complete) { message, canFallback -> error(VoicePlaybackFailure(message), canFallback) }
     fun configureThreads(value: Int) = Unit
     fun configurePacing(pause: VoicePauseDuration, performance: VoicePerformanceMode) = Unit
+    fun configurePronunciation(overrides: Map<String, String>) = Unit
+    fun configureCaptionOffset(milliseconds: Int) = Unit
+    fun configureEngine(factory: VoicePhraseEngineFactory) = Unit
+    fun benchmark(voice: KokoroVoice, completed: (String) -> Unit) = completed("This speech engine does not support calibration.")
     fun prewarm(voice: KokoroVoice) = Unit
     fun releaseWarmModel() = Unit
     fun stop()
@@ -47,6 +55,67 @@ internal class VoicePluginAudio(
     var requireLocalOutput: Boolean = false
     private var playbackGeneration = 0L
     private var playbackStarted: (() -> Unit)? = null
+    private val interruption = local as? VoiceInterruptionInput
+    private val unavailableInterruption = MutableStateFlow(VoiceInterruptionStatus.UNAVAILABLE)
+    val interruptionState: StateFlow<VoiceInterruptionStatus>
+        get() = if (recognitionBackend == VoiceRecognitionBackend.LOCAL_MOONSHINE) interruption?.interruptionState ?: unavailableInterruption else unavailableInterruption
+    private var interruptionEnabled = false
+    private var interrupted: (() -> Unit)? = null
+    private var monitoringTicket: Long? = null
+    private var interruptionEpoch = 0L
+    private var playingTicket: Long? = null
+    private var playbackLevel: () -> Float? = { null }
+    var listeningStyle: VoiceListeningStyle
+        get() = (local as? MoonshineVoiceRecognizer)?.listeningStyle ?: VoiceListeningStyle.NATURAL
+        set(value) {
+            (local as? MoonshineVoiceRecognizer)?.listeningStyle = value
+        }
+    var captureBatchMs: Int
+        get() = (local as? MoonshineVoiceRecognizer)?.captureBatchMs ?: 40
+        set(value) {
+            (local as? MoonshineVoiceRecognizer)?.captureBatchMs = value
+        }
+
+    override fun configureInterruption(enabled: Boolean, interrupted: (() -> Unit)?) {
+        interruptionEnabled = enabled
+        this.interrupted = interrupted
+        if (!enabled) stopMonitoring(clearPlayback = false) else playingTicket?.let(::startMonitoring)
+    }
+
+    private fun playbackBegan(ticket: Long, level: () -> Float? = { null }) {
+        if (closed || playbackGeneration != ticket) return
+        playingTicket = ticket
+        playbackLevel = level
+        playbackStarted?.invoke()
+        startMonitoring(ticket)
+    }
+
+    private fun startMonitoring(ticket: Long) {
+        if (closed || !interruptionEnabled || recognitionBackend != VoiceRecognitionBackend.LOCAL_MOONSHINE || monitoringTicket == ticket || playbackGeneration != ticket) return
+        monitoringTicket = ticket
+        val epoch = ++interruptionEpoch
+        interruption?.startInterruptionMonitoring(playbackLevel) {
+            if (!closed && interruptionEnabled && playbackGeneration == ticket && interruptionEpoch == epoch) {
+                interruptionEpoch++
+                monitoringTicket = null
+                interrupted?.invoke()
+            }
+        }
+    }
+
+    private fun stopMonitoring(clearPlayback: Boolean = true) {
+        interruptionEpoch++
+        monitoringTicket = null
+        if (clearPlayback) playingTicket = null
+        interruption?.stopInterruptionMonitoring()
+    }
+
+    private fun playbackFinished(ticket: Long, action: () -> Unit) {
+        if (closed || playbackGeneration != ticket) return
+        stopMonitoring()
+        playbackGeneration++
+        action()
+    }
     override fun bindPlaybackStarted(started: (() -> Unit)?) {
         playbackStarted = started
     }
@@ -85,26 +154,27 @@ internal class VoicePluginAudio(
         if (!streamsReplies) return null
         val output = kokoro ?: return null
         val voice = kokoroVoice ?: return null
+        stopMonitoring()
         local.stop()
         system.stop()
         val ticket = ++playbackGeneration
         val fallbackText = StringBuilder()
         var useFallback = false
         var finished = false
-        val started = playbackStarted
         fun current() = !closed && playbackGeneration == ticket
-        output.bindPlaybackStarted { if (current() && !useFallback) started?.invoke() }
-        system.bindPlaybackStarted { if (current() && useFallback) started?.invoke() }
+        output.bindPlaybackStarted { if (current() && !useFallback) playbackBegan(ticket) { output.outputLevel?.value } }
+        system.bindPlaybackStarted { if (current() && useFallback) playbackBegan(ticket) }
         fun finishFallback() {
-            offlineSpeech(fallbackText.toString(), { if (current()) complete() }, { if (current()) error(VoicePlaybackFailure(it)) })
+            offlineSpeech(fallbackText.toString(), { playbackFinished(ticket, complete) }, { playbackFinished(ticket) { error(VoicePlaybackFailure(it)) } })
         }
-        val reply = output.openReplyWithFailure(voice, complete = { if (current()) complete() }, error = { failure, canFallback ->
+        val reply = output.openReplyWithFailure(voice, complete = { playbackFinished(ticket, complete) }, error = { failure, canFallback ->
             if (current()) {
+                stopMonitoring()
                 if (canFallback && !requireLocalOutput) {
                     useFallback = true
                     if (finished) finishFallback()
                 } else {
-                    error(failure)
+                    playbackFinished(ticket) { error(failure) }
                 }
             }
         }) ?: return null
@@ -125,18 +195,31 @@ internal class VoicePluginAudio(
 
     override fun listen(listener: VoiceAudio.Listener) {
         if (closed) return
-        playbackGeneration++
+        stopMonitoring()
+        val ticket = ++playbackGeneration
         kokoro?.stop("microphone_started")
+        fun startRecognition() {
+            if (closed || playbackGeneration != ticket) return
+            when (recognitionBackend) {
+                VoiceRecognitionBackend.LOCAL_MOONSHINE -> {
+                    system.stop()
+                    releaseSystemRecognition()
+                    local.listen(listener)
+                }
+                VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE -> {
+                    local.stop()
+                    system.listen(listener)
+                }
+            }
+        }
+        if (interruption == null) startRecognition() else interruption.afterInterruptionStopped(::startRecognition)
+    }
+
+    override fun finishListening() {
+        if (closed) return
         when (recognitionBackend) {
-            VoiceRecognitionBackend.LOCAL_MOONSHINE -> {
-                system.stop()
-                releaseSystemRecognition()
-                local.listen(listener)
-            }
-            VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE -> {
-                local.stop()
-                system.listen(listener)
-            }
+            VoiceRecognitionBackend.LOCAL_MOONSHINE -> (local as? MoonshineVoiceRecognizer)?.finishListening()
+            VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE -> system.finishListening()
         }
     }
 
@@ -145,18 +228,18 @@ internal class VoicePluginAudio(
 
     override fun speakWithFailure(text: String, complete: () -> Unit, error: (VoicePlaybackFailure) -> Unit) {
         if (closed) return
+        stopMonitoring()
         local.stop()
         val ticket = ++playbackGeneration
-        val started = playbackStarted
         fun current() = !closed && ticket == playbackGeneration
-        system.bindPlaybackStarted { if (current()) started?.invoke() }
+        system.bindPlaybackStarted { if (current()) playbackBegan(ticket) }
         val voice = kokoroVoice
         if (voice == null) {
             if (requireLocalOutput) {
                 error(VoicePlaybackFailure("Choose a Kokoro voice in Voice settings to read this response."))
                 return
             }
-            system.speakWithFailure(text, { if (current()) complete() }, { if (current()) error(it) })
+            system.speakWithFailure(text, { playbackFinished(ticket, complete) }, { playbackFinished(ticket) { error(it) } })
             return
         }
         if (kokoro == null || !LocalVoiceModelStore.supportsLanguage(local.languageTag)) {
@@ -164,23 +247,25 @@ internal class VoicePluginAudio(
                 error(VoicePlaybackFailure("Local voice playback is unavailable. Check Kokoro in Voice settings; your response is kept in chat."))
                 return
             }
-            offlineSpeech(text, { if (current()) complete() }, { if (current()) error(VoicePlaybackFailure(it)) })
+            offlineSpeech(text, { playbackFinished(ticket, complete) }, { playbackFinished(ticket) { error(VoicePlaybackFailure(it)) } })
             return
         }
         system.stop()
-        kokoro.bindPlaybackStarted { if (current()) started?.invoke() }
+        kokoro.bindPlaybackStarted { if (current()) playbackBegan(ticket) { kokoro.outputLevel?.value } }
         kokoro.speakProjectedWithFailure(text, voice, complete = {
             if (!closed && ticket == playbackGeneration) {
+                stopMonitoring()
                 playbackGeneration++
                 complete()
             }
         }, error = { failure, canFallback ->
             if (!closed && ticket == playbackGeneration) {
+                stopMonitoring()
                 val fallbackTicket = ++playbackGeneration
                 fun fallbackCurrent() = !closed && fallbackTicket == playbackGeneration
                 if (canFallback && !requireLocalOutput) {
-                    system.bindPlaybackStarted { if (fallbackCurrent()) started?.invoke() }
-                    offlineSpeech(text, { if (fallbackCurrent()) complete() }, { if (fallbackCurrent()) error(VoicePlaybackFailure(it)) })
+                    system.bindPlaybackStarted { if (fallbackCurrent()) playbackBegan(fallbackTicket) }
+                    offlineSpeech(text, { playbackFinished(fallbackTicket, complete) }, { playbackFinished(fallbackTicket) { error(VoicePlaybackFailure(it)) } })
                 } else {
                     error(failure)
                 }
@@ -202,6 +287,7 @@ internal class VoicePluginAudio(
 
     override fun stop(reason: String) {
         if (closed) return
+        stopMonitoring()
         playbackGeneration++
         local.stop()
         kokoro?.stop(reason)
@@ -210,6 +296,7 @@ internal class VoicePluginAudio(
 
     override fun close() {
         if (closed) return
+        stopMonitoring()
         closed = true
         local.close()
         kokoro?.close()

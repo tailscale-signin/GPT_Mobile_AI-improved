@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "9a50912fdeb0bde59a83ea32764e0b403b19e620",
+  "parent_pr": 2126,
+  "source_sha": "6c42f46d183eb5d2681000d4b385355e011b2b46",
+  "working_branch": "fix/offline-kokoro-release-publication-2026-11-21",
+  "intent": "Implement all 21 approved voice menu items, preserve concurrent commits, validate draft PR, merge only when required checks are green, publish and verify signed Android and coordinated Gateway artifacts.",
+  "status": "IN_PROGRESS",
+  "requirements": [
+    {
+      "id": 1,
+      "title": "Cache verified installation generations",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "LocalVoiceModelStore"
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Retain Moonshine model with fresh per-turn streams",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "MoonshineStreamDecoder"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Warm lifecycle-aware voice session",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoiceRuntimeViewModel"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Adaptive listening endpoint and done-speaking",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoiceListeningPolicy"
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Tune pooled microphone capture frames",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoiceListeningPolicy"
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Overlap final transcript delivery and serialized native cleanup",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "MoonshineVoiceRecognizer"
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Adaptive Kokoro phrase scheduler",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoiceSpeechBuffer"
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Measured CPU performance tuning",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoiceSynthesisFeedback"
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Adaptive low-latency playback buffers",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "KokoroVoiceOutput"
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Reduced-copy PCM transport",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "KokoroPcmBatches"
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Cancel in-flight native synthesis",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "TimedKokoro"
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Isolated UI state and GPU-assisted drawing",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoicePresentationSignals"
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Incremental caption layout",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoiceCaptionLayoutCache"
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Incremental reply observation",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoiceReplyProjectionCache"
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Hands-free interruption with echo handling",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoiceInterruptionMonitor"
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Personal pronunciation dictionary",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoicePronunciationOverrides"
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Audio-route-aware playback and captions",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoicePlaybackClock"
+      ]
+    },
+    {
+      "id": 18,
+      "title": "Voice performance dashboard and benchmark",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "VoicePerformanceHistory"
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Adreno GPU speech prototype",
+      "status": "PROTOTYPE_PENDING_QUALIFICATION",
+      "evidence": [
+        "VoiceSpeechBackend"
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Hexagon NPU speech prototype",
+      "status": "PROTOTYPE_PENDING_QUALIFICATION",
+      "evidence": [
+        "VoiceSpeechBackend"
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Windows Gateway CUDA speech",
+      "status": "IMPLEMENTED_PENDING_INTEGRATION",
+      "evidence": [
+        "GatewayVoicePhraseEngineFactory"
+      ]
+    }
+  ],
+  "validation": {
+    "host": "PASS: canonical fast validation (589 script tests, resources, policy, inventory, regex and provenance); focused ASR 28, speech 59, UI/session 63 host cases. Ktlint passed across 65 changed Kotlin files.",
+    "android": "PASS:ARM64 and x86_64 final JNI/ORT compile/link with NDK29.0.14206865. Full Gradle compile/tests in progress; command-only4GiB compiler heap resolves initial local KAPT OOM. Integrated PSS API type mismatch corrected.",
+    "physical_device": "NOT_RUN: no ROG Phone 9 Pro attached",
+    "gpu_npu": "NOT_RUN: native provider implementation compiled; physical QNN/CUDA execution and speed qualification unobserved.",
+    "native": "PASS: real pinned Kokoro/ORT JNI audio and word timings, frontend parity, before/in-flight cancellation and reset; pronunciation and executed-provider-evidence CTests.",
+    "gateway": "PASS:125 Python suites/1607 tests (32 platform or optional-dependency skips) plus7 browser tests in the locked core environment. Supplemental23-case voice suite passed with0 skips using hash-verified NumPy2.3.5 from the optional addon lock.",
+    "authentication": "PASS:188 tests, including compatibility with existing hosted voice-report vocabulary."
+  },
+  "publication": {
+    "status": "DRAFT_UPDATE_PENDING_EXACT_COMMIT_CHECKS"
+  },
+  "concurrent_commits_preserved": [
+    "6a905e21188c659d50f6bcbb8bbbcf9999eda12f",
+    "d65b306d867fc54617e179b2de15e1b8883ed340"
+  ],
+  "concurrent_repair": "Preserved both incoming commits. The concurrent follow-up repaired release-scope.json; the voice additions are a strict superset of that repaired manifest."
+}

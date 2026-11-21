@@ -2,6 +2,20 @@
 
 Chat now shows animated dots while following the bottom, inline generation progress, a numbered table of contents and a Statistics tab. Model attribution labels have been removed from the answer body. Voice and transcript views now show live microphone captions. During reply generation captions hide, then fade in over two seconds as speech starts, with a bold theme-coloured highlight on the spoken word. This build also improves discovery argument repair, Gateway connection timing, voice focus recovery and diagnostic evidence.
 
+## Voice performance and speech backends
+
+Voice now reuses verified model installations and the loaded Moonshine model while creating a fresh recognition stream for each turn. Quick, Natural and Thoughtful listening styles, a Done speaking button and configurable microphone frame sizes make turn-taking adjustable. A navigation-owned warm runtime survives rotation and brief interruptions while capture and playback pause immediately.
+
+Kokoro gains adaptive phrase scheduling and playback buffers, measured 2/3/4-thread CPU calibration with thermal limits, fewer PCM copies, cancellable native inference, a personal pronunciation dictionary and route-aware caption timing. Fast meter/cursor updates are isolated from the conversation UI; captions and reply projections reuse unchanged work. Optional hands-free interruption uses an echo-cancelled capture path and preserves a short speech pre-roll.
+
+The Performance panel shows observed stage median/p95 timings, actual speech providers, queue age, frame/GPU duration, thermal state and sampled memory. The benchmark module includes a voice rendering journey and baseline-profile generator; neither substitutes for physical speech or battery measurements.
+
+Speech processing settings now offer local CPU, experimental Adreno GPU and Hexagon NPU prototypes, and an optional selected Gateway CUDA connection. Qualcomm paths specialize the real token sequence length, check executed kernel evidence, and retain truthful CPU fallback. Gateway uses authenticated existing routes with bounded queues, cancellation and exact PCM/token timing; Privacy Mode blocks outbound reply pronunciation tokens. The optional GPU add-on runs in an isolated, hash-locked Python environment through private pipes and is available to the packaged Windows Gateway.
+
+Voice acceleration is opt-in and experimental. Qualcomm GPU/NPU execution requires a compatible Android device and successful kernel-profile qualification for the installed model; unsupported graphs fall back to CPU. Gateway CUDA requires the separately installed, hash-locked GPU add-on and a successful real CUDA warmup. No phone, GPU/NPU speedup, acoustic latency, battery, or physical hands-free accuracy is claimed by host tests or compilation.
+
+Implementation and validation details: [21-item voice implementation map](docs/repairs/voice-performance-2026-11-21.md).
+
 # GPT Mobile 0.9.66.11 (build 145) and Windows Gateway 18.1.0
 
 ### Conversation completion

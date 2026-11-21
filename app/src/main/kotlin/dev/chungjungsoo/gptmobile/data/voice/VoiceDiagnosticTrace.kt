@@ -41,14 +41,16 @@ class VoiceDiagnosticTrace internal constructor(
             }
         }
     }
-    enum class FirstAudio { UTTERANCE_START, PLAYBACK_HEAD }
+    enum class FirstAudio { UTTERANCE_START, PLAYBACK_HEAD, AUDIO_TIMESTAMP }
 
     private val lock = Any()
     private val sessionHash = MessageDigest.getInstance("SHA-256")
         .digest("gptmobile.voice-diagnostic.session.v1:${UUID.randomUUID()}".toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
+    val performance = VoicePerformanceHistory()
     private val values = linkedMapOf<String, Any?>()
     private val moments = mutableMapOf<String, Long>()
+    private var speechProvider: String? = null
     private var capturedAt = 0L
     private var closed = false
     private var probe = Probe(this, 0, privacyEpoch.get(), allowed())
@@ -65,6 +67,7 @@ class VoiceDiagnosticTrace internal constructor(
         if (reset || probe.epoch != privacyEpoch.get()) {
             values.clear()
             moments.clear()
+            speechProvider = null
             capturedAt = 0
         }
         // Cancellation fences callbacks without making an old/private operation public.
@@ -77,6 +80,7 @@ class VoiceDiagnosticTrace internal constructor(
 
     /** Explicit retries/replay are new playback measurements, even when the draft is retained. */
     internal fun beginReply(generation: Long): Probe = synchronized(lock) {
+        speechProvider = null
         values.keys.removeAll { it in IssueReportIncidentCapsule.fieldsFor("VOICE") || it in setOf("voice_reply_state", "voice_reply_characters") }
         moments.keys.retainAll(setOf("speech_end", "final_transcript"))
         values.keys.removeAll { it.endsWith("_ms") && it != "voice_speech_end_to_transcript_ms" || it in setOf("voice_engine_warm", "voice_playback_audio_mode", "voice_first_audio_basis", "voice_playback_failure", "voice_playback_focus_attempts", "voice_caption_alignment") }
@@ -98,8 +102,10 @@ class VoiceDiagnosticTrace internal constructor(
     private fun clear(dispose: Boolean = false) = synchronized(lock) {
         values.clear()
         moments.clear()
+        speechProvider = null
         capturedAt = 0
         if (dispose) closed = true
+        performance.clear()
     }
 
     private fun fields(mode: String): Pair<Map<String, Any?>, Long>? = synchronized(lock) {
@@ -132,7 +138,30 @@ class VoiceDiagnosticTrace internal constructor(
     private fun elapsed(field: String, start: String, end: String) {
         val from = moments[start] ?: return
         val to = moments[end] ?: return
-        if (to >= from) values[field] = (to - from).coerceAtMost(MAX_DURATION_MS)
+        if (to >= from) {
+            val duration = (to - from).coerceAtMost(MAX_DURATION_MS)
+            if (values[field] != duration) {
+                val metric = when (field) {
+                    "voice_capture_ready_ms" -> "capture_ready"
+                    "voice_acoustic_end_to_transcript_ms" -> "speech_end"
+                    "voice_transcript_to_request_ms" -> "final_to_request"
+                    "voice_request_to_response_ms" -> "request_to_text"
+                    "voice_response_to_queue_ms" -> "text_to_queue"
+                    "voice_warmup_ms" -> "warmup"
+                    "voice_queue_to_synthesis_ms" -> "queue_to_synthesis"
+                    "voice_synthesis_to_first_audio_ms" -> "synthesis_to_audio"
+                    "voice_response_to_first_audio_ms" -> "text_to_audio"
+                    else -> null
+                }
+                if (metric != null) performance.observe(metric, duration, performanceEngine(metric), values["voice_engine_warm"] as? Boolean)
+            }
+            values[field] = duration
+        }
+    }
+
+    private fun performanceEngine(metric: String): String = when (metric) {
+        "final_to_request", "request_to_text", "text_to_queue" -> "SESSION"
+        else -> if (values["voice_engine"] == Engine.KOKORO.name) speechProvider ?: "KOKORO" else values["voice_engine"] as? String ?: "SESSION"
     }
 
     /** Backends retain this immutable ticket inside their capture/playback operation. */
@@ -158,10 +187,26 @@ class VoiceDiagnosticTrace internal constructor(
         fun engine(engine: Engine) = owner.record(this) {
             val previous = owner.values["voice_engine"]
             if (previous != null && previous != engine.name) {
+                owner.speechProvider = null
                 listOf("warmup", "ready", "synthesis", "audio").forEach(owner.moments::remove)
                 listOf("voice_warmup_ms", "voice_engine_warm", "voice_playback_audio_mode", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_first_audio_basis", "voice_playback_failure", "voice_playback_focus_attempts", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_unknown_word_length", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed").forEach(owner.values::remove)
             }
             owner.values["voice_engine"] = engine.name
+        }
+
+        /** Actual execution only: a fallback CPU run never inherits the selected experimental backend. */
+        fun speechProvider(raw: String) = owner.record(this) {
+            val provider = when (raw) {
+                "cpu" -> "KOKORO_CPU"
+                "qnn-gpu" -> "QNN_GPU"
+                "qnn-htp" -> "QNN_HTP"
+                "gateway-cuda" -> "GATEWAY_CUDA"
+                else -> null
+            }
+            if (owner.speechProvider != null && provider != null && owner.speechProvider != provider) {
+                owner.values["voice_engine_warm"] = false
+            }
+            owner.speechProvider = provider
         }
         fun phase(phase: VoicePhase) = owner.record(this) { owner.values["voice_phase"] = phase.name }
         fun access(permission: Boolean, foreground: Boolean, muted: Boolean) = owner.record(this) {
@@ -222,10 +267,29 @@ class VoiceDiagnosticTrace internal constructor(
         fun recognized(characters: Int) = owner.record(this) {
             owner.values["voice_recognized_characters"] = maxOf(owner.values["voice_recognized_characters"] as? Long ?: 0, characters.toLong().coerceIn(0, MAX_COUNT))
         }
+        fun captureRequested() = owner.record(this) { owner.moments.putIfAbsent("capture_requested", owner.now()) }
+        fun microphoneReady() = owner.record(this) {
+            owner.moments.putIfAbsent("microphone_ready", owner.now())
+            owner.elapsed("voice_capture_ready_ms", "capture_requested", "microphone_ready")
+        }
+        fun preparation(stage: String, durationMs: Long) = owner.record(this) {
+            val metric = when (stage) {
+                "GATE_WAIT" -> "gate_wait"
+                "VERIFICATION" -> "verification"
+                "MODEL_LOAD" -> "model_load"
+                else -> null
+            }
+            if (metric != null) owner.performance.observe(metric, durationMs, owner.performanceEngine(metric), owner.values["voice_engine_warm"] as? Boolean)
+        }
+
+        /** Audio-timeline VAD boundary, including detector smoothing; not a laboratory last-phoneme measurement. */
+        fun acousticSpeechEnded(elapsedAgoMs: Long = 0) = owner.record(this) { owner.moments["acoustic_speech_end"] = owner.now() - elapsedAgoMs.coerceIn(0, 60_000) }
+        fun captureQueue(ageMs: Long) = owner.record(this) { owner.performance.queueAge(ageMs) }
         fun speechEnded() = owner.record(this) { owner.moments.putIfAbsent("speech_end", owner.now()) }
         fun finalTranscript() = owner.record(this) {
             owner.moments.putIfAbsent("final_transcript", owner.now())
             owner.elapsed("voice_speech_end_to_transcript_ms", "speech_end", "final_transcript")
+            owner.elapsed("voice_acoustic_end_to_transcript_ms", "acoustic_speech_end", "final_transcript")
         }
         fun requestAccepted() = owner.record(this) {
             owner.moments.putIfAbsent("accepted", owner.now())
@@ -251,7 +315,11 @@ class VoiceDiagnosticTrace internal constructor(
             owner.elapsed("voice_queue_to_synthesis_ms", "queue", "synthesis")
         }
         fun firstAudio(basis: FirstAudio) = owner.record(this) {
-            if (owner.moments.putIfAbsent("audio", owner.now()) == null) owner.values["voice_first_audio_basis"] = basis.name
+            if (owner.moments.putIfAbsent("audio", owner.now()) == null && basis != FirstAudio.AUDIO_TIMESTAMP) {
+                // Detailed timestamp-clock evidence stays in the local dashboard. Existing hosted
+                // reporters advertise the older closed vocabulary; do not mislabel this as a head read.
+                owner.values["voice_first_audio_basis"] = basis.name
+            }
             owner.elapsed("voice_synthesis_to_first_audio_ms", "synthesis", "audio")
             owner.elapsed("voice_response_to_first_audio_ms", "response", "audio")
         }

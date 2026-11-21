@@ -374,7 +374,7 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
-    @Test fun finalTranscriptArrivesOnceAfterCaptureAndNativeResourcesHaveClosed() {
+    @Test fun finalTranscriptArrivesOnceAndEventuallyReleasesNativeResources() {
         val decoder = FakeDecoder {
             events(LocalSpeechEvent.Speech)
             events(LocalSpeechEvent.Partial("hello"))
@@ -569,6 +569,7 @@ class MoonshineVoiceRecognizerTest {
         }
         val fixture = Fixture(decoder)
         try {
+            fixture.audio.captureBatchMs = 100
             fixture.audio.listen(fixture.listener)
             assertTrue(fixture.capture.started.await(3, TimeUnit.SECONDS))
             fixture.capture.chunks.add(FloatArray(1600))

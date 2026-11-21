@@ -82,7 +82,7 @@ target_include_directories(kokoro_pronunciation PRIVATE ${flite_SOURCE_DIR}/incl
 add_library(timed_kokoro SHARED timed_kokoro.cpp
     ${core}/offline-tts-kokoro-model.cc ${core}/file-utils.cc
     ${core}/onnx-utils.cc ${core}/symbol-table.cc ${core}/text-utils.cc)
-target_include_directories(timed_kokoro PRIVATE ${sherpa_SOURCE_DIR} ${ORT_INCLUDE_DIR} ${JNI_INCLUDE_DIRS})
+target_include_directories(timed_kokoro PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${sherpa_SOURCE_DIR} ${ORT_INCLUDE_DIR} ${JNI_INCLUDE_DIRS})
 target_compile_options(timed_kokoro PRIVATE -O2 -ffunction-sections -fdata-sections)
 target_link_options(timed_kokoro PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL)
 target_link_libraries(timed_kokoro PRIVATE kokoro_pronunciation utf8proc ${ORT_LIBRARY})
@@ -97,5 +97,7 @@ if(NOT ANDROID)
         add_executable(kokoro_pronunciation_test kokoro_pronunciation_test.cpp)
         target_link_libraries(kokoro_pronunciation_test PRIVATE kokoro_pronunciation)
         add_test(NAME english_dictionary_misses COMMAND kokoro_pronunciation_test)
+        add_executable(kokoro_provider_profile_test kokoro_provider_profile_test.cpp)
+        add_test(NAME speech_provider_execution_evidence COMMAND kokoro_provider_profile_test)
     endif()
 endif()

@@ -363,7 +363,8 @@ extensions.configure<ApplicationExtension> {
             // do not mix it with checked-in HTP stubs/skeletons via pickFirsts.
             // libQnnHtpPrepare is part of Qualcomm's documented LiteRT dispatch
             // runtime, including for precompiled contexts, and must be packaged.
-            excludes += setOf("**/libQnnDsp*.so", "**/libQnnGpu.so")
+            excludes += "**/libQnnDsp*.so"
+            // The opt-in Kokoro GPU prototype uses the matching QAIRT GPU backend.
             if (geniexRuntime) excludes += "**/libLiteRtDispatch_Qualcomm.so"
         }
     }
@@ -611,6 +612,7 @@ dependencies {
         implementation(libs.geniex.android)
     } else {
         implementation(libs.qnn.runtime)
+        implementation(libs.qnn.speech)
     }
 
     // License page UI

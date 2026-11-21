@@ -666,7 +666,10 @@
         "gateway/gateway_v13_runtime.py",
         "gateway/gateway_v13_transport.py",
         "gateway/gateway_v14.py",
-        "gateway/qualify_engineering.py"
+        "gateway/prepare_voice_pack.py",
+        "gateway/qualify_engineering.py",
+        "gateway/setup_voice_cuda.py",
+        "gateway/voice_worker.py"
       ]
     },
     "local_inference": {

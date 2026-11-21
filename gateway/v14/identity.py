@@ -180,6 +180,8 @@ class Admission:
         diagnostics_path = path in {"/gateway/debug/events", "/gateway/debug/export"}
         diagnostics_write = path == "/gateway/debug/events" and scope["method"] == "POST"
         model_preparation_write = path == '/gateway/models/prepare' and scope['method'] == 'POST'
+        voice_read = path == '/gateway/voice/capabilities' and scope['method'] in {'GET', 'HEAD'}
+        voice_write = path in {'/gateway/voice/synthesize', '/gateway/voice/cancel'} and scope['method'] == 'POST'
         if engineering_path and not principal.engineering_allowed and not (public_map_path and 'tools' in principal.scopes):
             return await deny("engineering_scope_required")
         if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
@@ -187,9 +189,9 @@ class Admission:
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
                 landing_page = self.config.mode == "open_network" and request_path in LANDING_PATHS
-                if not landing_page and path not in public_reads and not job_path and not engineering_path and not diagnostics_path and not conversation_path and not catalog_path and not benchmark_path:
+                if not landing_page and path not in public_reads and not job_path and not engineering_path and not diagnostics_path and not conversation_path and not catalog_path and not benchmark_path and not voice_read:
                     return await deny("remote_surface_not_admitted")
-            elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not metadata_write and not benchmark_write and not diagnostics_write and not model_preparation_write and path not in {"/chat/completions", "/gateway/privacy/inference"} and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
+            elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not metadata_write and not benchmark_write and not diagnostics_write and not model_preparation_write and not voice_write and path not in {"/chat/completions", "/gateway/privacy/inference"} and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
                 return await deny("local_admin_required")
         required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") or conversation_path or catalog_path or benchmark_path else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
         if public_map_path and not principal.engineering_allowed:

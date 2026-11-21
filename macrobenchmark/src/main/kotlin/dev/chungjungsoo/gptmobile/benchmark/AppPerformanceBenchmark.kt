@@ -162,6 +162,28 @@ class AppPerformanceBenchmark {
         }
     }
 
+    @Test fun voiceColdEntry() = benchmark.measureRepeated(
+        PACKAGE,
+        listOf(StartupTimingMetric(), FrameTimingMetric()),
+        CompilationMode.None(),
+        startupMode = StartupMode.COLD,
+        iterations = 10,
+        setupBlock = { pressHome() }
+    ) {
+        startActivityAndWait(voiceFixture())
+        check(device.wait(Until.hasObject(By.res("voice_benchmark_listen")), 10_000))
+    }
+
+    @Test fun voiceWaveformStreamingCaptionsAndTranscript() = benchmark.measureRepeated(
+        PACKAGE,
+        listOf(FrameTimingMetric()),
+        CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3),
+        iterations = 8,
+        setupBlock = { startActivityAndWait(voiceFixture()) }
+    ) {
+        voiceRenderingJourney()
+    }
+
     @Test fun savedCombinedTenProfiles100k() = savedCombined(10, 100_000)
 
     @Test fun savedCombinedTenProfiles1m() = savedCombined(10, 1_000_000)
@@ -228,5 +250,7 @@ class BaselineProfileGenerator {
             list.fling(Direction.DOWN)
             device.waitForIdle()
         }
+        startActivityAndWait(voiceFixture())
+        voiceRenderingJourney()
     }
 }

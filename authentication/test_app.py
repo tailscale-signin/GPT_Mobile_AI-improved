@@ -252,6 +252,29 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertEqual(200, self.submit(report).status_code)
         self.assertEqual(len(cases), len(self.issued))
 
+    def test_voice_clock_detail_can_remain_local_without_changing_the_report_protocol(self):
+        for basis in ("UTTERANCE_START", "PLAYBACK_HEAD"):
+            with self.subTest(basis=basis):
+                capture = self.diagnostics("VOICE", {"voice_engine": "KOKORO", "voice_phase": "SPEAKING",
+                                                     "voice_first_audio_basis": basis, "voice_response_to_first_audio_ms": 98})
+                report = {**self.manual(), "context": self.context(schemaVersion=5, source="VOICE_STATE", diagnostics=capture)}
+                approved = json.dumps(report, separators=(",", ":"))
+                self.assertEqual(200, self.submit(report).status_code)
+                self.assertIn(f"| voice_first_audio_basis | `{basis}` |", self.issued[-1]["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        for basis in ("AUDIO_TIMESTAMP", "private-clock", "audio_timestamp", 1, None):
+            with self.subTest(basis=basis):
+                capture = self.diagnostics("VOICE", {"voice_first_audio_basis": basis})
+                report = {**self.manual(), "context": self.context(schemaVersion=5, source="VOICE_STATE", diagnostics=capture)}
+                self.assertEqual(422, self.submit(report).status_code)
+        capture = self.diagnostics("VOICE", {"voice_engine": "KOKORO", "voice_phase": "SPEAKING",
+                                             "voice_response_to_first_audio_ms": 98})
+        report = {**self.manual(), "context": self.context(schemaVersion=5, source="VOICE_STATE", diagnostics=capture)}
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertIn("| voice_response_to_first_audio_ms | `98` |", self.issued[-1]["body"])
+        self.assertNotIn("| voice_first_audio_basis |", self.issued[-1]["body"])
+        self.assertEqual(3, len(self.issued))
+
     def test_preparing_voice_report_keeps_unknown_first_audio_as_unavailable(self):
         capture = self.diagnostics("VOICE", {"voice_engine": "KOKORO", "voice_phase": "PREPARING"})
         report = {**self.manual(), "context": self.context(schemaVersion=5, source="VOICE_STATE", diagnostics=capture)}

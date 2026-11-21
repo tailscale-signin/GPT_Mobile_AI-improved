@@ -71,6 +71,7 @@ from v14.conversation_policy import conversation_retention, verify_mutation_iden
 from v14.execution_binding import ExecutionBindingError, configured_route, fingerprint
 from v14.model_preparation_routes import ModelPreparationService, install_model_preparation_routes
 from benchmarks.service import BenchmarkService, install_benchmark_routes
+from v14.voice import VoiceService, install_voice_routes
 
 runtime.GATEWAY_VERSION = VERSION
 runtime.AUTO_MEMORY_RETRIEVE = False
@@ -140,7 +141,8 @@ debug_log.configure_identity(gatewayVersion=VERSION, sourceCommit=build_identity
 model_preparation = ModelPreparationService(engineering.capabilities)
 benchmarks = BenchmarkService(runtime, engineering)
 runtime.gateway_benchmarks = benchmarks
-app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=schedule_lifespan(benchmarks.lifecycle(model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))))), os.getenv("GATEWAY_DESKTOP_ROOT"), runtime.GATEWAY_JOB_DB_PATH),
+voice = VoiceService.from_env()
+app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=voice.lifecycle(schedule_lifespan(benchmarks.lifecycle(model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))))), os.getenv("GATEWAY_DESKTOP_ROOT"), runtime.GATEWAY_JOB_DB_PATH)),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)
@@ -152,6 +154,7 @@ install_engineering_routes(app, engineering)
 install_conversation_routes(app, runtime.gateway_conversations, engineering, service, lambda: runtime.device_store)
 install_model_preparation_routes(app, model_preparation, runtime.gateway_conversations.gateway_id)
 install_benchmark_routes(app, benchmarks)
+install_voice_routes(app, voice)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
 from v14.control_settings import install_control_settings

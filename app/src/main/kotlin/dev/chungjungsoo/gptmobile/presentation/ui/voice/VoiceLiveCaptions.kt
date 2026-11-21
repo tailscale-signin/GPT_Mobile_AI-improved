@@ -44,15 +44,18 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
-internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Modifier = Modifier) {
-    val caption = remember(state.phase, state.transcript, state.reply, state.playbackCaption, state.hasDraft) {
-        VoiceCaption.from(state)
+internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Modifier = Modifier, cursor: kotlinx.coroutines.flow.StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor>? = null) {
+    val liveCursor = cursor?.collectAsStateWithLifecycle()?.value
+    val observed = if (liveCursor == null) state else state.copy(spokenRange = liveCursor.range, playbackCaption = liveCursor.projectedText)
+    val caption = remember(observed.phase, observed.transcript, observed.reply, observed.playbackCaption, observed.hasDraft) {
+        VoiceCaption.from(observed)
     }
     if (caption == null) return
     val speaking = state.phase == VoicePhase.SPEAKING
@@ -64,7 +67,7 @@ internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Mo
     key(caption.speaker) {
         VoiceCaptionText(
             caption,
-            state.spokenRange,
+            observed.spokenRange,
             state.phase == VoicePhase.SPEAKING,
             compact,
             modifier.graphicsLayer { alpha = opacity.value }.testTag("voice_live_captions").padding(horizontal = 12.dp)
@@ -74,7 +77,8 @@ internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Mo
 
 @Composable
 private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, speaking: Boolean, compact: Boolean, modifier: Modifier) {
-    val words = remember(caption.text) { caption.wordRanges() }
+    val wordCache = remember(caption.speaker) { VoiceCaptionWordCache() }
+    val words = remember(caption.text) { wordCache.update(caption) }
     val active = when {
         speaking -> caption.highlightRange(spokenRange, words)
         caption.live && caption.speaker == "You" -> words.lastOrNull()
@@ -88,15 +92,20 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
     val measurer = rememberTextMeasurer()
     val accent = MaterialTheme.colorScheme.primary
     val ink = MaterialTheme.colorScheme.onSurface
+    val accessibleText = remember(caption.text) { AnnotatedString(caption.text) }
     val animate = voiceMotionEnabled()
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val width = constraints.maxWidth.coerceAtLeast(1)
-        val layout = remember(caption.text, focusStyle, measurer, width) {
-            measurer.measure(AnnotatedString(caption.text), style = focusStyle.copy(fontWeight = FontWeight.Bold), constraints = Constraints(maxWidth = width))
+        val layoutCache = remember(caption.speaker, focusStyle, measurer, width) { VoiceCaptionLayoutCache() }
+        val lines = remember(caption.text, layoutCache) {
+            layoutCache.update(caption.text) { tail ->
+                val measured = measurer.measure(AnnotatedString(tail), style = focusStyle.copy(fontWeight = FontWeight.Bold), constraints = Constraints(maxWidth = width))
+                List(measured.lineCount) { line -> VoiceCaptionLine(measured.getLineStart(line), measured.getLineEnd(line, visibleEnd = true)) }
+            }
         }
-        val lastLine = layout.lineCount - 1
+        val lastLine = lines.lastIndex
         val offset = active?.first ?: if (speaking) lastSpoken else caption.text.length
-        val liveLine = layout.getLineForOffset(offset.coerceIn(0, caption.text.length))
+        val liveLine = lines.lineForOffset(offset.coerceIn(0, caption.text.length))
         val step = with(density) { focusStyle.lineHeight.toPx() }
         var reader by remember { mutableStateOf(VoiceCaptionReader()) }
         val position = reader.position(liveLine, lastLine)
@@ -126,7 +135,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                 .scrollable(scrolling, Orientation.Vertical, reverseDirection = true)
                 .clearAndSetSemantics {
                     testTag = "voice_caption_text"
-                    text = AnnotatedString(caption.text)
+                    text = accessibleText
                     if (caption.speaker.isNotEmpty()) stateDescription = caption.speaker
                     verticalScrollAxisRange = ScrollAxisRange(
                         value = { reader.position(liveLine, lastLine) * step },
@@ -146,8 +155,8 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                         contentAlignment = Alignment.Center
                     ) {
                         if (line in 0..lastLine) {
-                            val start = layout.getLineStart(line)
-                            val end = layout.getLineEnd(line, visibleEnd = true)
+                            val start = lines[line].start
+                            val end = lines[line].end
                             val highlight = if (slot == 0) active else null
                             val annotated = remember(caption.text, start, end, highlight, accent) {
                                 buildAnnotatedString {

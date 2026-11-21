@@ -4,10 +4,8 @@ import android.animation.ValueAnimator
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.MaterialTheme
@@ -50,18 +48,16 @@ internal fun voiceMotionEnabled(): Boolean {
 internal fun VoiceWave(
     state: VoiceState,
     modifier: Modifier = Modifier,
-    outputLevel: kotlinx.coroutines.flow.StateFlow<Float?>? = null
+    outputLevel: kotlinx.coroutines.flow.StateFlow<Float?>? = null,
+    inputLevel: kotlinx.coroutines.flow.StateFlow<dev.chungjungsoo.gptmobile.data.voice.VoiceInputLevel>? = null
 ) {
     val animated = voiceMotionEnabled()
     val listening = state.phase == VoicePhase.LISTENING
     val speaking = state.phase == VoicePhase.SPEAKING
     val preparing = state.phase in setOf(VoicePhase.STARTING, VoicePhase.FINALIZING, VoicePhase.THINKING, VoicePhase.PREPARING)
-    val playbackLevel = if (speaking) outputLevel?.collectAsStateWithLifecycle()?.value else null
-    val input = when {
-        listening && state.hasAudioLevel -> state.level
-        speaking && playbackLevel != null -> kotlin.math.sqrt(playbackLevel)
-        else -> 0f
-    }.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
+    val playbackLevel = if (speaking) outputLevel?.collectAsStateWithLifecycle() else null
+    val microphoneLevel = if (listening) inputLevel?.collectAsStateWithLifecycle() else null
+    val geometry = remember { FloatArray(32) { index -> sin(Math.PI * (index + 1) / 33).toFloat() * (.5f + .5f * abs(sin(index * 1.17f))) } }
     val phase = if (preparing && animated) {
         rememberInfiniteTransition(label = "Voice preparation").animateFloat(
             0f,
@@ -72,7 +68,6 @@ internal fun VoiceWave(
     } else {
         remember { mutableFloatStateOf(0f) }
     }
-    val level by animateFloatAsState(input, animationSpec = if (animated && !speaking) tween(120) else snap(), label = "Measured voice level")
     val colors = MaterialTheme.colorScheme
     val primary = if (state.phase == VoicePhase.ERROR) colors.error else colors.primary
     val secondary = colors.secondary
@@ -87,15 +82,27 @@ internal fun VoiceWave(
             }
         }
     ) {
+        // Read fast State values in drawing, so amplitude updates never recompose the screen.
+        val input = microphoneLevel?.value
+        val output = playbackLevel?.value
+        val level = when {
+            listening -> if (input != null) {
+                input.level
+            } else if (state.hasAudioLevel) {
+                state.level
+            } else {
+                0f
+            }
+            speaking && output != null -> kotlin.math.sqrt(output)
+            else -> 0f
+        }.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
         val count = 32
         val gap = size.width * .9f / count
         val width = gap * .53f
         val baseline = 4.dp.toPx()
         val breathing = if (preparing && animated) (.06f + .035f * sin(phase.value * 2f * Math.PI.toFloat())) else 0f
         repeat(count) { index ->
-            val envelope = sin(Math.PI * (index + 1) / (count + 1)).toFloat()
-            val shape = .5f + .5f * abs(sin(index * 1.17f))
-            val height = baseline + size.height * .86f * (level + breathing).coerceAtMost(1f) * envelope * shape
+            val height = baseline + size.height * .86f * (level + breathing).coerceAtMost(1f) * geometry[index]
             val x = size.width * .05f + (index + .5f) * gap - width / 2
             drawRoundRect(if (index % 3 == 0) secondary else primary, Offset(x, (size.height - height) / 2), Size(width, height), CornerRadius(width / 2))
         }

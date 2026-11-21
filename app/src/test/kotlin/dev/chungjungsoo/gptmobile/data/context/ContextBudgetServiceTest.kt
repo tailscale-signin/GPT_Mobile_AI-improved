@@ -114,6 +114,26 @@ class ContextBudgetServiceTest {
         assertTrue(blocked.message.orEmpty().contains("No output headroom remains"))
     }
 
+    @Test fun smallToolRoutesPageSavedEvidenceBeforeAssemblingTheCurrentTurn() {
+        val route = TokenBudgetSettings()
+        val budget = ReplayAllowance.conservativeToolPlanningBudget(route, toolEvidenceRequired = true)
+        val reader = AgentToolDefinition("read_recovery_context", "Read a saved page", buildJsonObject {})
+        val evidence = "x".repeat(7000)
+        for (reportedPrompt in listOf(3589, 3597)) {
+            val goal = "g".repeat((reportedPrompt - 2016) * 3)
+            fun turn(context: Int) = ConversationTurn(MessageV2(content = goal + evidence.take(ReplayAllowance.inlineRecoveryCharacters(context)), platformType = null), null, true)
+            val oldFailure = runCatching { ContextBudgetService.plan(listOf(turn(route.contextTokens)), "", listOf(reader), budget) }.exceptionOrNull() as RequestCapacityException
+            assertEquals(reportedPrompt.toLong(), oldFailure.promptTokens)
+            val current = turn(budget.contextTokens)
+            val plan = ContextBudgetService.plan(listOf(current), "", listOf(reader), budget)
+            assertTrue(current.userMessage.content.startsWith(goal))
+            assertEquals(listOf(current), plan.turns)
+            assertEquals(listOf(reader), plan.tools)
+            assertEquals(768, plan.outputTokens)
+            assertEquals(512 * 3, plan.toolResultBytes)
+        }
+    }
+
     @Test fun planningRejectionBindsOnlyTheFixedInputsAndTheActualBudgetSource() {
         val unknown = ProviderRouteCapacity.PrimaryContextDecision(Int.MAX_VALUE, null, null, null, CapacityProvenance.UNKNOWN)
         val declared = unknown.copy(tokens = 4096, configuredTokens = 4096, provenance = CapacityProvenance.DECLARED)

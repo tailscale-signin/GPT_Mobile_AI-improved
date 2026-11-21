@@ -99,7 +99,7 @@ internal fun throwIfToolDefinitionsRejected(
 
 /** Keep authentication failures attributable to the AI connection, including after tool rounds. */
 internal fun ProviderRequestConfig.readableProviderError(message: String, code: String?): String {
-    if (code == "404" && (message.contains("training violation", true) || message.contains("data policy", true) || message.contains("privacy settings", true))) {
+    if (code == "404" && !message.startsWith("POLICY_RESTRICTED:") && (message.contains("training violation", true) || message.contains("data policy", true) || message.contains("privacy settings", true))) {
         return "POLICY_RESTRICTED: OpenRouter has no endpoint for this model under your current data policy. Choose a model/provider endpoint compatible with your privacy settings. $message"
     }
     if (code != "401" && code != "403") return message

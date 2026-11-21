@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity
 import java.security.MessageDigest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -12,11 +13,23 @@ internal object ProviderRejectionDiagnostics {
     enum class Contract { CHAT_COMPLETIONS, OPENAI_RESPONSES, ANTHROPIC_MESSAGES, GOOGLE_CONTENT, GATEWAY_GENERATION }
     private val parameters = setOf("model", "messages", "max_tokens", "max_completion_tokens", "temperature", "top_p", "stop", "tools", "tool_choice", "stream", "response_format", "reasoning", "thinking", "metadata", "system", "input", "max_output_tokens", "previous_response_id", "instructions")
 
+    fun isOpenRouterChatNotFound(status: Int, endpoint: String?): Boolean =
+        status == 404 && OpenRouterIdentity.endpoints.any { endpoint == "$it/chat/completions" }
+
+    fun openRouterNotFoundMessage(fields: JsonObject, providerDetail: String? = null): String = when ((fields["provider_rejection_category"] as? JsonPrimitive)?.content) {
+        "MODEL_UNAVAILABLE" -> "OpenRouter could not serve the selected model (HTTP 404). Check the model ID and availability in this profile."
+        "PERMISSION" -> "POLICY_RESTRICTED: OpenRouter found no endpoint compatible with this profile’s data policy (HTTP 404). Choose a model or provider compatible with that policy."
+        "UNAVAILABLE" -> "OpenRouter found no matching provider endpoint (HTTP 404). Check availability and the routing requirements for this model."
+        else -> "OpenRouter returned HTTP 404 for chat generation. Check this profile’s model ID and provider routing." +
+            providerDetail?.takeUnless { it == "HTTP 404" || it.isBlank() }?.let { " Provider detail: $it" }.orEmpty()
+    }
+
     fun response(status: Int, body: String, contract: Contract, endpoint: String? = null): JsonObject {
         val root = body.takeIf { it.length <= 256 * 1024 }?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
         val error = root?.get("error") as? JsonObject ?: root
         // OpenRouter can wrap an upstream error object in metadata.raw. Project only typed fields.
-        val nested = if (status == 400 && contract == Contract.CHAT_COMPLETIONS) {
+        val routerNotFound = contract == Contract.CHAT_COMPLETIONS && isOpenRouterChatNotFound(status, endpoint)
+        val nested = if ((status == 400 || routerNotFound) && contract == Contract.CHAT_COMPLETIONS) {
             when (val raw = (error?.get("metadata") as? JsonObject)?.get("raw")) {
                 is JsonObject -> raw
                 is JsonPrimitive -> raw.takeIf { it.isString }?.let { runCatching { Json.parseToJsonElement(it.content) as? JsonObject }.getOrNull() }
@@ -41,11 +54,20 @@ internal object ProviderRejectionDiagnostics {
                     text("message")?.startsWith("Invalid schema for response_format", ignoreCase = true) == true
                 )
         val missingModel = status == 404 && (code == "model_not_found" || text("type") == "model_not_found")
-        val configurationRequired = billing || missingModel || status == 401 || status == 410 || schemaRejected
+        // The router owns this message. An upstream error can separately identify a missing model.
+        val routerMessage = (error?.get("message") as? JsonPrimitive)?.takeIf { routerNotFound && it.isString }?.content.orEmpty()
+        val policyMismatch = routerMessage.startsWith("No endpoints found matching your data policy", ignoreCase = true)
+        val noMatchingEndpoint = routerMessage.startsWith("No endpoints found for ", ignoreCase = true) ||
+            routerMessage.startsWith("No endpoints found that support ", ignoreCase = true)
+        val configurationRequired = policyMismatch || billing || missingModel || status == 401 || status == 410 || schemaRejected
         if (!configurationRequired && status != 404 && status != 429) return fields
         return JsonObject(
             fields + buildJsonObject {
-                if (billing) put("provider_rejection_category", "BILLING_UNAVAILABLE")
+                when {
+                    billing -> put("provider_rejection_category", "BILLING_UNAVAILABLE")
+                    policyMismatch -> put("provider_rejection_category", "PERMISSION")
+                    noMatchingEndpoint && fields["provider_rejection_category"] == JsonPrimitive("NOT_FOUND") -> put("provider_rejection_category", "UNAVAILABLE")
+                }
                 if (configurationRequired) {
                     put("retryable", false)
                     put("recovery_action", "RETRY_AFTER_CONFIGURATION_CHANGE")

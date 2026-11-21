@@ -14,6 +14,9 @@ internal object ReplayAllowance {
         val output = settings.outputTokens.takeIf { it > 0 } ?: 768
         return settings.copy(contextTokens = 4096, outputTokens = minOf(output, 768))
     }
+    fun inlineRecoveryCharacters(contextTokens: Int): Int =
+        (contextTokens / 8).coerceIn(64, 2000) * 3
+
     fun allocate(context: Int, input: Int, output: Int, fallback: Int): Allocation {
         // Int.MAX_VALUE denotes unknown/unlimited, not a verified route capacity.
         val ceiling = if (context in 1 until Int.MAX_VALUE) context else fallback.coerceIn(0, 4096)

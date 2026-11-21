@@ -64,6 +64,27 @@ class ProviderRejectionDiagnosticsTest {
         assertFalse("secret" in privateRoute.toString())
     }
 
+    @Test fun openRouter404DistinguishesPolicyModelRouteAndUnknownWithoutExportingProviderText() {
+        val endpoint = "https://openrouter.ai/api/v1/chat/completions"
+        fun rejected(body: String, url: String = endpoint) = ProviderRejectionDiagnostics.response(404, body, ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS, url)
+        val policy = """{"error":{"code":404,"message":"No endpoints found matching your data policy. private detail"}}"""
+        val cases = listOf(
+            Triple(rejected(policy), "PERMISSION", "POLICY_RESTRICTED"),
+            Triple(rejected("""{"error":{"code":404,"message":"Provider returned error","metadata":{"raw":"{\"error\":{\"code\":\"model_not_found\",\"message\":\"private detail\"}}"}}}"""), "MODEL_UNAVAILABLE", "model ID"),
+            Triple(rejected("""{"error":{"code":404,"message":"No endpoints found for private detail"}}"""), "UNAVAILABLE", "matching provider endpoint"),
+            Triple(rejected("""{"error":{"code":404,"message":"private detail"}}"""), "NOT_FOUND", "model ID and provider routing")
+        )
+        for ((result, category, hint) in cases) {
+            assertEquals(JsonPrimitive(category), result["provider_rejection_category"])
+            val message = ProviderRejectionDiagnostics.openRouterNotFoundMessage(result)
+            assertTrue(message.contains(hint))
+            assertFalse("private detail" in result.toString() || "private detail" in message)
+        }
+        assertEquals(JsonPrimitive(false), cases.first().first["retryable"])
+        assertFalse("retryable" in cases.last().first)
+        assertEquals(JsonPrimitive("NOT_FOUND"), rejected(policy, "https://proxy.example/api/v1/chat/completions")["provider_rejection_category"])
+    }
+
     @Test fun httpGoneRecordsStatusCategoryWithoutInventingAModelDeprecation() {
         val result = ProviderRejectionDiagnostics.response(410, """{"message":"private-model has changed","error":{"type":"private-provider-type","message":"private endpoint detail"}}""", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS)
         assertEquals(JsonPrimitive("GONE"), result["provider_rejection_category"])

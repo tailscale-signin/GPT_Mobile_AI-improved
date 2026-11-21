@@ -337,6 +337,8 @@ class OpenAIAPIImpl @Inject constructor(
 
                             val errorMessage = if (free != null) {
                                 freeHttpErrorMessage(response.status.value, errorBody, config.token)
+                            } else if (ProviderRejectionDiagnostics.isOpenRouterChatNotFound(response.status.value, endpoint)) {
+                                ProviderRejectionDiagnostics.openRouterNotFoundMessage(failureDetails, providerErrorDetails(errorBody, "HTTP 404", config.token))
                             } else if (response.status.value in setOf(401, 402, 403)) {
                                 dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
                             } else {

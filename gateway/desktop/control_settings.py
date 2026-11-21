@@ -43,9 +43,17 @@ class Controller:
     def start_saved(self):
         (self.supervisor.root / 'data' / 'phone-connect-window.json').unlink(missing_ok=True)
         path = self.supervisor.root / 'data' / 'control-listener.json'
+        (self.supervisor.root / 'data' / 'account-address-listener.json').unlink(missing_ok=True)
         if path.exists():
             value = json.loads(path.read_text(encoding='utf-8'))
             self.enable(value, persist=False)
+        else:
+            from desktop.configuration import default_phone_listener, setup_interface
+            cfg = getattr(self.supervisor, 'cfg', None) or load(self.supervisor.root)
+            if cfg['access'] == 'network' and cfg['bind_host'] in {'0.0.0.0', '::'}:
+                cfg = dict(cfg, bind_host=setup_interface())
+            if cfg['access'] == 'network' and (listener := default_phone_listener(cfg)):
+                self.enable(listener, persist=False)
 
     def enable(self, payload, persist=True):
         if not isinstance(payload, dict) or set(payload) != {'host', 'port'}:
@@ -74,6 +82,8 @@ class Controller:
         self.allowed_hosts = {authority(host, port)}
         self.server = ControlServer(self, host, port, tls)
         self.server.start()
+        atomic_json(self.supervisor.root / 'data' / 'account-address-listener.json',
+                    {'endpoint': self.endpoint, 'fingerprint': self.fingerprint})
         if persist:
             atomic_json(self.supervisor.root / 'data' / 'control-listener.json', payload)
         return self.description()
@@ -84,6 +94,7 @@ class Controller:
                 'fingerprint': self.fingerprint if ready else None, 'protocol': 'controlSettings.v1'}
 
     def close(self):
+        (self.supervisor.root / 'data' / 'account-address-listener.json').unlink(missing_ok=True)
         self.lan_window = None
         if self.server:
             self.server.close()

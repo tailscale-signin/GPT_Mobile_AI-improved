@@ -6,12 +6,15 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
 import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSetting
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringClient
+import dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins
 import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAddressAccountKey
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayConnectionSettingsChanged
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlPhase
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository
@@ -21,6 +24,8 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayAddressEndpoint
 import dev.chungjungsoo.gptmobile.data.network.gateway.privateGatewayAddress
 import dev.chungjungsoo.gptmobile.data.repository.ProfileModelCatalog
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
+import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -36,7 +41,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 @HiltViewModel
-internal class GatewayControlViewModel @Inject constructor(private val settings: SettingRepository, private val repository: GatewayControlRepository, private val engineering: GatewayEngineeringClient, private val preparation: GatewayModelPreparationRepository) : ViewModel() {
+internal class GatewayControlViewModel @Inject constructor(private val settings: SettingRepository, private val repository: GatewayControlRepository, private val engineering: GatewayEngineeringClient, private val preparation: GatewayModelPreparationRepository, private val connections: ToolConnectionRepository, private val vault: SecretVault) : ViewModel() {
     val profiles = settings.observePlatformV2s().map { list -> list.filter(GitHubAutonomousEngineeringPolicy::supportsSavedJobs) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val states = repository.states
@@ -53,6 +58,10 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
     private var refreshJob: Job? = null
     private var lastUnavailable: Pair<Pair<String, String>, Long>? = null
 
+    private val preparationStatus = MutableStateFlow<Map<String, String>>(emptyMap())
+    val modelStatus = preparationStatus.asStateFlow()
+    private var connectionPreparation: Job? = null
+
     fun refresh(profile: PlatformV2, forceNetwork: Boolean = false) {
         if (refreshJob?.isActive == true || action?.isActive == true) return
         refreshJob = viewModelScope.launch {
@@ -66,9 +75,12 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                         if (!forceNetwork && lastUnavailable?.let { it.first == key && System.nanoTime() - it.second < 30_000_000_000L } == true) return@launch
                         val identity = engineering.connectionIdentity(config)
                         if (identity.principal == "network:shared") {
-                            showNetworkOverview(key, identity.networkSettings)
+                            if (connectPrivateNetwork(current, identity)) {
+                                selectConnectedGateway(current)
+                            } else {
+                                lastUnavailable = key to System.nanoTime()
+                            }
                             directStates.value -= key
-                            lastUnavailable = key to System.nanoTime()
                         } else {
                             val admission = engineering.admissionSetting(config, null)
                             require(admission.principalId == identity.principal && admission.gatewayId == identity.gatewayId)
@@ -97,6 +109,50 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
         networkSettings.value = if (overview == null) networkSettings.value - key else networkSettings.value + (key to overview)
     }
 
+    private suspend fun connectPrivateNetwork(profile: PlatformV2, identity: GatewayEngineeringClient.ConnectionIdentity): Boolean {
+        val key = profile.uid to profile.apiUrl
+        showNetworkOverview(key, identity.networkSettings)
+        fun link(raw: String) = GatewayPairingLink.parse(raw, System.currentTimeMillis() / 1000).also {
+            require(it.installationId == identity.gatewayId && it.profileEndpoint == profile.apiUrl.trimEnd('/'))
+        }
+        identity.accountConnection?.let { descriptor ->
+            val offered = link(descriptor)
+            for (connection in connections.listConnections()) {
+                if (connection.type != ToolConnectionType.GITHUB ||
+                    connection.secretRef == null ||
+                    runCatching { GitHubApiOrigins.fromEndpoint(connection.endpointUrl) }.getOrNull() != GitHubApiOrigins.GITHUB_COM
+                ) {
+                    continue
+                }
+                val secret = try {
+                    vault.read(requireNotNull(connection.secretRef))
+                } catch (_: dev.chungjungsoo.gptmobile.data.security.SecretVaultException) {
+                    null
+                } ?: continue
+                val account = try {
+                    GatewayAddressAccountKey.from(secret)
+                } finally {
+                    secret.fill(0)
+                }
+                account?.use {
+                    if (it.matches(offered)) {
+                        repository.connectAccountAddress(profile, offered, it)
+                        showNetworkOverview(key, null)
+                        return true
+                    }
+                }
+            }
+        }
+        identity.phoneConnection?.let {
+            val offered = link(it)
+            require(offered.code.startsWith("lan_"))
+            repository.connectPrivate(profile, offered)
+            showNetworkOverview(key, null)
+            return true
+        }
+        return false
+    }
+
     private suspend fun observeAccount(profile: PlatformV2, admission: GatewayAdmissionSetting) {
         val key = profile.uid to profile.apiUrl
         if (admission.connectedSettings) {
@@ -116,7 +172,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
         val profiles = settings.fetchPlatformV2s()
         val matching = profiles.filter { it.apiUrl.trimEnd('/') == endpoint }
         require(matching.size <= 1) { "Choose the saved profile for this address." }
-        val profile = matching.singleOrNull() ?: PlatformV2(
+        val profile = matching.singleOrNull()?.copy(enabled = true) ?: PlatformV2(
             uid = UUID.nameUUIDFromBytes("gateway:$endpoint".toByteArray()).toString(),
             name = "Gateway · ${uri.host}",
             compatibleType = ClientType.LLAMA,
@@ -140,12 +196,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                     GatewayControlPhase.UNPAIRED, GatewayControlPhase.REVOKED -> {
                         val identity = engineering.connectionIdentity(config)
                         if (identity.principal == "network:shared") {
-                            showNetworkOverview(profile.uid to profile.apiUrl, identity.networkSettings)
-                            identity.phoneConnection?.let {
-                                val offer = GatewayPairingLink.parse(it, System.currentTimeMillis() / 1000)
-                                require(offer.installationId == identity.gatewayId && offer.profileEndpoint == endpoint && offer.code.startsWith("lan_"))
-                                repository.connectPrivate(profile, offer)
-                            }
+                            connectPrivateNetwork(profile, identity)
                             null
                         } else {
                             engineering.admissionSetting(config, null).also {
@@ -168,6 +219,9 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                 emptyList()
             }
             settings.addPlatformV2(profile.copy(model = models.singleOrNull()?.id.orEmpty()))
+        } else if (matching.single().enabled == false) {
+            val existing = settings.fetchPlatformV2s().single { it.uid == profile.uid && it.apiUrl == profile.apiUrl }
+            if (!existing.enabled) settings.updatePlatformV2(existing.copy(enabled = true))
         }
         val saved = settings.fetchPlatformV2s().single { it.uid == profile.uid && it.enabled && it.apiUrl == profile.apiUrl }
         if (admission == null) {
@@ -176,6 +230,25 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
             observeAccount(saved, admission)
         }
         onConnected(saved.uid)
+        val control = repository.states.value[saved.uid]
+        if (control?.writable == true && control.engineeringBindingConfirmed && control.snapshot?.desired?.get("backend") == control.snapshot?.effective?.get("backend")) {
+            val selected = (control.snapshot?.desired?.get("model") as? JsonPrimitive)?.content.orEmpty().ifBlank { saved.model }
+            connectionPreparation?.cancel()
+            if (selected.isNotBlank()) {
+                connectionPreparation = viewModelScope.launch {
+                    try {
+                        val mode = ReasoningPolicy.preference(saved.reasoning, settings.getFeatureSettings().llamaReasoningModes[saved.uid])
+                        preparation.prepareSelected(saved.copy(model = selected), mode) { state ->
+                            state?.let { preparationStatus.value += (saved.uid to it.message) }
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        preparationStatus.value += (saved.uid to "Could not confirm model readiness. Use Prepare model to retry.")
+                    }
+                }
+            }
+        }
     }
 
     fun prepareModel(profile: PlatformV2, model: String, onMessage: (String) -> Unit) = run(profile) { current ->

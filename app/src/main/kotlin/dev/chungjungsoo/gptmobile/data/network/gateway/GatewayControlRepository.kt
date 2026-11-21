@@ -207,7 +207,9 @@ internal class GatewayControlRepository @Inject constructor(
 
     suspend fun connectPrivate(profile: PlatformV2, address: GatewayPairingLink) = beginConnection(profile, address, true)
 
-    private suspend fun beginConnection(profile: PlatformV2, parsed: GatewayPairingLink, privateAddress: Boolean) = mutex(profile.uid).withLock {
+    suspend fun connectAccountAddress(profile: PlatformV2, address: GatewayPairingLink, account: GatewayAddressAccountKey) = beginConnection(profile, address, true, account)
+
+    private suspend fun beginConnection(profile: PlatformV2, parsed: GatewayPairingLink, privateAddress: Boolean, account: GatewayAddressAccountKey? = null) = mutex(profile.uid).withLock {
         val endpoint = original(profile)
         require(parsed.profileEndpoint == null || parsed.profileEndpoint == endpoint) { "This link belongs to another Gateway address." }
         val alias = "gptmobile_gateway_control_${gatewayControlDigest(profile.uid + parsed.endpoint)}"
@@ -238,7 +240,9 @@ internal class GatewayControlRepository @Inject constructor(
             }
         }
         check(previous?.pending == null) { "Reconcile the original Gateway change before replacing its connection." }
-        val pending = GatewayControlPairing(profile.uid, endpoint, parsed.endpoint, parsed.fingerprint, parsed.installationId, parsed.code, parsed.expiresAt, alias, keys.publicKey(alias), gatewayPort = parsed.gatewayPort, privateAddress = privateAddress)
+        val publicKey = keys.publicKey(alias)
+        val proof = account?.deviceProof(parsed, publicKey) ?: parsed.code
+        val pending = GatewayControlPairing(profile.uid, endpoint, parsed.endpoint, parsed.fingerprint, parsed.installationId, proof, parsed.expiresAt, alias, publicKey, gatewayPort = parsed.gatewayPort, privateAddress = privateAddress)
         savePairing(pending)
         if (!privateAddress) publish(profile, GatewayControlPhase.PAIRING, previous, "Requesting owner confirmation on the selected PC…", deviceFingerprint = gatewayControlDigest(pending.publicKey))
         finishLocked(profile, pending)
@@ -282,7 +286,7 @@ internal class GatewayControlRepository @Inject constructor(
             publish(profile, GatewayControlPhase.PAIRING, message = "Waiting for the PC to approve this device.", deviceFingerprint = gatewayControlDigest(pending.publicKey))
             return
         }
-        check(response.status == 200) { "Pairing is unavailable or expired. Create a new link on the PC." }
+        check(response.status == 200) { if (pending.privateAddress) "Gateway could not confirm this connection. Reconnect using the PC’s address." else "Pairing is unavailable or expired. Create a new link on the PC." }
         val data = json.parseToJsonElement(response.body) as? JsonObject ?: error("Invalid pairing response.")
         fun text(name: String) = requireNotNull((data[name] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull).also { require(it.length in 1..2048 && it.none(Char::isISOControl)) }
         require(text("installation_id") == pending.installationId && gatewayControlEndpoint(text("endpoint")) == pending.endpoint && text("fingerprint") == pending.fingerprint)

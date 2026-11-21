@@ -264,7 +264,9 @@ public partial class MainWindow : Window
             try { snapshot = await Call("snapshot"); }
             catch { snapshot["fresh"] = false; }
             RefreshUpdateCard();
-            if (selectedPage is "Jobs" or "Overview" or "Diagnostics" && (DateTime.UtcNow - catalogAttempt).TotalSeconds >= 8)
+            bool activeWork = snapshot.Object("service").Number("activeWorkers") > 0 || jobs.Any(job => job.State is "running" or "queued");
+            int catalogInterval = catalogOffline ? 30 : selectedPage == "Jobs" || activeWork ? 8 : 45;
+            if (selectedPage is "Jobs" or "Overview" or "Diagnostics" && (DateTime.UtcNow - catalogAttempt).TotalSeconds >= catalogInterval)
                 Run(RefreshCatalog);
             if (selectedPage == "Chat") Run(RefreshChatActivity);
             if (selectedPage == "Diagnostics") RefreshDiagnosticValues();

@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 import java.net.URI
 import java.net.URLDecoder
 import java.security.MessageDigest
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -63,6 +65,47 @@ internal data class GatewayPairingLink(val endpoint: String, val installationId:
             require(expires > nowSeconds && expires - nowSeconds <= 3600)
             val gatewayPort = values["gateway_port"]?.let { requireNotNull(it.toIntOrNull()).also { port -> require(port in 1024..65535) } }
             return GatewayPairingLink(gatewayControlEndpoint(values.getValue("endpoint")), installation, fingerprint, code, expires, gatewayPort)
+        }
+    }
+}
+
+/** Match a host proof locally before deriving a device-specific TLS credential. */
+internal class GatewayAddressAccountKey private constructor(private val bytes: ByteArray) : AutoCloseable {
+    private fun tag(vararg fields: String) = hmac(bytes, fields.joinToString("\n")).joinToString("") { "%02x".format(it) }
+
+    fun matches(link: GatewayPairingLink): Boolean {
+        val expected = "host_${link.expiresAt}_" + tag("server", link.installationId, link.endpoint, link.fingerprint, link.gatewayPort.toString(), link.expiresAt.toString())
+        return link.gatewayPort != null && MessageDigest.isEqual(expected.toByteArray(), link.code.toByteArray())
+    }
+
+    fun deviceProof(link: GatewayPairingLink, publicKey: String): String {
+        require(matches(link))
+        return "device_${link.expiresAt}_" + tag("device", link.installationId, link.endpoint, link.fingerprint, link.gatewayPort.toString(), link.expiresAt.toString(), publicKey)
+    }
+
+    override fun close() = bytes.fill(0)
+
+    companion object {
+        private fun hmac(key: ByteArray, message: String) = Mac.getInstance("HmacSHA256").run {
+            init(SecretKeySpec(key, "HmacSHA256"))
+            doFinal(message.toByteArray(Charsets.UTF_8))
+        }
+
+        fun from(token: ByteArray): GatewayAddressAccountKey? {
+            val prefix = when {
+                token.take(4).toByteArray().contentEquals("ghp_".toByteArray()) -> 4
+                token.take(11).toByteArray().contentEquals("github_pat_".toByteArray()) -> 11
+                else -> return null
+            }
+            if (token.size - prefix !in 30..240 ||
+                (prefix until token.size).any {
+                    val c = token[it].toInt().toChar()
+                    c !in 'A'..'Z' && c !in 'a'..'z' && c !in '0'..'9' && c != '_'
+                }
+            ) {
+                return null
+            }
+            return GatewayAddressAccountKey(hmac(token, "GPT Mobile Gateway local owner v1"))
         }
     }
 }

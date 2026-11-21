@@ -108,6 +108,7 @@ def create_app(controller):
             with store.tx() as db:
                 identity = store.installation(db)
             pairing = request.url.path in {'/gateway/pairing/claim', '/gateway/pairing/finish', '/gateway/connect'}
+            account_generation = None
             if pairing:
                 if request.method != 'POST':
                     raise ControlError('invalid_pairing_method', 405)
@@ -117,7 +118,12 @@ def create_app(controller):
                     raise ControlError('device_key_required')
                 if request.url.path == '/gateway/connect' and token.startswith('lan_') and len(token) == 47:
                     token = controller.lan_token(token, request.client.host if request.client else None)
-                await asyncio.to_thread(store.pairing_key_allowed, token, public_key)
+                if request.url.path == '/gateway/connect' and token.startswith('device_'):
+                    from desktop.account_address import verify
+                    account_generation = await asyncio.to_thread(verify, store.root, request.client.host if request.client else '',
+                        controller.endpoint, controller.fingerprint, controller.connection_port(), identity, token, public_key)
+                else:
+                    await asyncio.to_thread(store.pairing_key_allowed, token, public_key)
                 grant = None
             else:
                 grant = await asyncio.to_thread(store.authenticate, token)
@@ -126,6 +132,7 @@ def create_app(controller):
             query = request.scope.get('query_string', b'').decode('ascii')
             path += '?' + query if query else ''
             await asyncio.to_thread(verify_signature, store, headers, request.method, path, raw, public_key, identity)
+            request.state.account_generation = account_generation
             request.state.control_grant, request.state.control_token = grant, token
             response = await call_next(request)
         except ControlError as error:
@@ -155,7 +162,10 @@ def create_app(controller):
                 raise ControlError('invalid_connection_request')
             if not (port := controller.connection_port()):
                 raise ControlError('gateway_address_changed', 409)
-            value = store.connect_address(request.state.control_token, payload['public_key'], controller.secret)
+            if request.state.account_generation:
+                value = store.connect_account_key(payload['public_key'], request.state.account_generation, controller.secret)
+            else:
+                value = store.connect_address(request.state.control_token, payload['public_key'], controller.secret)
             return dict(value, endpoint=controller.endpoint, fingerprint=controller.fingerprint, gateway_port=port)
         return await execute(request, issue)
 

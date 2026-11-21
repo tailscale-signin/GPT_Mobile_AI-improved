@@ -1,5 +1,6 @@
 """Native operator controls backed by the same stores and validators as the supervisor."""
 from pathlib import Path
+import hashlib
 import json
 import time
 import re
@@ -55,28 +56,50 @@ def schedules(root, action, args):
 CONNECTION_FIELDS = {'bind_host', 'port', 'network_hostnames', 'shutdown_seconds', 'mcp_config'}
 
 
+def _mcp_digest(path):
+    if not path:
+        return None
+    try:
+        file = Path(path)
+        if not file.is_file() or file.stat().st_size > 1024 * 1024:
+            return None
+        with file.open('rb') as stream:
+            content = stream.read(1024 * 1024 + 1)
+        return hashlib.sha256(content).hexdigest() if len(content) <= 1024 * 1024 else None
+    except OSError:
+        return None
+
+
+def _mcp_profiles(root):
+    try:
+        saved = json.loads((root / 'data' / 'approved-mcp-files.json').read_text(encoding='utf-8'))
+        return saved if isinstance(saved, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def phone_connection_settings(store, principal, command=None):
     from desktop.control_store import ControlError
     snapshot = store.snapshot(principal)
     if snapshot['role'] != 'owner' or not (store.connected_account == principal or snapshot['capabilities'].get('privateAddress.v1')):
         raise ControlError('connection_settings_owner_required', 403)
     if command is None:
-        return connection(store.root, 'connection-read', {})['settings']
+        return connection(store.root, 'connection-read', {}, phone=True)['settings']
     if not isinstance(command, dict) or set(command) != {'original', 'changes'}:
         raise ControlError('invalid_connection_settings')
     changes = command['changes']
     # The MCP file selects executable host processes. Files are installed on the PC.
-    if not isinstance(changes, dict) or not changes or not changes.keys() <= CONNECTION_FIELDS - {'mcp_config'}:
+    if not isinstance(changes, dict) or not changes or not changes.keys() <= CONNECTION_FIELDS:
         raise ControlError('invalid_connection_settings')
     try:
-        return connection(store.root, 'connection-save', command)['settings']
+        return connection(store.root, 'connection-save', command, phone=True)['settings']
     except ValueError as error:
         if str(error).startswith('Connection settings changed'):
             raise ControlError('connection_settings_changed', 409) from None
         raise ControlError('invalid_connection_settings') from None
 
 
-def connection(root, action, args):
+def connection(root, action, args, *, phone=False):
     fields = CONNECTION_FIELDS
     if action == 'connection-firewall':
         from desktop.firewall import apply
@@ -85,13 +108,37 @@ def connection(root, action, args):
     with configuration.settings_write_lock(root):
         current = configuration.load(root)
         selected = {key: current[key] for key in fields}
+        catalog = _mcp_profiles(root)
         if action == 'connection-save':
             changes = args.get('changes')
-            if not isinstance(changes, dict) or not changes.keys() <= fields or args.get('original') != selected:
+            original = args.get('original')
+            if phone and isinstance(original, dict):
+                original = {key: value for key, value in original.items() if key != 'mcp_choices'}
+            if not isinstance(changes, dict) or not changes.keys() <= fields or original != selected:
                 raise ValueError('Connection settings changed. Reload before applying your edits.')
+            if phone and 'mcp_config' in changes:
+                path = changes['mcp_config']
+                if not isinstance(path, str) or path and (path not in catalog or catalog[path] != _mcp_digest(path)):
+                    raise ValueError('Choose an unchanged MCP file previously selected on the PC.')
             updated = configuration.validate(dict(current, **changes))
+            if not phone and 'mcp_config' in changes:
+                for path in (selected['mcp_config'], updated['mcp_config']):
+                    if digest := _mcp_digest(path):
+                        catalog.pop(path, None)
+                        catalog[path] = digest
+                catalog = dict(list(catalog.items())[-16:])
+                configuration.atomic_json(root / 'data' / 'approved-mcp-files.json', catalog)
+            elif phone and selected['mcp_config'] and changes.get('mcp_config') == '' and selected['mcp_config'] not in catalog:
+                # Preserve the installed desktop selection when an upgraded phone selects the default.
+                path = selected['mcp_config']
+                if digest := _mcp_digest(path):
+                    catalog[path] = digest
+                    catalog = dict(list(catalog.items())[-16:])
+                    configuration.atomic_json(root / 'data' / 'approved-mcp-files.json', catalog)
             configuration.atomic_json(root / 'settings.json', updated)
             selected = {key: updated[key] for key in fields}
+        if phone:
+            selected['mcp_choices'] = sorted({'', *catalog, selected['mcp_config']})
         return {'settings': selected, 'restart_required': action == 'connection-save'}
 
 

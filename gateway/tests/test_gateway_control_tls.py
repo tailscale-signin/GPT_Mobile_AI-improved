@@ -180,6 +180,120 @@ class PairedControlTlsTests(unittest.TestCase):
         self.assertEqual(8090, self.control.supervisor.cfg['port'])
         self.assertEqual(400, signed(phone, token, 'PATCH', path, {'original': applied.json(), 'changes': {'mcp_config': 'arbitrary'}}).status_code)
 
+    def test_private_network_owner_proof_enables_settings_and_engineering_without_an_invitation(self):
+        from desktop.account_address import credential_key, tag
+        from desktop.control_store import FIELDS, retained_device_grant
+        from desktop.control_server import create_app
+        from desktop.workspace_actions import connection
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from urllib.parse import parse_qs, urlsplit
+        from v14.config import Config
+        from v14.identity import Admission
+        from v14.job_catalog import install_routes
+        from v14.engineering import EngineeringStore
+
+        host, phone = '192.168.1.8', '192.168.1.25'
+        self.control.supervisor.cfg.update(access='network', bind_host=host)
+        atomic_json(self.root / 'settings.json', self.control.supervisor.cfg)
+        self.control.endpoint = 'https://' + host + ':8091'
+        self.control.allowed_hosts.add(host + ':8091')
+        atomic_json(self.root / 'data' / 'account-address-listener.json',
+                    dict(endpoint=self.control.endpoint, fingerprint=self.control.fingerprint))
+        app = FastAPI()
+        app.state.connected_settings_root = self.root
+        records = SimpleNamespace(runtime=SimpleNamespace(GATEWAY_DURABLE_JOBS=True), now=time.time,
+                                  gateway_id=lambda: 'tls-integration-pc')
+        install_routes(app, records, None, SimpleNamespace(instance_id='test'), None)
+        app.add_middleware(Admission, config=Config(mode='open_network', host=host, allowed_hosts=(host + ':8090',)))
+        tls = create_app(self.control)
+
+        def issue(token, path='/gateway/connect', method='POST', payload=None):
+            body = json.dumps({'public_key': self.public} if payload is None else payload).encode() if method != 'GET' else b''
+            with TestClient(tls, base_url=self.control.endpoint, client=(phone, 4321)) as client:
+                return client.request(method, path, content=body, headers=self.headers(token, method, path, body))
+
+        def discover(path):
+            with TestClient(app, base_url='http://' + host + ':8090', client=(phone, 4321)) as client:
+                return client.get(path).json()
+
+        from desktop.validation_policy import load_policy_snapshot, save_policy_snapshot
+        policy = {'owner/repo': {'mirror': str(self.root / 'mirror'), 'image': 'fixture@sha256:' + 'a' * 64,
+                                    'commands': [['python3', '-m', 'unittest']]}}
+        save_policy_snapshot(self.root, policy, enabled=True, expected_revision=load_policy_snapshot(self.root)['revision'])
+        with patch('desktop.account_address.read_token', return_value='ghp_' + 'A' * 40) as secret:
+            self.assertNotIn('account_connection', discover('/v1/gateway/identity'))
+            offer = discover('/v1/gateway/identity?connect=1')['account_connection']
+            fields = {k: v[0] for k, v in parse_qs(urlsplit(offer).query).items()}
+            key = credential_key(self.root)
+            context = [fields[k] for k in ('installation_id', 'endpoint', 'fingerprint', 'gateway_port', 'expires')]
+            self.assertEqual('host_' + fields['expires'] + '_' + tag(key, 'server', *context), fields['code'])
+            proof = 'device_' + fields['expires'] + '_' + tag(key, 'device', *context, self.public)
+            self.assertIn(issue(fields['code']).status_code, (401, 403))
+            self.assertEqual(403, issue(proof[:-1] + ('1' if proof[-1] == '0' else '0')).status_code)
+            grant = issue(proof)
+            self.assertEqual(200, grant.status_code, grant.text)
+            token, principal = (grant.json()[k] for k in ('token', 'principal_id'))
+            self.assertEqual(token, issue(proof).json()['token'])
+            confirmed = issue(token, '/gateway/settings', 'GET').json()
+            self.assertEqual(FIELDS, set(confirmed['writable_fields']))
+            self.assertTrue(confirmed['desired']['engineering_enabled'])
+            self.assertEqual(['owner/repo'], json.loads(retained_device_grant(self.control.store.path, principal)['repositories']))
+            # Exercise the same worker state machine against the new principal and actual SQLite grant.
+            import sqlite3
+            import threading
+            from v14.engineering import EngineeringService
+            from v14.execution_binding import fingerprint
+            from test_gateway_v14_engineering import Backend, DurableEngineeringTests
+
+            def connect_db():
+                db = sqlite3.connect(self.control.store.path)
+                db.row_factory = sqlite3.Row
+                return db
+
+            runtime = SimpleNamespace(LLAMA_BASE='http://localhost:8080', GATEWAY_DURABLE_JOBS=True,
+                                      durable_job_initialized=True, durable_job_lock=threading.RLock(),
+                                      _durable_connect=connect_db)
+            store = EngineeringStore(runtime)
+            backend = Backend()
+            service = EngineeringService(store, backend)
+            service.capabilities._probe = lambda route, model: {
+                'requested_model_id': model, 'reported_model_id': model, 'limits_verified': True,
+                'context_tokens': 32768, 'max_output_tokens': 32768, 'model_revision': None,
+                'template_digest': None, 'capability_revision': fingerprint([route, model]),
+                'supported': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET']}
+            request = {'repository': 'owner/repo', 'branch': 'feature/job', 'base': 'main', 'objective': 'Repair the build',
+                       'model': 'local', 'profile_id': 'test-profile', 'request_id': 'private-device', 'chat_id': 12,
+                       'acceptance': [{'id': 'build-fix', 'paths': ['file'], 'checks': ['tests']}]}
+            DurableEngineeringTests.admit(SimpleNamespace(service=service, runtime=runtime, request=request), principal)
+            job = store.create(principal, request)
+            for _ in range(7):
+                service.tick(job['id'])
+            self.assertEqual('MERGE_READY', store.get(job['id'])['state'])
+            self.assertNotIn('merge', backend.calls)
+
+            file = self.root / 'approved.json'
+            file.write_text('{}')
+            local = connection(self.root, 'connection-read', {})['settings']
+            connection(self.root, 'connection-save', {'original': local, 'changes': {'mcp_config': str(file)}})
+            path = '/gateway/settings/connection'
+            current = issue(token, path, 'GET').json()
+            self.assertIn(str(file), current['mcp_choices'])
+            def select(original, name):
+                return issue(token, path, 'PATCH', {'original': original, 'changes': {'mcp_config': name}})
+            default = select(current, '').json()
+            self.assertEqual(str(file), select(default, str(file)).json()['mcp_config'])
+            default = select(issue(token, path, 'GET').json(), '').json()
+            file.write_text('{"changed":true}')
+            self.assertEqual(400, select(default, str(file)).status_code)
+            secret.return_value = None
+            self.assertEqual(401, issue(token, '/gateway/settings', 'GET').status_code)
+            self.assertIsNone(retained_device_grant(self.control.store.path, principal))
+            self.assertNotIn('account_connection', discover('/v1/gateway/identity?connect=1'))
+            secret.return_value = 'ghp_' + 'A' * 40
+            self.control.store.revoke(grant.json()['device_id'])
+            self.assertEqual(401, issue(proof).status_code)
+
     def test_real_tls_pair_shared_revision_original_receipt_and_revocation(self):
         grant = self.pair()
         initial = self.call(grant['token'], 'GET', '/gateway/settings').json()

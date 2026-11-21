@@ -101,7 +101,7 @@ end;
 procedure InitializeWizard;
 begin
   ModePage := CreateInputOptionPage(wpSelectDir, 'Connect to Gateway',
-    'Choose where you will use this PC.', 'Enter this PC’s IP in GPT Mobile. Use your Tailscale account, or allow your phone’s Wi-Fi IP in Connect phone after setup.', True, False);
+    'Choose where you will use this PC.', 'Enter this PC’s IP in GPT Mobile. Use your Tailscale account, or connect on private Wi-Fi with the same saved GitHub personal access token on both devices.', True, False);
   ModePage.Add('My phone and this PC');
   ModePage.Add('Only this PC');
   ModePage.Add('Advanced settings');

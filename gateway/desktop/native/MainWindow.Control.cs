@@ -202,6 +202,8 @@ public partial class MainWindow
                 hint.Text = "Enter this PC’s Tailscale address in Gateway settings on your phone. Sign in to the same Tailscale account on both devices.";
                 var address = Ui.Field(form, "Tailscale address", direct);
                 address.IsReadOnly = true;
+                address.FontSize = 20;
+                address.MinHeight = 48;
                 form.Children.Add(Ui.Button("Copy Tailscale address", () =>
                 {
                     Clipboard.SetText(direct);
@@ -210,7 +212,7 @@ public partial class MainWindow
             }
             else
             {
-                AddPrivatePhoneLink(form, hint, host, ip, viewEpoch);
+                AddPrivatePhoneLink(form, hint, host, ip, viewEpoch, (int)(current.Number("gateway_port") ?? 8090));
             }
             form.Children.Add(Ui.Text("Engineering is enabled automatically for the connected owner. Existing repository permissions, device identity and job approvals still apply.", 13, "MutedBrush"));
             form.Children.Add(Ui.Button("Network and firewall settings", () => Navigate("Settings/Connection")));
@@ -222,7 +224,7 @@ public partial class MainWindow
         });
     }
 
-    private void AddPrivatePhoneLink(StackPanel form, TextBlock hint, string host, System.Net.IPAddress ip, int viewEpoch)
+    private void AddPrivatePhoneLink(StackPanel form, TextBlock hint, string host, System.Net.IPAddress ip, int viewEpoch, int port)
     {
         ComboBox? adapter = null;
         if (ip.Equals(System.Net.IPAddress.Any) || ip.Equals(System.Net.IPAddress.IPv6Any))
@@ -249,8 +251,20 @@ public partial class MainWindow
         }
 
         string SelectedHost() => adapter?.SelectedItem?.ToString() ?? host;
-        hint.Text = "Copy a private connection link and paste it into Gateway settings on your phone.";
-        form.Children.Add(Ui.Button("Copy secure phone link", () => Run(async () =>
+        string Address() => new UriBuilder("http", SelectedHost(), port, "v1").Uri.AbsoluteUri;
+        hint.Text = "Enter this PC’s IP in Gateway settings on your phone. On Wi-Fi, the same saved GitHub personal access token on both devices enables settings and Engineering.";
+        var address = Ui.Field(form, "PC address", Address());
+        address.IsReadOnly = true;
+        address.FontSize = 20;
+        address.MinHeight = 48;
+        if (adapter is not null) adapter.SelectionChanged += (_, _) => address.Text = Address();
+        var copy = Ui.Button("Copy PC address", () => { Clipboard.SetText(address.Text); status.Text = "Gateway address copied."; }, true);
+        copy.Content = Ui.NavigationLabel("\uE8C8", "Copy PC address");
+        copy.MinHeight = 48;
+        form.Children.Add(copy);
+        var alternative = Ui.Column(Ui.Text("Use this link if this phone has a different GitHub credential.", 15, "MutedBrush"));
+        form.Children.Add(new Expander { Header = "Other connection options", Content = alternative });
+        alternative.Children.Add(Ui.Button("Copy secure phone link", () => Run(async () =>
         {
             // A short-lived TLS-pinned owner invitation; never use the legacy
             // phone-IP allowance or silently grant access to unpaired clients.
@@ -281,7 +295,7 @@ public partial class MainWindow
         }
         catch (NetworkInformationException) { }
         var host = Ui.Select(setup, "Control listener interface", addresses.Distinct());
-        setup.Children.Add(Ui.Text("Use the private interface reachable from your phone. Connect phone configures the TLS listener when you copy a secure phone link.", 13, "MutedBrush"));
+        setup.Children.Add(Ui.Text("Use the private interface reachable from your phone. Gateway starts this listener automatically on a private Wi-Fi interface.", 13, "MutedBrush"));
         var port = Ui.Field(setup, "Control TLS port", "8091");
         var listenerState = Ui.Text("Reading owner control listener…", 13, "MutedBrush"); setup.Children.Add(listenerState);
         bool ReachableSelection() => System.Net.IPAddress.TryParse(host.SelectedItem?.ToString(), out var selected) && !System.Net.IPAddress.IsLoopback(selected);

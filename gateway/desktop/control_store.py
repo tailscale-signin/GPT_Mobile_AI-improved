@@ -148,6 +148,7 @@ class ControlStore:
             'CREATE TABLE IF NOT EXISTS gateway_control_rejections (principal TEXT NOT NULL, id TEXT NOT NULL, digest TEXT NOT NULL, receipt TEXT NOT NULL, PRIMARY KEY(principal,id))',
             'CREATE TABLE IF NOT EXISTS gateway_control_devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, public_key TEXT NOT NULL, token_hash TEXT UNIQUE NOT NULL, role TEXT NOT NULL, fields TEXT NOT NULL, repositories TEXT NOT NULL, revoked INTEGER NOT NULL, created REAL NOT NULL)',
             'CREATE TABLE IF NOT EXISTS gateway_control_pairing (id TEXT PRIMARY KEY, code_hash TEXT UNIQUE NOT NULL, name TEXT NOT NULL, expires REAL NOT NULL, state TEXT NOT NULL, device_id TEXT, public_key TEXT, fields TEXT NOT NULL, repositories TEXT NOT NULL, role TEXT NOT NULL)',
+            'CREATE TABLE IF NOT EXISTS gateway_account_address_keys (device_id TEXT PRIMARY KEY, generation TEXT NOT NULL)',
             'CREATE TABLE IF NOT EXISTS gateway_control_address_devices (device_id TEXT PRIMARY KEY)',
             'CREATE TABLE IF NOT EXISTS gateway_control_nonces (principal TEXT NOT NULL, nonce TEXT NOT NULL, expires REAL NOT NULL, PRIMARY KEY(principal,nonce))',
             'CREATE TABLE IF NOT EXISTS engineering_admission_settings (principal TEXT PRIMARY KEY, enabled INTEGER NOT NULL, revision INTEGER NOT NULL)',
@@ -216,7 +217,7 @@ class ControlStore:
         if not principal.startswith('paired:'):
             return None
         row = db.execute('SELECT * FROM gateway_control_devices WHERE id=? AND revoked=0', (principal[7:],)).fetchone()
-        return dict(row) if row else None
+        return valid_account_device(db, row)
 
     def grant(self, principal):
         with self.tx() as db:
@@ -526,6 +527,29 @@ class ControlStore:
                 return {'pairing_id': row['id'], 'state': 'awaiting_confirmation'}, 202
             return self._issue_device(db, row, secret, row['state'] == 'connect_approved'), 200
 
+    def connect_account_key(self, public_key, generation, secret):
+        from desktop.phone_policies import state
+        from desktop.account_address import tag, credential_key
+        with self.tx() as db:
+            installation = self.installation(db)
+            key = credential_key(self.root)
+            if key is None or not hmac.compare_digest(generation, tag(key, 'credential generation', installation)):
+                raise ControlError('account_connection_changed', 403)
+            # Bind revocation to the device key, including after a host credential rotation.
+            device_id = tag(secret, 'account device', installation, public_key)[:32]
+            if not db.execute('SELECT 1 FROM gateway_account_address_keys WHERE device_id=?', (device_id,)).fetchone():
+                if db.execute('SELECT COUNT(*) FROM gateway_account_address_keys').fetchone()[0] >= 128:
+                    raise ControlError('account_device_limit', 429)
+            policy = state(self.root)
+            repos = sorted(policy['repositories']) if policy['state'] == 'READY' else []
+            row = dict(device_id=device_id, name='Android · GitHub credential', public_key=public_key,
+                       role='owner', fields=encoded(sorted(FIELDS)), repositories=encoded(repos))
+            db.execute('INSERT OR REPLACE INTO gateway_account_address_keys VALUES (?,?)', (device_id, generation))
+            receipt = self._issue_device(db, row, secret, True)
+            db.execute('INSERT OR IGNORE INTO gateway_control_address_devices VALUES (?)', (device_id,))
+            db.execute('UPDATE gateway_control_devices SET repositories=? WHERE id=?', (encoded(repos), device_id))
+            return receipt
+
     def connect_address(self, code, public_key, secret):
         with self.tx() as db:
             row = db.execute('SELECT * FROM gateway_control_pairing WHERE code_hash=? AND expires>?',
@@ -564,9 +588,10 @@ class ControlStore:
             raise ControlError('device_credential_required', 401)
         with self.tx() as db:
             row = db.execute('SELECT * FROM gateway_control_devices WHERE token_hash=? AND revoked=0', (self.digest(token),)).fetchone()
-            if not row:
+            device = valid_account_device(db, row)
+            if not device:
                 raise ControlError('access_revoked', 401)
-            return dict(row)
+            return device
 
     def nonce(self, principal, nonce, timestamp):
         if not isinstance(nonce, str) or not re.fullmatch('[a-fA-F0-9-]{16,64}', nonce) or abs(self.now() - timestamp) > 90:
@@ -593,6 +618,20 @@ class ControlStore:
         return {'device_id': device_id, 'revoked': True}
 
 
+def valid_account_device(db, row):
+    if not row:
+        return None
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_account_address_keys'").fetchone():
+        binding = db.execute('SELECT generation FROM gateway_account_address_keys WHERE device_id=?', (row['id'],)).fetchone()
+        if binding:
+            from desktop.account_address import tag, credential_key
+            root = Path(db.execute('PRAGMA database_list').fetchone()[2]).parent.parent
+            key = credential_key(root)
+            if key is None or not hmac.compare_digest(binding[0], tag(key, 'credential generation', ControlStore.installation(db))):
+                return None
+    return dict(row)
+
+
 def retained_device_grant(path, principal):
     """Read-only runtime recheck; never initialize tables or grant a shared user."""
     if not principal.startswith('paired:'):
@@ -602,7 +641,7 @@ def retained_device_grant(path, principal):
         try:
             db.row_factory = sqlite3.Row
             row = db.execute('SELECT * FROM gateway_control_devices WHERE id=? AND revoked=0', (principal[7:],)).fetchone()
-            return dict(row) if row else None
+            return valid_account_device(db, row)
         finally:
             db.close()
     except (OSError, sqlite3.Error):

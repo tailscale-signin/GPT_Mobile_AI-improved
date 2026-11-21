@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -12,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Refresh
@@ -20,11 +22,14 @@ import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -83,88 +89,90 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
             lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (isActive) {
                     model.refresh(profile)
-                    delay(if (model.states.value[profile.uid]?.phase in setOf(GatewayControlPhase.RECONCILING, GatewayControlPhase.PAIRING)) 5_000 else 15_000)
+                    delay(if (model.states.value[profile.uid]?.phase in setOf(GatewayControlPhase.RECONCILING, GatewayControlPhase.PAIRING)) 5_000 else 30_000)
                 }
             }
         }
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth(0.96f),
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        title = {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Settings, null)
-                Text("Gateway settings")
-            }
-        },
-        text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (profiles.isNotEmpty() && linkedAddress == null) {
-                    Box {
-                        OutlinedButton(onClick = { menu = true }, enabled = !busy) { Text(profile?.name?.take(120) ?: "Choose Gateway connection") }
-                        DropdownMenu(menu, { menu = false }) {
-                            profiles.forEach { candidate ->
-                                DropdownMenuItem(text = { Text(candidate.name.take(120)) }, onClick = {
-                                    selected = candidate.uid
-                                    model.clearError()
-                                    menu = false
-                                })
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(
+            modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().fillMaxHeight(0.96f),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Settings, null, tint = MaterialTheme.colorScheme.primary)
+                    Text("Gateway settings", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+                    IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close Gateway settings") }
+                }
+                HorizontalDivider()
+                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    if (profiles.isNotEmpty() && linkedAddress == null) {
+                        Box {
+                            OutlinedButton(onClick = { menu = true }, enabled = !busy) { Text(profile?.name?.take(120) ?: "Choose Gateway connection") }
+                            DropdownMenu(menu, { menu = false }) {
+                                profiles.forEach { candidate ->
+                                    DropdownMenuItem(text = { Text(candidate.name.take(120)) }, onClick = {
+                                        selected = candidate.uid
+                                        model.clearError()
+                                        menu = false
+                                    })
+                                }
                             }
                         }
                     }
-                }
-                var addConnection by remember { mutableStateOf(false) }
-                if (linkedAddress != null && profile == null) {
-                    Text(linkedAddress)
-                    OutlinedButton(onClick = { model.connectAddress(linkedAddress, initialPairingLink) { selected = it } }, enabled = !busy) { Text("Connect to this PC") }
-                } else if (initialPairingLink == null) {
-                    if (profiles.isNotEmpty()) {
-                        TextButton(onClick = { addConnection = !addConnection }, enabled = !busy) {
-                            Text(if (addConnection) "Close address entry" else "Connect by address")
-                        }
-                    }
-                    if (profiles.isEmpty() || addConnection) {
-                        // A LAN address may include a one-use credential. Keep it out of saved instance state.
-                        var address by remember { mutableStateOf("") }
-                        Text("Enter your PC’s IP. The default Gateway port is 8090.")
-                        OutlinedTextField(address, { address = it.take(4096) }, label = { Text("PC IP or Gateway URL") }, placeholder = { Text("192.168.1.20") }, leadingIcon = { Icon(Icons.Rounded.Computer, null) }, modifier = Modifier.fillMaxWidth(), singleLine = true, visualTransformation = if ('#' in address) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None)
-                        OutlinedButton(onClick = {
-                            model.connectAddress(address) {
-                                selected = it
-                                address = ""
-                                addConnection = false
+                    var addConnection by remember { mutableStateOf(false) }
+                    if (linkedAddress != null && profile == null) {
+                        Text(linkedAddress)
+                        OutlinedButton(onClick = { model.connectAddress(linkedAddress, initialPairingLink) { selected = it } }, enabled = !busy) { Text("Connect to this PC") }
+                    } else if (initialPairingLink == null) {
+                        if (profiles.isNotEmpty()) {
+                            TextButton(onClick = { addConnection = !addConnection }, enabled = !busy) {
+                                Text(if (addConnection) "Close address entry" else "Connect by address")
                             }
-                        }, modifier = Modifier.fillMaxWidth(), enabled = address.isNotBlank() && !busy) {
-                            Icon(Icons.Rounded.Link, null)
-                            Text("Connect", Modifier.padding(start = 8.dp))
+                        }
+                        if (profiles.isEmpty() || addConnection) {
+                            // A LAN address may include a one-use credential. Keep it out of saved instance state.
+                            var address by remember { mutableStateOf("") }
+                            Text("Enter your PC’s IP. The default Gateway port is 8090.")
+                            OutlinedTextField(address, { address = it.take(4096) }, label = { Text("PC IP or Gateway URL") }, placeholder = { Text("192.168.1.20") }, leadingIcon = { Icon(Icons.Rounded.Computer, null) }, modifier = Modifier.fillMaxWidth(), singleLine = true, visualTransformation = if ('#' in address) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None)
+                            OutlinedButton(onClick = {
+                                model.connectAddress(address) {
+                                    selected = it
+                                    address = ""
+                                    addConnection = false
+                                }
+                            }, modifier = Modifier.fillMaxWidth(), enabled = address.isNotBlank() && !busy) {
+                                Icon(Icons.Rounded.Link, null)
+                                Text("Connect", Modifier.padding(start = 8.dp))
+                            }
                         }
                     }
-                }
-                profile?.let {
-                    val direct by model.direct.collectAsStateWithLifecycle()
-                    val overviews by model.networkOverview.collectAsStateWithLifecycle()
-                    val overview = overviews[it.uid to it.apiUrl]?.takeIf { _ -> initialPairingLink == null && states[it.uid]?.phase == GatewayControlPhase.UNPAIRED }
-                    val admission = direct[it.uid to it.apiUrl]?.takeIf { _ -> states[it.uid]?.phase == GatewayControlPhase.UNPAIRED && initialPairingLink == null }
-                    if (overview != null) {
-                        GatewayNetworkOverview(overview)
-                        Text("To edit server settings, connect through your Tailscale account or allow this phone on the PC.", style = MaterialTheme.typography.bodyMedium)
-                        TextButton(onClick = { model.refresh(it, forceNetwork = true) }, enabled = !busy) { Text("Refresh settings") }
-                    } else if (admission != null) {
-                        Text("Connected", style = MaterialTheme.typography.titleMedium)
-                        Text(if (admission.enabled) "Engineering on" else "Engineering off")
-                        if (admission.principalId.startsWith("tailnet:")) {
-                            Switch(admission.enabled, onCheckedChange = { _ -> model.toggleDirect(it) }, enabled = !busy)
+                    profile?.let {
+                        val direct by model.direct.collectAsStateWithLifecycle()
+                        val overviews by model.networkOverview.collectAsStateWithLifecycle()
+                        val overview = overviews[it.uid to it.apiUrl]?.takeIf { _ -> initialPairingLink == null && states[it.uid]?.phase == GatewayControlPhase.UNPAIRED }
+                        val admission = direct[it.uid to it.apiUrl]?.takeIf { _ -> states[it.uid]?.phase == GatewayControlPhase.UNPAIRED && initialPairingLink == null }
+                        if (overview != null) {
+                            GatewayNetworkOverview(overview)
+                            Text("Settings are view-only on this connection. For editing and Engineering, use the PC’s Tailscale IP or the same saved GitHub personal access token on both devices.", style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = { model.refresh(it, forceNetwork = true) }, enabled = !busy) { Text("Refresh settings") }
+                        } else if (admission != null) {
+                            Text("Connected", style = MaterialTheme.typography.titleMedium)
+                            Text(if (admission.enabled) "Engineering on" else "Engineering off")
+                            if (admission.principalId.startsWith("tailnet:")) {
+                                Switch(admission.enabled, onCheckedChange = { _ -> model.toggleDirect(it) }, enabled = !busy)
+                            }
+                        } else {
+                            GatewayControlSettingsContent(it, states[it.uid] ?: GatewayControlState(targetName = it.name), busy, model, initialPairingLink)
                         }
-                    } else {
-                        GatewayControlSettingsContent(it, states[it.uid] ?: GatewayControlState(targetName = it.name), busy, model, initialPairingLink)
                     }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
-    )
+        }
+    }
 }
 
 private val sharedSettingLabels = listOf(
@@ -252,7 +260,7 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
         }
     }
     if (!showPairing && state.phase in setOf(GatewayControlPhase.UNPAIRED, GatewayControlPhase.REVOKED)) {
-        Text("For server settings, use the PC’s Tailscale IP or allow this phone’s Wi-Fi IP under Connect phone on the PC.", style = MaterialTheme.typography.bodyMedium)
+        Text("Enter the PC’s Tailscale IP, or its private Wi-Fi IP if both devices already use the same GitHub personal access token.", style = MaterialTheme.typography.bodyMedium)
     }
     if (showPairing || state.phase == GatewayControlPhase.PAIRING) {
         Text("Paste the invitation from the PC’s device access settings.", style = MaterialTheme.typography.bodySmall)
@@ -333,7 +341,7 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
             val available = fields.filter { it.wire in snapshot.desired }
             if (available.isEmpty()) continue
             OutlinedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     TextButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
                         Icon(icon, null)
                         Text(title, Modifier.weight(1f).padding(horizontal = 12.dp), style = MaterialTheme.typography.titleMedium)
@@ -364,12 +372,14 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
         }
         val serverModel = (snapshot.desired["model"] as? JsonPrimitive)?.content.orEmpty().ifBlank { profile.model }
         if (serverModel.isNotBlank() && profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA) {
+            val automatic by model.modelStatus.collectAsStateWithLifecycle()
             var preparationMessage by remember(profile.uid, profile.apiUrl, serverModel, snapshot.effective["backend"]) { mutableStateOf("") }
             OutlinedButton(
                 onClick = { model.prepareModel(profile, serverModel) { preparationMessage = it } },
                 enabled = live && snapshot.desired["backend"] == snapshot.effective["backend"] && draft.isEmpty()
             ) { Text("Prepare model · $serverModel") }
-            if (preparationMessage.isNotBlank()) Text(preparationMessage, style = MaterialTheme.typography.bodyMedium)
+            val observed = preparationMessage.ifBlank { automatic[profile.uid].orEmpty() }
+            if (observed.isNotBlank()) Text(observed, style = MaterialTheme.typography.bodyMedium)
         }
         snapshot.pending.forEach { pending ->
             OutlinedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
@@ -474,17 +484,17 @@ private fun GatewayControlSettingsContent(profile: PlatformV2, state: GatewayCon
 @Composable
 private fun GatewayControlFieldEditor(field: GatewayControlField, requested: JsonElement, effective: JsonElement?, enabled: Boolean, choices: Map<String, String>, onChange: (JsonElement) -> Unit) {
     val value = (requested as? JsonPrimitive)?.content.orEmpty()
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         when {
-            field.boolean -> Row(verticalAlignment = Alignment.CenterVertically) {
+            field.boolean -> Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(field.label, Modifier.weight(1f))
                 Switch((requested as? JsonPrimitive)?.booleanOrNull == true, { onChange(JsonPrimitive(it)) }, enabled = enabled)
             }
             field.choices.isNotEmpty() || field in setOf(GatewayControlField.VALIDATION_PROFILE, GatewayControlField.BACKEND) -> {
                 var expanded by remember(field) { mutableStateOf(false) }
-                Text(field.label, style = MaterialTheme.typography.labelMedium)
+                Text(field.label, style = MaterialTheme.typography.titleSmall)
                 Box {
-                    OutlinedButton(onClick = { expanded = true }, enabled = enabled && choices.isNotEmpty()) { Text(choices[value] ?: if (field == GatewayControlField.BACKEND) value else value.replaceFirstChar(Char::uppercase)) }
+                    OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = enabled && choices.isNotEmpty()) { Text(choices[value] ?: if (field == GatewayControlField.BACKEND) value else value.replaceFirstChar(Char::uppercase)) }
                     DropdownMenu(expanded, { expanded = false }) {
                         choices.forEach { (choice, label) ->
                             DropdownMenuItem(text = { Text(label) }, onClick = {
@@ -547,10 +557,10 @@ private fun GatewayHostConnectionEditor(profile: PlatformV2, live: Boolean, busy
         }
     }
     OutlinedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             TextButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.Computer, null)
-                Text("Network and shutdown", Modifier.weight(1f).padding(horizontal = 12.dp), style = MaterialTheme.typography.titleMedium)
+                Text("Network, tools and shutdown", Modifier.weight(1f).padding(horizontal = 12.dp), style = MaterialTheme.typography.titleMedium)
                 Text(if (expanded) "Hide" else "Show")
             }
             if (expanded) {
@@ -568,7 +578,26 @@ private fun GatewayHostConnectionEditor(profile: PlatformV2, live: Boolean, busy
                         )
                     }
                     val mcp = (saved["mcp_config"] as? JsonPrimitive)?.content.orEmpty()
-                    Text("MCP configuration · ${mcp.ifBlank { "Gateway default" }}", style = MaterialTheme.typography.bodyMedium)
+                    val choices = (saved["mcp_choices"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }
+                    if (choices == null) {
+                        Text("MCP configuration · ${mcp.ifBlank { "Gateway default" }}")
+                    } else {
+                        var chooseFile by remember { mutableStateOf(false) }
+                        Text("MCP configuration", style = MaterialTheme.typography.titleSmall)
+                        Box {
+                            OutlinedButton(onClick = { chooseFile = true }, enabled = live, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                Text((edits["mcp_config"] ?: mcp).ifBlank { "Gateway default" })
+                            }
+                            DropdownMenu(chooseFile, { chooseFile = false }) {
+                                choices.forEach { path ->
+                                    DropdownMenuItem(text = { Text(path.ifBlank { "Gateway default" }) }, onClick = {
+                                        edits = if (path == mcp) edits - "mcp_config" else edits + ("mcp_config" to path)
+                                        chooseFile = false
+                                    })
+                                }
+                            }
+                        }
+                    }
                     Text("Restart the Gateway on the PC to activate a new listener. Use the new IP or port to reconnect.", style = MaterialTheme.typography.bodySmall)
                     val changes = edits.mapValues { (key, value) ->
                         if (key in setOf("port", "shutdown_seconds")) value.toIntOrNull()?.let(::JsonPrimitive) else JsonPrimitive(value)

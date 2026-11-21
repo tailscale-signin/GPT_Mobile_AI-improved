@@ -2,7 +2,9 @@
 
 Open **Connect phone** on Windows. If the Gateway uses Tailscale, copy the displayed PC address or enter the PC’s Tailscale IP in **Gateway settings** on Android, then tap **Connect**. Both devices must use the same Tailscale account. The PC verifies the phone’s identity through its local Tailscale daemon. The default Gateway port is 8090.
 
-On trusted private Wi-Fi, select **Copy secure phone link** on Windows. Paste the full link into **Gateway settings** on Android and tap **Connect** within five minutes. If the PC has several network interfaces, **Advanced network choice** lets you select the one your phone can reach. Android verifies the certificate fingerprint in the link and signs its request over TLS. Future connections use the saved certificate and device key, including after the phone’s IP changes. Windows can revoke the device under **Settings → Devices**.
+On private Wi-Fi, enter the PC's IP on Android. When both devices already use the same GitHub.com personal access token, they verify a short-lived proof tied to the installation, TLS certificate and Android device key. The token stays in each device’s credential store. Rotating the token on the PC invalidates existing account-based Wi-Fi credentials. Devices without an owner identity can view the shared settings overview.
+
+If the devices use different credentials, **Other connection options** on Windows includes **Copy secure phone link**. Paste the full link into **Gateway settings** on Android and tap **Connect** within five minutes. If the PC has several network interfaces, **Advanced network choice** lets you select the one your phone can reach. Android verifies the certificate fingerprint in the link and signs its request over TLS. Future connections use the saved certificate and device key, including after the phone’s IP changes. Windows can revoke the device under **Settings → Devices**.
 
 Engineering starts enabled for a new owner. The PC’s model, GitHub connection and approved repositories determine which jobs can run. Existing owner and viewer grants retain their permissions.
 

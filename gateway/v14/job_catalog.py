@@ -184,6 +184,11 @@ def install_routes(app, conversations, engineering, service, ownership):
                         result['network_settings'] = overview
                 except (OSError, TypeError, ValueError):
                     pass
+                if request.query_params.get('connect') == '1':
+                    from desktop.account_address import offer
+                    port = (request.scope.get('server') or ('', 0))[1]
+                    if descriptor := offer(root, request.client.host, host, port, result['gateway_id']):
+                        result['account_connection'] = descriptor
                 try:
                     window = json.loads((root / 'data' / 'phone-connect-window.json').read_text(encoding='utf-8'))
                     if window['host'] == host and window['peer'] == request.client.host and window['expires'] > conversations.now():

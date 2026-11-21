@@ -20,6 +20,20 @@ import org.junit.Test
 
 class GatewayControlRepositoryTest {
     @Test
+    fun accountProofMatchesGatewayWireFormatAndBindsDeviceAndCertificate() {
+        val account = requireNotNull(GatewayAddressAccountKey.from(("ghp_" + "A".repeat(40)).toByteArray()))
+        account.use {
+            val link = GatewayPairingLink("https://192.168.1.8:8091", "test-gateway", "c".repeat(64), "host_2000000000_be59e023dba8470cc168d8a5afc9066f103d9d7b6821e747cc3174095517b915", 2000000000, 8090)
+            assertTrue(it.matches(link))
+            assertFalse(it.matches(link.copy(fingerprint = "d".repeat(64))))
+            assertFalse(it.matches(link.copy(gatewayPort = 8080)))
+            assertEquals("device_2000000000_9e1d3c329b0818d9c0e1edc4e563603357466932bcfbb838e0c06243ed8ab12c", it.deviceProof(link, "test-key"))
+            assertFalse(it.deviceProof(link, "other-key") == it.deviceProof(link, "test-key"))
+        }
+        assertEquals(null, GatewayAddressAccountKey.from("not-a-personal-token".toByteArray()))
+    }
+
+    @Test
     fun ipEntryUsesGatewayPortAndPreservesExplicitOrigins() {
         assertEquals("http://192.168.1.8:8090/v1", gatewayAddressEndpoint("192.168.1.8").toString())
         assertEquals("http://100.70.2.4:8123/v1", gatewayAddressEndpoint("100.70.2.4:8123").toString())

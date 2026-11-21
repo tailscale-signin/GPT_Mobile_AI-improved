@@ -180,7 +180,7 @@ class ReadUrlTool(
             val message = "Read URL failed: ${exception.message}."
             val refusal = exception.redirectRefusal
             if (refusal != null) {
-                observedFailure(error(callId, message, exception.dispatched, code = "REDIRECT_FAILED"), refusal.name)
+                observedFailure(error(callId, message, exception.dispatched, status = exception.httpStatus, code = "REDIRECT_FAILED"), refusal.name)
             } else {
                 error(callId, message, exception.dispatched, status = exception.httpStatus)
             }
@@ -241,11 +241,11 @@ class ReadUrlTool(
                 onResponseReceived()
                 val status = response.status.value
                 if (status in REDIRECT_STATUSES) {
-                    if (redirects >= MAX_REDIRECTS) throw ReadUrlException("too many redirects", dispatched = true, redirectRefusal = RedirectRefusal.HOP_LIMIT)
+                    if (redirects >= MAX_REDIRECTS) throw ReadUrlException("too many redirects", dispatched = true, httpStatus = status, redirectRefusal = RedirectRefusal.HOP_LIMIT)
                     val location = response.headers[HttpHeaders.Location]?.trim().orEmpty()
-                    if (location.isBlank()) throw ReadUrlException("missing Location header", dispatched = true, redirectRefusal = RedirectRefusal.LOCATION_MISSING)
-                    val next = parseResolvedRedirect(current, location)
-                    if (!seen.add(next.toASCIIString())) throw ReadUrlException("redirect loop", dispatched = true, redirectRefusal = RedirectRefusal.LOOP)
+                    if (location.isBlank()) throw ReadUrlException("missing Location header", dispatched = true, httpStatus = status, redirectRefusal = RedirectRefusal.LOCATION_MISSING)
+                    val next = parseResolvedRedirect(current, location, status)
+                    if (!seen.add(next.toASCIIString())) throw ReadUrlException("redirect loop", dispatched = true, httpStatus = status, redirectRefusal = RedirectRefusal.LOOP)
                     current = next
                     redirects += 1
                     return@request null
@@ -535,10 +535,10 @@ class ReadUrlTool(
         .getOrNull()
         ?: StandardCharsets.UTF_8
 
-    private fun parseResolvedRedirect(base: URI, location: String): URI {
+    private fun parseResolvedRedirect(base: URI, location: String, status: Int): URI {
         val next = base.toString().toHttpUrlOrNull()?.resolve(location)?.newBuilder()?.fragment(null)?.build()?.toUri()
-            ?: throw ReadUrlException("malformed redirect URL", dispatched = true, redirectRefusal = RedirectRefusal.LOCATION_INVALID)
-        if (!next.isAllowedUrl()) throw ReadUrlException("malformed redirect URL", dispatched = true, redirectRefusal = RedirectRefusal.LOCATION_INVALID)
+            ?: throw ReadUrlException("malformed redirect URL", dispatched = true, httpStatus = status, redirectRefusal = RedirectRefusal.LOCATION_INVALID)
+        if (!next.isAllowedUrl()) throw ReadUrlException("malformed redirect URL", dispatched = true, httpStatus = status, redirectRefusal = RedirectRefusal.LOCATION_INVALID)
         return next
     }
 

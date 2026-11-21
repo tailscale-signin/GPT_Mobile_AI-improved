@@ -446,7 +446,7 @@ class AgentRunner(
                     ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
                 }
                 val completed = processToolCalls(
-                    calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
+                    calls, toolByName, executableToolByName, exposedDefinitions, roundDefinitions, exchanges, dynamicTools, selectDefinitions,
                     initialSchemaTokens, replayTokens, toolCallsByName, repeatAdmissionHistory, consecutiveToolFailures, blockedReadScopes,
                     remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
                     retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation,
@@ -812,6 +812,8 @@ class AgentRunner(
         val roundFailure = requireNotNull(round.failure)
         val hasUnknownOutcome = retainedUnknownOutcome || unknownSignatureCount > 0
         fun unresolvedToolEvidence() = buildJsonObject {
+            put("recovery_observation", "RECONCILIATION_REQUIRED")
+            put("pending_tool_receipt_state", "OUTCOMES_UNRESOLVED")
             put(
                 "reconciliation_source",
                 when {
@@ -1009,6 +1011,7 @@ class AgentRunner(
         toolByName: Map<String, AgentTool>,
         initialTools: Map<String, AgentTool>,
         initialDefinitions: List<AgentToolDefinition>,
+        roundDefinitions: List<AgentToolDefinition>,
         exchanges: MutableList<AgentToolExchange>,
         dynamicTools: () -> List<AgentTool>,
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>,
@@ -1134,7 +1137,8 @@ class AgentRunner(
 
         val pausedGitHubNames = exposedDefinitions.filter { limits.githubMode && ProgressiveToolCatalog.isGitHubTool(it) && it.name !in executableToolByName }.mapTo(hashSetOf()) { it.name }
         val admittedIds = executableCalls.mapTo(hashSetOf()) { it.callId }
-        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges, pausedGitHubNames).map { result ->
+        val availableCatalog = roundDefinitions.filter { it.modelVisible && it.name in executableToolByName }.associateBy { it.name }
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, availableCatalog, exchanges, pausedGitHubNames).map { result ->
             fun admissionReason(id: String) = when (id) {
                 in plan.dependencyDeferredIds -> ToolDependencyDiagnostics.Admission.PREREQUISITE_DEFERRED
                 in plan.unavailableIds -> if (decisionCalls.isEmpty()) ToolDependencyDiagnostics.Admission.TOOL_UNAVAILABLE else ToolDependencyDiagnostics.Admission.DECISION_REQUIRED
@@ -1243,7 +1247,7 @@ class AgentRunner(
         return SearchRoundContext(names, successful)
     }
 
-    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableNames: Set<String>, exchanges: List<AgentToolExchange>, pausedGitHubNames: Set<String> = emptySet()): List<AgentToolResult> = calls.map { call ->
+    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableCatalog: Map<String, AgentToolDefinition>, exchanges: List<AgentToolExchange>, pausedGitHubNames: Set<String> = emptySet()): List<AgentToolResult> = calls.map { call ->
         if (call.callId in unavailableIds) {
             if (call.name in pausedGitHubNames) {
                 return@map ToolResultEnvelope.error(
@@ -1252,9 +1256,27 @@ class AgentRunner(
                     "This authorized GitHub tool remains visible, but execution is paused for this response after repeated failures or a repeat limit. Nothing was dispatched. Use the retained error's correction or another authorized GitHub operation; resume the paused operation after its blocker is resolved."
                 )
             }
+            val availableNames = availableCatalog.keys
+            val suggested = when {
+                call.name in availableNames -> null
+                call.name.substringAfterLast("__") in setOf("read_url", "firecrawl_scrape", "fetch_url") && "url" in call.arguments && "read_url" in availableNames -> "read_url"
+                call.name.substringAfterLast("__") in setOf("search", "search_web", "web_search", "firecrawl_search") && "query" in call.arguments && "web_search" in availableNames -> "web_search"
+                ProgressiveToolCatalog.NAME in availableNames -> ProgressiveToolCatalog.NAME
+                else -> null
+            }
+            val availableList = availableNames.sorted().take(32).joinToString(", ") { name ->
+                val required = availableCatalog.getValue(name).inputSchema["required"] as? JsonArray
+                val fields = required.orEmpty().take(6).mapNotNull { (it as? JsonPrimitive)?.content?.take(60) }
+                if (fields.isEmpty()) name else "$name (requires ${fields.joinToString(", ")})"
+            }.ifEmpty { "none" }
+            val recovery = when (suggested) {
+                ProgressiveToolCatalog.NAME -> " Use $suggested to look up this capability, then use the name and schema it returns."
+                null -> " If none of these tools provides the capability, use the evidence already collected and explain what is missing."
+                else -> " Use the advertised $suggested schema for this request."
+            }
             return@map AgentToolResult(
                 call.callId,
-                ToolResultContent.Text("The requested tool '${call.name}' is not available in this round. Nothing was dispatched. Use an exact advertised tool name and its schema. Available tools: " + availableNames.sorted().take(32).joinToString(", ").ifEmpty { "none; answer using the evidence already collected" }),
+                ToolResultContent.Text("The requested tool '${call.name}' is not available in this round. Nothing was dispatched. Use an exact advertised tool name and its schema. Available tools: $availableList.$recovery"),
                 isError = true,
                 dispatched = false,
                 errorCode = "TOOL_NOT_AVAILABLE",
@@ -1270,12 +1292,7 @@ class AgentRunner(
                         put("retryable", false)
                         put("available_tool_count", availableNames.size)
                         put("discovery_available", ProgressiveToolCatalog.NAME in availableNames)
-                        // A suggested reader or search tool must actually be available in this round.
-                        when {
-                            call.name.substringAfterLast("__") in setOf("read_url", "firecrawl_scrape", "fetch_url") && "url" in call.arguments && "read_url" in availableNames -> put("suggested_tool", "read_url")
-                            call.name.substringAfterLast("__") in setOf("search", "search_web", "web_search", "firecrawl_search") && "query" in call.arguments && "web_search" in availableNames -> put("suggested_tool", "web_search")
-                            else -> Unit
-                        }
+                        suggested?.let { put("suggested_tool", it) }
                     }
                 }
             )

@@ -189,6 +189,8 @@ class AgentRunnerTest {
         assertEquals(2, rounds)
         assertEquals("RECONCILIATION_REQUIRED", failure.errorCode)
         assertEquals(JsonPrimitive("TRACKED_CALL_SIGNATURE"), failure.failureDetails?.get("reconciliation_source"))
+        assertEquals(JsonPrimitive("RECONCILIATION_REQUIRED"), failure.failureDetails?.get("recovery_observation"))
+        assertEquals(JsonPrimitive("OUTCOMES_UNRESOLVED"), failure.failureDetails?.get("pending_tool_receipt_state"))
         assertEquals(JsonPrimitive(1), failure.failureDetails?.get("reconciliation_tracked_signature_count"))
     }
 
@@ -1023,11 +1025,47 @@ class AgentRunnerTest {
         )
     }
 
+    @Test fun unknownToolRecoveryUsesOnlyTheCatalogFromThisRound() = runBlocking {
+        for (discover in listOf(true, false)) {
+            val offered = if (discover) ProgressiveToolCatalog.NAME else "lookup"
+            var observed = false
+            val provider = session { _, exchanges ->
+                flow {
+                    if (exchanges.isEmpty()) {
+                        emit(toolCall("unknown", "unregistered_fixture"))
+                    } else {
+                        val result = exchanges.last().results.single()
+                        assertFalse(result.dispatched)
+                        assertEquals("TOOL_NOT_AVAILABLE", result.errorCode)
+                        val text = (result.content as ToolResultContent.Text).text
+                        observed = true
+                        assertTrue(text.contains(offered))
+                        assertFalse(text.contains("filtered_fixture"))
+                        assertTrue(if (discover) text.contains("look up this capability") else text.contains("explain what is missing"))
+                        assertEquals(if (discover) JsonPrimitive(offered) else null, result.executionReceipt?.get("suggested_tool"))
+                        emit(ProviderEvent.TextDelta("done"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val calls = AtomicInteger()
+            val available = tool(offered) { _, _ ->
+                calls.incrementAndGet()
+                error("unexpected dispatch")
+            }
+            AgentRunner().run(provider, listOf(available, tool("filtered_fixture")), selectDefinitions = { definitions -> definitions.filter { it.name == offered } }).toList()
+            assertTrue(observed)
+            assertEquals(0, calls.get())
+        }
+    }
+
     @Test fun `unknown model boundary exception cannot become a tool incident or authorize replay`() = runBlocking {
         for (synchronous in listOf(true, false)) {
             val providerCalls = AtomicInteger()
             val toolExecutions = AtomicInteger()
-            val cause = IllegalStateException("private response body", IllegalArgumentException("private input"))
+            val cause = IllegalStateException("private response body", IllegalArgumentException("private input")).apply {
+                stackTrace = arrayOf(StackTraceElement("dev.chungjungsoo.gptmobile.data.agent.Adapter", "invoke", "private-file", 42))
+            }
             val provider = session { _, _ ->
                 providerCalls.incrementAndGet()
                 if (synchronous) throw cause
@@ -1050,6 +1088,8 @@ class AgentRunnerTest {
             assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
             assertFalse(failure.failureDetails.orEmpty().containsKey("dispatched"))
             assertEquals(JsonPrimitive("AGENT_ROUND_CATCH"), failure.failureDetails?.get("incident_capture_site"))
+            assertEquals(JsonPrimitive("IllegalStateException"), failure.failureDetails?.get("exception_report_type"))
+            assertTrue(failure.failureDetails?.get("exception_application_frames").toString().contains("dev.chungjungsoo.gptmobile.data.agent.Adapter.invoke:42"))
             val fingerprint = failure.failureDetails?.get("exception_fingerprint") as? JsonPrimitive
             assertTrue(fingerprint?.content?.matches(Regex("[a-f0-9]{64}")) == true)
             assertFalse(failure.failureDetails.toString().contains("private"))

@@ -671,6 +671,7 @@ class ReadUrlToolTest {
             assertTrue(result.isError)
             assertContains(result.text(), message)
             if (message == "missing Location") {
+                assertEquals(JsonPrimitive(302), result.executionReceipt?.get("httpStatus"))
                 assertEquals("REDIRECT_FAILED", result.errorCode)
                 assertEquals(JsonPrimitive("LOCATION_MISSING"), result.executionReceipt?.get("reader_refusal"))
             }

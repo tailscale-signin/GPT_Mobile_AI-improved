@@ -39,6 +39,17 @@ class NativeBridgeTest(unittest.TestCase):
                     installation_id=IDENTITY['gateway_id'], principal_id='paired:phone-one',
                     revision=3, status=status, **extra)
 
+    def test_phone_setup_uses_one_signed_link_without_phone_ip(self):
+        """The Windows default path uses the tested TLS-pinned invitation, not a peer IP allowlist."""
+        ui = (Path(__file__).resolve().parents[1] / 'desktop' / 'native' / 'MainWindow.Control.cs').read_text(encoding='utf-8')
+        connection = ui.split('private void BuildConnectPhone()', 1)[1].split('private void BuildAndroid()', 1)[0]
+        self.assertIn('Copy secure phone link', connection)
+        self.assertIn('Call("control-connect-address", new JsonObject { ["host"] = SelectedHost() })', connection)
+        self.assertIn('Clipboard.SetText(invitation)', connection)
+        self.assertNotIn('["phone_ip"]', connection)
+        self.assertNotIn('Phone Wi-Fi IP', connection)
+        self.assertIn('Engineering is enabled automatically', connection)
+
     def test_unknown_action_and_malformed_frames_do_not_dispatch(self):
         for value in [{}, {'protocol': native_bridge.PROTOCOL, 'action': None},
                       {'protocol': native_bridge.PROTOCOL, 'action': 'execute-shell', 'args': {'command': 'secret'}}]:

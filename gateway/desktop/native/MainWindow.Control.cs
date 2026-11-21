@@ -181,54 +181,68 @@ public partial class MainWindow
     private void BuildConnectPhone()
     {
         int viewEpoch = epoch;
-        var form = Ui.Column(Ui.Text("Gateway address", 22, bold: true));
-        var hint = Ui.Text("Reading this PC’s connection…", 15, "MutedBrush"); form.Children.Add(hint);
+        var form = Ui.Column(Ui.Text("Connect your phone", 22, bold: true));
+        var hint = Ui.Text("Checking this PC's private connection…", 15, "MutedBrush");
+        form.Children.Add(hint);
         page.Children.Add(Ui.Card(form, true));
         Run(async () =>
         {
             var current = await Call("control-settings-read");
             if (epoch != viewEpoch) return;
-            string direct = current.Text("account_connection_url", "");
             string host = current.Text("gateway_host", "");
             if (!System.Net.IPAddress.TryParse(host, out var ip) || System.Net.IPAddress.IsLoopback(ip))
             {
-                hint.Text = "This Gateway is listening only on this PC. Choose your private network interface, then restart Gateway.";
-                form.Children.Add(Ui.Button("Network settings", () => Navigate("Settings/Connection"), true));
+                hint.Text = "The PC is currently local-only. Enable a Private network or Tailscale once to connect phones.";
+                form.Children.Add(Ui.Button("Enable phone connection", () => Navigate("Settings/Connection"), true));
                 return;
             }
             ComboBox? adapter = null;
             if (ip.Equals(System.Net.IPAddress.Any) || ip.Equals(System.Net.IPAddress.IPv6Any))
             {
-                var choices = NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up)
+                var choices = NetworkInterface.GetAllNetworkInterfaces()
+                    .Where(n => n.OperationalStatus == OperationalStatus.Up)
                     .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address)
                     .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a))
                     .Select(a => a.ToString()).Distinct().ToArray();
-                if (choices.Length == 0) { hint.Text = "Connect this PC to your private network and reopen this page."; return; }
-                adapter = Ui.Select(form, "PC interface", choices);
-            }
-            hint.Text = direct.Length > 0 ? "Enter this PC’s IP in GPT Mobile. Your Tailscale account identifies your phone."
-                : "Enter this PC’s IP in GPT Mobile. For first-time Wi-Fi settings access, allow your phone’s current Wi-Fi IP below.";
-            string SelectedHost() => adapter?.SelectedItem?.ToString() ?? host;
-            string Address() => new UriBuilder("http", SelectedHost(), (int)(current.Number("gateway_port") ?? 8090), "v1").Uri.AbsoluteUri;
-            var field = Ui.Field(form, "Gateway address", direct.Length > 0 ? direct : Address());
-            field.IsReadOnly = true;
-            if (adapter is not null) adapter.SelectionChanged += (_, _) => field.Text = Address();
-            form.Children.Add(Ui.Button("Copy address", () => { Clipboard.SetText(field.Text); status.Text = "Gateway address copied."; }));
-            if (direct.Length == 0)
-            {
-                var phone = Ui.Field(form, "Phone Wi-Fi IP");
-                form.Children.Add(Ui.Button("Allow this phone to connect", () => Run(async () =>
+                if (choices.Length == 0)
                 {
-                    await Call("control-connect-address", new JsonObject { ["host"] = SelectedHost(), ["phone_ip"] = phone.Text.Trim() });
-                    if (epoch == viewEpoch) hint.Text = "Tap Connect on the phone within five minutes. Future connections use its saved device key.";
-                }), true));
-                form.Children.Add(Ui.Button("Network and firewall settings", () => Navigate("Settings/Connection")));
+                    hint.Text = "Connect this PC to a private network, then reopen this screen.";
+                    return;
+                }
+                if (choices.Length > 1)
+                {
+                    var advanced = Ui.Column(Ui.Text("Choose another PC network only if needed.", 13, "MutedBrush"));
+                    adapter = Ui.Select(advanced, "PC network", choices);
+                    form.Children.Add(new Expander { Header = "Advanced network choice", Content = advanced });
+                }
+                host = choices[0];
             }
-            var availability = Ui.Column(Ui.Text("Engineering", 20, bold: true),
-                Ui.Text("New connections start with Engineering enabled. Saved jobs use the GitHub account and repositories configured on this PC.", color: "MutedBrush"),
+
+            string SelectedHost() => adapter?.SelectedItem?.ToString() ?? host;
+            hint.Text = "No phone IP or manual Engineering setup. Copy a private connection link and paste it once into the Android app.";
+            form.Children.Add(Ui.Button("Copy secure phone link", () => Run(async () =>
+            {
+                // A short-lived TLS-pinned owner invitation; never use the legacy
+                // phone-IP allowance or silently grant access to unpaired clients.
+                var result = await Call("control-connect-address", new JsonObject { ["host"] = SelectedHost() });
+                var invitation = result.Text("address", "");
+                if (!Uri.TryCreate(invitation, UriKind.Absolute, out var uri) ||
+                    uri.Scheme != Uri.UriSchemeHttp || uri.Fragment.Length < 2)
+                    throw new InvalidOperationException("A secure phone invitation could not be created.");
+                Clipboard.SetText(invitation);
+                if (epoch == viewEpoch)
+                {
+                    hint.Text = "Link copied. On your phone, open Gateway settings, paste it and tap Connect. Link expires in five minutes.";
+                    status.Text = "Secure phone link copied.";
+                }
+            }), true));
+            form.Children.Add(Ui.Text("Engineering is enabled automatically for the connected owner. Existing repository permissions, device identity and job approvals still apply.", 13, "MutedBrush"));
+            form.Children.Add(Ui.Button("Network and firewall settings", () => Navigate("Settings/Connection")));
+
+            page.Children.Add(Ui.Card(Ui.Column(Ui.Text("Ready for Engineering", 20, bold: true),
+                Ui.Text("Keep your selected AI model and saved jobs.", color: "MutedBrush"),
                 Ui.Actions(Ui.Button("GitHub connection", () => Navigate("Tools/GitHub")),
-                    Ui.Button("Repositories", () => Navigate("Tools/Repositories"))));
-            page.Children.Add(Ui.Card(availability));
+                    Ui.Button("Repositories", () => Navigate("Tools/Repositories"))))));
         });
     }
 

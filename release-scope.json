@@ -202,7 +202,8 @@
     "Recover the retained build-144 signed artifacts through canonical draft-tag lookup, exact-source CI gates, complete downloaded-asset and trusted-attestation verification, and same-release-ID publication without rebuilding or replacing bytes.",
     "Repair dependent GitHub reads, saved CI log and release lookups, and required tool planning on small model routes. Report the observed cause of policy, reasoning, acceptance and native process failures, and preload all Android test runtimes used by these changes.",
     "Declare the desktop workspace and recovery changes covered by this branch. Failed GitHub resumes retain the original provider rejection and identify tool outcomes that require reconciliation.",
-    "Add seven native Windows Gateway workspaces with scoped search, durable public previews, a compact live job catalog, persistent schedule switches and measured diagnostics."
+    "Add seven native Windows Gateway workspaces with scoped search, durable public previews, a compact live job catalog, persistent schedule switches and measured diagnostics.",
+    "Build the Android Kokoro phrase synthesizer and derive word highlights from its model timings. Scope the JNI bridge, native build inputs and consumer rules used by the app."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -3365,7 +3366,14 @@
     "settings-gradle.lockfile",
     "settings.gradle.kts",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/delivery/ResearchDeliverySession.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/delivery/ResearchDeliveryTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/delivery/ResearchDeliveryTest.kt",
+    "local-kokoro-runtime/build.gradle.kts",
+    "local-kokoro-runtime/consumer-rules.pro",
+    "local-kokoro-runtime/src/main/AndroidManifest.xml",
+    "local-kokoro-runtime/src/main/cpp/CMakeLists.txt",
+    "local-kokoro-runtime/src/main/cpp/sherpa-timing.patch",
+    "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+    "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java"
   ],
   "publicationRequest": {
     "android": "0.9.66.10",

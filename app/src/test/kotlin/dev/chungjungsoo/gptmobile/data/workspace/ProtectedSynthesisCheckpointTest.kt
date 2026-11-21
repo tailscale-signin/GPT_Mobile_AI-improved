@@ -52,6 +52,39 @@ class ProtectedSynthesisCheckpointTest {
         database.close()
     }
 
+    @Test fun reopenedReceiptsCountOneContractAcrossMultipleAttempts() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Task progress")).toInt()
+        val store = WorkspaceRepository(database, vault)
+        val binding = "b".repeat(64)
+        val key = "github-evidence:$binding:"
+        store.saveProtectedSynthesisCheckpoint(key + "task_contract", chat, "first-run", buildJsonObject { put("binding", binding) }, appendOnly = true)
+        val current = key + "verification_current_" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(binding).take(24)
+        store.saveProtectedSynthesisCheckpoint(
+            current,
+            chat,
+            "first-run",
+            buildJsonObject {
+                put("binding", binding)
+                put("phase", "IN_PROGRESS")
+            }
+        )
+        store.saveProtectedSynthesisCheckpoint(
+            current,
+            chat,
+            "next-run",
+            buildJsonObject {
+                put("binding", binding)
+                put("task_state", "PARTIAL")
+            }
+        )
+        val restored = WorkspaceRepository(database, vault).conversationWork(chat)
+        assertEquals(1, restored.tasks.size)
+        assertEquals("PARTIAL", restored.tasks.single().state)
+        assertFalse(restored.tasks.single().completed)
+        assertFalse(restored.olderTasks)
+        assertTrue(store.conversationWork(chat + 1).tasks.isEmpty())
+    }
+
     @Test fun outcomeSearchOpensTheRetainedTurnAndAvoidsNewerUnrelatedAnswers() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Builds")).toInt()
         val dao = database.agentPersistenceDao()

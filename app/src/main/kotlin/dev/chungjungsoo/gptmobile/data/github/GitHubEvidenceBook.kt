@@ -1036,7 +1036,8 @@ internal class GitHubEvidenceBook(
     }
 
     /** Full projections replace only their task-current slot; immutable operation evidence is never rewritten. */
-    private suspend fun saveCurrent(kind: String, value: JsonObject) {
+    private suspend fun saveCurrent(kind: String, snapshot: JsonObject) {
+        val value = if (kind == "verification") JsonObject(snapshot + ("work_measurement" to GitHubWorkMeasurement.from(snapshot).json())) else snapshot
         val id = "${kind}_current_" + digest(binding).take(24)
         val previous = load(id)
         if (previous?.filterKeys { it != "observed_at_ms" } == value.filterKeys { it != "observed_at_ms" }) return

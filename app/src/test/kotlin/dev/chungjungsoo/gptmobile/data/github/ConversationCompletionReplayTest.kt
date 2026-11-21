@@ -323,6 +323,46 @@ class ConversationCompletionReplayTest {
         assertEquals(withBuild.distinct(), withBuild)
     }
 
+    @Test fun conversationMeasurementRequiresVerifiedDeliveryAndKeepsProviderWaitsAndPartialWorkDistinct() {
+        val linked = JsonPrimitive("ev_" + "a".repeat(24))
+        fun verdict(delivered: Boolean, finalState: String = "PASS") = buildJsonObject {
+            put("task_outcome", "COMPLETED")
+            put("completion_verified", true)
+            put("response_delivered", delivered)
+            put(
+                "acceptance_ledger",
+                buildJsonObject {
+                    put("schema", "github.acceptance-ledger.v1")
+                    put("completion_verified", true)
+                    put(
+                        "requirements",
+                        JsonArray(
+                            listOf("PASS", finalState).mapIndexed { index, state ->
+                                buildJsonObject {
+                                    put("id", index)
+                                    put("required", true)
+                                    put("state", state)
+                                    put("receipt_ids", JsonArray(if (index == 0) listOf(linked) else emptyList()))
+                                }
+                            }
+                        )
+                    )
+                }
+            )
+        }
+        val pass = GitHubWorkMeasurement.from(verdict(true))
+        assertTrue(pass.completed)
+        assertEquals(1, pass.passing)
+        assertFalse(GitHubWorkMeasurement.from(verdict(false)).completed)
+        assertFalse(GitHubWorkMeasurement.from(verdict(true, "BLOCKED")).completed)
+        val wait = GitHubWorkMeasurement.from(null, "WAITING_PROVIDER_LIMIT")
+        assertEquals("WAITING_FOR_PROVIDER", wait.state)
+        assertEquals("INTERRUPTED", GitHubWorkMeasurement.from(null, "INTERRUPTED").state)
+        val deadline = buildJsonObject { put("stop_reason", buildJsonObject { put("code", "ACCEPTED_TASK_DEADLINE_REACHED") }) }
+        assertEquals("PAUSED", GitHubWorkMeasurement.from(deadline).state)
+        assertTrue(GitHubConversationWork(listOf(pass, wait), false).description().contains("1 of 2 retained tasks"))
+    }
+
     @Test fun taskSteeringAndSearchLinksStayBoundToTheirIntendedWork() {
         assertTrue(GitHubTaskContinuity.reportOnly("How is this task going?"))
         assertFalse(GitHubTaskContinuity.reportOnly("What is the status of PR #42?"))

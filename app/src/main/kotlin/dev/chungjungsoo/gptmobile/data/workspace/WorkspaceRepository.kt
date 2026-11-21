@@ -46,6 +46,25 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
         }
         return matches
     }
+
+    /** Decrypt bounded, current task snapshots only when the conversation's receipts are opened. */
+    internal suspend fun conversationWork(chatId: Int): dev.chungjungsoo.gptmobile.data.github.GitHubConversationWork = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val keys = dao.recentTaskContracts(chatId)
+        val tasks = keys.take(24).map { key ->
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val binding = key.removePrefix("github-evidence:").removeSuffix(":task_contract")
+            if (binding.matches(Regex("[a-f0-9]{64}"))) {
+                val suffix = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(binding).take(24)
+                val snapshot = "github-evidence:$binding:verification_current_$suffix"
+                val verdict = protectedSynthesisCheckpoint(snapshot)?.takeIf { it["binding"] == kotlinx.serialization.json.JsonPrimitive(binding) }
+                dev.chungjungsoo.gptmobile.data.github.GitHubWorkMeasurement.from(verdict, dao.taskSnapshotRunState(chatId, snapshot, key))
+            } else {
+                dev.chungjungsoo.gptmobile.data.github.GitHubWorkMeasurement.from(null)
+            }
+        }
+        dev.chungjungsoo.gptmobile.data.github.GitHubConversationWork(tasks, keys.size > 24)
+    }
+
     val json = Json { ignoreUnknownKeys = true }
     suspend fun exclusions(chatId: Int): ContextExclusions = dao.get("exclusions:$chatId")?.let { json.decodeFromString(it.payload) } ?: ContextExclusions()
     suspend fun exclude(chatId: Int, value: ContextExclusions) = dao.save(WorkspaceRecord("exclusions:$chatId", "exclusions", "Next request exclusions", json.encodeToString(value), chatId))

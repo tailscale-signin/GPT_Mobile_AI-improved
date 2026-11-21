@@ -235,6 +235,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchDiagnostics.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchNotifications.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchObservationFence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkMeasurement.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowDefinitionCapture.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowDispatch.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowDuration.kt",

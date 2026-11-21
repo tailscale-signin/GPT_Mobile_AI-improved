@@ -32,6 +32,12 @@ interface WorkspaceDao {
     @Query("SELECT * FROM workspace_records WHERE chatId = :chatId AND kind = 'github_evidence' ORDER BY updatedAt DESC LIMIT 80")
     fun observeGitHubEvidence(chatId: Int): Flow<List<WorkspaceRecord>>
 
+    @Query("SELECT w.id FROM workspace_records w JOIN chats_v2 c ON c.chat_id=w.chatId WHERE w.chatId=:chatId AND c.is_temporary=0 AND w.id GLOB 'github-evidence:*:task_contract' ORDER BY w.updatedAt DESC, w.rowid DESC LIMIT 25")
+    suspend fun recentTaskContracts(chatId: Int): List<String>
+
+    @Query("SELECT r.status FROM workspace_records w JOIN agent_runs r ON r.run_id=w.runId AND r.chat_id=w.chatId WHERE w.chatId=:chatId AND w.id IN (:snapshot,:contract) ORDER BY CASE WHEN w.id=:snapshot THEN 0 ELSE 1 END LIMIT 1")
+    suspend fun taskSnapshotRunState(chatId: Int, snapshot: String, contract: String): String?
+
     @Query("SELECT w.id, w.chatId, w.rowid AS storedRow, w.updatedAt, CASE WHEN m.current_run_id=r.run_id THEN r.assistant_message_id ELSE r.user_message_id END AS messageId FROM workspace_records w JOIN chats_v2 c ON c.chat_id=w.chatId LEFT JOIN agent_runs r ON r.run_id=w.runId AND r.chat_id=c.chat_id AND r.display_role != 'INTERNAL' LEFT JOIN messages_v2 m ON m.message_id=r.assistant_message_id AND m.chat_id=c.chat_id WHERE c.is_temporary=0 AND w.rowid<:beforeRow AND ((w.kind='github_evidence' AND w.id GLOB 'github-evidence:*:ev_*') OR (w.kind='github_engineering_memory' AND (w.id GLOB 'engineering:*:decision:*' OR w.id GLOB 'engineering:*:feedback:*'))) ORDER BY w.rowid DESC LIMIT 64")
     suspend fun outcomeEvidenceKeys(beforeRow: Long): List<OutcomeRecordKey>
 

@@ -210,7 +210,8 @@
     "Retain source ranges across replay and interruption, report the measured replay budget and planning stage, index evidenced task outcomes, and batch diagnostic writes.",
     "Deliver source by file and line through stable native continuation handles. Verify pinned source by repository identity and retain the last supported report, typed prerequisites and scoped time renewal.",
     "Open saved outcomes at their recorded turn on Android, filter Gateway conversations by terminal status, and handle unambiguous live status, corrections and task cancellation in the conversation.",
-    "Measure observed active work separately from decision waits. Trace CPU/GPU frame overlap, expose wire-observed source ranges, and exercise the workspace and journal export in the optimized Android benchmark."
+    "Measure observed active work separately from decision waits. Trace CPU/GPU frame overlap, expose wire-observed source ranges, and exercise the workspace and journal export in the optimized Android benchmark.",
+    "Summarize verified delivery and receipt-backed requirements per accepted task and conversation, with recent-task coverage, distinct wait states, and no double counting across retries."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -967,6 +968,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchDiagnostics.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchObservationFence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkMeasurement.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowDefinitionCapture.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowDuration.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowEvidence.kt",

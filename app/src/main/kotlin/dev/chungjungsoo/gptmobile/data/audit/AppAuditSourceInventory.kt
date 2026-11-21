@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "569feb5f14ad70ea5916c43bac1d3f2499380ec0f8c2242f90300f9fe868cbbf"
-    val fileCount: Int = 2784
-    val lineCount: Int = 461761
+    val sourceDigest: String = "0e693fbc957f3a6bfe0a34c9491f86635d10d516206877f0b2a009522a58318d"
+    val fileCount: Int = 2785
+    val lineCount: Int = 461875
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -25,7 +25,7 @@ object AppAuditSourceInventory {
     )
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 75, 8704),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 571, 101899),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 571, 101912),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 200, 9296),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 235, 40908),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 104, 23667),
@@ -36,7 +36,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14860),
         AppAuditSourceArea("gateway_client", "Android gateway client", 39, 6966),
         AppAuditSourceArea("network", "Networking and readiness", 102, 10362),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 243, 43366),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 244, 43467),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14038),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 44, 4939),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 110, 14802),

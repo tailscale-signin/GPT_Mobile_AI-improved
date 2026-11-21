@@ -2,7 +2,7 @@
 
 ### Conversation completion
 
-Source reads now expose file and line ranges, including local jumps within saved batches. Interrupted tasks retain their supported findings, and saved-outcome searches can open the original turn. Decision cards distinguish observed work from time spent waiting.
+Source reads now expose file and line ranges, including local jumps within saved batches. Interrupted tasks retain their supported findings, and saved-outcome searches can open the original turn. Decision cards distinguish observed work from time spent waiting. Opening Receipts shows how many accepted tasks delivered a verified result and how many requirements have passing receipts.
 
 The conversation replay measures local pages and serialized bytes with synthetic pinned files. Production model turns, provider tokens or billing, end-to-end completion, device frame pacing and export duration require corresponding live measurement.
 

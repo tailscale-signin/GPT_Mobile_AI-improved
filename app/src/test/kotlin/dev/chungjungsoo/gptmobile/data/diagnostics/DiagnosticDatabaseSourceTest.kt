@@ -251,8 +251,14 @@ class DiagnosticDatabaseSourceTest {
             arrayOf<Any>(chat, "accepted-policy", 1, "github", "revision", "task", "authority", "{\"policy\":\"latest accepted policy\"}")
         )
         database.openHelper.writableDatabase.execSQL("INSERT INTO agent_run_policy_refs (runId, chatId, digest) VALUES (?, ?, ?)", arrayOf<Any>("latest-run", chat, "accepted-policy"))
-        val history = buildJsonObject { put("historical_payload", "x".repeat(128 * 1024)) }
-        repeat(144) { workspace.saveSynthesisCheckpoint("history-$it", chat, "old-run", history) }
+        val padding = "x".repeat(128 * 1024)
+        repeat(144) { index ->
+            val history = buildJsonObject {
+                put("history_sequence", index)
+                put("historical_payload", padding)
+            }
+            workspace.saveSynthesisCheckpoint("history-$index", chat, "old-run", history)
+        }
         workspace.saveProtectedSynthesisCheckpoint("github-tool-budget:latest", chat, "latest-run", buildJsonObject { put("remaining_calls", 17) })
         workspace.saveProtectedSynthesisCheckpoint(
             "github-evidence:task:verification_latest",

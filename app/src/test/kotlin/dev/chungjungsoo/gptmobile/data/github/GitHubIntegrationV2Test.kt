@@ -21,22 +21,37 @@ import org.junit.Test
 class GitHubIntegrationV2Test {
     @Test
     fun operation_planner_includes_safe_write_sequence() {
-        val steps = GitHubOperationPlanner.plan("Fix the bug, merge it, then publish a release")
-            .map { it.jsonObject["id"]!!.jsonPrimitive.content }
+        val plan = GitHubOperationPlanner.plan("Fix the bug, merge it, then publish a release")
+            .associate { it.jsonObject.getValue("id").jsonPrimitive.content to it.jsonObject }
+        val steps = plan.keys
 
         assertTrue("resolve_context" in steps)
         assertTrue("branch_head" in steps)
         assertTrue("stage_patch" in steps)
         assertTrue("commit_staged_patch" in steps)
         assertTrue("ci_failure_digest" in steps)
-        assertTrue("draft_pr" in steps)
-        assertTrue("merge_gate" in steps)
+        assertTrue("pr_context" in steps)
+        assertFalse("draft_pr" in steps || "create_pr" in steps)
+        assertEquals(listOf("pr_context", "ci_failure_digest"), plan.getValue("merge_gate").getValue("depends_on").jsonArray.map { it.jsonPrimitive.content })
         assertTrue("release_status" in steps)
         assertTrue("publish_release" in steps)
         assertTrue("release_verify" in steps)
         assertTrue("release_status" in GitHubWorkspaceClient.readActions)
         assertFalse("publish_release" in GitHubWorkspaceClient.readActions)
         assertTrue("publish_release" in GitHubWorkspaceClient.writeActions)
+    }
+
+    @Test
+    fun merge_requires_the_requested_pull_request_at_its_verified_head() {
+        for ((request, target) in mapOf("Open a draft PR and merge it" to "draft_pr", "Create a pull request then merge it" to "create_pr", "Merge PR #42" to "pr_context")) {
+            val plan = GitHubOperationPlanner.plan(request).associate { it.jsonObject.getValue("id").jsonPrimitive.content to it.jsonObject }
+            assertTrue(request, target in plan)
+            assertEquals(request, listOf(target), plan.getValue("merge_gate").getValue("depends_on").jsonArray.map { it.jsonPrimitive.content })
+        }
+        for (request in listOf("Review the build, merge policy and release notes.", "Do not fix the bug, merge it or publish it.")) {
+            val steps = GitHubOperationPlanner.plan(request).map { it.jsonObject.getValue("id").jsonPrimitive.content }
+            assertFalse(request, steps.any { it in setOf("stage_patch", "draft_pr", "create_pr", "merge_gate", "publish_release") })
+        }
     }
 
     @Test

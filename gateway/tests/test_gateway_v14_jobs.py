@@ -704,6 +704,8 @@ class JournalTests(unittest.TestCase):
                 response = client.post('/gateway/jobs/detached/cancel')
                 self.assertEqual(409, response.status_code)
                 self.assertEqual('unavailable', response.json()['cancellationOutcome'])
+                from v14.debug_projection import response_summary
+                self.assertEqual('no_live_cancel_handle', response_summary(response.json(), route='job')['cancelReason'])
                 self.assertFalse(response.json()['cancellationRequested'])
                 self.assertFalse(response.json()['canceled'])
             self.assertEqual(prior, self.runtime.job_registry['detached'])

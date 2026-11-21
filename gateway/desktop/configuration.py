@@ -32,10 +32,10 @@ def settings_write_lock(root):
         lock.release()
 
 
-def setup_interface():
+def setup_interface(*, prefer_overlay=True):
     """Choose an active account VPN or Windows Private IPv4 interface once, during setup."""
     from v14.account_connection import local_cli, overlay
-    account = local_cli('status', '--json')
+    account = local_cli('status', '--json') if prefer_overlay else {}
     if account.get('BackendState') == 'Running':
         addresses = (account.get('Self') or {}).get('TailscaleIPs') or []
         for value in addresses:

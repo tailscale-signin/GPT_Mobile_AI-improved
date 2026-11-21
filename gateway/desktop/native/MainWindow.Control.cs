@@ -259,6 +259,7 @@ public partial class MainWindow
         address.MinHeight = 48;
         if (adapter is not null) adapter.SelectionChanged += (_, _) => address.Text = Address();
         var copy = Ui.Button("Copy PC address", () => { Clipboard.SetText(address.Text); status.Text = "Gateway address copied."; }, true);
+        copy.ContentTemplate = null;
         copy.Content = Ui.NavigationLabel("\uE8C8", "Copy PC address");
         copy.MinHeight = 48;
         form.Children.Add(copy);

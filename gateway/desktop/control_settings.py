@@ -51,7 +51,7 @@ class Controller:
             from desktop.configuration import default_phone_listener, setup_interface
             cfg = getattr(self.supervisor, 'cfg', None) or load(self.supervisor.root)
             if cfg['access'] == 'network' and cfg['bind_host'] in {'0.0.0.0', '::'}:
-                cfg = dict(cfg, bind_host=setup_interface())
+                cfg = dict(cfg, bind_host=setup_interface(prefer_overlay=False))
             if cfg['access'] == 'network' and (listener := default_phone_listener(cfg)):
                 self.enable(listener, persist=False)
 

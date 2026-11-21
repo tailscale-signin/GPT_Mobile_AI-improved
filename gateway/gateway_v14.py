@@ -309,7 +309,7 @@ def cancel(job_id: str, request: Request):
             # An observed but detached worker cannot acknowledge a stop. Retain its state.
             return JSONResponse({'job_id': job_id, 'status': job.get('status'), 'canceled': False,
                                  'cancellationRequested': False, 'cancellationOutcome': 'unavailable',
-                                 'reasonCode': 'GATEWAY_JOB_UNAVAILABLE',
+                                 'reasonCode': 'GATEWAY_JOB_UNAVAILABLE', 'cancelReason': 'no_live_cancel_handle',
                                  'detail': 'Job cannot be cancelled'}, status_code=409)
 
 

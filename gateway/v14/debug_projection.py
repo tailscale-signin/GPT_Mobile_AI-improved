@@ -180,6 +180,11 @@ def response_summary(body, admission=None, route=None):
             result['reasonCode'] = 'GATEWAY_JOB_IN_PROGRESS' if body['error'] == 'work_in_progress' else 'GATEWAY_NOT_READY'
         if route == 'job' and body.get('detail') == 'Job cannot be cancelled':
             result['reasonCode'] = 'GATEWAY_JOB_UNAVAILABLE'
+            if body.get('cancelReason') == 'no_live_cancel_handle':
+                result['cancelReason'] = 'no_live_cancel_handle'
+                status = body.get('status')
+                if isinstance(status, str) and status in {'accepted', 'queued', 'running', 'waiting', 'recovering'}:
+                    result['jobState'] = status
         if route == 'management_settings' and body.get('status') in ('waiting_for_jobs', 'setup_required'):
             reason = body.get('reason')
             result['settingsDisposition'] = reason if reason in ('invalid_backend', 'probe_failed') else body['status']

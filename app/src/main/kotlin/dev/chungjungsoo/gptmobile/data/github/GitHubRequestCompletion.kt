@@ -69,8 +69,19 @@ internal object GitHubRequestCompletion {
         val criteria = if (header < 0 || !GitHubTestChecklist.integration(task)) {
             emptyList()
         } else {
-            lines.drop(header + 1)
-                .filter { it.startsWith("- ") }.map { it.removePrefix("- ").trim() }.filter(String::isNotBlank).distinct()
+            val body = lines.drop(header + 1)
+            val detailsStart = body.indexOfFirst { it.equals("Request details:", ignoreCase = true) || it.startsWith("[github-workflow-preset:") }
+            val criteriaLines = if (detailsStart < 0) body else body.take(detailsStart)
+            val additions = if (detailsStart < 0) emptyList() else body.drop(detailsStart + 1)
+            val bullets = criteriaLines.filter { it.startsWith("- ") }
+            if (bullets.isEmpty()) {
+                emptyList()
+            } else {
+                val details = additions.filter {
+                    it.isNotBlank() && !it.equals("Request details:", ignoreCase = true) && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:")
+                }
+                (bullets + details).map { it.removePrefix("- ").trim() }.filter(String::isNotBlank).distinct()
+            }
         }
         val requested = criteria.ifEmpty {
             lines

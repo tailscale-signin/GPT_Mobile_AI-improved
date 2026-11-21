@@ -195,7 +195,10 @@ class VoicePlaybackFailureReportingTest {
         val output = ObservedFailure()
         val session = session(DeferredKokoroOutput { output })
         try {
-            assertNull(KokoroSpeechText.projected("privateword") { false }.parts)
+            val privateText = "privateword 已完成"
+            val refusal = KokoroSpeechText.projected(privateText) { false }
+            assertNull(refusal.parts)
+            assertEquals(KokoroPronunciationFailure.UNSUPPORTED_SCRIPT, refusal.observation.failure)
             assertTrue(session.beginMessage("first:run"))
             session.reply("first:run", "The complete answer remains available.")
             val retired = output.failures.last()
@@ -203,7 +206,7 @@ class VoicePlaybackFailureReportingTest {
             retired()
             assertTrue(IssueReportIncidents.pending.value.isEmpty())
             assertTrue(session.beginMessage("second:run"))
-            session.reply("second:run", "The next complete answer remains available.")
+            session.reply("second:run", privateText)
             output.failures.last()()
             val report = IssueReportIncidents.pending.value.single()
             assertEquals(JsonPrimitive("PRONUNCIATION_UNAVAILABLE"), report.context?.diagnostics?.values?.get("voice_playback_failure"))

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "9653ec789818188e7c9d5c30f0656af08cfa7c4c187864707e3055f78e004e1a",
+  "source_digest": "c1bf4ce04864a730dca34bfd720620b4fc32d566be9dd68de5f2c68c6a6e82ed",
   "file_count": 2786,
-  "indexed_line_count": 461934,
+  "indexed_line_count": 461945,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 244,
-      "indexed_line_count": 43467
+      "indexed_line_count": 43478
     },
     {
       "id": "research",
@@ -7109,7 +7109,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "4afcf5cbe31596673eb5636068f2cb17bc6bab547712196a9df1d4bf07213d3d",
+      "sha256": "115c1995bf39d995a364dd686e3290ae71f6d8e6e898bde567b817bd611b4ed4",
       "indexed_lines": 799
     },
     {
@@ -7529,8 +7529,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletion.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "e09766645e0b715cb8aa7c0c7e6d11d181469af75da365023ba3b296a38e4bbf",
-      "indexed_lines": 334
+      "sha256": "defbeed529e86da0a6b528d04df5d7e7275391db87aadaa49e83f034455b91b3",
+      "indexed_lines": 345
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestScheduler.kt",

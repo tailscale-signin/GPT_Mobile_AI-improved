@@ -484,20 +484,11 @@ fun OpponentChatBubble(
                         isLoading = isLoading,
                         debugMode = debugMode,
                         showExecutionTrace = effectiveExecutionTrace,
-                        responseIcon = if (githubTask != null) {
-                            {
-                                IconButton(onClick = { activityExpanded = !activityExpanded }, modifier = Modifier.testTag("github_activity_history").semantics { contentDescription = if (activityExpanded) "Hide activity history" else "Show activity history" }) {
-                                    responseIcon?.invoke()
-                                }
-                            }
-                        } else if (isLoading || hasDetails || timeline.any { it.progressCheckpoint } || toolEvents.isNotEmpty()) {
-                            {
-                                IconButton(onClick = { activityExpanded = !activityExpanded }, modifier = Modifier.testTag("chat_activity_history").semantics { contentDescription = if (activityExpanded) "Hide activity history" else "Show activity history" }) {
-                                    GPTMobileIcon(loading = false)
-                                }
-                            }
-                        } else {
-                            responseIcon ?: { GPTMobileIcon(loading = false) }
+                        responseIcon = responseIcon ?: { GPTMobileIcon(loading = false) },
+                        activityToggleTag = when {
+                            githubTask != null -> "github_activity_history"
+                            isLoading || effectiveExecutionTrace && hasDetails || timeline.any { it.progressCheckpoint } || toolEvents.isNotEmpty() -> "chat_activity_history"
+                            else -> null
                         },
                         beforeAnswer = {
                             if (githubTask == null && (isLoading || activityExpanded)) {

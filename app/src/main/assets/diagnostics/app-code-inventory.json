@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "418a85dd76e9c6a276c3a59350b11e714208edd4785e63455f7a7b33c9e77268",
+  "source_digest": "a5fd965504610e4911d9f695d2bf6d620d48d70df9335adba36204aae072012a",
   "file_count": 2788,
-  "indexed_line_count": 462126,
+  "indexed_line_count": 462135,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -41,7 +41,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 572,
-      "indexed_line_count": 101948
+      "indexed_line_count": 101957
     },
     {
       "id": "accessibility_and_localization",
@@ -13122,8 +13122,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantChronologicalContent.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "5274678ed6492bc753bd77aaaaf929d9b4d88107aea166141482eb53b99c95a4",
-      "indexed_lines": 270
+      "sha256": "a73621b29f77d938395b9aadaa3ffa593108b28c6e3a37c7852b84dfe58fd8bd",
+      "indexed_lines": 286
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantResponseLoading.kt",
@@ -13178,8 +13178,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "7a993179ab5a81f33a4c528ef99a053628e661f1d92f69966ca675e0577ae33b",
-      "indexed_lines": 1198
+      "sha256": "2094cc25291ddcf7ef01d8c286abab536cca3a51035053192b381de203a7b71c",
+      "indexed_lines": 1189
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatDebugExport.kt",
@@ -13360,8 +13360,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatStatisticsDialog.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "639bc27e2f8c7410e51c99e7dcdf023b754231349bdce1fcc586018c6d753671",
-      "indexed_lines": 69
+      "sha256": "51b12d2d35e188e3fb32c300bb16b1d885b0bc3c34a17b93096c084966f10fa7",
+      "indexed_lines": 71
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatToolSelectionBottomSheet.kt",

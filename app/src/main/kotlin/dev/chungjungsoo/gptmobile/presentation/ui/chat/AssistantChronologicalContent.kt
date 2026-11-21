@@ -17,6 +17,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.agent.displayResult
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
@@ -65,6 +68,7 @@ internal fun AssistantChronologicalContent(
     debugMode: Boolean,
     showExecutionTrace: Boolean = true,
     responseIcon: (@Composable () -> Unit)? = null,
+    activityToggleTag: String? = null,
     beforeAnswer: @Composable () -> Unit = {},
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     debugSettings: AppFeatureSettings = AppFeatureSettings(),
@@ -139,7 +143,19 @@ internal fun AssistantChronologicalContent(
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
             if (responseIcon != null || effectiveExecutionTrace || isLoading && !progressLivesInHeader) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    responseIcon?.invoke()
+                    val hasTrace = effectiveExecutionTrace && (timeline.any { it.type != AssistantTimelineItemType.TEXT } || fallbackThoughts.isNotBlank() || toolEvents.isNotEmpty())
+                    if (activityToggleTag != null || hasTrace) {
+                        androidx.compose.material3.IconButton(
+                            onClick = { onExpandedChange(!expanded) },
+                            modifier = Modifier.testTag(activityToggleTag ?: "chat_activity_history").semantics {
+                                contentDescription = if (expanded) "Collapse activity" else "Expand activity"
+                            }
+                        ) {
+                            if (responseIcon != null) responseIcon() else GPTMobileIcon(loading = false)
+                        }
+                    } else {
+                        responseIcon?.invoke()
+                    }
                     Column(Modifier.weight(1f)) {
                         if (isLoading && !progressLivesInHeader) {
                             androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp))

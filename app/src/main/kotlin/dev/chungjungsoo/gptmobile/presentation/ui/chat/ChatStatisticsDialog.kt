@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,7 +36,7 @@ internal fun ChatStatisticsDialog(
         onDismissRequest = dismiss,
         title = { Text("Conversation statistics") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (hasOlderHistory) TextButton(onClick = loadOlder) { Text("Showing loaded history · Load earlier turns") }
                 if (prompts + replies > 0) {
                     Canvas(Modifier.size(84.dp).align(Alignment.CenterHorizontally)) {

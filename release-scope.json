@@ -204,7 +204,9 @@
     "Declare the desktop workspace and recovery changes covered by this branch. Failed GitHub resumes retain the original provider rejection and identify tool outcomes that require reconciliation.",
     "Add seven native Windows Gateway workspaces with scoped search, durable public previews, a compact live job catalog, persistent schedule switches and measured diagnostics.",
     "Build the Android Kokoro phrase synthesizer and derive word highlights from its model timings. Scope the JNI bridge, native build inputs and consumer rules used by the app.",
-    "Resolve Gateway chat model selection and preserve GitHub integration prerequisites, resource identities, verification reserves, and decision wait times."
+    "Resolve Gateway chat model selection and preserve GitHub integration prerequisites, resource identities, verification reserves, and decision wait times.",
+    "Retain pinned source ranges, recover task time windows, and test resumed conversations against pull request prerequisites.",
+    "Sign provenance for the tested Gateway installer and portable ZIP and verify their public downloads against the merged main revision."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -514,6 +516,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubProviderPolicy.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSavedFragments.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSourcePages.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolErrorDiagnostics.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/LocalDelegationCoordinator.kt",
@@ -1824,6 +1827,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolRepeatHistoryDiagnosticsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/free/FreeProviderReliabilityTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/ConversationCompletionReplayTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayAdmissionClientTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayChatCreatorTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayChatProfilePolicyTest.kt",

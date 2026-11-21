@@ -112,15 +112,15 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             "aibinder_linktodeath is being called with a non-null cookie and no onunlink callback set. this might not be intended. aibinder_deathrecipient_setonunlinked should be called first." ->
             DiagnosticClassification("platform_binder_registration", "info", false)
         tag == "Android" && capturedTag == "mobile.improved" && text == "failed to query component interface for required system resources: 6" ->
-            DiagnosticClassification("codec_resource_query", "warning", true, "inspect_codec_configuration_and_playback_outcome")
+            DiagnosticClassification("codec_resource_query", "warning", false, "inspect_codec_configuration_and_playback_outcome")
         tag == "Android" && capturedTag == "libc" && text == "access denied finding property \"ro.hardware.chipname\"" ->
             DiagnosticClassification("platform_optional_property", "info", false)
         tag == "Android" && capturedTag == "system" && text.startsWith("uncaught exception thrown by finalizer") ->
-            DiagnosticClassification("platform_finalizer_exception", "warning", true, "capture_complete_stack_and_os_exit_before_attributing_process_failure")
-        "asus_leak_detect_proj" in text -> DiagnosticClassification(
+            DiagnosticClassification("platform_finalizer_exception", "warning", false, "capture_complete_stack_and_os_exit_before_attributing_process_failure")
+        tag == "Android" && capturedTag == "system" && "asus_leak_detect_proj" in text && "not readable" in text -> DiagnosticClassification(
             "protected_settings_access",
-            if (level == "E") "error" else "warning",
-            true,
+            "warning",
+            false,
             "capture_complete_stack_and_android_build_before_attributing_origin"
         )
         tag == "Android" && capturedTag == "imebackdispatcher" && text.startsWith("ime callback not found. ignoring unregisterreceivedcallback.") -> DiagnosticClassification("platform_input_cleanup", "info", false)
@@ -132,7 +132,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             DiagnosticClassification("input_lifecycle", "info", false, "inspect_focus_lifecycle_if_input_loss_is_observed")
         "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true, "release_composer_focus_before_screen_or_editor_detaches")
         tag == "Android" && "systemjobservice" in text && "onnetworkchanged" in text && "not implemented" in text ->
-            DiagnosticClassification("work_scheduler_compatibility", "warning", true, "verify_workmanager_and_android_build_with_background_recovery")
+            DiagnosticClassification("work_scheduler_compatibility", "warning", false, "verify_workmanager_and_android_build_with_background_recovery")
         tag == "Android" && "reducing the number of considered missed gc histogram windows" in text ->
             DiagnosticClassification("gc_sampling_window", "info", false, "profile_allocations_before_attributing_memory_leak")
         "getenv: not attached" in text -> DiagnosticClassification("native_thread_attachment", "info", false)

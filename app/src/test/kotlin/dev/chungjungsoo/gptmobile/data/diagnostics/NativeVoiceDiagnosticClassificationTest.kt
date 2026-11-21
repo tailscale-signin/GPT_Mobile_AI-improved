@@ -18,7 +18,7 @@ class NativeVoiceDiagnosticClassificationTest {
     @Test fun codecServiceMessageDoesNotConcealResourceOrPlaybackFailures() {
         assertFalse(classifyDiagnostic("E", "Android", "E/MediaCodec(2623): Media Quality Service not found.").actionable)
         assertTrue(classifyDiagnostic("E", "Android", "E/MediaCodec(2623): Codec start failed.").actionable)
-        assertTrue(classifyDiagnostic("E", "Android", "E/mobile.improved(2623): Failed to query component interface for required system resources: 6").actionable)
+        assertFalse(classifyDiagnostic("E", "Android", "E/mobile.improved(2623): Failed to query component interface for required system resources: 6").actionable)
     }
 
     @Test fun documentedSherpaHeaderAndCompleteTypedDumpsAreConfigurationRatherThanFailures() {

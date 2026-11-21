@@ -7,6 +7,25 @@ from v14.engineering_validation import validate_policy_entry
 
 
 class PreparedProfileTests(TestCase):
+    def test_android_profile_seeds_every_kokoro_archive_for_offline_native_builds(self):
+        expected = {
+            'sherpa-onnx-af2d8d81dbfa61c4cea4c568da78f3982edca005.tar.gz':
+                'afcafe3c34bc2f15a363ad791fa1644a69bf0977a58c1b4f617468976c2faeb5',
+            'flite-e9e2e37c329dbe98bfeb27a1828ef9a71fa84f88.tar.gz':
+                '1eebf476797cea10b4706cfbb9db9ba34f7b8ccb1fe7e0069b0b7528e0b0be46',
+            'utf8proc-v2.12.0.tar.gz':
+                'f564011d38b2888d583d510b08e69ffa15aa117155db1b9b49ef1dfe1fa25111',
+            'onnxruntime-android-arm64-v8a-static_lib-1.28.2.zip':
+                'bc68410f35f13df82c260830bf476ee5565f5efd0ec7622297829a929613c6c0',
+            'onnxruntime-android-x86_64-static_lib-1.28.2.zip':
+                'f49dbf456ffe71dd417afb2123ef15202f8f57a4b2a05f12af1cf71f55448137',
+        }
+        self.assertIn('GPTMOBILE_KOKORO_DEPENDENCY_CACHE=/opt/gateway-kokoro-deps', profiles.ANDROID_TOOLS)
+        for name, digest in expected.items():
+            with self.subTest(name=name):
+                self.assertIn('/opt/gateway-kokoro-deps/' + name, profiles.ANDROID_TOOLS)
+                self.assertIn(digest, profiles.ANDROID_TOOLS)
+
     def test_each_profile_has_readable_commands_and_frozen_execution_image(self):
         with tempfile.TemporaryDirectory() as directory:
             for name, image in profiles.IMAGES.items():

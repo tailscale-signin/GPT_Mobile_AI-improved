@@ -184,11 +184,12 @@
     "physical_device": "NOT_RUN: no ROG Phone 9 Pro attached",
     "gpu_npu": "NOT_RUN: native provider implementation compiled; physical QNN/CUDA execution and speed qualification unobserved.",
     "native": "PASS: real pinned Kokoro/ORT JNI audio and word timings, frontend parity, before/in-flight cancellation and reset; pronunciation and executed-provider-evidence CTests.",
-    "gateway": "PASS:125 Python suites/1607 reported tests (32 platform/optional-dependency skips) plus7 browser tests in locked core environment; supplemental23-case voice suite passed with0 skips using hash-verified NumPy2.3.5. Final Windows path/newline fixes pass23/23 focused tests locally; Windows CI confirmation remains required.",
-    "authentication": "PASS:188 tests, including compatibility with existing hosted voice-report vocabulary."
+    "gateway": "PASS:125 Python suites/1607 reported tests (32 platform/optional-dependency skips) plus7 browser tests in locked core environment; supplemental23-case voice suite passed with0 skips using hash-verified NumPy2.3.5. Windows Python3.12/3.13 Gateway stability44948109989 passed on44e1656e, including repaired path/newline cases, voice23 tests (2 optional NumPy skips), durable-event stress and authentication188/188. Windows installer44948109947 also passed.",
+    "authentication": "PASS:188 tests, including compatibility with existing hosted voice-report vocabulary.",
+    "credentials": "PASS: pinned Gitleaks8.30.1 scanned all8712 reachable commits with the same heads/tags/PR merge as CI. Both original findings were independently verified SHA-256 values for tests/fixtures/voice-frontend-tokens.json in the generated Gateway manifest (implementation commit and merge preview). Exact manifest path/fixture entry exception clears those false positives. Real-scanner controls still reject the same line elsewhere, an unrelated credential, and another manifest token entry."
   },
   "publication": {
-    "status": "DRAFT_PR_PUSHED_AWAITING_FINAL_EXACT_COMMIT_CHECKS"
+    "status": "READY_PR_AWAITING_FINAL_EXACT_COMMIT_CHECKS"
   },
   "concurrent_commits_preserved": [
     "6a905e21188c659d50f6bcbb8bbbcf9999eda12f",

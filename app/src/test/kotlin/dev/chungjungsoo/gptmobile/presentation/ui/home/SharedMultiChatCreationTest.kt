@@ -382,7 +382,10 @@ class SharedMultiChatCreationTest {
             var saved = profile
             val reply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
             coEvery { fixture.settings.fetchPlatformV2s() } answers { listOf(saved) }
-            coEvery { fixture.settings.providerActivationRequired(any()) } coAnswers { reply.await(); false }
+            coEvery { fixture.settings.providerActivationRequired(any()) } coAnswers {
+                reply.await()
+                false
+            }
             var created = false
             fixture.model.start { created = true }
             runCurrent()
@@ -409,7 +412,10 @@ class SharedMultiChatCreationTest {
             store.put("privacy", fixture.model)
             val reply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
             coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile)
-            coEvery { fixture.settings.providerActivationRequired(any()) } coAnswers { reply.await(); false }
+            coEvery { fixture.settings.providerActivationRequired(any()) } coAnswers {
+                reply.await()
+                false
+            }
             var created = false
             fixture.model.start { created = true }
             runCurrent()

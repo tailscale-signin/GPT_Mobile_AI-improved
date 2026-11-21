@@ -23,7 +23,18 @@ uploads = root / "uploads" / version
 uploads.mkdir(exist_ok=True)
 r = json.loads(state.read_text()) if state.exists() else None
 args = sys.argv[1:]
-if args[:3] == ["api", "--paginate", "--slurp"]:
+if args[:2] == ["attestation", "verify"]:
+    assert Path(args[2]).is_file() and Path(args[2]).suffix in (".zip", ".exe")
+    assert args[args.index("--repo")+1] == "owner/repo"
+    assert args[args.index("--signer-workflow")+1] == "owner/repo/.github/workflows/gateway-windows-installer.yml"
+    assert args[args.index("--source-digest")+1] == args[args.index("--signer-digest")+1] == os.environ["GITHUB_SHA"]
+    assert "--deny-self-hosted-runners" in args
+    public_file = Path(args[2]).is_absolute()
+    if public_file and os.environ.get("FIXTURE_REJECT_PUBLIC_PROVENANCE"):
+        sys.exit(1)
+    if Path(args[2]).suffix == ".exe" and os.environ.get("FIXTURE_UNSIGNED_INSTALLER"):
+        sys.exit(1)
+elif args[:3] == ["api", "--paginate", "--slurp"]:
     remaining = int(listing_delay.read_text()) if listing_delay.exists() else 0
     if remaining:
         listing_delay.write_text(str(remaining - 1))
@@ -110,6 +121,10 @@ class WindowsPublicationTest(unittest.TestCase):
             def publish():
                 return subprocess.run(["bash", str(ROOT / "scripts/publish_gateway_windows.sh")],
                                       cwd=root, env=env, text=True, capture_output=True)
+            env["FIXTURE_UNSIGNED_INSTALLER"] = "1"
+            self.assertNotEqual(0, publish().returncode)
+            self.assertFalse((root / "remote-18.0.0.json").exists())
+            del env["FIXTURE_UNSIGNED_INSTALLER"]
             env["FIXTURE_LIST_DELAY"] = "100"
             delayed = publish()
             self.assertNotEqual(0, delayed.returncode)
@@ -124,5 +139,8 @@ class WindowsPublicationTest(unittest.TestCase):
                 self.assertEqual(0, result.returncode, (attempt, result.stderr))
             for version in ("18.0.0", "17.0.2"):
                 self.assertFalse(json.loads((root / f"remote-{version}.json").read_text())["draft"])
+            env["FIXTURE_REJECT_PUBLIC_PROVENANCE"] = "1"
+            self.assertNotEqual(0, publish().returncode)
+            del env["FIXTURE_REJECT_PUBLIC_PROVENANCE"]
             (root / "uploads/17.0.2" / installer.name).write_bytes(b"changed remote bytes")
             self.assertNotEqual(0, publish().returncode)

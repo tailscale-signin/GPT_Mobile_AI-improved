@@ -81,14 +81,37 @@ jobs:
             dist/windows/native-*-failure.txt
           if-no-files-found: ignore
 
+  attest-windows-packages:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [native-cross-build, windows-installer]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Retrieve tested Windows packages from this build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name Gateway-Windows-x64 --dir dist/windows
+      - name: Sign provenance for Windows installers and portable archives
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: |
+            dist/windows/**/Gateway-*-windows-x64-setup.exe
+            dist/windows/**/Gateway-*-windows-x64.zip
+
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
-    needs: [native-cross-build, windows-installer]
+    needs: attest-windows-packages
     concurrency: gateway-release-publication
     runs-on: ubuntu-latest
     timeout-minutes: 125
     permissions:
       actions: read
+      attestations: read
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}

@@ -417,6 +417,7 @@ jobs:
     concurrency: gateway-release-publication
     permissions:
       actions: read
+      attestations: read
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}

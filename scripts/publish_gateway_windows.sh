@@ -19,6 +19,11 @@ android_version=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"$/\1/p' app/bu
 android_code=$(sed -n 's/^[[:space:]]*versionCode = \([0-9]*\)$/\1/p' app/build.gradle.kts)
 [[ "$android_version" =~ ^[0-9]+(\.[0-9]+)+$ && "$android_code" =~ ^[0-9]+$ ]]
 cd "$payload"
+verify_provenance() {
+    gh attestation verify "$1" --repo "$GITHUB_REPOSITORY" --deny-self-hosted-runners \
+        --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/gateway-windows-installer.yml" \
+        --source-digest "$GITHUB_SHA" --signer-digest "$GITHUB_SHA"
+}
 
 # The Windows runner writes its checksum file with CRLF on Windows.
 tr -d '\r' < SHA256SUMS.txt > checksums.txt
@@ -27,6 +32,8 @@ cmp checksums.txt expected-checksums.txt
 jq -e --arg version "$version" '.version == $version and (.passed | length > 0)' smoke-results.json > /dev/null
 unzip -p "$zip" release.json |
     jq -e --arg version "$version" --arg sha "$GITHUB_SHA" '.version == $version and .sourceCommit == $sha' > /dev/null
+
+for name in "$zip" "$installer"; do verify_provenance "$name"; done
 
 # A lost create/upload response can leave an unpublished release on GitHub.
 # Continue only when its tag and immutable source match this validated package.
@@ -56,7 +63,7 @@ fi
     if [[ "$version" == 17.0.2 && "$canonical" == 18.0.0 ]]; then
         printf 'This transition release upgrades the v17 updater. After Gateway restarts, check for updates again to install Gateway 18. Automatic updates continue when idle.\n\n'
     fi
-    printf 'The Windows installer is unsigned. CI verified the installer and update smoke scenarios. Physical Android and Windows integration requires its own observed results.\n'
+    printf 'The installer and portable ZIP carry GitHub Actions signed provenance for this source revision. The installer has no Windows Authenticode signature. CI verified the installer and update smoke scenarios. Physical Android and Windows integration requires its own observed results.\n'
     if [[ -f "../../docs/repairs/post-1349-github-read-recovery-2026-11-17.md" ]]; then
         printf '\n[Feature delivery and qualification](https://github.com/%s/blob/%s/docs/repairs/post-1349-github-read-recovery-2026-11-17.md)\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
     fi
@@ -124,6 +131,7 @@ trap 'rm -rf -- "$downloads"' EXIT
 gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$downloads" --pattern "$zip" --pattern "$installer" \
     --pattern SHA256SUMS.txt --pattern smoke-results.json
 for name in "${assets[@]}"; do cmp -- "$name" "$downloads/$name"; done
+for name in "$zip" "$installer"; do verify_provenance "$downloads/$name"; done
 
 
 # Publish the bridge only after the destination is independently downloadable.

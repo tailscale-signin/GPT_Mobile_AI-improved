@@ -10,12 +10,14 @@ import io
 import json
 import re
 import subprocess
+import time
 import sys
 from pathlib import Path
 
 from desktop.configuration import atomic_json, load
 from desktop.conversation_client import Client, ClientError, privacy_text, scope_key
 from desktop.chat_state import ChatState
+from desktop.public_activity import PublicActivity
 from desktop.dashboard_model import read_snapshot
 from desktop.manager import ManagerRequestError, executable, read_pointer, request
 from v14.state_lock import StateDirectoryLock
@@ -24,7 +26,7 @@ MAX_INPUT = 512 * 1024
 PROTOCOL = 'gptmobile.desktop.v1'
 CONTROL_ACTIONS = {
     'control-settings-read', 'control-settings-patch', 'control-settings-command', 'control-settings-retry',
-    'control-connect-create', 'control-pairing-create', 'control-pairing-list', 'control-pairing-confirm',
+    'control-connect-address', 'control-connect-create', 'control-pairing-create', 'control-pairing-list', 'control-pairing-confirm',
     'control-devices', 'control-device-revoke', 'control-enable',
     'control-validation-approve', 'control-host-requests', 'control-host-request-review',
     'control-backend-approve',
@@ -71,24 +73,54 @@ def chat_send(root, args, output):
         # Never accept a supplied transcript or revision as authority.
         opened = client.read(bound_text(args['conversation_id'])) if args.get('conversation_id') else {}
         conversation = opened.get('conversation')
-        pending = {'command_id': command, 'identity': identity,
+        pending = {'command_id': command, 'identity': identity, 'draft_conversation': args.get('conversation_id') or '',
                    'draft_sha256': hashlib.sha256(prompt.encode()).hexdigest()}
         state.save(draft=prompt, model=model, pending=pending)
 
+        journal = PublicActivity(root, identity)
+        def observe(key, kind, text, sources=(), receipt=None):
+            binding = receipt or {}
+            emit('activity', journal.append(command, key, kind, text, sources,
+                 binding.get('conversation_id'), binding.get('job_id')), output)
+
+        first_text_start = None
+        accepted_job = None
         def progress(event, value):
+            nonlocal first_text_start, accepted_job
+            if event == 'delta' and first_text_start is not None and accepted_job:
+                journal.timing(accepted_job, round((time.monotonic()-first_text_start)*1000))
+                first_text_start = None
             if event == 'accepted':
+                first_text_start, accepted_job = time.monotonic(), value.get('job_id')
                 state.save(pending=dict(pending, receipt=value))
+                observe('admission', 'activity', 'Gateway accepted the request.', receipt=value)
             emit(event, value, output)
 
         try:
+            kwargs = {}
+            if args.get('mode') == 'Search':
+                # Search is a read before admission. Failure here proves no model send occurred.
+                try:
+                    if len(prompt) > 4096:
+                        raise ValueError('Search queries can contain up to 4,096 characters.')
+                    observe('search', 'tool_start', 'Searching configured web sources…')
+                    found = request(root, 'desktop-search', payload={'query': prompt})['result']
+                    if not found.get('sources'):
+                        raise ValueError('No source records returned. Check the web search service in Tools → Add-ons / MCP.')
+                    kwargs['sources'] = found['sources']
+                    observe('search', 'finding', f"Retrieved {len(found['sources'])} sources using {found['engine']}.",
+                            [{k: item[k] for k in ('url', 'title')} for item in found['sources']])
+                except (OSError, RuntimeError, ValueError, KeyError) as error:
+                    raise ClientError(str(error), not_dispatched=True) from None
             receipt = client.send(model, prompt, command, conversation=conversation,
-                                  history=opened.get('messages', []), on_event=progress)
+                                  history=opened.get('messages', []), on_event=progress, **kwargs)
         except ClientError as error:
             if error.not_dispatched:
                 state.retire_pending(command, identity)
             raise
         if receipt.get('command_id') != command or not receipt.get('conversation_id'):
             raise ValueError('The response needs reconciliation. Check the original send.')
+        journal.save_draft(pending['draft_conversation'], '', model)
         state.save(draft='', pending=None, last_conversation_id=receipt['conversation_id'])
         return receipt
     finally:
@@ -118,6 +150,8 @@ def _reconcile_chat(root):
     elif value.get('conversation_id'):
         # Read and verify saved history before retiring an ambiguous send.
         opened = client.read(value['conversation_id'])
+        if 'draft_conversation' in pending:
+            PublicActivity(root, pending['identity']).save_draft(pending['draft_conversation'], '', '')
         state.save(pending=None, draft='', last_conversation_id=value['conversation_id'])
         value = dict(value, opened=opened)
     return value
@@ -258,6 +292,105 @@ def dispatch(root, action, args, output):
             models = []
         return {'identity': identity, 'models': models, 'privacy': privacy_text(identity),
                 'draft': ChatState(root).value}
+    if action == 'search-availability':
+        connected(root, args.get('identity'))
+        return request(root, 'desktop-search', payload={'available': True})['result']
+    if action == 'draft-context':
+        connected(root, args.get('identity'))
+        cid = bound_text(args.get('conversation_id', ''), 256, blank=True)
+        saved = PublicActivity(root, args['identity']).draft(cid)
+        state = ChatState(root).value
+        if saved is None and not cid and not state.get('contextual_drafts'):
+            saved = {'draft': state['draft'], 'model': state['model']}
+        return dict(saved or {'draft':'','model':''}, pending=state.get('pending'))
+    if action == 'job-catalog':
+        client = connected(root, args.get('identity'))
+        params = {'limit': 100, 'include_copilot': 'true'}
+        if args.get('cursor'):
+            params['cursor'] = bound_text(args['cursor'], 8192)
+        result = client.request('GET', '/gateway/job-catalog', params=params)
+        PublicActivity(root, args['identity']).attach_timings(result.get('items', []))
+        return result
+    if action == 'public-activity':
+        client = connected(root, args.get('identity'))
+        cid = bound_text(args.get('conversation_id'))
+        from urllib.parse import quote
+        conversation = client.request('GET', '/gateway/conversations/' + quote(cid, safe=''))
+        journal = PublicActivity(root, args['identity'])
+        if conversation.get('active_job_kind') == 'engineering' and conversation.get('active_job_id'):
+            jid = conversation['active_job_id']
+            if not re.fullmatch(r'eng_[a-f0-9]{32}', jid):
+                raise ValueError('Invalid engineering job identity.')
+            rev = journal.engine_cursor(jid)
+            job = client.request('GET', '/gateway/engineering/jobs/' + jid, params={'after_revision': rev})
+            if job.get('conversation_id') != cid or job.get('id') != jid:
+                raise ValueError('The original job changed.')
+            turn = job.get('command_id') or jid
+            for item in job.get('updates', []):
+                phase, revision = item.get('state'), item.get('revision')
+                if isinstance(phase, str) and re.fullmatch('[A-Z_]{1,48}', phase) and type(revision) is int and revision > rev:
+                    journal.append(turn, 'revision-' + str(revision), 'activity',
+                                   'Engineering · ' + phase.replace('_', ' ').lower(), conversation=cid, job=jid, observed=item.get('created_at'))
+            for item in job.get('workspace_tests', [])[-12:]:
+                check, status = item.get('name',''), item.get('status','')
+                if re.fullmatch('[a-f0-9]{1,12}', check) and status in {'PASSED','FAILED','BLOCKED'}:
+                    journal.append(turn, 'test-' + check, 'finding', f'Check {check} returned {status.lower()}.', conversation=cid, job=jid)
+        return journal.replay(cid, args.get('after', 0))
+    if action.startswith('engineering-'):
+        client = connected(root, args.get('identity'))
+        if action == 'engineering-prepare':
+            opened = client.read(args['conversation_id'])['conversation'] if args.get('conversation_id') else None
+            payload, proposal = client.prepare_engineering(args['model'], args['values'], bound_text(args.get('command_id'), 256), opened)
+            return {'payload': payload, 'preflight': proposal}
+        if action == 'engineering-preflight':
+            return client.engineering_preflight(args['payload'])
+        if action == 'engineering-submit':
+            lock = StateDirectoryLock(root / 'native-chat-send' / 'owner')
+            lock.acquire()
+            try:
+                state = ChatState(root)
+                if state.error or state.value.get('pending'):
+                    raise ValueError('Recover the original send first.')
+                payload = args['payload']
+                if client.engineering_preflight(payload).get('ready') is not True:
+                    raise ValueError('The engineering prerequisites changed. Prepare this task again.')
+                command = bound_text(payload['command_id'], 256)
+                state.save(pending={'command_id': command, 'identity': args['identity']})
+                try:
+                    result = client.submit_engineering(payload)
+                except ClientError as error:
+                    if error.not_dispatched:
+                        state.retire_pending(command, args['identity'])
+                    raise
+                state.save(draft='', pending=None, last_conversation_id=result['conversation_id'])
+                return result
+            finally:
+                lock.release()
+        job = client.engineering_job(args.get('job_id'))
+        conversation = {'conversation_id': job['conversation_id'], 'active_job_id': job['id'], 'active_job_kind': 'engineering'}
+        if action == 'engineering-inspect':
+            if args.get('section') == 'Checkpoints':
+                reviewed, history = client.engineering_checkpoints(conversation)
+                return {'job': reviewed, 'history': history}
+            if args.get('section') == 'Evidence':
+                return client.request('GET', '/gateway/engineering/jobs/' + job['id'] + '/evidence')
+            if args.get('section') == 'Review':
+                return client.engineering_review(conversation)
+            return job
+        if action == 'engineering-approve':
+            return client.approve_engineering(conversation, args['reviewed'])
+        if action == 'engineering-candidate':
+            return client.candidate_details(job, args['check_id'])
+        if job['revision'] != args.get('revision'):
+            raise ValueError('The reviewed job revision changed. Inspect it again.')
+        if action == 'engineering-restore':
+            return client.restore_candidate(job, args['check_id'])
+        if action == 'engineering-request-changes':
+            return client.request('POST', '/gateway/engineering/jobs/' + job['id'] + '/request_changes', payload={'revision': job['revision']})
+        raise ValueError('Unknown engineering action.')
+    if action.startswith(('schedule-', 'workspace-', 'report-')):
+        from desktop.workspace_actions import dispatch as workspace
+        return workspace(root, action, args)
     if action == 'draft-save':
         lock = StateDirectoryLock(root / 'native-chat-send' / 'owner')
         lock.acquire()
@@ -265,7 +398,15 @@ def dispatch(root, action, args, output):
             state = ChatState(root)
             if state.value.get('pending'):
                 raise ValueError('The original send must be checked before replacing its saved draft.')
-            state.save(draft=bound_text(args.get('draft'), 32000, blank=True), model=bound_text(args.get('model'), 512, blank=True))
+            text = bound_text(args.get('draft'), 32000, blank=True)
+            model = bound_text(args.get('model'), 512, blank=True)
+            if 'conversation_id' in args:
+                connected(root, args.get('identity'))
+                cid = bound_text(args['conversation_id'], 256, blank=True)
+                PublicActivity(root, args['identity']).save_draft(cid, text, model)
+                state.save(contextual_drafts=True, draft='' if cid else text, model=model)
+            else:
+                state.save(draft=text, model=model)
             return {'saved': True}
         finally:
             lock.release()
@@ -304,6 +445,8 @@ def dispatch(root, action, args, output):
                 raise ValueError('GitHub cloud tasks do not support cancellation from Gateway. Open the retained task receipt for its GitHub URL.')
             if job_id.startswith('eng_'):
                 job = client.engineering_job(job_id)
+                if 'revision' in args and job['revision'] != args['revision']:
+                    raise ValueError('The selected job changed. Review its current state before cancelling.')
                 return client.request('POST', '/gateway/engineering/jobs/' + job_id + '/cancel', payload={'revision': job['revision']})
             return client.cancel(job_id)
         if job_id.startswith('eng_'):
@@ -323,6 +466,11 @@ def dispatch(root, action, args, output):
         selected = args.get('action')
         if selected not in {'stop', 'restart', 'check', 'install'}:
             raise ValueError('Unsupported runtime action.')
+        target = args.get('target')
+        if selected == 'install' and target:
+            from desktop.releases import version
+            version(target)
+            return request(root, selected, payload={'target': target})
         return request(root, selected)
     if action == 'runtime-start':
         from desktop.native_launch import start_supervisor

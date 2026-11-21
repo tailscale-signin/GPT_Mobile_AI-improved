@@ -20,6 +20,11 @@ def overlay(address):
         return None
 
 
+def listener_accepts_overlay(bind_host, destination):
+    ip = overlay(destination)
+    return bool(ip and bind_host in {ip, '::' if ':' in ip else '0.0.0.0'})
+
+
 def local_cli(*args):
     paths = ([Path(os.environ.get('ProgramFiles', r'C:\Program Files')) / 'Tailscale' / 'tailscale.exe']
              if os.name == 'nt' else [Path('/usr/bin/tailscale'), Path('/usr/local/bin/tailscale')])
@@ -51,7 +56,9 @@ class AccountConnections:
         self.host, self.until, self.peers, self.verified = host, at + 5, {}, {}
         status = self.cli('status', '--json')
         own = status.get('Self') or {}
-        if not isinstance(own, dict) or status.get('BackendState') != 'Running' or not isinstance(own.get('TailscaleIPs'), list) or host not in own['TailscaleIPs']:
+        if (not isinstance(own, dict) or status.get('BackendState') != 'Running'
+                or not isinstance(own.get('TailscaleIPs'), list)
+                or not any(listener_accepts_overlay(host, ip) for ip in own['TailscaleIPs'] if isinstance(ip, str))):
             return
         user = own.get('UserID')
         if type(user) is not int or user <= 0 or own.get('Tags') or own.get('Expired') or not own.get('ID'):

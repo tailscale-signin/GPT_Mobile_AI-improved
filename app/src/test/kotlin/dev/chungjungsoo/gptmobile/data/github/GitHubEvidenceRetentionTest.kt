@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -130,8 +131,10 @@ class GitHubEvidenceRetentionTest {
         assertEquals(JsonPrimitive("LIVE"), rows.getValue("live")["evidence_origin"])
         assertEquals(JsonPrimitive(false), rows.getValue("live")["dispatched"])
         assertEquals(JsonPrimitive(123), rows.getValue("cached")["observed_at_ms"])
-        assertEquals(JsonPrimitive(0), rows.getValue("shared")["observed_at_ms"])
-        assertEquals(JsonPrimitive(0), rows.getValue("local")["observed_at_ms"])
+        assertEquals(JsonPrimitive("CACHED"), rows.getValue("shared")["evidence_origin"])
+        assertEquals(JsonNull, rows.getValue("shared")["observed_at_ms"])
+        assertEquals(JsonPrimitive("NOT_TESTED"), rows.getValue("local")["evidence_origin"])
+        assertEquals(JsonNull, rows.getValue("local")["observed_at_ms"])
     }
 
     @Test fun oversizedReadHistoryFitsReviewBudgetWithoutDiscardingMutationErrorsOrSourceIds() = runBlocking {

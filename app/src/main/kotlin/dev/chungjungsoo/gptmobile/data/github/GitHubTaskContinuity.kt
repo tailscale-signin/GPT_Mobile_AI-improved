@@ -40,7 +40,8 @@ internal object GitHubTaskContinuity {
             "retry", "retry full", "retry failed stage", "try again", "proceed primary-only", "proceed primary only",
             "continue primary-only", "continue primary only", "primary-only"
         ) ||
-        GitHubNativeContinuation.matches(text)
+        GitHubNativeContinuation.matches(text) ||
+        GitHubExecutionLimits.renewedDuration(text) != null
 
     fun followUp(text: String): Boolean = normalized(text) in
         setOf(
@@ -51,8 +52,9 @@ internal object GitHubTaskContinuity {
         )
 
     /** A request for the saved report authorizes delivery, not another mutation or test run. */
-    fun reportOnly(text: String): Boolean = normalized(text) in
-        setOf("show the report", "show the full report", "give me the full report", "show me the full report", "full report", "show the results", "summarize the results", "retry writing", "resume writing", "continue writing")
+    fun reportOnly(text: String): Boolean = dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.from(request(text)) == dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.STATUS ||
+        normalized(text) in
+        setOf("show the last useful report", "show the report", "show the full report", "give me the full report", "show me the full report", "full report", "show the results", "summarize the results", "retry writing", "resume writing", "continue writing")
 
     fun continuation(text: String): Boolean = control(text) || followUp(text) || reportOnly(text) || diagnostic(text)
 

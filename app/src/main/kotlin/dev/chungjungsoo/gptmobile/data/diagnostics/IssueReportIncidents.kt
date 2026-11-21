@@ -377,7 +377,8 @@ internal object IssueReportIncidents {
                 401 -> "AUTHENTICATION_FAILED"
                 404 -> when (rejection) {
                     "MODEL_UNAVAILABLE" -> "SELECTED_MODEL_NOT_AVAILABLE"
-                    "NOT_FOUND" -> "SOURCE_UNAVAILABLE"
+                    "PERMISSION" -> "SOURCE_ACCESS_BLOCKED"
+                    "NOT_FOUND", "UNAVAILABLE" -> "SOURCE_UNAVAILABLE"
                     else -> "SOURCE_HTTP_ERROR"
                 }
                 400, 422 -> if (rejection in setOf("INVALID_REQUEST", "PAYLOAD_SIZE")) "PROVIDER_PAYLOAD_ERROR" else "SOURCE_HTTP_ERROR"
@@ -594,7 +595,16 @@ internal object IssueReportIncidents {
             ApplicationExitInfo.REASON_ANR -> "APP_NOT_RESPONDING"
             else -> return
         }
-        val evidence = IssueReportContext.fromFields("PROCESS_EXIT", appDiagnosticFields(code), occurredAtMillis = exit.timestamp)
+        val trace = if (code == "NATIVE_CRASH") {
+            try {
+                nativeCrashTraceEvidence(exit.traceInputStream, expectedProcessId = exit.pid)
+            } catch (_: Exception) {
+                NativeCrashTraceEvidence("unavailable", "trace_access_failed")
+            }
+        } else {
+            null
+        }
+        val evidence = IssueReportContext.fromFields("PROCESS_EXIT", appDiagnosticFields(code) + trace?.reportFields().orEmpty(), occurredAtMillis = exit.timestamp)
         evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
         val report = IssueReport.debug(ReportFeature.APP, code, emptyList(), context = evidence)
         persist(report)

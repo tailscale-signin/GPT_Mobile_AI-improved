@@ -20,6 +20,20 @@ internal static class Ui
         return control;
     }
 
+    public static StackPanel NavigationLabel(string glyph, string? label)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            FontSize = 20, VerticalAlignment = VerticalAlignment.Center });
+        if (label is not null)
+            row.Children.Add(new TextBlock { Text = label, Margin = new Thickness(12, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center, FontSize = 15 });
+        foreach (TextBlock text in row.Children)
+            text.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding("Foreground")
+                { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(Button), 1) });
+        return row;
+    }
+
     public static StackPanel Column(params UIElement[] children)
     {
         var result = new StackPanel();
@@ -31,7 +45,7 @@ internal static class Ui
     {
         var result = new Border { Child = child, CornerRadius = new CornerRadius(hero ? 24 : 20),
             Padding = new Thickness(20), BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 16) };
-        result.SetResourceReference(Border.BackgroundProperty, "PanelBrush");
+        result.SetResourceReference(Border.BackgroundProperty, hero ? "RaisedBrush" : "PanelBrush");
         result.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
         return result;
     }

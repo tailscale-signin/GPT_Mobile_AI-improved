@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from gateway_security import DeviceStore, current_device
+from v14 import VERSION
 from v14.config import Config
 from v14.identity import Admission
 from v14.package import validate_package
@@ -178,7 +179,7 @@ class RuntimeTests(unittest.TestCase):
             else:
                 self.assertEqual(cap[key],value)
         self.assertFalse(cap['auth']['apiKeyRequired'])
-        self.assertEqual(cap['gatewayVersion'],'18.0.0')
+        self.assertEqual(cap['gatewayVersion'],VERSION)
         self.assertEqual(cap['memory']['authority'],'client')
         self.assertFalse(cap['features']['mcpFacade'])
         self.assertEqual(cap['contracts']['toolArguments'], ['gptmobile.tool-arguments.v1'])
@@ -241,7 +242,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_distribution_detects_missing_companion(self):
         root=Path(__file__).resolve().parents[1]
-        self.assertEqual(validate_package(root)['version'],'18.0.0')
+        self.assertEqual(validate_package(root)['version'],VERSION)
         with tempfile.TemporaryDirectory() as target:
             # A running package owns a byte-range lock on Windows. Distribution
             # validation copies only immutable manifest files, never live state.

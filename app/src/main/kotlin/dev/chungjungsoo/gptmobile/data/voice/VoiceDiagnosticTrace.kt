@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import android.media.AudioManager
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics
@@ -22,7 +23,24 @@ class VoiceDiagnosticTrace internal constructor(
 ) {
     enum class Engine { SYSTEM, LOCAL, KOKORO }
     enum class Focus { GRANTED, DENIED, ERROR, NOT_REQUESTED }
-    enum class PlaybackAudioMode { NORMAL, RINGTONE, IN_CALL, IN_COMMUNICATION, OTHER }
+    enum class PlaybackAudioMode {
+        NORMAL,
+        RINGTONE,
+        IN_CALL,
+        IN_COMMUNICATION,
+        OTHER;
+
+        companion object {
+            fun observed(mode: Int?): PlaybackAudioMode? = when (mode) {
+                null -> null
+                AudioManager.MODE_NORMAL -> NORMAL
+                AudioManager.MODE_RINGTONE -> RINGTONE
+                AudioManager.MODE_IN_CALL -> IN_CALL
+                AudioManager.MODE_IN_COMMUNICATION -> IN_COMMUNICATION
+                else -> OTHER
+            }
+        }
+    }
     enum class FirstAudio { UTTERANCE_START, PLAYBACK_HEAD }
 
     private val lock = Any()
@@ -182,10 +200,15 @@ class VoiceDiagnosticTrace internal constructor(
             }
         }
         fun playbackFailure(reason: String) = owner.record(this) { owner.values["voice_playback_failure"] = reason }
-        fun captureSilenced(stage: String) = owner.record(this) { owner.values["voice_capture_silenced_stage"] = stage }
+        fun captureSilenced(stage: String, systemMuted: Boolean? = null, mode: PlaybackAudioMode? = null) = owner.record(this) {
+            owner.values["voice_capture_silenced_stage"] = stage
+            if (systemMuted == null) owner.values.remove("voice_silenced_system_mic_muted") else owner.values["voice_silenced_system_mic_muted"] = systemMuted
+            if (mode == null) owner.values.remove("voice_silenced_audio_mode") else owner.values["voice_silenced_audio_mode"] = mode.name
+        }
         fun captionAlignment(state: String) = owner.record(this) { owner.values["voice_caption_alignment"] = state }
         fun inputSilenced(silenced: Boolean) = owner.record(this) { owner.values["voice_input_silenced"] = silenced }
         fun captureAttempt() = owner.record(this) {
+            listOf("voice_capture_silenced_stage", "voice_silenced_system_mic_muted", "voice_silenced_audio_mode", "voice_input_silenced").forEach(owner.values::remove)
             owner.values["voice_capture_attempts"] = ((owner.values["voice_capture_attempts"] as? Long ?: 0) + 1).coerceAtMost(MAX_COUNT)
         }
         fun captureReadsAvailable() = owner.record(this) {

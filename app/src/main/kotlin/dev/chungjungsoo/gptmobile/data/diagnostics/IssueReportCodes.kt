@@ -5,6 +5,7 @@ internal object IssueReportCodes {
     val allowed = setOf(
         "APP_ERROR",
         "CHAT_FAILED",
+        "RESEARCH_PARTIAL",
         "FREE_PROFILE_UNAVAILABLE",
         "NO_AVAILABLE_PLATFORMS",
         "SUBMITTED_TURN_UNAVAILABLE",
@@ -210,6 +211,7 @@ internal object IssueReportCodes {
         "INPUT_CAPACITY_EXCEEDED",
         "OUTPUT_CAPACITY_EXCEEDED",
         "CONTEXT_CAPACITY_EXCEEDED",
+        "REPLAY_EVIDENCE_REQUIRED",
         "CONTEXT_WINDOW_EXCEEDED",
         "CONVERSATION_CONFLICT",
         "EMPTY_COMPLETION",

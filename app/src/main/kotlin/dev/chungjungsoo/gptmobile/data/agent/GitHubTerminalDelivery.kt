@@ -16,6 +16,7 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
     return flow {
         var visible = false
         var terminal = false
+        var restoredResults = 0
         val receipts = linkedSetOf<String>()
         val observations = linkedMapOf<String, kotlinx.serialization.json.JsonObject>()
         var successfulDispatch = false
@@ -25,10 +26,10 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
             // turn a no-output attempt into an answer before its durable safety check.
             if (!visible && failure.providerLimit?.mayWait != true) {
                 val reason = failure.errorCode?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{0,95}")) } ?: "GITHUB_RUN_INTERRUPTED"
-                val evidence = if (receipts.isEmpty()) {
-                    "No tool result was delivered for this attempt."
-                } else {
-                    "${receipts.size} tool result(s) were observed; they do not establish that the requested work is complete."
+                val evidence = when {
+                    restoredResults > 0 -> "This run restored $restoredResults saved tool ${if (restoredResults == 1) "result" else "results"} before it stopped."
+                    receipts.isNotEmpty() -> "${receipts.size} tool ${if (receipts.size == 1) "result was" else "results were"} recorded before this run stopped."
+                    else -> "No tool result was delivered for this attempt."
                 }
                 val established = dev.chungjungsoo.gptmobile.data.github.GitHubPartialReport.render(observations.values)
                 val stage = (failure.failureDetails?.get("failed_stage") as? kotlinx.serialization.json.JsonPrimitive)?.content
@@ -37,7 +38,8 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
                     ?.takeIf { it.matches(Regex("[A-Z_]{1,96}")) }
                 val rateLimitMessage = failure.rateLimitDeliveryMessage()
                 val text = if (rateLimitMessage != null) {
-                    rateLimitMessage + established.takeIf { it.isNotEmpty() }?.let { "\n\n$it" }.orEmpty()
+                    val progress = established.ifEmpty { if (restoredResults > 0 || receipts.isNotEmpty()) evidence else "" }
+                    rateLimitMessage + progress.takeIf(String::isNotEmpty)?.let { "\n\n$it" }.orEmpty()
                 } else {
                     "The GitHub task stopped before a verified final result was available.\n\n" +
                         (if (established.isEmpty()) "$evidence\n\n" else "$established\n\n") +
@@ -61,7 +63,7 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
         upstream.catch { error ->
             // Flow.catch only handles upstream errors. Never recover collector
             // cancellation or process-fatal errors by emitting another response.
-            if (error is CancellationException || error !is Exception || error is dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred || error is SavedEvidenceAccessDenied || error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) throw error
+            if (error is CancellationException || error !is Exception || error is dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred || error is SavedEvidenceAccessDenied || error is ProviderRecoveryFailure || error is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged || error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) throw error
             val classified = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error)
             if (GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)) {
                 emit(AgentRunEvent.Provider(ProviderEvent.Failed(classified.userMessage, errorCode = GatewayOutcomeRecovery.ERROR_CODE)))
@@ -87,6 +89,10 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
                 return@collect
             }
             when (event) {
+                is AgentRunEvent.ToolResultsRestored -> {
+                    restoredResults = event.count
+                    emit(event)
+                }
                 is AgentRunEvent.ToolFinished -> {
                     receipts += event.call.callId
                     dev.chungjungsoo.gptmobile.data.github.GitHubPartialReport.observe(event.call, event.result)?.let { summary ->

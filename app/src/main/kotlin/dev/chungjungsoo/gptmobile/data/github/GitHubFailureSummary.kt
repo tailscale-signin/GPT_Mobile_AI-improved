@@ -26,7 +26,11 @@ internal object GitHubFailureSummary {
                     "INVALID_ARGUMENTS" -> "Discover exact paths and validate executable arguments; omit recovery envelopes."
                     "DUPLICATE_ACTION" -> "Inspect the pending approval or saved mutation receipt. Reconcile unknown outcomes; do not repeat the write or change its message to bypass deduplication."
                     "WORKING_BRANCH_REQUIRED" -> "Select an authorized working branch, resolve its head and restage against its observed content."
-                    "GITHUB_NOT_FOUND_OR_HIDDEN", "GITHUB_NOT_FOUND_OR_INACCESSIBLE" -> "Verify the observed resource ID and access once. Active-job logs remain pending; do not invent IDs or blindly retry a 404."
+                    "GITHUB_NOT_FOUND_OR_HIDDEN", "GITHUB_NOT_FOUND_OR_INACCESSIBLE" -> if (observations.all { it.value.text("tool")?.githubOperationFamily() == "github_release" }) {
+                        "Check the release inventory for this repository and use its recorded release ID. A tag alone does not establish that a release is accessible."
+                    } else {
+                        "Check the resource identifier and account access against the recorded request before retrying."
+                    }
                     in GitHubFailurePolicy.codes, "REPOSITORY_GRAPH_UNAVAILABLE", "GATEWAY_CAPABILITY_UNAVAILABLE", "GITHUB_REF_UNAVAILABLE", "GITHUB_CIRCUIT_OPEN", "CIRCUIT_BREAKER_OPEN", "RECONCILIATION_REQUIRED", "UNKNOWN_OUTCOME" -> GitHubFailurePolicy.recoveryHint(code)
                     "BUDGET_EXHAUSTED" -> "Resume unfinished work with a fresh bounded allowance; preserve completed receipts."
                     in dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes -> "Reconcile the exact saved remote operation before another mutation. A lost response is not permission to repeat the write."

@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** Only research delivery is buffered. Collection/tool rounds and ordinary chat retain streaming. */
 internal class ResearchDeliverySession(
@@ -30,6 +32,15 @@ internal class ResearchDeliverySession(
     private val prepareInitial: suspend (AgentProviderSession, String) -> AgentProviderSession = { session, _ -> session },
     private val create: suspend (String, Boolean) -> AgentProviderSession
 ) : AgentProviderSession {
+    private fun partialResearch(message: String, stage: String) = ProviderEvent.Failed(
+        "RESEARCH_PARTIAL: $message",
+        errorCode = "RESEARCH_PARTIAL",
+        failureDetails = buildJsonObject {
+            put("failed_stage", stage)
+            put("failure_origin", "APPLICATION")
+        }
+    )
+
     private var publishedDraft = ""
     private var preparedInitialSession: AgentProviderSession? = null
     override val handlesToolsInternally get() = preparedInitialSession?.handlesToolsInternally ?: base.handlesToolsInternally
@@ -132,7 +143,7 @@ internal class ResearchDeliverySession(
         if (hasCalls || failure != null || !completed && !overflow) {
             val denied = failure?.let(::isAuthorizationFailure) == true
             if (!denied && !hasCalls) {
-                if (failure == null) failure = ProviderEvent.Failed("RESEARCH_PARTIAL: The writer stopped before completion. Saved evidence is retained.", errorCode = "RESEARCH_PARTIAL")
+                if (failure == null) failure = partialResearch("The writer stopped before completion. Saved evidence is retained.", "final_synthesis")
                 // Internal tool rounds can have accepted evidence after the initial packet.
                 evidence = withContext(Dispatchers.Default) { packet() } ?: evidence
                 validateAccess()
@@ -162,7 +173,7 @@ internal class ResearchDeliverySession(
         val delivery = evidence
         if (delivery == null && expectResearch) {
             receipt(ResearchReportValidity.INCOMPLETE, null, "", listOf("NO_ACQUISITION_PACKET"))
-            emit(ProviderEvent.Failed("RESEARCH_PARTIAL: No acquisition packet was retained; resume source collection before report delivery."))
+            emit(partialResearch("No acquisition packet was retained; resume source collection before report delivery.", "retrieval"))
             return@flow
         }
         if (delivery == null) {
@@ -177,7 +188,7 @@ internal class ResearchDeliverySession(
             val fallback = ResearchDeliveryValidator.fallback(delivery)
             publish(fallback)
             receipt(ResearchReportValidity.EVIDENCE_ONLY, delivery, fallback, listOf("NO_READABLE_SOURCES"))
-            emit(ProviderEvent.Failed("RESEARCH_PARTIAL: No readable sources were acquired. Saved discovery leads remain available; retry collection when sources and network access are available."))
+            emit(partialResearch("No readable sources were acquired. Saved discovery leads remain available; retry collection when sources and network access are available.", "retrieval"))
             return@flow
         }
         var text = ResearchReportReviewStatus.disclose(ResearchReportReferences.render(draft.toString(), delivery), delivery)
@@ -290,7 +301,7 @@ internal class ResearchDeliverySession(
         )
         if (partialFallback) {
             val correctionStatus = repairRejection?.let { " ${it.description}" }.orEmpty()
-            emit(ProviderEvent.Failed("RESEARCH_PARTIAL: Evidence is retained, but the report did not pass its delivery checks.$correctionStatus Resume writing from saved evidence.", errorCode = "RESEARCH_PARTIAL"))
+            emit(partialResearch("Evidence is retained, but the report did not pass its delivery checks.$correctionStatus Resume writing from saved evidence.", "verification"))
         } else {
             emit(ProviderEvent.Completed)
         }

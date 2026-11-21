@@ -88,6 +88,19 @@ class ToolRepeatHistoryDiagnosticsTest {
         }
     }
 
+    @Test fun lastUnsentCauseReachesTheApprovedReportOnlyWithCompletePriorHistory() {
+        val field = IssueReportIncidentCapsule.LAST_UNSENT_CODE
+        val observations = operands() + history(outcomes = listOf("NOT_DISPATCHED")) + (field to JsonPrimitive("INVALID_ARGUMENTS"))
+        val context = capture(observations)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive("INVALID_ARGUMENTS"), diagnostic.values[field])
+        assertTrue(IssueReportDiagnostics.REPEAT_PRIOR_CAUSE_FEATURE in diagnostic.requiredServiceFeatures())
+        assertTrue(report(context).approvedPayload().contains(field))
+        val invalid = requireNotNull(capture(observations + ("dependency_repeat_prior_outcomes" to JsonArray(listOf(JsonPrimitive("DISPATCHED_SUCCESS"))))).diagnostics)
+        assertNull(invalid.values[field])
+        assertFalse(IssueReportDiagnostics.REPEAT_PRIOR_CAUSE_FEATURE in invalid.requiredServiceFeatures())
+    }
+
     @Test fun missingOrMalformedHistoryIsDiscardedTogetherWithoutDroppingAdmissionOperands() {
         val original = operands() + history()
         val base = requireNotNull(capture(operands()).diagnostics)

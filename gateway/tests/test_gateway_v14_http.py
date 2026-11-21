@@ -2,14 +2,17 @@
 import json
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import urlsplit
 
 import requests
@@ -58,6 +61,7 @@ class Backend(BaseHTTPRequestHandler):
 
 
 class LiveHTTPTests(unittest.TestCase):
+    @patch.dict(os.environ, {'NO_PROXY': '127.0.0.1,localhost', 'no_proxy': '127.0.0.1,localhost'})
     def test_launcher_browser_admission_stream_and_saved_result_over_http(self):
         root = Path(__file__).resolve().parents[1]
         Backend.model_requests = 0
@@ -116,7 +120,29 @@ class LiveHTTPTests(unittest.TestCase):
                     headers = {'Origin': base}
                     self.assertEqual(requests.post(base+'/v1/chat/completions', json={}, headers=headers, timeout=4).status_code, 403)
                     headers['X-Gateway-CSRF'] = requests.get(base+'/gateway/session', headers=headers, timeout=4).json()['csrfToken']
-                    result = requests.post(base+'/v1/chat/completions', headers=headers, timeout=10, json={
+
+                    def complete(payload):
+                        # The non-streaming response includes the FULL-sync job and result commits.
+                        # Bound connection setup separately from model execution and durable I/O.
+                        before = Backend.model_requests
+                        try:
+                            return requests.post(base+'/v1/chat/completions', headers=headers,
+                                                 timeout=(3, 30), json=payload)
+                        except requests.Timeout as error:
+                            jobs_db = (temp/'jobs.sqlite3').as_uri() + '?mode=ro'
+                            try:
+                                with closing(sqlite3.connect(jobs_db, uri=True, timeout=0.25)) as db:
+                                    states = db.execute(
+                                        "SELECT status, json_extract(public_json, '$.last_sequence') "
+                                        'FROM gateway_jobs ORDER BY updated_at DESC LIMIT 2'
+                                    ).fetchall()
+                            except sqlite3.Error as journal_error:
+                                states = type(journal_error).__name__
+                            self.fail(f'{type(error).__name__} during chat (stream={payload["stream"]}, '
+                                      f'backend calls this round={Backend.model_requests - before}, '
+                                      f'latest journal states and sequences={states})')
+
+                    result = complete({
                         'model': 'fixture', 'stream': True, 'messages': [{'role': 'user', 'content': 'Hi'}], 'max_tokens': 128})
                     self.assertEqual(result.status_code, 200, result.text)
                     self.assertIn('Live HTTP reply', result.text)
@@ -124,12 +150,15 @@ class LiveHTTPTests(unittest.TestCase):
                     saved = requests.get(base+'/gateway/jobs/'+result.headers['X-Gateway-Job-ID']+'/result', timeout=4)
                     self.assertEqual(saved.status_code, 200)
                     self.assertIn('Live HTTP reply', saved.text)
-                    github = requests.post(base+'/v1/chat/completions', headers=headers, timeout=10, json={
+                    before_github = Backend.model_requests
+                    github = complete({
                         'model': 'fixture', 'stream': False,
                         'messages': [{'role': 'user', 'content': 'Continue'}], 'max_tokens': 128,
                         'tools': [{'type': 'function', 'function': {'name': 'github_ci__github_api',
                                    'parameters': {'type': 'object', 'properties': {}}}}]})
                     self.assertEqual(200, github.status_code, github.text)
+                    self.assertEqual('Live HTTP reply', github.json()['choices'][0]['message']['content'])
+                    self.assertEqual(before_github + 1, Backend.model_requests)
                     stats = requests.get(base+'/gateway/admin/status', timeout=4).json()['github']
                     self.assertEqual(1, stats['modelRounds']['counts']['requests'])
                     self.assertEqual(1, stats['modelRounds']['counts']['catalogDiscoverySkipped'])

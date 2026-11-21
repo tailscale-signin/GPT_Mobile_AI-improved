@@ -86,7 +86,8 @@ internal object GitHubEvidencePolicy {
         val immutable = receipt?.get("immutable") == JsonPrimitive(true) || stableResourceNumber
         val semanticsMismatch = claim["resource_type"]?.let { it != JsonPrimitive(resourceType) } == true ||
             claim["field_type"]?.let { it != JsonPrimitive(fieldType) } == true
-        val unknownObservationTime = timestamp <= 0 || timestamp > now
+        val withoutClock = timestamp <= 0 && receipt != null && GitHubEvidenceExcerpts.pinnedSource(receipt, path)
+        val unknownObservationTime = timestamp <= 0 && !withoutClock || timestamp > now
         val stale = unknownObservationTime || !immutable && (now - timestamp > MAX_AGE_MS || receipt?.get("epoch") != JsonPrimitive(currentEpoch))
         val status = when {
             receipt == null || observed == null || "value" !in claim -> "NOT_MEASURED"
@@ -107,15 +108,16 @@ internal object GitHubEvidencePolicy {
             observed == null -> "POINTER_NOT_IN_EVIDENCE"
             semanticsMismatch -> "FIELD_SEMANTICS_MISMATCH"
             unknownObservationTime -> "OBSERVATION_TIME_UNKNOWN"
+            status == "CONTRADICTED" -> "VALUE_MISMATCH"
             status == "HISTORICAL" -> "HISTORICAL_OBSERVATION"
             status == "STALE" -> "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED"
-            status == "CONTRADICTED" -> "VALUE_MISMATCH"
             else -> "EXACT_RECEIPT_MATCH"
         }
         // Preserve the decision above. These are its effective, verification-time
         // observations, not a later reconstruction from the retained receipt.
         val freshnessPredicates = when {
             status == "NOT_MEASURED" -> null
+            withoutClock -> emptyList()
             timestamp <= 0 -> listOf("OBSERVATION_TIME_UNAVAILABLE")
             timestamp > now -> listOf("OBSERVATION_TIME_FUTURE")
             status == "CONTRADICTED" || immutable -> emptyList()
@@ -141,7 +143,8 @@ internal object GitHubEvidencePolicy {
             put("pointer", path)
             put("resource_type", resourceType)
             put("field_type", fieldType)
-            put("observed_at_ms", timestamp)
+            put("observed_at_ms", timestamp.takeIf { it > 0 }?.let(::JsonPrimitive) ?: JsonNull)
+            if (withoutClock) put("freshness_basis", "PINNED_SOURCE_IDENTITY")
             if (status in setOf("VERIFIED", "HISTORICAL", "CONTRADICTED")) put("observed", requireNotNull(observed))
         }
     }
@@ -335,7 +338,8 @@ internal object GitHubEvidencePolicy {
             put(
                 "subject",
                 when (failureCode) {
-                    "GITHUB_REVIEW_BLOCKED", "GITHUB_REVIEW_INVALID_VERDICT" -> "Answer review could not validate the draft. The recorded operations below remain available."
+                    "GITHUB_REVIEW_BLOCKED", "GITHUB_REVIEW_INVALID_VERDICT" -> "Choose Resume review to verify the saved findings. The recorded operations below remain available."
+                    "REASONING_CAPABILITY_UNVERIFIED", "REASONING_CAPABILITY_UNAVAILABLE", "REASONING_CAPABILITY_TIMEOUT" -> "Check the selected model and reasoning setting, then choose Resume review to verify the saved findings."
                     "GITHUB_EXTRACTION_TIMEOUT" -> "The answer formatter timed out. Recorded operations are preserved; task completion is not established."
                     "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "Claim extraction reached its output limit. Completed claim batches are saved for continuation."
                     "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "The answer formatter returned invalid claim data. Completed claim batches are saved for continuation."

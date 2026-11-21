@@ -168,7 +168,7 @@ class GitHubSavedViewObservationTest {
         )
         book.observe(call("mismatch", handle), mismatch)
         for (row in book.snapshot().first.values.filter { it["call_id"] != JsonPrimitive("source") }) {
-            assertEquals(JsonPrimitive(0), row["observed_at_ms"])
+            assertEquals(kotlinx.serialization.json.JsonNull, row["observed_at_ms"])
             assertNull(row["source_observation_receipt_id"])
             assertFalse(row["dispatched"] == JsonPrimitive(true))
         }
@@ -192,7 +192,7 @@ class GitHubSavedViewObservationTest {
         book.observe(call("ambiguous", handle), legacy("ambiguous"))
         val rows = book.snapshot().first.values.associateBy { it.getValue("call_id").jsonPrimitive.content }
         assertEquals(JsonPrimitive(1000), rows.getValue("unique")["observed_at_ms"])
-        assertEquals(JsonPrimitive(0), rows.getValue("ambiguous")["observed_at_ms"])
+        assertEquals(kotlinx.serialization.json.JsonNull, rows.getValue("ambiguous")["observed_at_ms"])
         assertNull(rows.getValue("ambiguous")["source_observation_receipt_id"])
     }
 
@@ -210,7 +210,7 @@ class GitHubSavedViewObservationTest {
         val page = views.read("scope", "github_ci", "github_ci", handle, "legacy")
         book.observe(call("legacy", handle), page.copy(executionReceipt = JsonObject(page.executionReceipt.orEmpty() - "saved_view_source_call_id")))
         val row = book.snapshot().first.values.single { it["call_id"] == JsonPrimitive("legacy") }
-        assertEquals(JsonPrimitive(0), row["observed_at_ms"])
+        assertEquals(kotlinx.serialization.json.JsonNull, row["observed_at_ms"])
         assertNull(row["source_observation_receipt_id"])
     }
 }

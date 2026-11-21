@@ -31,13 +31,17 @@ internal object GitHubInventoryObservation {
             put("fetched", records.size)
             put("record_keys", JsonArray(identities))
             put("record_keys_complete", identities.size == records.size && identities.distinct().size == records.size)
-            if (field in setOf("workflow_runs", "jobs")) {
+            if (field in setOf("workflow_runs", "jobs", "pull_requests", "issues", "releases", "tags", "items")) {
                 put(
                     "planning_records",
                     JsonArray(
                         records.filterIsInstance<JsonObject>().take(1000).map { row ->
                             JsonObject(
-                                row.filterKeys { it in setOf("id", "run_id", "run_attempt", "head_sha", "status", "conclusion") } + buildJsonObject {
+                                row.filterKeys { it in setOf("id", "number", "name", "state", "tag_name", "draft", "run_id", "run_attempt", "head_sha", "status", "conclusion") } + buildJsonObject {
+                                    for (key in listOf("head", "base")) {
+                                        (row[key] as? JsonObject)?.let { revision -> put(key, JsonObject(revision.filterKeys { it == "sha" })) }
+                                    }
+                                    if ("pull_request" in row) put("pull_request", true)
                                     (row["steps"] as? JsonArray)?.let { steps -> put("steps", JsonArray(steps.filterIsInstance<JsonObject>().take(100).map { JsonObject(it.filterKeys { key -> key in setOf("status", "conclusion") }) })) }
                                 }
                             )
@@ -63,12 +67,12 @@ internal object GitHubInventoryObservation {
     /** Legacy excerpts supply selectors for another checked read, never omitted facts or completeness. */
     fun planningRoot(receipt: JsonObject): JsonObject? {
         val envelope = receipt["result"] as? JsonObject ?: return null
-        val value = if (envelope["observationTruncated"] == JsonPrimitive(true)) envelope["excerpt"] as? JsonObject ?: return null else envelope
+        val value = if (envelope["observationTruncated"] == JsonPrimitive(true)) envelope["excerpt"] as? JsonObject ?: JsonObject(emptyMap()) else envelope
         val root = (value["data"] as? JsonObject) ?: value
         val inventory = receipt["inventory_observation"] as? JsonObject
         val field = (inventory?.get("field") as? JsonPrimitive)?.contentOrNull
         val records = inventory?.get("planning_records") as? JsonArray
-        return if (field in setOf("workflow_runs", "jobs") && records != null) JsonObject(root + (requireNotNull(field) to records)) else root
+        return if (field in fields && records != null) JsonObject(root + (requireNotNull(field) to records)) else root
     }
 
     private fun fromDispatchMetadata(receipt: JsonObject): JsonObject? {

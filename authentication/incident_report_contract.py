@@ -72,6 +72,8 @@ ACTIONS = {
 }
 
 FIELD_NAMES = {
+    'includeLinks', 'includeDomains', 'excludeDomains', 'extractDocument',
+    'documentPageStart', 'documentPageLimit', 'documentTextOffset', 'expectedDocumentSha256',
     'accept',
     'action',
     'artifact_id',
@@ -160,6 +162,7 @@ FIELD_NAMES = {
 
 # Counts cover supplied array entries; omitted counts distinct known names beyond the retained eight.
 POLICY_FIELD_NAMES = {
+    'profileBehavior.delegationEnabled', 'profileBehavior.delegationCloudPermission', 'profileBehavior.crawlersEnabled', 'profileBehavior.crawlerToolIds', 'profileBehavior.maxCrawlPages', 'profileBehavior.toolPluginStates', 'profileBehavior.researchDepthOverride', 'profileBehavior.researchEnabledOverride', 'profileBehavior.academicSourcesAllowed',
     'assist',
     'assistPolicy',
     'budget',
@@ -257,6 +260,7 @@ COMMON = {
 
 TOOL_REPEAT_COUNTS = {'dependency_repeat_prior_admissions', 'dependency_repeat_batch_admissions', 'dependency_repeat_used', 'dependency_repeat_limit'}
 TOOL_REPEAT_FIELDS = TOOL_REPEAT_COUNTS | {'dependency_repeat_scope'}
+LAST_UNSENT_CODE = 'dependency_repeat_last_unsent_code'
 REPEAT_HISTORY_HASH_FIELDS = {'dependency_repeat_prior_call_id_hashes', 'dependency_repeat_batch_call_id_hashes'}
 REPEAT_HISTORY_LIST_FIELDS = REPEAT_HISTORY_HASH_FIELDS | {'dependency_repeat_prior_outcomes'}
 REPEAT_HISTORY_FIELDS = REPEAT_HISTORY_LIST_FIELDS | {'dependency_repeat_prior_coverage', 'dependency_repeat_batch_coverage'}
@@ -274,6 +278,7 @@ POLICY_RESPONSE_HEADER_FIELDS = {'status_policy_protection_permission_header_nam
 POLICY_RESPONSE_FIELDS = POLICY_RESPONSE_HEADER_FIELDS | {'status_policy_protection_404_kind', 'status_policy_rules_404_kind'}
 
 TOOL_FIELDS = {
+    'round_catalog_tool_count',
     'url_reader_dns_state', 'url_reader_availability', 'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
     'tool_budget_calls_used', 'tool_budget_calls_limit', 'tool_permission_scope',
     'semantic_read_rules', 'semantic_ci_rules', 'search_validation_field_names', 'dependency_admission_reasons',
@@ -396,7 +401,7 @@ FLAGS = FAILED_EVENT_FIELDS | REMOTE_PAGINATION_FLAGS | {
 }
 
 COUNTS = {
-    'tool_result_bytes_used', 'tool_result_bytes_limit', 'tool_budget_calls_used', 'tool_budget_calls_limit', 'combined_issue_count', 'combined_failed_check_count', 'combined_unverified_check_count', 'combined_repair_rounds',
+    'round_catalog_tool_count', 'tool_result_bytes_used', 'tool_result_bytes_limit', 'tool_budget_calls_used', 'tool_budget_calls_limit', 'combined_issue_count', 'combined_failed_check_count', 'combined_unverified_check_count', 'combined_repair_rounds',
     'dependency_count', 'dependency_failed_count', 'pending_tool_count',
     'claim_extraction_response_characters', 'claim_extraction_max_claims',
     'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count',
@@ -515,7 +520,7 @@ MCP_HEALTH = {'DNS_FAILED', 'DNS_RECOVERY', 'ROUTE_UNAVAILABLE', 'CONNECTION_REF
 
 ENUMS = {
     'claim_extraction_validation_stage': {'CLAIM_LIST', 'CLAIM_COUNT', 'CLAIM_RECORD', 'REQUIREMENT_MAP', 'QUESTIONS'},
-    'github_prerequisite_observation': {'CATALOG_TOOL_NOT_EXPOSED', 'CATALOG_INITIAL_REQUEST_UNAVAILABLE', 'STATUS_TOOL_NOT_EXPOSED', 'STATUS_ARGUMENTS_UNAVAILABLE', 'STATUS_READ_FAILED', 'STATUS_RECEIPT_UNUSABLE'},
+    'github_prerequisite_observation': {'CATALOG_TOOL_NOT_EXPOSED', 'CATALOG_INITIAL_REQUEST_UNAVAILABLE', 'STATUS_TOOL_NOT_EXPOSED', 'STATUS_DISCOVERY_UNAVAILABLE', 'STATUS_CONNECTION_AMBIGUOUS', 'STATUS_ACQUISITION_UNAVAILABLE', 'STATUS_ARGUMENTS_UNAVAILABLE', 'STATUS_READ_FAILED', 'STATUS_RECEIPT_UNUSABLE'},
     'claim_extraction_failure_kind': {'INVALID_JSON', 'NON_OBJECT', 'SCHEMA_REJECTED'},
     'inventory_pagination_reason': {'MISSING_VERSION', 'VERSION_MISMATCH'},
     'sqlite_constraint_kind': {'UNIQUE', 'FOREIGN_KEY', 'NOT_NULL', 'CHECK', 'PRIMARY_KEY', 'TRIGGER', 'UNKNOWN'},
@@ -523,6 +528,7 @@ ENUMS = {
     'tool_event_persistence_operation': {'START'},
     'tool_event_persistence_phase': {'ALLOCATE_SEQUENCE', 'INSERT'},
     'tool_event_persistence_failure': {'RUN_SEQUENCE_CONFLICT', 'EVENT_ID_CONFLICT', 'RUN_FOREIGN_KEY', 'NOT_NULL', 'UNKNOWN_CONSTRAINT', 'SEQUENCE_EXHAUSTED'},
+    'app_search_readiness': {'CHAT_TOOLS_DISABLED', 'PROFILE_TOOLS_DISABLED', 'PROFILE_REMOTE_DISABLED', 'NO_ENGINE_RESOLVED', 'ROUTED_ENGINE_MISSING', 'BOUND_ENGINE_MISSING', 'AGGREGATE_NOT_CREATED'},
     'review_comparison_state': {'HEAD_REQUIRED', 'BASELINE_REQUIRED', 'BASE_REF_REQUIRED', 'BASE_REF_BLOCKED', 'PR_BASE_LOOKUP', 'PR_BASE_UNVERIFIED', 'BASE_SHA_REQUIRED', 'COMPARISON_PAGES_PENDING', 'READ_CHANGED_SOURCE', 'COMPARE_REQUIRED'},
     'review_comparison_policy': {'UNRESOLVED', 'EXPLICIT_BASE_SHA', 'EXPLICIT_BASE_REF', 'OBSERVED_PR_BASE', 'DEFAULT_BRANCH_HEAD'},
     'acceptance_publication_entry': {'EVIDENCE_RETENTION_INCOMPLETE', 'TASK_DEADLINE', 'APPROVAL_CHECKPOINT', 'SAVED_CLAIM_EXTRACTION', 'CI_OBSERVATION', 'INTEGRATION_COOLDOWN', 'INTEGRATION_CHECKPOINT', 'INTEGRATION_BLOCKED', 'STATUS_COLLECTION', 'STATUS_SNAPSHOT', 'COVERAGE_CHECKPOINT', 'REVIEW_COMPARISON_BLOCKED', 'PROSE_ONLY_CORRECTION', 'COMPLETED_DRAFT', 'RETAINED_REPORT_UNAVAILABLE', 'RETAINED_FAILURE'},
@@ -540,13 +546,14 @@ ENUMS = {
     'fixture_approval_state': {'READY', 'CONDITIONAL', 'UNKNOWN'},
     'branch_protection_observation': POLICY_OBSERVATION,
     'branch_rules_observation': POLICY_OBSERVATION,
+    LAST_UNSENT_CODE: {'INVALID_ARGUMENTS', 'NOT_DISPATCHED', 'EVIDENCE_UNAVAILABLE', 'SAVED_VIEW_UNAVAILABLE', 'GITHUB_REF_UNAVAILABLE', 'GITHUB_REPOSITORY_UNAVAILABLE', 'TOOL_UNAVAILABLE', 'UNKNOWN_TOOL', 'GITHUB_VALIDATION_FAILED', 'GITHUB_NOT_FOUND_OR_INACCESSIBLE', 'TOOL_PRECHECK_FAILED', 'PRECHECK_REJECTED', 'OTHER'},
     'dependency_repeat_prior_coverage': {'COMPLETE', 'PARTIAL', 'UNAVAILABLE'},
     'dependency_repeat_batch_coverage': {'COMPLETE', 'PARTIAL', 'UNAVAILABLE'},
     'status_policy_protection_404_kind': {'NOT_FOUND', 'OTHER_404', 'EXPLICIT_BRANCH_NOT_PROTECTED'},
     'status_policy_rules_404_kind': {'NOT_FOUND', 'OTHER_404'},
     'provider_wait_terminal_status': {'COMPLETED', 'PARTIAL', 'FAILED', 'BLOCKED', 'INTERRUPTED', 'CANCELED', 'EVIDENCE_MISSING', 'WAITING_FOR_APPROVAL'},
     'changed_policy_observation': {'OBSERVED', 'PARTIAL', 'MALFORMED'},
-    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'CHAT_REPOSITORY_PREFLIGHT', 'OPENAI_ADAPTER_STREAM_CATCH', 'PROVIDER_ADAPTER_STREAM_CATCH', 'CHAT_REPOSITORY_ERROR_VALUE', 'CHAT_FLOW_EMPTY_ANSWER', 'AGENT_FAILED_EVENT'},
+    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'CHAT_REPOSITORY_PREFLIGHT', 'OPENAI_ADAPTER_STREAM_CATCH', 'PROVIDER_ADAPTER_STREAM_CATCH', 'CHAT_REPOSITORY_ERROR_VALUE', 'CHAT_FLOW_EMPTY_ANSWER', 'AGENT_FAILED_EVENT', 'AGENT_ROUND_CATCH'},
     'incident_phase_provenance': {'CAPTURE_BOUNDARY_ONLY'},
     'native_dependency_state': {'DEFERRED', 'FAILED'},
     'tool_execution_observation': {'REMOTE_READ_SUCCEEDED'},
@@ -628,7 +635,7 @@ ENUM_LISTS = {
 
 
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS, 'INCIDENT': {'github_prerequisite_observation'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | {LAST_UNSENT_CODE} | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS, 'INCIDENT': {'github_prerequisite_observation', 'app_search_readiness'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
@@ -713,7 +720,7 @@ def aligned(values):
 
 def repeat_history_aligned(values, current_call_id_hash=None):
     if not REPEAT_HISTORY_FIELDS & values.keys():
-        return True
+        return LAST_UNSENT_CODE not in values
     if not (REPEAT_HISTORY_FIELDS | TOOL_REPEAT_FIELDS) <= values.keys():
         return False
     if not isinstance(values['dependency_repeat_scope'], str) or values['dependency_repeat_scope'] not in {'TOOL_NAME', 'TOOL_NAME_AND_ARGUMENTS'}:
@@ -724,6 +731,8 @@ def repeat_history_aligned(values, current_call_id_hash=None):
     if prior_count + batch_count != used or used < limit or any(not valid_value(key, values[key]) for key in REPEAT_HISTORY_LIST_FIELDS):
         return False
     prior, batch, outcomes = (values[key] for key in ('dependency_repeat_prior_call_id_hashes', 'dependency_repeat_batch_call_id_hashes', 'dependency_repeat_prior_outcomes'))
+    if LAST_UNSENT_CODE in values and (values['dependency_repeat_prior_coverage'] != 'COMPLETE' or outcomes[-1:] != ['NOT_DISPATCHED']):
+        return False
     if (len(prior) != len(outcomes) or len(set(prior + batch)) != len(prior) + len(batch) or
             any(current in prior + batch for current in (values.get('call_id_hash'), current_call_id_hash) if current is not None)):
         return False

@@ -9,6 +9,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubFailureSummaryTest {
+    @Test fun release404PointsToTheReleaseRecord() {
+        val receipt = Json.parseToJsonElement("""{"trusted":true,"success":false,"tool":"github_release__api","error_code":"GITHUB_NOT_FOUND_OR_INACCESSIBLE"}""").jsonObject
+        val report = GitHubFailureSummary.render(mapOf("release" to receipt))
+        assertTrue(report.contains("release ID"))
+        assertFalse(report.contains("job logs"))
+    }
+
     @Test fun policyFailureReportNamesRecordedFieldsAndPreservesTheHistoricalRejection() {
         val receipt = Json.parseToJsonElement("""{"trusted":true,"success":false,"dispatched":false,"call_id":"comments","error_code":"DISPATCH_POLICY_CHANGED","execution":{"changed_policy_fields":["tools","private-token-value"]}}""").jsonObject
         val report = GitHubFailureSummary.render(mapOf("comments" to receipt))

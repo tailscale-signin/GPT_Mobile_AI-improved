@@ -107,7 +107,8 @@ def create_app(controller):
                 raise ControlError('device_credential_required', 401)
             with store.tx() as db:
                 identity = store.installation(db)
-            pairing = request.url.path in {'/gateway/pairing/claim', '/gateway/pairing/finish'}
+            pairing = request.url.path in {'/gateway/pairing/claim', '/gateway/pairing/finish', '/gateway/connect'}
+            account_generation = None
             if pairing:
                 if request.method != 'POST':
                     raise ControlError('invalid_pairing_method', 405)
@@ -115,7 +116,14 @@ def create_app(controller):
                 public_key = payload.get('public_key') if isinstance(payload, dict) else None
                 if not isinstance(public_key, str):
                     raise ControlError('device_key_required')
-                await asyncio.to_thread(store.pairing_key_allowed, token, public_key)
+                if request.url.path == '/gateway/connect' and token.startswith('lan_') and len(token) == 47:
+                    token = controller.lan_token(token, request.client.host if request.client else None)
+                if request.url.path == '/gateway/connect' and token.startswith('device_'):
+                    from desktop.account_address import verify
+                    account_generation = await asyncio.to_thread(verify, store.root, request.client.host if request.client else '',
+                        controller.endpoint, controller.fingerprint, controller.connection_port(), identity, token, public_key)
+                else:
+                    await asyncio.to_thread(store.pairing_key_allowed, token, public_key)
                 grant = None
             else:
                 grant = await asyncio.to_thread(store.authenticate, token)
@@ -124,6 +132,7 @@ def create_app(controller):
             query = request.scope.get('query_string', b'').decode('ascii')
             path += '?' + query if query else ''
             await asyncio.to_thread(verify_signature, store, headers, request.method, path, raw, public_key, identity)
+            request.state.account_generation = account_generation
             request.state.control_grant, request.state.control_token = grant, token
             response = await call_next(request)
         except ControlError as error:
@@ -144,6 +153,21 @@ def create_app(controller):
             if error.code == 'settings_changed_elsewhere':
                 result['snapshot'] = await asyncio.to_thread(store.snapshot, principal(request))
             return JSONResponse(result, status_code=error.status)
+
+    @app.post('/gateway/connect')
+    async def connect(request: Request):
+        payload = await request.json()
+        def issue():
+            if not isinstance(payload, dict) or set(payload) != {'public_key'}:
+                raise ControlError('invalid_connection_request')
+            if not (port := controller.connection_port()):
+                raise ControlError('gateway_address_changed', 409)
+            if request.state.account_generation:
+                value = store.connect_account_key(payload['public_key'], request.state.account_generation, controller.secret)
+            else:
+                value = store.connect_address(request.state.control_token, payload['public_key'], controller.secret)
+            return dict(value, endpoint=controller.endpoint, fingerprint=controller.fingerprint, gateway_port=port)
+        return await execute(request, issue)
 
     @app.post('/gateway/pairing/claim')
     async def claim(request: Request):
@@ -166,6 +190,12 @@ def create_app(controller):
     @app.get('/gateway/settings')
     async def settings(request: Request):
         return await execute(request, lambda: controller.phone_snapshot(principal(request)))
+
+    @app.api_route('/gateway/settings/connection', methods=['GET', 'PATCH'])
+    async def connection_settings(request: Request):
+        from desktop.workspace_actions import phone_connection_settings
+        command = await request.json() if request.method == 'PATCH' else None
+        return await execute(request, lambda: phone_connection_settings(store, principal(request), command))
 
     @app.post('/gateway/updates')
     async def update(request: Request):

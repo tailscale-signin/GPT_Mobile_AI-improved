@@ -62,39 +62,15 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
     }
 }
 
-/** Separates a reader's scroll from the caption's own movement to a timed phrase. */
-internal class VoiceCaptionFollowing(initialPosition: Int = 0) {
-    var following: Boolean = true
-        private set
-    private var previousPosition = initialPosition
-    private var automaticScrolls = 0
+internal fun captionLineScale(offset: Int): Float = 2f - kotlin.math.abs(offset) * .5f
 
-    fun pause() {
-        following = false
-    }
+internal fun captionLineAlpha(offset: Int): Float = 1f - kotlin.math.abs(offset) * .25f
 
-    fun beginAutomaticScroll() {
-        automaticScrolls++
-    }
+/** Holds a fractional line while browsing. Scrolling to the end resumes the playback cursor. */
+internal data class VoiceCaptionReader(private val manualLine: Float? = null) {
+    val following get() = manualLine == null
 
-    fun endAutomaticScroll(position: Int) {
-        // Record the final position before the observer sees the end of an animation.
-        previousPosition = position
-        automaticScrolls = (automaticScrolls - 1).coerceAtLeast(0)
-    }
+    fun position(live: Int, last: Int): Float = (manualLine ?: live.toFloat()).coerceIn(0f, last.toFloat())
 
-    fun observe(position: Int, maximum: Int): Boolean {
-        if (automaticScrolls == 0) {
-            if (position < previousPosition) following = false
-            if (position >= maximum - 1) following = true
-        }
-        previousPosition = position
-        return following
-    }
-
-    fun userScroll(position: Int, maximum: Int): Boolean {
-        following = position >= maximum - 1
-        previousPosition = position
-        return following
-    }
+    fun scroll(line: Float, last: Int) = VoiceCaptionReader(line.takeIf { it < last }?.coerceAtLeast(0f))
 }

@@ -300,7 +300,8 @@ class GatewayGraphRepository @Inject constructor(
                 if (unknown) "CHECK_SAVED_INDEX" else repair,
                 unknown,
                 indexAttemptHash = attemptHash,
-                currentIndexOutcomeUnknown = currentIndexUnknown
+                currentIndexOutcomeUnknown = currentIndexUnknown,
+                targetRevision = context.commitSha
             )
         }
     }

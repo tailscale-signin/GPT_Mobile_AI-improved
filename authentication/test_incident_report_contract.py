@@ -57,6 +57,20 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_search_readiness_and_silenced_input_accept_only_bounded_observations(self):
+        for area, fields in (
+            ("INCIDENT", {"app_search_readiness": "NO_ENGINE_RESOLVED"}),
+            ("VOICE", {"voice_silenced_audio_mode": "IN_COMMUNICATION",
+                       "voice_silenced_system_mic_muted": False}),
+        ):
+            capture = self.capture(area, fields)
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+            for key in fields:
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture(area, {key: "private device or connection"}))
+                with self.subTest(area=area, key=key), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("TOOL", {key: fields[key]}))
+
     def test_remote_pagination_and_provider_limit_reports_survive_submission(self):
         pagination = {
             "remote_pagination_page": 6, "remote_pagination_pages_observed": 1, "remote_pagination_reported_total": 170,
@@ -80,8 +94,20 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture(area, {key: invalid}))
 
+    def test_selected_model_and_review_prerequisites_survive_submission(self):
+        model = {"provider_failure_code": "SELECTED_MODEL_LOADING", "gateway_model_state": "LOADING",
+                 "gateway_model_advertised": True, "gateway_model_loaded": False}
+        values = validate_diagnostics(self.capture("PROVIDER", model))["values"]
+        self.assertEqual(model, {key: values[key] for key in model})
+        for key, bad in (("gateway_model_loaded", "false"), ("gateway_model_state", "private model name")):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {**model, key: bad}))
+        for reason in ("STATUS_DISCOVERY_UNAVAILABLE", "STATUS_CONNECTION_AMBIGUOUS", "STATUS_ACQUISITION_UNAVAILABLE"):
+            capture = self.capture("INCIDENT", {"github_prerequisite_observation": reason})
+            self.assertEqual(reason, validate_diagnostics(capture)["values"]["github_prerequisite_observation"])
+
     def test_interrupted_run_and_unavailable_continuation_keep_their_codes_in_approved_issues(self):
-        for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED"):
+        for code in ("GITHUB_RUN_INTERRUPTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "RESEARCH_PARTIAL"):
             with self.subTest(code=code):
                 report = self.report(self.capture())
                 report.pop("context")
@@ -89,6 +115,16 @@ class IncidentReportContractTest(unittest.TestCase):
                 _, issue = issue_from_report(report)
                 self.assertIn(code, issue["title"])
                 self.assertIn(code, issue["body"])
+
+    def test_catalog_rejections_and_reader_options_survive_the_report_boundary(self):
+        for values in ({"round_catalog_tool_count": 6, "tool_reason_code": "UNKNOWN_TOOL"},
+                       {"argument_field_names": ["excludeDomains"], "argument_field_types": ["STRING"],
+                        "validation_field_names": ["excludeDomains"], "unknown_field_hashes": ["a" * 64]}):
+            capture = self.capture("TOOL", values)
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for values in ({"round_catalog_tool_count": -1}, {"validation_field_names": ["private-value"]}):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", values))
 
     def test_new_provider_terminal_causes_are_accepted_as_closed_diagnostic_values(self):
         for code in ("BUDGET_RESTRICTED", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED"):
@@ -253,6 +289,16 @@ class IncidentReportContractTest(unittest.TestCase):
             forged["values"]["tool_protocol_frame_kind"] = invalid
             with self.assertRaises(ValueError):
                 validate_diagnostics(forged)
+
+    def test_action_only_precheck_accepts_bounded_context(self):
+        fields = {"tool_action": "stage", "action_only_tool_family": "REPOSITORY_WORKSPACE", "action_only_validation": "NO_RECEIPT"}
+        observed = self.capture("TOOL", fields)
+        self.assertEqual(observed, validate_diagnostics(copy.deepcopy(observed)))
+        for key in ("action_only_tool_family", "action_only_validation"):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {**fields, key: "private-freeform"}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"action_only_validation": "NO_RECEIPT"}))
 
     def test_copilot_actions_and_tool_precheck_reasons_roundtrip_without_raw_tool_arguments(self):
         reasons = (
@@ -710,6 +756,20 @@ class IncidentReportContractTest(unittest.TestCase):
                 for key in capsule.REPEAT_HISTORY_FIELDS:
                     self.assertIn(f"| {key} |", issue["body"])
                 self.assertFalse({"remote_acceptance", "requires_reconciliation", "request_replay_allowed"} & capture["values"].keys())
+
+    def test_last_unsent_reason_requires_an_observed_owned_prior_rejection(self):
+        values = self.repeat_history(outcomes=["NOT_DISPATCHED"])
+        evidence = {**values, capsule.LAST_UNSENT_CODE: "INVALID_ARGUMENTS"}
+        observed = self.capture("TOOL", evidence)
+        self.assertEqual(observed, validate_diagnostics(copy.deepcopy(observed)))
+        for fields in ({"dependency_repeat_last_unsent_code": "OTHER"},
+                       {**evidence, capsule.LAST_UNSENT_CODE: "private-text"},
+                       {**evidence, "dependency_repeat_prior_outcomes": ["DISPATCHED_SUCCESS"]},
+                       {**self.repeat_history(prior_count=2, outcomes=["NOT_DISPATCHED"], prior_coverage="PARTIAL"), capsule.LAST_UNSENT_CODE: "OTHER"}):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", fields))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {capsule.LAST_UNSENT_CODE: "OTHER"}))
 
     def test_repeat_history_rejects_partial_malformed_incoherent_and_self_linked_values(self):
         good = self.repeat_history()
@@ -1190,6 +1250,32 @@ class IncidentReportContractTest(unittest.TestCase):
         match = re.search(r'"' + key + r'" to setOf\(([^\n]*)\)', source)
         self.assertIsNotNone(match)
         self.assertEqual(capsule.ENUM_LISTS[key], set(re.findall(r'"([^"\n]+)"', match.group(1))))
+
+    def test_search_failure_counts_and_catalog_selector_are_bounded(self):
+        fields = {"search_failure_observation": "NO_ENGINE_SUCCEEDED", "search_attempt_count": 3,
+                  "search_dispatched_attempt_count": 1, "search_budget_rejected_attempt_count": 1,
+                  "catalog_selector_state": "ACTION_WITHOUT_NAMES"}
+        validate_diagnostics(self.capture("TOOL", fields))
+        for key, value in fields.items():
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {key: 1025 if type(value) is int else "private"}))
+            with self.subTest(area="ACCEPTANCE", key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {key: value}))
+
+    def test_deadline_and_acquisition_evidence_are_bounded_and_acceptance_scoped(self):
+        values = {"task_deadline_check": "BEFORE_TOOL_RESTORE", "task_deadline_observation": "WINDOW_EXPIRED",
+                  "task_deadline_window_seconds": 60, "task_deadline_overdue_seconds": 0,
+                  "acceptance_acquisition_allowed": False, "acceptance_cleanup_reserve": 0,
+                  "acceptance_fixture_start_minimum": 6, "acceptance_prerequisite_blockers": ["OWNED_FIXTURE_REQUIRED"]}
+        validate_diagnostics(self.capture("ACCEPTANCE", values))
+        for field, bad in (("task_deadline_check", "private text"), ("task_deadline_observation", "unknown clock"),
+                           ("task_deadline_window_seconds", -1), ("task_deadline_overdue_seconds", 16000001),
+                           ("acceptance_acquisition_allowed", "false"), ("acceptance_cleanup_reserve", -1),
+                           ("acceptance_fixture_start_minimum", "6"), ("acceptance_prerequisite_blockers", ["private-id"])):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {field: bad}))
+            with self.subTest(wrong_area=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {field: values[field]}))
 
     def test_acceptance_recovery_evidence_preserves_unknown_policy_and_prerequisites(self):
         values = {
@@ -1903,14 +1989,65 @@ class IncidentReportContractTest(unittest.TestCase):
         resolver = (base / "data/agent/tool/AgentToolResolver.kt").read_text()
         self.assertIn('"tool_inventory"', resolver)
         authority_source = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text()
-        override_helper = authority_source.split("internal fun githubOverrideChanges", 1)[1].split("internal fun profileRevision", 1)[0]
-        override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', override_helper) if key != "githubProfileOverride"}
+        override_helper = authority_source.split("internal fun githubOverrideChanges", 1)[1].split("\n    }", 1)[0]
+        reported_keys = re.search(r"return\s+listOf\(([^)]*)\)", override_helper)
+        self.assertIsNotNone(reported_keys)
+        override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', reported_keys.group(1))}
         self.assertEqual(11, len(override_keys))
-        self.assertEqual(policy_keys | profile_keys | override_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
-        self.assertEqual(67, len(capsule.POLICY_FIELD_NAMES))
+        behavior_source = (base / "data/model/ProfileBehaviorSettings.kt").read_text().split("data class ProfileBehaviorSettings(", 1)[1].split(") {", 1)[0]
+        behavior_keys = {"profileBehavior." + name for name in re.findall(r"\bval (\w+):", behavior_source)}
+        self.assertEqual(9, len(behavior_keys))
+        self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
+        self.assertEqual(76, len(capsule.POLICY_FIELD_NAMES))
+
+    def test_replay_capacity_reason_and_estimates_are_bounded_incident_fields(self):
+        code = "REPLAY_EVIDENCE_REQUIRED"
+        fields = {"causal_failure_code": code, "replay_budget_state": "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE",
+                  "replay_allowance": 128, "replay_tokens": 341, "replay_exchange_count": 2}
+        capture = self.capture("INCIDENT", fields)
+        report = self.report(capture)
+        report.update(feature="chat", errorCode=code)
+        report["context"]["source"] = "CHAT_FAILURE"
+        _, issue = issue_from_report(report)
+        self.assertIn(code, issue["title"])
+        self.assertIn("replay_allowance", issue["body"])
+        for key, value in (("replay_tokens", -1), ("replay_allowance", True), ("replay_exchange_count", "2"),
+                           ("replay_tokens", 16_000_001), ("replay_budget_state", "private text")):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {key: value}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"replay_allowance": 0}))
+
+    def test_graph_transport_archives_only_closed_tool_values(self):
+        for kind in ("DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN"):
+            capture = self.capture("TOOL", {"tool_reason_code": "GRAPH_TRANSPORT_UNAVAILABLE", "graph_transport_kind": kind})
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for area, value in (("PROVIDER", "DNS"), ("TOOL", "private endpoint"), ("TOOL", True)):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {"graph_transport_kind": value}))
+
+    def test_reader_and_reconciliation_evidence_is_scoped_and_bounded(self):
+        for area, fields in (
+            ("INCIDENT", {"reconciliation_source": "SAVED_AND_TRACKED", "reconciliation_tracked_signature_count": 1024}),
+            ("TOOL", {"url_reader_refusal": "LOCATION_MISSING"}),
+            ("TOOL", {"round_catalog_discovery_available": False}),
+        ):
+            capture = self.capture(area, fields)
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+            other_area = "TOOL" if area == "INCIDENT" else "INCIDENT"
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(other_area, fields))
+        for area, fields in (
+            ("INCIDENT", {"reconciliation_tracked_signature_count": 1025}),
+            ("INCIDENT", {"reconciliation_source": "private text"}),
+            ("TOOL", {"url_reader_refusal": "private endpoint"}),
+            ("TOOL", {"round_catalog_discovery_available": "false"}),
+        ):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, fields))
 
     def test_exception_capture_survives_validation_without_claiming_provider_dispatch(self):
-        for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH", "PROVIDER_ADAPTER_STREAM_CATCH", "CHAT_REPOSITORY_ERROR_VALUE"):
+        for site in ("AGENT_ROUND_CATCH", "CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH", "PROVIDER_ADAPTER_STREAM_CATCH", "CHAT_REPOSITORY_ERROR_VALUE"):
             with self.subTest(site=site):
                 capture = self.capture("INCIDENT", {
                     "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",

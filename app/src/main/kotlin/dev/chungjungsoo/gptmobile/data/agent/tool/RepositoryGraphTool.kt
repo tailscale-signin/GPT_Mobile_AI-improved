@@ -8,7 +8,11 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphPrerequisite
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
+import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -39,6 +43,7 @@ internal class RepositoryGraphTool(
         if (options.keys.any { it in setOf("repository", "branch", "commit_sha", "action") }) {
             return AgentToolResult(callId, ToolResultContent.Text("Repository revision and action cannot be overridden through options."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
+        val started = System.nanoTime()
         return try {
             val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000)))
             val observed = query(payload)
@@ -77,6 +82,7 @@ internal class RepositoryGraphTool(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
+            val elapsedMillis = (System.nanoTime() - started) / 1_000_000
             val operation = failure as? GatewayGraphOperationException
             val cause = operation?.cause ?: failure
             val admission = cause as? GatewayGraphAdmissionException
@@ -120,6 +126,19 @@ internal class RepositoryGraphTool(
                 ToolResultContent.Json(
                     buildJsonObject {
                         put("code", code)
+                        put("operation", requireNotNull(arguments["action"]))
+                        put("elapsed_ms", elapsedMillis)
+                        operation?.targetRevision?.let { put("target_revision", it) }
+                        (cause as? GatewayGraphHttpFailure)?.requestId?.let { put("gateway_http_request_id", it) }
+                        if (readAction && !unresolved && admission == null) {
+                            put(
+                                "recheck_after_recovery",
+                                buildJsonObject {
+                                    put("tool", definition.name)
+                                    put("source_call_id", callId)
+                                }
+                            )
+                        }
                         prerequisite?.diagnostic()?.forEach { (key, value) -> put(key, value) }
                         if (prerequisite == null) {
                             put(
@@ -211,6 +230,9 @@ internal class RepositoryGraphTool(
                     put("call_id", callId)
                     put("action", requireNotNull(arguments["action"]))
                     put("error_code", code)
+                    put("elapsed_ms", elapsedMillis)
+                    operation?.targetRevision?.let { put("target_revision", it) }
+                    (cause as? GatewayGraphHttpFailure)?.requestId?.let { put("gateway_http_request_id", it) }
                     put(
                         "phase",
                         if (admission != null) {
@@ -234,6 +256,12 @@ internal class RepositoryGraphTool(
                     retryAfterMillis?.takeIf { it in 0..86_400_000 }?.let { put("retry_after_ms", it) }
                     rateLimitObservation?.let { put("graph_rate_limit", it) }
                     (prerequisite?.prerequisites?.firstOrNull()?.name ?: admission?.code ?: operation?.failureCode ?: (cause as? GatewayGraphHttpFailure)?.code)?.let { put("reason_code", it) }
+                    if (prerequisite?.prerequisites?.firstOrNull() == GatewayGraphPrerequisite.TRANSPORT_UNAVAILABLE) {
+                        val ioCause = generateSequence<Throwable>(prerequisite) { it.cause }.take(16).filterIsInstance<IOException>().firstOrNull()
+                        ioCause?.let(::networkFailureKind)?.takeUnless { it == NetworkFailureKind.CANCELLED }?.let {
+                            put("graph_transport_kind", it.name)
+                        }
+                    }
                     ToolExceptionEvidence.fields(cause).forEach { (key, value) -> put(key, value) }
                 }
             )

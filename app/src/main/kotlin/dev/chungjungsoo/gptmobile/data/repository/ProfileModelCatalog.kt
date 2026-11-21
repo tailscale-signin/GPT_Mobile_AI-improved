@@ -18,7 +18,15 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-data class ProfileModelOption(val id: String, val name: String)
+data class ProfileModelOption(val id: String, val name: String, val loaded: Boolean = false)
+
+internal fun gatewayProfileModel(options: List<ProfileModelOption>, configured: String): String? {
+    val loaded = options.filter { it.loaded }
+    return loaded.singleOrNull()?.id
+        ?: loaded.firstOrNull { it.id == configured }?.id
+        ?: configured.takeIf { loaded.isEmpty() && it.isNotBlank() && options.any { option -> option.id == it } }
+        ?: options.singleOrNull()?.id
+}
 
 /** Uses the profile's resolved provider URL and credential, including custom deployments. */
 class ProfileModelCatalog(private val client: OkHttpClient = sharedClient) {
@@ -103,7 +111,8 @@ class ProfileModelCatalog(private val client: OkHttpClient = sharedClient) {
             val id = item[if (type in setOf(ClientType.GOOGLE, ClientType.OLLAMA)) "name" else "id"]?.jsonPrimitive?.contentOrNull
                 ?.removePrefix("models/")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val name = (item["displayName"] ?: item["display_name"] ?: item["name"])?.jsonPrimitive?.contentOrNull ?: id
-            ProfileModelOption(id, name)
+            val state = ((item["status"] as? JsonObject)?.get("value") as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+            ProfileModelOption(id, name, type == ClientType.LLAMA && state == "loaded")
         }
     }
 

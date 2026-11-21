@@ -25,6 +25,19 @@ internal object GitHubAcceptanceReportDiagnostics {
                 .filter { it in setOf("RECEIPT_NOT_FOUND", "UNTRUSTED_RECEIPT", "AUTHORIZATION_REVALIDATION_REQUIRED", "OPERATION_FAILED", "CLAIM_VALUE_MISSING", "POINTER_NOT_IN_EVIDENCE", "FIELD_SEMANTICS_MISMATCH", "OBSERVATION_TIME_UNKNOWN", "HISTORICAL_OBSERVATION", "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "VALUE_MISMATCH", "EXACT_RECEIPT_MATCH") }.distinct().take(8)
             if (reasons.isNotEmpty()) put("acceptance_claim_failure_reasons", JsonArray(reasons.map(::JsonPrimitive)))
         }
+        (verdict["claims"] as? JsonArray)?.let { claims ->
+            val rows = claims.filterIsInstance<JsonObject>()
+            if (rows.size == claims.size && rows.all { it.text("status") in setOf("VERIFIED", "HISTORICAL", "STALE", "CONTRADICTED", "NOT_MEASURED", "INFERRED") }) {
+                put("acceptance_verified_claim_count", rows.count { it.text("status") == "VERIFIED" })
+                put("acceptance_unmeasured_claim_count", rows.count { it.text("status") == "NOT_MEASURED" })
+            }
+        }
+        val unresolved = (verdict["unresolved_claims"] as? JsonArray)?.filterIsInstance<JsonObject>()
+            ?.firstOrNull { it.text("reason") == "POINTER_NOT_IN_EVIDENCE" }
+        unresolved?.let { claim ->
+            IssueReportContext.identifierHash("claim-pointer", claim.text("pointer"))?.let { put("acceptance_missing_pointer_hash", it) }
+            IssueReportContext.identifierHash("claim-receipt", claim.text("receipt_id"))?.let { put("acceptance_pointer_receipt_hash", it) }
+        }
         recordedFreshnessPredicates(verdict)?.let { put("acceptance_claim_freshness_predicates", it) }
         val requirements = (ledger["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
         val unmetRequirements = requirements.filter { it["required"] == JsonPrimitive(true) && it["state"] != JsonPrimitive("PASS") }

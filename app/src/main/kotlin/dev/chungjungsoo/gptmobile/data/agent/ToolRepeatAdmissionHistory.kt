@@ -14,9 +14,10 @@ internal class ToolRepeatAdmissionHistory(private val runId: String?) {
 
     private class Reference(val callIdHash: String, val toolName: String, val argumentHash: String) {
         var outcome = Outcome.UNOBSERVED
+        var unsentCode: String? = null
     }
 
-    internal class References(val callIdHashes: List<String>, val outcomes: List<Outcome>, val coverage: Coverage) {
+    internal class References(val callIdHashes: List<String>, val outcomes: List<Outcome>, val coverage: Coverage, val latestUnsentCode: String? = null) {
         override fun toString(): String = "RepeatAdmissionReferences"
     }
 
@@ -24,13 +25,14 @@ internal class ToolRepeatAdmissionHistory(private val runId: String?) {
         fun fields(persistedRunId: String?, arguments: JsonObject): Map<String, Any> =
             if (persistedRunId == runId && ScopedToolGrant.canonicalHash(arguments) == argumentHash) receiptFields() else emptyMap()
 
-        fun receiptFields(): Map<String, Any> = mapOf(
-            "dependency_repeat_prior_call_id_hashes" to prior.callIdHashes,
-            "dependency_repeat_prior_outcomes" to prior.outcomes.map { it.name },
-            "dependency_repeat_prior_coverage" to prior.coverage.name,
-            "dependency_repeat_batch_call_id_hashes" to batch.callIdHashes,
-            "dependency_repeat_batch_coverage" to batch.coverage.name
-        )
+        fun receiptFields(): Map<String, Any> = buildMap {
+            put("dependency_repeat_prior_call_id_hashes", prior.callIdHashes)
+            put("dependency_repeat_prior_outcomes", prior.outcomes.map { it.name })
+            put("dependency_repeat_prior_coverage", prior.coverage.name)
+            put("dependency_repeat_batch_call_id_hashes", batch.callIdHashes)
+            put("dependency_repeat_batch_coverage", batch.coverage.name)
+            prior.latestUnsentCode?.let { put(LAST_UNSENT_CODE, it) }
+        }
 
         override fun toString(): String = "RepeatAdmissionHistorySnapshot"
     }
@@ -126,6 +128,9 @@ internal class ToolRepeatAdmissionHistory(private val runId: String?) {
             result.isError -> Outcome.DISPATCHED_FAILURE
             else -> Outcome.DISPATCHED_SUCCESS
         }
+        if (reference.outcome == Outcome.NOT_DISPATCHED && result.isError) {
+            reference.unsentCode = result.errorCode?.let { if (it in knownUnsentCodes) it else "OTHER" }
+        }
     }
 
     private fun snapshot(values: List<Reference>, expected: Int): References {
@@ -135,7 +140,8 @@ internal class ToolRepeatAdmissionHistory(private val runId: String?) {
         return References(
             retained.map { it.callIdHash },
             retained.map { it.outcome },
-            if (retained.size == expected) Coverage.COMPLETE else Coverage.PARTIAL
+            if (retained.size == expected) Coverage.COMPLETE else Coverage.PARTIAL,
+            retained.lastOrNull()?.unsentCode?.takeIf { retained.size == expected }
         )
     }
 
@@ -193,6 +199,9 @@ internal class ToolRepeatAdmissionHistory(private val runId: String?) {
                     )
             return ToolRepeatAdmissionHistory(runId.takeIf { fresh })
         }
+
+        const val LAST_UNSENT_CODE = "dependency_repeat_last_unsent_code"
+        private val knownUnsentCodes = setOf("INVALID_ARGUMENTS", "NOT_DISPATCHED", "EVIDENCE_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_REF_UNAVAILABLE", "GITHUB_REPOSITORY_UNAVAILABLE", "TOOL_UNAVAILABLE", "UNKNOWN_TOOL", "GITHUB_VALIDATION_FAILED", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "TOOL_PRECHECK_FAILED", "PRECHECK_REJECTED")
 
         internal val FIELD_NAMES = setOf(
             "dependency_repeat_prior_call_id_hashes",

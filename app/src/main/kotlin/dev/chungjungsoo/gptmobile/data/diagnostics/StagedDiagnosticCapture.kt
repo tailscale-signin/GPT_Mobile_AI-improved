@@ -15,6 +15,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -91,6 +92,22 @@ class DiagnosticStageSink internal constructor(
     initialCursor: JsonObject? = null,
     private val saveProgress: ((JsonObject) -> Unit)? = null
 ) {
+    private val payloadReferences = DiagnosticPayloadReferences()
+
+    internal suspend fun redactedRecord(value: JsonElement, maximumCharacters: Int, evidence: Boolean = true) {
+        payloadReferences.write(value) { output ->
+            logicalRecord {
+                val redacted = output.toString()
+                if (redacted.length <= maximumCharacters / 2) {
+                    record(redacted, evidence)
+                } else {
+                    // Leave room for escaped characters and chunk metadata.
+                    DiagnosticRecordChunks.encode(redacted, maximumCharacters / 8).forEach { record(it.toString(), evidence) }
+                }
+            }
+        }
+    }
+
     private val writer = BufferedWriter(OutputStreamWriter(output, Charsets.UTF_8), options.bufferBytes / 2)
     var records: Long = initialProgress?.number("records") ?: 0
         private set

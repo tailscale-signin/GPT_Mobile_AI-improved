@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 /** Phase measurements help target a trace; phases may overlap and do not establish a cause. */
 internal class FrameWorkBreakdown {
-    enum class Phase { INPUT, ANIMATION, LAYOUT_MEASURE, DRAW, SYNC, COMMAND_ISSUE, UNKNOWN_DELAY }
+    enum class Phase { INPUT, ANIMATION, LAYOUT_MEASURE, DRAW, SYNC, COMMAND_ISSUE, GPU, UNKNOWN_DELAY }
     private val maxima = LongArray(Phase.entries.size)
     private val slowTotals = LongArray(Phase.entries.size)
     private val observations = LongArray(Phase.entries.size)

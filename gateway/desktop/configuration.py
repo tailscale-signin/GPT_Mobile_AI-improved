@@ -4,6 +4,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
 import time
 import uuid
@@ -29,6 +30,83 @@ def settings_write_lock(root):
         yield
     finally:
         lock.release()
+
+
+def setup_interface(*, prefer_overlay=True):
+    """Choose an active account VPN or Windows Private IPv4 interface once, during setup."""
+    from v14.account_connection import local_cli, overlay
+    account = local_cli('status', '--json') if prefer_overlay else {}
+    if account.get('BackendState') == 'Running':
+        addresses = (account.get('Self') or {}).get('TailscaleIPs') or []
+        for value in addresses:
+            if overlay(value) and ':' not in value:
+                return value
+    if os.name == 'nt':
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        script = ('Get-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue | '
+                  'ForEach-Object { Get-NetIPAddress -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4 '
+                  '-AddressState Preferred -ErrorAction SilentlyContinue } | Select-Object -ExpandProperty IPAddress')
+        try:
+            run = subprocess.run([str(powershell), '-NoProfile', '-NonInteractive', '-Command', script],
+                                 capture_output=True, timeout=6, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            private = tuple(map(ipaddress.ip_network, ('10.0.0.0/8', '192.168.0.0/16', '172.16.0.0/12')))
+            for line in run.stdout.decode('ascii', errors='ignore').splitlines():
+                ip = ipaddress.ip_address(line.strip())
+                if any(ip in block for block in private):
+                    return str(ip)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    return '127.0.0.1'
+
+
+def private_lan_ip(value):
+    try:
+        if not isinstance(value, str) or '%' in value:
+            return None
+        ip = ipaddress.ip_address(value)
+        return str(ip) if any(ip in net for net in PRIVATE_LAN_NETWORKS) else None
+    except ValueError:
+        return None
+
+
+PRIVATE_LAN_NETWORKS = tuple(ipaddress.ip_network(net) for net in
+                             ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'))
+
+
+def shared_settings_overview(root, destination, peer):
+    """Project the saved non-secret settings for a direct private-network connection."""
+    if not private_lan_ip(destination) or not private_lan_ip(peer):
+        return {}
+    cfg = load(root)
+    wildcard = '::' if ':' in destination else '0.0.0.0'
+    if cfg['access'] != 'network' or cfg['bind_host'] not in {destination, wildcard}:
+        return {}
+    from v14.engineering_batch_policy import load_policy
+    batch = load_policy(Path(root) / 'data' / 'execution-policy.json')
+    result = {key: cfg[key] for key in ('workers', 'active_chats', 'shutdown_seconds', 'start_at_login',
+                                        'update_mode', 'update_interval_hours', 'debug_mode')}
+    result.update(listen_port=cfg['port'], batch_mode=batch['default_mode'],
+                  local_validation_workers=batch['local_validation_workers'], mcp_configured=bool(cfg['mcp_config']),
+                  public_repository_maps=public_repository_maps(root))
+    return result
+
+
+def default_phone_listener(cfg):
+    address = ipaddress.ip_address(cfg['bind_host'])
+    networks = ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7')
+    from v14.account_connection import overlay
+    if not overlay(str(address)) and any(address in ipaddress.ip_network(net) for net in networks):
+        return {'host': str(address), 'port': 8091 if cfg['port'] != 8091 else 8092}
+    return None
+
+
+def installer_settings(root, path):
+    if (Path(root) / 'settings.json').exists():
+        return load(root)
+    requested = json.loads(Path(path).read_text(encoding='utf-8-sig')) if path else {}
+    if isinstance(requested, dict) and requested.get('bind_host') == 'auto':
+        requested['bind_host'] = setup_interface()
+    return validate(requested)
 
 
 def validate(value):

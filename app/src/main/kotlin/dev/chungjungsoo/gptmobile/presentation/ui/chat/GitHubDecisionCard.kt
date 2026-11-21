@@ -47,7 +47,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, onAnswer: (Int?, String?) -> Unit, onResume: () -> Unit, onStop: () -> Unit) {
+internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, onAnswer: (Int?, String?) -> Unit, onResume: () -> Unit, onStop: () -> Unit, runStartedMs: Long? = null, observedWorkMs: Long? = null) {
     var custom by rememberSaveable(decision.id) { mutableStateOf(false) }
     var answer by rememberSaveable(decision.id) { mutableStateOf("") }
     val revisionInput = decision.options.any { it.enterValue }
@@ -66,6 +66,30 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
             Text(if (decision.answer == null) title else "Choice saved", style = MaterialTheme.typography.titleSmall, color = colors.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
         }
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            decision.offeredAtMillis?.takeIf { !decision.automatic }?.let { started ->
+                val now by androidx.compose.runtime.produceState(System.currentTimeMillis(), decision.id, decision.answeredAtMillis) {
+                    while (decision.answer == null) {
+                        value = System.currentTimeMillis()
+                        kotlinx.coroutines.delay(1_000)
+                    }
+                }
+                val seconds = ((decision.answeredAtMillis ?: now) - started).coerceAtLeast(0) / 1000
+                val label = if (decision.answer != null) {
+                    "Decision time"
+                } else if (revisionInput) {
+                    "Waiting for baseline selection"
+                } else {
+                    "Waiting for your choice"
+                }
+                Text("$label · ${seconds / 60}m ${seconds % 60}s", style = MaterialTheme.typography.labelMedium)
+                runStartedMs?.takeIf { it <= started }?.let { beginning ->
+                    Text("Elapsed ${dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(beginning, decision.answeredAtMillis ?: now)}", style = MaterialTheme.typography.bodySmall)
+                }
+                observedWorkMs?.let { duration ->
+                    Text("Recorded model and tool time before this choice · ${dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(0, duration)}", style = MaterialTheme.typography.bodySmall)
+                }
+                if (decision.answer == null) Text("Work on this choice is paused. An explicit task deadline keeps running while you decide.", style = MaterialTheme.typography.bodySmall)
+            }
             if (decision.answer == null && title != decision.question.trim()) Text(decision.question, style = MaterialTheme.typography.bodyMedium)
             if (decision.context.isNotBlank()) Text(decision.context, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
             if (decision.answer == null) {

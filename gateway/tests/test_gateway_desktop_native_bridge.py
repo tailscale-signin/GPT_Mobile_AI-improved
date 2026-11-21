@@ -39,6 +39,26 @@ class NativeBridgeTest(unittest.TestCase):
                     installation_id=IDENTITY['gateway_id'], principal_id='paired:phone-one',
                     revision=3, status=status, **extra)
 
+    def test_phone_setup_keeps_same_account_address_and_private_wifi_link(self):
+        """Use the host’s Tailscale offer when present and the TLS-pinned link for Wi-Fi."""
+        ui = (Path(__file__).resolve().parents[1] / 'desktop' / 'native' / 'MainWindow.Control.cs').read_text(encoding='utf-8')
+        connection = ui.split('private void BuildConnectPhone()', 1)[1].split('private void BuildAndroid()', 1)[0]
+        setup, private_wifi = connection.split('private void AddPrivatePhoneLink(', 1)
+        account = setup.split('if (direct.Length > 0)', 1)[1].split('else', 1)[0]
+        self.assertIn('current.Text("account_connection_url", "")', setup)
+        self.assertIn('Copy Tailscale address', account)
+        self.assertIn('Clipboard.SetText(direct)', account)
+        self.assertNotIn('control-connect-address', setup)
+        self.assertIn('AddPrivatePhoneLink(form, hint, host, ip, viewEpoch,', setup.split(account, 1)[1])
+        self.assertIn('Copy PC address', private_wifi)
+        self.assertIn('Other connection options', private_wifi)
+        self.assertIn('Copy secure phone link', private_wifi)
+        self.assertIn('Call("control-connect-address", new JsonObject { ["host"] = SelectedHost() })', private_wifi)
+        self.assertIn('Clipboard.SetText(invitation)', private_wifi)
+        self.assertNotIn('["phone_ip"]', connection)
+        self.assertNotIn('Phone Wi-Fi IP', connection)
+        self.assertIn('Engineering is enabled automatically', connection)
+
     def test_unknown_action_and_malformed_frames_do_not_dispatch(self):
         for value in [{}, {'protocol': native_bridge.PROTOCOL, 'action': None},
                       {'protocol': native_bridge.PROTOCOL, 'action': 'execute-shell', 'args': {'command': 'secret'}}]:
@@ -208,6 +228,40 @@ class NativeBridgeTest(unittest.TestCase):
             finally:
                 release.set(); worker.join(5)
         self.assertEqual([], errors)
+
+    def test_search_forwards_retrieved_sources_and_replays_without_resubmission(self):
+        from desktop.public_activity import PublicActivity
+        args = dict(identity=IDENTITY, command_id='search-turn', model='selected', prompt='Find sources', mode='Search')
+        client = Mock()
+        receipt = dict(command_id='search-turn', conversation_id='thread', job_id='job')
+        sources = [{'title':'Observed document','url':'https://example.org/source','snippet':'Public excerpt'}]
+        def complete(model, prompt, command, **kwargs):
+            self.assertEqual(sources, kwargs['sources'])
+            kwargs['on_event']('accepted',receipt)
+            kwargs['on_event']('delta','An answer [1].')
+            return receipt
+        client.send.side_effect = complete
+        with patch.object(native_bridge,'connected',return_value=client), patch.object(native_bridge,'request',
+                  return_value={'result':{'engine':'web_search','sources':sources}}):
+            native_bridge.chat_send(self.root,args,io.StringIO())
+            events = PublicActivity(self.root,IDENTITY).replay('thread')['items']
+            self.assertEqual('https://example.org/source',next(e for e in events if e['sources'])['sources'][0]['url'])
+            client.request.return_value={'conversation_id':'thread'}
+            replay = native_bridge.dispatch(self.root,'public-activity',dict(identity=IDENTITY,conversation_id='thread',after=0),io.StringIO())
+            self.assertEqual(events,replay['items'])
+            self.assertEqual([],native_bridge.dispatch(self.root,'public-activity',
+                dict(identity=IDENTITY,conversation_id='thread',after=events[-1]['sequence']),io.StringIO())['items'])
+        client.send.assert_called_once()
+
+    def test_failed_search_retires_original_command_before_model_dispatch(self):
+        client = Mock()
+        with patch.object(native_bridge,'connected',return_value=client), patch.object(native_bridge,'request',
+                  return_value={'result':{'engine':None,'sources':[]}}), self.assertRaises(ClientError) as error:
+            native_bridge.chat_send(self.root,dict(identity=IDENTITY,command_id='no-sources',model='selected',
+                                    prompt='Find sources',mode='Search'),io.StringIO())
+        self.assertTrue(error.exception.not_dispatched)
+        self.assertIsNone(ChatState(self.root).value['pending'])
+        client.send.assert_not_called()
 
     def test_chat_retains_command_after_lost_reply_and_refuses_new_send(self):
         client = Mock()

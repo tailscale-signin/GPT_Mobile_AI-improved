@@ -141,7 +141,7 @@ class GatewayEngineeringClient internal constructor(
                         if (path == "graph") {
                             // Preserve the response observation without retaining its body or
                             // replaying a POST whose index outcome may still be uncertain.
-                            throw GatewayGraphHttpFailure.fromResponse(response.status.value, GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"]), detail)
+                            throw GatewayGraphHttpFailure.fromResponse(response.status.value, GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"]), detail, response.headers["X-Gateway-Http-Request-Id"])
                         }
                         val preflight = runCatching { error?.get("preflight")?.let { json.decodeFromJsonElement(GatewayEngineeringPreflight.serializer(), it) } }.getOrNull()
                         if (preflight != null && !preflight.ready && preflight.blockers.isNotEmpty()) {
@@ -434,6 +434,15 @@ class GatewayEngineeringClient internal constructor(
         require(operationId.matches(Regex("repoop_[a-f0-9]{32}")))
         return json.parseToJsonElement(request(config, "repository-operations/$operationId")) as? JsonObject
             ?: error("The gateway returned an invalid repository operation status.")
+    }
+
+    internal data class ConnectionIdentity(val gatewayId: String, val principal: String, val phoneConnection: String?, val networkSettings: JsonObject?, val accountConnection: String? = null)
+
+    internal suspend fun connectionIdentity(config: ProviderRequestConfig): ConnectionIdentity {
+        val identity = json.parseToJsonElement(request(config, "identity?connect=1", root = "gateway")).jsonObject
+        val gateway = requireNotNull(identity["gateway_id"]?.jsonPrimitive?.contentOrNull).also { require(it.isNotBlank()) }
+        val principal = requireNotNull(identity["principal_id"]?.jsonPrimitive?.contentOrNull)
+        return ConnectionIdentity(gateway, principal, identity["phone_connection"]?.jsonPrimitive?.contentOrNull, identity["network_settings"] as? JsonObject, identity["account_connection"]?.jsonPrimitive?.contentOrNull)
     }
 
     internal suspend fun admissionSetting(config: ProviderRequestConfig, previous: GatewayAdmissionSetting?): GatewayAdmissionSetting {

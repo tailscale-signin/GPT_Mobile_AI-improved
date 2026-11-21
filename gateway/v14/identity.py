@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from fastapi.responses import JSONResponse
 from gateway_security import current_device, device_store
 from v14.browser import LANDING_PATHS
-from v14.account_connection import accounts, overlay, PREFIX as ACCOUNT_PREFIX
+from v14.account_connection import accounts, overlay, listener_accepts_overlay, PREFIX as ACCOUNT_PREFIX
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class PrincipalResolver:
             local_peer = False
         path = scope.get('path', '').removeprefix('/v1')
         paired = headers.get('x-gateway-control-principal')
-        if paired or path.startswith('/gateway/admin/retained-work/') or path in {"/gateway/admin/maintenance", "/gateway/admin/dashboard", "/gateway/admin/settings", "/gateway/admin/engineering-admission"} or (
+        if paired or path.startswith('/gateway/admin/retained-work/') or path in {"/gateway/admin/desktop-search", "/gateway/admin/maintenance", "/gateway/admin/dashboard", "/gateway/admin/settings", "/gateway/admin/engineering-admission"} or (
                 path == '/gateway/admin/debug/export' and 'x-gateway-management' in headers):
             # A specific-interface listener is reached through that interface on
             # the same PC. The independent supervisor secret is still mandatory.
@@ -63,9 +63,9 @@ class PrincipalResolver:
             host = self.config.host
             peer = scope.get("client") or ("", 0)
             server = scope.get("server") or ("", 0)
-            if (self.config.account_engineering and overlay(host) and server[0] == host and overlay(peer[0])
+            if (self.config.account_engineering and listener_accepts_overlay(host, server[0]) and overlay(peer[0])
                     and not any(k.startswith(("x-forwarded-", "tailscale-")) or k in {"forwarded", "origin", "cookie", "sec-fetch-site"} for k in headers)):
-                account = await asyncio.to_thread(accounts.resolve, host, peer[0])
+                account = await asyncio.to_thread(accounts.resolve, server[0], peer[0])
                 if account:
                     return Principal(account, frozenset({"chat", "jobs", "tools", "engineering"}))
             return Principal("network:shared", frozenset({"chat", "jobs", "tools"}))
@@ -94,7 +94,7 @@ def control_grant(config, principal):
 
 def account_authorized(config, principal):
     return (config.mode == 'open_network' and config.account_engineering and principal.startswith(ACCOUNT_PREFIX)
-            and bool(overlay(config.host)) and accounts.authorized(config.host, principal))
+            and (overlay(config.host) or config.host in {'0.0.0.0', '::'}) and accounts.authorized(config.host, principal))
 
 
 def principal_can_graph(config, principal, devices):

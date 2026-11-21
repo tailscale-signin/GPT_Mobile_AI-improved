@@ -152,7 +152,9 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
                     put("app_revision", BuildConfig.APP_COMMIT)
                     put("android_sdk", android.os.Build.VERSION.SDK_INT)
                     // Every value still passes the shared strict allowlist below.
-                    GatewayDiagnosticSchema.enumAttributes.keys.forEach { name -> fields[name]?.let { put(name, it) } }
+                    GatewayDiagnosticSchema.enumAttributes.keys.forEach { name ->
+                        if (name != "source_recorder_family" && name != "source_error_class") fields[name]?.let { put(name, it) }
+                    }
                     GatewayDiagnosticSchema.numericAttributes.forEach { name -> fields[name]?.let { put(name, it) } }
                     GatewayDiagnosticSchema.digestAttributes.forEach { name -> fields[name]?.let { put(name, it) } }
                     GatewayDiagnosticSchema.boolAttributes.forEach { name -> fields[name]?.let { put(name, it) } }
@@ -167,9 +169,15 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
                         stage == "mcp_discovery" -> "mcp_discovery"
                         classification.severity == "warning" && stage == "unknown" && reason == null -> "unclassified_warning"
                         classification.severity == "warning" -> "typed_warning"
+                        error == "UNKNOWN_CAUSE" -> "unclassified_error"
                         else -> null
                     }
                     sourceEvent?.let { put("source_event_type", it) }
+                    if (error == "UNKNOWN_CAUSE") {
+                        put("source_recorder_family", recorderFamily(entry.tag))
+                        val classes = GatewayDiagnosticSchema.enumAttributes.getValue("source_error_class")
+                        put("source_error_class", classification.category.takeIf { it in classes } ?: "other")
+                    }
                     if (toolResult) {
                         put("execution_origin", origin)
                         tool.name?.let { put("tool_digest", GatewayDiagnosticEvent.digest(it)) }
@@ -227,4 +235,18 @@ internal fun gatewayAppDiagnosticProjection(entry: AppLogEntry): JsonObject? {
             )
         }
     )
+}
+
+private fun recorderFamily(tag: String): String = when (tag) {
+    "Android", "Application", "AppCrash", "Lifecycle", "ProcessExit", "Startup" -> "platform"
+    "VoiceEngine", "VoiceTiming", "VoiceRecognition" -> "voice"
+    "Gateway", "GatewayAvailability", "GatewayObserver", "GatewayQueue", "Readiness" -> "gateway"
+    "Model", "ModelCatalog", "LocalModel", "LocalConnection", "LocalImport", "NativeRuntime" -> "model"
+    "Provider", "ProviderRetry", "OpenRouter", "FreeProvider", "FreeProviders" -> "provider"
+    "Research", "ResearchExamine", "ResearchArchive", "ResearchPolicy", "Search", "ReadUrl" -> "research"
+    "GitHub", "GitHubTool", "GitHubAcceptance", "GitHubCheckWatch", "GitHubExecution" -> "github"
+    "Tool", "Tools", "ToolBudget", "ToolCatalog", "ToolExecution", "MCP", "Mcp", "McpRuntime" -> "tools"
+    "Agent", "AgentRun", "AgentService", "Send", "Streaming", "Conversation", "Delegation", "Combined", "CombinedSynthesis" -> "conversation"
+    "Memory", "EngineeringMemory", "ChatMemory", "Database", "Library" -> "storage"
+    else -> "other"
 }

@@ -4,6 +4,7 @@ import importlib
 import json
 import os
 import sys
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -242,7 +243,13 @@ class V13IntegrationTests(_IntegrationBase):
 
     def test_version_and_readiness(self):
         headers = {'Authorization': 'Bearer ' + self.token_a}
-        self.assertEqual(self.client.get('/gateway/v13', headers=headers).json()['version'], '13.1.0')
+        # The packaged v14 process imports the shared runtime and sets the active version.
+        standalone = subprocess.check_output(
+            [sys.executable, '-c', 'import gateway_v13; print(gateway_v13.GATEWAY_VERSION)'],
+            cwd=Path(__file__).resolve().parents[1], env=dict(os.environ, MCP_PREWARM_ON_STARTUP='false',
+                 GATEWAY_JOB_DB=str(Path(self.temp.name) / 'standalone.sqlite3')), text=True, timeout=60)
+        self.assertEqual(standalone.strip().splitlines()[-1], '13.1.0')
+        self.assertEqual(self.client.get('/gateway/v13', headers=headers).json()['version'], self.gateway.GATEWAY_VERSION)
         with patch.object(self.gateway, 'http_get', return_value=Mock(status_code=503)):
             self.assertEqual(self.client.get('/gateway/ready', headers=headers).status_code, 503)
         self.assertEqual(self.client.get('/gateway/ready').status_code, 401)

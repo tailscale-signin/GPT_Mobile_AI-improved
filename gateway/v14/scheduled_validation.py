@@ -83,7 +83,7 @@ def run_tests(store, stop):
         if db.execute('SELECT 1 FROM repository_test WHERE token IS NOT NULL LIMIT 1').fetchone():
             return
         row = db.execute('''SELECT s.id,s.due,s.period,t.repository,t.policy_hash FROM schedule s
-                            JOIN repository_test t ON t.id=s.id WHERE s.due<=? ORDER BY s.due,s.id LIMIT 1''', (now,)).fetchone()
+                            JOIN repository_test t ON t.id=s.id WHERE s.enabled=1 AND s.due<=? ORDER BY s.due,s.id LIMIT 1''', (now,)).fetchone()
         if not row:
             return
         due, period = row['due'], row['period']

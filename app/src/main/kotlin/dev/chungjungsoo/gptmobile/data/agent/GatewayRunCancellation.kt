@@ -70,6 +70,7 @@ internal suspend fun stopSavedGatewayRun(run: AgentRun, profile: PlatformV2?, ga
         GatewayCancellationOutcome.CONFIRMED -> GatewayStopReceipt("GATEWAY_CANCELLATION_CONFIRMED", "The gateway confirmed that the job stopped.")
         GatewayCancellationOutcome.REQUESTED -> GatewayStopReceipt("GATEWAY_CANCELLATION_REQUESTED", "Cancellation requested on the gateway. Check Jobs for confirmation.")
         GatewayCancellationOutcome.NOT_CANCELED -> GatewayStopReceipt("GATEWAY_ALREADY_TERMINAL", "The gateway job had already finished. Its saved result is available in Jobs.")
+        GatewayCancellationOutcome.UNAVAILABLE -> GatewayStopReceipt("GATEWAY_CANCELLATION_UNCONFIRMED", "The Gateway has no active stop handle for this job. Open Jobs to see its latest status.")
         GatewayCancellationOutcome.UNKNOWN -> GatewayStopReceipt("GATEWAY_CANCELLATION_UNCONFIRMED", "The gateway received Stop but did not confirm cancellation. Check the saved job status.")
     }
 }

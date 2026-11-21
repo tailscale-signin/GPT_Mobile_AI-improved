@@ -21,7 +21,7 @@ internal object GitHubEvidenceProjection {
     )
     private val catalogEntryFields = setOf("name", "schema_fingerprint", "semantic_schema_fingerprint", "invocation_contract_version")
     private val identities = setOf(
-        "id", "number", "sha", "commit_sha", "head_sha", "base_sha", "tree_sha", "source_sha", "expected_head_sha",
+        "path", "expected_blob_sha", "id", "number", "sha", "commit_sha", "head_sha", "base_sha", "tree_sha", "source_sha", "expected_head_sha",
         "stage_id", "task_id", "engineering_task_id", "card_id", "approval_state", "user_input_required", "execution_id", "correlation_id", "run_id", "workflow_run_id", "workflow_id", "release_id", "pull_number",
         "status", "state", "conclusion", "success", "error", "error_code", "message", "committed", "published", "merged", "draft",
         "commit", "pull_request", "release", "dispatch_receipt", "workflow_run", "execution", "receipt", "head", "base", "result", "data", "verification",
@@ -70,6 +70,11 @@ internal object GitHubEvidenceProjection {
                 original is JsonObject -> result(checkRows(original))
             else -> result(original)
         }
+        val pinnedDigest = if (source["immutable"] == JsonPrimitive(true) && (source["tool"] as? JsonPrimitive)?.content?.githubOperationFamily() == "github_read") {
+            JsonPrimitive(GitHubRepositoryStateStore.digest(original.toString())).takeIf { it == source["result_sha256"] }
+        } else {
+            null
+        }
         var excerptBytes = 0
         val excerpts = GitHubEvidenceExcerpts.collect(source).filter { (key, value) ->
             val cost = key.encodeToByteArray().size + value.toString().encodeToByteArray().size
@@ -81,6 +86,7 @@ internal object GitHubEvidenceProjection {
                 put("retained_excerpts", JsonObject(excerpts))
                 put("review_projection", "EXACT_VALUES_WITH_DURABLE_ORIGINAL")
                 put("review_projection_complete", compact == original)
+                pinnedDigest?.let { put("verified_source_digest", it) }
                 source["receipt_id"]?.let { put("original_receipt_id", it) }
                 put("original_result_sha256", source["result_sha256"] ?: JsonPrimitive(GitHubRepositoryStateStore.digest(original.toString())))
                 put("original_retrieval", "The immutable receipt and saved result pages retain omitted text. A projection does not establish omitted facts or complete remote coverage.")

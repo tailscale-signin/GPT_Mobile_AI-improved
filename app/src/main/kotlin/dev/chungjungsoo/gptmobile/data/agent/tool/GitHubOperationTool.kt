@@ -454,12 +454,27 @@ internal class GitHubOperationTool(
             }
             original.copy(content = ToolResultContent.Json(scoped))
         } else if (operation == "github_read" && original.errorCode == "EVIDENCE_UNAVAILABLE") {
+            val pinnedRead = JsonObject(arguments - "evidence_id").takeIf {
+                (it["commit_sha"] as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}")) == true &&
+                    !(it["ranges"] as? JsonArray).isNullOrEmpty() &&
+                    dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(it, definition.inputSchema).isEmpty() &&
+                    GitHubOperationArguments.errors(operation, it).isEmpty()
+            }
             original.copy(
                 content = ToolResultContent.Json(
                     buildJsonObject {
                         put("schema", "github.arguments.v1")
                         put("error_code", "EVIDENCE_UNAVAILABLE")
-                        put("message", "Source evidence is unavailable in this authorized scope. Use the exact recovery_call to find retained sources, or source_recovery_call from the original receipt to reopen the pinned ranges.")
+                        put("message", if (pinnedRead != null) "The saved source handle was unavailable. The correction_call reads the requested ranges at the specified commit." else "Source evidence is unavailable in this authorized scope. Use the exact recovery_call to find retained sources, or source_recovery_call from the original receipt to reopen the pinned ranges.")
+                        pinnedRead?.let {
+                            put(
+                                "correction_call",
+                                buildJsonObject {
+                                    put("tool", definition.name)
+                                    put("arguments", it)
+                                }
+                            )
+                        }
                         put(
                             "recovery_call",
                             buildJsonObject {
@@ -518,8 +533,11 @@ internal class GitHubOperationTool(
         if (!result.isError && data != null) {
             val assessment = pagination.assessPage(operation, resolved, data)
             if (assessment.errorCode != null) {
-                val gap = (assessment.data["pagination_progress"] as? JsonObject)?.get("first_unobserved_page")
-                val repairArguments = gap?.let { page ->
+                val progress = assessment.data["pagination_progress"] as? JsonObject
+                val gap = progress?.get("first_unobserved_page")
+                val repairArguments = if (gap == null) {
+                    if (assessment.errorCode == "GITHUB_PAGINATION_INCOMPLETE") singlePageRunRefresh(effectiveArguments, progress) else null
+                } else {
                     val pinned = if (operation == "github_context" && effectiveArguments["action"] == JsonPrimitive("commits")) {
                         (assessment.data["commit_sha"] as? JsonPrimitive)?.content?.takeIf { sha -> sha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) }
                     } else {
@@ -527,7 +545,7 @@ internal class GitHubOperationTool(
                     }
                     JsonObject(
                         effectiveArguments + buildJsonObject {
-                            put("page", page)
+                            put("page", gap)
                             if (pinned != null) {
                                 put("ref", pinned)
                                 put("commit_sha", pinned)
@@ -547,7 +565,12 @@ internal class GitHubOperationTool(
                                     put("arguments", repairArguments)
                                 }
                             )
-                            put("message", "The requested page was observed. Earlier pages are missing. For a complete inventory, use the supplied correction call and follow its returned continuations. For a sample, keep the observed rows.")
+                            val message = if (gap != null) {
+                                "The requested page was observed. Earlier pages are missing. For a complete inventory, use the supplied correction call and follow its returned continuations. For a sample, keep the observed rows."
+                            } else {
+                                "The workflow run pages overlap. The reported count fits on one page. Use the supplied fresh read with the same filters to verify the inventory."
+                            }
+                            put("message", message)
                         }
                     )
                 }
@@ -580,7 +603,14 @@ internal class GitHubOperationTool(
         } else {
             paged
         }
-        return retainSavedView(views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance))
+        // A saved page of a missing-source error can only replay the same error.
+        // Expose the scoped recipe built above so it also survives model replay compaction.
+        val sourceCorrection = if (operation == "github_read" && presented.isError && !presented.dispatched && presented.errorCode == "EVIDENCE_UNAVAILABLE") {
+            (body?.get("correction_call") ?: body?.get("recovery_call")) as? JsonObject
+        } else {
+            null
+        }
+        return retainSavedView(views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance, sourceCorrection = sourceCorrection))
     }
 
     private fun argumentPrecheck(callId: String, message: String, reason: String) = AgentToolResult(
@@ -594,6 +624,32 @@ internal class GitHubOperationTool(
             put("phase", "PREFLIGHT_REJECTED")
         }
     )
+
+    private fun singlePageRunRefresh(arguments: JsonObject, progress: JsonObject?): JsonObject? {
+        if (operation != "github_ci" || arguments["action"] != JsonPrimitive("runs") || progress == null) return null
+        val total = (progress["reported_total"] as? JsonPrimitive)?.intOrNull ?: return null
+        val unique = (progress["unique_records_observed"] as? JsonPrimitive)?.intOrNull ?: return null
+        val duplicates = (progress["duplicate_records_on_page"] as? JsonPrimitive)?.intOrNull ?: return null
+        val currentSize = (arguments["per_page"] as? JsonPrimitive)?.intOrNull ?: 30
+        val page = (progress["remote_page"] as? JsonPrimitive)?.intOrNull ?: return null
+        if (page < 2 ||
+            currentSize !in 1..99 ||
+            total !in 1..100 ||
+            unique !in 0 until total ||
+            duplicates < 1 ||
+            progress["contiguous_from_first_page"] != JsonPrimitive(true)
+        ) {
+            return null
+        }
+        val fresh = JsonObject(
+            arguments + buildJsonObject {
+                put("page", 1)
+                put("per_page", 100)
+                put("verify_live", true)
+            }
+        )
+        return fresh.takeIf { ToolArgumentValidator.errors(it, definition.inputSchema).isEmpty() }
+    }
 
     /** Original rows stay intact, but every consumer must see the same traversal state and exact recipe. */
     private fun withPaginationState(result: AgentToolResult, data: JsonObject): AgentToolResult {
@@ -828,7 +884,7 @@ internal class GitHubOperationTool(
                     "tag" -> "tag_context"
                     "create_tag" -> "create_tag"
                     "list" -> "list_releases"
-                    "detail" -> "get_release_by_tag"
+                    "detail" -> if ("release_id" in args) "get_release" else "get_release_by_tag"
                     else -> return null
                 }
                 "github_issue" -> when (requested) {
@@ -1312,6 +1368,12 @@ internal class GitHubOperationTool(
                         put("description", "Reuse for recovery; a separately requested publication needs a new ID after reconciling the earlier receipt.")
                     }
                     properties["action"] = choice("status", "publish", "tags", "tag", "create_tag", "list", "detail")
+                    properties["release_id"] = buildJsonObject {
+                        put("type", "integer")
+                        put("minimum", 1)
+                        put("maximum", Long.MAX_VALUE)
+                        put("description", "For detail, use the release ID returned by list or status. Select either release_id or tag_name.")
+                    }
                     listOf("tag_name", "target_commitish", "name", "body", "workflow_id", "expected_head_sha", "ref").forEach { properties[it] = field("string") }
                     properties["workflow_run_id"] = buildJsonObject {
                         put("type", "integer")

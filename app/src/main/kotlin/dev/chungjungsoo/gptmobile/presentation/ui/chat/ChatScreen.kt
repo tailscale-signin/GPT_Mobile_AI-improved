@@ -349,6 +349,7 @@ private fun ChatScreenContent(
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
     val academicGateways by chatViewModel.academicGateways.collectAsStateWithLifecycle()
     val invocationDiagnostics by chatViewModel.invocationDiagnostics.collectAsStateWithLifecycle()
+    val invocationsByRun = remember(invocationDiagnostics) { invocationDiagnostics.groupBy { it.parentRunId } }
     val hasTargetMessage = chatViewModel.targetMessageId > 0
     val hasTargetAssistant = hasTargetAssistantMessage(groupedMessages.assistantMessages, chatViewModel.targetMessageId)
     var revealedArchivedTurns by rememberSaveable(chatRoom.id) { mutableIntStateOf(0) }
@@ -1056,7 +1057,7 @@ private fun ChatScreenContent(
                             maximumUserChatBubbleWidth = maximumUserChatBubbleWidth,
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
                             debugMode = debugMode,
-                            invocationDiagnostics = invocationDiagnostics,
+                            invocationsByRun = invocationsByRun,
                             debugSettings = featureSettings,
                             debugMemorySources = debugMemorySources,
                             showReasoning = featureSettings.showReasoning,
@@ -1094,6 +1095,7 @@ private fun ChatScreenContent(
                             onPlatformLongPress = chatViewModel::togglePlatformDisabled,
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,
+                            onContinueWithTime = chatViewModel::continueWithTime,
                             reasoningRecoveries = reasoningRecoveries,
                             onRecheckReasoning = chatViewModel::recheckReasoningResponse,
                             onProfileSettings = onProfileSettings,
@@ -1294,9 +1296,28 @@ private fun ChatScreenContent(
                             bottomInteractionContent?.invoke()
                             visibleGitHubDecisions.forEach { decision ->
                                 key(decision.id) {
+                                    val timing = remember(decision.id, decision.offeredAtMillis, agentRunsById, invocationsByRun, toolEventsByRun) {
+                                        val runs = agentRunsById.values.filter { it.userMessageId == decision.sourceMessageId && it.profileUid == decision.profileUid }
+                                        val start = runs.mapNotNull { it.startedAt }.minOrNull()?.times(1000)
+                                        val offered = decision.offeredAtMillis
+                                        val work = if (start == null || offered == null) {
+                                            null
+                                        } else {
+                                            val intervals = runs.flatMap { run ->
+                                                invocationsByRun[run.runId].orEmpty().filter { it.durationMs > 0 }.map { it.startedAt to it.startedAt + it.durationMs } +
+                                                    toolEventsByRun[run.runId].orEmpty().filterNot { it.toolName.substringBefore("__") == "github_decide" }.mapNotNull {
+                                                        val from = it.startedAt ?: return@mapNotNull null
+                                                        val to = it.completedAt ?: return@mapNotNull null
+                                                        from * 1000 to to * 1000
+                                                    }
+                                            }
+                                            dev.chungjungsoo.gptmobile.data.github.observedGitHubWorkMillis(start, offered, intervals)
+                                        }
+                                        start to work
+                                    }
                                     GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer ->
                                         chatViewModel.answerGitHubDecision(decision.id, option, answer)
-                                    }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })
+                                    }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) }, runStartedMs = timing.first, observedWorkMs = timing.second)
                                 }
                             }
                             approvals.forEach { approval ->
@@ -1796,7 +1817,7 @@ internal fun ChatMessagePair(
     maximumOpponentChatBubbleWidth: Dp,
     debugMode: Boolean = false,
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
-    invocationDiagnostics: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation> = emptyList(),
+    invocationsByRun: Map<String, List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>> = emptyMap(),
     debugSettings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(),
     showReasoning: Boolean = true,
     combinedMode: Boolean = false,
@@ -1813,6 +1834,7 @@ internal fun ChatMessagePair(
     onPlatformLongPress: (String) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
+    onContinueWithTime: (Int, String?) -> Unit = { _, _ -> },
     reasoningRecoveries: Map<String, ReasoningRecoveryUiState> = emptyMap(),
     onRecheckReasoning: (Int, Int) -> Unit = { _, _ -> },
     onProfileSettings: (String) -> Unit = {},
@@ -1917,6 +1939,8 @@ internal fun ChatMessagePair(
     val assistantContent = when {
         selectedSourceReader != null -> ""
         rawAssistantContent.isBlank() && selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_REMOTE_JOB -> "Waiting for the saved remote job. Check its status without submitting another generation."
+        rawAssistantContent.isBlank() && agentRun?.status == AgentRunStatus.INTERRUPTED ->
+            dev.chungjungsoo.gptmobile.data.agent.interruptedConversationReport(selectedAssistantMessage?.effectiveTimeline().orEmpty())
         rawAssistantContent.isBlank() && waitingForApproval -> stringResource(R.string.github_approval_wait_saved)
         rawAssistantContent.isBlank() && isCombinedConversation && combinedStatus == CombinedResponseStatus.PAUSED && !waitingForProvider -> stringResource(R.string.provider_wait_saved)
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
@@ -2231,7 +2255,7 @@ internal fun ChatMessagePair(
                             null
                         },
                         profileColorIdentity = selectedProfile?.uid?.let(combinedIdentities::get).takeIf { isSourceResponse },
-                        invocations = remember(invocationDiagnostics, selectedRunId) { invocationDiagnostics.filter { it.parentRunId == selectedRunId } },
+                        invocations = invocationsByRun[selectedRunId].orEmpty(),
                         debugSettings = debugSettings,
                         debugMemorySources = debugMemorySources,
                         showReasoning = showReasoning,
@@ -2313,7 +2337,7 @@ internal fun ChatMessagePair(
                         onShowNextRevision = { onShowNextRevision(messageIndex, displayPlatformIndex) },
                         isUserTyping = isUserTyping,
                         isLastMessage = isActiveMessage && !isSourceResponse,
-                        onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
+                        onContinueClick = onContinueClick.takeIf { !isSourceResponse && (smartSuggestionsEnabled || ChatResponseActionParser.canResumeReview(assistantContent)) },
                         onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
                     )
                 }
@@ -2350,7 +2374,13 @@ internal fun ChatMessagePair(
                         if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
                         if (!hasCombinedTabs) {
                             reviewRetryBlock?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            if (gatewayAdmission == null && responseRecoveryKind == ProfileRecoveryKind.NONE && approvalRetryBlock == null) {
+                            if (dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(error) ||
+                                dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(selectedAssistantMessage?.content)
+                            ) {
+                                if (isActiveMessage) {
+                                    TextButton(onClick = { onContinueWithTime(messageIndex, selectedPlatformUid) }, enabled = isIdle && canUseChat) { Text("Continue for 10 minutes") }
+                                }
+                            } else if (gatewayAdmission == null && responseRecoveryKind == ProfileRecoveryKind.NONE && approvalRetryBlock == null) {
                                 TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(if (agentRun?.status in setOf(AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING) && githubTask != null) "Resume saved task" else stringResource(R.string.audit_generate_again)) }
                             } else if (gatewayAdmission == null && responseRecoveryKind != ProfileRecoveryKind.NONE) {
                                 ProfileRecoveryActions(

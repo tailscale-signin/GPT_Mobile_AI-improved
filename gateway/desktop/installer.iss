@@ -13,12 +13,18 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 WizardStyle=modern dark
+#if Ver >= EncodeVer(6, 7, 0)
+WizardBackColor=#001219
+#endif
 WizardSmallImageFile=assets\gateway.png
 WizardSmallImageBackColor=#001219
 WizardImageFile=..\..\dist\windows\setup-sidebar.png
 WizardImageBackColor=#001219
 DisableProgramGroupPage=yes
 DisableDirPage=no
+DisableReadyPage=yes
+WizardSizePercent=120
+ShowTasksTreeLines=no
 OutputDir=..\..\dist\windows
 OutputBaseFilename=Gateway-{#GatewayVersion}-windows-x64-setup
 Compression=lzma2
@@ -29,18 +35,19 @@ UninstallDisplayIcon={app}\releases\{#GatewayVersion}\Gateway.exe
 SetupLogging=yes
 SetupIconFile=assets\gateway.ico
 
+[LangOptions]
+DialogFontName=Segoe UI
+DialogFontSize=10
+
 [Files]
-Source: "..\..\dist\windows\setup-ui\GatewaySetup.exe"; Flags: dontcopy
 Source: "..\..\dist\windows\Gateway\*"; DestDir: "{app}\releases\{#GatewayVersion}"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "Start-Gateway.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
 Name: "startup"; Description: "Start Gateway when I sign in"; Flags: checkedonce; Check: NeedsInitialSettings
-Name: "desktopicon"; Description: "Create a desktop dashboard shortcut"; Flags: unchecked
-Name: "engineering"; Description: "Allow network devices to run GitHub engineering tasks and map private repositories"; Flags: unchecked; Check: NeedsInitialSettings
-
-Name: "firewall"; Description: "Allow Gateway from the local subnet on Private networks (Windows administrator approval)"; Flags: unchecked
+Name: "desktopicon"; Description: "Add a desktop shortcut"; Flags: unchecked
+Name: "firewall"; Description: "Allow phone connections for network-enabled Gateway (local-only settings stay private)"; Flags: checkedonce; Check: UsesPhoneNetwork
 
 [Icons]
 Name: "{group}\Gateway Dashboard"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; WorkingDir: "{app}"; IconFilename: "{app}\releases\{#GatewayVersion}\Gateway.exe"; AppUserModelID: "GPTMobile.Gateway"
@@ -53,12 +60,7 @@ Name: "{group}\Gateway Logs"; Filename: "{app}\logs"
 Name: "{group}\Uninstall Gateway"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"""; Description: "Start Gateway"; Flags: nowait postinstall skipifsilent
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; Description: "Open the live Gateway dashboard"; Flags: nowait postinstall skipifsilent
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command github-settings"; Description: "Open GitHub settings for private repositories or saved jobs"; Flags: nowait postinstall skipifsilent unchecked
-Filename: "{app}\releases\{#GatewayVersion}\Gateway.exe"; Parameters: "benchmark-settings --root ""{app}"""; Description: "Prepare coding benchmark sandbox (optional Docker download)"; Flags: nowait postinstall skipifsilent unchecked
-
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command engineering-setup"; Description: "Set up Full GitHub Engineering (Docker and WSL 2)"; Flags: nowait postinstall skipifsilent; Check: IsFullEngineeringSelected
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; Description: "Open Gateway"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: files; Name: "{app}\current.json"
@@ -66,9 +68,10 @@ Type: filesandordirs; Name: "{app}\releases"
 
 [Code]
 var
-  ConnectionPage, PerformancePage, NetworkPage: TInputQueryWizardPage;
-  SetupPage, UpdatePage, EngineeringPage: TInputOptionWizardPage;
-  RuntimePrepared, NativePlan: Boolean;
+  PageIcon: TNewStaticText;
+  ConnectionPage, AdvancedPage: TInputQueryWizardPage;
+  ModePage, UpdatePage: TInputOptionWizardPage;
+  RuntimePrepared, InstallFirewall, RepairDamaged, ExistingInstallation: Boolean;
 
 function J(Value: String): String;
 begin
@@ -85,122 +88,97 @@ begin
   if Value then Result := 'true' else Result := 'false';
 end;
 
-procedure InitializeWizard;
-begin
-  SetupPage := CreateInputOptionPage(wpSelectDir, 'Set up your gateway', 'Choose how Gateway will run on this PC.',
-    'The recommended setup uses a local model server on port 8080, opens the dashboard, and checks for stable updates. You can change these settings after installation.', True, False);
-  SetupPage.Add('Recommended setup');
-  SetupPage.Add('Advanced setup');
-  SetupPage.SelectedValueIndex := 0;
-  EngineeringPage := CreateInputOptionPage(SetupPage.ID, 'Optional GitHub engineering',
-    'Choose whether to prepare isolated Linux repository validation.',
-    'Standard Gateway works without Docker. Full GitHub Engineering offers guided WSL 2 and Docker setup after installation. System changes require approval and existing Docker data is retained.', True, False);
-  EngineeringPage.Add('Standard Gateway - no Docker required');
-  EngineeringPage.Add('Full GitHub Engineering - guided Docker and WSL 2 setup');
-  EngineeringPage.SelectedValueIndex := 0;
-  ConnectionPage := CreateInputQueryPage(EngineeringPage.ID, 'Connection settings', 'Choose your model backend and gateway port.', 'Public GitHub maps work by default. You can connect GitHub for private repositories or saved jobs from Gateway Settings.');
-  ConnectionPage.Add('Model backend origin (without /v1):', False);
-  ConnectionPage.Add('Gateway port (1024-65535):', False);
-  ConnectionPage.Add('Existing MCP JSON file (optional, absolute path):', False);
-  ConnectionPage.Values[0] := 'http://127.0.0.1:8080';
-  ConnectionPage.Values[1] := '8090';
-  PerformancePage := CreateInputQueryPage(ConnectionPage.ID, 'Performance and recovery', 'Set bounded concurrency and shutdown grace.', 'Conservative defaults help keep interactive work responsive.');
-  PerformancePage.Add('Concurrent workers (1-16):', False);
-  PerformancePage.Add('Maximum admitted chats (workers-64):', False);
-  PerformancePage.Add('Shutdown grace in seconds (10-120):', False);
-  PerformancePage.Values[0] := '2'; PerformancePage.Values[1] := '8'; PerformancePage.Values[2] := '30';
-  NetworkPage := CreateInputQueryPage(PerformancePage.ID, 'Network listening', 'Choose which PC interfaces can accept connections.', '127.0.0.1 keeps access on this PC. Enter a specific PC interface IP or 0.0.0.0 for all IPv4 interfaces. No API token is required. Every device that can reach the listener can use its enabled models and tools. Use a trusted LAN/VPN, or a separately authenticated HTTPS proxy for internet access.');
-  NetworkPage.Add('Listen address (127.0.0.1, PC interface IP, or 0.0.0.0):', False);
-  NetworkPage.Values[0] := '127.0.0.1';
-  UpdatePage := CreateInputOptionPage(NetworkPage.ID, 'Updates', 'Choose how Gateway updates.', 'Checks run every 24 hours. Auto updates wait until all active and paused work is finished. A failed runtime check rolls back. Update settings remain available after install.', True, False);
-  UpdatePage.Add('Notify me when a stable update is available (recommended)');
-  UpdatePage.Add('Automatically install verified stable updates when idle');
-  UpdatePage.Add('Do not check automatically');
-  UpdatePage.SelectedValueIndex := 0;
-end;
-
 function NeedsInitialSettings: Boolean;
 begin
   Result := not FileExists(ExpandConstant('{app}\settings.json'));
 end;
 
-function IsFullEngineeringSelected: Boolean;
+function UsesPhoneNetwork: Boolean;
 begin
-  Result := EngineeringPage.SelectedValueIndex = 1;
+  { Interactive repair/update may add the missing phone control port. The
+    installed validator preserves local-only settings; unattended updates never
+    request a new firewall opening. }
+  Result := not WizardSilent and (not NeedsInitialSettings or (ModePage.SelectedValueIndex <> 1));
 end;
 
-function ReadSetupPlan: Boolean;
-var PlanFile: String; Code: Integer;
+procedure InitializeWizard;
 begin
-  Result := False;
-  PlanFile := ExpandConstant('{tmp}\gateway-setup.ini');
-  ExtractTemporaryFile('GatewaySetup.exe');
-  if not Exec(ExpandConstant('{tmp}\GatewaySetup.exe'), '--plan "' + PlanFile + '" ' + IntToStr(WizardForm.Handle), '',
-              SW_SHOW, ewWaitUntilTerminated, Code) then begin
-    MsgBox('Windows could not open Gateway Setup. Check the install log and try again.', mbError, MB_OK);
-    Exit;
+  ModePage := CreateInputOptionPage(wpSelectDir, 'Connect to Gateway',
+    'Choose where you will use this PC.', 'Enter this PC’s IP in GPT Mobile. Use your Tailscale account, or connect on private Wi-Fi with the same saved GitHub personal access token on both devices.', True, False);
+  ModePage.Add('My phone and this PC');
+  ModePage.Add('Only this PC');
+  ModePage.Add('Advanced settings');
+  if WizardSilent then ModePage.SelectedValueIndex := 1 else ModePage.SelectedValueIndex := 0;
+  ConnectionPage := CreateInputQueryPage(ModePage.ID, 'Connection settings',
+    'Connect a model and choose a network interface.', 'Use auto to find a private interface. Choose 127.0.0.1 for local use.');
+  ConnectionPage.Add('Model backend origin', False);
+  ConnectionPage.Add('Gateway port (1024-65535)', False);
+  ConnectionPage.Add('Listen address', False);
+  ConnectionPage.Add('MCP configuration file (optional)', False);
+  ConnectionPage.Values[0] := 'http://127.0.0.1:8080';
+  ConnectionPage.Values[1] := '8090';
+  ConnectionPage.Values[2] := 'auto';
+  AdvancedPage := CreateInputQueryPage(ConnectionPage.ID, 'Capacity',
+    'Set limits for this PC.', 'You can change worker and chat limits from your connected phone.');
+  AdvancedPage.Add('Concurrent workers (1-16)', False);
+  AdvancedPage.Add('Active chats (workers-64)', False);
+  AdvancedPage.Add('Shutdown grace in seconds (10-120)', False);
+  AdvancedPage.Values[0] := '2';
+  AdvancedPage.Values[1] := '8';
+  AdvancedPage.Values[2] := '30';
+  UpdatePage := CreateInputOptionPage(AdvancedPage.ID, 'Stable updates', 'Choose when to update Gateway.',
+    'Automatic installation waits for active work to finish.', True, False);
+  UpdatePage.Add('Notify me when an update is available');
+  UpdatePage.Add('Install automatically when idle');
+  UpdatePage.Add('Check manually');
+  UpdatePage.SelectedValueIndex := 0;
+  WizardForm.Font.Name := 'Segoe UI';
+  PageIcon := TNewStaticText.Create(WizardForm);
+  PageIcon.Parent := WizardForm.PageNameLabel.Parent;
+  PageIcon.AutoSize := False;
+  PageIcon.SetBounds(WizardForm.PageNameLabel.Left, WizardForm.PageNameLabel.Top,
+    ScaleX(28), ScaleY(26));
+  PageIcon.Font.Name := 'Segoe MDL2 Assets';
+  PageIcon.Font.Size := 15;
+  PageIcon.ShowAccelChar := False;
+  WizardForm.PageNameLabel.Left := WizardForm.PageNameLabel.Left + ScaleX(34);
+  WizardForm.PageNameLabel.Width := WizardForm.PageNameLabel.Width - ScaleX(34);
+  WizardForm.PageDescriptionLabel.Width := WizardForm.PageDescriptionLabel.Width -
+    (WizardForm.PageNameLabel.Left - WizardForm.PageDescriptionLabel.Left);
+  WizardForm.PageDescriptionLabel.Left := WizardForm.PageNameLabel.Left;
+  if not HighContrastActive then begin
+    WizardForm.MainPanel.Color := $28200B;
+    WizardForm.PageNameLabel.Font.Color := $DEFF00;
+    PageIcon.Font.Color := WizardForm.PageNameLabel.Font.Color;
+    WizardForm.PageDescriptionLabel.Font.Color := $F7F4E0;
+    WizardForm.WelcomeLabel1.Font.Color := $DEFF00;
+    WizardForm.FinishedHeadingLabel.Font.Color := $DEFF00;
   end;
-  if Code <> 0 then Exit;
-  if not FileExists(PlanFile) then begin
-    MsgBox('Gateway Setup did not return an installation plan.', mbError, MB_OK);
-    Exit;
-  end;
-  ConnectionPage.Values[0] := GetIniString('setup', 'backend', '', PlanFile);
-  ConnectionPage.Values[1] := GetIniString('setup', 'port', '', PlanFile);
-  NetworkPage.Values[0] := GetIniString('setup', 'bind', '', PlanFile);
-  EngineeringPage.SelectedValueIndex := GetIniInt('setup', 'engineeringSetup', 0, 0, 1, PlanFile);
-  SetupPage.SelectedValueIndex := GetIniInt('setup', 'advanced', 0, 0, 1, PlanFile);
-  ConnectionPage.Values[2] := GetIniString('setup', 'mcp', '', PlanFile);
-  PerformancePage.Values[0] := IntToStr(GetIniInt('setup', 'workers', 2, 1, 16, PlanFile));
-  PerformancePage.Values[1] := IntToStr(GetIniInt('setup', 'chats', 8, 1, 64, PlanFile));
-  PerformancePage.Values[2] := IntToStr(GetIniInt('setup', 'grace', 30, 10, 120, PlanFile));
-  UpdatePage.SelectedValueIndex := GetIniInt('setup', 'updates', 0, 0, 2, PlanFile);
-  NativePlan := True;
-  Result := True;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
-var AdvancedPage, Upgrade: Boolean;
 begin
-  AdvancedPage := (PageID = ConnectionPage.ID) or (PageID = PerformancePage.ID) or
-    (PageID = NetworkPage.ID) or (PageID = UpdatePage.ID);
-  Upgrade := FileExists(ExpandConstant('{app}\settings.json'));
-  Result := (AdvancedPage and (NativePlan or (SetupPage.SelectedValueIndex = 0) or Upgrade)) or
-    (((PageID = SetupPage.ID) or (PageID = EngineeringPage.ID)) and (Upgrade or NativePlan));
+  if PageID = ModePage.ID then Result := not NeedsInitialSettings
+  else if (PageID = ConnectionPage.ID) or (PageID = AdvancedPage.ID) or (PageID = UpdatePage.ID) then
+    Result := (ModePage.SelectedValueIndex <> 2) or not NeedsInitialSettings
+  else Result := False;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var P, W, A, G: Integer;
 begin
   Result := True;
-  if (CurPageID = wpSelectDir) and not WizardSilent then begin
-    NativePlan := False;
-    if not FileExists(ExpandConstant('{app}\settings.json')) then
-      Result := ReadSetupPlan;
-    Exit;
-  end;
-  if (CurPageID = SetupPage.ID) and (SetupPage.SelectedValueIndex = 0) then begin
-    ConnectionPage.Values[0] := 'http://127.0.0.1:8080';
-    ConnectionPage.Values[1] := '8090';
-    ConnectionPage.Values[2] := '';
-    PerformancePage.Values[0] := '2'; PerformancePage.Values[1] := '8'; PerformancePage.Values[2] := '30';
-    NetworkPage.Values[0] := '127.0.0.1';
-    UpdatePage.SelectedValueIndex := 0;
-  end;
   if CurPageID = ConnectionPage.ID then begin
     P := StrToIntDef(ConnectionPage.Values[1], 0);
-    Result := (P >= 1024) and (P <= 65535) and (ConnectionPage.Values[0] <> '');
-    if (ConnectionPage.Values[2] <> '') and not FileExists(ConnectionPage.Values[2]) then Result := False;
-    if not Result then MsgBox('Enter a valid port, backend origin and existing MCP file.', mbError, MB_OK);
+    Result := (P >= 1024) and (P <= 65535) and (Trim(ConnectionPage.Values[0]) <> '') and
+       (Trim(ConnectionPage.Values[2]) <> '') and ((ConnectionPage.Values[3] = '') or FileExists(ConnectionPage.Values[3]));
+    if not Result then MsgBox('Check the model address, port and optional MCP file.', mbError, MB_OK);
   end;
-  if CurPageID = PerformancePage.ID then begin
-    W := StrToIntDef(PerformancePage.Values[0], 0); A := StrToIntDef(PerformancePage.Values[1], 0); G := StrToIntDef(PerformancePage.Values[2], 0);
+  if CurPageID = AdvancedPage.ID then begin
+    W := StrToIntDef(AdvancedPage.Values[0], 0); A := StrToIntDef(AdvancedPage.Values[1], 0);
+    G := StrToIntDef(AdvancedPage.Values[2], 0);
     Result := (W >= 1) and (W <= 16) and (A >= W) and (A <= 64) and (G >= 10) and (G <= 120);
-    if not Result then MsgBox('Check the performance ranges shown above.', mbError, MB_OK);
-  end;
-  if CurPageID = NetworkPage.ID then begin
-    Result := NetworkPage.Values[0] <> '';
-    if not Result then MsgBox('Enter a listen IP address.', mbError, MB_OK);
+    if not Result then MsgBox('Check the capacity ranges. Each worker needs an active chat slot.', mbError, MB_OK);
   end;
 end;
 
@@ -213,10 +191,18 @@ begin
 end;
 
 function WriteWizardSettings: String;
-var Settings, Mode, TempFile: String; Lines: TArrayOfString;
+var Settings, Mode, TempFile, BindAddress: String; Lines: TArrayOfString;
 begin
-    Mode := 'notify'; if UpdatePage.SelectedValueIndex = 1 then Mode := 'auto'; if UpdatePage.SelectedValueIndex = 2 then Mode := 'off';
-    Settings := '{"backend":' + J(ConnectionPage.Values[0]) + ',"port":' + IntToStr(StrToIntDef(ConnectionPage.Values[1], 8090)) + ',"mcp_config":' + J(ConnectionPage.Values[2]) + ',"workers":' + PerformancePage.Values[0] + ',"active_chats":' + PerformancePage.Values[1] + ',"shutdown_seconds":' + PerformancePage.Values[2] + ',"bind_host":' + J(NetworkPage.Values[0]) + ',"update_mode":' + J(Mode) + ',"start_at_login":' + B(WizardIsTaskSelected('startup')) + ',"engineering":' + B(WizardIsTaskSelected('engineering')) + '}';
+    Settings := '{"start_at_login":' + B(WizardIsTaskSelected('startup'));
+    if ModePage.SelectedValueIndex = 2 then begin
+      Mode := 'notify'; if UpdatePage.SelectedValueIndex = 1 then Mode := 'auto'; if UpdatePage.SelectedValueIndex = 2 then Mode := 'off';
+      Settings := Settings + ',"backend":' + J(Trim(ConnectionPage.Values[0])) +
+        ',"port":' + IntToStr(StrToIntDef(ConnectionPage.Values[1], 0)) + ',"mcp_config":' + J(ConnectionPage.Values[3]) +
+        ',"workers":' + IntToStr(StrToIntDef(AdvancedPage.Values[0], 0)) + ',"active_chats":' + IntToStr(StrToIntDef(AdvancedPage.Values[1], 0)) +
+        ',"shutdown_seconds":' + IntToStr(StrToIntDef(AdvancedPage.Values[2], 0)) + ',"update_mode":' + J(Mode);
+      BindAddress := Trim(ConnectionPage.Values[2]);
+    end else if ModePage.SelectedValueIndex = 1 then BindAddress := '127.0.0.1' else BindAddress := 'auto';
+    Settings := Settings + ',"bind_host":' + J(BindAddress) + '}';
     TempFile := ExpandConstant('{tmp}\gateway-settings.json');
     SetArrayLength(Lines, 1); Lines[0] := Settings;
     if not SaveStringsToUTF8File(TempFile, Lines, False) then RaiseException('Could not save setup settings.');
@@ -234,28 +220,67 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var Code: Integer; TempFile, Validator: String;
 begin
   Result := '';
+  InstallFirewall := WizardIsTaskSelected('firewall') and UsesPhoneNetwork;
   TempFile := WriteWizardSettings;
-  if not RuntimePrepared then begin
-    ExtractTemporaryFiles('{app}\releases\{#GatewayVersion}\*');
-    RuntimePrepared := True;
+  { Recommended fresh installs use validated built-in defaults. Preflight custom
+    input and retained settings before replacing any installed files. }
+  if (ModePage.SelectedValueIndex = 2) or not NeedsInitialSettings or FileExists(ExpandConstant('{app}\current.json')) then begin
+    if not RuntimePrepared then begin
+      ExtractTemporaryFiles('{app}\releases\{#GatewayVersion}\*');
+      RuntimePrepared := True;
+    end;
+    Validator := ExpandConstant('{tmp}\') + '{app}\releases\{#GatewayVersion}\Gateway.exe';
+    if not Exec(Validator, 'validate-settings --version {#GatewayVersion} --root "' + ExpandConstant('{app}') + '" --settings-file "' + TempFile + '" --quiet --error-file "' + ExpandConstant('{tmp}\gateway-config-error.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) then begin
+      Result := 'Windows could not open the bundled settings validator. See the setup log.';
+      Exit;
+    end;
+    RepairDamaged := False;
+    if (Code = 12) and not WizardSilent then
+      RepairDamaged := MsgBox('The saved settings could not be read. Keep a backup and restore local defaults? Your jobs and conversations will be retained.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+    if (Code <> 0) and not RepairDamaged then begin
+      Result := ConfigurationError;
+      Exit;
+    end;
+    if DirExists(ExpandConstant('{app}\data')) or FileExists(ExpandConstant('{app}\current.json')) then begin
+      if not Exec(Validator, 'stop --root "' + ExpandConstant('{app}') + '" --quiet', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+        Result := 'Gateway could not stop safely. Finish any active work and retry.';
+    end;
   end;
-  Validator := ExpandConstant('{tmp}\') + '{app}\releases\{#GatewayVersion}\Gateway.exe';
-  if not Exec(Validator, 'validate-settings --version {#GatewayVersion} --root "' + ExpandConstant('{app}') + '" --settings-file "' + TempFile + '" --quiet --error-file "' + ExpandConstant('{tmp}\gateway-config-error.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then begin
-    Result := ConfigurationError;
-    Exit;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = ModePage.ID then PageIcon.Caption := #$E704
+  else if CurPageID = ConnectionPage.ID then PageIcon.Caption := #$E839
+  else if CurPageID = AdvancedPage.ID then PageIcon.Caption := #$E9D9
+  else if CurPageID = UpdatePage.ID then PageIcon.Caption := #$E895
+  else PageIcon.Caption := #$E713;
+  if CurPageID = wpReady then begin
+    ExistingInstallation := FileExists(ExpandConstant('{app}\current.json')) or
+                            FileExists(ExpandConstant('{app}\settings.json'));
+    if ExistingInstallation then begin
+      WizardForm.PageNameLabel.Caption := 'Repair or update Gateway';
+      WizardForm.PageDescriptionLabel.Caption := 'Setup checks the existing installation and keeps its settings and saved work.';
+    end;
   end;
-  if not StopInstalled(ExpandConstant('{app}')) then Result := 'Gateway has active work or could not stop. Finish or cancel that work in the app, then retry installation. No process has been forcibly closed.';
+  if CurPageID = wpFinished then begin
+    if RepairDamaged then
+      WizardForm.FinishedHeadingLabel.Caption := 'Gateway settings recovered'
+    else if ExistingInstallation then
+      WizardForm.FinishedHeadingLabel.Caption := 'Gateway installation repaired or updated';
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var TempFile: String; Code: Integer;
+var TempFile, RepairArg: String; Code: Integer;
 begin
   if CurStep = ssPostInstall then begin
     TempFile := WriteWizardSettings;
-    if not Exec(ExpandConstant('{app}\releases\{#GatewayVersion}\Gateway.exe'), 'configure --root "' + ExpandConstant('{app}') + '" --version {#GatewayVersion} --settings-file "' + TempFile + '" --quiet --error-file "' + ExpandConstant('{tmp}\gateway-config-error.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+    RepairArg := ''; if RepairDamaged then RepairArg := ' --repair-damaged';
+    if not Exec(ExpandConstant('{app}\releases\{#GatewayVersion}\Gateway.exe'), 'configure' + RepairArg + ' --root "' + ExpandConstant('{app}') + '" --version {#GatewayVersion} --settings-file "' + TempFile + '" --quiet --error-file "' + ExpandConstant('{tmp}\gateway-config-error.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
       RaiseException(ConfigurationError);
-    if WizardIsTaskSelected('firewall') then begin
-      if not Exec(ExpandConstant('{app}\releases\{#GatewayVersion}\Gateway.exe'), 'firewall --root "' + ExpandConstant('{app}') + '" --quiet', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+    if InstallFirewall then begin
+      if not Exec(ExpandConstant('{app}\releases\{#GatewayVersion}\Gateway.exe'), 'firewall --setup-network --root "' + ExpandConstant('{app}') + '" --quiet', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
         MsgBox('The firewall rule was not confirmed. Configure a network listener in Gateway Settings and use Allow LAN through firewall when ready.', mbInformation, MB_OK);
     end;
   end;

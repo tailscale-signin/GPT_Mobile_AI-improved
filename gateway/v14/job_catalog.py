@@ -63,14 +63,16 @@ def engineering_summary(job, lease, now):
             'allowed_actions': ['open'] + (['cancel'] if phase not in {'COMPLETED', 'CANCELLED', 'FAILED', 'CANCELLING'} else []) + (['approve'] if phase == 'MERGE_READY' else [])}
 
 
-def catalog(conversations, engineering, principal, ownership, cursor=None, limit=50, kind=None, state=None):
-    if not 1 <= limit <= 100 or kind not in {None, 'engineering', 'generation'} or state not in {None, 'running', 'queued', 'needs_attention', 'completed', 'failed', 'cancelled'}:
+def catalog(conversations, engineering, principal, ownership, cursor=None, limit=50, kind=None, state=None, include_copilot=False):
+    if not 1 <= limit <= 100 or kind not in {None, 'engineering', 'generation', 'copilot'} or state not in {None, 'running', 'queued', 'needs_attention', 'completed', 'failed', 'cancelled'}:
         raise ValueError('Invalid job catalog filter')
     now = conversations.now()
     def read(db):
         gateway_id = conversations.identity(db)
         permissions = [principal.local_admin or 'jobs' in principal.scopes, principal.local_admin or 'engineering' in principal.scopes]
         scope = [gateway_id, principal.id, kind, state, permissions]
+        if include_copilot or kind == 'copilot':
+            scope.append('copilot')
         sequence = {(row['job_kind'], row['job_id']): row['sequence'] for row in db.execute('SELECT * FROM gateway_catalog_keys')}
         upper, anchor = max(sequence.values(), default=0), None
         if cursor:
@@ -91,9 +93,24 @@ def catalog(conversations, engineering, principal, ownership, cursor=None, limit
             for row in db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE principal=?', (principal.id,)):
                 job = dict(json.loads(row[0]), state=row[1], revision=row[2])
                 rows.append(engineering_summary(job, row[3], now))
+        if (include_copilot or kind == 'copilot') and permissions[1] and db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_copilot_tasks'").fetchone():
+            for record in db.execute('SELECT data FROM engineering_copilot_tasks WHERE principal=?', (principal.id,)):
+                task = json.loads(record[0])
+                source, phase = task['request'], task['state']
+                bucket = {'ACCEPTED': 'queued', 'QUEUED': 'queued', 'IN_PROGRESS': 'running', 'DISPATCHING': 'running',
+                          'COMPLETED': 'completed', 'CANCELLED': 'cancelled', 'FAILED': 'failed', 'TIMED_OUT': 'failed',
+                          'REJECTED': 'failed'}.get(phase, 'needs_attention')
+                rows.append({'job_id': task['id'], 'job_kind': 'copilot', 'title': 'Copilot · ' + source['repository'],
+                             'repository': source['repository'], 'branch': source.get('head_ref') or source['base_ref'],
+                             'state': bucket, 'phase': phase, 'model': source.get('model'), 'revision': task['revision'],
+                             'accepted_at': task['accepted_at'], 'finished_at': task['updated_at'] if bucket in {'completed','failed','cancelled'} else None,
+                             'server_now': now, 'allowed_actions': ['open'], 'transcript_available': False})
         rows = [row for row in rows if sequence.get((row['job_kind'], row['job_id']), 0) <= upper and (not kind or row['job_kind'] == kind)]
         counts = {'running': 0, 'queued': 0, 'needs_attention': 0, 'recent': 0}
+        state_counts = {key: 0 for key in ('running', 'queued', 'needs_attention', 'completed', 'failed', 'cancelled', 'other')}
         for row in rows:
+            state_counts[row['state'] if row['state'] in state_counts else 'other'] += 1
             bucket = row['state'] if row['state'] in counts else 'recent'
             counts[bucket] += 1
         rows = [row for row in rows if not state or row['state'] == state]
@@ -110,7 +127,7 @@ def catalog(conversations, engineering, principal, ownership, cursor=None, limit
             else:
                 item.update(history_complete=False, history_limitation='conversation_retention_disabled' if item.get('conversation_retention') == 'none' else 'legacy_snapshot_only')
         return {'schema_version': 1, 'gateway_id': gateway_id, 'principal_id': principal.id, 'server_now': now,
-                'items': page, 'counts': counts, 'counts_complete': True, 'has_more': more, 'complete': not more,
+                'items': page, 'counts': counts, 'state_counts': state_counts, 'counts_complete': True, 'has_more': more, 'complete': not more,
                 'next_cursor': conversations.encode_cursor(db, {'scope': scope, 'upper': upper, 'anchor': list(order(page[-1]))}) if more else None}
     return conversations.read(read)
 
@@ -152,16 +169,40 @@ def install_routes(app, conversations, engineering, service, ownership):
     @app.get('/v1/gateway/identity')
     async def identity(request: Request):
         principal = request.state.principal.id
-        return await execute(lambda: {'schema_version': 1, 'protocol_version': 1, 'gateway_id': conversations.gateway_id(),
+        def describe():
+            result = {'schema_version': 1, 'protocol_version': 1, 'gateway_id': conversations.gateway_id(),
             'instance_id': service.instance_id, 'principal_id': principal, 'server_now': conversations.now(),
             'server_time_ms': int(conversations.now() * 1000),
-            'identity_scope': 'shared-network' if principal == 'network:shared' else 'paired-device' if principal.startswith('paired:') else 'user' if principal.startswith('tailnet:') else 'local-machine'})
+            'identity_scope': 'shared-network' if principal == 'network:shared' else 'paired-device' if principal.startswith('paired:') else 'user' if principal.startswith('tailnet:') else 'local-machine'}
+            root = getattr(app.state, 'connected_settings_root', None)
+            if root and principal == 'network:shared' and request.client and not any(
+                    k.startswith(('x-forwarded-', 'tailscale-', 'sec-fetch-')) or k in {'origin', 'forwarded', 'cookie'} for k in request.headers):
+                host = (request.scope.get('server') or ('', 0))[0]
+                try:
+                    from desktop.configuration import shared_settings_overview
+                    if overview := shared_settings_overview(root, host, request.client.host):
+                        result['network_settings'] = overview
+                except (OSError, TypeError, ValueError):
+                    pass
+                if request.query_params.get('connect') == '1':
+                    from desktop.account_address import offer
+                    port = (request.scope.get('server') or ('', 0))[1]
+                    if descriptor := offer(root, request.client.host, host, port, result['gateway_id']):
+                        result['account_connection'] = descriptor
+                try:
+                    window = json.loads((root / 'data' / 'phone-connect-window.json').read_text(encoding='utf-8'))
+                    if window['host'] == host and window['peer'] == request.client.host and window['expires'] > conversations.now():
+                        result['phone_connection'] = window['link']
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
+            return result
+        return await execute(describe)
 
     @app.get('/gateway/job-catalog')
     @app.get('/v1/gateway/job-catalog')
     async def jobs(request: Request):
         q = request.query_params
-        return await execute(lambda: catalog(conversations, engineering, request.state.principal, ownership() if callable(ownership) else ownership, q.get('cursor'), int(q.get('limit', '50')), q.get('kind'), q.get('state')))
+        return await execute(lambda: catalog(conversations, engineering, request.state.principal, ownership() if callable(ownership) else ownership, q.get('cursor'), int(q.get('limit', '50')), q.get('kind'), q.get('state'), q.get('include_copilot') == 'true'))
 
     @app.get('/gateway/conversations')
     @app.get('/v1/gateway/conversations')

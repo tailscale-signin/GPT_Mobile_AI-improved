@@ -30,6 +30,7 @@ app/build/**
 core-domain/build/**
 macrobenchmark/build/**
 local-gguf-runtime/build/**
+local-kokoro-runtime/build/**
 .idea/copilot.data.migration.ask.xml
 .idea/copilot.data.migration.agent.xml
 .idea/copilot.data.migration.edit.xml

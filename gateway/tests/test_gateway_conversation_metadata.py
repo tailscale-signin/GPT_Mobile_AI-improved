@@ -60,6 +60,18 @@ class MetadataTests(unittest.TestCase):
             self.assertEqual(400, altered.status_code)
             self.assertEqual(400, client.get('/gateway/conversations?archived=maybe').status_code)
 
+    def test_search_by_recorded_outcome_preserves_text_filters_and_cursor_scope(self):
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion):
+            self.create(client, 'one', 'The question mentions interrupted.')
+            self.create(client, 'two', 'A separate task')
+            def search(query, **params):
+                return client.get('/gateway/conversations', params={'query': query, **params})
+            self.assertEqual(1, len(search('outcome:completed interrupted').json()['items']))
+            self.assertEqual([], search('outcome:interrupted').json()['items'])
+            first = search('outcome:completed', limit=1).json()
+            self.assertTrue(first['has_more'])
+            self.assertEqual(400, search('outcome:blocked', cursor=first['next_cursor']).status_code)
+
     def test_bookmarks_are_idempotent_principal_scoped_and_paginated(self):
         with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion) as model:
             ident = self.create(client)

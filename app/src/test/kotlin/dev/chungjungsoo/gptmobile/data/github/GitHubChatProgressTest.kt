@@ -20,6 +20,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatProgressTest {
+    @Test fun ciPresetStartsWithTheActualInvestigationAndOnlyReturnedLinesBecomeFindings() {
+        var clock = 0L
+        val progress = GitHubChatProgress(GitHubWorkflowPreset.selected("diagnose_ci").prompt()) { clock }
+        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("failed jobs"))
+        val args = json("""{"action":"ranges","ranges":[{"path":"src/Compile.kt","start_line":8,"end_line":18}]}""")
+        val call = ProviderEvent.ToolCall("source", "github_read", args)
+        val start = GatewayProgress(event = "tool_started", toolName = call.name, toolCallId = call.callId, toolArgs = args)
+        progress.observe(ApiState.GatewayProgressChanged(start))
+        clock = 45_000
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+        val result = json("""{"commit_sha":"${"a".repeat(40)}","items":[{"path":"src/Compile.kt","start_line":8,"end_line":12,"range_complete":true,"content":"PRIVATE SOURCE"}]}""")
+        val facts = GitHubSemanticSummary.from(call.name, args, result)
+        progress.observeResult(call, AgentToolResult(call.callId, ToolResultContent.Json(result), false, executionReceipt = json("""{"semantic_summary":$facts}""")))
+        progress.observe(ApiState.GatewayProgressChanged(start.copy(event = "tool_completed")))
+        val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+        assertEquals("I have lines 8–12 of src/Compile.kt.", summary.text)
+        assertFalse(summary.modelAuthored)
+        assertFalse(facts.toString().contains("PRIVATE SOURCE"))
+    }
+
     @Test fun repeatedHistoryRetrievalDoesNotFloodThePreview() {
         var clock = 0L
         val progress = GitHubChatProgress("Test the authorized GitHub integration") { clock }
@@ -91,12 +111,26 @@ class GitHubChatProgressTest {
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
     }
 
+    @Test fun primaryModelCanExplainAPreviouslyDisplayedSourceFindingOnce() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Inspect the repository") { clock }
+        progress.tick()
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "file", toolArgs = json("""{"path":"src/Reader.kt"}"""))))
+        clock = 45_000
+        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("Reader.kt"))
+        clock += 135_000
+        val explanation = ApiState.ActivitySummary("Reader.kt retries the request before it records the response. I’ll check how cancellation affects that path.", modelAuthored = true)
+        assertEquals(explanation, progress.forward(explanation))
+        clock += 135_000
+        assertEquals(null, progress.forward(explanation))
+    }
+
     @Test fun summaryIsImmediateThenAtFortyFiveSecondsWithoutPadding() {
         var clock = 0L
         val progress = GitHubChatProgress("status") { clock }
         val first = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
-        assertTrue(first.text.split(Regex("\\s+")).size >= 20)
         assertTrue(first.text.contains("repository status"))
+        assertTrue(first.text.contains("open pull requests") && first.text.contains("selected branch"))
         clock = 44_999
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolArgs = json("""{"path":"src/Reader.kt"}"""))))
@@ -196,7 +230,17 @@ class GitHubChatProgressTest {
         assertEquals(GitHubProgressPresentation.PreviewKind.WEB, GitHubProgressPresentation.previewKind((received.last() as ApiState.ProgressCheckpoint).text))
         advanceTimeBy(42000)
         runCurrent()
-        assertEquals(2, received.filterIsInstance<ApiState.ActivitySummary>().size)
+        assertEquals(1, received.filterIsInstance<ApiState.ActivitySummary>().size)
+        progress.observe(
+            ApiState.GatewayProgressChanged(
+                GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "read", toolArgs = json("""{"path":"src/Reader.kt"}"""))
+            )
+        )
+        advanceTimeBy(250)
+        runCurrent()
+        val summaries = received.filterIsInstance<ApiState.ActivitySummary>()
+        assertEquals(2, summaries.size)
+        assertTrue(summaries.last().text.contains("Reader.kt"))
         collection.cancel()
         val count = received.size
         advanceTimeBy(30000)

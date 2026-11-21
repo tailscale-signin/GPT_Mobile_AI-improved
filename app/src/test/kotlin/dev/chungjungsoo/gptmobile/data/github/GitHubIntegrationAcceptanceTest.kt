@@ -103,12 +103,27 @@ class GitHubIntegrationAcceptanceTest {
         )
     }
 
-    @Test fun exactFiveRequirementPromptEarnsIndependentEvidenceCredits() {
+    @Test fun fourExplicitCriteriaEarnIndependentEvidenceCredits() {
         val rows = acceptance(receipts())
-        assertEquals(5, rows.size)
+        assertEquals(4, rows.size)
         assertTrue(rows.toString(), rows.all { it["acceptance_state"] == JsonPrimitive("PASS") })
         assertTrue(rows.all { (it["evidence_receipt_ids"] as JsonArray).isNotEmpty() })
         assertEquals(JsonPrimitive("NOT_TESTED"), GitHubIntegrationAcceptance.binding(receipts().values, runtime)["device_execution"])
+    }
+
+    @Test fun classificationIsPersistedBeforeBulkReadsAndNeverBackfilled() = kotlinx.coroutines.runBlocking {
+        val saved = mutableMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", tools.map { it.name }.toSet(), load = { saved[it] }, save = { key, value -> saved[key] = value })
+        val discovery = mapOf("catalog-0" to catalog(0, tools.size))
+        val request = task.replace("- Exercise permitted", "- Classify each capability before bulk execution\n- Exercise permitted")
+        val initial = book.fixtureApprovalPreflight()
+        assertEquals(initial, book.classifyBeforeAcquisition(request, tools, receipts(), initial))
+        val plan = book.classifyBeforeAcquisition(request, tools, discovery, initial)
+        assertTrue(plan.containsKey("capability_classification"))
+        assertEquals(plan, book.fixtureApprovalPreflight())
+        val rows = GitHubIntegrationAcceptance.requirements(request, discovery, tools, runtime, plan)
+        val criterion = rows.map { it.jsonObject }.single { it.getValue("requirement").toString().contains("Classify each") }
+        assertEquals(JsonPrimitive("PASS"), criterion["acceptance_state"])
     }
 
     @Test fun graphIndexReceiptNeverSuppliesOwnedFixtureMutationEvidence() {
@@ -121,12 +136,12 @@ class GitHubIntegrationAcceptanceTest {
                 json("""{"has_more":false,"graph":{"repository":"owner/repo","branch":"main","commit_sha":"$sha"}}"""),
                 origin
             )
-            val fixture = acceptance(records)[2]
+            val fixture = acceptance(records)[1]
             assertEquals(JsonPrimitive("PASS"), fixture["acceptance_state"])
             assertFalse((fixture["evidence_receipt_ids"] as JsonArray).contains(JsonPrimitive("graph-index")))
             records.remove("creation")
             records.remove("cleanup")
-            val absent = acceptance(records)[2]
+            val absent = acceptance(records)[1]
             assertFalse(absent["acceptance_state"] == JsonPrimitive("PASS"))
             assertFalse((absent["evidence_receipt_ids"] as JsonArray).contains(JsonPrimitive("graph-index")))
         }
@@ -145,7 +160,7 @@ class GitHubIntegrationAcceptanceTest {
             )
         )
         assertTrue(GitHubSelfTestFixtures.complete(records))
-        assertEquals(JsonPrimitive("PASS"), acceptance(records)[2]["acceptance_state"])
+        assertEquals(JsonPrimitive("PASS"), acceptance(records)[1]["acceptance_state"])
         val expanded = tools.map { if (it.name == "github_commit") tool("github_commit", "branch", "delete_branch", "commit") else it }
         val publication = GitHubTestChecklist.rows(records, expanded, task).filterIsInstance<JsonObject>().single { it["id"] == JsonPrimitive("github_commit:commit") }
         assertEquals(JsonPrimitive(true), publication["waiting_for_approval"])
@@ -208,7 +223,7 @@ class GitHubIntegrationAcceptanceTest {
             val records = receipts()
             records["unverified"] = JsonObject(proposal + mapOf("remote_mutation" to JsonPrimitive(true), "execution" to counters))
             assertFalse(counters.toString(), GitHubSelfTestFixtures.complete(records))
-            assertEquals(JsonPrimitive("NOT_TESTED"), acceptance(records)[2]["acceptance_state"])
+            assertEquals(JsonPrimitive("NOT_TESTED"), acceptance(records)[1]["acceptance_state"])
         }
         val records = receipts()
         records["contradiction"] = JsonObject(proposal + mapOf("remote_mutation" to JsonPrimitive(false), "execution" to json("""{"unknown_mutations":1}""")))
@@ -218,13 +233,13 @@ class GitHubIntegrationAcceptanceTest {
     @Test fun absentBuildBindingDoesNotEraseCatalogFixtureAndSeparationCredits() {
         val records = receipts().mapValues { (_, value) -> JsonObject(value - "runtime_identity") }
         val rows = acceptance(records)
-        assertEquals(4, rows.count { it["acceptance_state"] == JsonPrimitive("PASS") })
-        assertEquals(JsonPrimitive("NOT_TESTED"), rows[3]["acceptance_state"])
+        assertEquals(3, rows.count { it["acceptance_state"] == JsonPrimitive("PASS") })
+        assertEquals(JsonPrimitive("NOT_TESTED"), rows[2]["acceptance_state"])
     }
 
     @Test fun anUnsupportedDeviceRequirementDoesNotPoisonOtherCriteria() {
         val rows = acceptance(receipts(), task + "\n- Run Android device smoke tests")
-        assertEquals(5, rows.count { it["acceptance_state"] == JsonPrimitive("PASS") })
+        assertEquals(4, rows.count { it["acceptance_state"] == JsonPrimitive("PASS") })
         assertEquals(JsonPrimitive("NOT_TESTED"), rows.last()["acceptance_state"])
         assertFalse(GitHubTestChecklist.apiComplete(task + "\n- Run Android device smoke tests", receipts(), tools))
     }
@@ -349,9 +364,9 @@ class GitHubIntegrationAcceptanceTest {
         val records = receipts()
         records["source"] = JsonObject(records.getValue("source") + ("evidence_origin" to JsonPrimitive("MOCKED")))
         val rows = acceptance(records)
-        assertEquals(JsonPrimitive("NOT_TESTED"), rows[1]["acceptance_state"])
-        assertEquals(JsonPrimitive("NOT_TESTED"), rows[3]["acceptance_state"])
-        assertEquals(JsonPrimitive("PASS"), rows[4]["acceptance_state"])
+        assertEquals(JsonPrimitive("NOT_TESTED"), rows[0]["acceptance_state"])
+        assertEquals(JsonPrimitive("NOT_TESTED"), rows[2]["acceptance_state"])
+        assertEquals(JsonPrimitive("PASS"), rows[3]["acceptance_state"])
         val classes = GitHubIntegrationAcceptance.evidenceClasses(records)
         assertEquals(JsonPrimitive(1), (classes["MOCKED"] as JsonObject)["count"])
         assertEquals(JsonPrimitive(0), (classes["CURRENT_DEVICE_EXECUTION"] as JsonObject)["count"])
@@ -360,10 +375,10 @@ class GitHubIntegrationAcceptanceTest {
     @Test fun failedLiveReadbackAndLateRepresentativeReadsDoNotAcquireCredit() {
         val records = receipts()
         records["source"] = JsonObject(records.getValue("source") + ("execution" to json("""{"live_read_status":"RESPONSE_NOT_FULLY_OBSERVED"}""")))
-        assertEquals(JsonPrimitive("NOT_TESTED"), acceptance(records)[1]["acceptance_state"])
+        assertEquals(JsonPrimitive("NOT_TESTED"), acceptance(records)[0]["acceptance_state"])
         val priorPage = receipt("page", "github_context", json("""{"action":"branches","page":2}"""), json("""{"items":[],"has_more":false}"""))
         val late = linkedMapOf("page" to priorPage).apply { putAll(receipts()) }
-        assertEquals(JsonPrimitive("NOT_TESTED"), acceptance(late)[1]["acceptance_state"])
+        assertEquals(JsonPrimitive("NOT_TESTED"), acceptance(late)[0]["acceptance_state"])
     }
 
     @Test fun stopReasonDistinguishesReservedCallsFromExhaustionAndMissingEvidence() {

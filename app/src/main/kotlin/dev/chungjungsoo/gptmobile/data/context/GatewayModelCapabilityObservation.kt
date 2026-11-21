@@ -24,11 +24,14 @@ internal enum class GatewayReasoningProbeOutcome {
     MIXED_NEGATIVE_RESULTS
 }
 
+internal val reasoningProbeNegatives = setOf("IDENTICAL_PROMPTS", "MISSING_THINK_MARKER", "PREFIX_MISMATCH", "SUFFIX_MISMATCH", "INVALID_PROMPT")
+
 /** Existing synthetic-render observations only; attempts count source HTTP starts, not transport retries. */
 internal data class GatewayReasoningProbeObservation(
     val outcome: GatewayReasoningProbeOutcome,
     val attempts: Int,
-    val observationAgeMillis: Long
+    val observationAgeMillis: Long,
+    val candidateOutcomes: Map<String, GatewayReasoningProbeOutcome> = emptyMap()
 )
 
 /** Retains a failed qualification as evidence, rather than probing forbidden administrative routes. */
@@ -135,6 +138,7 @@ internal data class GatewayModelCapabilityObservation(
         observationAgeMillis?.takeIf { it in 0..86_400_000L }?.let { put("reasoning_metadata_age_ms", it) }
         reasoningProbe?.let { probe ->
             put("reasoning_probe_outcome", probe.outcome.name)
+            probe.candidateOutcomes.forEach { (parameter, outcome) -> put("reasoning_probe_$parameter", outcome.name) }
             probe.attempts.takeIf { it in 0..4 }?.let { put("reasoning_probe_attempts", it) }
             probe.observationAgeMillis.takeIf { it in 0..86_400_000L }?.let { put("reasoning_probe_age_ms", it) }
         }
@@ -163,7 +167,17 @@ internal fun parseGatewayModelObservation(body: String, config: ProviderRequestC
         val outcome = GatewayReasoningProbeOutcome.entries.firstOrNull { it.name == text(value, "outcome") }
         val attempts = number(value, "attempts")?.takeIf { it in 0..4 }?.toInt()
         val probeAge = number(value, "observationAgeMs")?.takeIf { it in 0..86_400_000L }
-        if (outcome != null && attempts != null && probeAge != null) GatewayReasoningProbeObservation(outcome, attempts, probeAge) else null
+        val candidates = value["candidateOutcomes"] as? JsonObject
+        val outcomes = if (outcome == GatewayReasoningProbeOutcome.MIXED_NEGATIVE_RESULTS && attempts == 4 && candidates?.keys == setOf("enable_thinking", "thinking")) {
+            candidates.mapNotNull { (parameter, result) ->
+                val negative = (result as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                GatewayReasoningProbeOutcome.entries.firstOrNull { it.name == negative && it.name in reasoningProbeNegatives }
+                    ?.let { parameter to it }
+            }.toMap().takeIf { it.values.toSet().size == 2 }.orEmpty()
+        } else {
+            emptyMap()
+        }
+        if (outcome != null && attempts != null && probeAge != null) GatewayReasoningProbeObservation(outcome, attempts, probeAge, outcomes) else null
     }
     return GatewayModelCapabilityObservation(
         instanceId = text(root, "instanceId"),

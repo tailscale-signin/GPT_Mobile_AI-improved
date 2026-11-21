@@ -75,17 +75,15 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
             return buildJsonObject {
                 details.filterKeys { it in CORRELATION_KEYS || it in setOf("recovery_code", "failure_origin", "next_action", "attempt_dispatch_state") }
                     .filterValues { it is JsonPrimitive && it.content.length <= 160 }.forEach { (key, value) -> put(key, value) }
-                val original = details["original_interruption"] as? JsonObject
-                if (original != null) {
-                    put(
-                        "original_interruption",
-                        buildJsonObject {
-                            (original["code"] as? JsonPrimitive)?.takeIf { it.content.length <= 96 }?.let { put("code", it) }
-                            (original["details"] as? JsonObject)?.let { facts ->
-                                put("details", JsonObject(facts.filterKeys { it in setOf("code", "failed_stage", "http_status", "dispatched", "dispatch_state", "remote_acceptance", "retry_after_ms", "retry_at_ms", "retry_source", "consecutive_rejections", "invocation_id", "run_id") }.filterValues { it is JsonPrimitive && it.content.length <= 160 }))
-                            }
-                        }
-                    )
+                retainedInterruption(details["original_interruption"] as? JsonObject)?.let { put("original_interruption", it) }
+            }
+        }
+
+        fun retainedInterruption(original: JsonObject?): JsonObject? = original?.let {
+            buildJsonObject {
+                (original["code"] as? JsonPrimitive)?.takeIf { it.content.length <= 96 }?.let { put("code", it) }
+                (original["details"] as? JsonObject)?.let { facts ->
+                    put("details", JsonObject(facts.filterKeys { it in setOf("code", "failed_stage", "http_status", "dispatched", "dispatch_state", "remote_acceptance", "retry_after_ms", "retry_at_ms", "retry_source", "consecutive_rejections", "invocation_id", "run_id") }.filterValues { it is JsonPrimitive && it.content.length <= 160 }))
                 }
             }
         }

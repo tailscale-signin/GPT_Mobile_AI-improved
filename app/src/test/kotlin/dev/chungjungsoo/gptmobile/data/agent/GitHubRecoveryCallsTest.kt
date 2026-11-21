@@ -10,6 +10,43 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubRecoveryCallsTest {
+    @Test fun redundantLogsActionResolvesOnlyForTheExactCursorIssuedByThatLogRead() {
+        val name = "github_ci__selected"
+        val cursor = "00000000-0000-4000-8000-000000000001:47:1536"
+        val source = ProviderEvent.ToolCall(
+            "logs",
+            name,
+            buildJsonObject {
+                put("action", "logs")
+                put("job_id", 42)
+            }
+        )
+        val receipt = buildJsonObject {
+            put("saved_view_id", cursor.substringBefore(':'))
+            put("saved_view_cursor_ids", Json.parseToJsonElement("""["$cursor"]"""))
+        }
+        val result = AgentToolResult(source.callId, ToolResultContent.Text("retained"), false, executionReceipt = receipt)
+        val request = source.copy(
+            callId = "page",
+            arguments = buildJsonObject {
+                put("action", "logs")
+                put("view_cursor", cursor)
+            }
+        )
+        fun route(issuer: ProviderEvent.ToolCall, proposal: ProviderEvent.ToolCall = request) =
+            GitHubRecoveryCalls.resolve(proposal, listOf(AgentToolExchange(listOf(issuer), listOf(result))), mapOf(name to tool(name)))
+        assertEquals(buildJsonObject { put("view_cursor", cursor) }, route(source).arguments)
+        assertEquals(request, route(source.copy(name = "github_ci__other")))
+        assertEquals(request, route(source.copy(arguments = buildJsonObject { put("action", "jobs") })))
+        val altered = request.copy(
+            arguments = buildJsonObject {
+                put("action", "logs")
+                put("view_cursor", cursor + "0")
+            }
+        )
+        assertEquals(altered, route(source, altered))
+    }
+
     private fun tool(name: String) = object : AgentTool {
         override val definition = GitHubOperationTool.definition(name.substringBefore("__"), name)
         override suspend fun execute(callId: String, arguments: JsonObject) = error("Routing must not execute tools")
@@ -39,6 +76,38 @@ class GitHubRecoveryCallsTest {
         assertEquals("next", routed.callId)
         assertEquals(call, GitHubRecoveryCalls.resolve(call, emptyList(), mapOf("github_search" to tool("github_search"))))
         assertEquals(call, GitHubRecoveryCalls.resolve(call, exchanges, emptyMap()))
+    }
+
+    @Test fun savedLogsRequireAnIssuedCursorFromTheSameLogViewAndConnection() {
+        val name = "github_ci__selected"
+        val cursor = "view:47:1536"
+        val page = buildJsonObject { put("view_cursor", cursor) }
+        val request = ProviderEvent.ToolCall("next", name, JsonObject(page + ("action" to kotlinx.serialization.json.JsonPrimitive("logs")))).captureProviderInvocation()
+        val tools = mapOf(name to tool(name))
+        fun exchange(id: String, args: JsonObject, cursors: String, issuer: String = name) = AgentToolExchange(
+            listOf(ProviderEvent.ToolCall(id, issuer, args)),
+            listOf(
+                AgentToolResult(
+                    id,
+                    ToolResultContent.Text("Saved"),
+                    false,
+                    executionReceipt = Json.parseToJsonElement("""{"saved_view_id":"view","saved_view_cursor_ids":[$cursors]}""").jsonObject
+                )
+            )
+        )
+        val logs = buildJsonObject {
+            put("action", "logs")
+            put("job_id", 123)
+        }
+        val source = exchange("source", logs, "")
+        val next = exchange("page", buildJsonObject { put("view_cursor", "view:43:1536") }, "\"$cursor\"")
+        val repaired = GitHubRecoveryCalls.resolve(request, listOf(source, next), tools)
+        assertEquals(page, repaired.arguments)
+        assertEquals(request.providerInvocation(), repaired.providerInvocation())
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(source), tools))
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(next), tools))
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(exchange("source", logs, "", "github_ci__other"), next), tools))
+        assertEquals(request, GitHubRecoveryCalls.resolve(request, listOf(exchange("source", buildJsonObject { put("action", "jobs") }, ""), next), tools))
     }
 
     @Test fun exactMalformedSourceReadBecomesAnAdmittedToolProposalWithOriginalReplayIdentity() {

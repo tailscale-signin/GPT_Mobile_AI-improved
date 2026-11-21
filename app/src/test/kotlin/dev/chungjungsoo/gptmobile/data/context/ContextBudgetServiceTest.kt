@@ -1,16 +1,20 @@
 package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.EndpointLocality
 import dev.chungjungsoo.gptmobile.data.model.endpointLocality
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
+import dev.chungjungsoo.gptmobile.data.network.capacityAdmissionEvidence
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -108,6 +112,52 @@ class ContextBudgetServiceTest {
         assertEquals(4000L, blocked.promptTokens)
         assertEquals(512, blocked.planningToolResultReserveTokens)
         assertTrue(blocked.message.orEmpty().contains("No output headroom remains"))
+    }
+
+    @Test fun smallToolRoutesPageSavedEvidenceBeforeAssemblingTheCurrentTurn() {
+        val route = TokenBudgetSettings()
+        val budget = ReplayAllowance.conservativeToolPlanningBudget(route, toolEvidenceRequired = true)
+        val reader = AgentToolDefinition("read_recovery_context", "Read a saved page", buildJsonObject {})
+        val evidence = "x".repeat(7000)
+        for (reportedPrompt in listOf(3589, 3597)) {
+            val goal = "g".repeat((reportedPrompt - 2016) * 3)
+            fun turn(context: Int) = ConversationTurn(MessageV2(content = goal + evidence.take(ReplayAllowance.inlineRecoveryCharacters(context)), platformType = null), null, true)
+            val oldFailure = runCatching { ContextBudgetService.plan(listOf(turn(route.contextTokens)), "", listOf(reader), budget) }.exceptionOrNull() as RequestCapacityException
+            assertEquals(reportedPrompt.toLong(), oldFailure.promptTokens)
+            val current = turn(budget.contextTokens)
+            val plan = ContextBudgetService.plan(listOf(current), "", listOf(reader), budget)
+            assertTrue(current.userMessage.content.startsWith(goal))
+            assertEquals(listOf(current), plan.turns)
+            assertEquals(listOf(reader), plan.tools)
+            assertEquals(768, plan.outputTokens)
+            assertEquals(512 * 3, plan.toolResultBytes)
+        }
+    }
+
+    @Test fun planningRejectionBindsOnlyTheFixedInputsAndTheActualBudgetSource() {
+        val unknown = ProviderRouteCapacity.PrimaryContextDecision(Int.MAX_VALUE, null, null, null, CapacityProvenance.UNKNOWN)
+        val declared = unknown.copy(tokens = 4096, configuredTokens = 4096, provenance = CapacityProvenance.DECLARED)
+        assertEquals(CapacityProvenance.DECLARED, declared.toolPlanningProvenance(4096, 4096))
+        assertEquals(CapacityProvenance.UNKNOWN, declared.toolPlanningProvenance(2048, 2048))
+        val planned = ReplayAllowance.conservativeToolPlanningBudget(TokenBudgetSettings(), true)
+        val source = unknown.toolPlanningProvenance(Int.MAX_VALUE, planned.contextTokens)
+        assertEquals(CapacityProvenance.CONSERVATIVE_POLICY, source)
+        val system = "instruction".repeat(600)
+        val turns = listOf(
+            ConversationTurn(MessageV2(content = "private history", platformType = null), null, false),
+            ConversationTurn(MessageV2(content = "current".repeat(900), platformType = null), null, true)
+        )
+        val failure = assertThrows(RequestCapacityException::class.java) {
+            ContextBudgetService.plan(turns, system, emptyList(), planned, planningProvenance = source)
+        }
+        val fields = capacityAdmissionEvidence(failure, 1)
+        assertEquals(JsonPrimitive("CONSERVATIVE_POLICY"), fields["admission_capacity_provenance"])
+        assertEquals(JsonPrimitive(ContextBudgetService.estimate(system)), fields["admission_system_tokens"])
+        assertEquals(JsonPrimitive(ContextBudgetService.estimate(turns.last().userMessage.content) + 16), fields["admission_current_request_tokens"])
+        assertEquals(JsonPrimitive(0), fields["admission_attachment_reserve_tokens"])
+        assertNull(fields["admission_history_tokens"])
+        assertNull(fields["admission_route_context_tokens"])
+        assertFalse(fields.toString().contains("private history"))
     }
 
     @Test fun `oversize current message fails visibly rather than dropping the user request`() {

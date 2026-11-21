@@ -24,9 +24,12 @@ import dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 @Entity(tableName = "provider_waits", foreignKeys = [ForeignKey(entity = AgentRun::class, parentColumns = ["run_id"], childColumns = ["runId"], onDelete = ForeignKey.CASCADE)], indices = [Index("scope"), Index("retryAt")])
 data class ProviderWait(@PrimaryKey val runId: String, val fence: Long, val scope: String, val retryAt: Long, val checkpoint: String)
@@ -374,19 +377,17 @@ class ProviderWaitStore @Inject constructor(
     }
 
     private suspend fun blockRow(row: ProviderWait, reason: String) {
-        if (database.agentPersistenceDao().blockCurrentProviderWait(row, reason)) synchronizeRecoveryCheckpointSafely(row, reason)
+        val saved = runCatching { json.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint) }.getOrNull()
+        val refusal = ProviderRecoveryFailure(reason)
+        val failure = saved?.let { recoveryForWait(row, it, refusal) } ?: refusal
+        if (database.agentPersistenceDao().blockCurrentProviderWait(row, reason, failure.original)) synchronizeRecoveryCheckpointSafely(row, reason)
     }
 
     internal suspend fun localRecoveryFailure(request: AgentRunRequest, failure: ProviderRecoveryFailure): ProviderRecoveryFailure {
         val row = database.agentPersistenceDao().rawProviderWait(request.runId)?.takeIf { it.fence == request.assistantMessage.ownershipFence } ?: return failure
         val saved = runCatching { json.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint) }.getOrNull() ?: return failure
-        if (request.providerWaitClaimId != null && saved.resumeClaimId != request.providerWaitClaimId) return failure
-        val expected = saved.decision?.gitHubCheckpoint
-        val checkpoint = expected?.let { workspace?.protectedSynthesisCheckpoint("github-output:${it.binding}") }
-        val original = failure.original ?: checkpoint?.takeIf {
-            expected?.matches(it) == true || (it["latest_recovery_failure"] as? kotlinx.serialization.json.JsonObject)?.get("checkpoint_digest") == kotlinx.serialization.json.JsonPrimitive(expected?.digest)
-        }?.let(ProviderRecoveryFailure::interruption)
-        return ProviderRecoveryFailure(failure.code, original, ProviderRecoveryFailure.correlation(expected, saved.resumeClaimId, row.fence, row.runId))
+        if (saved.resumeClaimId != request.providerWaitClaimId) return failure
+        return recoveryForWait(row, saved, failure)
     }
 
     /** Retain the local failure before the coordinator releases its current owner. */
@@ -395,9 +396,29 @@ class ProviderWaitStore @Inject constructor(
         val row = database.agentPersistenceDao().rawProviderWait(request.runId) ?: return
         if (row.fence != request.assistantMessage.ownershipFence) return
         val saved = runCatching { json.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint) }.getOrNull() ?: return
-        if (request.providerWaitClaimId != null && saved.resumeClaimId != request.providerWaitClaimId) return
-        val failure = ProviderRecoveryFailure(requireNotNull(code), details?.get("original_interruption") as? kotlinx.serialization.json.JsonObject, ProviderRecoveryFailure.correlation(saved.decision?.gitHubCheckpoint, saved.resumeClaimId, row.fence, row.runId))
+        if (saved.resumeClaimId != request.providerWaitClaimId) return
+        val failure = recoveryForWait(row, saved, ProviderRecoveryFailure(requireNotNull(code), details?.get("original_interruption") as? JsonObject))
         if (database.agentPersistenceDao().recordCurrentProviderRecovery(row, requireNotNull(failure.event().failureDetails))) synchronizeRecoveryCheckpointSafely(row, code)
+    }
+
+    private suspend fun recoveryForWait(row: ProviderWait, saved: ProviderWaitCheckpoint, failure: ProviderRecoveryFailure): ProviderRecoveryFailure {
+        val expected = saved.decision?.gitHubCheckpoint
+        val original = failure.original ?: expected?.let { checkpoint ->
+            val digest = JsonPrimitive(checkpoint.digest)
+            val recorded = saved.recoveryFailure?.takeIf { it["checkpoint_digest"] == digest }
+            (recorded?.get("original_interruption") as? JsonObject) ?: try {
+                val source = workspace?.protectedSynthesisCheckpoint("github-output:${checkpoint.binding}")
+                source?.takeIf {
+                    checkpoint.matches(it) || (it["latest_recovery_failure"] as? JsonObject)?.get("checkpoint_digest") == digest
+                }?.let(ProviderRecoveryFailure::interruption)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // The current refusal can still be recorded if its earlier provider evidence is unreadable.
+                null
+            }
+        }
+        return ProviderRecoveryFailure(failure.code, ProviderRecoveryFailure.retainedInterruption(original), ProviderRecoveryFailure.correlation(expected, saved.resumeClaimId, row.fence, row.runId))
     }
 
     private suspend fun synchronizeRecoveryCheckpointSafely(row: ProviderWait, code: String) {

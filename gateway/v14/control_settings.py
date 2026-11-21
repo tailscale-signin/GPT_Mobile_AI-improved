@@ -1,6 +1,8 @@
 """Local-only runtime activation for settings owned by the Windows supervisor."""
 import asyncio
 import json
+import os
+from pathlib import Path
 import re
 import time
 
@@ -16,15 +18,17 @@ def blocking_jobs(runtime, engineering):
         return []
     def read(db):
         result = [row[0] for row in db.execute("SELECT job_id FROM gateway_jobs WHERE status IS NULL OR status NOT IN ('completed','failed','cancelled','canceled','interrupted') LIMIT 32")]
-        result += [row[0] for row in db.execute("SELECT id FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED') LIMIT 32")]
-        for table, column, predicate in [('code_graph_index_jobs', 'job_id', "state IN ('QUEUED','RUNNING','INTERRUPTED','PAUSED')"),
-                                         ('engineering_copilot_tasks', 'id', "state NOT IN ('COMPLETED','FAILED','CANCELLED')")]:
+        result += [row[0] for row in db.execute("SELECT id FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED','FAILED') LIMIT 32")]
+        from v14.copilot_tasks import TERMINAL
+        for table, predicate, args in [('code_graph_index_jobs', "state IN ('QUEUED','RUNNING','INTERRUPTED','PAUSED')", ()),
+                                         ('engineering_copilot_tasks', 'state NOT IN (' + ','.join('?' for _ in TERMINAL) + ')', tuple(sorted(TERMINAL)))]:
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
                 # Older journal revisions use different primary-key names. Keep
                 # the blocking count even when an identifier cannot be projected.
                 columns = {row[1] for row in db.execute('PRAGMA table_info(' + table + ')')}
+                column = 'id' if 'id' in columns else 'job_id'
                 if column in columns:
-                    result += [row[0] for row in db.execute('SELECT ' + column + ' FROM ' + table + ' WHERE ' + predicate + ' LIMIT 32')]
+                    result += [row[0] for row in db.execute('SELECT ' + column + ' FROM ' + table + ' WHERE ' + predicate + ' LIMIT 32', args)]
         return list(dict.fromkeys(result))[:64]
     return engineering.store.tx(read)
 
@@ -36,17 +40,111 @@ def probe_backend(origin, model):
         with client.get(origin.rstrip('/') + '/v1/models', timeout=(3, 1), stream=True, allow_redirects=False) as response:
             response.raise_for_status()
             body = bytearray()
-            for chunk in response.iter_content(1):
+            while chunk := response.raw.read1(8192, decode_content=True):
                 body.extend(chunk)
                 if time.monotonic() > deadline or len(body) > 1024 * 1024:
                     raise ValueError('Model inventory exceeds its supported bound')
-        rows = json.loads(body).get('data')
-        if not isinstance(rows, list) or not rows or model and not any(isinstance(x, dict) and x.get('id') == model and
-                (not isinstance(x.get('status'), dict) or x['status'].get('value') not in {'unloaded', 'loading'}) for x in rows):
+        catalog = json.loads(body)
+        rows = catalog.get('data') if isinstance(catalog, dict) else None
+        from v14.backend_observation import model_state
+        if not isinstance(rows, list) or not rows or model and not any(
+                isinstance(row, dict) and row.get('id') == model and model_state(row) not in {'UNLOADED', 'LOADING', 'SLEEPING'} for row in rows):
             raise ValueError('The selected model is not reported by this backend')
 
 
+def connected_settings_root(config):
+    directory = os.environ.get('GATEWAY_DESKTOP_ROOT')
+    if not directory or os.environ.get('GATEWAY_DESKTOP_MANAGED') != '1' or not config.control_journal:
+        return None
+    root = Path(directory).resolve()
+    return root if Path(config.control_journal).resolve() == root / 'data' / 'jobs.sqlite3' else None
+
+
+def install_connected_settings(app, root, config):
+    app.state.connected_settings = True
+    app.state.connected_settings_root = root
+    from desktop.control_store import ControlError, ControlStore, ID
+    from v14.account_connection import PREFIX
+    from v14.identity import account_authorized
+
+    def account(request):
+        principal = request.state.principal.id
+        if (any(k.startswith(('x-forwarded-', 'tailscale-', 'sec-fetch-')) or k in {'origin', 'cookie', 'forwarded', 'x-gateway-control-principal'} for k in request.headers)
+                or not (config.mode == 'loopback' and principal == 'local:single-user'
+                        or principal.startswith(PREFIX) and account_authorized(config, principal))):
+            raise ControlError('connected_account_required', 403)
+        return principal
+
+    async def dispatch(request, command=None, updates=False, connection=False):
+        try:
+            raw = await request.body()
+            if len(raw) > 32768:
+                raise ControlError('control_request_too_large', 413)
+            def handle():
+                principal = account(request)
+                store = ControlStore(root, connected_account=principal)
+                # Bind reads, writes and receipt lookups to the installation originally selected by Android.
+                if request.headers.get('x-gateway-principal-id') != principal:
+                    raise ControlError('connected_account_changed', 409)
+                with store.tx() as db:
+                    if request.headers.get('x-gateway-installation-id') != store.installation(db):
+                        raise ControlError('installation_changed', 409)
+                if connection:
+                    from desktop.workspace_actions import phone_connection_settings
+                    return phone_connection_settings(store, principal, json.loads(raw) if request.method == 'PATCH' else None)
+                if updates:
+                    from desktop.manager import ManagerRequestError, request as send
+                    body = json.loads(raw)
+                    if not isinstance(body, dict) or 'principal' in body:
+                        raise ControlError('invalid_update_request')
+                    try:
+                        send(root, 'phone-update', payload=dict(body, principal=principal))
+                    except ManagerRequestError as exc:
+                        raise ControlError(exc.code or 'update_not_accepted', exc.status or 409) from None
+                    return {'accepted': True}
+                if command is not None:
+                    if not ID.fullmatch(command):
+                        raise ControlError('invalid_settings_command')
+                    return store.receipt(principal, command)
+                if request.method == 'PATCH':
+                    return store.patch(principal, json.loads(raw))
+                result = store.snapshot(principal)
+                try:
+                    status = json.loads((root / 'status.json').read_text(encoding='utf-8'))
+                    if status.get('version'):
+                        result['updates'] = {'installed': status['version'], 'state': status.get('updateState', 'unchecked'),
+                                             'available': status.get('availableVersion')}
+                except (OSError, ValueError):
+                    pass
+                return result
+            return await asyncio.to_thread(handle)
+        except ControlError as exc:
+            return JSONResponse({'error': {'code': exc.code}}, status_code=exc.status)
+        except (ValueError, TypeError, UnicodeError):
+            return JSONResponse({'error': {'code': 'invalid_settings_command'}}, status_code=400)
+
+    async def settings(request: Request):
+        return await dispatch(request)
+
+    async def receipt(command: str, request: Request):
+        return await dispatch(request, command=command)
+
+    async def connection(request: Request):
+        return await dispatch(request, connection=True)
+
+    async def update(request: Request):
+        return await dispatch(request, updates=True)
+
+    for prefix in ('/gateway/engineering/connected', '/v1/gateway/engineering/connected'):
+        app.add_api_route(prefix + '/settings', settings, methods=['GET', 'PATCH'])
+        app.add_api_route(prefix + '/settings/connection', connection, methods=['GET', 'PATCH'])
+        app.add_api_route(prefix + '/settings/commands/{command}', receipt, methods=['GET'])
+        app.add_api_route(prefix + '/updates', update, methods=['POST'])
+
+
 def install_control_settings(app, runtime, state, engineering, config):
+    if root := connected_settings_root(config):
+        install_connected_settings(app, root, config)
     from desktop.phone_policies import runtime_active
     current = {'workers': config.max_workers, 'active_chats': config.max_active_chats,
                'backend': runtime.LLAMA_BASE.rstrip('/'), 'model': '',

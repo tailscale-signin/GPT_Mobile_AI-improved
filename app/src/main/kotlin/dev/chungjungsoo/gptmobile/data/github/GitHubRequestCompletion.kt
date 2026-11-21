@@ -64,9 +64,30 @@ internal object GitHubRequestCompletion {
         if (GitHubStatusRequest.matches(task)) {
             return GitHubStatusRequest.requirements(task)
         }
-        val requested = GitHubTaskContinuity.request(task).lineSequence().map(String::trim)
-            .filter { it.isNotBlank() && it !in setOf("Acceptance criteria:", "Request details:") && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:") }
-            .map { it.removePrefix("- ") }.toList().ifEmpty { listOf("Requested answer") }
+        val lines = GitHubTaskContinuity.request(task).lineSequence().map(String::trim).toList()
+        val header = lines.indexOfFirst { it.equals("Acceptance criteria:", ignoreCase = true) }
+        val criteria = if (header < 0 || !GitHubTestChecklist.integration(task)) {
+            emptyList()
+        } else {
+            val body = lines.drop(header + 1)
+            val detailsStart = body.indexOfFirst { it.equals("Request details:", ignoreCase = true) || it.startsWith("[github-workflow-preset:") }
+            val criteriaLines = if (detailsStart < 0) body else body.take(detailsStart)
+            val additions = if (detailsStart < 0) emptyList() else body.drop(detailsStart + 1)
+            val bullets = criteriaLines.filter { it.startsWith("- ") }
+            if (bullets.isEmpty()) {
+                emptyList()
+            } else {
+                val details = additions.filter {
+                    it.isNotBlank() && !it.equals("Request details:", ignoreCase = true) && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:")
+                }
+                (bullets + details).map { it.removePrefix("- ").trim() }.filter(String::isNotBlank).distinct()
+            }
+        }
+        val requested = criteria.ifEmpty {
+            lines
+                .filter { it.isNotBlank() && it !in setOf("Acceptance criteria:", "Request details:") && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:") }
+                .map { it.removePrefix("- ") }.toList().ifEmpty { listOf("Requested answer") }
+        }
         // Reviews have two distinct evidence obligations: findings must cite retained
         // observations, while recommendations must be explicitly marked as inference.
         return if (informational(task) && sessionReview(requestText(task)) && requested.none { it.startsWith("Evidence-backed findings", true) }) {

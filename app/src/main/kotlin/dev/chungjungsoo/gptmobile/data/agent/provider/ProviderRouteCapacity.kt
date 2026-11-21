@@ -16,7 +16,14 @@ internal object ProviderRouteCapacity {
         val verifiedRouteTokens: Int?,
         val catalogTokens: Int?,
         val provenance: CapacityProvenance
-    )
+    ) {
+        /** The unknown-route tool policy is the sole transformation between these two planning settings. */
+        fun toolPlanningProvenance(resolvedContext: Int, toolPlanningContext: Int): CapacityProvenance = when {
+            resolvedContext == Int.MAX_VALUE && toolPlanningContext in 1 until Int.MAX_VALUE -> CapacityProvenance.CONSERVATIVE_POLICY
+            tokens == toolPlanningContext && resolvedContext == tokens -> provenance
+            else -> CapacityProvenance.UNKNOWN
+        }
+    }
 
     fun key(profile: PlatformV2) = "${profile.compatibleType}|${profile.apiUrl}|${profile.model}|${profile.openRouterRouting.orEmpty()}"
     fun ceiling(profile: PlatformV2): Int? {

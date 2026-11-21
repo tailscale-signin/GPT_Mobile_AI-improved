@@ -209,6 +209,7 @@ class CopilotTasks:
                 raise CopilotTaskError('COPILOT_STORAGE_LIMIT', 'The saved Copilot task limit has been reached.', 429)
             db.execute('INSERT INTO engineering_copilot_tasks VALUES(?,?,?,?,?,?,?)',
                        (task['id'], principal, request['request_id'], digest, task['state'], now, canonical(task)))
+            db.execute("INSERT OR IGNORE INTO gateway_catalog_keys(job_kind,job_id) VALUES('copilot',?)", (task['id'],))
             return task
         saved = self.tx(insert)
         self.wake.set()

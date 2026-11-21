@@ -186,8 +186,11 @@ class ReleaseWorkflowCoverageTests(unittest.TestCase):
         publisher = workflows.push_filters(sources["Publish Signed Release"])
         release_inputs = ["app/build.gradle.kts", "release-scope.json"]
         self.assertEqual(release_inputs, publisher["paths"])
-        for changed_path in release_inputs:
-            self.assertTrue(workflows.applies(publisher, "main", [changed_path]))
+        recovery = workflows.push_filters(sources["Recover verified Android 144 and Gateway 18 publication"])
+        self.assertTrue(recovery["paths"], "The recovery publisher needs explicit main push inputs")
+        for changed_path in release_inputs + recovery["paths"]:
+            expected_publisher = publisher if changed_path in release_inputs else recovery
+            self.assertTrue(workflows.applies(expected_publisher, "main", [changed_path]))
             for name in required:
                 with self.subTest(workflow=name, changed_path=changed_path):
                     self.assertIn(name, sources)

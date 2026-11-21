@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.context
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision
 import dev.chungjungsoo.gptmobile.data.network.bindAuthority
@@ -138,6 +139,29 @@ class ConfiguredDispatchAuthorityTest {
         verifySelectionReads(settings, 1, featureReads = 0)
     }
 
+    @Test fun behaviorDefaultsAndCollectionOrderPreserveDeliveryWhileRealPolicyChangesStayBlocked() = runTest {
+        val profile = PlatformV2(id = 7, uid = "private-profile", name = "Selected", model = "private-model")
+        var features = selectionFeatures(profile.uid)
+        val settings = selectionSettings({ listOf(profile) }, { features })
+        val implicit = ConfiguredDispatchAuthority.capture(settings, profile, 7)
+        val oldRevision = researchHash(JsonObject(ConfiguredDispatchAuthority.policyFields(features, profile.uid, 7) + ("profile" to kotlinx.serialization.json.JsonNull)).toString())
+        assertTrue(ConfiguredDispatchAuthority.matchesPolicyRevision(oldRevision, features, profile.uid, 7))
+        val defaults = ProfileBehaviorSettings()
+        features = features.copy(profileBehavior = mapOf(profile.uid to defaults))
+        implicit.validate()
+        assertTrue(ConfiguredDispatchAuthority.matchesPolicyRevision(oldRevision, features, profile.uid, 7))
+        val ordered = defaults.copy(crawlerToolIds = linkedSetOf("private-b", "private-a"), toolPluginStates = linkedMapOf("private-b" to true, "private-a" to false))
+        features = features.copy(profileBehavior = mapOf(profile.uid to ordered))
+        val guard = ConfiguredDispatchAuthority.capture(settings, profile, 7)
+        val reordered = ordered.copy(crawlerToolIds = linkedSetOf("private-a", "private-b"), toolPluginStates = linkedMapOf("private-a" to false, "private-b" to true))
+        features = features.copy(profileBehavior = mapOf(profile.uid to reordered))
+        guard.validate()
+        features = features.copy(profileBehavior = mapOf(profile.uid to reordered.copy(crawlersEnabled = true)))
+        val failure = runCatching { guard.validate() }.exceptionOrNull() as DispatchPolicyChangedException
+        assertEquals(listOf("profile", "profileBehavior.crawlersEnabled"), failure.fields)
+        assertFalse(failure.message.orEmpty().contains("private"))
+    }
+
     private fun selectionFeatures(selectedUid: String) = AppFeatureSettings(
         conversationGitHub = mapOf(7 to GitHubConversationContext("connection", "owner", "repo", "main", "a".repeat(40), selectedUid))
     )
@@ -160,6 +184,20 @@ class ConfiguredDispatchAuthorityTest {
         coVerify(exactly = reads) { settings.providerPermissionRevision(any()) }
         coVerify(exactly = reads) { settings.fetchPlatformV2s() }
         coVerify(exactly = featureReads) { settings.getFeatureSettings() }
+    }
+
+    @Test fun gatewaySelectionReportsOnlyTheDirectionForTheSameProfile() {
+        fun fields(uid: String?, profile: String = "same") = kotlinx.serialization.json.buildJsonObject {
+            put("githubProfileSelection", JsonPrimitive(profile))
+            put("githubProfileOverride", JsonObject(uid?.let { mapOf("engineeringGatewayProfileUid" to JsonPrimitive(it)) }.orEmpty()))
+        }
+        val a = fields("private-a")
+        val b = fields("private-b")
+        assertEquals("SELECTED", ConfiguredDispatchAuthority.gatewaySelectionChange(fields(null), a))
+        assertEquals("CLEARED", ConfiguredDispatchAuthority.gatewaySelectionChange(a, fields(null)))
+        assertEquals("REPLACED", ConfiguredDispatchAuthority.gatewaySelectionChange(a, b))
+        assertNull(ConfiguredDispatchAuthority.gatewaySelectionChange(a, a))
+        assertNull(ConfiguredDispatchAuthority.gatewaySelectionChange(a, fields("private-b", "different")))
     }
 
     @Test fun githubPolicyDiagnosticsNameOnlyChangedKnownSubfields() {

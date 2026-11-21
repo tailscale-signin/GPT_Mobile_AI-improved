@@ -11,11 +11,8 @@ import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import com.k2fsa.sherpa.onnx.OfflineTts
-import com.k2fsa.sherpa.onnx.OfflineTtsConfig
-import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
-import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.melo.kokoro.TimedKokoro
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
@@ -235,7 +232,7 @@ internal class KokoroVoiceOutput(
 
     private data class ModelKey(val lexicon: String, val threads: Int)
     private class LexiconUnavailable : IllegalStateException()
-    private class LoadedModel(val key: ModelKey, val engine: OfflineTts, val words: Set<String>) {
+    private class LoadedModel(val key: ModelKey, val engine: TimedKokoro, val words: Set<String>) {
         val readyAt = SystemClock.elapsedRealtime()
     }
 
@@ -474,14 +471,7 @@ internal class KokoroVoiceOutput(
                     playback.diagnostics?.playbackFocus(
                         if (focusResult == null) VoiceDiagnosticTrace.Focus.ERROR else VoiceDiagnosticTrace.Focus.DENIED,
                         attempt,
-                        when (mode) {
-                            null -> null
-                            AudioManager.MODE_NORMAL -> VoiceDiagnosticTrace.PlaybackAudioMode.NORMAL
-                            AudioManager.MODE_RINGTONE -> VoiceDiagnosticTrace.PlaybackAudioMode.RINGTONE
-                            AudioManager.MODE_IN_CALL -> VoiceDiagnosticTrace.PlaybackAudioMode.IN_CALL
-                            AudioManager.MODE_IN_COMMUNICATION -> VoiceDiagnosticTrace.PlaybackAudioMode.IN_COMMUNICATION
-                            else -> VoiceDiagnosticTrace.PlaybackAudioMode.OTHER
-                        }
+                        VoiceDiagnosticTrace.PlaybackAudioMode.observed(mode)
                     )
                     val retryDelay = kokoroFocusRetryDelay(attempt, mode)
                     if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && retryDelay != null) {
@@ -532,7 +522,7 @@ internal class KokoroVoiceOutput(
             playback.diagnostics?.engineReady(wasWarm)
             playback.lastProgress = SystemClock.elapsedRealtime()
             timing("model_ready", playback, "warm=${model.readyAt <= playback.startedAt} · queueWaitMs=$queueWait")
-            val sampleRate = model.engine.sampleRate().also { check(it in 8_000..48_000) }
+            val sampleRate = TimedKokoro.SAMPLE_RATE
             val silence = playback.pause.maxQuietMs?.let { VoiceQuietLimiter(sampleRate, it) }
             output.execute { play(playback, playbackAttributes, sampleRate) }
             var segmentIndex = -1
@@ -555,8 +545,8 @@ internal class KokoroVoiceOutput(
                 playback.unknownWords += observation.unknownWords
                 playback.spelledLetters += observation.spelledLetters
                 playback.removedFormatCharacters += observation.removedFormatCharacters
-                val parts = projection.parts
-                if (parts == null) {
+                val phrases = projection.phrases
+                if (phrases == null) {
                     playback.diagnostics?.pronunciationFailure(
                         playback.unknownWords,
                         playback.initialisms,
@@ -575,49 +565,19 @@ internal class KokoroVoiceOutput(
                     return
                 }
                 segmentIndex++
-                val units = if (playback.onRange == null) {
-                    parts.map { KokoroCaptionPart(it, IntRange.EMPTY) }
-                } else {
-                    projection.captionParts
-                }
-                for ((part, range) in units) {
-                    playback.captions.beginWord()
-                    fun emit(samples: FloatArray): Boolean {
-                        val audible = silence?.filter(samples) ?: samples
-                        if (!range.isEmpty()) playback.captions.append(segmentIndex, segment, range, audible)
-                        return queuePcm(playback, audible, sampleRate, part.length)
-                    }
+                for (phrase in phrases) {
                     if (active !== playback) return
-                    var callbackFrames = 0L
-                    var invalidBatch = false
-                    fun streamSamples(samples: FloatArray): Int {
-                        callbackFrames += samples.size
-                        if (callbackFrames > sampleRate * 30L) invalidBatch = true
-                        return if (invalidBatch || active !== playback) {
-                            0
-                        } else if (samples.isEmpty() || emit(samples)) {
-                            1
-                        } else {
-                            0
-                        }
-                    }
-
-                    // sherpa-onnx JNI resolves the boxed Function1 callback signature by name.
-                    // A callable reference preserves invoke(FloatArray): Integer on every target ABI.
                     playback.diagnostics?.synthesisStarted()
-                    val generated = model.engine.generateWithCallback(
-                        part,
-                        playback.voice.speakerId,
-                        speed,
-                        callback = ::streamSamples
-                    )
+                    val generated = model.engine.generate(phrase.speech, playback.voice.speakerId, speed)
                     if (active !== playback) return
-                    check(!invalidBatch && generated.sampleRate == sampleRate)
-                    if (callbackFrames == 0L) {
-                        check(generated.samples.size in 1..sampleRate * 30)
-                        if (!emit(generated.samples)) return
+                    val boundaries = if (playback.onRange != null) {
+                        kokoroWordFrames(generated.durations, generated.wordTokens, phrase.wordRanges.size, generated.samples.size)
+                    } else {
+                        IntArray(0)
                     }
-                    if (!range.isEmpty()) playback.captions.endWord(segmentIndex, segment)
+                    val samples = silence?.filter(generated.samples, boundaries) ?: generated.samples
+                    if (playback.onRange != null) playback.captions.append(segmentIndex, segment, phrase.wordRanges, boundaries, samples.size)
+                    if (!queuePcm(playback, samples, sampleRate, phrase.speech.length)) return
                 }
             }
             playback.synthesisDone = true
@@ -636,7 +596,7 @@ internal class KokoroVoiceOutput(
         }
     }
 
-    /** Callback runs on the synthesis worker. A full queue applies backpressure off main. */
+    /** The synthesis worker owns the phrase. A full queue applies backpressure off main. */
     private fun queuePcm(playback: Playback, samples: FloatArray, sampleRate: Int, segmentChars: Int): Boolean {
         fun offer(batch: FloatArray): Boolean {
             while (active === playback) {
@@ -805,20 +765,12 @@ internal class KokoroVoiceOutput(
             val missingRequiredWords = KokoroLexicon.missingRequiredWords(words)
             AppLogRecorder.record("VoiceEngine", "kokoro_lexicon · engineId=$engineId · lexicon=${key.lexicon} · entries=${words.size} · missingRequiredWords=$missingRequiredWords · projectionVersion=2")
             if (missingRequiredWords != 0) throw LexiconUnavailable()
-            val engine = OfflineTts(
-                config = OfflineTtsConfig(
-                    model = OfflineTtsModelConfig(
-                        kokoro = OfflineTtsKokoroModelConfig(
-                            model = File(directory, KokoroModelPack.MODEL).absolutePath,
-                            voices = File(directory, KokoroModelPack.VOICES).absolutePath,
-                            tokens = File(directory, KokoroModelPack.TOKENS).absolutePath,
-                            lexicon = lexicon.absolutePath
-                        ),
-                        numThreads = key.threads,
-                        provider = "cpu"
-                    ),
-                    maxNumSentences = 1
-                )
+            val engine = TimedKokoro(
+                File(directory, KokoroModelPack.MODEL).absolutePath,
+                File(directory, KokoroModelPack.VOICES).absolutePath,
+                File(directory, KokoroModelPack.TOKENS).absolutePath,
+                lexicon.absolutePath,
+                key.threads
             )
             AppLogRecorder.record("VoiceEngine", "kokoro_ready · engineId=$engineId · threads=${key.threads} · durationMs=${SystemClock.elapsedRealtime() - started}")
             return LoadedModel(key, engine, words).also { loaded = it }
@@ -874,7 +826,7 @@ internal class KokoroVoiceOutput(
             val model = loaded ?: return@exclusive
             loaded = null
             try {
-                runCatching { model.engine.free() }.onFailure {
+                runCatching { model.engine.close() }.onFailure {
                     AppLogRecorder.record("VoiceEngine", "kokoro_release_failed · type=${it.javaClass.simpleName}", "W")
                 }
             } finally {

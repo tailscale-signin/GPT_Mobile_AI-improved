@@ -77,6 +77,30 @@ def stop_checked(root, child, phase, output):
     raise AssertionError(f'{phase}: stop verification failed (acknowledged={acknowledged}, code={exit_code}, state={status.get("state")})')
 
 
+def seed_density_receipts(root):
+    """Populate the installed temporary Gateway with completed, owner-scoped catalog receipts."""
+    import sqlite3
+    from contextlib import closing
+    from desktop.conversation_client import Client
+    from gateway_security import DeviceStore
+    client = Client(root)
+    principal = client.identity()['principal_id']
+    client.request('GET', '/gateway/job-catalog', params={'limit': 1})
+    owner = DeviceStore(root / 'data' / 'auth.sqlite3')
+    now = time.time()
+    with closing(sqlite3.connect(root / 'data' / 'jobs.sqlite3', timeout=20)) as db, db:
+        for index in range(105):
+            job = f'layout-smoke-{index:03d}'
+            stamp = now - (index + 1) * 60
+            public = dict(job_id=job, title=f'Layout qualification {index:03d}', model='offline-density-fixture',
+                          status='completed', stage='finished', created_at=stamp, finished_at=stamp+5,
+                          accepted_at=stamp, last_sequence=1, result_available=True)
+            db.execute('INSERT INTO gateway_jobs(job_id,public_json,result_json,status,created_at,updated_at,finished_at) '
+                       'VALUES(?,?,?,?,?,?,?)', (job, json.dumps(public), '{}', 'completed', stamp, stamp+5, stamp+5))
+            db.execute("INSERT INTO gateway_catalog_keys(job_kind,job_id) VALUES('generation',?)", (job,))
+            owner.claim(job, principal)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--upgrade-archive', type=Path)
@@ -86,21 +110,10 @@ def main():
     results=[]
     with tempfile.TemporaryDirectory(prefix='Gateway smoke ü ') as temp:
         root=Path(temp)/'Gateway install'
-        # Drive the four native setup pages and validate the plan, including an offline model.
-        from configparser import ConfigParser
-        plan_file = Path(temp) / 'native setup.ini'
-        subprocess.run([str(output / 'setup-ui' / 'GatewaySetup.exe'), '--smoke', str(plan_file)], check=True, timeout=45)
-        plan = ConfigParser(interpolation=None)
-        with plan_file.open(encoding='utf-16') as source:
-            plan.read_file(source)
-        settings = validate({'backend': plan['setup']['backend'], 'port': int(plan['setup']['port']),
-                             'bind_host': plan['setup']['bind']})
-        assert settings['access'] == 'loopback' and settings['backend'] == 'http://127.0.0.1:1'
-        assert plan['setup']['engineeringSetup'] == '0' and plan['setup']['advanced'] == '1'
-        assert [plan.getint('setup', key) for key in ('workers', 'chats', 'grace', 'updates')] == [7, 11, 42, 1]
-        for name in ('edition', 'connection', 'checks', 'advanced'):
-            shutil.copy2(Path(temp) / f'setup-{name}.png', output / f'setup-{name}.png')
-        results.append('native four-step setup rejects invalid ports and accepts an offline model on loopback')
+        # Drive the shipped installer itself before testing unattended install and repair.
+        from desktop.windows.setup_smoke import check_installed_launch, check_wizard
+        check_wizard(installer, root, output)
+        results.append('interactive setup opens, validates custom settings and returns to the recommended path')
         cmd=[str(installer),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=',f'/DIR={root}']
         subprocess.run(cmd,check=True,timeout=120)
         results.append('fresh per-user install with spaces and Unicode')
@@ -147,7 +160,8 @@ def main():
             for capture in root.glob('dashboard-*.png'):
                 shutil.copy2(capture, output / capture.name)
             results.append('frozen themed dashboard renders all views; observer persists metadata; UI closes without stopping gateway')
-            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=180)
+            seed_density_receipts(root)
+            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=260)
             native = json.loads((root / 'native-ui-smoke.json').read_text(encoding='utf-8'))
             assert native['runtime'] == 'WPF' and native['passed'] is True
             assert native['pages'] == list(NATIVE_VIEWS), native['pages']
@@ -157,6 +171,11 @@ def main():
             assert native['width'] >= 900 and native['height'] >= 600
             assert native['highContrastPaletteExercised'] and native['reducedMotionExercised'] and native['focusAndScrollPreserved']
             assert native['simulatedLayoutScale'] == 1.5
+            assert native['visibleCompactRows'] >= 30 and native['catalogReceipts'] >= 105
+            assert native['selectionAndPinsPreserved'] and native['simulatedScales'] == [1.0,1.25,1.5,2.0]
+            results.append(f"{native['visibleCompactRows']} fully visible compact job rows at the 1920x1080 reference size; "
+                           f"{native['catalogReceipts']} catalog receipts with selection and pins retained across pagination")
+            shutil.copy2(root / 'native-jobs-reference.png', output / 'native-jobs-reference.png')
             for capture in root.glob('native-*.png'):
                 shutil.copy2(capture, output / capture.name)
             shutil.copy2(root / 'native-ui-smoke.json', output / 'native-ui-smoke.json')
@@ -210,10 +229,18 @@ def main():
             assert pointer['version']==VERSION and pointer['failedVersion']==candidate
             results.append('candidate startup failure rolls back through stable launcher')
             stop_checked(root, child, 'post-rollback stop', output)
+            # Repair must work even when the old executable and version pointer cannot launch.
+            (root / 'current.json').write_text('{damaged pointer', encoding='utf-8')
+            exe.rename(exe.with_suffix('.missing'))
+            exe.with_suffix('.missing').unlink()
             subprocess.run(cmd,check=True,timeout=120)
+            assert exe.is_file() and json.loads((root/'current.json').read_text())['version'] == VERSION
+            assert any((root/'data'/'setup-recovery').glob('*-current.json'))
             assert json.loads((root/'settings.json').read_text(encoding='utf-8'))==cfg
             assert (root/'data'/'preserve.txt').read_text()=='user data'
             results.append('repair install retains settings and persistent data')
+            check_installed_launch(root, exe, wait_state)
+            results.append('both installed executables open one dashboard without arguments and start the repaired supervisor')
             if upgrade:
                 from unittest.mock import patch
                 from desktop import releases, windows_job

@@ -33,7 +33,10 @@ class ResearchDeliveryTest {
         val events = session.streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, writerCalls)
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("S2") })
-        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().any { it.message.startsWith("RESEARCH_PARTIAL") })
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("RESEARCH_PARTIAL", failure.errorCode)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("retrieval"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("APPLICATION"), failure.failureDetails?.get("failure_origin"))
         assertFalse(events.any { it == ProviderEvent.Completed })
     }
 

@@ -32,6 +32,11 @@ class GatewayCancellationSemanticsTest {
         assertEquals(GatewayCancellationOutcome.UNKNOWN, unresolved.outcome)
     }
 
+    @Test fun unavailableCancellationLeavesTheJobRunning() {
+        val receipt = GatewayCancelResult("job-1", false, status = "running", cancellationOutcome = "unavailable")
+        assertEquals(GatewayCancellationOutcome.UNAVAILABLE, receipt.outcome)
+    }
+
     @Test fun explicitOutcomeExtensionTakesPrecedence() {
         val result = json.decodeFromString<GatewayCancelResult>(
             """{"job_id":"job-1","canceled":false,"status":"running","cancellationRequested":true,"cancellationOutcome":"requested"}"""

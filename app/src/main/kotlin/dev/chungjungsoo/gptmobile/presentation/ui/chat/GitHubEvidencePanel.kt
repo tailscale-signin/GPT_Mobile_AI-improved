@@ -45,8 +45,11 @@ class GitHubEvidenceViewModel @Inject constructor(private val workspace: Workspa
         chatId = id
         job?.cancel()
         content.value = null
-        job = viewModelScope.launch { workspace.dao.observeGitHubEvidence(id).collectLatest { mutable.value = it } }
+        mutable.value = emptyList()
+        job = viewModelScope.launch { workspace.dao.observeGitHubEvidence(id).collectLatest { if (chatId == id) mutable.value = it } }
     }
+    internal suspend fun conversationWork(id: Int) = workspace.conversationWork(id).description()
+
     fun inspect(row: WorkspaceRecord) {
         if (row.chatId != chatId) return
         val currentChat = chatId
@@ -80,9 +83,19 @@ internal fun GitHubEvidenceButton(chatId: Int) {
     var open by remember(chatId) { mutableStateOf(false) }
     TextButton(onClick = { open = true }) { Text("Receipts") }
     if (open) {
+        var work by remember(chatId) { mutableStateOf<String?>(null) }
+        LaunchedEffect(chatId) {
+            work = try {
+                model.conversationWork(chatId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                "The saved task measurements could not be read."
+            }
+        }
         ModalBottomSheet(onDismissRequest = { open = false }) {
             LazyColumn(Modifier.fillMaxWidth().padding(16.dp)) {
-                item { Text("Verified fields are exact receipt observations. Inferred statements are interpretations. Unknown, stale and contradicted claims are not proof of completion.") }
+                work?.let { summary -> item { Text(summary) } }
                 if (rows.isEmpty()) item { Text("No saved receipts yet. Temporary chats keep evidence only for the active request.") }
                 item { Text("Latest ${rows.size} retained records. Older receipts remain saved with the conversation.") }
                 items(rows, key = { it.id }) { row ->

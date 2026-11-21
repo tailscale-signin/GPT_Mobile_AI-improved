@@ -9,6 +9,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSelfTestReadsTest {
+    @Test fun compactPullInventoryKeepsTheOpenPullAndItsObservedRevision() {
+        val head = "a".repeat(40)
+        val original = json("""{"pull_requests":[{"number":2014,"state":"closed"},{"number":1970,"state":"open","head":{"sha":"$head"}}]}""")
+        val receipt = json("""{"trusted":true,"success":true,"tool":"github_pr","arguments":{"action":"list"},"result":{"observationTruncated":true,"excerpt":{}}}""")
+        val retained = JsonObject(receipt + ("inventory_observation" to requireNotNull(GitHubInventoryObservation.capture(original))))
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_pr")
+        val next = GitHubSelfTestReads.available(listOf(tool), listOf(retained))
+        val headers = next.single { it.arguments["action"] == JsonPrimitive("headers") }
+        assertEquals(JsonPrimitive(1970), headers.arguments["pull_number"])
+        assertEquals(JsonPrimitive(head), headers.arguments["expected_head_sha"])
+    }
+
+    @Test fun releaseDetailUsesTheObservedReleaseIdEvenWhenItsTagHasNoPublishedRelease() {
+        val definition = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_release")
+        val listed = json("""{"trusted":true,"success":true,"tool":"github_release","arguments":{"action":"list"},"result":{"items":[{"id":452622158,"draft":true,"tag_name":"v1"}]}}""")
+        val tags = json("""{"trusted":true,"success":true,"tool":"github_release","arguments":{"action":"tags"},"result":{"items":[{"name":"v1"}]}}""")
+        fun detail(records: List<JsonObject>) = GitHubSelfTestReads.available(listOf(definition), records).singleOrNull { it.arguments["action"] == JsonPrimitive("detail") }
+        val args = requireNotNull(detail(listOf(listed, tags))).arguments
+        assertEquals(JsonPrimitive(452622158), args["release_id"])
+        assertTrue("tag_name" !in args)
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors("github_release", args).isEmpty())
+        val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments("github_release", args)
+        assertEquals(JsonPrimitive("get_release"), native?.get("action"))
+        assertEquals(null, detail(listOf(tags)))
+        val missedTag = json("""{"trusted":true,"success":false,"tool":"github_release","arguments":{"action":"detail","tag_name":"v1"},"error_code":"GITHUB_NOT_FOUND_OR_HIDDEN"}""")
+        assertEquals(args, detail(listOf(listed, tags, missedTag))?.arguments)
+        val missingId = JsonObject(missedTag + ("arguments" to args))
+        assertEquals(null, detail(listOf(listed, missedTag, missingId)))
+        val forbidden = JsonObject(missedTag + ("error_code" to JsonPrimitive("GITHUB_PERMISSION_DENIED")))
+        assertEquals(null, detail(listOf(listed, forbidden)))
+        val unrelated = JsonObject(missedTag + ("arguments" to json("""{"action":"detail","tag_name":"other"}""")))
+        assertEquals(null, detail(listOf(listed, unrelated)))
+        val byTag = json("""{"action":"detail","tag_name":"v1"}""")
+        assertEquals(JsonPrimitive("get_release_by_tag"), dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments("github_release", byTag)?.get("action"))
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors("github_release", JsonObject(args + byTag)).isNotEmpty())
+    }
+
     @Test fun completedRunSupportsOneBoundedInlineWatchWithoutInventingASubscriptionOrResource() {
         val sha = "a".repeat(40)
         val watch = AgentToolDefinition("github_watch_checks", "Watch", json("""{"type":"object","properties":{"run_id":{"type":"integer"},"commit_sha":{"type":"string"},"wait_timeout_seconds":{"type":"integer","minimum":1,"maximum":30}},"required":["run_id","commit_sha","wait_timeout_seconds"],"additionalProperties":false}"""))
@@ -338,6 +375,11 @@ class GitHubSelfTestReadsTest {
         val issueList = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_issue","arguments":{"action":"list","state":"all"},"result":{"issues":[{"number":1584}]}}""")
         val tags = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_release","arguments":{"action":"tags"},"result":{"items":[{"name":"v1"}]}}""")
         val releases = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_release","arguments":{"action":"list"},"result":{"items":[{"tag_name":"v1"}]}}""")
+        val unpublished = json("""{"trusted":true,"success":true,"tool":"github_release","arguments":{"action":"status"},"result":{"tag_name":"v1","published":false,"release":null}}""")
+        val drafts = json("""{"trusted":true,"success":true,"tool":"github_release","arguments":{"action":"list"},"result":{"items":[{"tag_name":"v1","draft":true}]}}""")
+        val tagOnly = actions(listOf(status, pr, issueList, tags, unpublished, drafts))
+        assertTrue(("github_release" to "tag") in tagOnly)
+        assertTrue(("github_release" to "detail") !in tagOnly)
         val unlocked = actions(listOf(status, pr, issueList, tags, releases))
         assertTrue(dependencies.all { it in unlocked })
         assertTrue(("github_issue" to "list") !in unlocked)

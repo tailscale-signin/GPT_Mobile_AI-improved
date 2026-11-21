@@ -15,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -77,7 +78,12 @@ class AgentRunnerTest {
             .run(provider, listOf(reader)).toList()
         val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().last()
         assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
-        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        val budget = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive(false), budget["dispatched"])
+        assertEquals(JsonPrimitive("COMPACTED_IDENTITIES_EXCEED_ALLOWANCE"), budget["replay_budget_state"])
+        assertEquals(JsonPrimitive(128), budget["replay_allowance"])
+        assertEquals(JsonPrimitive(1), budget["replay_exchange_count"])
+        assertTrue(budget.getValue("replay_tokens").jsonPrimitive.content.toInt() > 128)
         assertEquals(1, requests)
         assertEquals(1, executions)
         assertEquals(arguments, events.filterIsInstance<AgentRunEvent.ToolStarted>().single().call.arguments)
@@ -166,13 +172,45 @@ class AgentRunnerTest {
         assertFalse(results.last().dispatched)
     }
 
+    @Test fun failedRoundReportsOneTrackedWriteWithoutRepeatingIt() = runBlocking {
+        var executions = 0
+        var rounds = 0
+        val write = tool("record_change") { id, _ ->
+            executions++
+            AgentToolResult(id, ToolResultContent.Text("uncertain"), true, errorCode = "DISPATCH_OUTCOME_UNKNOWN")
+        }
+        val provider = session { _, _ ->
+            flow {
+                if (rounds++ == 0) {
+                    emit(toolCall("first", write.definition.name))
+                    emit(ProviderEvent.Completed)
+                } else {
+                    emit(ProviderEvent.Failed("Interrupted", errorCode = "PROVIDER_INVOCATION_FAILED"))
+                }
+            }
+        }
+        val events = AgentRunner().run(provider, listOf(write)).toList()
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals(1, executions)
+        assertEquals(2, rounds)
+        assertEquals("RECONCILIATION_REQUIRED", failure.errorCode)
+        assertEquals(JsonPrimitive("TRACKED_CALL_SIGNATURE"), failure.failureDetails?.get("reconciliation_source"))
+        assertEquals(JsonPrimitive("RECONCILIATION_REQUIRED"), failure.failureDetails?.get("recovery_observation"))
+        assertEquals(JsonPrimitive("OUTCOMES_UNRESOLVED"), failure.failureDetails?.get("pending_tool_receipt_state"))
+        assertEquals(JsonPrimitive(1), failure.failureDetails?.get("reconciliation_tracked_signature_count"))
+    }
+
     @Test fun replayAdmissionFailureRecordsPlanningWithoutProviderDispatch() = runBlocking {
         val provider = session { _, _ -> error("No request should reach the provider") }
         val events = AgentRunner(AgentRunLimits(maxReplayTokens = 0)).run(provider, listOf(tool { id, _ -> AgentToolResult(id, ToolResultContent.Text("unused"), false) })).toList()
         val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
         assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
-        assertEquals(kotlinx.serialization.json.JsonPrimitive("planning"), failure.failureDetails?.get("failed_stage"))
-        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        val budget = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("planning"), budget["failed_stage"])
+        assertEquals(JsonPrimitive(false), budget["dispatched"])
+        assertEquals(JsonPrimitive("NO_INITIAL_ALLOWANCE"), budget["replay_budget_state"])
+        assertEquals(JsonPrimitive(0), budget["replay_allowance"])
+        assertFalse("replay_tokens" in budget || "replay_exchange_count" in budget)
     }
 
     @Test fun upstreamDnsFailureKeepsItsObservedStageAndNormalizedCode() = runBlocking {
@@ -997,11 +1035,47 @@ class AgentRunnerTest {
         )
     }
 
+    @Test fun unknownToolRecoveryUsesOnlyTheCatalogFromThisRound() = runBlocking {
+        for (discover in listOf(true, false)) {
+            val offered = if (discover) ProgressiveToolCatalog.NAME else "lookup"
+            var observed = false
+            val provider = session { _, exchanges ->
+                flow {
+                    if (exchanges.isEmpty()) {
+                        emit(toolCall("unknown", "unregistered_fixture"))
+                    } else {
+                        val result = exchanges.last().results.single()
+                        assertFalse(result.dispatched)
+                        assertEquals("TOOL_NOT_AVAILABLE", result.errorCode)
+                        val text = (result.content as ToolResultContent.Text).text
+                        observed = true
+                        assertTrue(text.contains(offered))
+                        assertFalse(text.contains("filtered_fixture"))
+                        assertTrue(if (discover) text.contains("look up this capability") else text.contains("explain what is missing"))
+                        assertEquals(if (discover) JsonPrimitive(offered) else null, result.executionReceipt?.get("suggested_tool"))
+                        emit(ProviderEvent.TextDelta("done"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val calls = AtomicInteger()
+            val available = tool(offered) { _, _ ->
+                calls.incrementAndGet()
+                error("unexpected dispatch")
+            }
+            AgentRunner().run(provider, listOf(available, tool("filtered_fixture")), selectDefinitions = { definitions -> definitions.filter { it.name == offered } }).toList()
+            assertTrue(observed)
+            assertEquals(0, calls.get())
+        }
+    }
+
     @Test fun `unknown model boundary exception cannot become a tool incident or authorize replay`() = runBlocking {
         for (synchronous in listOf(true, false)) {
             val providerCalls = AtomicInteger()
             val toolExecutions = AtomicInteger()
-            val cause = IllegalStateException("private response body", IllegalArgumentException("private input"))
+            val cause = IllegalStateException("private response body", IllegalArgumentException("private input")).apply {
+                stackTrace = arrayOf(StackTraceElement("dev.chungjungsoo.gptmobile.data.agent.Adapter", "invoke", "private-file", 42))
+            }
             val provider = session { _, _ ->
                 providerCalls.incrementAndGet()
                 if (synchronous) throw cause
@@ -1023,6 +1097,11 @@ class AgentRunnerTest {
             assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
             assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
             assertFalse(failure.failureDetails.orEmpty().containsKey("dispatched"))
+            assertEquals(JsonPrimitive("AGENT_ROUND_CATCH"), failure.failureDetails?.get("incident_capture_site"))
+            assertEquals(JsonPrimitive("IllegalStateException"), failure.failureDetails?.get("exception_report_type"))
+            assertTrue(failure.failureDetails?.get("exception_application_frames").toString().contains("dev.chungjungsoo.gptmobile.data.agent.Adapter.invoke:42"))
+            val fingerprint = failure.failureDetails?.get("exception_fingerprint") as? JsonPrimitive
+            assertTrue(fingerprint?.content?.matches(Regex("[a-f0-9]{64}")) == true)
             assertFalse(failure.failureDetails.toString().contains("private"))
             val retained = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             assertEquals("PROVIDER_INVOCATION_FAILED", retained.category)

@@ -137,7 +137,7 @@ internal object GitHubExecutionLedger {
         }
         val recovery = when {
             unresolved > 0 -> "RECONCILE_REMOTE_OUTCOME"
-            deadlineReached -> "NEW_TASK_REQUIRED"
+            deadlineReached -> "AUTHORIZE_NEW_TIME_WINDOW"
             failureIsPrimary && outcome == "CONFIGURATION_INVALIDATED" -> "RESTORE_AUTHORIZED_CONFIGURATION"
             failureIsPrimary && reviewFailure -> "RESUME_VERIFICATION"
             failureIsPrimary -> "INSPECT_EXECUTION_FAILURE"

@@ -65,6 +65,12 @@ class DebugEvidenceTests(unittest.TestCase):
         self.addCleanup(client.close)
         return client
 
+    def test_legacy_conflict_reasons_retain_only_the_known_disposition(self):
+        self.assertEqual({'reasonCode': 'GATEWAY_JOB_UNAVAILABLE'}, response_summary({'detail': 'Job cannot be cancelled'}, route='job'))
+        self.assertEqual({'reasonCode': 'GATEWAY_JOB_IN_PROGRESS'}, response_summary({'error': 'work_in_progress'}, route='maintenance'))
+        self.assertEqual({'reasonCode': 'GATEWAY_NOT_READY'}, response_summary({'error': 'prepare_required'}, route='maintenance'))
+        self.assertEqual({}, response_summary({'error': 'private detail'}, route='maintenance'))
+
     def test_arrival_and_completion_reflect_actual_latency_with_unique_http_ids(self):
         client = self.client()
         responses = [client.get('/gateway/ready', headers={'X-Request-ID': 'logical-check', 'X-Gateway-Retry-Attempt': str(i)}) for i in range(2)]
@@ -215,6 +221,23 @@ class DebugEvidenceTests(unittest.TestCase):
         self.assertEqual('b7654', manifest['versions'][-1]['backendBuildVersion'])
         self.assertEqual('observed', manifest['buildIdentity']['backendBuildStatus'])
 
+    def test_conflict_export_keeps_its_serving_build_and_marks_legacy_rows_without_one(self):
+        from v14.debug_projection import response_summary
+        self.store.record('gateway_response', route='other', status=409, observation=response_summary(
+            {'status': 'waiting_for_jobs', 'effective': {'private': 'private-value'}}, route='other', status=409))
+        self.store.records.append({'event': 'gateway_response', 'route': 'other', 'status': 409, 'bootId': 'f' * 32, 'instanceId': '2' * 32})
+        with zipfile.ZipFile(io.BytesIO(self.store.export_bundle())) as archive:
+            manifest = json.loads(archive.read('manifest.json'))
+            transport = archive.read('gateway-debug.jsonl')
+        rows = [json.loads(line) for line in transport.splitlines()]
+        self.assertEqual('settings_waiting', rows[0]['observation']['conflictEnvelope'])
+        self.assertEqual('1' * 40, rows[0]['provenance']['sourceCommit'])
+        self.assertNotIn('provenance', rows[1])
+        self.assertEqual(1, manifest['buildIdentity']['errorResponsesWithRevision'])
+        self.assertEqual(1, manifest['buildIdentity']['errorResponsesWithoutRevision'])
+        self.assertNotIn(b'private-value', transport)
+        self.assertEqual({'conflictEnvelope': 'body_unavailable'}, response_summary(None, status=409))
+
     def test_expected_restriction_is_named_without_accepting_unadmitted_metadata(self):
         client = self.client(Config(mode='open_network', host='0.0.0.0'), peer='192.168.1.50')
         self.assertEqual(403, client.get('/health', headers={'X-Gateway-Client-Diagnostics': '{"schemaVersion":1,"androidSdk":36}'}).status_code)
@@ -226,11 +249,14 @@ class DebugEvidenceTests(unittest.TestCase):
 
     def test_normalized_routes_do_not_export_identifiers_or_queries(self):
         expected = {'/v1/props': 'backend_properties', '/gateway/admin/dashboard': 'management_dashboard',
-                    '/gateway/admin/maintenance': 'maintenance', '/gateway/identity': 'identity',
-                    '/gateway/job-catalog': 'job_catalog', '/gateway/conversations/private/messages': 'messages',
+                    '/gateway/admin/maintenance': 'maintenance', '/gateway/admin/settings': 'management_settings', '/gateway/identity': 'identity',
+                    '/gateway/admin/engineering-admission': 'management_admission', '/gateway/admin/desktop-search': 'management_search',
+                    '/gateway/admin/retained-work/private': 'management_retained_work', '/gateway/job-catalog': 'job_catalog', '/gateway/conversations/private/messages': 'messages',
                     '/gateway/commands/private': 'commands', '/gateway/tools': 'tools', '/gateway/session': 'session'}
         for path, kind in expected.items():
             self.assertEqual(kind, route_kind(path))
+        summary = response_summary({'status': 'waiting_for_jobs', 'blocking_jobs': ['private-key', 'private-model']}, route='management_settings')
+        self.assertEqual({'settingsDisposition': 'waiting_for_jobs', 'blockingJobCount': 2}, summary)
         self.client().get('/gateway/conversations/private/messages?token=private-token')
         self.assertNotIn('private', self.store.export())
 
@@ -240,7 +266,7 @@ class DebugEvidenceTests(unittest.TestCase):
         self.store.record_event('private-principal', 'a' * 32, int(time.time() * 1000), stage='operation_dispatch',
                                 job_id='job_' + 'b' * 32, operation_id='c' * 32, category='model',
                                 dispatch_state='not_dispatched', error_code='PRECHECK_REJECTED', severity='warning',
-                                bounded_attributes={'output_tokens': 0, 'prompt': 'private contents'})
+                                bounded_attributes={'output_tokens': 0, 'app_version_code': 141, 'prompt': 'private contents'})
         raw = self.store.export_bundle()
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             self.assertEqual({'gateway-debug.jsonl', 'diagnostic-events.jsonl', 'manifest.json'}, set(archive.namelist()))
@@ -249,6 +275,7 @@ class DebugEvidenceTests(unittest.TestCase):
             self.assertEqual(1, len(events))
             self.assertEqual('not_dispatched', events[0]['dispatch_state'])
             self.assertEqual('job_' + 'b' * 32, events[0]['job_id'])
+            self.assertIn(141, manifest['androidBuilds'])
             self.assertEqual('1' * 40, manifest['versions'][-1]['sourceCommit'])
             self.assertEqual('3' * 64, manifest['versions'][-1]['configurationFingerprint'])
             self.assertEqual('retained_evidence', manifest['journal']['availability'])

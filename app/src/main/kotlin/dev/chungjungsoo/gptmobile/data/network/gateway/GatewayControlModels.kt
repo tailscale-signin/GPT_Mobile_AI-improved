@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 import java.net.URI
 import java.net.URLDecoder
 import java.security.MessageDigest
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -23,6 +25,18 @@ internal fun gatewayControlEndpoint(raw: String): String {
     require(uri.rawPath.isNullOrEmpty() || uri.rawPath == "/")
     require(uri.port == -1 || uri.port in 1..65535)
     return raw.trimEnd('/')
+}
+
+/** Bare addresses use the installer port. Explicit HTTP(S) URLs keep their original port. */
+internal fun gatewayAddressEndpoint(input: String): URI {
+    val raw = input.trim().substringBefore('#').trimEnd('/')
+    require(raw.isNotBlank() && raw.length <= 2048 && raw.none { it.isWhitespace() || it == '\\' })
+    val explicit = "://" in raw
+    val authority = if (!explicit && !raw.startsWith("[") && raw.count { it == ':' } > 1) "[$raw]" else raw
+    val uri = URI(if (explicit) raw else "http://$authority")
+    require(uri.scheme in setOf("http", "https") && uri.host != null && uri.userInfo == null && uri.query == null)
+    require(uri.rawPath.orEmpty() in setOf("", "/v1") && (uri.port == -1 || uri.port in 1..65535) && !uri.rawAuthority.endsWith(':'))
+    return URI(uri.scheme, null, uri.host.lowercase(), if (!explicit && uri.port == -1) 8090 else uri.port, "/v1", null, null)
 }
 
 internal data class GatewayPairingLink(val endpoint: String, val installationId: String, val fingerprint: String, val code: String, val expiresAt: Long, val gatewayPort: Int? = null) {
@@ -53,6 +67,57 @@ internal data class GatewayPairingLink(val endpoint: String, val installationId:
             return GatewayPairingLink(gatewayControlEndpoint(values.getValue("endpoint")), installation, fingerprint, code, expires, gatewayPort)
         }
     }
+}
+
+/** Match a host proof locally before deriving a device-specific TLS credential. */
+internal class GatewayAddressAccountKey private constructor(private val bytes: ByteArray) : AutoCloseable {
+    private fun tag(vararg fields: String) = hmac(bytes, fields.joinToString("\n")).joinToString("") { "%02x".format(it) }
+
+    fun matches(link: GatewayPairingLink): Boolean {
+        val expected = "host_${link.expiresAt}_" + tag("server", link.installationId, link.endpoint, link.fingerprint, link.gatewayPort.toString(), link.expiresAt.toString())
+        return link.gatewayPort != null && MessageDigest.isEqual(expected.toByteArray(), link.code.toByteArray())
+    }
+
+    fun deviceProof(link: GatewayPairingLink, publicKey: String): String {
+        require(matches(link))
+        return "device_${link.expiresAt}_" + tag("device", link.installationId, link.endpoint, link.fingerprint, link.gatewayPort.toString(), link.expiresAt.toString(), publicKey)
+    }
+
+    override fun close() = bytes.fill(0)
+
+    companion object {
+        private fun hmac(key: ByteArray, message: String) = Mac.getInstance("HmacSHA256").run {
+            init(SecretKeySpec(key, "HmacSHA256"))
+            doFinal(message.toByteArray(Charsets.UTF_8))
+        }
+
+        fun from(token: ByteArray): GatewayAddressAccountKey? {
+            val prefix = when {
+                token.take(4).toByteArray().contentEquals("ghp_".toByteArray()) -> 4
+                token.take(11).toByteArray().contentEquals("github_pat_".toByteArray()) -> 11
+                else -> return null
+            }
+            if (token.size - prefix !in 30..240 ||
+                (prefix until token.size).any {
+                    val c = token[it].toInt().toChar()
+                    c !in 'A'..'Z' && c !in 'a'..'z' && c !in '0'..'9' && c != '_'
+                }
+            ) {
+                return null
+            }
+            return GatewayAddressAccountKey(hmac(token, "GPT Mobile Gateway local owner v1"))
+        }
+    }
+}
+
+/** The fragment is consumed locally. Only the inference URL belongs in profiles or history. */
+internal fun privateGatewayAddress(address: String, nowSeconds: Long): GatewayPairingLink? {
+    val uri = URI(address)
+    val fragment = uri.rawFragment ?: return null
+    val target = address.substringBefore('#').trimEnd('/')
+    val parsed = GatewayPairingLink.parse("gptmobile://gateway-control?$fragment", nowSeconds)
+    require(parsed.profileEndpoint == target && parsed.gatewayPort != null)
+    return parsed
 }
 
 internal enum class GatewayControlField(val wire: String, val label: String, val ownerOnly: Boolean = false, val minimum: Int? = null, val maximum: Int? = null, val choices: List<String> = emptyList()) {
@@ -210,7 +275,7 @@ internal fun gatewayControlRoute(config: dev.chungjungsoo.gptmobile.data.network
         "Confirm Engineering for this paired PC in Gateway settings before continuing."
     }
     require(retainedInstallation == null || retainedInstallation == exact.installationId)
-    return exact
+    return exact.takeUnless { it.connectedAccount }
 }
 
 @Serializable
@@ -230,7 +295,8 @@ internal data class GatewayControlBinding(
     val revocationPending: Boolean = false,
     val pending: GatewayControlCommand? = null,
     val snapshot: GatewayControlSnapshot? = null,
-    val lastConfirmedAtMillis: Long? = null
+    val lastConfirmedAtMillis: Long? = null,
+    val connectedAccount: Boolean = false
 )
 
 @Serializable
@@ -245,7 +311,8 @@ internal data class GatewayControlPairing(
     val keyAlias: String,
     val publicKey: String,
     val pairingId: String? = null,
-    val gatewayPort: Int? = null
+    val gatewayPort: Int? = null,
+    val privateAddress: Boolean = false
 )
 
 internal enum class GatewayControlPhase { UNPAIRED, PAIRING, LIVE, SAVING, RECONCILING, STALE, CONFLICT, REVOKED }

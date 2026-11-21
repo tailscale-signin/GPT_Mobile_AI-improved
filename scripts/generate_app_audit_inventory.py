@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSET = Path('app/src/main/assets/diagnostics/app-code-inventory.json')
 KOTLIN = Path('app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSourceInventory.kt')
 PRODUCTION_ROOTS = (
-    'app/src/main', 'local-gguf-runtime/src/main',
+    'app/src/main', 'local-gguf-runtime/src/main', 'local-kokoro-runtime/src/main',
     'core-domain/src/commonMain', 'core-domain/src/jvmMain',
     'gateway', 'authentication', 'mcp',
 )
@@ -55,7 +55,7 @@ def source_area(path):
     """Association is a coverage inventory, not evidence a file was exercised."""
     value = str(path)
     for prefix, area in (
-        ('local-gguf-runtime/', 'native_bridge'), ('core-domain/', 'portable_domain'),
+        ('local-kokoro-runtime/', 'voice_and_media'), ('local-gguf-runtime/', 'native_bridge'), ('core-domain/', 'portable_domain'),
         ('gateway/', 'gateway_software'), ('authentication/', 'authentication_service'),
         ('mcp/', 'external_integrations'), ('app/src/main/res/', 'accessibility_and_localization'),
         ('app/src/main/assets/', 'chat_ui'), ('app/src/main/java/', 'native_bridge'),
@@ -134,7 +134,7 @@ def production_paths(root):
     if settings.exists():
         modules = {name for group in re.findall(r'\binclude\s*\(([^)]*)\)', settings.read_text())
                    for name in re.findall(r'"(:[A-Za-z0-9_:-]+)"', group)}
-        if modules - {':app', ':local-gguf-runtime', ':core-domain', ':macrobenchmark'}:
+        if modules - {':app', ':local-kokoro-runtime', ':local-gguf-runtime', ':core-domain', ':macrobenchmark'}:
             raise ValueError('A new Gradle module requires explicit production inventory roots')
     paths = set()
     for folder in PRODUCTION_ROOTS:
@@ -202,7 +202,10 @@ def kotlin_document(data):
              '    val assetPath: String = "diagnostics/app-code-inventory.json"',
              f'    val sourceDigest: String = "{data["source_digest"]}"',
              f'    val fileCount: Int = {data["file_count"]}', f'    val lineCount: Int = {data["indexed_line_count"]}',
-             '    val lineCoverageAvailable: Boolean = false', '    val areas: List<AppAuditSourceArea> = listOf(']
+             '    val lineCoverageAvailable: Boolean = false',
+             '    internal val sourceRootPrefixes: List<String> = listOf(',
+             ',\n'.join(f'        "{root}/"' for root in PRODUCTION_ROOTS),
+             '    )', '    val areas: List<AppAuditSourceArea> = listOf(']
     for index, area in enumerate(data['areas']):
         suffix = ',' if index < len(data['areas']) - 1 else ''
         lines.append(f'        AppAuditSourceArea("{area["id"]}", "{area["label"]}", {area["file_count"]}, {area["indexed_line_count"]}){suffix}')

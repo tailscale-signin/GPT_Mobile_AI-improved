@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Intent
 import androidx.benchmark.macro.BaselineProfileMode
 import androidx.benchmark.macro.CompilationMode
+import androidx.benchmark.macro.ExperimentalMetricApi
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
@@ -25,6 +26,23 @@ class AppPerformanceBenchmark {
     @get:Rule val benchmark = MacrobenchmarkRule()
 
     @Test fun coldStart() = benchmark.measureRepeated(PACKAGE, listOf(StartupTimingMetric()), CompilationMode.None(), startupMode = StartupMode.COLD, iterations = 10, setupBlock = { pressHome() }) { startActivityAndWait() }
+
+    @OptIn(ExperimentalMetricApi::class)
+    @Test
+    fun exportWorkspaceAndJournal() = benchmark.measureRepeated(
+        PACKAGE,
+        listOf(FrameTimingMetric(), androidx.benchmark.macro.TraceSectionMetric("conversation.export")),
+        CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 2),
+        iterations = 5,
+        setupBlock = {
+            pressHome()
+            startActivityAndWait(fixture().addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK).putExtra("screen", "diagnostic-export"))
+            check(device.wait(Until.hasObject(By.res("export_ready")), 30_000))
+        }
+    ) {
+        device.findObject(By.res("export_ready")).click()
+        check(device.wait(Until.hasObject(By.res("export_complete")), 60_000))
+    }
 
     @Test fun longChatScroll() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3), iterations = 8, setupBlock = { startActivityAndWait(fixture()) }) {
         check(device.wait(Until.hasObject(By.res("benchmark_chat")), 10000))

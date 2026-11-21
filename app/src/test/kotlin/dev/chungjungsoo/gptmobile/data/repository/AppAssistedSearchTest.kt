@@ -1,9 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -61,7 +66,9 @@ class AppAssistedSearchTest {
 
     @Test fun unavailableSearchDoesNotEmitSuccessfulCompletion() = runBlocking {
         val events = mutableListOf<ApiState>()
-        val result = AppAssistedSearch.prepare(listOf(MessageV2(content = "Search online for launch news", platformType = null)), emptyList(), mockk(), "test", 2200, events::add)
+        val result = AppAssistedSearch.prepare(listOf(MessageV2(content = "Search online for launch news", platformType = null)), emptyList(), mockk(), "test", 2200, events::add) {
+            AppAssistedSearch.readiness(false, false, false, emptyList(), emptyList(), emptyList())
+        }
         assertEquals(null, result)
         val error = events.single() as ApiState.Error
         assertEquals("TOOL_UNAVAILABLE", error.errorCode)
@@ -69,7 +76,27 @@ class AppAssistedSearchTest {
         assertEquals("tool_readiness", error.failureDetails?.get("failed_stage")?.let { (it as kotlinx.serialization.json.JsonPrimitive).content })
         assertEquals(kotlinx.serialization.json.JsonPrimitive(false), error.failureDetails?.get("dispatched"))
         assertEquals(kotlinx.serialization.json.JsonPrimitive("web_search"), error.failureDetails?.get("operation"))
+        fun report(fields: Map<String, Any?>) = IssueReportContext.fromFields("CHAT_FAILURE", IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "TOOL_UNAVAILABLE", fields), 1000)
+        val details = requireNotNull(error.failureDetails)
+        val diagnostics = requireNotNull(report(details).diagnostics)
+        assertEquals(JsonPrimitive("NO_ENGINE_RESOLVED"), diagnostics.values["app_search_readiness"])
+        assertTrue(IssueReportDiagnostics.SEARCH_READINESS_FEATURE in diagnostics.requiredServiceFeatures())
+        assertFalse("app_search_readiness" in requireNotNull(report(details + ("dispatched" to true)).diagnostics).values)
+        assertFalse("app_search_readiness" in requireNotNull(report(details + ("search_readiness_observation" to "private text")).diagnostics).values)
         assertFalse(events.any { it is ApiState.Done })
+    }
+
+    @Test fun searchReadinessIdentifiesTheFirstInventoryThatLostAnEngine() {
+        val engine = mockk<dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool>()
+        io.mockk.every { engine.modelToolName } returns "web_search"
+        val one = listOf(engine)
+        val none = emptyList<dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool>()
+        assertEquals(AppAssistedSearch.Readiness.CHAT_TOOLS_DISABLED, AppAssistedSearch.readiness(true, false, false, none, none, none))
+        assertEquals(AppAssistedSearch.Readiness.PROFILE_TOOLS_DISABLED, AppAssistedSearch.readiness(false, true, false, none, none, none))
+        assertEquals(AppAssistedSearch.Readiness.PROFILE_REMOTE_DISABLED, AppAssistedSearch.readiness(false, false, true, none, none, none))
+        assertEquals(AppAssistedSearch.Readiness.ROUTED_ENGINE_MISSING, AppAssistedSearch.readiness(false, false, false, one, none, none))
+        assertEquals(AppAssistedSearch.Readiness.BOUND_ENGINE_MISSING, AppAssistedSearch.readiness(false, false, false, one, one, none))
+        assertEquals(AppAssistedSearch.Readiness.AGGREGATE_NOT_CREATED, AppAssistedSearch.readiness(false, false, false, one, one, one))
     }
 
     @Test fun textOnlyProfileRetrievesAuthorizedEvidenceBeforeAnswering() = runBlocking {

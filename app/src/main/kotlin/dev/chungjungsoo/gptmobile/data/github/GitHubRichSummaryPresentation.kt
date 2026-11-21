@@ -19,9 +19,8 @@ internal object GitHubRichSummaryPresentation {
     private val chartRow = Regex("""^\| (Successful|Skipped|In progress|Failed|Other completed) \| (\d{1,9}) \|$""")
     private val failure = Regex("""(?i)\b(?:failed|failure|blocked|needs attention)\b|policy.*unavailable""")
     private val checkWords = Regex("""(?i)\b(?:check|workflow|test|CI|build)\b""")
-    private val changeWords = Regex("""(?i)\b(?:patch|commit|write|change request|branch|pull request|PR #)\b""")
-    private val sourceWords = Regex("""(?i)\b(?:file|source|read|repository search)\b""")
     private val zeroFailure = Regex("""(?i)\b0\s+(?:failed|blocked)\b""")
+    private val sourceRead = Regex("""(?i)^The source read for (.+?) returned a result(?: for inspection)?$""")
 
     fun isRich(text: String): Boolean = text.startsWith("### ") && text.contains("\n- ")
 
@@ -68,6 +67,21 @@ internal object GitHubRichSummaryPresentation {
         val counts = seen.asReversed().firstNotNullOfOrNull(::parseChecks)
         val specific = seen.filterNot { counts != null && parseChecks(it) != null }
         val problem = specific.lastOrNull { failure.containsMatchIn(it.replace(zeroFailure, "")) }
+        if (problem == null && counts == null) {
+            val latest = specific.takeLast(2)
+            val files = latest.mapNotNull { sourceRead.matchEntire(it)?.groupValues?.get(1) }
+            if (files.isNotEmpty() && files.size == latest.size) {
+                return if (files.size == 1) {
+                    "The source read for ${files.single()} is ready to inspect."
+                } else {
+                    "The source reads for ${files.joinToString(" and ")} are ready to inspect."
+                }
+            }
+            return latest.joinToString(" ") { step ->
+                sourceRead.matchEntire(step)?.let { "I have a source result for ${it.groupValues[1]}." }
+                    ?: (step.trimEnd('.') + ".")
+            }
+        }
         val latest = specific.lastOrNull()
         val focus = (problem ?: latest)?.let(::observationFocus)
         // Check-table titles remain stable because chart and export parsers verify provenance.
@@ -75,10 +89,7 @@ internal object GitHubRichSummaryPresentation {
             counts != null -> if (counts.complete) "Recorded check results" else "Partial recorded check results"
             problem != null && focus != null -> "$focus needs attention"
             problem != null && checkWords.containsMatchIn(problem) -> "Investigating a check failure"
-            problem != null -> "Trouble with ${GitHubProgressPresentation.taskFocus(snapshot.task)}"
-            latest != null && focus != null && changeWords.containsMatchIn(latest) -> "Changes involving $focus"
-            latest != null && focus != null -> "Reviewing $focus"
-            else -> "Investigating ${GitHubProgressPresentation.taskFocus(snapshot.task)}"
+            else -> "Trouble with ${GitHubProgressPresentation.taskFocus(snapshot.task)}"
         }
         val facts = buildList {
             if (problem != null) add(if (counts == null) describe(problem, focus) else "**Attention:** ${escape(problem)}")
@@ -112,7 +123,7 @@ internal object GitHubRichSummaryPresentation {
 
     /** Shorten receipt boilerplate without upgrading a source read to a verified repair. */
     private fun describe(step: String, currentHeadlineFocus: String? = null): String {
-        val read = Regex("""(?i)^The source read for (.+?) returned a result(?: for inspection)?$""").matchEntire(step)
+        val read = sourceRead.matchEntire(step)
         if (read != null) {
             return if (observationFocus(step) == currentHeadlineFocus) {
                 "The source read is available for inspection; no repair has been verified."

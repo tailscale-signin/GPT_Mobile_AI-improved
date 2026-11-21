@@ -81,6 +81,41 @@ internal fun planIntelligentBatch(calls: List<ProviderEvent.ToolCall>, tools: Ma
     return nodes
 }
 
+/** Revalidate a previously successful selection when a new read actually depends on it. */
+internal fun contextRefreshPrerequisite(
+    nodes: List<ToolBatchNode>,
+    admission: ToolBatchPlan,
+    used: Map<String, Int>,
+    exchanges: List<AgentToolExchange>,
+    remaining: Int
+): String? {
+    val first = nodes.firstOrNull()?.call ?: return null
+    if (remaining < 2 ||
+        first.callId !in admission.perToolSuppressedIds ||
+        GitHubOperationTool.operationName(first.name) != "github_context" ||
+        (first.arguments["action"] ?: JsonPrimitive("resolve")) != JsonPrimitive("resolve") ||
+        nodes.drop(1).any { !it.parallelRead }
+    ) {
+        return null
+    }
+    val admitted = admission.executable.mapTo(hashSetOf()) { it.callId }
+    if (nodes.none { node ->
+            first.callId in node.failureDependencies &&
+                node.call.callId in admitted &&
+                toolRepeatKey(node.call) !in used &&
+                GitHubOperationTool.operationName(node.call.name) != null
+        }
+    ) {
+        return null
+    }
+    for (exchange in exchanges.asReversed()) {
+        val ids = exchange.calls.filter { it.name == first.name && it.arguments == first.arguments }.mapTo(hashSetOf()) { it.callId }
+        val last = exchange.results.lastOrNull { it.callId in ids && !it.sharedResult } ?: continue
+        return first.callId.takeIf { last.dispatched && !last.isError }
+    }
+    return null
+}
+
 /** Bounded AIMD window. It never exceeds the profile's existing tool budget. */
 internal class AdaptiveBatchWindow(maximum: Int) {
     val maximum = maximum.coerceIn(1, 20)

@@ -271,6 +271,40 @@ class GitHubPaginationBoundaryTest {
         assertEquals("GITHUB_PAGINATION_INCOMPLETE", missing.errorCode)
     }
 
+    @Test fun overlappingWorkflowRunPagesCanRefreshOnceWithTheSameFilters() = runBlocking {
+        val seen = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                seen += arguments
+                val ids = when (callId) {
+                    "first" -> 1..30
+                    "last" -> 30..32
+                    else -> 1..33
+                }
+                val data = buildJsonObject {
+                    put("workflow_runs", JsonArray(ids.map { id -> buildJsonObject { put("id", id) } }))
+                    put("has_more", callId == "first")
+                    put("total_count", 33)
+                }
+                return AgentToolResult(callId, ToolResultContent.Json(data), false)
+            }
+        }
+        val tool = GitHubOperationTool("github_ci", backend, "overlap-test", "github_ci__selected")
+        val first = json("""{"action":"runs","owner":"o","repo":"r","ref":"main","workflow_id":42,"per_page":30,"page":1}""")
+        tool.execute("first", first)
+        val last = JsonObject(first + ("page" to JsonPrimitive(2)))
+        val failed = tool.execute("last", last)
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", failed.errorCode)
+        val correction = (failed.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive("github_ci__selected"), correction["tool"])
+        val fresh = correction.getValue("arguments").jsonObject
+        assertEquals(JsonObject(first + mapOf("per_page" to JsonPrimitive(100), "verify_live" to JsonPrimitive(true))), fresh)
+        assertEquals(2, seen.size)
+        assertFalse(tool.execute("refresh", fresh).isError)
+        assertEquals(3, seen.size)
+    }
+
     @Test fun repositoryRecoveryUsesTheSameAuthorizedConnectionAlias() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))

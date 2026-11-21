@@ -160,7 +160,9 @@ def install_engineering_routes(app, service):
             else:
                 value = await asyncio.to_thread(service.store.tx, lambda db: service.store.admission_settings(db, owner))
             gateway_id = await asyncio.to_thread(service.store.conversations.gateway_id)
-            return JSONResponse(dict(value, gateway_id=gateway_id, principal_id=owner), headers={'Cache-Control': 'no-store'})
+            from v14.account_connection import PREFIX
+            managed = getattr(app.state, 'connected_settings', False) and (owner == 'local:single-user' or owner.startswith(PREFIX))
+            return JSONResponse(dict(value, gateway_id=gateway_id, principal_id=owner, connected_settings=managed), headers={'Cache-Control': 'no-store'})
         return await execute(run)
 
     @app.api_route('/gateway/admin/engineering-admission', methods=['GET', 'POST'])

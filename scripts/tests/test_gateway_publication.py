@@ -18,11 +18,27 @@ from pathlib import Path
 root = Path(os.environ["FIXTURE"])
 version = "17.0.2" if Path.cwd().name == "v17-transition" else "18.0.0"
 state = root / ("remote-" + version + ".json")
+listing_delay = root / ("listing-delay-" + version)
 uploads = root / "uploads" / version
 uploads.mkdir(exist_ok=True)
 r = json.loads(state.read_text()) if state.exists() else None
 args = sys.argv[1:]
-if args[:3] == ["api", "--paginate", "--slurp"]:
+if args[:2] == ["attestation", "verify"]:
+    assert Path(args[2]).is_file() and Path(args[2]).suffix in (".zip", ".exe")
+    assert args[args.index("--repo")+1] == "owner/repo"
+    assert args[args.index("--signer-workflow")+1] == "owner/repo/.github/workflows/gateway-windows-installer.yml"
+    assert args[args.index("--source-digest")+1] == args[args.index("--signer-digest")+1] == os.environ["GITHUB_SHA"]
+    assert "--deny-self-hosted-runners" in args
+    public_file = Path(args[2]).is_absolute()
+    if public_file and os.environ.get("FIXTURE_REJECT_PUBLIC_PROVENANCE"):
+        sys.exit(1)
+    if Path(args[2]).suffix == ".exe" and os.environ.get("FIXTURE_UNSIGNED_INSTALLER"):
+        sys.exit(1)
+elif args[:3] == ["api", "--paginate", "--slurp"]:
+    remaining = int(listing_delay.read_text()) if listing_delay.exists() else 0
+    if remaining:
+        listing_delay.write_text(str(remaining - 1))
+        r = None
     print(json.dumps([[r] if r else []]))
 elif args[:3] == ["api", "--method", "POST"]:
     assert r is None
@@ -30,7 +46,8 @@ elif args[:3] == ["api", "--method", "POST"]:
     r = dict(id=7, tag_name="gateway-v" + version, target_commitish=os.environ["GITHUB_SHA"],
              draft=True, prerelease=False, assets=[], html_url="fixture")
     state.write_text(json.dumps(r))
-    sys.exit(1)  # GitHub stored it but the acknowledgment was lost.
+    listing_delay.write_text(os.environ.get("FIXTURE_LIST_DELAY", "1"))
+    sys.exit(1 if version == "17.0.2" else 0)  # The bridge create reply was lost.
 elif args == ["api", "repos/owner/repo/releases/7"]:
     print(json.dumps(r))
 elif args[:2] == ["release", "upload"]:
@@ -96,15 +113,34 @@ class WindowsPublicationTest(unittest.TestCase):
             gh = root / "gh"
             gh.write_text(GH)
             gh.chmod(0o700)
+            sleep = root / "sleep"
+            sleep.write_text("#!/bin/sh\nexit 0\n")
+            sleep.chmod(0o700)
             env = dict(os.environ, FIXTURE=str(root), GITHUB_SHA=sha, GITHUB_REF="refs/heads/main",
                        GITHUB_REPOSITORY="owner/repo", PATH=str(root)+os.pathsep+os.environ["PATH"])
             def publish():
                 return subprocess.run(["bash", str(ROOT / "scripts/publish_gateway_windows.sh")],
                                       cwd=root, env=env, text=True, capture_output=True)
+            env["FIXTURE_UNSIGNED_INSTALLER"] = "1"
+            self.assertNotEqual(0, publish().returncode)
+            self.assertFalse((root / "remote-18.0.0.json").exists())
+            del env["FIXTURE_UNSIGNED_INSTALLER"]
+            env["FIXTURE_LIST_DELAY"] = "100"
+            delayed = publish()
+            self.assertNotEqual(0, delayed.returncode)
+            self.assertIn("gateway-v18.0.0", delayed.stderr)
+            pending = json.loads((root / "remote-18.0.0.json").read_text())
+            self.assertTrue(pending["draft"])
+            self.assertEqual([], pending["assets"])
+            (root / "listing-delay-18.0.0").unlink()
+            del env["FIXTURE_LIST_DELAY"]
             for attempt in range(2):
                 result = publish()
                 self.assertEqual(0, result.returncode, (attempt, result.stderr))
             for version in ("18.0.0", "17.0.2"):
                 self.assertFalse(json.loads((root / f"remote-{version}.json").read_text())["draft"])
+            env["FIXTURE_REJECT_PUBLIC_PROVENANCE"] = "1"
+            self.assertNotEqual(0, publish().returncode)
+            del env["FIXTURE_REJECT_PUBLIC_PROVENANCE"]
             (root / "uploads/17.0.2" / installer.name).write_bytes(b"changed remote bytes")
             self.assertNotEqual(0, publish().returncode)

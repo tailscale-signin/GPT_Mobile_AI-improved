@@ -312,7 +312,7 @@ class GitHubProviderJournalRecoveryTest {
     }
 
     @Test fun protectedJournalBoundaryRejectsChangedIdentitiesAndUnsettledOperationsBeforeDispatch() = runBlocking {
-        for (change in listOf("missing", "extra", "renamed", "source", "dispatched", "error", "unknown", "pending")) {
+        for (change in listOf("missing", "extra", "renamed", "source", "dispatched", "error", "unknown", "pending", "started")) {
             val directory = Files.createTempDirectory("github-changed-journal-boundary").toFile()
             try {
                 val later = call.copy(callId = "later-read", name = "github_read")
@@ -339,10 +339,14 @@ class GitHubProviderJournalRecoveryTest {
                             )
                         }
                     }
-                    if (changed && change in setOf("extra", "pending")) {
+                    if (changed && change in setOf("extra", "pending", "started")) {
                         val extra = call.copy(callId = "unexpected-write")
                         journal.enqueue(listOf(extra))
                         if (change == "extra") journal.execute(extra) { AgentToolResult(extra.callId, ToolResultContent.Text("Unexpected receipt"), false) }
+                        if (change == "started") {
+                            val stopped = runCatching { journal.execute(extra) { throw java.io.IOException("No acknowledgement") } }.exceptionOrNull()
+                            assertTrue(stopped is java.io.IOException)
+                        }
                     }
                     return journal
                 }
@@ -360,8 +364,12 @@ class GitHubProviderJournalRecoveryTest {
                 val fileName = File(directory, "tool-batches/2").listFiles()!!.single { it.extension == "json" }.name
                 File(replacement, "tool-batches/2/$fileName").copyTo(File(directory, "tool-batches/2/$fileName"), overwrite = true)
                 val guarded = ToolBatchCheckpoint.forTurn(directory, 2, resolved.binding, persistent = true, expectedProviderEvidenceDigest = resolved.evidenceDigest, expectedProviderJournalDigest = resolved.journalDigest)
-                assertEquals(change, "PROVIDER_WAIT_CHECKPOINT_CHANGED", runCatching { guarded.recoverySnapshot() }.exceptionOrNull()?.message)
-                assertEquals(change, "PROVIDER_WAIT_CHECKPOINT_CHANGED", runCatching { guarded.execute(call) { error("Changed journal must never dispatch") } }.exceptionOrNull()?.message)
+                val unknownOutcome = change in setOf("unknown", "started")
+                val reason = if (unknownOutcome) "PROVIDER_WAIT_OUTCOME_UNKNOWN" else "PROVIDER_WAIT_CHECKPOINT_CHANGED"
+                val failure = runCatching { guarded.recoverySnapshot() }.exceptionOrNull() as ProviderRecoveryFailure
+                assertEquals(change, reason, failure.code)
+                assertEquals(JsonPrimitive(unknownOutcome), failure.event().failureDetails?.get("requires_reconciliation"))
+                assertEquals(change, reason, runCatching { guarded.execute(call) { error("Changed journal must never dispatch") } }.exceptionOrNull()?.message)
             } finally {
                 directory.deleteRecursively()
             }

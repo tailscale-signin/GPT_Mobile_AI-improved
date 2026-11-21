@@ -400,7 +400,7 @@ class IssueReportIncidentCapsuleTest {
     }
 
     @Test fun everyKnownPolicyNameSurvivesWithoutChangingAuthorityOrUnknownOutcomeEvidence() {
-        assertEquals(67, IssueReportIncidentCapsule.policyFieldNames.size)
+        assertEquals(76, IssueReportIncidentCapsule.policyFieldNames.size)
         for (field in IssueReportIncidentCapsule.policyFieldNames) {
             val context = capture(
                 ReportFeature.CHAT,
@@ -408,7 +408,9 @@ class IssueReportIncidentCapsuleTest {
                 "RECONCILIATION_REQUIRED",
                 mapOf("changed_policy_fields" to listOf(field), "requires_reconciliation" to true, "failed_stage" to "tool_dispatch")
             )
-            val values = requireNotNull(context.diagnostics).values
+            val diagnostic = requireNotNull(context.diagnostics)
+            val values = diagnostic.values
+            assertEquals(field.startsWith("profileBehavior."), IssueReportDiagnostics.PROFILE_BEHAVIOR_FEATURE in diagnostic.requiredServiceFeatures())
             assertEquals(JsonArray(listOf(JsonPrimitive(field))), values["changed_policy_fields"])
             assertEquals(JsonPrimitive("OBSERVED"), values["changed_policy_observation"])
             assertEquals(true, context.requiresReconciliation)
@@ -593,9 +595,11 @@ class IssueReportIncidentCapsuleTest {
         assertTrue(retained in 1..7)
         assertEquals(retained, (snapshot.values.getValue("unmet_criterion_states") as JsonArray).size)
         assertEquals(JsonPrimitive(11 - retained), snapshot.values["unmet_criterion_omitted_count"])
-        assertEquals(8, (snapshot.values["changed_policy_fields"] as JsonArray).size)
-        assertEquals(JsonPrimitive(67), snapshot.values["changed_policy_field_count"])
-        assertEquals(JsonPrimitive(59), snapshot.values["changed_policy_omitted_count"])
+        val policyCount = IssueReportIncidentCapsule.policyFieldNames.size
+        val retainedPolicyCount = (snapshot.values["changed_policy_fields"] as JsonArray).size
+        assertEquals(8, retainedPolicyCount)
+        assertEquals(JsonPrimitive(policyCount), snapshot.values["changed_policy_field_count"])
+        assertEquals(JsonPrimitive(policyCount - retainedPolicyCount), snapshot.values["changed_policy_omitted_count"])
         assertEquals(JsonPrimitive("FULL_CATALOG"), snapshot.values["acceptance_capability_scope"])
         assertEquals(JsonPrimitive("COMPLETE_INVENTORY_REQUESTED"), snapshot.values["acceptance_pagination_mode"])
         assertTrue("ACCEPTANCE_SCOPE_EVIDENCE_V1" in snapshot.requiredServiceFeatures())

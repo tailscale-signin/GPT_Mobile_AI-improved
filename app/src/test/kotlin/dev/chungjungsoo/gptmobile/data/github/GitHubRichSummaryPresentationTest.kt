@@ -23,25 +23,25 @@ class GitHubRichSummaryPresentationTest {
         next = "Inspect the failed step"
     )
 
-    @Test fun sourceObservationProducesHeadingAndShortBulletsWithoutAnInventedFix() {
+    @Test fun aSingleSourceObservationFitsInOnePlainSentence() {
         val output = GitHubRichSummaryPresentation.render(sample("The source read for Reader.kt returned a result for inspection."))
-        assertTrue(output.startsWith("### Reviewing Reader.kt"))
+        assertFalse(output.startsWith("#"))
         assertFalse(output.contains("**Observed:**"))
         assertTrue(output.contains("Reader.kt"))
         assertFalse(output.contains("**Next:**") || output.contains("- I’ll "))
-        assertTrue(output.contains("no repair has been verified"))
+        assertFalse(output.contains("fixed", ignoreCase = true))
         assertFalse(output.contains("All tests passed"))
         assertFalse(output.contains("| Check state |"))
-        assertTrue(GitHubRichSummaryPresentation.isRich(output))
+        assertFalse(GitHubRichSummaryPresentation.isRich(output))
     }
 
     @Test fun twoSourceReadsDescribeDifferentFilesInsteadOfRecyclingAHeading() {
         val first = GitHubRichSummaryPresentation.render(sample("The source read for Renderer.kt returned a result for inspection."))
         val second = GitHubRichSummaryPresentation.render(sample("The source read for Audio.kt returned a result for inspection."))
-        assertTrue(first.startsWith("### Reviewing Renderer.kt"))
-        assertTrue(second.startsWith("### Reviewing Audio.kt"))
+        assertTrue(first.contains("Renderer.kt"))
+        assertTrue(second.contains("Audio.kt"))
         listOf(first, second).forEach { text ->
-            assertTrue(text.contains("no repair has been verified"))
+            assertFalse(text.contains("fixed", ignoreCase = true))
             assertFalse(text.contains("Repository findings") || text.contains("**Next:**") || text.contains("**Observed:**"))
         }
     }
@@ -327,7 +327,7 @@ class GitHubRichSummaryPresentationTest {
         now = 180_000L
         val fallback = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertFalse(fallback.modelAuthored)
-        assertTrue(fallback.text.startsWith("### Reviewing ") && fallback.text.contains("Reader.kt"))
+        assertFalse(fallback.text.startsWith("###"))
         assertTrue(fallback.text.contains("Reader.kt"))
     }
 
@@ -347,7 +347,8 @@ class GitHubRichSummaryPresentationTest {
         )
         now = 45_000L
         val first = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
-        assertTrue(first.text.startsWith("### "))
+        assertTrue(first.text.contains("Reader.kt"))
+        assertFalse(GitHubRichSummaryPresentation.isRich(first.text))
         progress.observe(ApiState.ProgressCheckpoint("Reviewing another file"))
         now = 90_000L
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })

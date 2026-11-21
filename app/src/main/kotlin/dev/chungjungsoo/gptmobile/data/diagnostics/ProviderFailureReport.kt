@@ -43,7 +43,7 @@ internal object ProviderFailureReport {
         for (key in listOf("provider_limit_source", "provider_cooldown_scope_hash")) {
             failure.failureDetails?.get(key)?.let { put(key, it) }
         }
-        for (key in listOf("reasoning_probe_outcome", "reasoning_probe_attempts", "reasoning_probe_age_ms", "reasoning_metadata_age_ms", "reasoning_capability_age_ms", "reasoning_model_state", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash")) {
+        for (key in listOf("reasoning_probe_outcome", "reasoning_probe_enable_thinking", "reasoning_probe_thinking", "reasoning_probe_attempts", "reasoning_probe_age_ms", "reasoning_metadata_age_ms", "reasoning_capability_age_ms", "reasoning_model_state", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash")) {
             failure.failureDetails?.get(key)?.let { put(key, it) }
         }
         if (receipt.errorCode == "TOOL_PROTOCOL_INVALID_FRAME") {
@@ -85,6 +85,11 @@ internal object ProviderFailureReport {
                 }
             )
         }
+        if (receipt.errorCode in IssueReportDiagnostics.selectedModelFailureCodes) {
+            for (key in IssueReportDiagnostics.selectedModelObservationFields) {
+                failure.failureDetails?.get(key)?.let { put(key, it) }
+            }
+        }
         if (receipt.errorCode == "GITHUB_PROFILE_LOCKED") {
             for (key in IssueReportDiagnostics.profileSelectionFields) {
                 failure.failureDetails?.get(key)?.let { put(key, it) }
@@ -96,7 +101,7 @@ internal object ProviderFailureReport {
             }
         }
         if (receipt.errorCode == "GITHUB_TOOL_CONTEXT_BUDGET") {
-            for (key in IssueReportDiagnostics.githubSchemaBudgetFields + "admission_tool_result_reserve_tokens") {
+            for (key in IssueReportDiagnostics.githubSchemaBudgetFields + IssueReportDiagnostics.requiredSchemaDetailFields + "admission_tool_result_reserve_tokens") {
                 failure.failureDetails?.get(key)?.let { put(key, it) }
             }
         }
@@ -152,6 +157,17 @@ internal object ProviderFailureReport {
         val jobId = (failure.failureDetails?.get("job_id") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?: metadata?.takeIf { it.transportVerified }?.jobId
         IssueReportContext.identifierHash("job", jobId)?.let { put("job_id_hash", it) }
+        if (receipt.httpStatus == 429) {
+            val decision = failure.providerLimit
+            val state = when {
+                decision == null -> "NOT_RECORDED"
+                dev.chungjungsoo.gptmobile.data.research.researchHash(decision.profileUid) != receipt.profileHash ||
+                    dev.chungjungsoo.gptmobile.data.research.researchHash(decision.model) != receipt.modelHash -> "ROUTE_MISMATCH"
+                decision.mayWait -> "ELIGIBLE"
+                else -> "INELIGIBLE"
+            }
+            put("provider_wait_decision_state", state)
+        }
         failure.providerLimit?.takeIf {
             dev.chungjungsoo.gptmobile.data.research.researchHash(it.profileUid) == receipt.profileHash &&
                 dev.chungjungsoo.gptmobile.data.research.researchHash(it.model) == receipt.modelHash

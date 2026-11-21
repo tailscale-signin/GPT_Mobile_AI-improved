@@ -32,6 +32,15 @@ internal object GitHubCiDiagnosis {
                     put("excerpt", rows.first().text("text").take(1200))
                     put("matching_changed_paths", JsonArray(related.map(::JsonPrimitive)))
                     put(
+                        "next_observation",
+                        when (key.first) {
+                            "INFRASTRUCTURE" -> "Compare the failing setup step with another attempt on the same revision. A repeatable compiler or assertion failure after setup points to the change."
+                            "CODE_OR_TEST" -> "Run the first failing target on the head and base with the same dependencies. A failure on both revisions weakens attribution to the change."
+                            "ACCESS_OR_CONFIGURATION" -> "Check the effective scope and target for the recorded attempt. A successful equivalent request with the same identity weakens the access hypothesis."
+                            else -> "Inspect the first failed step and the preceding log lines to distinguish setup, compilation and test execution."
+                        }
+                    )
+                    put(
                         "repair",
                         when (key.first) {
                             "INFRASTRUCTURE" -> "Check runner capacity and the named dependency/service; retry only after the condition clears."

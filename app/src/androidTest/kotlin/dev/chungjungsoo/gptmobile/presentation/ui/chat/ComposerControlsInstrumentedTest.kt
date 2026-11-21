@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -120,6 +121,13 @@ class ComposerControlsInstrumentedTest {
         val attached = AtomicReference<File?>()
         val room = MutableStateFlow(ChatRoomV2(id = 7, title = "Image conversation"))
         val uri = android.net.Uri.parse("gptmobile://media/${original.name}")
+        fun awaitButton(label: String): SemanticsNodeInteraction {
+            // Neither activity may have a registered Compose root during the handoff.
+            composeRule.waitUntil(10_000) {
+                composeRule.onAllNodesWithText(label).fetchSemanticsNodes(atLeastOneRootRequired = false).size == 1
+            }
+            return composeRule.onNodeWithText(label).assertIsDisplayed()
+        }
         try {
             val previewBitmap = requireNotNull(decodeMediaPreview(original))
             try {
@@ -133,21 +141,19 @@ class ComposerControlsInstrumentedTest {
                 Button(onClick = { preview(uri) }) { Text("Open test image") }
             }
             composeRule.onNodeWithText("Open test image").performClick()
-            composeRule.waitUntil(10_000) { composeRule.onAllNodesWithText("Attach to reply").fetchSemanticsNodes().isNotEmpty() }
-            composeRule.onNodeWithText("Attach to reply").performClick()
+            awaitButton("Attach to reply").performClick()
             composeRule.waitUntil(10_000) { attached.get() != null }
             val draft = requireNotNull(attached.get())
             assertEquals(File(context.filesDir, "attachments").canonicalFile, draft.parentFile?.canonicalFile)
             assertTrue(original.readBytes().contentEquals(draft.readBytes()))
             assertTrue(draft.delete())
             attached.set(null)
-            composeRule.onNodeWithText("Open test image").performClick()
-            composeRule.waitUntil(10_000) { composeRule.onAllNodesWithText("Attach to reply").fetchSemanticsNodes().isNotEmpty() }
-            composeRule.onNodeWithText("Attach to reply").assertIsDisplayed()
+            awaitButton("Open test image").performClick()
+            val attachButton = awaitButton("Attach to reply")
             room.value = ChatRoomV2(id = 8, title = "Another conversation")
-            composeRule.onNodeWithText("Attach to reply").performClick()
-            composeRule.waitUntil(10_000) { composeRule.onAllNodesWithText("Attach to reply").fetchSemanticsNodes().isEmpty() }
-            composeRule.onNodeWithText("Open test image").assertIsDisplayed()
+            attachButton.performClick()
+            awaitButton("Open test image")
+            composeRule.onNodeWithText("Attach to reply").assertDoesNotExist()
             composeRule.runOnIdle { assertEquals(null, attached.get()) }
             assertTrue(original.exists())
         } finally {

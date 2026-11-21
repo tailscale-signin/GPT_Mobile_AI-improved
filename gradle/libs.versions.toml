@@ -27,7 +27,6 @@ splashscreen = "1.2.0"
 room = "2.8.5"
 coroutines = "1.11.0"
 moonshineVoice = "0.1.5"
-sherpaOnnx = "2.0.1"
 commonsCompress = "1.27.1"
 mcpKotlinSdk = "0.15.0"
 browser = "1.10.0"
@@ -66,7 +65,6 @@ secure-bcprov = { module = "org.bouncycastle:bcprov-jdk15to18", version = "1.86"
 secure-bcpkix = { module = "org.bouncycastle:bcpkix-jdk15to18", version = "1.86" }
 sqlcipher = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
 moonshine-voice = { group = "ai.moonshine", name = "moonshine-voice", version.ref = "moonshineVoice" }
-sherpa-onnx-static = { module = "com.k2fsa.sherpa.onnx:sherpa-onnx-static-link-onnxruntime", version.ref = "sherpaOnnx" }
 commons-compress = { module = "org.apache.commons:commons-compress", version.ref = "commonsCompress" }
 leakcanary-android = { module = "com.squareup.leakcanary:leakcanary-android", version.ref = "leakcanary" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }

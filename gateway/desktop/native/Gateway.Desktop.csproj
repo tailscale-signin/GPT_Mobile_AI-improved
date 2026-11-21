@@ -11,14 +11,14 @@
     <ApplicationIcon>../assets/gateway.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishSingleFile>false</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
     <DebugType>none</DebugType>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
   <ItemGroup>
     <Page Include="../windows/Theme.xaml" Link="Theme.xaml" />
+    <Resource Include="../assets/gateway.png" Link="gateway.png" />
     <Compile Remove="tests/**/*.cs" />
     <None Remove="tests/**" />
   </ItemGroup>

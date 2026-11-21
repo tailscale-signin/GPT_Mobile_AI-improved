@@ -17,6 +17,36 @@ internal object GitHubEvidenceExcerpts {
     private const val MAX_EXCERPTS = 24
     private const val MAX_TEXT = 1800
 
+    private val sourcePointer = Regex("""(/data)?/items/(\d+)/content#L\d+-L\d+""")
+
+    /** Only a file range tied to its immutable source can bypass the observation clock. */
+    fun pinnedSource(receipt: JsonObject, pointer: String): Boolean {
+        if (receipt["immutable"] != JsonPrimitive(true) || (receipt["tool"] as? JsonPrimitive)?.content?.githubOperationFamily() != "github_read") return false
+        val match = sourcePointer.matchEntire(pointer) ?: return false
+        val result = receipt["result"] as? JsonObject ?: return false
+        val root = (if (match.groupValues[1].isEmpty()) result else result["data"] as? JsonObject) ?: return false
+        val index = match.groupValues[2].toIntOrNull() ?: return false
+        val item = (root["items"] as? JsonArray)?.getOrNull(index) as? JsonObject ?: return false
+        val path = (item["path"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank) ?: return false
+        val blob = (item["sha"] as? JsonPrimitive)?.contentOrNull?.takeIf(sha::matches) ?: return false
+        val revision = (root["commit_sha"] as? JsonPrimitive)?.contentOrNull?.takeIf(sha::matches) ?: return false
+        val args = receipt["arguments"] as? JsonObject
+        if (listOf(item["commit_sha"], args?.get("commit_sha"), receipt["source_head_sha"]).filterIsInstance<JsonPrimitive>()
+                .mapNotNull { it.contentOrNull }.any { !it.equals(revision, true) }
+        ) {
+            return false
+        }
+        if (item["expected_blob_sha"]?.let { it != JsonPrimitive(blob) } == true) return false
+        val digest = receipt["result_sha256"] ?: return false
+        if (receipt["review_projection"] == JsonPrimitive("EXACT_VALUES_WITH_DURABLE_ORIGINAL")) {
+            val excerpt = (receipt["retained_excerpts"] as? JsonObject)?.get(pointer) as? JsonObject ?: return false
+            return receipt["verified_source_digest"] == digest &&
+                excerpt["resource"] == JsonPrimitive(path) &&
+                excerpt["revision"] == JsonPrimitive(revision)
+        }
+        return item["content"] is JsonPrimitive && digest == JsonPrimitive(GitHubRepositoryStateStore.digest(result.toString()))
+    }
+
     fun collect(receipt: JsonObject): Map<String, JsonObject> {
         if (receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true)) return emptyMap()
         if (receipt["review_projection"] == JsonPrimitive("EXACT_VALUES_WITH_DURABLE_ORIGINAL")) {
@@ -40,6 +70,7 @@ internal object GitHubEvidenceExcerpts {
                     val path = (value["path"] as? JsonPrimitive)?.contentOrNull ?: resource
                     val start = (value["start_line"] as? JsonPrimitive)?.intOrNull?.coerceAtLeast(1) ?: firstLine
                     for ((key, child) in value) {
+                        if (found.size >= MAX_EXCERPTS) break
                         if (secret.containsMatchIn(key)) continue
                         val next = "$pointer/${key.replace("~", "~0").replace("/", "~1")}"
                         val text = (child as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
@@ -47,9 +78,12 @@ internal object GitHubEvidenceExcerpts {
                             // Do not send credentials in source excerpts to another model or into exports.
                             val clean = (dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(JsonPrimitive(text.take(48_000))) as JsonPrimitive).content
                             var offset = start
-                            for (lines in clean.lineSequence().take(240).chunked(24)) {
+                            val sourceLines = clean.lineSequence().take(241).toList()
+                            val sourceTruncated = text.length > 48_000 || sourceLines.size > 240
+                            for (lines in sourceLines.asSequence().take(240).chunked(24)) {
                                 if (found.size >= MAX_EXCERPTS) break
-                                val chunk = lines.joinToString("\n").take(MAX_TEXT)
+                                val joined = lines.joinToString("\n")
+                                val chunk = joined.take(MAX_TEXT)
                                 val end = offset + chunk.count { it == '\n' }
                                 val id = "$next#L$offset-L$end"
                                 found[id] = buildJsonObject {
@@ -67,12 +101,12 @@ internal object GitHubEvidenceExcerpts {
                                             else -> "description"
                                         }
                                     )
-                                    put("truncated", chunk.length < lines.joinToString("\n").length)
-                                    put("source_truncated", text.length > 48_000 || clean.lineSequence().take(241).count() > 240)
+                                    put("truncated", chunk.length < joined.length)
+                                    put("source_truncated", sourceTruncated)
                                 }
                                 offset += lines.size
                             }
-                        } else if (key !in fields) {
+                        } else if (child is JsonObject || child is JsonArray) {
                             visit(child, next, depth + 1, path, start, itemRevision)
                         }
                     }

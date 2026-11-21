@@ -17,6 +17,21 @@ import org.junit.Test
 class GitHubTerminalDeliveryTest {
     private fun provider(event: ProviderEvent) = AgentRunEvent.Provider(event)
 
+    @Test fun interruptedBulkRestoreKeepsItsCountAndTypedRecoveryReachesTheCoordinator() = runTest {
+        val events = flowOf(AgentRunEvent.ToolResultsRestored(92), provider(ProviderEvent.Failed("Stopped", errorCode = "GITHUB_RUN_INTERRUPTED")))
+            .withGitHubTerminalDelivery(true).toList().filterIsInstance<AgentRunEvent.Provider>()
+        val text = events.map { it.event }.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(text.contains("92 saved tool results"))
+        assertFalse(text.contains("No tool result"))
+        val limited = flowOf(AgentRunEvent.ToolResultsRestored(22), provider(ProviderEvent.Failed("HTTP 429", errorCode = "429")))
+            .withGitHubTerminalDelivery(true).toList().filterIsInstance<AgentRunEvent.Provider>()
+        val limitText = limited.map { it.event }.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(limitText.contains("request limit") && limitText.contains("22 saved tool results"))
+        val original = ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", buildJsonObject { put("code", "429") })
+        val caught = runCatching { flow<AgentRunEvent> { throw original }.withGitHubTerminalDelivery(true).collect() }.exceptionOrNull()
+        assertTrue(caught === original)
+    }
+
     @Test fun interruptedTaskPublishesObservedFactsAndItsExactRecoveryStep() = runTest {
         val call = ProviderEvent.ToolCall(
             "pr-list",
@@ -136,7 +151,7 @@ class GitHubTerminalDeliveryTest {
             .withGitHubTerminalDelivery(true).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(text.contains("BLOCKED"))
-        assertTrue(text.contains("1 tool result(s) were observed"))
+        assertTrue(text.contains("1 tool result was recorded"))
         assertFalse(text.contains("retained"))
     }
 

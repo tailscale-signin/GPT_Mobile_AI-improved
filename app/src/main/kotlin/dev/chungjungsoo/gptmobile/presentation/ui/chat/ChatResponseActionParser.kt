@@ -77,6 +77,9 @@ object ChatResponseActionParser {
     /**
      * Determines whether the Continue button / prompt should appear for this message.
      */
+    fun canResumeReview(text: String) = text.contains("choose Resume review", ignoreCase = true) ||
+        text.startsWith("**Task paused.** REASONING_CAPABILITY_UNVERIFIED")
+
     fun shouldShowContinuePrompt(
         text: String,
         isLoading: Boolean,

@@ -17,15 +17,25 @@ def native_executable():
     return Path(sys.executable).parent / 'native' / 'Gateway.Desktop.exe'
 
 
-def start_supervisor(root):
+def _launcher(root, command):
     powershell = Path(os.environ['SystemRoot']) / 'System32' / 'WindowsPowerShell' / 'v1.0' / 'powershell.exe'
-    subprocess.Popen([str(powershell), '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
-                      '-File', str(Path(root) / 'Start-Gateway.ps1')],
+    return subprocess.Popen([str(powershell), '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+                      '-File', str(Path(root) / 'Start-Gateway.ps1'), '-Command', command],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
 
+def start_supervisor(root):
+    return _launcher(root, 'supervise')
+
+
+def launch_installed_dashboard(root):
+    _launcher(root, 'dashboard')
+    return 0
+
+
 def show(root, view='Overview', smoke=False):
+    view = {'Connection': 'Settings/Connection', 'GitHub': 'Tools/GitHub'}.get(view, view)
     executable = native_executable()
     if os.name != 'nt' or not getattr(sys, 'frozen', False) or not executable.is_file():
         return None
@@ -36,9 +46,19 @@ def show(root, view='Overview', smoke=False):
         atomic_json(Path(root) / 'show-native.json', {'requestedAt': time.time(), 'view': view})
         return 0
     try:
+        # The stable supervisor already serializes startup with its state-directory lock.
+        # Open the window immediately, including when the backend is offline.
+        if not smoke:
+            start_supervisor(root)
         args = [str(executable), '--root', str(root), '--runtime', str(Path(sys.executable)), '--view', view]
         if smoke:
             args.append('--smoke-ui')
-        return subprocess.run(args, check=False).returncode
+        try:
+            result = subprocess.run(args, check=False).returncode
+        except OSError:
+            if smoke:
+                raise
+            return None
+        return result if result == 0 or smoke else None
     finally:
         lock.release()

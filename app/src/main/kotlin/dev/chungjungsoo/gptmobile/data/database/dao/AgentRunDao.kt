@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
+data class RecordedChatOutcome(val chatId: Int, val messageId: Int)
+
 data class RunOutputLength(val runId: String, val characters: Long)
 
 /** Narrow support projection: no prompts, credentials, failure prose or policy snapshots. */
@@ -16,6 +18,17 @@ data class GatewayRunDiagnosticState(val runId: String, val status: String, val 
 
 @Dao
 interface AgentRunDao : RunPolicySnapshotAccess {
+    @Query(
+        """SELECT c.chat_id AS chatId,
+            CASE WHEN m.current_run_id = r.run_id THEN r.assistant_message_id ELSE r.user_message_id END AS messageId
+            FROM chats_v2 c JOIN agent_runs r ON r.run_id = (
+                SELECT s.run_id FROM agent_runs s WHERE s.chat_id=c.chat_id AND s.status=:status AND s.display_role != 'INTERNAL'
+                ORDER BY COALESCE(s.completed_at,s.created_at) DESC, s.rowid DESC LIMIT 1)
+            JOIN messages_v2 m ON m.message_id=r.assistant_message_id AND m.chat_id=c.chat_id
+            WHERE c.is_temporary=0 ORDER BY COALESCE(r.completed_at,r.created_at) DESC, r.rowid DESC"""
+    )
+    suspend fun chatsWithRecordedOutcome(status: String): List<RecordedChatOutcome>
+
     @Query("SELECT r.run_id AS runId, r.status, r.gateway_job_id AS jobId, r.gateway_last_sequence AS checkpointSequence, r.ownership_fence AS ownershipFence, substr(r.terminal_error,1,4096) AS terminalError FROM agent_runs r JOIN chats_v2 c ON c.chat_id = r.chat_id WHERE c.is_temporary = 0 AND (r.gateway_base_url = :baseUrl OR r.profile_uid = :profileUid) ORDER BY CASE WHEN r.status IN ('QUEUED','RUNNING','WAITING_PROVIDER_LIMIT','WAITING_REMOTE_JOB') THEN 0 ELSE 1 END, r.created_at DESC LIMIT 129")
     suspend fun gatewayDiagnosticStates(baseUrl: String, profileUid: String): List<GatewayRunDiagnosticState>
 

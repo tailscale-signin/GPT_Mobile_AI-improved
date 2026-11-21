@@ -7,6 +7,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphPrerequisite
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -20,6 +22,115 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolReportIncidentProjectionTest {
+    @Test fun searchFailuresKeepOnlyBoundCountsFromTheSameFailedSearch() {
+        val call = event("""{"query":"private keywords"}""").copy(modelToolName = "web_search")
+        val receipt = buildJsonObject {
+            put("schema", "gptmobile.search-operation.v1")
+            put("callId", call.callId)
+            put("errorCode", "SEARCH_PROVIDERS_UNAVAILABLE")
+            put("phase", "SEARCH_AGGREGATION")
+            put("provider", "selected_search_engines")
+            put("state", "FAILED")
+            put("completedProviders", 0)
+            put("attemptCount", 3)
+            put("dispatchedAttemptCount", 1)
+            put("budgetRejectedAttemptCount", 1)
+        }
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("private provider response"), true, errorCode = "SEARCH_PROVIDERS_UNAVAILABLE", executionReceipt = receipt)
+        assertEquals("SOURCE_UNAVAILABLE", ToolReportDiagnostics.reportCode(call, result))
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(call, result), 1_800_000_000_000))
+        assertEquals(JsonPrimitive(3), capture.values["search_attempt_count"])
+        assertEquals(JsonPrimitive(1), capture.values["search_dispatched_attempt_count"])
+        assertEquals(JsonPrimitive(1), capture.values["search_budget_rejected_attempt_count"])
+        assertTrue("TASK_AND_TOOL_FAILURE_DETAILS_V1" in capture.requiredServiceFeatures())
+        assertFalse(capture.toString().contains("private"))
+        for (key in listOf("callId", "schema", "errorCode", "state", "phase", "provider", "completedProviders")) {
+            assertNull(key, ToolReportDiagnostics.reportCode(call, result.copy(executionReceipt = JsonObject(receipt - key))))
+        }
+        val challenge = result.copy(
+            errorCode = "CHALLENGE",
+            executionReceipt = buildJsonObject {
+                put("schema", "gptmobile.search-operation.v1")
+                put("callId", call.callId)
+                put("errorCode", "CHALLENGE")
+                put("phase", "PROVIDER_RESPONSE")
+                put("requestSent", true)
+                put("state", "FAILED")
+            }
+        )
+        assertEquals("SOURCE_ACCESS_BLOCKED", ToolReportDiagnostics.reportCode(call, challenge))
+        assertNull(ToolReportDiagnostics.reportCode(call.copy(callId = "different"), challenge))
+        assertNull(ToolReportDiagnostics.reportCode(call, challenge.copy(dispatched = false)))
+    }
+
+    @Test fun readerRedirectReasonRequiresTheSameObservedRequest() {
+        val call = event("""{"url":"https://private.example/private"}""").copy(modelToolName = "read_url")
+        val receipt = buildJsonObject {
+            put("schema", "gptmobile.search-operation.v1")
+            put("provider", "read_url")
+            put("callId", call.callId)
+            put("errorCode", "REDIRECT_FAILED")
+            put("phase", "RETRIEVAL")
+            put("state", "FAILED")
+            put("requestSent", true)
+            put("reader_refusal", "LOCATION_MISSING")
+        }
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("private"), true, errorCode = "REDIRECT_FAILED", executionReceipt = receipt)
+        assertEquals("SOURCE_UNAVAILABLE", ToolReportDiagnostics.reportCode(call, result))
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(call, result), 1_800_000_000_000))
+        assertEquals(JsonPrimitive("LOCATION_MISSING"), capture.values["url_reader_refusal"])
+        assertTrue("READER_AND_RUN_FAILURE_DETAILS_V1" in capture.requiredServiceFeatures())
+        assertFalse(capture.toString().contains("private"))
+        for (key in listOf("callId", "errorCode", "provider", "state", "requestSent", "reader_refusal")) {
+            val unbound = result.copy(executionReceipt = JsonObject(receipt - key))
+            assertNull(key, ToolReportDiagnostics.reportCode(call, unbound))
+            assertFalse(key, "url_reader_refusal" in ToolReportDiagnostics.fields(call, unbound))
+        }
+        assertNull(ToolReportDiagnostics.reportCode(call, result.copy(dispatched = false)))
+    }
+
+    @Test fun unknownToolKeepsTheDiscoveryStateOfThatRoundOnly() {
+        val call = event("{}")
+        val receipt = buildJsonObject {
+            put("schema", "gptmobile.round-tool-catalog.v1")
+            put("call_id", call.callId)
+            put("reason_code", "UNKNOWN_TOOL")
+            put("phase", "PREFLIGHT_REJECTED")
+            put("dispatched", false)
+            put("retryable", false)
+            put("available_tool_count", 4)
+            put("discovery_available", false)
+        }
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("private"), true, dispatched = false, errorCode = "TOOL_NOT_AVAILABLE", executionReceipt = receipt)
+        val fields = ToolReportDiagnostics.fields(call, result)
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive(false), capture.values["round_catalog_discovery_available"])
+        assertTrue("READER_AND_RUN_FAILURE_DETAILS_V1" in capture.requiredServiceFeatures())
+        for (key in listOf("call_id", "discovery_available", "reason_code", "phase", "retryable")) {
+            assertFalse(key, "round_catalog_discovery_available" in ToolReportDiagnostics.fields(call, result.copy(executionReceipt = JsonObject(receipt - key))))
+        }
+    }
+
+    @Test fun rejectedDiscoveryRetainsOnlyTheSelectorShape() {
+        val invalid = mapOf(
+            """{"action":"search"}""" to "ACTION_WITHOUT_NAMES",
+            """{"action":"search","names":"private-tool"}""" to "NAMES_NOT_ARRAY",
+            """{"action":"search","names":[]}""" to "ACTION_REQUIRES_ONE_NAME",
+            """{"action":"search","names":[123]}""" to "NAMES_CONTAIN_NON_STRING",
+            """{"action":false,"names":["private-tool"]}""" to "ACTION_NOT_STRING",
+            """{"query":"private term","inventory_cursor":2}""" to "MIXED_INVENTORY_SELECTORS"
+        )
+        for ((args, expected) in invalid) {
+            val call = event(args).copy(modelToolName = "discover_available_tools")
+            val result = AgentToolResult(call.callId, ToolResultContent.Text("private value"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            val fields = ToolReportDiagnostics.fields(call, result)
+            val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+            assertEquals(JsonPrimitive(expected), capture.values["catalog_selector_state"])
+            assertFalse(capture.toString().contains("private"))
+            assertFalse(ToolReportDiagnostics.fields(call, result.copy(dispatched = true)).containsKey("catalog_selector_state"))
+        }
+    }
+
     @Test fun githubMissingPathKeepsCallBoundReasonWithoutDisclosingTheRequestedPath() {
         val event = event("""{"action":"ranges","ranges":[{"path":"PRIVATE_FILE_PATH"}]}""").copy(modelToolName = "github_read__selected")
         val receipt = buildJsonObject {
@@ -123,6 +234,38 @@ class ToolReportIncidentProjectionTest {
         assertFalse(ToolReportDiagnostics.fields(event, forged).containsKey("tool_reason_code"))
         val forgedReason = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) + ("reason_code" to JsonPrimitive("UNTRUSTED_GRAPH_CAUSE"))))
         assertFalse(ToolReportDiagnostics.fields(event, forgedReason).containsKey("tool_reason_code"))
+    }
+
+    @Test fun graphTransportReportsOnlyTheCurrentGatewayFailure() = runBlocking {
+        val call = event("""{"action":"metrics"}""").copy(modelToolName = "repository_graph__selected")
+        for ((cause, expected) in listOf(
+            java.net.ConnectException("private endpoint") to "DISCONNECTED",
+            java.net.UnknownHostException("private host") to "DNS",
+            java.net.SocketTimeoutException("private URL") to "TIMEOUT",
+            java.io.IOException("private detail") to "UNKNOWN",
+            null to null
+        )) {
+            val tool = RepositoryGraphTool(call.modelToolName) {
+                val unavailable = GatewayGraphUnavailableException("private gateway", listOf(GatewayGraphPrerequisite.TRANSPORT_UNAVAILABLE))
+                if (cause != null) unavailable.initCause(cause)
+                throw GatewayGraphOperationException(unavailable, null, null, "RESTORE_SELECTED_GATEWAY_CONNECTION", false)
+            }
+            val result = tool.execute(call.callId, buildJsonObject { put("action", "metrics") })
+            val fields = ToolReportDiagnostics.fields(call, result)
+            val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+            assertEquals(JsonPrimitive("GRAPH_TRANSPORT_UNAVAILABLE"), report.values["tool_reason_code"])
+            assertEquals(expected?.let(::JsonPrimitive), report.values["graph_transport_kind"])
+            assertEquals(expected != null, "GRAPH_TRANSPORT_EVIDENCE_V1" in report.requiredServiceFeatures())
+            assertFalse(report.toString().contains("private"))
+            val forged = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) + ("graph_transport_kind" to JsonPrimitive("private detail"))))
+            assertFalse("graph_transport_kind" in ToolReportDiagnostics.fields(call, forged))
+            for (key in listOf("schema", "call_id", "action", "reason_code", "error_code", "phase", "dispatched")) {
+                val unbound = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) - key))
+                val observed = ToolReportDiagnostics.fields(call, unbound)
+                assertFalse(key, "graph_transport_kind" in observed)
+                assertFalse(key, observed["tool_reason_code"] == "GRAPH_TRANSPORT_UNAVAILABLE")
+            }
+        }
     }
 
     @Test fun gatewayHttp500ClosedClassProjectsThroughOwnedToolReceipt() = runBlocking {
@@ -288,6 +431,27 @@ class ToolReportIncidentProjectionTest {
             assertEquals(fields["remote_pagination_unique_records"], projected["remote_pagination_unique_records"])
         }
         assertFalse(ToolReportDiagnostics.fields(event.copy(modelToolName = "github_issue"), result).containsKey("remote_pagination_reason"))
+    }
+
+    @Test fun stageOnlyReportsTheRecordedToolFamilyAndValidatorOwnership() {
+        val event = event("""{"action":"stage"}""").copy(toolName = "repository_workspace", modelToolName = "workspace__private-id")
+        val result = AgentToolResult(event.callId, ToolResultContent.Text("private result"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        val fields = ToolReportDiagnostics.fields(event, result)
+        val diagnostics = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("stage"), diagnostics.values["tool_action"])
+        assertEquals(JsonPrimitive("REPOSITORY_WORKSPACE"), diagnostics.values["action_only_tool_family"])
+        assertEquals(JsonPrimitive("NO_RECEIPT"), diagnostics.values["action_only_validation"])
+        assertTrue(IssueReportDiagnostics.ACTION_ONLY_FEATURE in diagnostics.requiredServiceFeatures())
+        assertFalse(diagnostics.toString().contains("private"))
+        val bound = buildJsonObject { put("argument_validation_call_id", event.callId) }
+        val other = buildJsonObject { put("argument_validation_call_id", "private-other-call") }
+        val unidentified = buildJsonObject { put("message", "private") }
+        for ((receipt, expected) in listOf(bound to "CALL_BOUND_VALIDATOR", other to "VALIDATOR_CALL_MISMATCH", unidentified to "NO_VALIDATOR_ID")) {
+            val observed = ToolReportDiagnostics.fields(event, result.copy(executionReceipt = receipt))
+            assertEquals(expected, observed["action_only_validation"])
+        }
+        assertFalse("action_only_validation" in ToolReportDiagnostics.fields(event, result.copy(callId = "wrong")))
+        assertFalse("action_only_validation" in ToolReportDiagnostics.fields(event.copy(arguments = """{"action":"stage","path":"private"}"""), result))
     }
 
     private fun event(arguments: String) = ToolEvent("private-event", "private-run", 1, "private-call", null, null, "github_issue", "github_issue", arguments, null, null, "FAILED")

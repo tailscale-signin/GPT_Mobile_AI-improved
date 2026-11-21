@@ -417,7 +417,7 @@ private fun safeInventoryPath(path: String): Boolean = path.length in 1..1024 &&
     path.none(Char::isISOControl) &&
     '\\' !in path &&
     path.split('/').none { it.isBlank() || it == "." || it == ".." } &&
-    listOf("app/src/main/", "local-gguf-runtime/src/main/", "core-domain/src/commonMain/", "core-domain/src/jvmMain/", "gateway/", "authentication/", "mcp/").any(path::startsWith)
+    AppAuditSourceInventory.sourceRootPrefixes.any(path::startsWith)
 
 private fun JsonObject.text(key: String): String? = (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
 private fun safeDigest(value: String?): String? = value?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }

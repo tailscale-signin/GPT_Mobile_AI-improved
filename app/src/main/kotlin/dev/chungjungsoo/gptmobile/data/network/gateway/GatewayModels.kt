@@ -181,11 +181,12 @@ data class GatewayCancelResult(
             "confirmed", "cancelled", "canceled" -> GatewayCancellationOutcome.CONFIRMED
             "requested", "cancellation_requested", "cancel_requested" -> GatewayCancellationOutcome.REQUESTED
             "not_canceled", "completed", "failed", "interrupted" -> GatewayCancellationOutcome.NOT_CANCELED
+            "unavailable" -> GatewayCancellationOutcome.UNAVAILABLE
             else -> GatewayCancellationOutcome.UNKNOWN
         }
 }
 
-enum class GatewayCancellationOutcome { REQUESTED, CONFIRMED, NOT_CANCELED, UNKNOWN }
+enum class GatewayCancellationOutcome { REQUESTED, CONFIRMED, NOT_CANCELED, UNAVAILABLE, UNKNOWN }
 
 /**
  * Gateway progress event from SSE stream.

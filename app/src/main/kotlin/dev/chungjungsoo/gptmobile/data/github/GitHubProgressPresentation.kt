@@ -37,10 +37,17 @@ internal object GitHubProgressPresentation {
     }
 
     fun introduction(task: String): String {
+        when (GitHubWorkflowPreset.fromRequest(task)?.id) {
+            "diagnose_ci" -> return "I’ll find the failed jobs on this revision and read their logs to see which step broke."
+            "review_branch" -> return "I’ll compare the branch with its base, then follow the changed lines into the relevant tests."
+            "test_integration" -> return "I’ll check which GitHub tools are available here, then exercise the reads and fixture actions this repository allows."
+            "implement_issue" -> return "I’ll trace the reported behavior to its source, make the change on the selected branch and run the relevant tests."
+            "prepare_release" -> return "I’ll match the build and test results to the selected revision, then check the packages that would ship."
+        }
         val focus = taskFocus(task)
         return when {
             GitHubStatusRequest.matches(task) ->
-                "I’ll check the repository status for $focus, including pull requests and current checks, and separate confirmed results from pending work."
+                "I’ll check the repository status, open pull requests and checks on the selected branch."
             Regex("""(?i)\bsummar""").containsMatchIn(task) ->
                 "I’ll refine $focus around your request and concrete results, replacing repeated labels with short, distinct updates. I’ll check the opening message too."
             GitHubTaskCoverage.matches(task) ->
@@ -50,7 +57,7 @@ internal object GitHubProgressPresentation {
             Regex("""(?i)\b(?:merge|release|publish)\b""").containsMatchIn(task) ->
                 "I’ll check $focus against the latest PR, required checks and review state before treating it as ready to ship."
             Regex("""(?i)\b(?:review|examine|exaine|investigate|audit|diagnos|analy[sz]e)""").containsMatchIn(task) ->
-                "I’ll examine $focus in the current branch, distinguish confirmed evidence from assumptions, and report the meaningful gaps."
+                "I’ll start with $focus and follow the relevant changes through the current branch."
             else ->
                 "I’ll work through $focus in the current branch and check the result against what you requested."
         }

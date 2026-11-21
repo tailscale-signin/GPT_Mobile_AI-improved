@@ -18,6 +18,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReasoningProbeReportTest {
+    @Test fun missingCapabilityObservationRetainsTheRequestedModeAndLeavesTheRouteUnknown() {
+        val failure = requireNotNull(providerExceptionDetails(ReasoningCapabilityUnavailableException("REASONING_CAPABILITY_UNVERIFIED", requested = ReasoningMode.OFF), partialOutput = false))
+        val facts = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("OFF"), facts["reasoning_requested_mode"])
+        assertEquals(JsonPrimitive("NO_VERIFIED_CONTROL"), facts["reasoning_admission_basis"])
+        assertEquals(JsonPrimitive("UNVERIFIED"), facts["reasoning_control_state"])
+        assertEquals(JsonPrimitive("NO_GATEWAY_OBSERVATION"), facts["reasoning_probe_observation"])
+        assertNull(facts["reasoning_route_kind"])
+    }
+
     @Test fun unsupportedAndUnverifiedExceptionsRetainDistinctProbeEvidenceThroughPublicReport() {
         val profile = PlatformV2(uid = "private-profile", name = "Private profile", model = "private-model", compatibleType = ClientType.LLAMA)
         for (unsupported in listOf(true, false)) {

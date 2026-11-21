@@ -45,6 +45,28 @@ class ProviderFailureReportTest {
         assertFalse("tool_protocol_frame_kind" in other)
     }
 
+    @Test
+    fun selectedModelLoadingRetainsGatewayObservationsAtProviderAdmission() {
+        val failure = ProviderEvent.Failed(
+            "The selected model is loading.",
+            errorCode = "SELECTED_MODEL_LOADING",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "provider_admission")
+                put("gateway_model_state", "LOADING")
+                put("gateway_model_advertised", true)
+                put("gateway_model_loaded", false)
+            }
+        )
+        val fields = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
+        val capture = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L).diagnostics)
+        assertTrue(IssueReportDiagnostics.SELECTED_MODEL_ADMISSION_FEATURE in capture.requiredServiceFeatures())
+        val values = capture.values
+        assertEquals(JsonPrimitive("SELECTED_MODEL_LOADING"), values["provider_failure_code"])
+        assertEquals(JsonPrimitive("LOADING"), values["gateway_model_state"])
+        assertEquals(JsonPrimitive(true), values["gateway_model_advertised"])
+        assertEquals(JsonPrimitive(false), values["gateway_model_loaded"])
+    }
+
     private val profile = PlatformV2(uid = "private-profile", name = "Private selected profile", model = "private-model", compatibleType = ClientType.LLAMA)
 
     private fun profileSelectionError(registered: Boolean = true) = dev.chungjungsoo.gptmobile.data.context.GitHubProfileSelectionRejected(

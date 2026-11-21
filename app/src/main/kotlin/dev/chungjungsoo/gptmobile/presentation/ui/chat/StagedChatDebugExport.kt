@@ -18,7 +18,6 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportGate
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportMemory
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticLogSnapshot
-import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticRecordChunks
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticStageSink
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticTimeline
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector
@@ -37,7 +36,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
@@ -116,19 +114,10 @@ internal suspend fun writeStagedChatDiagnostics(
             stillAuthorized()
         }
         suspend fun DiagnosticStageSink.emit(value: kotlinx.serialization.json.JsonElement, evidence: Boolean = true, projected: Boolean = false) {
-            logicalRecord {
-                authorized()
-                checkBudget()
-                // Database cells already share one bounded projector. Do not parse or expand them again.
-                val bounded = if (projected) value else DiagnosticValueProjector(maximumSourceCharacters) { omit(it) }.element(value)
-                val redacted = redactor.redact(bounded).toString()
-                if (redacted.length <= maximumCharacters / 2) {
-                    record(redacted, evidence)
-                } else {
-                    // Escaping can expand a character six-fold; leave space for envelope metadata.
-                    DiagnosticRecordChunks.encode(redacted, maximumCharacters / 8).forEach { record(it.toString(), evidence) }
-                }
-            }
+            authorized()
+            checkBudget()
+            val bounded = if (projected) value else DiagnosticValueProjector(maximumSourceCharacters) { omit(it) }.element(value)
+            redactedRecord(redactor.redact(bounded), maximumCharacters, evidence)
         }
         suspend fun captureLogs(sink: DiagnosticStageSink, critical: Boolean) {
             authorized()
@@ -231,6 +220,7 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("appCommit", BuildConfig.APP_COMMIT)
                         put("testedShaAvailability", "A retained exact tested SHA is included in compact_failure_summary; otherwise its status is NOT_RETAINED.")
                         put("fullHistorySelected", includeHistory)
+                        put("journalScope", if (includeHistory) "All runs in this conversation" else "Four most recent runs in this conversation")
                         put("capturedAtMillis", System.currentTimeMillis())
                     },
                     evidence = false
@@ -285,6 +275,7 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("sourceDigests", "Record digests describe their original stored representations. Credential redaction can change text; stage file hashes certify the bytes in this export.")
                         put("logSnapshotScope", "Logs are frozen independently per log section and capture session, then retained for interrupted stages. Resume does not replace captured evidence after ring rotation. Start a new capture to collect newer logs.")
                         put("logRecorderScope", "Network diagnostics and the application log recorder are independent settings. If application recording was disabled, enable it, reproduce the issue, then start a new capture; resuming cannot create missing historical logs.")
+                        put("workspacePayloadReferences", "A fields.payload_ref identifies the earlier rowId in this stage and archive part. Read its /fields/payload and verify the SHA-256 of its compact redacted JSON. Changed or unavailable data retains its own representation.")
                         put("acceptedPolicyLocations", "Accepted GitHub policy references are indexed in tool-catalog.jsonl and retained as workspace records in latest-state.jsonl and full-history workspace.jsonl. Empty legacy policy tables do not establish that no accepted policy was retained.")
                         put("profileScope", "Current configured profiles; actual routing evidence is in runs and invocations, not inferred from settings.")
                         put("memoryMeasurements", "Native allocated heap and ART counters where available; null does not mean zero.")
@@ -395,20 +386,10 @@ internal suspend fun writeStagedChatDiagnostics(
             if (journal == null) {
                 sink.omit("RUN_JOURNAL_UNAVAILABLE")
             } else {
-                val runIds = linkedSetOf<String>()
-                database.capture(room.id, "run_index", maximumCharacters, {
+                val runIds = database.journalRunIds(room.id, includeHistory) {
                     authorized()
                     sink.checkBudget()
-                }, { row ->
-                    if ((row["table"] as? JsonPrimitive)?.content == "agent_runs") {
-                        val runId = ((row["fields"] as? JsonObject)?.get("run_id") as? JsonPrimitive)?.contentOrNull
-                        if (runId == null) {
-                            sink.omit("RUN_JOURNAL_ID_UNAVAILABLE")
-                        } else {
-                            runIds += runId
-                        }
-                    }
-                }, { sink.omit(it) })
+                }
                 journal.streamRuns(
                     runIds,
                     beforeRead = {

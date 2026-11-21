@@ -72,44 +72,20 @@ class VoiceCaptionTest {
         assertNull(caption.highlightRange(5..5))
     }
 
-    @Test fun automaticMovementToEarlierWordsDoesNotStopFollowing() {
-        val follow = VoiceCaptionFollowing(800)
-        follow.beginAutomaticScroll()
-        assertTrue(follow.observe(600, 800))
-        assertTrue(follow.observe(300, 800))
-        follow.endAutomaticScroll(200)
-        assertTrue(follow.observe(200, 800))
-        follow.beginAutomaticScroll()
-        assertTrue(follow.observe(400, 800))
-        follow.endAutomaticScroll(500)
-        assertTrue(follow.observe(500, 800))
+    @Test fun captionsHaveFiveSymmetricTypeAndOpacityLevels() {
+        assertEquals(listOf(1f, 1.5f, 2f, 1.5f, 1f), (-2..2).map(::captionLineScale))
+        assertEquals(listOf(.5f, .75f, 1f, .75f, .5f), (-2..2).map(::captionLineAlpha))
     }
 
-    @Test fun accessibilityReadingPausesUntilReturningToTheBottom() {
-        val follow = VoiceCaptionFollowing(800)
-        assertFalse(follow.observe(500, 800))
-        assertFalse(follow.observe(500, 900))
-        assertFalse(follow.observe(650, 900))
-        assertTrue(follow.observe(900, 900))
-        assertTrue(follow.observe(900, 1000))
-    }
-
-    @Test fun aManualGestureCancelsAutomaticFollowingEvenDuringAnAnimation() {
-        val follow = VoiceCaptionFollowing(800)
-        follow.beginAutomaticScroll()
-        assertTrue(follow.observe(700, 800))
-        follow.pause()
-        follow.endAutomaticScroll(650)
-        assertFalse(follow.observe(650, 800))
-        assertFalse(follow.userScroll(400, 800))
-        assertTrue(follow.userScroll(800, 800))
-    }
-
-    @Test fun replacingTextDoesNotReclaimTheReadersPosition() {
-        val follow = VoiceCaptionFollowing(800)
-        assertFalse(follow.userScroll(300, 800))
-        assertFalse(follow.observe(300, 1200))
-        assertFalse(follow.observe(300, 500))
-        assertTrue(follow.userScroll(500, 500))
+    @Test fun manualReadingHoldsThroughNewTextAndPlaybackUntilReturningToTheEnd() {
+        val following = VoiceCaptionReader()
+        assertEquals(7f, following.position(7, 40))
+        val reading = following.scroll(4.5f, 40)
+        assertFalse(reading.following)
+        assertEquals(4.5f, reading.position(13, 50))
+        assertEquals(2f, reading.position(1, 2))
+        val resumed = reading.scroll(50f, 50)
+        assertTrue(resumed.following)
+        assertEquals(13f, resumed.position(13, 50))
     }
 }

@@ -14,7 +14,8 @@ internal data class GatewayAdmissionSetting(
     val enabled: Boolean,
     val revision: Long,
     @SerialName("gateway_id") val gatewayId: String,
-    @SerialName("principal_id") val principalId: String
+    @SerialName("principal_id") val principalId: String,
+    @SerialName("connected_settings") val connectedSettings: Boolean = false
 ) {
     init {
         require(revision >= 0)

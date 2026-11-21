@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse, Response
 from .diagnostic_events import (DiagnosticSessionJournal, DiagnosticProtocolError, MAX_BATCH_BYTES, MAX_CAPTURE_SECONDS,
                                 event_identity, sanitize_event, trace_context, HEX32)
 from .debug_projection import (ROUTES, ADMISSION_CODES, route_kind, provenance, failure_fields, response_summary, choice,
-                               backend_build_provenance)
+                               android_build, backend_build_provenance)
 
 MAX_LINES = 5000
 MAX_LINE_BYTES = 2048
@@ -324,6 +324,11 @@ class DebugLogStore:
         with self.lock:
             if not self.enabled:
                 return
+            if event == 'gateway_response' and type(fields.get('status')) is int and fields['status'] >= 400 and self.provenance.get('sourceCommit'):
+                # Keep the serving build with the failure after its startup event rotates out.
+                fields['provenance'] = {key: self.provenance[key] for key in
+                                        ('instanceId', 'bootId', 'sourceCommit', 'gatewayVersion', 'manifestDigest')
+                                        if key in self.provenance}
             item = sanitized_record(dict(fields, event=event, bootId=self.boot_id,
                                          instanceId=self.provenance.get('instanceId')))
             if item is None:
@@ -474,12 +479,21 @@ class DebugLogStore:
                 queued, dropped = self.event_queue.qsize(), self.queue_dropped
                 suppressed_polls = self.suppressed_successful_polls
             versions = []
-            for candidate in [row.get('provenance') for row in records] + [current]:
+            for candidate in (row.get('provenance') for row in records):
                 safe = provenance(candidate)
                 if safe and safe not in versions:
                     versions.append(safe)
-            builds = sorted({row['client']['appVersionCode'] for row in records
-                             if isinstance(row.get('client'), dict) and type(row['client'].get('appVersionCode')) is int})
+            current = provenance(current)
+            if current:
+                versions = [v for v in versions if not v.items() <= current.items()] + [current]
+            revisions_by_boot = {}
+            for v in versions[-32:]:
+                if v.get('bootId') and v.get('instanceId') and v.get('sourceCommit'):
+                    revisions_by_boot.setdefault((v['instanceId'], v['bootId']), set()).add(v['sourceCommit'])
+            errors = [r for r in records if r['event'] == 'gateway_response' and r.get('status', 0) >= 400]
+            bound_errors = sum(bool(r.get('provenance', {}).get('sourceCommit')) or
+                               len(revisions_by_boot.get((r.get('instanceId'), r.get('bootId')), ())) == 1 for r in errors)
+            builds = {build for row in records if (build := android_build(row)) is not None}
             transport = encode_records(records).encode('utf-8')
             output = io.BytesIO()
             archive = zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED)
@@ -489,6 +503,8 @@ class DebugLogStore:
                 with archive.open('diagnostic-events.jsonl', 'w') as stream:
                     def write_event(event):
                         nonlocal event_bytes
+                        if (build := android_build(event)) is not None:
+                            builds.add(build)
                         data = (json.dumps(event, separators=(',', ':'), sort_keys=True) + '\n').encode('utf-8')
                         stream.write(data)
                         event_hash.update(data)
@@ -502,8 +518,10 @@ class DebugLogStore:
                 raise
             manifest = {'schemaVersion': 1, 'diagnosticProtocolVersion': 2, 'exportedAtMs': int(self.now() * 1000),
                         'scope': 'local_admin_retained_diagnostics', 'redaction': 'allowlisted_metadata_only',
-                        'versions': versions[-32:], 'versionsTruncated': len(versions) > 32, 'androidBuilds': builds[-64:],
+                        'versions': versions[-32:], 'versionsTruncated': len(versions) > 32, 'androidBuilds': sorted(builds)[-64:], 'androidBuildsTruncated': len(builds) > 64,
                         'buildIdentity': {'comparisonFields': ['gatewayVersion', 'sourceCommit', 'manifestDigest'],
+                                          'errorResponsesWithRevision': bound_errors,
+                                          'errorResponsesWithoutRevision': len(errors) - bound_errors,
                                           'versionLabelIsUnique': all(len({v.get('sourceCommit') for v in versions if v.get('gatewayVersion') == label}) <= 1
                                                                      for label in {v.get('gatewayVersion') for v in versions}),
                                           'backendBuildStatus': current.get('backendBuildStatus', 'not_observed')},
@@ -687,7 +705,7 @@ class DebugMiddleware:
             nonlocal status, sent, response_started, response_completed, response_at, completed_at, completed_duration, admission, body_oversize, observed, poll_suppressed
             if message['type'] == 'http.response.start':
                 status = message['status']
-                if observed and context['route'] == 'management_dashboard' and 200 <= status < 400:
+                if observed and context['method'] == 'GET' and context['route'] in {'management_dashboard', 'management_settings'} and 200 <= status < 400:
                     observed = self.store.retain_successful_poll(context['route'])
                     poll_suppressed = not observed
                 additions = {b'x-gateway-instance-id': self.instance_id.encode(), b'x-gateway-debug-protocol': b'2',
@@ -776,7 +794,7 @@ class DebugMiddleware:
                             body = json.loads(response_body)
                         except (ValueError, UnicodeDecodeError, RecursionError):
                             pass
-                    summary = response_summary(body, admission)
+                    summary = response_summary(body, admission, context['route'], status)
                     duration = completed_duration if completed_duration is not None else max(0, int((time.monotonic() - started) * 1000))
                     self.store.record('gateway_response', status=status, receivedBytes=received, sentBytes=sent,
                                       timestampMs=completed_at or int(self.now() * 1000), responseStartedAtMs=response_at,

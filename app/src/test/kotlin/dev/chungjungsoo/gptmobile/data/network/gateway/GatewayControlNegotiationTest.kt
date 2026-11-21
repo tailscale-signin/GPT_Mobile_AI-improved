@@ -18,11 +18,23 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayControlNegotiationTest {
+    @Test
+    fun privateAddressBindsInferenceAndControlToTheSamePc() {
+        val fragment = "endpoint=https%3A%2F%2F192.168.1.20%3A8091&installation_id=pc-one&fingerprint=${"a".repeat(64)}&code=${"b".repeat(43)}&expires=1200&gateway_port=8090"
+        val address = "http://192.168.1.20:8090/v1"
+        assertEquals(address, privateGatewayAddress("$address#$fragment", 1000)?.profileEndpoint)
+        assertNull(privateGatewayAddress(address, 1000))
+        assertThrows(IllegalArgumentException::class.java) { privateGatewayAddress("http://192.168.1.21:8090/v1#$fragment", 1000) }
+        assertThrows(IllegalArgumentException::class.java) { privateGatewayAddress("$address#$fragment", 1200) }
+    }
+
     @Test fun directRoutePreparationDoesNotClaimTransmissionAcceptanceOrEffectiveSettings() = runBlocking {
         val records = mutableListOf<String>()
         val config = ProviderRequestConfig("https://direct-controls-fixture.invalid/v1", null, providerType = "LLAMA", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "false", "X-Gateway-Cache-Reuse" to "1024"))

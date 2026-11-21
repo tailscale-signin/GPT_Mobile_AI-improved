@@ -94,6 +94,17 @@ internal object GitHubToolHandoff {
     fun pending(checkpoint: JsonObject): Set<String> =
         (checkpoint["pending_calls"] as? JsonArray).orEmpty().mapNotNullTo(linkedSetOf()) { (it as? JsonPrimitive)?.contentOrNull }
 
+    /** Durable or reconciled results absent from the provider's replay need a saved-context synthesis. */
+    fun needsRecoveryContext(checkpoint: JsonObject, replay: List<ToolHandoffReceipt>, reconciled: Set<String>): Boolean {
+        val byFingerprint = replay.associateBy { it.invocationFingerprint }
+        val completed = (checkpoint["completed_results"] as? JsonArray).orEmpty()
+        return completed.filterIsInstance<JsonObject>().any { saved ->
+            val fingerprint = (saved["invocation_fingerprint"] as? JsonPrimitive)?.contentOrNull ?: return@any false
+            val current = byFingerprint[fingerprint]
+            current == null || current.requiresReconciliation && current.callId in reconciled
+        }
+    }
+
     fun bindingChanged(checkpoint: JsonObject, selectedBinding: String?): Boolean {
         val context = checkpoint["context"] as? JsonObject ?: return false
         val saved = (context["tool_checkpoint_binding"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull

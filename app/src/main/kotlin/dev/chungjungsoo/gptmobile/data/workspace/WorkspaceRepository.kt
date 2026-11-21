@@ -12,6 +12,7 @@ import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -19,6 +20,51 @@ import kotlinx.serialization.json.Json
 class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, private val vault: dev.chungjungsoo.gptmobile.data.security.SecretVault) {
     val dao = database.workspaceDao()
     val records = dao.observe()
+    private data class SearchOutcome(val category: String, val messageId: Int?)
+    private val outcomeCache = object : LinkedHashMap<OutcomeRecordKey, SearchOutcome>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<OutcomeRecordKey, SearchOutcome>?) = size > 4096
+    }
+
+    /** Search protected evidence on demand, newest saved observation first. No source or chat text is indexed outside the vault. */
+    internal suspend fun chatsByOutcome(kind: String, candidates: Set<Int>): Map<Int, Int?> {
+        val matches = linkedMapOf<Int, Int?>()
+        var beforeRow = Long.MAX_VALUE
+        while (matches.size < candidates.size) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val keys = dao.outcomeEvidenceKeys(beforeRow)
+            if (keys.isEmpty()) break
+            for (key in keys) {
+                if (key.chatId !in candidates || key.chatId in matches) continue
+                val match = synchronized(outcomeCache) { outcomeCache[key] } ?: protectedSynthesisCheckpoint(key.id)?.let {
+                    val value = SearchOutcome(dev.chungjungsoo.gptmobile.data.github.GitHubSavedOutcome.category(it).orEmpty(), key.messageId ?: dev.chungjungsoo.gptmobile.data.github.GitHubSavedOutcome.messageId(it, key.chatId))
+                    synchronized(outcomeCache) { outcomeCache[key] = value }
+                    value
+                }
+                if (match?.category == kind) matches[key.chatId] = match.messageId
+            }
+            beforeRow = keys.last().storedRow
+        }
+        return matches
+    }
+
+    /** Decrypt bounded, current task snapshots only when the conversation's receipts are opened. */
+    internal suspend fun conversationWork(chatId: Int): dev.chungjungsoo.gptmobile.data.github.GitHubConversationWork = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val keys = dao.recentTaskContracts(chatId)
+        val tasks = keys.take(24).map { key ->
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val binding = key.removePrefix("github-evidence:").removeSuffix(":task_contract")
+            if (binding.matches(Regex("[a-f0-9]{64}"))) {
+                val suffix = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(binding).take(24)
+                val snapshot = "github-evidence:$binding:verification_current_$suffix"
+                val verdict = protectedSynthesisCheckpoint(snapshot)?.takeIf { it["binding"] == kotlinx.serialization.json.JsonPrimitive(binding) }
+                dev.chungjungsoo.gptmobile.data.github.GitHubWorkMeasurement.from(verdict, dao.taskSnapshotRunState(chatId, snapshot, key))
+            } else {
+                dev.chungjungsoo.gptmobile.data.github.GitHubWorkMeasurement.from(null)
+            }
+        }
+        dev.chungjungsoo.gptmobile.data.github.GitHubConversationWork(tasks, keys.size > 24)
+    }
+
     val json = Json { ignoreUnknownKeys = true }
     suspend fun exclusions(chatId: Int): ContextExclusions = dao.get("exclusions:$chatId")?.let { json.decodeFromString(it.payload) } ?: ContextExclusions()
     suspend fun exclude(chatId: Int, value: ContextExclusions) = dao.save(WorkspaceRecord("exclusions:$chatId", "exclusions", "Next request exclusions", json.encodeToString(value), chatId))

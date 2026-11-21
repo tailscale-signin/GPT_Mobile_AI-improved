@@ -22,6 +22,9 @@ internal object GitHubTestChecklist {
         Capability("github_context", "branches", "Branch inventory", true),
         Capability("github_context", "commits", "Recent commits", true),
         Capability("github_pr", "list", "Pull request inventory", true),
+        Capability("github_issue", "list", "Issue inventory", true),
+        Capability("github_release", "list", "Release inventory", true),
+        Capability("github_release", "tags", "Tag inventory", true),
         Capability("github_ci", "workflows", "Workflow inventory", true),
         Capability("github_ci", "runs", "Recent workflow runs", true),
         Capability("github_search", "", "Path search"),
@@ -452,7 +455,7 @@ internal object GitHubTestChecklist {
                     if (requiresLiveTransport(capability) && (tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true) put("verify_live", true)
                     if (capability.action in setOf("branches", "workflows", "list", "commits", "runs")) put("per_page", if (capability.action == "workflows" || GitHubChecklistScope.exhaustive(task)) 100 else 30)
                     if ((capability.action in setOf("checks", "commits") || capability.action == "runs" && !GitHubChecklistScope.exhaustive(task)) && head != null) put("commit_sha", head)
-                    if (capability.action == "list") put("state", "all")
+                    if (capability.action == "list" && capability.tool in setOf("github_pr", "github_issue")) put("state", "all")
                 }
                 if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty()) continue
                 call(tool.name, arguments).takeIf(::eligible)?.let { return it }
@@ -553,6 +556,7 @@ internal object GitHubTestChecklist {
         val selected = if (observedOnly) coverage.cumulative.filter { capability -> historical.any { matches(it, capability) } } else coverage.cumulative
         if (selected.isEmpty()) return JsonArray(emptyList())
         val allTrusted = trusted(receipts)
+        val knownPull = GitHubSelfTestReads.pullNumber(allTrusted)
         val graphObservation = GitHubSelfTestPrerequisites.graphObservation(allTrusted)
         val readyReads = GitHubSelfTestReads.available(tools, allTrusted).associateBy { it.name.githubOperationFamily() to it.arguments.text("action") }
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts).filterIsInstance<JsonObject>()
@@ -634,6 +638,8 @@ internal object GitHubTestChecklist {
                     capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run bound to the selected revision. A bounded inline check can run without a background subscription; persistent subscription behavior requires a saved chat and a separate observation."
                     !readOnly(capability) -> GitHubSelfTestFixtures.prerequisite(capability.tool, capability.action)
                     capability.tool == "github_issue" -> "No issue identifier observed from the issue inventory; a pull request number cannot satisfy this dependency."
+                    capability.tool == "github_pr" && capability.action == "copilot_task_status" -> "Requires a task ID from the selected Copilot task inventory or a saved creation receipt."
+                    capability.tool == "github_pr" && knownPull != null -> "Pull request #${knownPull.content} is recorded. This action still needs an eligible invocation under its current tool schema."
                     capability.tool == "github_pr" -> "No pull request identifier observed from the pull request inventory."
                     capability.tool == "github_ci" -> "Requires an observed workflow/run and a completed job for logs or a failed completed run for failure analysis."
                     capability.tool == "repository_graph" -> "Graph prerequisite: $graphObservation. Preparation has not executed this capability and does not change graph authorization."
@@ -678,6 +684,8 @@ internal object GitHubTestChecklist {
                     capability.tool == "github_watch_checks" -> GitHubCriterionBlocker.CHECK_SUBSCRIPTION_REQUIRED
                     !readOnly(capability) -> GitHubCriterionBlocker.OWNED_FIXTURE_REQUIRED
                     capability.tool == "github_issue" -> GitHubCriterionBlocker.ISSUE_ID_REQUIRED
+                    capability.tool == "github_pr" && capability.action == "copilot_task_status" -> GitHubCriterionBlocker.OPERATION_IDENTITY_REQUIRED
+                    capability.tool == "github_pr" && knownPull != null -> GitHubCriterionBlocker.EXECUTION_NOT_EXERCISED
                     capability.tool == "github_pr" -> GitHubCriterionBlocker.PULL_REQUEST_ID_REQUIRED
                     capability.tool == "github_ci" -> GitHubCriterionBlocker.WORKFLOW_RUN_OR_JOB_REQUIRED
                     capability.tool == "github_release" -> GitHubCriterionBlocker.RELEASE_OR_TAG_REQUIRED
@@ -1229,7 +1237,7 @@ internal object GitHubTestChecklist {
                         (args?.text("action") == "dispatch" || expectedAttempt != null && attempt == expectedAttempt)
                 }
             }
-            val jobPages = trusted(receipts).filter { read ->
+            val jobReceipts = trusted(receipts).filter { read ->
                 val value = data(read)
                 val expectedAttempt = result?.get("expected_run_attempt") ?: observation?.get("run_attempt")
                 read["success"] == JsonPrimitive(true) &&
@@ -1242,10 +1250,14 @@ internal object GitHubTestChecklist {
                     value?.get("run_attempt") == expectedAttempt &&
                     read.text("tool").githubOperationFamily() == "github_ci" &&
                     (read["arguments"] as? JsonObject)?.text("action") == "jobs"
-            }.mapNotNull(::data)
-            val jobs = GitHubWorkflowJobEvidence.completeJobs(jobPages)
+            }
+            val jobs = GitHubWorkflowJobEvidence.completeJobs(jobReceipts.mapNotNull(::data))
             val jobsVerified = jobs != null && jobs.all { it.text("status") == "completed" && it.text("conclusion") in setOf("success", "skipped", "neutral") }
             buildJsonObject {
+                val testJobs = jobs.orEmpty().filter { Regex("(?i)\\b(?:tests?|unit|instrumentation)\\b").containsMatchIn(it.text("name")) }
+                if (jobsVerified && testJobs.isNotEmpty() && testJobs.all { it.text("conclusion") == "success" }) {
+                    put("test_job_receipts", JsonArray(jobReceipts.mapNotNull { it["receipt_id"] }))
+                }
                 put("attempt_jobs_verified", jobsVerified)
                 put("execution_verified", observation?.text("status") == "completed" && observation.text("conclusion") == "success" && jobsVerified)
                 mutation["receipt_id"]?.let { put("dispatch_receipt", it) }

@@ -9,6 +9,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ProfileModelCatalogTest {
+    @Test fun gatewayUsesLoadedModelAndShowsChoicesWhenMultipleModelsAreLoaded() {
+        val payload = kotlinx.serialization.json.Json.parseToJsonElement("""{"data":[{"id":"cold","status":{"value":"unloaded"}},{"id":"active","status":{"value":"loaded"}}]}""") as kotlinx.serialization.json.JsonObject
+        val options = ProfileModelCatalog().parseModels(payload, ClientType.LLAMA)
+        assertEquals("active", gatewayProfileModel(options, "cold"))
+        val ambiguous = options + ProfileModelOption("other", "Other", loaded = true)
+        assertEquals(null, gatewayProfileModel(ambiguous, ""))
+        assertEquals("other", gatewayProfileModel(ambiguous, "other"))
+    }
+
     @Test
     fun nvidiaDiscoversModelsUsingConfiguredEndpointAndBearerKey() = runBlocking {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)

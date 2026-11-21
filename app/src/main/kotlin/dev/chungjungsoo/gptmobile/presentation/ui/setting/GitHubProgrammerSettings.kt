@@ -309,6 +309,7 @@ internal fun GitHubGatewayConnectionCheck(profileUid: String?, onCheck: (String)
 private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride, enabled: Boolean, configuredCallLimit: Int?, onChange: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var workflowMenu by remember { mutableStateOf(false) }
+    var advanced by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("GitHub chat preferences", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
@@ -335,22 +336,28 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
             }
             GitHubOverrideSwitch("Web search", "Search the web and read source pages.", value.webSearch, enabled) { onChange(value.copy(webSearch = it)) }
             GitHubOverrideSwitch("GitHub tools", "Use the connected repository and review changes before committing.", value.githubTools, enabled) { onChange(value.copy(githubTools = it)) }
-            GitHubOverrideSwitch("Maximum context expansion", "Expand up to the provider or local model capacity, with room for results and review.", value.maximumContext, enabled) { onChange(value.copy(maximumContext = it)) }
-            Text("Engineering memory", style = MaterialTheme.typography.titleSmall)
-            dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.entries.forEach { mode ->
-                TextButton(onClick = { onChange(value.copy(engineeringMemory = mode)) }, enabled = enabled) {
-                    Text(
-                        (
-                            when (mode) {
-                                dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.SESSION_ONLY -> "Session only"
-                                dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.PERSISTENT -> "Persistent repository memory"
-                                dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.HYBRID -> "Hybrid semantic + evidence memory"
-                            }
-                            ) + if (value.engineeringMemory == mode) " ✓" else ""
-                    )
+            TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced settings" else "Advanced settings") }
+            if (advanced) {
+                GitHubOverrideSwitch("Maximum context expansion", "Expand up to the provider or local model capacity, with room for results and review.", value.maximumContext, enabled) { onChange(value.copy(maximumContext = it)) }
+                Text("Engineering memory", style = MaterialTheme.typography.titleSmall)
+                if (value.engineeringMemory != dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.SESSION_ONLY) {
+                    Text("To record a repair result, send “feedback: worked” or “feedback: failed” followed by its evidence ID. To link a screenshot, attach it and send “evidence:” followed by the ID.", style = MaterialTheme.typography.bodySmall)
                 }
+                dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.entries.forEach { mode ->
+                    TextButton(onClick = { onChange(value.copy(engineeringMemory = mode)) }, enabled = enabled) {
+                        Text(
+                            (
+                                when (mode) {
+                                    dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.SESSION_ONLY -> "Session only"
+                                    dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.PERSISTENT -> "Persistent repository memory"
+                                    dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.HYBRID -> "Hybrid semantic + evidence memory"
+                                }
+                                ) + if (value.engineeringMemory == mode) " ✓" else ""
+                        )
+                    }
+                }
+                GitHubOverrideSwitch("Allow cloud engineering recall", "Permit this profile to receive historical repository memory. Off keeps recalled source and decisions on private destinations.", value.allowCloudEngineeringMemory, enabled) { onChange(value.copy(allowCloudEngineeringMemory = it)) }
             }
-            GitHubOverrideSwitch("Allow cloud engineering recall", "Permit this profile to receive historical repository memory. Off keeps recalled source and decisions on private destinations.", value.allowCloudEngineeringMemory, enabled) { onChange(value.copy(allowCloudEngineeringMemory = it)) }
             Column {
                 Text("Engineering budget", style = MaterialTheme.typography.titleSmall)
                 OutlinedButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.testTag("github_engineering_budget")) { Text(engineeringLabel(value.engineeringMode)) }
@@ -363,6 +370,13 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
                     }
                 }
             }
+            val modeDescription = when (value.engineeringMode) {
+                dev.chungjungsoo.gptmobile.data.context.EngineeringMode.QUICK -> "Fast uses up to 8,192 context tokens and 2,048 output tokens for a focused investigation."
+                dev.chungjungsoo.gptmobile.data.context.EngineeringMode.STANDARD -> "Balanced uses up to 16,384 context tokens and 4,096 output tokens for normal implementation and validation."
+                dev.chungjungsoo.gptmobile.data.context.EngineeringMode.DEEP -> "Thorough uses up to 32,768 context tokens and 8,192 output tokens for more source and a longer analysis."
+                else -> null
+            }
+            if (modeDescription != null) Text("$modeDescription Profile and model limits also apply.", style = MaterialTheme.typography.bodySmall)
             Text("Ultra Maximum is the default. GitHub work allows up to 512 tool calls; saved gateway jobs request up to 24 hours and 512 model calls. Your saved limits still apply, and each job shows the allowance accepted by its gateway.", style = MaterialTheme.typography.bodySmall)
             Text("Llama gateway · Review required before the final answer. Design decisions appear as buttons, with a custom answer option.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
@@ -371,6 +385,9 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
 
 private fun engineeringLabel(mode: dev.chungjungsoo.gptmobile.data.context.EngineeringMode): String = when (mode) {
     dev.chungjungsoo.gptmobile.data.context.EngineeringMode.ULTRA_MAX -> "Ultra Maximum"
+    dev.chungjungsoo.gptmobile.data.context.EngineeringMode.QUICK -> "Fast"
+    dev.chungjungsoo.gptmobile.data.context.EngineeringMode.STANDARD -> "Balanced"
+    dev.chungjungsoo.gptmobile.data.context.EngineeringMode.DEEP -> "Thorough"
     else -> mode.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 

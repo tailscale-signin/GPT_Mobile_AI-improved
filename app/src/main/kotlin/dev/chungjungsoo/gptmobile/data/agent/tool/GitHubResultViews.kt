@@ -60,7 +60,7 @@ internal class GitHubResultViews(
         }
     }
 
-    fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes): AgentToolResult {
+    fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes, sourceCorrection: JsonObject? = null): AgentToolResult {
         val pageBytes = minOf(this.pageBytes, maxPageBytes.coerceAtLeast(2048))
         fun value(content: ToolResultContent): JsonElement? = when (content) {
             is ToolResultContent.Json -> content.value
@@ -70,6 +70,18 @@ internal class GitHubResultViews(
         val display = value(upstream.content) ?: return upstream
         val value = upstream.retainedContent?.let(::value) ?: display
         val bytes = value.toString().toByteArray().size
+        val sourcePages = operation == "github_read" &&
+            !upstream.isError &&
+            request["response_detail"] != JsonPrimitive("full") &&
+            bytes > pageBytes / 2 &&
+            GitHubSourcePages.supports(value)
+        if (sourcePages) {
+            val recipes = mutableListOf<JsonObject>()
+            retainContinuations(value, "", operation, modelName, request, recipes)
+            if (recipes.toString().encodeToByteArray().size <= pageBytes / 4) {
+                return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, sourcePages = true)
+            }
+        }
         if (bytes > MAX_SOURCE_BYTES) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
         val continuations = mutableListOf<JsonObject>()
         val body = retainContinuations(value, "", operation, modelName, request, continuations)
@@ -129,8 +141,10 @@ internal class GitHubResultViews(
         if (small.toString().toByteArray().size <= pageBytes) {
             authorize(entry, small)
             store(id, entry)
+            val visible = sourceCorrection?.let { JsonObject(small + mapOf("correction_call" to it, "recovery_action" to JsonPrimitive("RECOVER_SOURCE_EVIDENCE"))) }
+                ?.takeIf { it.toString().encodeToByteArray().size <= pageBytes } ?: small
             return upstream.copy(
-                content = ToolResultContent.Json(small),
+                content = ToolResultContent.Json(visible),
                 executionReceipt = JsonObject(
                     upstream.executionReceipt.orEmpty() + sourceIdentity(entry) + buildJsonObject {
                         summary?.let { put("semantic_summary", it) }
@@ -200,7 +214,7 @@ internal class GitHubResultViews(
                 )
             }
         }
-        if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || offset !in 0 until entry.fragmentCount || cursor !in entry.issuedCursors) {
+        if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || (offset !in 0 until entry.fragmentCount && !(operation == "github_read" && entry.compressedSource != null && offset >= GitHubSourcePages.FIRST)) || cursor !in entry.issuedCursors) {
             // An exact issued cursor proves the authorized view even when the
             // caller selected the wrong operation after eviction. Preserve the
             // original and requested operation identities in the recovery object;
@@ -458,9 +472,10 @@ internal class GitHubResultViews(
     private fun authorize(entry: Entry, page: JsonObject) {
         // Only cursors actually emitted by this view may advance it. Source evidence
         // and a guessed fragment offset never grant pagination access.
-        val recipes = listOfNotNull(page["recovery_call"] as? JsonObject, page["continuation_call"] as? JsonObject) +
+        val recipes = listOfNotNull(page["recovery_call"] as? JsonObject, page["continuation_call"] as? JsonObject, page["original_call"] as? JsonObject) +
             listOf("recovery_options", "continuation_options").flatMap { key -> (page[key] as? JsonArray).orEmpty().filterIsInstance<JsonObject>() }
-        recipes.forEach { recipe ->
+        val rangeCalls = (page["range_calls"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { it["call"] as? JsonObject }
+        (recipes + rangeCalls).forEach { recipe ->
             val arguments = recipe["arguments"] as? JsonObject
             (arguments?.get("view_cursor") as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(entry.issuedCursors::add)
         }
@@ -479,6 +494,16 @@ internal class GitHubResultViews(
 
     private fun page(id: String, entry: Entry, offset: Int, modelName: String, pageBytes: Int = entry.pageBytes): JsonObject {
         val source = entry.compressedSource?.let { decodeSource(it, entry.sourceCharacters, requireNotNull(entry.sourceSha256)) }
+        if (offset >= GitHubSourcePages.FIRST && source != null && entry.operation == "github_read") {
+            val root = Json.parseToJsonElement(source) as JsonObject
+            return sourcePage(id, modelName, root, offset, pageBytes, entry.continuations) ?: buildJsonObject {
+                put("schema", SCHEMA)
+                put("operation", entry.operation)
+                put("page_capacity_exceeded", true)
+                put("recovery_call", savedCall(modelName, "$id:$offset:${entry.pageBytes}"))
+                put("original_call", savedCall(modelName, "$id:0:${entry.pageBytes}"))
+            }
+        }
         var metadataBytes = 0
         val metadata = if (pageBytes < 2048) {
             JsonObject(
@@ -622,7 +647,7 @@ internal class GitHubResultViews(
             if (action != null) values["action"] = JsonPrimitive(action)
         }
         if (operation == "github_release") {
-            val action = mapOf("tag_context" to "tag", "list_tags" to "tags", "list_releases" to "list", "get_release_by_tag" to "detail")[(continuation["action"] as? JsonPrimitive)?.content]
+            val action = mapOf("tag_context" to "tag", "list_tags" to "tags", "list_releases" to "list", "get_release_by_tag" to "detail", "get_release" to "detail")[(continuation["action"] as? JsonPrimitive)?.content]
             if (action != null) values["action"] = JsonPrimitive(action)
         }
         if (operation == "github_ci") {
@@ -699,8 +724,13 @@ internal class GitHubResultViews(
         }
     }
 
+    private fun sourcePage(id: String, modelName: String, root: JsonObject, offset: Int, bytes: Int, continuations: List<JsonObject>): JsonObject? =
+        GitHubSourcePages.page(root, offset, bytes, continuations) { position, allowance ->
+            savedCall(modelName, "$id:$position:$allowance")
+        }
+
     /** Large notes/logs stay compressed once, instead of multiplying thousands of JSON objects. */
-    private fun compressed(scope: String, upstream: AgentToolResult, operation: String, modelName: String, value: JsonElement, request: JsonObject, pageBytes: Int, display: JsonElement): AgentToolResult {
+    private fun compressed(scope: String, upstream: AgentToolResult, operation: String, modelName: String, value: JsonElement, request: JsonObject, pageBytes: Int, display: JsonElement, sourcePages: Boolean = false): AgentToolResult {
         val source = value.toString()
         val plain = source.encodeToByteArray()
         if (plain.size > MAX_SERIALIZED_SOURCE_BYTES) return overflow(upstream, operation, modelName, value, request)
@@ -741,7 +771,8 @@ internal class GitHubResultViews(
                 }
             }
         }
-        val first = summary?.takeIf { it.toString().encodeToByteArray().size <= pageBytes } ?: page(id, entry, 0, modelName)
+        val rangePage = if (sourcePages && value is JsonObject) sourcePage(id, modelName, value, GitHubSourcePages.FIRST, pageBytes, continuations) else null
+        val first = rangePage ?: summary?.takeIf { it.toString().encodeToByteArray().size <= pageBytes } ?: page(id, entry, 0, modelName)
         authorize(entry, first)
         store(id, entry)
         return upstream.copy(

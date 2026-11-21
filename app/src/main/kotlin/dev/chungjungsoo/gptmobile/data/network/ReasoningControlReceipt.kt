@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -21,7 +22,8 @@ data class ReasoningControlReceipt(
     val requestedMode: String? = null,
     val requestedAllowReasoning: Boolean? = null,
     val requestedMaximizeReasoning: Boolean? = null,
-    val serializedControls: JsonObject? = null
+    val serializedControls: JsonObject? = null,
+    val serializedSourceRanges: JsonArray? = null
 ) {
     /** Immutable request evidence; an emitted disable control does not prove backend compliance. */
     fun evidence(): JsonObject = buildJsonObject {
@@ -35,6 +37,7 @@ data class ReasoningControlReceipt(
         put("serialized_controls", serializedControls ?: JsonNull)
         put("serialized_disable", transmitsDisable)
         put("control_support", providerSupport)
+        serializedSourceRanges?.let { put("serialized_source_ranges", it) }
         put("effective_reasoning", JsonNull)
         put("effective_settings_source", "NOT_MEASURED")
     }
@@ -81,7 +84,7 @@ data class ReasoningControlReceipt(
                 controls.keys == setOf("generationConfig.thinkingConfig.includeThoughts") -> "VISIBILITY_ONLY"
                 else -> "UNVERIFIED"
             }
-            return ReasoningControlReceipt(!allowReasoning || requestedMode == dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, control, disables, support, profileRevision, configuredProfileReasoning, requestedMode.name, allowReasoning, maximizeReasoning, controls)
+            return ReasoningControlReceipt(!allowReasoning || requestedMode == dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, control, disables, support, profileRevision, configuredProfileReasoning, requestedMode.name, allowReasoning, maximizeReasoning, controls, SerializedToolSourceRanges.from(root))
         }
     }
 }

@@ -500,6 +500,7 @@ class ReadUrlToolTest {
         )
         assertTrue(result.isError)
         assertContains(result.text(), "domain scope")
+        assertEquals(JsonPrimitive("DOMAIN_SCOPE"), result.executionReceipt?.get("reader_refusal"))
         assertTrue(result.dispatched)
         assertEquals(JsonPrimitive(true), result.executionReceipt?.get("requestSent"))
         assertEquals(JsonPrimitive("FAILED"), result.executionReceipt?.get("state"))
@@ -649,6 +650,7 @@ class ReadUrlToolTest {
 
         assertTrue(result.isError)
         assertContains(result.text(), "too many redirects")
+        assertEquals(JsonPrimitive("HOP_LIMIT"), result.executionReceipt?.get("reader_refusal"))
     }
 
     @Test
@@ -668,6 +670,11 @@ class ReadUrlToolTest {
 
             assertTrue(result.isError)
             assertContains(result.text(), message)
+            if (message == "missing Location") {
+                assertEquals(JsonPrimitive(302), result.executionReceipt?.get("httpStatus"))
+                assertEquals("REDIRECT_FAILED", result.errorCode)
+                assertEquals(JsonPrimitive("LOCATION_MISSING"), result.executionReceipt?.get("reader_refusal"))
+            }
         }
     }
 
@@ -817,8 +824,13 @@ class ReadUrlToolTest {
             exchange.respond(403, "text/plain", "Denied")
         }
         val reader = tool(allowTestLoopback = true)
-        assertTrue(reader.execute("one", args(server.url("fixture.test", "/one"))).isError)
-        assertTrue(reader.withOutputLimit(1000).execute("two", args(server.url("fixture.test", "/two"))).isError)
+        val first = reader.execute("one", args(server.url("fixture.test", "/one")))
+        val second = reader.withOutputLimit(1000).execute("two", args(server.url("fixture.test", "/two")))
+        assertTrue(first.isError && first.dispatched)
+        assertEquals(JsonPrimitive(403), first.executionReceipt?.get("httpStatus"))
+        assertEquals("SOURCE_ACCESS_BLOCKED", second.errorCode)
+        assertFalse(second.dispatched)
+        assertEquals(JsonPrimitive("TURN_DENIAL_CACHE"), second.executionReceipt?.get("reader_refusal"))
         assertEquals(1, requests)
     }
 

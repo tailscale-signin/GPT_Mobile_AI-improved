@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
@@ -359,16 +360,24 @@ class GitHubResultViewsStressTest {
     }
 
     @Test fun presentationSerializationDoesNotHoldTheSavedViewMonitor() {
-        val method = GitHubResultViews::class.java.getDeclaredMethod(
-            "present",
-            String::class.java,
-            String::class.java,
-            String::class.java,
-            AgentToolResult::class.java,
-            JsonObject::class.java,
-            Integer.TYPE
+        val views = GitHubResultViews()
+        val payload = mapOf("title" to JsonPrimitive("Saved issue"))
+        var traversals = 0
+        val source = JsonObject(
+            object : AbstractMap<String, JsonElement>() {
+                override val entries: Set<Map.Entry<String, JsonElement>>
+                    get() {
+                        assertFalse("Reading the upstream JSON held the saved-view monitor", Thread.holdsLock(views))
+                        traversals++
+                        return payload.entries
+                    }
+            }
         )
-        assertFalse(java.lang.reflect.Modifier.isSynchronized(method.modifiers))
+        val upstream = AgentToolResult("source", ToolResultContent.Json(source), false)
+        val before = traversals
+        val result = views.present("scope", "github_read", "github_read", upstream)
+        assertFalse(result.isError)
+        assertTrue("Presentation must traverse the upstream JSON", traversals > before)
     }
 
     @Test fun presentationCapacityRetainsBoundedOriginalAndSeparateUpstreamOutcome() {

@@ -121,6 +121,7 @@ class GatewayJobControl @Inject constructor(
                             GatewayCancellationOutcome.CONFIRMED -> GatewayJobStopOutcome.CONFIRMED
                             GatewayCancellationOutcome.REQUESTED -> GatewayJobStopOutcome.REQUESTED
                             GatewayCancellationOutcome.NOT_CANCELED -> GatewayJobStopOutcome.ALREADY_TERMINAL
+                            GatewayCancellationOutcome.UNAVAILABLE -> GatewayJobStopOutcome.UNAVAILABLE
                             GatewayCancellationOutcome.UNKNOWN -> GatewayJobStopOutcome.UNKNOWN
                         }
                     )

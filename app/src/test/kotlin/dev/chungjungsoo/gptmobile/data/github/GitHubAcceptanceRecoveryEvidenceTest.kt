@@ -13,6 +13,20 @@ import org.junit.Test
 class GitHubAcceptanceRecoveryEvidenceTest {
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject
 
+    @Test fun retainedDeadlineReportsRelativeTimeOnlyWhenObserved() {
+        val contract = json("""{"accepted_at_ms":1000,"deadline_at_ms":61000}""")
+        val expired = GitHubExecutionLimits.deadlineTiming(contract, 66000)
+        assertEquals(json("""{"task_deadline_observation":"WINDOW_EXPIRED","task_deadline_window_seconds":60,"task_deadline_overdue_seconds":5}"""), expired)
+        val open = GitHubExecutionLimits.deadlineTiming(contract, 60000)
+        assertEquals(JsonPrimitive("WINDOW_OPEN"), open["task_deadline_observation"])
+        assertNull(open["task_deadline_overdue_seconds"])
+        assertEquals(json("""{"task_deadline_observation":"NO_ACCEPTED_DEADLINE"}"""), GitHubExecutionLimits.deadlineTiming(json("{}"), 66000))
+        assertEquals(json("""{"task_deadline_observation":"CONTRACT_UNAVAILABLE"}"""), GitHubExecutionLimits.deadlineTiming(null, 66000))
+        val retained = GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"ACCEPTED_TASK_DEADLINE_REACHED","task_deadline_check":"BEFORE_TOOL_RESTORE","task_deadline_observation":"WINDOW_EXPIRED","task_deadline_window_seconds":60,"task_deadline_overdue_seconds":5,"deadline_at_ms":61000}}"""))
+        assertEquals(JsonObject(expired + ("task_deadline_check" to JsonPrimitive("BEFORE_TOOL_RESTORE"))), retained)
+        assertTrue(GitHubAcceptanceRecoveryEvidence.fields(json("""{"original_failure":{"stop_reason":"OTHER","task_deadline_check":"BEFORE_TOOL_RESTORE"}}""")).isEmpty())
+    }
+
     @Test fun missingProtectionIsNotInferredFromUnprotectedBranchAndObservedRules() {
         val policy = json("""{"branch":{"protected":false},"protection":{"available":false,"http_status":404},"rules":{"available":true,"data":[]},"policy":{"required_checks_complete":false}}""")
         val evidence = GitHubStatusPolicyEvidence.snapshot(policy)
@@ -68,13 +82,17 @@ class GitHubAcceptanceRecoveryEvidenceTest {
                 {"id":"github_commit:create","required":false,"state":"BLOCKED"},
                 {"id":"github_pr:list","required":true,"state":"PASS"},
                 {"id":"private-account/private-repository:private-path","required":true,"state":"BLOCKED"}
-            ]},"test_checklist":{"preparation":{"schema":"github.integration-preparation.v1","status":"PREREQUISITES_REQUIRED","ready_read_count":0,"additional_ready_read_count":0,"owned_fixture_creation_admissible":false,"ready_reads":[{"arguments":{"repository":"private-repo"}}]}}}"""
+            ]},"test_checklist":{"preparation":{"schema":"github.integration-preparation.v1","status":"PREREQUISITES_REQUIRED","ready_read_count":0,"additional_ready_read_count":0,"owned_fixture_creation_admissible":false,"budget":{"remaining_known":true,"acquisition_allowed":false,"cleanup_reserve":1,"fixture_start_minimum":6},"blockers":[{"code":"OWNED_FIXTURE_REQUIRED","required_capability_ids":["private-id"]},{"code":"APPROVAL_REQUIRED","required_capability_ids":[]},{"code":"private blocker","required_capability_ids":["private-id"]}],"ready_reads":[{"arguments":{"repository":"private-repo"}}]}}}"""
         )
         val original = verdict.toString()
         val evidence = GitHubAcceptanceRecoveryEvidence.fields(verdict)
         assertEquals(JsonPrimitive("PREREQUISITES_REQUIRED"), evidence["acceptance_preparation_state"])
         assertEquals(JsonPrimitive(0), evidence["acceptance_ready_read_count"])
         assertEquals(JsonPrimitive(false), evidence["acceptance_fixture_creation_admissible"])
+        assertEquals(JsonPrimitive(false), evidence["acceptance_acquisition_allowed"])
+        assertEquals(JsonPrimitive(1), evidence["acceptance_cleanup_reserve"])
+        assertEquals(JsonPrimitive(6), evidence["acceptance_fixture_start_minimum"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("OWNED_FIXTURE_REQUIRED"))), evidence["acceptance_prerequisite_blockers"])
         assertEquals(JsonArray(listOf(JsonPrimitive("github_ci"), JsonPrimitive("github_read"))), evidence["acceptance_blocked_operation_families"])
         assertFalse("private" in evidence.toString())
         assertFalse("arguments" in evidence.toString())

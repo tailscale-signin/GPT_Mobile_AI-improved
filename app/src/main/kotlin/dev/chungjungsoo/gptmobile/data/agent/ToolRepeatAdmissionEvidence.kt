@@ -33,7 +33,7 @@ class ToolRepeatAdmissionEvidence private constructor(
             "dependency_repeat_used",
             "dependency_repeat_limit"
         )
-        internal val REPORT_FIELD_NAMES = FIELD_NAMES + ToolRepeatAdmissionHistory.FIELD_NAMES
+        internal val REPORT_FIELD_NAMES = FIELD_NAMES + ToolRepeatAdmissionHistory.FIELD_NAMES + ToolRepeatAdmissionHistory.LAST_UNSENT_CODE
 
         internal fun capture(call: ProviderEvent.ToolCall, repeatKey: String, snapshot: ToolDependencyDiagnostics.RepeatLimitSnapshot): ToolRepeatAdmissionEvidence =
             ToolRepeatAdmissionEvidence(call.callId, call.name, repeatKey, snapshot)

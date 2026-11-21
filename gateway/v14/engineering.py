@@ -252,6 +252,9 @@ class EngineeringStore:
             if current['enabled'] != payload['enabled']:
                 db.execute('INSERT OR REPLACE INTO engineering_admission_settings VALUES (?,?,?)',
                            (principal, payload['enabled'], current['revision'] + 1))
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_control_settings'").fetchone():
+                    db.execute('UPDATE gateway_control_settings SET revision=revision+1,author=?,changed=? WHERE id=1',
+                               (principal, time.time()))
             return self.admission_settings(db, principal)
         return self.tx(change)
 

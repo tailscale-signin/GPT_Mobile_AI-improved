@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
+import dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import java.net.URI
 import java.nio.charset.StandardCharsets
@@ -158,17 +160,20 @@ class AgentRunner(
     }
 
     private fun runWithRepairScope(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): Flow<AgentRunEvent> = flow {
-        if (minOf(limits.runTimeoutMillis, remainingTaskMillis?.invoke() ?: Long.MAX_VALUE) <= 0L) {
+        val acceptedAtEntry = remainingTaskMillis?.invoke()
+        if (minOf(limits.runTimeoutMillis, acceptedAtEntry ?: Long.MAX_VALUE) <= 0L) {
             // An expired accepted task may deliver retained evidence, but must not
             // restore queued calls or start the model loop. Delivery remains
             // cancellable and is not charged a fabricated five-second work budget.
-            if (limits.githubTask) {
-                deliverExpiredTask(session)
+            // Legacy callers can supply the accepted limit directly. When the task owns a
+            // deadline clock, only that clock can expire the durable task.
+            if (limits.githubTask && (remainingTaskMillis == null || acceptedAtEntry != null && acceptedAtEntry <= 0L)) {
+                deliverExpiredTask(session, GitHubExecutionLimits.DeadlineCheck.BEFORE_TOOL_RESTORE)
             } else {
                 emit(
                     AgentRunEvent.Provider(
                         ProviderEvent.Failed(
-                            "The accepted task time budget has ended. Completed work is saved; increase the budget before continuing.",
+                            "The time limit for this run has ended. Completed work is saved. Check the run budget before continuing.",
                             errorCode = "RUN_DEADLINE_REACHED",
                             taskOutcome = "PARTIAL",
                             failureDetails = buildJsonObject {
@@ -191,6 +196,9 @@ class AgentRunner(
                         failureDetails = kotlinx.serialization.json.buildJsonObject {
                             put("failed_stage", "planning")
                             put("dispatched", false)
+                            put("failure_origin", "APPLICATION")
+                            put("replay_budget_state", "NO_INITIAL_ALLOWANCE")
+                            put("replay_allowance", effectiveReplayTokens.coerceAtLeast(0))
                         }
                     )
                 )
@@ -218,7 +226,7 @@ class AgentRunner(
         val acceptedRemainingMillis = remainingTaskMillis?.invoke()
         val runTimeoutMillis = minOf(limits.runTimeoutMillis, acceptedRemainingMillis ?: Long.MAX_VALUE)
         if (limits.githubTask && runTimeoutMillis <= 0L) {
-            deliverExpiredTask(session)
+            deliverExpiredTask(session, GitHubExecutionLimits.DeadlineCheck.BEFORE_MODEL_LOOP)
             return@flow
         }
         val finishedInTime = if (runTimeoutMillis < Long.MAX_VALUE) {
@@ -232,7 +240,7 @@ class AgentRunner(
 
         if (finishedInTime == null) {
             if (limits.githubTask && acceptedRemainingMillis == runTimeoutMillis) {
-                deliverExpiredTask(session)
+                deliverExpiredTask(session, GitHubExecutionLimits.DeadlineCheck.MODEL_LOOP_TIMEOUT)
             } else if (limits.githubTask && exchanges.isNotEmpty()) {
                 finishFromRetained(guardedSession, ProviderEvent.Failed("Agent run timed out after $runTimeoutMillis ms. Completed receipts are retained; unfinished work can be resumed.", errorCode = "RUN_DEADLINE_REACHED"), true)
             } else {
@@ -395,7 +403,7 @@ class AgentRunner(
                             }
                         }
                     }
-                    val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), retainedUnknownOutcome || unknownOutcomes.isNotEmpty(), recoveryState) ?: return
+                    val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), retainedUnknownOutcome, unknownOutcomes.size, recoveryState) ?: return
                     exposedDefinitions = recovery.definitions
                     if (recovery.restoreRound) rounds--
                     if (recovery.finalize) {
@@ -441,7 +449,7 @@ class AgentRunner(
                     ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
                 }
                 val completed = processToolCalls(
-                    calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
+                    calls, toolByName, executableToolByName, exposedDefinitions, roundDefinitions, exchanges, dynamicTools, selectDefinitions,
                     initialSchemaTokens, replayTokens, toolCallsByName, repeatAdmissionHistory, consecutiveToolFailures, blockedReadScopes,
                     remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
                     retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation,
@@ -769,10 +777,10 @@ class AgentRunner(
         }
     }
 
-    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.deliverExpiredTask(session: AgentProviderSession) {
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.deliverExpiredTask(session: AgentProviderSession, check: GitHubExecutionLimits.DeadlineCheck) {
         // A diagnostic reply may complete, but it cannot finish the original
         // execution checkpoint or discard its outstanding cleanup obligations.
-        session.retainedFailureResponse(dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.expiredTaskFailure()).collect {
+        session.retainedFailureResponse(GitHubExecutionLimits.expiredTaskFailure(check)).collect {
             emit(AgentRunEvent.Provider(it))
         }
     }
@@ -800,10 +808,25 @@ class AgentRunner(
         definitions: List<AgentToolDefinition>,
         finalResponseRequested: Boolean,
         hasToolWork: Boolean,
-        hasUnknownOutcome: Boolean,
+        retainedUnknownOutcome: Boolean,
+        unknownSignatureCount: Int,
         state: RoundRecoveryState
     ): RoundRecovery? {
         val roundFailure = requireNotNull(round.failure)
+        val hasUnknownOutcome = retainedUnknownOutcome || unknownSignatureCount > 0
+        fun unresolvedToolEvidence() = buildJsonObject {
+            put("recovery_observation", "RECONCILIATION_REQUIRED")
+            put("pending_tool_receipt_state", "OUTCOMES_UNRESOLVED")
+            put(
+                "reconciliation_source",
+                when {
+                    retainedUnknownOutcome && unknownSignatureCount > 0 -> "SAVED_AND_TRACKED"
+                    retainedUnknownOutcome -> "SAVED_UNSETTLED_CALL"
+                    else -> "TRACKED_CALL_SIGNATURE"
+                }
+            )
+            put("reconciliation_tracked_signature_count", unknownSignatureCount.coerceAtMost(1024))
+        }
         if (GatewayOutcomeRecovery.requiresReconciliation(roundFailure, round.errorCode)) {
             // Even a tool-free repair can reach a gateway with server tools enabled.
             // Leave the terminal delivery boundary to report the retained failure without another model request.
@@ -813,7 +836,7 @@ class AgentRunner(
         if (round.errorCode in ToolFailureMetadata.authorityInvalidationCodes || round.taskOutcome == "CONFIGURATION_INVALIDATED") {
             val details = if (hasUnknownOutcome) {
                 JsonObject(
-                    round.failureDetails.orEmpty() - "dispatched" + kotlinx.serialization.json.buildJsonObject {
+                    round.failureDetails.orEmpty() - "dispatched" + unresolvedToolEvidence() + kotlinx.serialization.json.buildJsonObject {
                         put("failed_stage", "tool_dispatch")
                         put("blocked_stage", round.failureDetails?.get("failed_stage") ?: JsonPrimitive("provider_admission"))
                         round.failureDetails?.get("dispatched")?.let { put("blocked_stage_dispatched", it) }
@@ -836,7 +859,7 @@ class AgentRunner(
                         errorCode = "RECONCILIATION_REQUIRED",
                         taskOutcome = "PARTIAL",
                         failureDetails = JsonObject(
-                            round.failureDetails.orEmpty() + kotlinx.serialization.json.buildJsonObject {
+                            round.failureDetails.orEmpty() + unresolvedToolEvidence() + kotlinx.serialization.json.buildJsonObject {
                                 put("failed_stage", "tool_dispatch")
                                 put("interrupted_provider_code", round.errorCode.orEmpty())
                                 put("requires_reconciliation", true)
@@ -991,6 +1014,7 @@ class AgentRunner(
         toolByName: Map<String, AgentTool>,
         initialTools: Map<String, AgentTool>,
         initialDefinitions: List<AgentToolDefinition>,
+        roundDefinitions: List<AgentToolDefinition>,
         exchanges: MutableList<AgentToolExchange>,
         dynamicTools: () -> List<AgentTool>,
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>,
@@ -1038,7 +1062,14 @@ class AgentRunner(
         val dependencyPlan = planIntelligentBatch(dependencyCalls, toolsForBatch).map { node ->
             if (node.call.callId in restoredCompleted) node.copy(dependencies = emptySet(), failureDependencies = emptySet()) else node
         }
-        val admission = planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, restoredCompleted.keys, ::failureScope)
+        fun planAdmission(refreshContextId: String? = null) = planToolBatch(
+            calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes,
+            if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN,
+            restoredRetained, restoredCompleted.keys, refreshContextId, ::failureScope
+        )
+        val initialAdmission = planAdmission()
+        val refreshContext = contextRefreshPrerequisite(dependencyPlan, initialAdmission, toolCallsByName, exchanges, batchAllowance)
+        val admission = refreshContext?.let(::planAdmission) ?: initialAdmission
         val observedAdmission = repeatAdmissionHistory.capture(admission, calls, restoredRetained, restoredCompleted.keys)
         val plan = dependencyClosedPlan(observedAdmission, dependencyPlan, restoredRetained)
         val executableCalls = plan.executable
@@ -1109,7 +1140,8 @@ class AgentRunner(
 
         val pausedGitHubNames = exposedDefinitions.filter { limits.githubMode && ProgressiveToolCatalog.isGitHubTool(it) && it.name !in executableToolByName }.mapTo(hashSetOf()) { it.name }
         val admittedIds = executableCalls.mapTo(hashSetOf()) { it.callId }
-        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges, pausedGitHubNames).map { result ->
+        val availableCatalog = roundDefinitions.filter { it.modelVisible && it.name in executableToolByName }.associateBy { it.name }
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, availableCatalog, exchanges, pausedGitHubNames).map { result ->
             fun admissionReason(id: String) = when (id) {
                 in plan.dependencyDeferredIds -> ToolDependencyDiagnostics.Admission.PREREQUISITE_DEFERRED
                 in plan.unavailableIds -> if (decisionCalls.isEmpty()) ToolDependencyDiagnostics.Admission.TOOL_UNAVAILABLE else ToolDependencyDiagnostics.Admission.DECISION_REQUIRED
@@ -1218,7 +1250,7 @@ class AgentRunner(
         return SearchRoundContext(names, successful)
     }
 
-    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableNames: Set<String>, exchanges: List<AgentToolExchange>, pausedGitHubNames: Set<String> = emptySet()): List<AgentToolResult> = calls.map { call ->
+    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableCatalog: Map<String, AgentToolDefinition>, exchanges: List<AgentToolExchange>, pausedGitHubNames: Set<String> = emptySet()): List<AgentToolResult> = calls.map { call ->
         if (call.callId in unavailableIds) {
             if (call.name in pausedGitHubNames) {
                 return@map ToolResultEnvelope.error(
@@ -1227,12 +1259,45 @@ class AgentRunner(
                     "This authorized GitHub tool remains visible, but execution is paused for this response after repeated failures or a repeat limit. Nothing was dispatched. Use the retained error's correction or another authorized GitHub operation; resume the paused operation after its blocker is resolved."
                 )
             }
+            val availableNames = availableCatalog.keys
+            val suggested = when {
+                call.name in availableNames -> null
+                call.name.substringAfterLast("__") in setOf("read_url", "firecrawl_scrape", "fetch_url") && "url" in call.arguments && "read_url" in availableNames -> "read_url"
+                call.name.substringAfterLast("__") in setOf("search", "search_web", "web_search", "firecrawl_search") && "query" in call.arguments && "web_search" in availableNames -> "web_search"
+                ProgressiveToolCatalog.NAME in availableNames -> ProgressiveToolCatalog.NAME
+                else -> null
+            }
+            val availableList = availableNames.sorted().take(32).joinToString(", ") { name ->
+                val required = availableCatalog.getValue(name).inputSchema["required"] as? JsonArray
+                val fields = required.orEmpty().take(6).mapNotNull { (it as? JsonPrimitive)?.content?.take(60) }
+                if (fields.isEmpty()) name else "$name (requires ${fields.joinToString(", ")})"
+            }.ifEmpty { "none" }
+            val recovery = when (suggested) {
+                ProgressiveToolCatalog.NAME -> " Use $suggested to look up this capability, then use the name and schema it returns."
+                null -> " If none of these tools provides the capability, use the evidence already collected and explain what is missing."
+                else -> " Use the advertised $suggested schema for this request."
+            }
             return@map AgentToolResult(
                 call.callId,
-                ToolResultContent.Text("The requested tool '${call.name}' is not available in this round. Nothing was dispatched. Use an exact advertised tool name and its schema. Available tools: " + availableNames.sorted().take(32).joinToString(", ").ifEmpty { "none; answer using the evidence already collected" }),
+                ToolResultContent.Text("The requested tool '${call.name}' is not available in this round. Nothing was dispatched. Use an exact advertised tool name and its schema. Available tools: $availableList.$recovery"),
                 isError = true,
                 dispatched = false,
-                errorCode = "TOOL_NOT_AVAILABLE"
+                errorCode = "TOOL_NOT_AVAILABLE",
+                executionReceipt = if (call.name in availableNames) {
+                    null
+                } else {
+                    buildJsonObject {
+                        put("schema", "gptmobile.round-tool-catalog.v1")
+                        put("call_id", call.callId)
+                        put("reason_code", "UNKNOWN_TOOL")
+                        put("phase", "PREFLIGHT_REJECTED")
+                        put("dispatched", false)
+                        put("retryable", false)
+                        put("available_tool_count", availableNames.size)
+                        put("discovery_available", ProgressiveToolCatalog.NAME in availableNames)
+                        suggested?.let { put("suggested_tool", it) }
+                    }
+                }
             )
         }
         val message = if (call.callId in hostSuppressedIds) {
@@ -1685,6 +1750,10 @@ class AgentRunner(
                         failureDetails = kotlinx.serialization.json.buildJsonObject {
                             put("failed_stage", "planning")
                             put("dispatched", false)
+                            put("failure_origin", "APPLICATION")
+                            put("replay_budget_state", "NO_CONTINUATION_ALLOWANCE")
+                            put("replay_allowance", replayLimit.coerceAtLeast(0))
+                            put("replay_exchange_count", exchanges.size)
                         }
                     )
                 )
@@ -1722,6 +1791,9 @@ class AgentRunner(
                         failureDetails = buildJsonObject {
                             put("failed_stage", "planning")
                             put("dispatched", false)
+                            put("failure_origin", "APPLICATION")
+                            put("replay_budget_state", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE")
+                            put("replay_exchange_count", exchanges.size)
                             put("retryable", false)
                             put("replay_tokens", compactedReplayTokens)
                             put("replay_allowance", replayLimit)
@@ -1795,13 +1867,8 @@ class AgentRunner(
                         put("retryable", false)
                         put("request_replay_allowed", false)
                         put("logical_continuation_allowed", false)
-                        put(
-                            "cause_types",
-                            kotlinx.serialization.json.JsonArray(
-                                generateSequence(error) { cause -> cause.cause?.takeUnless { it === cause } }
-                                    .take(16).map { JsonPrimitive(it.javaClass.name) }.toList()
-                            )
-                        )
+                        IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.AGENT_ROUND_CATCH)
+                            .forEach { (key, value) -> put(key, value) }
                     }
                 }
                 failure = if (toolDefinitionsRejected) {

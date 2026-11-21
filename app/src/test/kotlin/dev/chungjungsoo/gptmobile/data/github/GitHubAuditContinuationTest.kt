@@ -73,20 +73,25 @@ class GitHubAuditContinuationTest {
     }
 
     @Test fun requirementMemoryExcludesPresetControlsAndBudgetHeadings() {
-        val requirements = GitHubEngineeringMemoryPolicy.requirements(GitHubWorkflowPreset.selected("test_integration").prompt())
-        assertEquals(7, requirements.size)
+        val preset = GitHubWorkflowPreset.selected("test_integration")
+        val requirements = GitHubEngineeringMemoryPolicy.requirements(preset.prompt())
+        assertEquals(preset.acceptance.map(::JsonPrimitive), requirements.map { (it as JsonObject).getValue("requirement") })
         assertFalse(requirements.toString().contains("Budget:"))
         assertFalse(requirements.toString().contains("[github-workflow-preset:"))
     }
 
     @Test fun newPresetDoesNotRedefineHistoricalAllToolsRequests() {
-        val prompt = GitHubWorkflowPreset.selected("test_integration").prompt()
+        val preset = GitHubWorkflowPreset.selected("test_integration")
+        val prompt = preset.prompt()
         assertTrue(GitHubChecklistScope.supportedFixturePlan(prompt))
         val requirements = GitHubIntegrationAcceptance.requirements(prompt, emptyMap(), listOf(definition))
-        val objective = requirements.first() as JsonObject
+        assertEquals(preset.acceptance.map(::JsonPrimitive), requirements.map { (it as JsonObject).getValue("requirement") })
         assertTrue(requirements.any { it.toString().contains("authorized tool catalog") })
-        assertTrue(objective["requirement"].toString().contains("authorized GitHub integration"))
-        assertFalse(GitHubChecklistScope.supportedFixturePlan("Test all authorized GitHub integration tools.\n[github-workflow-preset:test_integration]"))
+        val historical = "Test all authorized GitHub integration tools.\n[github-workflow-preset:test_integration]"
+        assertFalse(GitHubChecklistScope.supportedFixturePlan(historical))
+        assertEquals(listOf("Test all authorized GitHub integration tools."), GitHubRequestCompletion.requirements(historical))
+        val added = "Check the selected pull request before closing the fixture."
+        assertEquals(preset.acceptance + added, GitHubRequestCompletion.requirements("$prompt\nRequest details:\n$added"))
     }
 
     @Test fun specificAcceptanceStopIsDisplayedInsteadOfGenericContinuationAdvice() {

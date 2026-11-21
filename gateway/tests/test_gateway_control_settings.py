@@ -292,6 +292,31 @@ class ControlSettingsTests(unittest.TestCase):
         with self.store.tx() as db:
             self.assertEqual(1, db.execute('SELECT COUNT(*) FROM gateway_control_commands').fetchone()[0])
 
+    def test_busy_poll_never_reposts_and_changed_desired_revision_retries_immediately(self):
+        controller = Controller(SimpleNamespace(root=self.root, cfg=dict(DEFAULTS)))
+        baseline = self.store.snapshot(local=True)['effective']
+        effective = {k: baseline[k] for k in ('workers', 'active_chats', 'backend', 'model', 'public_repository_maps', 'debug_mode')}
+        response = {'effective': effective, 'pending_work': 1, 'blocking_jobs': ['active-job'], 'engineering_ready': True}
+        posts = []
+        def runtime(values=None):
+            if values is not None:
+                posts.append(values)
+                return dict(response, status='setup_required', reason='probe_failed')
+            return dict(response)
+        controller.runtime = runtime
+        self.store.patch('local:single-user', self.command({'workers': 3}), local=True)
+        for _ in range(4):
+            controller.reconcile()
+        self.assertEqual([], posts)
+        response.update(pending_work=0, blocking_jobs=[])
+        for _ in range(4):
+            controller.reconcile()
+        self.assertEqual(1, len(posts))
+        revision = self.store.snapshot(local=True)['revision']
+        self.store.patch('local:single-user', self.command({'workers': 4}, revision), local=True)
+        controller.reconcile()
+        self.assertEqual([3, 4], [item['workers'] for item in posts])
+
     def test_pinned_tls_identity_reuses_protected_key(self):
         secret = server_secret(self.root)
         identity = tls_identity(self.root, '127.0.0.1', secret)

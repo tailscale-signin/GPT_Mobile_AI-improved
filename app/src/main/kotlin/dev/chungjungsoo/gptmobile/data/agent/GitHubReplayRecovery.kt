@@ -122,8 +122,11 @@ internal object GitHubReplayRecovery {
                 val call = exchange.calls.firstOrNull { it.callId == result.callId } ?: return@mapNotNull null
                 // The evidence observer has saved the complete source before this
                 // replay is built. Display fragments are not additional evidence.
-                if (result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true)) return@mapNotNull null
                 val source = envelope(result.content) ?: return@mapNotNull null
+                val unreadSource = source["source_page"] == JsonPrimitive(true) &&
+                    source["recovery_required"] == JsonPrimitive(true) &&
+                    source["previously_delivered"] == JsonPrimitive(false)
+                if (result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true) && !unreadSource) return@mapNotNull null
                 if (result.isError ||
                     source["schema"] != JsonPrimitive("github.repeat.v1") &&
                     !(source["replay_compacted"] == JsonPrimitive(true) && source["recovery_required"] == JsonPrimitive(true)) &&
@@ -185,7 +188,11 @@ internal object GitHubReplayRecovery {
         result["previously_delivered"] = JsonPrimitive(consumed)
         // The omitted page may never have reached the model. Recover that exact
         // page before offering any cursor that skips past its unread records.
-        (source["recovery_call"] as? JsonObject)?.takeUnless { consumed }?.let { recovery ->
+        val completeSourceCorrection = source["operation"] == JsonPrimitive("github_read") &&
+            source["local_page_complete"] == JsonPrimitive(true) &&
+            source["recovery_action"] == JsonPrimitive("RECOVER_SOURCE_EVIDENCE") &&
+            source["correction_call"] is JsonObject
+        (source["recovery_call"] as? JsonObject)?.takeUnless { consumed || completeSourceCorrection }?.let { recovery ->
             result["continuation_call"] = recovery
             result.remove("continuation_options")
             source["recovery_options"]?.let { result["continuation_options"] = it }
@@ -208,6 +215,49 @@ internal object GitHubReplayRecovery {
         // Never splice the middle of a cursor or a JSON argument object.
         if (JsonObject(result).toString().length > maxChars) {
             return ToolResultContent.Text("GitHub result omitted from replay: its continuation exceeds the available replay budget. Do not invent a cursor or repeat a mutation; inspect retained evidence or request a narrower immutable read.")
+        }
+        if (source["source_page"] == JsonPrimitive(true)) {
+            result["source_page"] = JsonPrimitive(true)
+            source["commit_sha"]?.let { result["commit_sha"] = it }
+            if (JsonObject(result).toString().length > maxChars) result.remove("commit_sha")
+            // Preserve exact characters and their location even if the full file page was
+            // evicted. The native recovery call still points at the start of the unread page.
+            val rows = (source["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            val visible = mutableListOf<JsonObject>()
+            for (row in rows) {
+                val body = (row["content"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: break
+                val start = (row["start_line"] as? JsonPrimitive)?.content?.toIntOrNull() ?: break
+                fun excerpt(length: Int): JsonObject {
+                    val prefix = body.take(length)
+                    return JsonObject(
+                        row + buildJsonObject {
+                            put("content", prefix)
+                            put("end_line", start + prefix.count { it == '\n' } - if (prefix.endsWith('\n')) 1 else 0)
+                            if (length < body.length) put("range_end", false)
+                        }
+                    )
+                }
+                var low = 0
+                var high = minOf(body.length, maxChars)
+                var fit = -1
+                while (low <= high) {
+                    val mid = (low + high) ushr 1
+                    val length = if (mid in 1 until body.length && body[mid].isLowSurrogate()) mid - 1 else mid
+                    val trial = JsonObject(result + ("items" to JsonArray(visible + excerpt(length))))
+                    if (trial.toString().length <= maxChars) {
+                        fit = length
+                        low = mid + 1
+                    } else {
+                        high = mid - 1
+                    }
+                }
+                if (fit < 0 || fit == 0 && body.isNotEmpty()) break
+                visible += excerpt(fit)
+                if (fit < body.length) break
+            }
+            if (visible.isNotEmpty()) result["items"] = JsonArray(visible)
+            if (JsonObject(result).toString().length <= maxChars) return ToolResultContent.Json(JsonObject(result))
+            result.remove("source_page")
         }
         val preview = (source["data"] ?: source["fragments"] ?: source["message"])?.toString().orEmpty()
         val available = ((maxChars - JsonObject(result).toString().length - 32) / 6).coerceAtLeast(0)
@@ -306,5 +356,5 @@ internal object GitHubReplayRecovery {
         )
     }
 
-    private val deterministicErrors = setOf("INVALID_ARGUMENTS", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")
+    private val deterministicErrors = setOf("EVIDENCE_UNAVAILABLE", "INVALID_ARGUMENTS", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")
 }

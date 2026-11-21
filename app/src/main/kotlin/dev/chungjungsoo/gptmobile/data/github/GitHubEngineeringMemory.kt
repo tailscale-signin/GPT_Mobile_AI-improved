@@ -53,7 +53,7 @@ class GitHubEngineeringMemory @Inject constructor(
         return GitHubAuthorizationIdentity.permission(connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl)
     }
 
-    suspend fun prepare(context: GitHubConversationContext, chatId: Int, taskId: String, task: String, settings: GitHubChatProfileOverride, privateDestination: Boolean, budgetCharacters: Int): String {
+    suspend fun prepare(context: GitHubConversationContext, chatId: Int, taskId: String, task: String, settings: GitHubChatProfileOverride, privateDestination: Boolean, budgetCharacters: Int, attachments: List<dev.chungjungsoo.gptmobile.data.model.ChatAttachment> = emptyList()): String {
         if (!settings.githubTools || settings.engineeringMemory == GitHubEngineeringMemoryMode.SESSION_ONLY) return ""
         val scope = scope(context, Phase.PREPARE_SCOPE)
         val permission = permission(context, Phase.PREPARE_PERMISSION)
@@ -80,11 +80,46 @@ class GitHubEngineeringMemory @Inject constructor(
                         put("schema_version", 1)
                         put("scope", scope)
                         put("kind", "decision")
+                        put("source_message_id", decision.sourceMessageId)
                         put("commit_sha", context.commitSha)
                         put("source_receipt", "user-decision:${decision.id}")
                         put("observed_at_ms", System.currentTimeMillis())
                         put("confidence", "USER_DECISION_NOT_EXECUTION_AUTHORITY")
                         put("content", "${decision.question}\n${decision.context}\nUser decision: ${decision.answer}")
+                    },
+                    appendOnly = true,
+                    engineeringMemory = true
+                )
+            }
+        }
+        GitHubSavedOutcome.annotation(task)?.let { note ->
+            val sourceKey = "engineering:$scope:${note.receipt}"
+            val sourceRow = workspace.dao.get(sourceKey)?.takeIf { it.chatId == chatId && it.runId == scope }
+            val observation = sourceRow?.let { workspace.protectedSynthesisCheckpoint(it.id) }
+            val images = attachments.withIndex().filter { it.value.mimeType.startsWith("image/") }
+            val noteId = "engineering:$scope:feedback:" + GitHubEvidenceBook.digest(taskId)
+            if (observation?.get("source_receipt") == JsonPrimitive(note.receipt) &&
+                observation["scope"] == JsonPrimitive(scope) &&
+                (note.outcome != "visual" || images.isNotEmpty()) &&
+                workspace.dao.get(noteId) == null
+            ) {
+                workspace.saveProtectedSynthesisCheckpoint(
+                    noteId,
+                    chatId,
+                    scope,
+                    buildJsonObject {
+                        put("kind", "user_outcome")
+                        put("scope", scope)
+                        put("chat_id", chatId)
+                        put("task_id", taskId)
+                        put("source_receipt", note.receipt)
+                        put("commit_sha", observation["commit_sha"] ?: JsonPrimitive(context.commitSha))
+                        put("outcome", note.outcome)
+                        put("confidence", "USER_REPORTED")
+                        put("observed_at_ms", System.currentTimeMillis())
+                        // References open through the original chat message. Storage paths, images and provider handles stay private.
+                        put("image_indices", JsonArray(images.map { JsonPrimitive(it.index) }))
+                        put("content", "User reported ${note.outcome} for ${note.receipt} at ${observation["commit_sha"]}. ${note.description}")
                     },
                     appendOnly = true,
                     engineeringMemory = true
@@ -111,7 +146,12 @@ class GitHubEngineeringMemory @Inject constructor(
         val authorizedScopes = (listOf(scope) + legacyScopes).distinct()
         val rows = authorizedScopes.flatMap { workspace.dao.engineeringMemory(it) }.distinctBy { it.id }.sortedByDescending { it.updatedAt }.take(128)
         val candidates = rows.mapNotNull { row ->
-            workspace.protectedSynthesisCheckpoint(row.id)?.takeIf { it["kind"] != JsonPrimitive("task_checkpoint_reference") && it["scope"] in authorizedScopes.map(::JsonPrimitive) && (it["kind"] != JsonPrimitive("task_checkpoint") || it["chat_id"] == JsonPrimitive(chatId)) }?.let { row.id to it }
+            workspace.protectedSynthesisCheckpoint(row.id)?.takeIf {
+                it["kind"] != JsonPrimitive("task_checkpoint_reference") &&
+                    (it["kind"] != JsonPrimitive("user_outcome") || it["chat_id"] == JsonPrimitive(chatId) && it["commit_sha"] == JsonPrimitive(context.commitSha)) &&
+                    it["scope"] in authorizedScopes.map(::JsonPrimitive) &&
+                    (it["kind"] != JsonPrimitive("task_checkpoint") || it["chat_id"] == JsonPrimitive(chatId))
+            }?.let { row.id to it }
         }.toMap()
         val resume = task.trim().lowercase().trimEnd('.', '!') in setOf("continue", "resume", "keep going", "continue testing")
         val tokens = GitHubEngineeringMemoryPolicy.terms(task)

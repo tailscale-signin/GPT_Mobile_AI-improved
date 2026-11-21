@@ -223,9 +223,9 @@ interface AgentPersistenceDao :
     suspend fun blockProviderWait(runId: String, reason: String, completedAt: Long = System.currentTimeMillis() / 1000): Int
 
     @Transaction
-    suspend fun blockCurrentProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, reason: String): Boolean {
+    suspend fun blockCurrentProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, reason: String, original: kotlinx.serialization.json.JsonObject? = null): Boolean {
         if (rawProviderWait(row.runId) != row || blockProviderWait(row.runId, reason) != 1) return false
-        recordCurrentProviderRecovery(row, dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure(reason).event().failureDetails!!)
+        recordCurrentProviderRecovery(row, dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure(reason, original).event().failureDetails!!)
         return true
     }
 

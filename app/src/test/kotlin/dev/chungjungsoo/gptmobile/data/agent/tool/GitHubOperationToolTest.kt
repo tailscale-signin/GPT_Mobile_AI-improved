@@ -412,6 +412,31 @@ class GitHubOperationToolTest {
         valid("github_search", correction.getValue("arguments").jsonObject)
     }
 
+    @Test fun unavailableSourceHandleOffersOnlyTheExplicitlyPinnedRanges() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) =
+                AgentToolResult(callId, ToolResultContent.Text("unknown handle"), true, errorCode = "EVIDENCE_UNAVAILABLE", dispatched = false)
+        }
+        val tool = GitHubOperationTool("github_read", backend, "source-handles", modelName = "github_read__api")
+        val ranges = args("""{"action":"ranges","owner":"owner","repo":"repo","commit_sha":"$sha","ranges":[{"path":"src/Chat.kt","start_line":5,"end_line":9}]}""")
+        val saved = args("""{"evidence_id":"unavailable"}""")
+        val failed = tool.execute("pinned", JsonObject(ranges + saved))
+        val next = result(failed).getValue("data").jsonObject.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive("github_read__api"), next["tool"])
+        assertEquals(ranges, next["arguments"])
+        assertEquals(next, result(failed)["correction_call"])
+        val handleOnly = tool.execute("handle-only", saved)
+        val recovery = result(handleOnly).getValue("correction_call").jsonObject
+        assertFalse("correction_call" in result(handleOnly).getValue("data").jsonObject)
+        assertEquals(JsonPrimitive("github_context__api"), recovery["tool"])
+        assertEquals(args("""{"action":"recovery"}"""), recovery["arguments"])
+        val compact = dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery.compact(handleOnly.content, 2048)
+        val replay = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery.envelope(requireNotNull(compact)))
+        assertEquals(recovery, replay["correction_call"])
+        assertFalse("continuation_call" in replay)
+    }
+
     @Test fun missingPinnedPathProvidesDiscoveryInsteadOfAnotherGuessedRead() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})

@@ -320,7 +320,8 @@ fun OpponentChatBubble(
         extractTelemetryNotice(noticeMessages)
     }
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
-    val showContinueAction = remember(displayedText, isLoading, isLastMessage) { shouldShowContinuePrompt(displayedText, isLoading, isLastMessage) }
+    val resumeReview = ChatResponseActionParser.canResumeReview(displayedText)
+    val showContinueAction = resumeReview || remember(displayedText, isLoading, isLastMessage) { shouldShowContinuePrompt(displayedText, isLoading, isLastMessage) }
     val dynamicActions = remember(displayedText, isLoading) { ChatResponseActionParser.extractDynamicActions(displayedText, isLoading) }
     var continueDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     var actionDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
@@ -763,11 +764,11 @@ fun OpponentChatBubble(
                                     continueDismissed = true
                                     onContinueClick?.invoke()
                                 },
-                                label = { Text("Continue") },
+                                label = { Text(if (resumeReview) "Resume review" else "Continue") },
                                 icon = {
                                     Icon(
                                         Icons.AutoMirrored.Rounded.ArrowForward,
-                                        contentDescription = "Continue",
+                                        contentDescription = if (resumeReview) "Resume review" else "Continue",
                                         modifier = Modifier.size(14.dp)
                                     )
                                 },

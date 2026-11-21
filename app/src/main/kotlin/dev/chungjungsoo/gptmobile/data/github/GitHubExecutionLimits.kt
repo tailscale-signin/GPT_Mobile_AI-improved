@@ -1,20 +1,59 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** One policy is applied before binding tools and again before opening the model loop. */
 internal object GitHubExecutionLimits {
-    fun expiredTaskFailure() = ProviderEvent.Failed(
-        "The task's time limit has been reached. Saved results and unfinished work are retained. Start a new task to allow more work.",
+    enum class DeadlineCheck { BEFORE_TOOL_RESTORE, BEFORE_MODEL_LOOP, MODEL_LOOP_TIMEOUT, VERIFIED_SESSION_ENTRY }
+
+    fun deadlineTiming(contract: JsonObject?, observedAt: Long): JsonObject = buildJsonObject {
+        val start = (contract?.get("accepted_at_ms") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+        val end = (contract?.get("deadline_at_ms") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+        val state = when {
+            contract == null -> "CONTRACT_UNAVAILABLE"
+            "deadline_at_ms" !in contract -> "NO_ACCEPTED_DEADLINE"
+            start == null || end == null || start < 0 || end < start || observedAt < start -> "TIMING_UNAVAILABLE"
+            observedAt < end -> "WINDOW_OPEN"
+            else -> "WINDOW_EXPIRED"
+        }
+        put("task_deadline_observation", state)
+        if (start != null && end != null && end >= start && start >= 0) {
+            ((end - start) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_window_seconds", it) }
+            if (observedAt >= end) {
+                ((observedAt - end) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_overdue_seconds", it) }
+            }
+        }
+    }
+
+    private val renewal = Regex("""(?i)(?:please )?(?:resume|continue) for ([1-9][0-9]{0,3}) (minutes?|hours?)[.!]?""")
+    const val RENEWAL_EXAMPLE = "Continue for 10 minutes"
+    fun renewedDuration(text: String): Long? {
+        val match = renewal.matchEntire(GitHubTaskContinuity.request(text)) ?: return null
+        val minutes = match.groupValues[1].toLong() * if (match.groupValues[2].startsWith("h", true)) 60 else 1
+        return minutes.takeIf { it in 1..1440 }?.times(60_000L)
+    }
+
+    fun isExpiredFailure(details: String?): Boolean = details != null &&
+        ("ACCEPTED_TASK_DEADLINE_REACHED" in details || "The task's time limit has been reached" in details)
+
+    fun expiredTaskFailure(check: DeadlineCheck? = null) = ProviderEvent.Failed(
+        "The task's time limit has been reached. Your results are saved. Send “$RENEWAL_EXAMPLE” to continue this task with a new time allowance.",
         errorCode = "GITHUB_TASK_INCOMPLETE",
         taskOutcome = "BLOCKED",
         failureDetails = buildJsonObject {
+            put("diagnostic_area", "ACCEPTANCE")
+            put("diagnostic_capture_mode", "INCIDENT")
+            check?.let { put("task_deadline_check", it.name) }
             put("failed_stage", "task_budget")
+            put("failure_origin", "APPLICATION")
             put("failure_domain", "APPLICATION_VERIFICATION")
             put("stop_reason", "ACCEPTED_TASK_DEADLINE_REACHED")
-            put("recovery_action", "NEW_TASK_REQUIRED")
+            put("recovery_action", "AUTHORIZE_NEW_TIME_WINDOW")
             put("resume_allowed", false)
             put("dispatched", false)
             put("retryable", false)

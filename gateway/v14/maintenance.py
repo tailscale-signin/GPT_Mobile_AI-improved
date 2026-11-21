@@ -40,7 +40,7 @@ def pending_work(runtime, engineering):
         return 0
     def count(db):
         chats = db.execute("SELECT COUNT(*) FROM gateway_jobs WHERE status IS NULL OR status NOT IN ('completed','failed','cancelled','canceled','interrupted')").fetchone()[0]
-        jobs = db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED')").fetchone()[0]
+        jobs = db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED','FAILED')").fetchone()[0]
         return chats + jobs + pending_index_jobs(db) + pending_copilot_tasks(db)
     return engineering.store.tx(count)
 

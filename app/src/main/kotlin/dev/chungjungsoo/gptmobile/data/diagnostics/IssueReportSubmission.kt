@@ -122,6 +122,10 @@ internal class IssueReportSubmission(
         private const val PROVIDER_TERMINAL_CAUSES_FEATURE = "PROVIDER_TERMINAL_CAUSES_V1"
         private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
+            IssueReportDiagnostics.SELECTED_MODEL_ADMISSION_FEATURE, IssueReportDiagnostics.REVIEW_CATALOG_FEATURE, IssueReportDiagnostics.ACTION_ONLY_FEATURE,
+            IssueReportDiagnostics.REPEAT_PRIOR_CAUSE_FEATURE, IssueReportDiagnostics.PROFILE_BEHAVIOR_FEATURE,
+            IssueReportDiagnostics.SEARCH_READINESS_FEATURE, IssueReportDiagnostics.SILENCED_INPUT_FEATURE,
+            IssueReportDiagnostics.INCIDENT_DETAIL_FEATURE,
             "CLAIM_EXTRACTION_SCHEMA_HASH_V1",
             GitHubAcceptancePublicationEvidence.FEATURE,
             GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE,
@@ -178,6 +182,7 @@ internal class IssueReportSubmission(
                 if ("attachment" in report) add("REPORT_TEXT_ATTACHMENT_V1")
                 if (codes.any { it in REVIEW_CODES }) add("REVIEW_COMPARISON_V1")
                 if (codes.any { it in RECOVERY_CODES }) add("ISSUE_RECOVERY_CODES_V1")
+                if ("REPLAY_EVIDENCE_REQUIRED" in codes) add("REPLAY_BUDGET_EVIDENCE_V1")
                 if ("GITHUB_TOOL_CONTEXT_BUDGET" in codes) add("GITHUB_SCHEMA_BUDGET_EVIDENCE_V1")
                 if ("GITHUB_PROFILE_LOCKED" in codes) add("PROFILE_SELECTION_EVIDENCE_V1")
                 if ("GITHUB_COOLDOWN_ACTIVE" in codes || code(diagnostics?.values?.get("tool_error_code")) == "GITHUB_COOLDOWN_ACTIVE") add("GH_COOLDOWN_V1")

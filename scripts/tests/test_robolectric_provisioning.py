@@ -1,9 +1,11 @@
 import hashlib
 import io
 from pathlib import Path
+import re
 import tempfile
 import unittest
 import urllib.error
+from unittest.mock import patch
 
 from scripts import provision_robolectric_sdks as sdk
 
@@ -21,6 +23,31 @@ class RobolectricProvisioningTest(unittest.TestCase):
         sdk.download(self.target, 'https://repo.maven.apache.org/runtime.jar', self.digest, deadline,
                      opener, wait, clock, jitter, wall_clock)
 
+
+    def test_android_unit_test_sdks_have_pinned_jars_and_poms(self):
+        coordinates = {
+            31: '12-robolectric-7732740-i7',
+            32: '12.1-robolectric-8229987-i7',
+            33: '13-robolectric-9030017-i7',
+            34: '14-robolectric-10818077-i7',
+            35: '15-robolectric-13954326-i7',
+            36: '16-robolectric-13921718-i7',
+        }
+        test_sources = Path(__file__).resolve().parents[2] / 'app/src/test'
+        used = set()
+        for source in test_sources.rglob('*.kt'):
+            for versions in re.findall(r'\bsdk\s*=\s*\[([\d,\s]+)\]', source.read_text(encoding='utf-8')):
+                used.update(int(api) for api in re.findall(r'\d+', versions))
+        self.assertTrue(used)
+        for api in used:
+            with self.subTest(android_api=api):
+                self.assertIn(api, coordinates, 'Record the Robolectric coordinate for this Android API')
+                coordinate = coordinates[api]
+                self.assertIn(coordinate, sdk.SDKS)
+                pins = sdk.SDKS[coordinate]
+                self.assertEqual({'jar', 'pom'}, set(pins))
+                for digest in pins.values():
+                    self.assertRegex(digest, r'^[0-9a-f]{128}$')
 
     def test_preview_and_release_validate_runtimes_before_running_full_unit_suites(self):
         workflows = Path(__file__).resolve().parents[2] / '.github/workflows'
@@ -126,6 +153,42 @@ class RobolectricProvisioningTest(unittest.TestCase):
         self.assertEqual([15, 30, 20], delays)
         self.assertEqual(self.body, self.target.read_bytes())
         self.assertFalse(list(self.target.parent.glob('*.part')))
+
+    def test_primary_404_on_pinned_pom_rotates_and_requires_the_same_bytes(self):
+        version = '14-robolectric-10818077-i7'
+        suffix = f'/{version}/android-all-instrumented-{version}.pom'
+        primary = sdk.BASE + suffix
+        self.assertEqual(sdk.SDKS[version]['pom'], sdk.PINNED_CENTRAL_ARTIFACTS[primary])
+        for mirror_bytes in (self.body, b'different content'):
+            with self.subTest(verified=mirror_bytes == self.body):
+                self.target.unlink(missing_ok=True)
+                calls = []
+
+                def opener(url, timeout):
+                    calls.append(url)
+                    if url == primary:
+                        raise urllib.error.HTTPError(url, 404, 'edge cache miss', {}, None)
+                    return io.BytesIO(mirror_bytes)
+
+                with patch.dict(sdk.PINNED_CENTRAL_ARTIFACTS, {primary: self.digest}):
+                    if mirror_bytes == self.body:
+                        sdk.download(self.target, primary, self.digest, 100, opener, lambda _: None, lambda: 0)
+                        self.assertEqual(self.body, self.target.read_bytes())
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'SHA-512'):
+                            sdk.download(self.target, primary, self.digest, 100, opener, lambda _: None, lambda: 0)
+                        self.assertFalse(self.target.exists())
+                self.assertEqual([primary, sdk.MAVEN_CENTRAL_ALTERNATE_BASE + suffix], calls)
+
+    def test_primary_404_does_not_rotate_when_the_pin_differs(self):
+        url = next(iter(sdk.PINNED_CENTRAL_ARTIFACTS))
+        def missing(request, timeout):
+            self.assertEqual(request, url)
+            raise urllib.error.HTTPError(request, 404, 'missing', {}, None)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            sdk.download(self.target, url, self.digest, 100, missing, lambda _: self.fail('unrecognized pin retried'), lambda: 0)
+        self.assertFalse(self.target.exists())
 
     def test_canonical_404_still_fails_without_using_any_mirror(self):
         canonical = f"{sdk.BASE}/sample/runtime.jar"

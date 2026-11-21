@@ -676,7 +676,11 @@ internal class AndroidVoiceCapture(
         val silenced = record.activeRecordingConfiguration?.isClientSilenced
         if (!stopped && silenced != null) diagnosticProbe?.inputSilenced(silenced)
         if (silenced != true || stopped) return
-        diagnosticProbe?.captureSilenced(phase.uppercase(java.util.Locale.ROOT))
+        diagnosticProbe?.captureSilenced(
+            phase.uppercase(java.util.Locale.ROOT),
+            runCatching { manager?.isMicrophoneMute }.getOrNull(),
+            VoiceDiagnosticTrace.PlaybackAudioMode.observed(runCatching { manager?.mode }.getOrNull())
+        )
         val failure = captureFailure(
             record,
             "MICROPHONE_CAPTURE_SILENCED",

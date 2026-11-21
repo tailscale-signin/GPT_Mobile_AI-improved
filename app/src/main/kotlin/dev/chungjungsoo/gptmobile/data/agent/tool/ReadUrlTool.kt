@@ -170,14 +170,20 @@ class ReadUrlTool(
         } catch (exception: dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred) {
             error(callId, "JAVA_HEAP_PRESSURE: waiting for Java heap capacity.")
         } catch (exception: ReadUrlException) {
-            if (exception.message.orEmpty().let { it.contains("redirect") || it.contains("binary") || it.contains("HTTP 404") || it.contains("HTTP 405") }) unavailableUrls += start.toASCIIString()
+            if (exception.redirectRefusal != null || exception.message.orEmpty().let { it.contains("binary") || it.contains("HTTP 404") || it.contains("HTTP 405") }) unavailableUrls += start.toASCIIString()
             if (exception.message in setOf("HTTP 404", "HTTP 405", "HTTP 410")) {
                 val now = System.currentTimeMillis()
                 if (missingUntil.size >= 256) missingUntil.entries.removeAll { it.value <= now }
                 if (missingUntil.size < 256) missingUntil[start.toASCIIString()] = now + 300_000
             }
             recordFailure(start, "protocol", exception.javaClass.simpleName, exception.message)
-            error(callId, "Read URL failed: ${exception.message}.", exception.dispatched, status = exception.httpStatus)
+            val message = "Read URL failed: ${exception.message}."
+            val refusal = exception.redirectRefusal
+            if (refusal != null) {
+                observedFailure(error(callId, message, exception.dispatched, status = exception.httpStatus, code = "REDIRECT_FAILED"), refusal.name)
+            } else {
+                error(callId, message, exception.dispatched, status = exception.httpStatus)
+            }
         } catch (exception: UnknownHostException) {
             recordFailure(start, "dns", exception.javaClass.simpleName, null)
             error(callId, "Read URL failed: DNS lookup could not resolve the hostname. Check the URL and network connection.")
@@ -219,9 +225,11 @@ class ReadUrlTool(
         var redirects = 0
         val seen = mutableSetOf(current.toASCIIString())
         while (true) {
-            if (!dev.chungjungsoo.gptmobile.data.research.researchDomainAllowed(current.toString(), includeDomains, excludeDomains)) throw ReadUrlException("redirect or source outside allowed domain scope")
+            if (!dev.chungjungsoo.gptmobile.data.research.researchDomainAllowed(current.toString(), includeDomains, excludeDomains)) throw ReadUrlException("redirect or source outside allowed domain scope", redirectRefusal = RedirectRefusal.DOMAIN_SCOPE)
             val authority = current.host.lowercase(Locale.ROOT).removePrefix("www.") + ":" + current.port
-            if (authority in deniedHosts) return error(callId, "Read URL failed: this host denied access earlier in this turn. Choose another source.")
+            if (authority in deniedHosts) {
+                return observedFailure(error(callId, "Read URL failed: this host denied access earlier in this turn. Choose another source.", code = "SOURCE_ACCESS_BLOCKED"), "TURN_DENIAL_CACHE")
+            }
             val now = System.currentTimeMillis()
             rateLimitUntil[authority]?.let { until ->
                 if (until > now) return error(callId, "Read URL failed: this host is rate-limited for another ${(until - now + 999) / 1000} seconds. Choose another source.")
@@ -233,11 +241,11 @@ class ReadUrlTool(
                 onResponseReceived()
                 val status = response.status.value
                 if (status in REDIRECT_STATUSES) {
-                    if (redirects >= MAX_REDIRECTS) throw ReadUrlException("too many redirects", dispatched = true)
+                    if (redirects >= MAX_REDIRECTS) throw ReadUrlException("too many redirects", dispatched = true, httpStatus = status, redirectRefusal = RedirectRefusal.HOP_LIMIT)
                     val location = response.headers[HttpHeaders.Location]?.trim().orEmpty()
-                    if (location.isBlank()) throw ReadUrlException("missing Location header", dispatched = true)
-                    val next = parseResolvedRedirect(current, location)
-                    if (!seen.add(next.toASCIIString())) throw ReadUrlException("redirect loop", dispatched = true)
+                    if (location.isBlank()) throw ReadUrlException("missing Location header", dispatched = true, httpStatus = status, redirectRefusal = RedirectRefusal.LOCATION_MISSING)
+                    val next = parseResolvedRedirect(current, location, status)
+                    if (!seen.add(next.toASCIIString())) throw ReadUrlException("redirect loop", dispatched = true, httpStatus = status, redirectRefusal = RedirectRefusal.LOOP)
                     current = next
                     redirects += 1
                     return@request null
@@ -527,10 +535,10 @@ class ReadUrlTool(
         .getOrNull()
         ?: StandardCharsets.UTF_8
 
-    private fun parseResolvedRedirect(base: URI, location: String): URI {
+    private fun parseResolvedRedirect(base: URI, location: String, status: Int): URI {
         val next = base.toString().toHttpUrlOrNull()?.resolve(location)?.newBuilder()?.fragment(null)?.build()?.toUri()
-            ?: throw ReadUrlException("malformed redirect URL", dispatched = true)
-        if (!next.isAllowedUrl()) throw ReadUrlException("malformed redirect URL", dispatched = true)
+            ?: throw ReadUrlException("malformed redirect URL", dispatched = true, httpStatus = status, redirectRefusal = RedirectRefusal.LOCATION_INVALID)
+        if (!next.isAllowedUrl()) throw ReadUrlException("malformed redirect URL", dispatched = true, httpStatus = status, redirectRefusal = RedirectRefusal.LOCATION_INVALID)
         return next
     }
 
@@ -555,6 +563,9 @@ class ReadUrlTool(
             "W"
         )
     }
+
+    private fun observedFailure(result: AgentToolResult, observation: String) =
+        result.copy(executionReceipt = JsonObject(result.executionReceipt.orEmpty() + ("reader_refusal" to JsonPrimitive(observation))))
 
     private fun sourceUnavailable(callId: String, detail: String, observation: String): AgentToolResult {
         val result = error(callId, "Read URL failed: $detail", code = "SOURCE_UNAVAILABLE")
@@ -705,7 +716,9 @@ internal object SpecialUseAddress {
     }
 }
 
-private class ReadUrlException(message: String, val dispatched: Boolean = false, val httpStatus: Int? = null) : Exception(message)
+private enum class RedirectRefusal { DOMAIN_SCOPE, HOP_LIMIT, LOCATION_MISSING, LOOP, LOCATION_INVALID }
+
+private class ReadUrlException(message: String, val dispatched: Boolean = false, val httpStatus: Int? = null, val redirectRefusal: RedirectRefusal? = null) : Exception(message)
 
 private data class BoundedBody(
     val bytes: ByteArray,

@@ -25,6 +25,14 @@ class OperatorSchedule:
             id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, due INTEGER,
             period INTEGER NOT NULL, last_due INTEGER, result TEXT)""")
         db.execute('PRAGMA foreign_keys=ON')
+        if 'revision' not in {row[1] for row in db.execute('PRAGMA table_info(schedule)')}:
+            # A supervisor and desktop can open a pre-upgrade store simultaneously.
+            with db:
+                db.execute('BEGIN IMMEDIATE')
+                columns = {row[1] for row in db.execute('PRAGMA table_info(schedule)')}
+                for name, default in [('enabled', 1), ('revision', 0)]:
+                    if name not in columns:
+                        db.execute(f'ALTER TABLE schedule ADD COLUMN {name} INTEGER NOT NULL DEFAULT {default}')
         db.execute("""CREATE TABLE IF NOT EXISTS publication_watch (
             id TEXT PRIMARY KEY REFERENCES schedule(id) ON DELETE CASCADE, query TEXT NOT NULL,
             token TEXT, lease_until INTEGER NOT NULL DEFAULT 0, results TEXT, seen TEXT NOT NULL DEFAULT '[]')""")
@@ -54,7 +62,7 @@ class OperatorSchedule:
             db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT COUNT(*) FROM schedule').fetchone()[0] >= 128:
                 raise ValueError('Remove an old schedule before adding another.')
-            db.execute('INSERT INTO schedule VALUES (?,?,?,?,?,NULL,NULL)',
+            db.execute('INSERT INTO schedule(id,title,kind,due,period) VALUES (?,?,?,?,?)',
                        (key, title.strip(), kind, int(self.now()) + delay_minutes * 60, period_hours * 3600))
             if kind == KIND:
                 db.execute('INSERT INTO publication_watch(id,query) VALUES (?,?)', (key, query.strip()))
@@ -68,6 +76,7 @@ class OperatorSchedule:
                 CASE WHEN w.token IS NOT NULL AND w.lease_until > :now THEN 'Running'
                      WHEN t.token IS NOT NULL AND t.expires > :now THEN 'Running'
                      WHEN t.token IS NOT NULL THEN 'Unverified'
+                     WHEN s.enabled=0 THEN 'Disabled'
                      WHEN s.result LIKE 'Blocked%' THEN 'Blocked'
                      WHEN s.result LIKE 'Failed%' THEN 'Failed'
                      WHEN s.result LIKE 'Interrupted%' OR s.result LIKE 'Unverified%' THEN 'Unverified'
@@ -77,6 +86,31 @@ class OperatorSchedule:
                 (SELECT COUNT(*) FROM schedule_notice n WHERE n.id=s.id) AS unread
                 FROM schedule s LEFT JOIN publication_watch w USING(id) LEFT JOIN repository_test t USING(id)
                 ORDER BY s.due IS NULL, s.due, s.id''', {'now': int(self.now())})]
+
+    def change(self, key, revision, *, enabled=None, title=None, period_hours=None):
+        if type(revision) is not int or revision < 0:
+            raise ValueError('Reload the schedule before editing.')
+        if enabled is not None and type(enabled) is not bool:
+            raise ValueError('Choose an enabled state.')
+        if title is not None and (not isinstance(title, str) or not 1 <= len(title.strip()) <= 160 or any(ord(c) < 32 for c in title)):
+            raise ValueError('Enter a title of 1–160 characters.')
+        if period_hours is not None and (type(period_hours) is not int or not 0 <= period_hours <= 8784):
+            raise ValueError('Enter a repeat interval of 0–8784 hours.')
+        with closing(self.connect()) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT * FROM schedule WHERE id=?', (key,)).fetchone()
+            if not row or row['revision'] != revision:
+                raise ValueError('Schedule changed. Reload the current revision before applying edits.')
+            active = db.execute('SELECT token FROM publication_watch WHERE id=? UNION ALL SELECT token FROM repository_test WHERE id=?', (key, key)).fetchall()
+            if period_hours is not None and any(item[0] for item in active):
+                raise ValueError('Change the recurrence after the current occurrence finishes.')
+            due, now = row['due'], int(self.now())
+            period = row['period'] if period_hours is None else period_hours * 3600
+            if enabled and not row['enabled'] and due is not None and due <= now and not any(item[0] for item in active):
+                due = due + ((now - due) // period + 1) * period if period else None
+            db.execute('UPDATE schedule SET enabled=?,title=?,period=?,due=?,revision=revision+1 WHERE id=?',
+                       (row['enabled'] if enabled is None else int(enabled), title.strip() if title else row['title'], period, due, key))
+            return dict(db.execute('SELECT * FROM schedule WHERE id=?', (key,)).fetchone())
 
     @staticmethod
     def notify(db, key, due, message):
@@ -113,10 +147,10 @@ class OperatorSchedule:
             return
         now = int(self.now())
         with closing(self.connect()) as db, db:
-            if not db.execute('SELECT 1 FROM schedule WHERE due<=? LIMIT 1', (now,)).fetchone():
+            if not db.execute('SELECT 1 FROM schedule WHERE enabled=1 AND due<=? LIMIT 1', (now,)).fetchone():
                 return
             db.execute('BEGIN IMMEDIATE')
-            for row in db.execute('SELECT * FROM schedule WHERE due<=? AND kind NOT IN (?,?) ORDER BY due LIMIT 8', (now, KIND, TEST_KIND)).fetchall():
+            for row in db.execute('SELECT * FROM schedule WHERE enabled=1 AND due<=? AND kind NOT IN (?,?) ORDER BY due LIMIT 8', (now, KIND, TEST_KIND)).fetchall():
                 result = 'Reminder due'
                 if row['kind'] == 'Check saved job storage':
                     result = inspect_jobs(jobs_path)

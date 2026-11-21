@@ -8,6 +8,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NativeCrashEvidenceTest {
+    @Test fun approvedCrashReportRetainsBoundedTraceEvidenceWithoutFrameText() {
+        val trace = nativeCrashTraceEvidence(ByteArrayInputStream("signal 11 (SIGSEGV)\n#00 pc 01 /private/libengine.so (model_decode+4)".toByteArray()))
+        val fields = mapOf("diagnostic_area" to "APP", "app_exit_kind" to "NATIVE_CRASH") + trace.reportFields()
+        val diagnostics = requireNotNull(IssueReportDiagnostics.fromFields("PROCESS_EXIT", fields, 1000))
+        assertTrue(diagnostics.isValid())
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("SIGSEGV"), diagnostics.values["native_signal"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(1), diagnostics.values["native_trace_frames"])
+        assertTrue("native_top_frame_hash" in diagnostics.values)
+        assertFalse(diagnostics.values.toString().contains("libengine"))
+        assertFalse(diagnostics.values.toString().contains("model_decode"))
+        assertTrue(IssueReportDiagnostics.INCIDENT_DETAIL_FEATURE in diagnostics.requiredServiceFeatures())
+    }
+
     @Test fun nativeTombstoneKeepsOnlySignalLibraryAndSafeSymbol() {
         val trace = """
             signal 6 (SIGABRT), code -1 (SI_QUEUE)

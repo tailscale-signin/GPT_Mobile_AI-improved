@@ -67,7 +67,7 @@ internal object GitHubSourceReadCoverage {
                 put("evidence_ids", JsonArray((evidence + JsonPrimitive(evidenceId)).distinct()))
                 put("coverage_scope", "CAPTURED_COMPLETE_RANGES_AT_IMMUTABLE_BLOB")
                 put("output_pages_verified", false)
-                put("next_action", if (complete) "Reuse the captured source evidence; finish any pending saved-view pages before analysis. No additional source range is needed for this file." else "Read only the unread ranges, or finish the exact byte continuation for an incomplete range. Captured source does not certify consumed saved-view pages.")
+                put("next_action", if (complete) "Use the saved ranges for this revision. Open another local page only when the next finding needs text outside the displayed range." else "Read only the unread ranges, or finish the exact byte continuation for an incomplete range. Captured source does not certify consumed saved-view pages.")
             }
         )
     }

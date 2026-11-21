@@ -181,6 +181,25 @@ class GitHubArgumentAdmissionTest {
         assertEquals(1, backend.calls.size)
     }
 
+    @Test fun listPageSizeCorrectionPreservesFiltersAndRequiresAValidBoundedRead() {
+        val definition = GitHubOperationTool.definition("github_pr", "github_pr__selected")
+        val good = args("""{"action":"list","state":"open","per_page":30}""")
+        for (presented in listOf(definition, requireNotNull(GitHubActionSchema.project(definition, "list")))) {
+            fun correction(arguments: JsonObject): JsonObject? {
+                val result = ToolArgumentValidator.rejection("bad", presented.name, arguments, presented.inputSchema)
+                assertFalse(result.dispatched)
+                return ((result.content as ToolResultContent.Json).value as JsonObject)["correction_call"] as? JsonObject
+            }
+            val quoted = JsonObject(good + ("per_page" to JsonPrimitive("30")))
+            assertEquals(good, correction(quoted)?.get("arguments"))
+            for (literal in listOf("0", "101", "+3", "ten")) {
+                assertNull(correction(JsonObject(quoted + ("per_page" to JsonPrimitive(literal)))))
+            }
+            assertNull(correction(JsonObject(quoted + ("view_cursor" to JsonPrimitive("cursor")))))
+            assertNull(correction(JsonObject(quoted + ("unexpected" to JsonPrimitive("value")))))
+        }
+    }
+
     @Test fun savedViewCursorIsExclusiveInFullProjectedAndInspectSchemas() {
         val cases = listOf(
             Triple("github_context", "branches", """{"action":"branches","page":1}"""),

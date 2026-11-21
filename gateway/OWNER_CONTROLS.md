@@ -1,37 +1,12 @@
-# Paired Windows and Android controls
+# Windows and Android Gateway controls
 
-The Windows supervisor owns the shared Gateway settings. The native dashboard
-uses local IPC; a paired Android installation uses a separate HTTPS listener.
-Both read the same installation identity, settings revision and command journal.
-The existing key-free inference listener keeps its existing access model.
+Open **Connect phone** on Windows. If the Gateway uses Tailscale, copy the displayed PC address or enter the PC’s Tailscale IP in **Gateway settings** on Android, then tap **Connect**. Both devices must use the same Tailscale account. The PC verifies the phone’s identity through its local Tailscale daemon. The default Gateway port is 8090.
 
-## Pair a phone
+On private Wi-Fi, enter the PC's IP on Android. When both devices already use the same GitHub.com personal access token, they verify a short-lived proof tied to the installation, TLS certificate and Android device key. The token stays in each device’s credential store. Rotating the token on the PC invalidates existing account-based Wi-Fi credentials. Devices without an owner identity can view the shared settings overview.
 
-1. Open **Android controls** in the Windows dashboard. Deliberately select the
-   PC interface reachable from the phone and enable the control listener. Its
-   default port is **8091**. This does not add a firewall rule or expose the
-   listener on every interface.
-2. Create a pairing invitation. Choose Owner or Viewer (read-only) access.
-   Viewer grants have no writable settings. For an owner, choose the repositories this phone may use and
-   whether it may change shared capacity, startup, update and diagnostic
-   preferences. Engineering permission is scoped to this paired owner.
-3. In the Android Gateway controls, select the existing Gateway connection and
-   paste the invitation. Review the target address and certificate fingerprint.
-4. Compare the phone's public-key fingerprint on both devices, then approve the
-   pending claim on the PC. Check confirmation on Android before editing.
-5. Enable Engineering for the paired owner when wanted. The first activation
-   confirms the target PC and scope. The selected inference profile remains a
-   separate choice.
+If the devices use different credentials, **Other connection options** on Windows includes **Copy secure phone link**. Paste the full link into **Gateway settings** on Android and tap **Connect** within five minutes. If the PC has several network interfaces, **Advanced network choice** lets you select the one your phone can reach. Android verifies the certificate fingerprint in the link and signs its request over TLS. Future connections use the saved certificate and device key, including after the phone’s IP changes. Windows can revoke the device under **Settings → Devices**.
 
-An invitation expires after five minutes and binds one device public key. The
-same device can recover an interrupted delivery within that interval. A new
-device cannot reuse the invitation. Windows can revoke a device, and Android can
-revoke its own grant. Revocation does not delete the Gateway's saved work.
-
-The native **Settings** page has an **Engineering owner** selector. Selecting a
-paired phone edits the same engineering gate shown on that phone. **This
-desktop** is a separate local owner. Capacity and other installation preferences
-remain shared regardless of which owner is selected.
+Engineering starts enabled for a new owner. The PC’s model, GitHub connection and approved repositories determine which jobs can run. Existing owner and viewer grants retain their permissions.
 
 ## What a setting means
 
@@ -42,6 +17,7 @@ remain shared regardless of which owner is selected.
 | Batch mode and local validation workers | Future work uses the changed preference after the safe boundary. Accepted work retains its bound policy. |
 | Repository validation profile | Windows first approves an immutable snapshot of an existing validated policy. A phone with an explicit grant can select an approved profile within its repository scope; activation waits for the safe boundary and rejects a policy changed on the host. |
 | Model backend and model | A new route is probed before activation. Failure preserves the last effective route. A phone cannot approve a new backend origin. |
+| Network and shutdown | Direct and private-address owners can edit the saved listener IP, port, hostnames and shutdown grace. Changes to the listener activate after a PC restart. The app also shows the selected MCP configuration file. |
 | Public repository maps | Installation preference, applied through the runtime's guarded activation path. |
 | Start at sign-in, updates and diagnostics | Installation preferences. OS operations that cannot be completed under the host account remain pending for local action. |
 
@@ -91,7 +67,7 @@ bindings and conversation owners are not migrated to a new identity.
 
 ## Authentication and authority
 
-The control listener uses a pinned TLS certificate. Android retains its P-256
+The private-LAN control listener uses a pinned TLS certificate. Android retains its P-256
 private key in Android Keystore and the grant in the encrypted, non-backup
 credential vault. Requests bind the HTTP method, path, installation, timestamp,
 nonce and exact body digest to a device signature. Replayed, expired, unsigned,

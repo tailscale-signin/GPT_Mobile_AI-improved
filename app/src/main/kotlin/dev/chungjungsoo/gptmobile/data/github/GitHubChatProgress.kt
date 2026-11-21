@@ -78,6 +78,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
 
     private fun admitSummary(at: Long, allowFallback: Boolean): ApiState.ActivitySummary? {
         if (!initial && at - lastSummaryAt < summaryInterval(findingsPublished)) return null
+        if (!initial && pendingSummary == null && revision == lastSummaryRevision) return null
         val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision }
         pendingSummary = null
         // A timer or generic application summary cannot displace selected-profile findings.
@@ -88,7 +89,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         // cannot manufacture a new insight without a previously unreported fact.
         val allFactsReported = factKeys.isNotEmpty() && factKeys.all(reportedFactKeys::contains)
         val noNewFacts = generated == null && factKeys.isEmpty()
-        if (!initial && (allFactsReported || noNewFacts)) {
+        // The primary model may explain a finding that was first shown as a factual fallback.
+        val firstInterpretation = generated?.modelAuthored == true && !selectedAuthoredSummary
+        if (!initial && (allFactsReported && !firstInterpretation || noNewFacts)) {
             lastSummaryRevision = revision
             return null
         }
@@ -186,8 +189,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         previewSequence.offer(previewEvent(name, progress.toolArgs, GitHubPreviewPhase.STARTED))
                             ?.let { activity = it }
                         nextStep = nextFor(operation)
-                        // Started is a public observation, not a successful completion.
-                        rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} started; no result has been verified.")
+                        // Starts belong in the live preview. A finding needs an outcome.
                     }
                     "tool_failed" -> {
                         if (terminalKey != null && !terminalCalls.add(terminalKey)) return
@@ -324,6 +326,21 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 if (saved) "From saved results: ${summary.replaceFirstChar(Char::lowercase)} Current state still needs verification." else summary,
                 problem
             )
+            val range = facts["source_range"] as? JsonObject
+            if (name.githubOperationFamily() == "github_read" && range != null) {
+                val path = (range["path"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
+                val start = count(range, "start")
+                val end = count(range, "end")
+                if (path != null && start != null && start > 0 && end != null && end >= start) {
+                    val file = GitHubProgressPresentation.taskLabel(path)
+                    val location = if (start == end) "line $start" else "lines $start–$end"
+                    return if (range["complete"] == JsonPrimitive(true)) {
+                        observation("Read $location", "I have $location of $file.")
+                    } else {
+                        observation("Retrieved a source excerpt", "I have part of the requested range in $file.")
+                    }
+                }
+            }
             val counts = facts["check_counts"] as? JsonObject
             if (counts != null) {
                 val successful = count(counts, "successful")
@@ -347,15 +364,21 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 val coverage = if (facts["workflow_inventory_complete"] == JsonPrimitive(true)) "complete captured inventory" else "incomplete captured inventory"
                 return observation("${quantity(count, "workflow definition")} found", "The workflow inventory contains ${quantity(count, "definition")} ($coverage). Listing definitions does not execute validation.")
             }
-            count(facts, "open_pull_requests_observed")?.let { count ->
-                val coverage = if (facts["open_pull_request_inventory_complete"] == JsonPrimitive(true)) "complete captured list" else "incomplete captured list"
-                return observation("${quantity(count, "open pull request")} observed", "Observed ${quantity(count, "open pull request")} ($coverage); review and check status still need inspection.")
-            }
             if (facts["required_checks_state"] == JsonPrimitive("UNKNOWN")) {
                 return observation("Required-check policy is unavailable", "Required-check policy${focusClause(args)} is unavailable; merge readiness cannot be established.", problem = true)
             }
             count(facts, "changed_files_observed")?.let { count ->
                 return observation("${quantity(count, "changed file")} observed", "The comparison${focusClause(args)} contains ${quantity(count, "observed changed file")}; source review remains unverified.")
+            }
+            count(facts, "open_pull_requests_observed")?.let { count ->
+                val scope = if (facts["open_pull_request_inventory_complete"] == JsonPrimitive(true)) "the full list" else "this page"
+                return observation("${quantity(count, "open pull request")} on $scope", "I found ${quantity(count, "open pull request")} in $scope.")
+            }
+            val revision = (facts["commit_sha"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
+            val branch = (facts["branch"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
+            if (name.githubOperationFamily() == "github_context" && revision != null && branch != null) {
+                val target = GitHubProgressPresentation.taskLabel(branch)
+                return observation("Located $target at ${revision.take(8)}", "The $target branch points to ${revision.take(8)}.")
             }
             return null
         }
@@ -370,9 +393,13 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 value("job_id") != null -> "Job ${value("job_id")}"
                 value("run_id") != null -> "Run ${value("run_id")}"
                 value("pull_number") != null -> "PR #${value("pull_number")}"
+                value("pr_number") != null -> "PR #${value("pr_number")}"
                 value("issue_number") != null -> "Issue #${value("issue_number")}"
                 value("branch") != null -> "branch ${value("branch")}"
                 value("tag_name") != null -> "tag ${value("tag_name")}"
+                value("release_id") != null -> "release ${value("release_id")}"
+                value("commit_sha")?.matches(Regex("[a-fA-F0-9]{40}")) == true -> "commit ${value("commit_sha")?.take(8)}"
+                (args?.get("page") as? JsonPrimitive)?.intOrNull?.let { it > 1 } == true -> "page ${value("page")}"
                 else -> ""
             }
         }
@@ -388,6 +415,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                     "checks" -> Operation("Checking build and test results", "check results", "separate failures from pending or skipped checks before deciding what needs repair")
                     "changes" -> Operation("Comparing branch changes", "branch comparison", "read the affected source and examine how the changes alter the requested behavior")
                     "resolve" -> Operation("Resolving branch revision", "reference lookup", "use the observed revision to keep subsequent source reads and checks consistent")
+                    "branch" -> Operation("Reading the branch head", "branch lookup", "match the branch head to the comparison")
+                    "repository" -> Operation("Reading repository details", "repository lookup", "check the selected repository and default branch")
+                    "commit" -> Operation("Inspecting the commit", "commit inspection", "follow the changes into the affected files")
                     "branches" -> Operation("Inspecting branches", "branch inventory", "identify the branch containing the requested work and establish its comparison base")
                     "index" -> Operation("Inspecting source coverage", "source index", "identify which relevant files need a direct read before drawing conclusions")
                     "efficiency" -> Operation("Reviewing saved reads", "saved-read inspection", "reuse available evidence and identify the remaining source reads that can advance the task")
@@ -402,6 +432,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                     "workflows" -> Operation("Listing workflow definitions", "workflow definition inventory", "follow unread pages when inventory is needed, then inspect actual runs and check results")
                     "definitions" -> Operation("Reading workflow definitions", "workflow source inspection", "identify the workflow configuration without treating it as executed validation")
                     "runs" -> Operation("Locating workflow run", "workflow run lookup", "match the run to the selected revision before interpreting its jobs and results")
+                    "run", "status" -> Operation("Reading workflow run status", "workflow run", "match this attempt to its revision and jobs")
+                    "artifacts" -> Operation("Looking up build artifacts", "artifact lookup", "match the artifacts to the workflow run")
                     "dispatch", "rerun", "cancel" -> Operation("Checking workflow request", "workflow request", "verify whether the requested workflow action was accepted and observe its resulting state", true)
                     else -> Operation("Inspecting build and test results", "build and test inspection", "separate observed failures from pending or skipped checks and identify the next relevant diagnostic")
                 }
@@ -415,7 +447,11 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 "github_issue" -> Operation("Reading issue details", "issue inspection", "connect the reported symptoms and remaining requirements to the relevant implementation")
                 "github_stage_patch" -> Operation("Preparing patch", "patch request", "review the proposed changes and verify their approval and publication state before claiming they were applied", true)
                 "github_commit", "github_write" -> Operation("Checking change request", "change request", "verify whether the proposed change was accepted and then inspect the resulting branch state", true)
-                "github_release" -> Operation("Inspecting release artifacts", "release inspection", "check the relevant version and available artifacts against the requested release state")
+                "github_release" -> when (action) {
+                    "tags", "tag" -> Operation("Checking release tags", "tag lookup", "match the tag to its commit")
+                    "list" -> Operation("Finding release records", "release inventory", "inspect the record for the relevant version")
+                    else -> Operation("Inspecting release artifacts", "release inspection", "check the relevant version and available artifacts against the requested release state")
+                }
                 "github_decide" -> Operation("Waiting for your decision", "decision request", "use the recorded choice to select the authorized next step without repeating completed work")
                 "web_search" -> Operation("Searching web sources", "web search", "read the relevant sources and compare their information with the repository evidence")
                 "fetch_webpage" -> Operation("Reading web source", "web source read", "check how the source supports the investigation before relying on its conclusions")

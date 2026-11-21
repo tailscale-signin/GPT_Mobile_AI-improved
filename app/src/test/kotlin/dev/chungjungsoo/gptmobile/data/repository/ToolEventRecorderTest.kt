@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.dao.GatewayRunDiagnosticState
+import dev.chungjungsoo.gptmobile.data.database.dao.RecordedChatOutcome
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
@@ -488,6 +489,14 @@ class ToolEventRecorderTest {
             put("tool_name_hash", "e".repeat(64))
             put("original_error_code_hash", "f".repeat(64))
             put("original_reason_code_hash", "0".repeat(64))
+            put("graph_transport_kind", "DNS")
+            put("url_reader_refusal", "HTTP_ACCESS_DENIED")
+            put("round_catalog_discovery_available", true)
+            put("catalog_selector_state", "ACTION_WITHOUT_NAMES")
+            put("search_failure_observation", "UPSTREAM_CHALLENGE")
+            put("search_attempt_count", 4)
+            put("search_dispatched_attempt_count", 3)
+            put("search_budget_rejected_attempt_count", 1)
         }
         val reports = mutableListOf<Map<String, Any?>>()
         mockkObject(AppLogRecorder)
@@ -528,6 +537,18 @@ class ToolEventRecorderTest {
                 assertEquals(case.label, IssueReportContext.identifierHash("tool-name", event.modelToolName), values["tool_name_hash"]?.jsonPrimitive?.content)
                 assertEquals(case.label, IssueReportContext.identifierHash("tool-error-code", "INVALID_ARGUMENTS"), values["original_error_code_hash"]?.jsonPrimitive?.content)
                 assertFalse(case.label, values.containsKey("original_reason_code_hash"))
+                for (key in listOf(
+                    "graph_transport_kind",
+                    "url_reader_refusal",
+                    "round_catalog_discovery_available",
+                    "catalog_selector_state",
+                    "search_failure_observation",
+                    "search_attempt_count",
+                    "search_dispatched_attempt_count",
+                    "search_budget_rejected_attempt_count"
+                )) {
+                    assertFalse(case.label, values.containsKey(key))
+                }
                 assertEquals(case.label, case.actionAvailable, values.containsKey("tool_action_hash"))
                 if (case.actionAvailable) {
                     assertEquals(case.label, IssueReportContext.identifierHash("tool-action", action), values["tool_action_hash"]?.jsonPrimitive?.content)
@@ -1074,6 +1095,7 @@ class ToolEventRecorderTest {
 private class FakeAgentRunDao :
     AgentRunDao,
     UnusedPolicySnapshotAccess {
+    override suspend fun chatsWithRecordedOutcome(status: String): List<RecordedChatOutcome> = emptyList()
     override suspend fun gatewayDiagnosticStates(baseUrl: String, profileUid: String): List<GatewayRunDiagnosticState> = emptyList()
     override suspend fun recordGatewayCancellation(runId: String, jobId: String, receipt: String): Int = 0
     override suspend fun finishGatewayRecovery(runId: String, status: String, completedAt: Long, terminalError: String?): Int = 0

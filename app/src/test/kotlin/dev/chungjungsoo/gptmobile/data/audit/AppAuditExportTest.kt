@@ -152,6 +152,8 @@ class AppAuditExportTest {
         assertEquals(AppAuditSourceInventory.fileCount, document["sourceFiles"]!!.jsonArray.size)
         assertTrue(document["sourceFiles"]!!.jsonArray.all { it.jsonObject.keys == setOf("area_id", "indexed_lines", "kind", "path", "sha256") })
         assertEquals(parsed["files"], document["sourceFiles"])
+        val declaredRoots = parsed.getValue("scope").jsonObject.getValue("production_roots").jsonArray.map { it.jsonPrimitive.content + "/" }
+        assertEquals(declaredRoots, AppAuditSourceInventory.sourceRootPrefixes)
     }
 
     @Test
@@ -178,6 +180,7 @@ class AppAuditExportTest {
         val first = files.first().jsonObject
         for (replacement in listOf(
             JsonObject(first + ("path" to JsonPrimitive("app/src/main/../PRIVATE_SECRET"))),
+            JsonObject(first + ("path" to JsonPrimitive("local-kokoro-runtime/src/main-private/PRIVATE_SECRET"))),
             JsonObject(first + ("private_note" to JsonPrimitive("PRIVATE_SECRET"))),
             JsonObject(first + ("sha256" to JsonPrimitive("0".repeat(64))))
         )) {

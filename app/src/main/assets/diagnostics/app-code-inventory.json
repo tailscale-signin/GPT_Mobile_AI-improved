@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "8451b0ed8b0943a060a40aaf4fc8e19685253b1ab7d592d2714d2eb960905c04",
+  "source_digest": "c72de4dcdeba7b2213cb2031785b782ccd44d3f8b7a61fe491ad57a80405f7a0",
   "file_count": 2776,
   "indexed_line_count": 460475,
   "line_coverage_available": false,
@@ -3567,7 +3567,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditExport.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "a1586d53aa0993f11eee8caf4fad6340b9c121f9288e790af99b541840c19227",
+      "sha256": "778819af8b2613d2d5fa84fd45b44568c3db1727fc39aaf3f3eee092d80082d1",
       "indexed_lines": 534
     },
     {

@@ -9,10 +9,20 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "8451b0ed8b0943a060a40aaf4fc8e19685253b1ab7d592d2714d2eb960905c04"
+    val sourceDigest: String = "c72de4dcdeba7b2213cb2031785b782ccd44d3f8b7a61fe491ad57a80405f7a0"
     val fileCount: Int = 2776
     val lineCount: Int = 460475
     val lineCoverageAvailable: Boolean = false
+    internal val sourceRootPrefixes: List<String> = listOf(
+        "app/src/main/",
+        "local-gguf-runtime/src/main/",
+        "local-kokoro-runtime/src/main/",
+        "core-domain/src/commonMain/",
+        "core-domain/src/jvmMain/",
+        "gateway/",
+        "authentication/",
+        "mcp/"
+    )
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8675),
         AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 571, 101773),

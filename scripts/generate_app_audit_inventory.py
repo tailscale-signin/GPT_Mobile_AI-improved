@@ -202,7 +202,10 @@ def kotlin_document(data):
              '    val assetPath: String = "diagnostics/app-code-inventory.json"',
              f'    val sourceDigest: String = "{data["source_digest"]}"',
              f'    val fileCount: Int = {data["file_count"]}', f'    val lineCount: Int = {data["indexed_line_count"]}',
-             '    val lineCoverageAvailable: Boolean = false', '    val areas: List<AppAuditSourceArea> = listOf(']
+             '    val lineCoverageAvailable: Boolean = false',
+             '    internal val sourceRootPrefixes: List<String> = listOf(',
+             ',\n'.join(f'        "{root}/"' for root in PRODUCTION_ROOTS),
+             '    )', '    val areas: List<AppAuditSourceArea> = listOf(']
     for index, area in enumerate(data['areas']):
         suffix = ',' if index < len(data['areas']) - 1 else ''
         lines.append(f'        AppAuditSourceArea("{area["id"]}", "{area["label"]}", {area["file_count"]}, {area["indexed_line_count"]}){suffix}')

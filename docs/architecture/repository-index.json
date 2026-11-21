@@ -198,6 +198,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunPolicySnapshot.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRuntimeIdentity.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSamplingPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSavedOutcome.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSavedViewStore.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchContext.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchCursorDiagnostics.kt",

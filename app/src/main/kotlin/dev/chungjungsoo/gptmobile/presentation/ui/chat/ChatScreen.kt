@@ -1920,6 +1920,8 @@ internal fun ChatMessagePair(
     val assistantContent = when {
         selectedSourceReader != null -> ""
         rawAssistantContent.isBlank() && selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_REMOTE_JOB -> "Waiting for the saved remote job. Check its status without submitting another generation."
+        rawAssistantContent.isBlank() && agentRun?.status == AgentRunStatus.INTERRUPTED ->
+            dev.chungjungsoo.gptmobile.data.agent.interruptedConversationReport(selectedAssistantMessage?.effectiveTimeline().orEmpty())
         rawAssistantContent.isBlank() && waitingForApproval -> stringResource(R.string.github_approval_wait_saved)
         rawAssistantContent.isBlank() && isCombinedConversation && combinedStatus == CombinedResponseStatus.PAUSED && !waitingForProvider -> stringResource(R.string.provider_wait_saved)
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)

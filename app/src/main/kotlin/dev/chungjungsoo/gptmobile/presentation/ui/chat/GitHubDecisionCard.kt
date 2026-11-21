@@ -82,6 +82,7 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
                     "Waiting for your choice"
                 }
                 Text("$label · ${seconds / 60}m ${seconds % 60}s", style = MaterialTheme.typography.labelMedium)
+                if (decision.answer == null) Text("Work on this choice is paused. An explicit task deadline keeps running while you decide.", style = MaterialTheme.typography.bodySmall)
             }
             if (decision.answer == null && title != decision.question.trim()) Text(decision.question, style = MaterialTheme.typography.bodyMedium)
             if (decision.context.isNotBlank()) Text(decision.context, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)

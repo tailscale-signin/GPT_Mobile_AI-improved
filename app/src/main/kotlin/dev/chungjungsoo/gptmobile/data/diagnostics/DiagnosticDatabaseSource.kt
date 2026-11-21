@@ -358,10 +358,20 @@ class DiagnosticDatabaseSource @Inject constructor(
                 }
             )
         }
-        fun advance(rowId: Long, order: Long) {
+        var rowsSinceCheckpoint = 0
+        var bytesSinceCheckpoint = 0L
+        fun advance(rowId: Long, order: Long, sourceBytes: Long) {
             after = rowId
             afterSort = order
-            save()
+            rowsSinceCheckpoint++
+            bytesSinceCheckpoint += sourceBytes.coerceIn(0, 128 * 1024L)
+            // A durable cursor and file byte boundary always move together. Normal
+            // workspace capture may replay at most seven small rows after process death.
+            if (table.name != "workspace_records" || sourcePageSize == 1 || rowsSinceCheckpoint >= 8 || bytesSinceCheckpoint >= 128 * 1024) {
+                save()
+                rowsSinceCheckpoint = 0
+                bytesSinceCheckpoint = 0
+            }
         }
         save()
         while (true) {
@@ -394,7 +404,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                             put("maximumBytes", maximumCharacters)
                         }
                     )
-                    advance(rowId, order)
+                    advance(rowId, order, sourceBytes)
                     sourceRecord(null)
                     continue
                 }
@@ -420,7 +430,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                 }
                 if (fields == null) {
                     recordOmission("SOURCE_CHANGED_DURING_CAPTURE")
-                    advance(rowId, order)
+                    advance(rowId, order, sourceBytes)
                     sourceRecord(null)
                     continue
                 }
@@ -476,7 +486,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                     }
                 )
                 emittedRows++
-                advance(rowId, order)
+                advance(rowId, order, sourceBytes)
                 sourceRecord(null)
                 if (sourcePageSize == 1) kotlinx.coroutines.yield()
             }

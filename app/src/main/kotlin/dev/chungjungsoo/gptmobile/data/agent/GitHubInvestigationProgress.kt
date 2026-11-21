@@ -16,12 +16,24 @@ internal class GitHubInvestigationProgress {
 
     fun observe(exchange: AgentToolExchange): String? {
         var acquired = false
-        for ((call, result) in exchange.calls.zip(exchange.results)) {
-            val key = toolRepeatKey(call)
-            if (!result.isError) {
-                if (key !in observed) acquired = true
-                observed += key
+        val calls = exchange.calls.associateBy { it.callId }
+        for (result in exchange.results) {
+            val call = calls[result.callId] ?: continue
+            val payload = (result.content as? ToolResultContent.Json)?.value as? JsonObject
+            if (result.isError || payload?.get("schema") == JsonPrimitive("github.repeat.v1")) continue
+            val source = ((result.executionReceipt?.get("saved_view_source_sha256") ?: result.executionReceipt?.get("source_result_sha256")) as? JsonPrimitive)?.contentOrNull
+            val cursor = (call.arguments["view_cursor"] as? JsonPrimitive)?.contentOrNull
+            val key = if (source != null && source.matches(Regex("[a-f0-9]{64}"))) {
+                // Cursors may use another byte budget for exactly the same start position.
+                val offset = cursor?.split(':')?.getOrNull(1) ?: "initial"
+                val ranges = (payload?.get("items") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().joinToString { row ->
+                    "${row["sha"]}:${row["range_offset"]}:${(row["content"] as? JsonPrimitive)?.content?.length}"
+                }
+                "${call.name}|$source|$offset|$ranges"
+            } else {
+                toolRepeatKey(call)
             }
+            if (observed.add(key)) acquired = true
             while (observed.size > 256) observed.remove(observed.first())
         }
         staleRounds = if (acquired) 0 else staleRounds + 1

@@ -25,10 +25,15 @@ data class WorkspaceRecord(
     val version: Int = 1
 )
 
+data class OutcomeRecordKey(val id: String, val chatId: Int, val storedRow: Long, val updatedAt: Long)
+
 @Dao
 interface WorkspaceDao {
     @Query("SELECT * FROM workspace_records WHERE chatId = :chatId AND kind = 'github_evidence' ORDER BY updatedAt DESC LIMIT 80")
     fun observeGitHubEvidence(chatId: Int): Flow<List<WorkspaceRecord>>
+
+    @Query("SELECT w.id, w.chatId, w.rowid AS storedRow, w.updatedAt FROM workspace_records w JOIN chats_v2 c ON c.chat_id=w.chatId WHERE c.is_temporary=0 AND w.rowid<:beforeRow AND ((w.kind='github_evidence' AND w.id GLOB 'github-evidence:*:ev_*') OR (w.kind='github_engineering_memory' AND (w.id GLOB 'engineering:*:decision:*' OR w.id GLOB 'engineering:*:feedback:*'))) ORDER BY w.rowid DESC LIMIT 64")
+    suspend fun outcomeEvidenceKeys(beforeRow: Long): List<OutcomeRecordKey>
 
     @Query("SELECT * FROM workspace_records WHERE kind = 'github_engineering_memory' AND runId = :scope ORDER BY updatedAt DESC LIMIT 256")
     suspend fun engineeringMemory(scope: String): List<WorkspaceRecord>

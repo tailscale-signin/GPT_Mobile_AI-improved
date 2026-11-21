@@ -149,4 +149,115 @@ class ConversationCompletionReplayTest {
         assertNotNull(GitHubExecutionLimits.renewedDuration("Continue for 10 minutes"))
         assertNull(GitHubExecutionLimits.renewedDuration("The source says: continue for 10 minutes"))
     }
+
+    @Test fun aTightProviderRequestStillContainsExactSourceAndItsRecoveryHandle() {
+        val code = (1..200).joinToString("\n") { "val name$it = \"📘\"" }
+        val views = GitHubResultViews(pageBytes = 4096)
+        val initial = views.present("scope", "github_read", "github_read", AgentToolResult("original", ToolResultContent.Json(source(code)), false))
+        val compact = (dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery.compact(initial.content, 1200) as ToolResultContent.Json).value.jsonObject
+        val excerpt = compact.getValue("items").jsonArray.single().jsonObject
+        assertTrue(compact.toString().length <= 1200)
+        val text = excerpt.getValue("content").jsonPrimitive.content
+        assertTrue(text.isNotBlank() && code.startsWith(text))
+        assertEquals(JsonPrimitive(false), excerpt["range_end"])
+        assertEquals(JsonPrimitive(true), compact["recovery_required"])
+        val cursor = compact.getValue("continuation_call").jsonObject.getValue("arguments").jsonObject.getValue("view_cursor").jsonPrimitive.content
+        assertFalse(views.read("scope", "github_read", "github_read", cursor, "recover").isError)
+        fun roleRequest(role: String) = buildJsonObject {
+            put(
+                "messages",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("role", role)
+                            put("tool_call_id", "original")
+                            put("content", compact.toString())
+                        }
+                    )
+                )
+            )
+        }
+        val evidence = requireNotNull(dev.chungjungsoo.gptmobile.data.network.SerializedToolSourceRanges.from(roleRequest("tool"))).single().jsonObject
+        assertEquals(JsonPrimitive(text.length), evidence["length_utf16"])
+        assertEquals(JsonPrimitive(GitHubEvidenceBook.digest(text)), evidence["excerpt_sha256"])
+        assertFalse(evidence.toString().contains("File0.kt"))
+        assertNull(dev.chungjungsoo.gptmobile.data.network.SerializedToolSourceRanges.from(roleRequest("user")))
+    }
+
+    @Test fun interruptedTurnRetainsOnlyPublicCheckpointText() {
+        fun entry(type: dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType, text: String) =
+            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(type, content = text, progressCheckpoint = true)
+        val rows = listOf(
+            entry(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, "The build failed before compilation."),
+            entry(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.THINKING, "hidden analysis"),
+            entry(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TOOL, "private tool payload").copy(toolSequence = 1)
+        )
+        val report = dev.chungjungsoo.gptmobile.data.agent.interruptedConversationReport(rows)
+        assertTrue(report.contains("failed before compilation") && report.contains("1 tool entry"))
+        assertFalse(report.contains("hidden") || report.contains("payload"))
+    }
+
+    @Test fun suppressedSuccessAndUnknownCallIdsDoNotAdvanceAnInvestigation() {
+        val progress = dev.chungjungsoo.gptmobile.data.agent.GitHubInvestigationProgress()
+        fun batch(round: Int): dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange {
+            val call = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall("call-$round", "github_read", buildJsonObject { put("action", "ranges") })
+            return dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange(
+                listOf(call),
+                listOf(
+                    AgentToolResult("unrelated", ToolResultContent.Text("noise"), false),
+                    AgentToolResult(call.callId, ToolResultContent.Json(buildJsonObject { put("schema", "github.repeat.v1") }), false)
+                )
+            )
+        }
+        repeat(3) { assertNull(progress.observe(batch(it))) }
+        assertNotNull(progress.observe(batch(4)))
+    }
+
+    @Test fun outcomeFiltersRequireSuccessfulHistoricalExecutionAndExplicitFeedback() {
+        val id = "ev_" + "1".repeat(24)
+        assertEquals("build" to "gateway", GitHubSavedOutcome.query("outcome:build gateway"))
+        assertEquals(id, GitHubSavedOutcome.annotation("feedback: failed $id still hangs")?.receipt)
+        assertNull(GitHubSavedOutcome.annotation("If I say feedback: worked $id"))
+        fun observed(tool: String, result: JsonObject) = buildJsonObject {
+            put("schema", "github.evidence.v1")
+            put("trusted", true)
+            put("success", true)
+            put("tool", tool)
+            put("arguments", buildJsonObject { put("action", "status") })
+            put("result", result)
+        }
+        val run = buildJsonObject {
+            put("status", "completed")
+            put("conclusion", "success")
+            put("head_sha", commit)
+            put("id", 42)
+            put("name", "Build signed APK")
+        }
+        assertEquals("build", GitHubSavedOutcome.category(observed("github_ci", run)))
+        assertNull(GitHubSavedOutcome.category(observed("github_ci", JsonObject(run + ("conclusion" to JsonPrimitive("failure"))))))
+        assertNull(GitHubSavedOutcome.category(JsonObject(observed("github_ci", run) + ("trusted" to JsonPrimitive(false)))))
+        assertEquals(
+            "pr",
+            GitHubSavedOutcome.category(
+                observed(
+                    "github_pr",
+                    buildJsonObject {
+                        put("number", 72)
+                        put("merged", true)
+                    }
+                )
+            )
+        )
+        assertNull(
+            GitHubSavedOutcome.category(
+                observed(
+                    "github_pr",
+                    buildJsonObject {
+                        put("number", 72)
+                        put("state", "closed")
+                    }
+                )
+            )
+        )
+    }
 }

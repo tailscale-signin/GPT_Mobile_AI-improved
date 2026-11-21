@@ -127,6 +127,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -3529,7 +3530,7 @@ class ChatRepositoryImpl(
         val engineering = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.features(features, platform.uid, github).engineeringProfiles[platform.uid]
         val task = requestedTask
         val adaptiveSettings = if (engineering != null && combined == null && !synthesisRun) {
-            dev.chungjungsoo.gptmobile.data.context.EngineeringAdaptivePolicy.budgets(engineering, task, settings)
+            dev.chungjungsoo.gptmobile.data.context.EngineeringAdaptivePolicy.budgets(engineering, task, settings, boundGitHubWorkspace = githubMode && github != null)
         } else {
             settings
         }
@@ -6354,7 +6355,7 @@ class ChatRepositoryImpl(
         val text = dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryPreparation.prepare(
             github,
             resolvedTools,
-            load = { engineeringMemory.prepare(github, user.chatId, "${user.chatId}:${user.id}", user.content, preferences, platform.isPrivateDestination(), minOf(12_000, contextTokens / 4)) },
+            load = { engineeringMemory.prepare(github, user.chatId, "${user.chatId}:${user.id}", user.content, preferences, platform.isPrivateDestination(), minOf(12_000, contextTokens / 4), user.attachments) },
             unavailable = { rejected ->
                 dev.chungjungsoo.gptmobile.data.diagnostics.captureIssueReport {
                     if (origin != null) {
@@ -6983,6 +6984,16 @@ class ChatRepositoryImpl(
             return chatRoomV2Dao.getChatRooms()
         }
 
+        dev.chungjungsoo.gptmobile.data.github.GitHubSavedOutcome.query(query)?.let { (outcome, terms) ->
+            val store = workspace ?: return emptyList()
+            val candidates = if (terms.isBlank()) chatRoomV2Dao.getChatRooms() else searchChatsV2Literal(terms)
+            val byId = candidates.filterNot { it.isTemporary }.associateBy { it.id }
+            return withContext(Dispatchers.IO) { store.chatsByOutcome(outcome, byId.keys).mapNotNull(byId::get) }
+        }
+        return searchChatsV2Literal(query)
+    }
+
+    private suspend fun searchChatsV2Literal(query: String): List<ChatRoomV2> {
         val (titleMatches, messageMatchChatIds) = withContext(Dispatchers.IO) {
             coroutineScope {
                 val titleJob = async { chatRoomV2Dao.searchChatRoomsByTitle(query) }

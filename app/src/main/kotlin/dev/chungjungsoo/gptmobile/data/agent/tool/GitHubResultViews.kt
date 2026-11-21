@@ -75,7 +75,13 @@ internal class GitHubResultViews(
             request["response_detail"] != JsonPrimitive("full") &&
             bytes > pageBytes / 2 &&
             GitHubSourcePages.supports(value)
-        if (sourcePages) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, sourcePages = true)
+        if (sourcePages) {
+            val recipes = mutableListOf<JsonObject>()
+            retainContinuations(value, "", operation, modelName, request, recipes)
+            if (recipes.toString().encodeToByteArray().size <= pageBytes / 4) {
+                return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display, sourcePages = true)
+            }
+        }
         if (bytes > MAX_SOURCE_BYTES) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
         val continuations = mutableListOf<JsonObject>()
         val body = retainContinuations(value, "", operation, modelName, request, continuations)

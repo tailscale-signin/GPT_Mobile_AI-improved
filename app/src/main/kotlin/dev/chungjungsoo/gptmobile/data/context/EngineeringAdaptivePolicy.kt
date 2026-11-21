@@ -27,9 +27,9 @@ object EngineeringAdaptivePolicy {
         }
     }
 
-    fun budgets(config: EngineeringProfileSettings, task: String, existing: TokenBudgetSettings): TokenBudgetSettings {
+    fun budgets(config: EngineeringProfileSettings, task: String, existing: TokenBudgetSettings, boundGitHubWorkspace: Boolean = false): TokenBudgetSettings {
         if (config.mode == EngineeringMode.OFF) return existing
-        if (config.githubOnly && !Regex("(?i)github|repository|\\brepo\\b|\\bcommit\\b|pull request|\\bci\\b").containsMatchIn(task)) return existing
+        if (config.githubOnly && !boundGitHubWorkspace && !Regex("(?i)github|repository|\\brepo\\b|\\bcommit\\b|pull request|\\bci\\b").containsMatchIn(task)) return existing
         val selected = mode(config, task)
         val context = when (selected) {
             EngineeringMode.QUICK -> 8_192

@@ -12,6 +12,7 @@ import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -19,6 +20,31 @@ import kotlinx.serialization.json.Json
 class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, private val vault: dev.chungjungsoo.gptmobile.data.security.SecretVault) {
     val dao = database.workspaceDao()
     val records = dao.observe()
+    private val outcomeCache = object : LinkedHashMap<OutcomeRecordKey, String>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<OutcomeRecordKey, String>?) = size > 4096
+    }
+
+    /** Search protected evidence on demand, newest saved observation first. No source or chat text is indexed outside the vault. */
+    internal suspend fun chatsByOutcome(kind: String, candidates: Set<Int>): List<Int> {
+        val matches = linkedSetOf<Int>()
+        var beforeRow = Long.MAX_VALUE
+        while (matches.size < candidates.size) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val keys = dao.outcomeEvidenceKeys(beforeRow)
+            if (keys.isEmpty()) break
+            for (key in keys) {
+                if (key.chatId !in candidates || key.chatId in matches) continue
+                val category = synchronized(outcomeCache) { outcomeCache[key] } ?: protectedSynthesisCheckpoint(key.id)?.let {
+                    val value = dev.chungjungsoo.gptmobile.data.github.GitHubSavedOutcome.category(it).orEmpty()
+                    synchronized(outcomeCache) { outcomeCache[key] = value }
+                    value
+                }
+                if (category == kind) matches += key.chatId
+            }
+            beforeRow = keys.last().storedRow
+        }
+        return matches.toList()
+    }
     val json = Json { ignoreUnknownKeys = true }
     suspend fun exclusions(chatId: Int): ContextExclusions = dao.get("exclusions:$chatId")?.let { json.decodeFromString(it.payload) } ?: ContextExclusions()
     suspend fun exclude(chatId: Int, value: ContextExclusions) = dao.save(WorkspaceRecord("exclusions:$chatId", "exclusions", "Next request exclusions", json.encodeToString(value), chatId))

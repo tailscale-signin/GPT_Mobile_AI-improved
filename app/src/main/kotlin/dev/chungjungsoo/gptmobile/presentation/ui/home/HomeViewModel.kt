@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
@@ -318,7 +319,16 @@ class HomeViewModel @Inject constructor(
         _searchQuery
             .debounce(SEARCH_DEBOUNCE_MS)
             .distinctUntilChanged()
-            .onEach { query -> searchChats(query) }
+            .mapLatest { query ->
+                val hidden = hiddenWorkspaceChildIds()
+                query to chatRepository.searchChatsV2(query).filterNot { it.id in hidden }
+            }
+            .onEach { (query, rooms) ->
+                if (_searchQuery.value == query) {
+                    allChats = rooms
+                    publishFolderChats()
+                }
+            }
             .launchIn(viewModelScope)
 
         // Set up debounced search / observation for favorite messages
@@ -528,14 +538,6 @@ class HomeViewModel @Inject constructor(
 
     fun updateSearchQuery(query: String) {
         _searchQuery.update { query }
-    }
-
-    private fun searchChats(query: String) {
-        viewModelScope.launch {
-            val hidden = hiddenWorkspaceChildIds()
-            allChats = chatRepository.searchChatsV2(query).filterNot { it.id in hidden }
-            publishFolderChats()
-        }
     }
 
     private suspend fun hiddenWorkspaceChildIds(): Set<Int> = emptySet()

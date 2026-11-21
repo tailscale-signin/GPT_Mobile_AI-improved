@@ -187,7 +187,7 @@
     <string name="accelerator">Accelerator</string>
     <string name="chats">Chats</string>
     <string name="new_chat">New Chat</string>
-    <string name="search_chats">Search chats…</string>
+    <string name="search_chats">Search chats or outcome:build…</string>
     <string name="no_chats">No chats yet</string>
     <string name="no_chats_description">Start a conversation with an AI assistant</string>
     <string name="no_search_results">No chats found</string>

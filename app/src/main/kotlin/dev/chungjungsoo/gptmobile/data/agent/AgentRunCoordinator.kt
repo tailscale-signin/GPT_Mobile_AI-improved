@@ -1315,7 +1315,8 @@ class AgentRunCoordinator @Inject constructor(
                 val isInterrupted = !excluded && cancellationReason !in setOf("USER_CANCELLED", "CHAT_DELETED")
                 runCatching {
                     traceReducedOutput(assistantMessage)
-                    val cancelledMessage = assistantMessage.copy(createdAt = completedAt).resetActiveRevision().withCombinedOutcome(if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED)
+                    val retainedBody = if (isInterrupted && assistantMessage.content.isBlank()) interruptedConversationReport(assistantMessage.timeline) else assistantMessage.content
+                    val cancelledMessage = assistantMessage.copy(content = retainedBody, createdAt = completedAt).resetActiveRevision().withCombinedOutcome(if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED)
                     val committed = chatRepository.commitAgentRun(
                         cancelledMessage,
                         request.runId,

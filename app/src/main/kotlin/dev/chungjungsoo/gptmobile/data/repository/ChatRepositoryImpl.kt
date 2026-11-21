@@ -110,7 +110,6 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.observedResponseSource
 import dev.chungjungsoo.gptmobile.data.orchestration.assistEnabled
 import dev.chungjungsoo.gptmobile.data.orchestration.effectiveAssistPolicy
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
-import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
 import dev.chungjungsoo.gptmobile.data.rag.FactRecall
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
@@ -278,12 +277,6 @@ class ChatRepositoryImpl(
     private val gitHubApprovalState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
     private val privacyMode: PrivacyModeStore? = null
 ) : ChatRepository {
-    private suspend fun requirePrivacyAdmission(platform: PlatformV2) {
-        if (privacyMode?.snapshot()?.enabled != true) return
-        val decision = requireNotNull(privacyMode).verifier.verify(platform).decision
-        if (!decision.eligible) error("PRIVACY_PROVIDER_INELIGIBLE: " + decision.explanation + " " + privacyAlternatives(platform))
-    }
-
     private suspend fun privacyAlternatives(profile: PlatformV2): String =
         privacyMode?.verifier?.alternatives(settingRepository.fetchPlatformV2s(), profile.uid).orEmpty()
 
@@ -778,7 +771,6 @@ class ChatRepositoryImpl(
         onInvocation: (String) -> Unit,
         onPhysicalRequest: (String) -> Unit
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
-        requirePrivacyAdmission(platform)
         PrivacyModeStore.requireUnprotectedTransport()
         val requested = kotlinx.coroutines.currentCoroutineContext()[BenchmarkRequestContext] ?: BenchmarkRequestContext()
         val schema = requested.responseSchemaJson ?: when (benchmarkCategory) {
@@ -881,7 +873,6 @@ class ChatRepositoryImpl(
         parentRunId: String,
         onInvocation: (String) -> Unit
     ): AgentProviderSession {
-        requirePrivacyAdmission(platform)
         dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         require(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.minimum(role) != null)
         require(outputTokens in 256..8192 && prompt.toByteArray().size <= 96 * 1024)
@@ -934,7 +925,6 @@ class ChatRepositoryImpl(
         settings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
         frozenProfiles: Map<String, PlatformV2>
     ): dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSample {
-        requirePrivacyAdmission(platform)
         PrivacyModeStore.requireUnprotectedTransport()
         val config = settings.normalized().copy(fallbackToAnotherProfile = false)
         check(config.enabled) { "Enable delegation before benchmarking its settings." }
@@ -1772,18 +1762,6 @@ class ChatRepositoryImpl(
             )
         }
         val privateMode = privacyMode?.takeIf { it.snapshot().enabled }
-        val privacyDecision = privateMode?.verifier?.verify(platform)?.decision ?: PrivacyProfileEligibility.evaluate(platform, false)
-        if (!privacyDecision.eligible) {
-            emit(
-                ApiState.Error(
-                    "PRIVACY_PROVIDER_INELIGIBLE: " + privacyDecision.explanation + " " + privacyAlternatives(platform),
-                    errorCode = "PRIVACY_PROVIDER_INELIGIBLE",
-                    taskOutcome = "BLOCKED"
-                )
-            )
-            emit(ApiState.Done)
-            return@flow
-        }
         if (privateMode != null && (chatToolConfig?.github != null || chatToolConfig?.research?.researchToggle == true || chatToolConfig?.combined != null || stage != null || userMessages.any { it.attachments.isNotEmpty() })) {
             emit(ApiState.Error("This conversation uses an unverified tool, attachment or workflow. Choose a text chat with a verified profile.", errorCode = "PRIVACY_SERVICE_UNVERIFIED", taskOutcome = "BLOCKED"))
             emit(ApiState.Done)
@@ -1880,7 +1858,6 @@ class ChatRepositoryImpl(
     }.withFailureBoundaryEvidence(runId, platform).withSystemOutputLineage(runId).flowOn(Dispatchers.Default)
 
     override suspend fun preflightAnswerPrivacy(platform: PlatformV2) = withContext(Dispatchers.Default) {
-        requirePrivacyAdmission(platform)
         if (privacyMode?.snapshot()?.enabled == true) return@withContext
         // UI entry points share this preflight with generation. Metadata parsing
         // and policy evaluation must not return to Main after the client's IO.
@@ -5359,23 +5336,20 @@ class ChatRepositoryImpl(
                 }
             }
             AppLogRecorder.record("Context", "REQUEST_BUDGET · runId=$runId · requestKind=$kind · phase=initial_advertisement · authorizedTools=${if (textOnly) 0 else contextPlan.authorizedTools.size} · advertisedSchema=see_WIRE_SCHEMA · ${costs.diagnostic()}", if (costs.total > 131_072) "W" else "I")
-            val routedSession = if (privateTurn && platform.compatibleType != ClientType.LITERT_LM) {
-                val store = requireNotNull(privacyMode)
-                dev.chungjungsoo.gptmobile.data.privacy.PrivateInferenceSession(store.verifier, store, invocationPlatform, turns, constraints) { privacyAlternatives(platform) }
-            } else {
-                when (platform.compatibleType) {
-                    ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, invocationPlatform, constraints)
+            suspend fun providerSession(sessionTurns: List<ConversationTurn>, profile: PlatformV2): AgentProviderSession =
+                when (profile.compatibleType) {
+                    ClientType.OPENAI -> openAIResponsesAdapter.openSession(sessionTurns, profile, constraints)
 
                     ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
-                        openAICompatibleAdapter.openSession(turns, invocationPlatform, constraints)
+                        openAICompatibleAdapter.openSession(sessionTurns, profile, constraints)
 
-                    ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, invocationPlatform, constraints)
+                    ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(sessionTurns, profile, constraints)
 
-                    ClientType.GOOGLE -> geminiAdapter.openSession(turns, invocationPlatform, constraints)
+                    ClientType.GOOGLE -> geminiAdapter.openSession(sessionTurns, profile, constraints)
 
                     ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
-                        turns,
-                        invocationPlatform,
+                        sessionTurns,
+                        profile,
                         if (textOnly) emptyList() else effectiveTools.map(::bindGitHubTarget),
                         constraints,
                         fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true, researchReport = chatToolConfig?.research?.researchToggle == true),
@@ -5384,6 +5358,16 @@ class ChatRepositoryImpl(
                         githubMode = chatToolConfig?.github != null && !textOnly
                     )
                 }
+
+            val routedSession = if (privateTurn && platform.compatibleType != ClientType.LITERT_LM) {
+                val store = requireNotNull(privacyMode)
+                if (store.verifier.verify(invocationPlatform).route != null) {
+                    dev.chungjungsoo.gptmobile.data.privacy.PrivateInferenceSession(store.verifier, store, invocationPlatform, turns, constraints) { privacyAlternatives(platform) }
+                } else {
+                    dev.chungjungsoo.gptmobile.data.privacy.maskedProviderSession(store, invocationPlatform, turns, ::providerSession)
+                }
+            } else {
+                providerSession(turns, invocationPlatform)
             }
             val raw = routedSession.let { session ->
                 if (!privateTurn && platform.compatibleType in setOf(ClientType.LLAMA, ClientType.OLLAMA) && !session.handlesToolsInternally) {

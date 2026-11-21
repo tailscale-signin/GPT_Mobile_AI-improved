@@ -43,8 +43,13 @@ class NetworkClient @Inject constructor(
     /** Only bounded gateway GETs use this pool; mutations and event streams keep the ordinary client. */
     internal fun gatewayReadClient(): HttpClient = gatewayReads
 
-    private fun createClient(pool: ConnectionPool): HttpClient = HttpClient(httpEngine) {
-        install(PrivateMetadataGate)
+    private val maskedInference by lazy { createClient(idleConnectionPool, maskedProvider = true) }
+
+    internal suspend fun inferenceClient(): HttpClient =
+        if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.MaskedProviderCall.Key] != null) maskedInference else client
+
+    private fun createClient(pool: ConnectionPool, maskedProvider: Boolean = false): HttpClient = HttpClient(httpEngine) {
+        if (!maskedProvider) install(PrivateMetadataGate)
         install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
         if (httpEngine == OkHttp) {
             install(ReadinessHttpPlugin)
@@ -83,7 +88,7 @@ class NetworkClient @Inject constructor(
                                 throw java.net.ProtocolException("Public provider connections require HTTPS.")
                             }
                         }
-                        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) {
+                        if (!maskedProvider && dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) {
                             if (!PrivateGatewayMetadata.allows(request)) throw PrivateMetadataDenied()
                         }
                         chain.proceed(request)

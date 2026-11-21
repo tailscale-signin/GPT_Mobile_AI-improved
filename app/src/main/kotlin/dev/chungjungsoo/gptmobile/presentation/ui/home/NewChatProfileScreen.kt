@@ -160,8 +160,8 @@ internal fun NewChatProfileScreen(
     val privacyDecisions = remember(profiles, privacy, checkedProfiles) {
         profiles.filter { it.enabled }.associate { it.uid to viewModel.privacyDecision(it) }
     }
-    val availableUids = remember(privacyDecisions) {
-        privacyDecisions.filterValues { it.eligible }.keys
+    val availableUids = remember(profiles) {
+        profiles.filter { it.enabled }.mapTo(mutableSetOf()) { it.uid }
     }
     val currentSelection = remember(selected, availableUids) { selected.filter { it in availableUids } }
     val researchPolicy = remember(researchDepth) {
@@ -261,11 +261,11 @@ internal fun NewChatProfileScreen(
                     verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     if (privacy.enabled) {
-                        Text("Privacy-Verified AI Profiles", style = MaterialTheme.typography.titleSmall)
+                        Text("Profile privacy checks", style = MaterialTheme.typography.titleSmall)
                         val counts = privacyDecisions.values.groupingBy { it.status }.eachCount()
                         Text(
                             listOf(
-                                "${counts[PrivacyProfileEligibility.Status.AVAILABLE] ?: 0} available",
+                                "${counts[PrivacyProfileEligibility.Status.AVAILABLE] ?: 0} verified",
                                 "${counts[PrivacyProfileEligibility.Status.CHECKING] ?: 0} checking",
                                 "${counts[PrivacyProfileEligibility.Status.NOT_VERIFIED] ?: 0} not verified",
                                 "${counts[PrivacyProfileEligibility.Status.INCOMPATIBLE] ?: 0} incompatible"
@@ -273,7 +273,7 @@ internal fun NewChatProfileScreen(
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.testTag("privacy_profile_counts")
                         )
-                        Text("Unavailable profiles stay saved. Missing verification does not mean a provider retains your data.", style = MaterialTheme.typography.bodySmall)
+                        Text("Every enabled profile is selectable. For unverified providers, text is masked locally and the provider’s retention policy applies.", style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { privacyRefresh++ }, enabled = !privacyChecking, modifier = Modifier.testTag("privacy_profiles_recheck")) {
                                 Text(if (privacyChecking) "Checking profiles…" else "Recheck profiles")
@@ -407,7 +407,6 @@ internal fun NewChatProfileScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     SelectPlatformProfileCard(
                         profile = profile,
-                        privacyRestriction = viewModel.privacyDecision(profile).takeUnless { it.eligible }?.explanation,
                         privacyStatus = privacyDecisions[profile.uid]?.status.takeIf { privacy.enabled },
                         selected = profile.uid in currentSelection,
                         insight = insights[profile.uid]?.takeIf { it.matches(profile) },

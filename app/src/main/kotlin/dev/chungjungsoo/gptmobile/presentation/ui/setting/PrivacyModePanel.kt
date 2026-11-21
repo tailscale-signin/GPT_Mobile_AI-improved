@@ -78,7 +78,7 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("Privacy Mode", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (state.enabled) "ON · Strict privacy filtering" else "OFF · Standard profile availability",
+                    if (state.enabled) "ON · Local text masking" else "OFF · Standard profile availability",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -90,7 +90,7 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             )
         }
         Text(
-            "When on, Privacy Mode masks personal details on this device and checks cloud routes for no training, content logging or routine retention. Your private Gateway uses its installed model.",
+            "When on, Privacy Mode masks personal details on this device and checks cloud routes for no training, content logging or routine retention. All enabled profiles can be selected. Unverified providers receive masked text under their own retention policies.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

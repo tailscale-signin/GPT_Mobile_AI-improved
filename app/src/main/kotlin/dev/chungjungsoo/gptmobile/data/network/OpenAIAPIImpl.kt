@@ -150,7 +150,7 @@ class OpenAIAPIImpl @Inject constructor(
                 FreeProviderPreflight.require(config, request.model)
             }
             var freeModel = free?.let {
-                if (it == FreeAiProvider.LLM7) Llm7FreeModelSelection.resolve(networkClient(), config, request.model) else dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireModel(it, request.model)
+                if (it == FreeAiProvider.LLM7) Llm7FreeModelSelection.resolve(networkClient.inferenceClient(), config, request.model) else dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireModel(it, request.model)
             }
             if (free == FreeAiProvider.PORCHLM && request.model == "automatic") {
                 dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(free)
@@ -186,7 +186,7 @@ class OpenAIAPIImpl @Inject constructor(
                 )
             }
             if (free == FreeAiProvider.AI_HORDE || free == FreeAiProvider.HUGGING_FACE) {
-                FreeQueuedTransport(networkClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
+                FreeQueuedTransport(networkClient.inferenceClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
                 return@flow
             }
             if (free == null && OpenRouterRateLimitScopes.isOpenRouter(config)) {
@@ -238,7 +238,7 @@ class OpenAIAPIImpl @Inject constructor(
                     anyRequestDispatched = true
                     diagnosticHeaders = GatewayClientDiagnostics.requestHeaders(config, "chat", "POST")
                     dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobPollCoordinator.continuing(config)
-                    networkClient().preparePost(endpoint) {
+                    networkClient.inferenceClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
                         contentType(ContentType.Application.Json)
                         setBody(admittedPayload)
@@ -847,7 +847,7 @@ class OpenAIAPIImpl @Inject constructor(
                         anyRequestDispatched = true
                         val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
                         dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange(effectiveConfig, "chat", safeRead = false, method = "POST", knownGateway = false) { diagnosticHeaders ->
-                            networkClient().preparePost(endpoint) {
+                            networkClient.inferenceClient().preparePost(endpoint) {
                                 applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
                                 contentType(ContentType.Application.Json)
                                 setBody(admittedPayload)

@@ -143,11 +143,6 @@ class NewChatViewModel @Inject constructor(
                         }
                         if (privacyCheckGeneration.get() != generation || store.snapshot() != state) return@launch
                         checked.update { it + (profile to decision) }
-                        if (!decision.eligible && profile.uid in selectedUids.value) {
-                            val retained = selectedUids.value - profile.uid
-                            savedStateHandle["new_chat_uids"] = retained
-                            if (primaryUid.value !in retained) savedStateHandle["new_chat_primary"] = retained.firstOrNull().orEmpty()
-                        }
                     }
                 }
             }
@@ -178,7 +173,7 @@ class NewChatViewModel @Inject constructor(
         }
         savedStateHandle["new_chat_type"] = choice.name
         val enabled = profiles.value.filter {
-            it.enabled && privacyDecision(it).eligible
+            it.enabled
         }.map { it.uid }.toSet()
         val kept = selectedUids.value.filter { it in enabled }.let {
             if (choice in setOf(NewChatType.SINGLE, NewChatType.GITHUB)) it.take(1) else it
@@ -191,11 +186,6 @@ class NewChatViewModel @Inject constructor(
 
     fun toggleProfile(uid: String) {
         val profile = profiles.value.firstOrNull { it.uid == uid && it.enabled } ?: return
-        val privacyDecision = privacyDecision(profile)
-        if (!privacyDecision.eligible) {
-            _error.value = "Privacy Mode: " + privacyDecision.explanation
-            return
-        }
         val current = selectedUids.value
         if (uid !in current) {
             dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let {
@@ -218,11 +208,6 @@ class NewChatViewModel @Inject constructor(
     internal fun chooseSuggestedProfile(uid: String, research: Boolean) {
         val destination = if (research) NewChatType.RESEARCH else NewChatType.SINGLE
         val profile = profiles.value.firstOrNull { it.uid == uid && it.enabled } ?: return
-        val admission = privacyDecision(profile)
-        if (!admission.eligible) {
-            _error.value = "Privacy Mode: " + admission.explanation
-            return
-        }
         dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let {
             _error.value = it.message
             return
@@ -334,7 +319,6 @@ class NewChatViewModel @Inject constructor(
             val created = mutableListOf<ChatRoomV2>()
             try {
                 val creationPrivacy = privacyMode?.snapshot()
-                val creationCheckGeneration = privacyCheckGeneration.get()
                 require(creationPrivacy?.enabled != true || choice !in setOf(NewChatType.GITHUB, NewChatType.RESEARCH)) {
                     "Privacy Mode currently blocks cloud-capable GitHub and Research tools because their downstream services lack verified retention terms."
                 }
@@ -346,8 +330,6 @@ class NewChatViewModel @Inject constructor(
                     val profile = available.first { it.uid == uid }
                     val block = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)
                     require(block == null) { block?.message.orEmpty() }
-                    val privacyDecision = privacyMode?.takeIf { creationPrivacy?.enabled == true }?.verifier?.verify(profile)?.decision ?: PrivacyProfileEligibility.evaluate(profile, false)
-                    require(privacyDecision.eligible) { "Privacy Mode: " + privacyDecision.explanation }
                     require(!settings.providerActivationRequired(profile)) { "Review ${profile.name}'s data policy in AI profile settings before starting." }
                 }
                 if (choice == NewChatType.RESEARCH) {
@@ -367,7 +349,7 @@ class NewChatViewModel @Inject constructor(
                 require(choice.requiredPluginId?.let { settings.getFeatureSettings().isToolPluginEnabled(it) } != false) {
                     "This chat mode's plugin was disabled. Enable it before continuing."
                 }
-                require(privacyMode?.snapshot() == creationPrivacy && (creationPrivacy?.enabled != true || privacyCheckGeneration.get() == creationCheckGeneration)) {
+                require(privacyMode?.snapshot() == creationPrivacy) {
                     "Privacy settings changed while checking. Recheck your profiles before starting."
                 }
                 val currentProfiles = settings.fetchPlatformV2s()

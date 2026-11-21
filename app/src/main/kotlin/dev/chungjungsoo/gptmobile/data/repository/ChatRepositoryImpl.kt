@@ -7267,6 +7267,7 @@ class ChatRepositoryImpl(
         dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.sourceBlocks(messageV2Dao, reference, source, first, count)
 
     override fun observeMessageWindow(chatId: Int, turns: Int): Flow<List<MessageV2>> = messageV2Dao.observeWindow(chatId, (turns - 1).coerceAtLeast(0))
+    override fun observeReplyCount(chatId: Int): Flow<Int> = messageV2Dao.observeReplyCount(chatId)
     override fun observeTurnCount(chatId: Int): Flow<Int> = messageV2Dao.observeTurnCount(chatId)
 
     override fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>> = messageV2Dao.observeMessages(chatId)

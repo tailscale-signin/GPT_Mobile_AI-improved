@@ -51,6 +51,8 @@ internal fun VoiceTranscriptScreen(
     model: ChatViewModel,
     profileName: String,
     status: String,
+    session: dev.chungjungsoo.gptmobile.data.voice.VoiceState,
+    captions: Boolean,
     controls: VoiceMessageControls,
     spokenReplies: Boolean,
     changeSpokenReplies: (Boolean) -> Unit,
@@ -73,6 +75,9 @@ internal fun VoiceTranscriptScreen(
                 onProfileSettings = destinations.profileSettings,
                 onOpenConversation = destinations.conversation,
                 bottomInteractionContent = {
+                    if (captions && session.phase in setOf(VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.SPEAKING)) {
+                        VoiceLiveCaptions(session, compact = true, modifier = Modifier.fillMaxWidth())
+                    }
                     VoiceTranscriptOutputControls(status, controls.phase, microphone, audioRoute)
                     bottomInteractionContent?.invoke()
                 }

@@ -1,3 +1,7 @@
+# GPT Mobile 0.9.66.12 (build 146) and Windows Gateway 18.1.0
+
+Chat now shows animated dots while following the bottom, inline generation progress, a numbered table of contents and a Statistics tab. Model attribution labels have been removed from the answer body. Voice and transcript views now show live microphone captions. During reply generation captions hide, then fade in over two seconds as speech starts, with a bold theme-coloured highlight on the spoken word. This build also improves discovery argument repair, Gateway connection timing, voice focus recovery and diagnostic evidence.
+
 # GPT Mobile 0.9.66.11 (build 145) and Windows Gateway 18.1.0
 
 ### Conversation completion

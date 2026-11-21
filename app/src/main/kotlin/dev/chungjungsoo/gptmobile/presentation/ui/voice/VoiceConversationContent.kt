@@ -185,17 +185,39 @@ private fun VoiceProfilePicker(state: VoiceConversationUiState, select: (String)
 
 @Composable
 private fun VoiceConversationStatus(state: VoiceConversationUiState, actions: VoiceConversationActions, compact: Boolean, modifier: Modifier = Modifier) {
-    Column(
-        modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        VoiceWave(state.session, Modifier.widthIn(max = 520.dp).fillMaxWidth().height(if (compact) 92.dp else 154.dp).clearAndSetSemantics {}, state.outputLevel)
-        VoiceStatusChip(state)
-        Text(voiceListeningHint(state.session), Modifier.padding(top = 10.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-        VoiceConversationSetup(state, actions)
-        if (state.captions) VoiceLiveCaptions(state.session, compact, Modifier.padding(top = 16.dp).widthIn(max = 560.dp).fillMaxWidth())
-        VoiceConversationRecovery(state, actions)
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+        val landscape = maxWidth >= 600.dp && maxWidth > maxHeight
+        val status: @Composable () -> Unit = {
+            VoiceStatusChip(state)
+            Text(
+                voiceListeningHint(state.session),
+                Modifier.padding(top = 6.dp, bottom = 10.dp),
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+            VoiceWave(state.session, Modifier.widthIn(max = 420.dp).fillMaxWidth().height(if (compact) 64.dp else 104.dp).clearAndSetSemantics {}, state.outputLevel)
+        }
+        val content: @Composable () -> Unit = {
+            if (state.captions) VoiceLiveCaptions(state.session, compact, Modifier.widthIn(max = 560.dp).fillMaxWidth())
+            VoiceConversationSetup(state, actions)
+            VoiceConversationRecovery(state, actions)
+        }
+        if (landscape) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(.8f).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) { status() }
+                Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) { content() }
+            }
+        } else {
+            Column(
+                Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
+            ) {
+                status()
+                content()
+            }
+        }
     }
 }
 
@@ -264,7 +286,7 @@ private fun voiceListeningHint(state: VoiceState): String = when {
     state.phase == VoicePhase.PREPARING -> "Your reply is getting ready to play"
     state.phase == VoicePhase.SPEAKING -> "Listening resumes after the reply"
     state.phase == VoicePhase.LISTENING -> "Go ahead, I’m listening"
-    state.phase == VoicePhase.THINKING -> "You can follow the reply in captions"
+    state.phase == VoicePhase.THINKING -> "Preparing your reply"
     state.muted -> "Unmute when you’re ready to speak"
     else -> "Use the microphone when you are ready"
 }

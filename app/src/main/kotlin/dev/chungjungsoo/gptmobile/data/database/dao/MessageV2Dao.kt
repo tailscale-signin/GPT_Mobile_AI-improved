@@ -54,6 +54,9 @@ interface MessageV2Dao : CombinedDocumentDao {
     @Query("SELECT COUNT(*) FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NULL")
     fun observeTurnCount(chatId: Int): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NOT NULL")
+    fun observeReplyCount(chatId: Int): Flow<Int>
+
     @Query("UPDATE messages_v2 SET is_favorite = :isFavorite WHERE message_id = :messageId")
     suspend fun updateFavorite(messageId: Int, isFavorite: Boolean)
 

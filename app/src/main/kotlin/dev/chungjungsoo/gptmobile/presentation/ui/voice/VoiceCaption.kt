@@ -48,12 +48,13 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
 
     companion object {
         fun from(state: VoiceState): VoiceCaption? {
+            if (state.phase == VoicePhase.THINKING || state.phase == VoicePhase.PREPARING) return null
             val capturing = state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING) || state.hasDraft
             val response = !capturing && state.reply.isNotBlank()
             val text = if (response) state.playbackCaption ?: state.reply else state.transcript
             if (text.isBlank()) return null
             val live = if (response) {
-                state.phase in setOf(VoicePhase.THINKING, VoicePhase.PREPARING, VoicePhase.SPEAKING)
+                state.phase == VoicePhase.SPEAKING
             } else {
                 state.phase in setOf(VoicePhase.LISTENING, VoicePhase.FINALIZING)
             }

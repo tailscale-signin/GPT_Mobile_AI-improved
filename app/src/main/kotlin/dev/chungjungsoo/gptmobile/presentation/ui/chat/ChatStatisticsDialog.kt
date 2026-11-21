@@ -22,14 +22,13 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun ChatStatisticsDialog(
     repliesPerTurn: List<Int>,
-    prompts: Int,
+    counts: Pair<Int, Int>?,
     tools: Int,
     invocations: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>,
-    hasOlderHistory: Boolean,
-    loadOlder: () -> Unit,
     dismiss: () -> Unit
 ) {
-    val replies = repliesPerTurn.sum()
+    val prompts = counts?.first ?: 0
+    val replies = counts?.second ?: 0
     val primary = MaterialTheme.colorScheme.primary
     val secondary = MaterialTheme.colorScheme.tertiary
     AlertDialog(
@@ -37,7 +36,7 @@ internal fun ChatStatisticsDialog(
         title = { Text("Conversation statistics") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (hasOlderHistory) TextButton(onClick = loadOlder) { Text("Showing loaded history · Load earlier turns") }
+                if (counts == null) Text("Loading conversation totals…")
                 if (prompts + replies > 0) {
                     Canvas(Modifier.size(84.dp).align(Alignment.CenterHorizontally)) {
                         val sweep = 360f * prompts / (prompts + replies)
@@ -45,8 +44,10 @@ internal fun ChatStatisticsDialog(
                         drawArc(secondary, -90f + sweep, 360f - sweep, true)
                     }
                 }
-                Text("$prompts prompts", color = primary)
-                Text("$replies responses", color = secondary)
+                if (counts != null) {
+                    Text("$prompts prompts", color = primary)
+                    Text("$replies responses", color = secondary)
+                }
                 Text("$tools tool events")
                 if (invocations.isNotEmpty()) {
                     Text("${invocations.size} model calls · ${invocations.distinctBy { it.model }.size} models")

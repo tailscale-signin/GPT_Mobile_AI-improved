@@ -823,6 +823,8 @@ private fun VoiceChatSessionScreen(
                 model = model,
                 profileName = profileName,
                 status = status,
+                session = state,
+                captions = captions,
                 controls = messageControls,
                 spokenReplies = spokenReplies,
                 changeSpokenReplies = ::setSpokenReplies,

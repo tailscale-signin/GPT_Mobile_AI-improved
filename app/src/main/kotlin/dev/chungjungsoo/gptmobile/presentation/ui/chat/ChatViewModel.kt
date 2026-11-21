@@ -413,6 +413,8 @@ class ChatViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    fun conversationMessageCounts(chatId: Int) = combine(chatRepository.observeTurnCount(chatId), chatRepository.observeReplyCount(chatId)) { prompts, replies -> prompts to replies }
+
     val conversationUsage = (invocationLedger?.usageForChat(chatRoomId) ?: flowOf(emptyList())).sample(250)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

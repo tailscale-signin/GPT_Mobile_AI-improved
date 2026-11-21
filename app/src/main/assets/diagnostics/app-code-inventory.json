@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b000090945b33e6877c4a4406788c83774ca95a6d42bc538232f8d37115796db",
+  "source_digest": "418a85dd76e9c6a276c3a59350b11e714208edd4785e63455f7a7b33c9e77268",
   "file_count": 2788,
-  "indexed_line_count": 462117,
+  "indexed_line_count": 462126,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 235,
-      "indexed_line_count": 40894
+      "indexed_line_count": 40898
     },
     {
       "id": "agent_tools",
@@ -101,7 +101,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 102,
-      "indexed_line_count": 10367
+      "indexed_line_count": 10371
     },
     {
       "id": "github",
@@ -149,7 +149,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 39,
-      "indexed_line_count": 6842
+      "indexed_line_count": 6843
     },
     {
       "id": "portable_domain",
@@ -1992,8 +1992,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "9d16e3d4e741340576c34a74554d8d5e4768749c79ecbf7423d24196377cdf4c",
-      "indexed_lines": 523
+      "sha256": "a6c57449b27176349949c3b29c24026a0f50c5aa5053897ac57690c5766ae4cf",
+      "indexed_lines": 527
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchCheckpoint.kt",
@@ -9699,8 +9699,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/NetworkFailureKind.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "850817e788e5805365a42293d7174fa0c50fa946ba79af03a107c6e535d081d9",
-      "indexed_lines": 63
+      "sha256": "fddea7c93fd4e066c856d1957bbbf8883e5f5812a7f693212bdf2e886d98056b",
+      "indexed_lines": 67
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/NetworkRetryUtils.kt",
@@ -10028,7 +10028,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAPIImpl.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "f9480b9ac3ed53519e2b0f97db521d681db5d10248cf0ad8ee02b6e3cc1f1fb4",
+      "sha256": "e532030efc03c723a460e4641ad2853add72ba9d08456fefc7fc3f1484142231",
       "indexed_lines": 424
     },
     {
@@ -12107,8 +12107,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroFocusPolicy.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "6f67a6ff845dcda47a9f6d4969219161805806f031a02fbb7710bf0f4c413f89",
-      "indexed_lines": 45
+      "sha256": "effc6f0cd1970d0e4f40703bb2c88ef114bdeedae55bd1c15e06608902e08dd4",
+      "indexed_lines": 46
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroLexicon.kt",

@@ -10,7 +10,9 @@ class KokoroFocusPolicyTest {
     @Test fun normalModeDenialAllowsRouteSettlingWithoutRepeatedRequestsDuringCalls() {
         assertEquals(900L, kokoroFocusRetryDelay(1, AudioManager.MODE_NORMAL))
         assertEquals(250L, kokoroFocusRetryDelay(1, AudioManager.MODE_IN_CALL))
-        assertEquals(null, kokoroFocusRetryDelay(2, AudioManager.MODE_NORMAL))
+        assertEquals(1_500L, kokoroFocusRetryDelay(2, AudioManager.MODE_NORMAL))
+        assertEquals(null, kokoroFocusRetryDelay(2, AudioManager.MODE_IN_CALL))
+        assertEquals(null, kokoroFocusRetryDelay(3, AudioManager.MODE_NORMAL))
     }
 
     @Test fun repeatedFocusLossDoesNotExtendThePauseDeadline() {

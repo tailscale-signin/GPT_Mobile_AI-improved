@@ -249,6 +249,10 @@ internal object ToolArgumentValidator {
     }
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
+        if (toolName == ProgressiveToolCatalog.NAME && arguments.keys.all { it in setOf("query", "names") }) {
+            val selectors = JsonObject(arguments.filterValues { it != JsonNull })
+            return selectors.takeIf { it != arguments && errors(it, schema).isEmpty() }
+        }
         if (toolName == "read_url") return readUrlCorrection(arguments, schema)
         val operation = toolName.githubOperationFamily()
         if (operation == "github_pr" && arguments["action"] == JsonPrimitive("list")) {

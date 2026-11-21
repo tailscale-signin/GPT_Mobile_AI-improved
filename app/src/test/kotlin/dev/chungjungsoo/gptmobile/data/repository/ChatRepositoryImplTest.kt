@@ -1780,6 +1780,8 @@ class ChatRepositoryImplTest {
         val expectedDetails = buildJsonObject {
             put("incident_capture_site", "AGENT_FAILED_EVENT")
             put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+            put("failed_event_provider_text_seen", false)
+            put("failed_event_answer_emitted", false)
             put("failed_event_code_present", true)
             put("failed_event_invocation_present", false)
             put("failed_event_details_present", true)
@@ -1987,6 +1989,8 @@ class ChatRepositoryImplTest {
                     failureDetails = buildJsonObject {
                         put("incident_capture_site", "AGENT_FAILED_EVENT")
                         put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+                        put("failed_event_provider_text_seen", false)
+                        put("failed_event_answer_emitted", false)
                         put("failed_event_code_present", false)
                         put("failed_event_invocation_present", false)
                         put("failed_event_details_present", false)
@@ -2194,6 +2198,8 @@ class ChatRepositoryImplTest {
                     failureDetails = kotlinx.serialization.json.buildJsonObject {
                         put("incident_capture_site", kotlinx.serialization.json.JsonPrimitive("AGENT_FAILED_EVENT"))
                         put("incident_phase_provenance", kotlinx.serialization.json.JsonPrimitive("CAPTURE_BOUNDARY_ONLY"))
+                        put("failed_event_provider_text_seen", false)
+                        put("failed_event_answer_emitted", false)
                         put("failed_event_code_present", true)
                         put("failed_event_invocation_present", false)
                         put("failed_event_details_present", true)

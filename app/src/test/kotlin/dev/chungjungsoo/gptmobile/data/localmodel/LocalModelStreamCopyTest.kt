@@ -48,7 +48,9 @@ class LocalModelStreamCopyTest {
 
     private fun filename(name: String) {
         every { resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null) } answers {
-            MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)).apply { addRow(arrayOf(name, 4L)) }
+            MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)).apply {
+                addRow(arrayOf<Any?>(name, 4L))
+            }
         }
     }
 

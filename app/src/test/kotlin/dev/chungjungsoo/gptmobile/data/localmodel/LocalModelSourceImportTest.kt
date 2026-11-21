@@ -58,7 +58,9 @@ class LocalModelSourceImportTest {
         }
         every { context.contentResolver } returns resolver
         every { resolver.query(source.uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null) } answers {
-            MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)).apply { addRow(arrayOf("model.litertlm", 8L)) }
+            MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)).apply {
+                addRow(arrayOf<Any?>("model.litertlm", 8L))
+            }
         }
         every { resolver.openInputStream(source.uri) } returns stream
         coEvery { repository.importPersisted(stream, "model.litertlm", job, any(), any()) } coAnswers {

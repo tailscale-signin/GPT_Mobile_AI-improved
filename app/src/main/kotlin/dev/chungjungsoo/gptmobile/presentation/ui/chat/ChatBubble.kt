@@ -320,7 +320,7 @@ fun OpponentChatBubble(
         extractTelemetryNotice(noticeMessages)
     }
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
-    val resumeReview = displayedText.contains("choose Resume review", ignoreCase = true) || displayedText.startsWith("**Task paused.** REASONING_CAPABILITY_UNVERIFIED")
+    val resumeReview = ChatResponseActionParser.canResumeReview(displayedText)
     val showContinueAction = resumeReview || remember(displayedText, isLoading, isLastMessage) { shouldShowContinuePrompt(displayedText, isLoading, isLastMessage) }
     val dynamicActions = remember(displayedText, isLoading) { ChatResponseActionParser.extractDynamicActions(displayedText, isLoading) }
     var continueDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }

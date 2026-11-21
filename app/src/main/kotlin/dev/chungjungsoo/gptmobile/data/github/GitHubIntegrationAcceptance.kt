@@ -51,14 +51,8 @@ internal object GitHubIntegrationAcceptance {
                     "exact-sha" in text && "continuation" in text && "reserve" in text -> {
                         val executions = GitHubTestChecklist.workflowExecutions(receipts).filterIsInstance<JsonObject>()
                         val targets = executions.filter { it["execution_verified"] == JsonPrimitive(true) && it["commit_sha"] == source["repository_revision"] }
-                        val jobs = eligible.filter { receipt ->
-                            val job = data(receipt)
-                            args(receipt).text("action") == "jobs" &&
-                                targets.any { it["run_id"] == job["run_id"] && it["commit_sha"] == job["head_sha"] } &&
-                                (job["jobs"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any {
-                                    it.text("status") == "completed" && it.text("conclusion") == "success" && Regex("(?i)\\btests?\\b").containsMatchIn(it.text("name"))
-                                }
-                        }
+                        val testIds = targets.flatMap { (it["test_job_receipts"] as? JsonArray).orEmpty() }.toSet()
+                        val jobs = eligible.filter { it["receipt_id"] in testIds }
                         val discovery = receipts.values.filter { it.text("tool") == GitHubAuthorizedCatalog.TOOL || remotePage(it) }
                         val reserveKept = discovery.isNotEmpty() &&
                             discovery.all {

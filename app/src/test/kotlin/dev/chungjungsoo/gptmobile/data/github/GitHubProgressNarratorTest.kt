@@ -198,21 +198,29 @@ class GitHubProgressNarratorTest {
     @Test fun largeToolHistoryKeepsTheNextWorkRoundAheadOfOptionalProse() = runTest {
         var clock = 0L
         var calls = 0
+        var extraEvidence = false
+        val summaries = mutableListOf<ApiState.ActivitySummary>()
         val narrator = GitHubProgressNarrator(
-            snapshot = { state() },
+            snapshot = { if (extraEvidence) state(2).copy(recentSteps = listOf("Job 11 completed.")) else state() },
             openSelected = { _, _ ->
                 calls++
                 session(ProviderEvent.Completed)
             },
             validate = {},
             admit = { reservation, replay -> reservation + replay + 1000 <= 4000 },
-            publish = {},
+            publish = { summaries += it },
             now = { clock },
             deterministic = false
         )
         clock = 45_000
         narrator.beforeRound(workReplayTokens = 4000)
         assertEquals("Retained tool evidence owns the remaining request budget", 0, calls)
+        narrator.beforeRound(workReplayTokens = 0)
+        assertEquals(0, calls)
+        assertTrue(summaries.single().text.isNotBlank())
+        assertFalse(summaries.single().modelAuthored)
+        clock += 180_000
+        extraEvidence = true
         narrator.beforeRound(workReplayTokens = 0)
         assertEquals(1, calls)
     }

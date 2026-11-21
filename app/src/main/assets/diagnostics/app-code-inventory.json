@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "f7e969611e95c2c4bd08e2a4a9c7389dabc7ff27c06f5e70a139a893255691a7",
+  "source_digest": "eac6576cb37beecdcb2192ca3726f07063ec6f155da5b3fe19c29fffaa63177f",
   "file_count": 2779,
-  "indexed_line_count": 460808,
+  "indexed_line_count": 460810,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -41,7 +41,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 571,
-      "indexed_line_count": 101790
+      "indexed_line_count": 101793
     },
     {
       "id": "accessibility_and_localization",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 242,
-      "indexed_line_count": 43019
+      "indexed_line_count": 43018
     },
     {
       "id": "research",
@@ -3056,7 +3056,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "a9388a77e7e1120ca8af135fcb8c9d7e0eba890bc3b1c0b48b318da1e61f1ddf",
+      "sha256": "7671be02af5345d8b048f70a2aced809b2c8b7502f3107f53f43b14495c04de4",
       "indexed_lines": 295
     },
     {
@@ -7088,8 +7088,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicy.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "bb77cc114eeb8752fe75c12e877007ea2f87d0769d59ebbe1b84d995fe724ba9",
-      "indexed_lines": 795
+      "sha256": "9f0935eabba70d83e3437eb9f094161ae082e44a3a6feb9e96be7a6503d2c7c6",
+      "indexed_lines": 796
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceProjection.kt",
@@ -7172,8 +7172,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptance.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "aa4683f32782e58991c91f32902b046af8e8294f7051925aaf1491dc96ded8af",
-      "indexed_lines": 277
+      "sha256": "037528e4f7dab3a7054b6bc8579bfdf1b919242b500836a5a80cdeb42cc5e2c3",
+      "indexed_lines": 271
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparation.kt",
@@ -7795,8 +7795,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "1f0cf47dca07d0cc328fb5812502193b400091e7dbb31d5aacea8358dfe527a5",
-      "indexed_lines": 1273
+      "sha256": "3a99b4f7ec4de4ac9ebaf35e0ceecda7b87b1c70ae89765abe6569870ab0cbbc",
+      "indexed_lines": 1277
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTransportRecovery.kt",
@@ -13122,7 +13122,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "bb7ca14d87ba4c148e18dc088b3185388ff0708f9ac90268ef80af4eacfa8be4",
+      "sha256": "4efbb7dc3ab0915b3b46656fbad92654cc73f780a88288ba432d1a1750f9fb5a",
       "indexed_lines": 1205
     },
     {
@@ -13255,8 +13255,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatResponseActionParser.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "de5d199e83872b7bfc538372cccd4578b682d304338b846e2daba6b938d49d42",
-      "indexed_lines": 301
+      "sha256": "12c5187f841fe142ac89bf35ce40e0dd4cafea995fbaca560f8e657a44d5524f",
+      "indexed_lines": 304
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatRuntimeHealth.kt",
@@ -13269,7 +13269,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "d3247f87d719b77ebde01e7cf6181d41588e051a7e9b275dd47233bb0c1b682c",
+      "sha256": "f07403db4f99a7323f4969b3cf82f44247e1463e2921d0e559ac51134082c625",
       "indexed_lines": 3295
     },
     {

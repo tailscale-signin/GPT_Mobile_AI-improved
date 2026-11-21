@@ -2313,7 +2313,7 @@ internal fun ChatMessagePair(
                         onShowNextRevision = { onShowNextRevision(messageIndex, displayPlatformIndex) },
                         isUserTyping = isUserTyping,
                         isLastMessage = isActiveMessage && !isSourceResponse,
-                        onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
+                        onContinueClick = onContinueClick.takeIf { !isSourceResponse && (smartSuggestionsEnabled || ChatResponseActionParser.canResumeReview(assistantContent)) },
                         onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
                     )
                 }

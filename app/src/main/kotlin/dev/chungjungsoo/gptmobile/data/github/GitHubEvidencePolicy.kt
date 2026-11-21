@@ -335,7 +335,8 @@ internal object GitHubEvidencePolicy {
             put(
                 "subject",
                 when (failureCode) {
-                    "GITHUB_REVIEW_BLOCKED", "GITHUB_REVIEW_INVALID_VERDICT" -> "Answer review could not validate the draft. The recorded operations below remain available."
+                    "GITHUB_REVIEW_BLOCKED", "GITHUB_REVIEW_INVALID_VERDICT" -> "Choose Resume review to verify the saved findings. The recorded operations below remain available."
+                    "REASONING_CAPABILITY_UNVERIFIED", "REASONING_CAPABILITY_UNAVAILABLE", "REASONING_CAPABILITY_TIMEOUT" -> "Check the selected model and reasoning setting, then choose Resume review to verify the saved findings."
                     "GITHUB_EXTRACTION_TIMEOUT" -> "The answer formatter timed out. Recorded operations are preserved; task completion is not established."
                     "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "Claim extraction reached its output limit. Completed claim batches are saved for continuation."
                     "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "The answer formatter returned invalid claim data. Completed claim batches are saved for continuation."

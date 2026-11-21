@@ -1234,7 +1234,7 @@ internal object GitHubTestChecklist {
                         (args?.text("action") == "dispatch" || expectedAttempt != null && attempt == expectedAttempt)
                 }
             }
-            val jobPages = trusted(receipts).filter { read ->
+            val jobReceipts = trusted(receipts).filter { read ->
                 val value = data(read)
                 val expectedAttempt = result?.get("expected_run_attempt") ?: observation?.get("run_attempt")
                 read["success"] == JsonPrimitive(true) &&
@@ -1247,10 +1247,14 @@ internal object GitHubTestChecklist {
                     value?.get("run_attempt") == expectedAttempt &&
                     read.text("tool").githubOperationFamily() == "github_ci" &&
                     (read["arguments"] as? JsonObject)?.text("action") == "jobs"
-            }.mapNotNull(::data)
-            val jobs = GitHubWorkflowJobEvidence.completeJobs(jobPages)
+            }
+            val jobs = GitHubWorkflowJobEvidence.completeJobs(jobReceipts.mapNotNull(::data))
             val jobsVerified = jobs != null && jobs.all { it.text("status") == "completed" && it.text("conclusion") in setOf("success", "skipped", "neutral") }
             buildJsonObject {
+                val testJobs = jobs.orEmpty().filter { Regex("(?i)\\b(?:tests?|unit|instrumentation)\\b").containsMatchIn(it.text("name")) }
+                if (jobsVerified && testJobs.isNotEmpty() && testJobs.all { it.text("conclusion") == "success" }) {
+                    put("test_job_receipts", JsonArray(jobReceipts.mapNotNull { it["receipt_id"] }))
+                }
                 put("attempt_jobs_verified", jobsVerified)
                 put("execution_verified", observation?.text("status") == "completed" && observation.text("conclusion") == "success" && jobsVerified)
                 mutation["receipt_id"]?.let { put("dispatch_receipt", it) }

@@ -135,7 +135,7 @@ internal class RepositoryGraphTool(
                                 "recheck_after_recovery",
                                 buildJsonObject {
                                     put("tool", definition.name)
-                                    put("arguments", arguments)
+                                    put("source_call_id", callId)
                                 }
                             )
                         }

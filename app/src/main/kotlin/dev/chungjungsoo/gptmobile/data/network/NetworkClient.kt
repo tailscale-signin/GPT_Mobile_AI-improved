@@ -45,8 +45,7 @@ class NetworkClient @Inject constructor(
 
     private val maskedInference by lazy { createClient(idleConnectionPool, maskedProvider = true) }
 
-    internal suspend fun inferenceClient(): HttpClient =
-        if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.MaskedProviderCall.Key] != null) maskedInference else client
+    internal fun maskedInferenceClient(): HttpClient = maskedInference
 
     private fun createClient(pool: ConnectionPool, maskedProvider: Boolean = false): HttpClient = HttpClient(httpEngine) {
         if (!maskedProvider) install(PrivateMetadataGate)
@@ -189,3 +188,6 @@ class NetworkClient @Inject constructor(
         )
     }
 }
+
+internal suspend fun NetworkClient.inferenceClient(): HttpClient =
+    if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.MaskedProviderCall.Key] != null) maskedInferenceClient() else invoke()

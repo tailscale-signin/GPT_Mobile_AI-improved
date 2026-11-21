@@ -42,12 +42,8 @@ class IssueReportIncidentCapsuleTest {
         val boundary = IssueReportIncidentCapsule.boundaryFields(
             IssueReportIncidentCapsule.ExceptionCaptureSite.AGENT_FAILED_EVENT
         )
-        val evidence = boundary + mapOf(
-            "failed_event_code_present" to JsonPrimitive(false),
-            "failed_event_invocation_present" to JsonPrimitive(false),
-            "failed_event_details_present" to JsonPrimitive(false),
-            "run_id" to JsonPrimitive("private-run")
-        )
+        val evidence = boundary + IssueReportIncidentCapsule.failedEventFields.associateWith { JsonPrimitive(false) } +
+            mapOf("run_id" to JsonPrimitive("private-run"))
         val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", evidence)
         val diagnostic = requireNotNull(context.diagnostics)
         assertEquals(JsonPrimitive("AGENT_FAILED_EVENT"), diagnostic.values["incident_capture_site"])

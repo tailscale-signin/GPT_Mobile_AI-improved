@@ -1570,7 +1570,7 @@ class AgentRunnerTest {
         ).run(session, emptyList()).toList()
 
         assertEquals(
-            AgentRunEvent.Provider(ProviderEvent.Failed("Agent run timed out after 20 ms.")),
+            AgentRunEvent.Provider(ProviderEvent.Failed("Agent run timed out after 20 ms.", errorCode = "TIMEOUT")),
             events.single()
         )
     }

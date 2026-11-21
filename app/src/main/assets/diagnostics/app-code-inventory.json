@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "3232d0a9c85a9105c94f17c381d893bb601ac8e7a656773105af2cc00b2599d1",
+  "source_digest": "0a9c58a03e528deb5c1547efbd402dcb721c2bdf97cd466fc3cc340ad41d4d3f",
   "file_count": 2776,
-  "indexed_line_count": 460362,
+  "indexed_line_count": 460363,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -101,7 +101,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 101,
-      "indexed_line_count": 10275
+      "indexed_line_count": 10276
     },
     {
       "id": "github",
@@ -9797,8 +9797,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRejectionDiagnostics.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "0b570fbc5ff6ef75d1fc322fc8b0acb8b66b947a625a915d818f41cdfbaa09f2",
-      "indexed_lines": 121
+      "sha256": "30f4b15f14f753d82a41bf9172d63c8b0d7924a32f9786b120c113d9b3071321",
+      "indexed_lines": 122
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRequestConfig.kt",

@@ -20,8 +20,9 @@ internal object ProviderRejectionDiagnostics {
         "MODEL_UNAVAILABLE" -> "OpenRouter could not serve the selected model (HTTP 404). Check the model ID and availability in this profile."
         "PERMISSION" -> "POLICY_RESTRICTED: OpenRouter found no endpoint compatible with this profile’s data policy (HTTP 404). Choose a model or provider compatible with that policy."
         "UNAVAILABLE" -> "OpenRouter found no matching provider endpoint (HTTP 404). Check availability and the routing requirements for this model."
-        else -> "OpenRouter returned HTTP 404 for chat generation. Check this profile’s model ID and provider routing." +
-            providerDetail?.takeUnless { it == "HTTP 404" || it.isBlank() }?.let { " Provider detail: $it" }.orEmpty()
+        else ->
+            "OpenRouter returned HTTP 404 for chat generation. Check this profile’s model ID and provider routing." +
+                providerDetail?.takeUnless { it == "HTTP 404" || it.isBlank() }?.let { " Provider detail: $it" }.orEmpty()
     }
 
     fun response(status: Int, body: String, contract: Contract, endpoint: String? = null): JsonObject {

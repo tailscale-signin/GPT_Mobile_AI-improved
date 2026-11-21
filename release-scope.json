@@ -3372,6 +3372,9 @@
     "local-kokoro-runtime/src/main/AndroidManifest.xml",
     "local-kokoro-runtime/src/main/cpp/CMakeLists.txt",
     "local-kokoro-runtime/src/main/cpp/sherpa-timing.patch",
+    "local-kokoro-runtime/src/main/cpp/kokoro_pronunciation.cpp",
+    "local-kokoro-runtime/src/main/cpp/kokoro_pronunciation.h",
+    "local-kokoro-runtime/src/main/cpp/kokoro_pronunciation_test.cpp",
     "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
     "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java"
   ],

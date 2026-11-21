@@ -30,6 +30,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
@@ -118,6 +120,31 @@ class VoiceConversationInstrumentedTest {
             session.value = VoiceState(phase = VoicePhase.THINKING, awaitingReply = true)
         }
         compose.onNodeWithTag("voice_profile_picker").assertIsNotEnabled()
+    }
+
+    @Test fun onlyTheCenterLineHighlightsAndSilenceKeepsItsPlace() {
+        val reply = "One\nTwo\nThree fish\nFour\nFive\nSix"
+        val session = mutableStateOf(VoiceState(phase = VoicePhase.SPEAKING, reply = reply, spokenRange = 14..17))
+        compose.setContent { MaterialTheme { VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp)) } }
+        fun line(value: String): TextLayoutResult {
+            val results = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(value, useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
+            return results.single()
+        }
+        val active = line("Three fish").layoutInput
+        val mark = active.text.spanStyles.single()
+        assertEquals("fish", active.text.text.substring(mark.start, mark.end))
+        assertEquals(TextDecoration.Underline, mark.item.textDecoration)
+        assertEquals(active.style.fontSize.value * .75f, line("Two").layoutInput.style.fontSize.value, .01f)
+        assertEquals(active.style.fontSize.value * .5f, line("One").layoutInput.style.fontSize.value, .01f)
+        compose.onNodeWithText("Six", useUnmergedTree = true).assertDoesNotExist()
+        compose.runOnIdle { session.value = session.value.copy(spokenRange = null) }
+        assertTrue(line("Three fish").layoutInput.text.spanStyles.isEmpty())
+        assertEquals(active.style.fontSize, line("Three fish").layoutInput.style.fontSize)
+        compose.runOnIdle { session.value = session.value.copy(spokenRange = 19..22) }
+        assertEquals(active.style.fontSize, line("Four").layoutInput.style.fontSize)
+        assertTrue(line("Three fish").layoutInput.text.spanStyles.isEmpty())
+        compose.onNodeWithText("One", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing() {

@@ -12,6 +12,12 @@ FetchContent_Declare(sherpa
     PATCH_COMMAND ${GIT_EXECUTABLE} --git-dir=. --work-tree=. apply ${CMAKE_CURRENT_SOURCE_DIR}/sherpa-timing.patch)
 FetchContent_Populate(sherpa)
 
+# Only the trained English letter-to-sound tables are linked into the frontend.
+FetchContent_Declare(flite
+    URL https://codeload.github.com/festvox/flite/tar.gz/e9e2e37c329dbe98bfeb27a1828ef9a71fa84f88
+    URL_HASH SHA256=1eebf476797cea10b4706cfbb9db9ba34f7b8ccb1fe7e0069b0b7528e0b0be46)
+FetchContent_Populate(flite)
+
 set(UTF8PROC_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(utf8proc
     URL https://codeload.github.com/JuliaStrings/utf8proc/tar.gz/refs/tags/v2.12.0
@@ -37,15 +43,26 @@ else()
 endif()
 
 set(core ${sherpa_SOURCE_DIR}/sherpa-onnx/csrc)
+add_library(kokoro_pronunciation STATIC kokoro_pronunciation.cpp
+    ${flite_SOURCE_DIR}/lang/cmulex/cmu_lts_model.c ${flite_SOURCE_DIR}/lang/cmulex/cmu_lts_rules.c)
+target_include_directories(kokoro_pronunciation PRIVATE ${flite_SOURCE_DIR}/include)
 add_library(timed_kokoro SHARED timed_kokoro.cpp
     ${core}/offline-tts-kokoro-model.cc ${core}/file-utils.cc
     ${core}/onnx-utils.cc ${core}/symbol-table.cc ${core}/text-utils.cc)
 target_include_directories(timed_kokoro PRIVATE ${sherpa_SOURCE_DIR} ${ORT_INCLUDE_DIR} ${JNI_INCLUDE_DIRS})
 target_compile_options(timed_kokoro PRIVATE -O2 -ffunction-sections -fdata-sections)
 target_link_options(timed_kokoro PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL)
-target_link_libraries(timed_kokoro PRIVATE utf8proc ${ORT_LIBRARY})
+target_link_libraries(timed_kokoro PRIVATE kokoro_pronunciation utf8proc ${ORT_LIBRARY})
 if(ANDROID)
     # The published static archive carries full debug data for the entire runtime.
     target_link_options(timed_kokoro PRIVATE -Wl,--strip-debug)
     target_link_libraries(timed_kokoro PRIVATE android log)
+endif()
+if(NOT ANDROID)
+    include(CTest)
+    if(BUILD_TESTING)
+        add_executable(kokoro_pronunciation_test kokoro_pronunciation_test.cpp)
+        target_link_libraries(kokoro_pronunciation_test PRIVATE kokoro_pronunciation)
+        add_test(NAME english_dictionary_misses COMMAND kokoro_pronunciation_test)
+    endif()
 endif()

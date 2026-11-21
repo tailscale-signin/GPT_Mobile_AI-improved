@@ -22,13 +22,14 @@ internal data class KokoroSpeechProjection(val phrases: List<KokoroPhrase>?, val
     val parts: List<String>? get() = phrases?.map { it.speech }
 }
 
-/** Sherpa drops unknown keys, so all spoken substitutions must exist in the installed lexicon. */
+/** Projects English speech and preserves source ranges for dictionary and predicted pronunciations. */
 internal object KokoroSpeechText {
     private val marks = Regex("""\p{M}+""")
     private val invisibleFormat = Regex("[\u00AD\u200B\u200C\u200D\u2060\uFEFF]")
     private val token = Regex("""[vV][0-9]+(?:\.[0-9]+)+|[+\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)*|[a-zA-Z]+(?:'[a-zA-Z]+)*|[.,!?;:\n%&#@/+]""")
     private val camelBoundary = Regex("""(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])""")
-    private val initialisms = setOf("AI", "API", "APK", "AAR", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "RAM", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML", "VR", "XR", "USB", "DNS", "VPN", "CLI", "IDE", "JSON", "PDF", "NPU", "ASR", "JVM", "PCM")
+    private val initialisms = setOf("AI", "API", "APK", "AAR", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML", "VR", "XR", "USB", "DNS", "VPN", "CLI", "IDE", "PDF", "NPU", "ASR", "JVM", "PCM")
+    private val spokenAcronyms = mapOf("RAM" to "ram", "JSON" to "jason")
     private val contractions = mapOf("can't" to "cannot", "won't" to "will not", "don't" to "do not", "doesn't" to "does not", "didn't" to "did not", "isn't" to "is not", "aren't" to "are not", "wasn't" to "was not", "weren't" to "were not", "couldn't" to "could not", "wouldn't" to "would not", "shouldn't" to "should not", "i'm" to "i am", "we're" to "we are", "you're" to "you are", "they're" to "they are", "i've" to "i have", "we've" to "we have", "you've" to "you have", "they've" to "they have")
     private val digits = listOf("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
     private val teens = listOf("ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen")
@@ -137,7 +138,7 @@ internal object KokoroSpeechText {
                 value == "@" -> "at"
                 value == "/" -> "slash"
                 value == "+" -> "plus"
-                else -> value
+                else -> spokenAcronyms[value] ?: value
             }
             for (word in expanded.split(' ').filter(String::isNotEmpty)) {
                 val lower = word.lowercase(Locale.ROOT)
@@ -151,7 +152,7 @@ internal object KokoroSpeechText {
                     }
                 } else {
                     for (segment in word.split(camelBoundary)) {
-                        val key = segment.lowercase(Locale.ROOT)
+                        val key = spokenAcronyms[segment] ?: segment.lowercase(Locale.ROOT)
                         if (segment !in initialisms && segment != word && isKnown(key)) {
                             appendWord(key)
                             knownWords++
@@ -160,7 +161,9 @@ internal object KokoroSpeechText {
                             if (!appendSpelling(key)) return outcome(null, KokoroPronunciationFailure.MISSING_LETTER)
                         } else {
                             unknownWords++
-                            if (!appendSpelling(key)) {
+                            if (key.length <= 48) {
+                                appendWord(key)
+                            } else {
                                 // "word" is required by the pack health check, even if a letter is missing.
                                 if (!isKnown("word")) return outcome(null, KokoroPronunciationFailure.UNKNOWN_WORD, key.length.coerceAtMost(256))
                                 if (isKnown("unknown")) appendWord("unknown")

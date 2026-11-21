@@ -1,193 +1,162 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.rememberScrollableState
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.ScrollAxisRange
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.scrollBy
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.testTag
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.verticalScrollAxisRange
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
 internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Modifier = Modifier) {
-    val caption = remember(state.phase, state.transcript, state.reply, state.playbackCaption, state.hasDraft) { VoiceCaption.from(state) }
-    val colors = MaterialTheme.colorScheme
-    Surface(
-        modifier = modifier.testTag("voice_live_captions"),
-        shape = RoundedCornerShape(24.dp),
-        color = colors.surfaceContainerLow.copy(alpha = .92f),
-        border = BorderStroke(1.dp, colors.primary.copy(alpha = if (caption?.live == true) .46f else .18f))
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (caption?.live == true) {
-                    Box(Modifier.size(7.dp).background(colors.primary, CircleShape))
-                }
-                Text(
-                    caption?.speaker?.let { if (caption.live) "$it · live" else it } ?: "Live captions",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = colors.primary
-                )
-            }
-            key(caption?.speaker) {
-                VoiceCaptionText(
-                    caption ?: VoiceCaption("Your words will appear here", "", false),
-                    state.spokenRange.takeIf { state.phase == VoicePhase.SPEAKING },
-                    state.phase == VoicePhase.SPEAKING,
-                    compact,
-                    Modifier.fillMaxWidth().padding(top = 4.dp)
-                )
-            }
-        }
+    val caption = remember(state.phase, state.transcript, state.reply, state.playbackCaption, state.hasDraft) {
+        VoiceCaption.from(state) ?: VoiceCaption("Your words will appear here", "", false)
+    }
+    key(caption.speaker) {
+        VoiceCaptionText(
+            caption,
+            state.spokenRange,
+            state.phase == VoicePhase.SPEAKING,
+            compact,
+            modifier.testTag("voice_live_captions").padding(horizontal = 12.dp)
+        )
     }
 }
 
 @Composable
 private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, speaking: Boolean, compact: Boolean, modifier: Modifier) {
-    val scroll = rememberScrollState()
-    val lineHeight = with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.lineHeight.toDp() }
-    val follow = remember(caption.speaker) { VoiceCaptionFollowing(scroll.value) }
-    var following by remember(caption.speaker) { mutableStateOf(true) }
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    val fade = with(LocalDensity.current) { 12.dp.toPx() }
-    val accent = MaterialTheme.colorScheme.primary
     val words = remember(caption.text) { caption.wordRanges() }
-    val nativeRange = caption.highlightRange(spokenRange, words)
-    // Speech recognition exposes text updates rather than audio word offsets;
-    // on microphone input, emphasize the latest recognized word only.
-    val observedRange = when {
-        speaking -> nativeRange
+    val active = when {
+        speaking -> caption.highlightRange(spokenRange, words)
         caption.live && caption.speaker == "You" -> words.lastOrNull()
         else -> null
     }
-    val animated = voiceMotionEnabled()
-    val text = remember(caption.text, observedRange, accent) {
-        buildAnnotatedString {
-            append(caption.text)
-            if (observedRange != null) {
-                // Changing font weight while speaking can rewrap the line underneath the reader.
-                addStyle(SpanStyle(color = accent, background = accent.copy(alpha = .12f)), observedRange.first, observedRange.last + 1)
+    var lastSpoken by remember(speaking) { mutableIntStateOf(0) }
+    if (speaking && active != null) SideEffect { lastSpoken = active.first }
+    val base = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+    val focusStyle = base.copy(fontSize = base.fontSize * 2, lineHeight = base.lineHeight * 2, textAlign = TextAlign.Center)
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val accent = MaterialTheme.colorScheme.primary
+    val ink = MaterialTheme.colorScheme.onSurface
+    val animate = voiceMotionEnabled()
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val width = constraints.maxWidth.coerceAtLeast(1)
+        val layout = remember(caption.text, focusStyle, measurer, width) {
+            measurer.measure(AnnotatedString(caption.text), style = focusStyle, constraints = Constraints(maxWidth = width))
+        }
+        val lastLine = layout.lineCount - 1
+        val offset = active?.first ?: if (speaking) lastSpoken else caption.text.length
+        val liveLine = layout.getLineForOffset(offset.coerceIn(0, caption.text.length))
+        val step = with(density) { focusStyle.lineHeight.toPx() }
+        var reader by remember { mutableStateOf(VoiceCaptionReader()) }
+        val position = reader.position(liveLine, lastLine)
+        val center = position.roundToInt()
+        fun move(pixels: Float): Float {
+            // A drag can deliver multiple deltas before the next composition.
+            val before = reader.position(liveLine, lastLine)
+            val next = (before + pixels / step).coerceIn(0f, lastLine.toFloat())
+            if (next != before) reader = reader.scroll(next, lastLine)
+            return (next - before) * step
+        }
+        val scrolling = rememberScrollableState(::move)
+        val travel = remember { Animatable(0f) }
+        var previous by remember { mutableIntStateOf(center) }
+        LaunchedEffect(center, animate) {
+            val distance = center - previous
+            previous = center
+            if (animate && reader.following && abs(distance) == 1) {
+                travel.snapTo(distance.toFloat())
+                travel.animateTo(0f, tween(170))
+            } else {
+                travel.snapTo(0f)
             }
         }
-    }
-    val manualScroll = remember(scroll, caption.speaker) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && available.y > 0f) {
-                    follow.pause()
-                    following = false
-                }
-                return Offset.Zero
-            }
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput) following = follow.userScroll(scroll.value, scroll.maxValue)
-                return Offset.Zero
-            }
-        }
-    }
-    LaunchedEffect(scroll, caption.speaker) {
-        snapshotFlow { scroll.value to scroll.maxValue }.collect { (position, maximum) ->
-            // Accessibility scroll actions can change ScrollState without a drag callback.
-            following = follow.observe(position, maximum)
-        }
-    }
-    LaunchedEffect(caption.text, observedRange, layout, scroll.maxValue, following, animated) {
-        if (!following) return@LaunchedEffect
-        // Wait for this text's layout before moving; the old maximum belongs to the prior phrase.
-        val measured = layout?.takeIf { it.layoutInput.text.text == caption.text } ?: return@LaunchedEffect
-        val position = observedRange?.first?.let { index ->
-            val line = measured.getLineForOffset(index)
-            val center = (measured.getLineTop(line) + measured.getLineBottom(line)) / 2
-            (center + fade - scroll.viewportSize / 2f).roundToInt().coerceIn(0, scroll.maxValue)
-        } ?: scroll.maxValue
-        if (position == scroll.value) return@LaunchedEffect
-        follow.beginAutomaticScroll()
-        try {
-            if (animated) scroll.animateScrollTo(position, tween(280)) else scroll.scrollTo(position)
-        } finally {
-            follow.endAutomaticScroll(scroll.value)
-        }
-    }
-    SelectionContainer(
-        modifier
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithContent {
-                drawContent()
-                if (size.height > fade * 2 && scroll.maxValue > 0) {
-                    val fraction = fade / size.height
-                    drawRect(
-                        Brush.verticalGradient(
-                            0f to if (scroll.value > 0) Color.Transparent else Color.Black,
-                            fraction to Color.Black,
-                            (1f - fraction) to Color.Black,
-                            1f to if (scroll.value < scroll.maxValue) Color.Transparent else Color.Black
-                        ),
-                        blendMode = BlendMode.DstIn
+        SelectionContainer(
+            Modifier.fillMaxWidth().clipToBounds()
+                .scrollable(scrolling, Orientation.Vertical, reverseDirection = true)
+                .clearAndSetSemantics {
+                    testTag = "voice_caption_text"
+                    text = AnnotatedString(caption.text)
+                    if (caption.speaker.isNotEmpty()) stateDescription = caption.speaker
+                    verticalScrollAxisRange = ScrollAxisRange(
+                        value = { reader.position(liveLine, lastLine) * step },
+                        maxValue = { lastLine * step }
                     )
+                    scrollBy { _, y -> move(y) != 0f }
+                }
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                for (slot in -2..2) {
+                    val line = center + slot
+                    val scale = captionLineScale(slot)
+                    val style = base.copy(fontSize = base.fontSize * scale, lineHeight = base.lineHeight * scale)
+                    val height = with(density) { style.lineHeight.toDp() }
+                    Box(
+                        Modifier.fillMaxWidth().height(height).graphicsLayer { translationY = travel.value * step * .75f },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (line in 0..lastLine) {
+                            val start = layout.getLineStart(line)
+                            val end = layout.getLineEnd(line, visibleEnd = true)
+                            val highlight = if (slot == 0) active else null
+                            val annotated = remember(caption.text, start, end, highlight, accent) {
+                                buildAnnotatedString {
+                                    append(caption.text, start, end)
+                                    if (highlight != null) {
+                                        val from = maxOf(start, highlight.first)
+                                        val to = minOf(end, highlight.last + 1)
+                                        if (from < to) addStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline), from - start, to - start)
+                                    }
+                                }
+                            }
+                            Text(annotated, style = style, color = ink.copy(alpha = captionLineAlpha(slot)), maxLines = 1, softWrap = false)
+                        }
+                    }
                 }
             }
-    ) {
-        Text(
-            text,
-            Modifier.fillMaxWidth().height(lineHeight * (if (compact) 3 else 4) + 24.dp)
-                .nestedScroll(manualScroll).verticalScroll(scroll).padding(vertical = 12.dp).testTag("voice_caption_text"),
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center,
-            color = when {
-                caption.speaker.isEmpty() -> MaterialTheme.colorScheme.onSurfaceVariant
-                // Keep unspoken words neutral; exactly one active word carries
-                // the primary tint and soft highlight.
-                else -> MaterialTheme.colorScheme.onSurface
-            },
-            onTextLayout = { layout = it }
-        )
+        }
     }
 }

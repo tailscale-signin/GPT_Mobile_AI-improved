@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "kokoro_pronunciation.h"
 #include "sherpa-onnx/csrc/offline-tts-kokoro-model.h"
 #include "sherpa-onnx/csrc/symbol-table.h"
 #include "sherpa-onnx/csrc/text-utils.h"
@@ -38,7 +39,8 @@ struct Phrase {
 };
 
 struct Model {
-  explicit Model(const sherpa_onnx::OfflineTtsModelConfig &config) : kokoro(config) {
+  explicit Model(const sherpa_onnx::OfflineTtsModelConfig &config) : kokoro(config),
+      british(config.kokoro.lexicon.substr(config.kokoro.lexicon.find_last_of("/\\") + 1) == "lexicon-gb-en.txt") {
     Require(kokoro.GetMetaData().sample_rate == kSampleRate, "Unexpected Kokoro sample rate");
     std::ifstream token_file(config.kokoro.tokens);
     std::ifstream dictionary(config.kokoro.lexicon);
@@ -62,10 +64,20 @@ struct Model {
       if (word_char(text[i])) {
         size_t begin = i++;
         while (i < text.size() && word_char(text[i])) ++i;
-        auto word = lexicon.find(text.substr(begin, i - begin));
-        Require(word != lexicon.end(), "Unmapped Kokoro word");
+        const auto key = text.substr(begin, i - begin);
+        const auto word = lexicon.find(key);
         phrase.word_tokens.push_back(static_cast<jint>(phrase.tokens.size()));
-        phrase.tokens.insert(phrase.tokens.end(), word->second.begin(), word->second.end());
+        if (word != lexicon.end()) {
+          phrase.tokens.insert(phrase.tokens.end(), word->second.begin(), word->second.end());
+        } else {
+          const auto phones = PredictEnglishPhones(key, british);
+          if (phones.empty()) {
+            const auto &fallback = lexicon.at("word");
+            phrase.tokens.insert(phrase.tokens.end(), fallback.begin(), fallback.end());
+          } else {
+            for (const auto &phone : phones) phrase.tokens.push_back(symbols.at(phone));
+          }
+        }
         phrase.word_tokens.push_back(static_cast<jint>(phrase.tokens.size()));
       } else {
         char c = text[i++];
@@ -124,6 +136,7 @@ struct Model {
   }
 
   sherpa_onnx::OfflineTtsKokoroModel kokoro;
+  bool british;
   std::unordered_map<std::string, int32_t> symbols;
   std::unordered_map<std::string, std::vector<int32_t>> lexicon;
 };

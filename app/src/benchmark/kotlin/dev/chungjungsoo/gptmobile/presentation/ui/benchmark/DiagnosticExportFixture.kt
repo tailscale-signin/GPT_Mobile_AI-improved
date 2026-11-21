@@ -62,7 +62,7 @@ internal fun DiagnosticExportFixture() {
         withContext(Dispatchers.IO) {
             chat.chatRoomDao().addChatRoom(ChatRoomV2(id = 1, title = "Synthetic export"))
             repeat(256) { index ->
-                store.dao.save(WorkspaceRecord("bench-$index", "benchmark", "Saved result", """{"row":$index,"sample":"${"a".repeat(1024)}"}""", 1, runId))
+                store.dao.save(WorkspaceRecord("bench-$index", "benchmark", "Saved result", """{"group":${index / 2},"sample":"${"a".repeat(3072)}"}""", 1, runId))
             }
             journal.clear()
             journal.setRunPrivacy(runId, false)
@@ -81,7 +81,7 @@ internal fun DiagnosticExportFixture() {
                         val stages = listOf(
                             DiagnosticCaptureStage("workspace", "workspace.jsonl", resumableRecords = true) { sink ->
                                 database.capture(
-                                    1, "workspace", 64 * 1024, sink::checkBudget, { sink.record(it.toString()) }, { sink.omit(it) },
+                                    1, "workspace", 64 * 1024, sink::checkBudget, { sink.redactedRecord(it, 64 * 1024) }, { sink.omit(it) },
                                     metadata = { sink.note(it.toString()) }, checkpoint = sink::checkpoint, sourceRecord = sink::sourceRecord
                                 )
                             },

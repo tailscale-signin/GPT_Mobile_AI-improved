@@ -211,7 +211,8 @@
     "Deliver source by file and line through stable native continuation handles. Verify pinned source by repository identity and retain the last supported report, typed prerequisites and scoped time renewal.",
     "Open saved outcomes at their recorded turn on Android, filter Gateway conversations by terminal status, and handle unambiguous live status, corrections and task cancellation in the conversation.",
     "Measure observed active work separately from decision waits. Trace CPU/GPU frame overlap, expose wire-observed source ranges, and exercise the workspace and journal export in the optimized Android benchmark.",
-    "Summarize verified delivery and receipt-backed requirements per accepted task and conversation, with recent-task coverage, distinct wait states, and no double counting across retries."
+    "Summarize verified delivery and receipt-backed requirements per accepted task and conversation, with recent-task coverage, distinct wait states, and no double counting across retries.",
+    "Export repeated large redacted workspace payloads by their original row and content digest within each independently usable capture part."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -708,6 +709,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticIncidentTracker.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticJson.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticLogSnapshot.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticPayloadReferences.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticPrivacy.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticRecordChunks.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticSemanticFields.kt",

@@ -323,6 +323,34 @@ class ConversationCompletionReplayTest {
         assertEquals(withBuild.distinct(), withBuild)
     }
 
+    @Test fun exportsReferOnlyToPreviouslyWrittenIdenticalRedactedWorkspacePayloads() = runBlocking {
+        val index = dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticPayloadReferences()
+        val payload = "sample".repeat(1000)
+        fun row(id: Long, content: String = payload) = buildJsonObject {
+            put("table", "workspace_records")
+            put("rowId", id)
+            put("fields", buildJsonObject { put("payload", content) })
+        }
+        try {
+            index.write(row(1)) { error("interrupted write") }
+        } catch (_: IllegalStateException) {
+            // The next successful write must still contain the canonical data.
+        }
+        val written = mutableListOf<JsonObject>()
+        index.write(row(2)) { written += it.jsonObject }
+        index.write(row(3)) { written += it.jsonObject }
+        index.write(row(4, payload + "!")) { written += it.jsonObject }
+        dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticPayloadReferences().write(row(5)) { written += it.jsonObject }
+        val fields = written.map { it.getValue("fields").jsonObject }
+        assertEquals(JsonPrimitive(payload), fields[0]["payload"])
+        val reference = fields[1].getValue("payload_ref").jsonObject
+        assertEquals(JsonPrimitive(2L), reference["rowId"])
+        assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticRecordChunks.sha256(fields[0].getValue("payload").toString())), reference["redactedJsonSha256"])
+        assertFalse(fields[1].containsKey("payload"))
+        assertTrue(fields[2].containsKey("payload"))
+        assertTrue(fields[3].containsKey("payload"))
+    }
+
     @Test fun conversationMeasurementRequiresVerifiedDeliveryAndKeepsProviderWaitsAndPartialWorkDistinct() {
         val linked = JsonPrimitive("ev_" + "a".repeat(24))
         fun verdict(delivered: Boolean, finalState: String = "PASS") = buildJsonObject {

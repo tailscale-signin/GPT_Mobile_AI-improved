@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2b35d0e4e434dfe61faa47d2db9959b302ade546e38277be24d89aed09992975",
+  "source_digest": "79930bfffb47386ff5d1a4553425475bb8fbb0cc39e7e2898dd0d8b8692fa8fb",
   "file_count": 2788,
-  "indexed_line_count": 462245,
+  "indexed_line_count": 462247,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -89,7 +89,7 @@
       "id": "local_inference",
       "label": "Local inference and admission",
       "file_count": 111,
-      "indexed_line_count": 14879
+      "indexed_line_count": 14881
     },
     {
       "id": "gateway_client",
@@ -8768,8 +8768,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/NativeExitEvidence.kt",
       "area_id": "local_inference",
       "kind": "source",
-      "sha256": "e79ac91762fc993e5c59e94f6118d3a9d1799a44dcfbaa875915f43e7f81e7fa",
-      "indexed_lines": 39
+      "sha256": "29422afedeb6311466f84a7894b06d1d89ec3b345f95631635ef96a989818907",
+      "indexed_lines": 41
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/NativeHandleLifecycle.kt",

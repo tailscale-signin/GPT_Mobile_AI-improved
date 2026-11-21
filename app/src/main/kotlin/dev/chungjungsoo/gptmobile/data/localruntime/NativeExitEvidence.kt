@@ -12,13 +12,15 @@ internal object NativeExitEvidence {
         val termination = exit?.takeIf { it.reason == ApplicationExitInfo.REASON_SIGNALED && it.status == android.system.OsConstants.SIGKILL }?.let { NativeWorkerTermination.matched(File(context.noBackupFilesDir, "native-worker"), pid, since, it.timestamp) }
         val category = if (exit?.reason == ApplicationExitInfo.REASON_SIGNALED) {
             nativeSignalExitCategory(exit.status, termination)
-        } else when (exit?.reason) {
-            ApplicationExitInfo.REASON_CRASH_NATIVE -> "NATIVE_CRASH"
-            ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY"
-            ApplicationExitInfo.REASON_USER_REQUESTED -> "USER_REQUESTED"
-            ApplicationExitInfo.REASON_USER_STOPPED -> "USER_STOPPED"
-            ApplicationExitInfo.REASON_ANR -> "ANR"
-            else -> "UNKNOWN"
+        } else {
+            when (exit?.reason) {
+                ApplicationExitInfo.REASON_CRASH_NATIVE -> "NATIVE_CRASH"
+                ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY"
+                ApplicationExitInfo.REASON_USER_REQUESTED -> "USER_REQUESTED"
+                ApplicationExitInfo.REASON_USER_STOPPED -> "USER_STOPPED"
+                ApplicationExitInfo.REASON_ANR -> "ANR"
+                else -> "UNKNOWN"
+            }
         }
         if (exit == null) {
             category

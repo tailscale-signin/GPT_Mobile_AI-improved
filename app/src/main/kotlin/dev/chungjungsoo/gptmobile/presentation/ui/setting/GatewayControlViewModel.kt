@@ -331,7 +331,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                 mutableError.value = "Connection settings changed on the PC. Reload the connection settings and review your edits."
             } catch (_: Exception) {
                 // Do not display remote response bodies, pairing codes, credentials or TLS details.
-                mutableError.value = "Could not verify this operation. Check the Gateway address and connection. For Wi-Fi access, check the phone IP in Connect phone on the PC."
+                mutableError.value = "Could not verify this operation. Check the PC’s Gateway address and connection. Use the same Tailscale account, or the same saved GitHub personal access token on both devices for private Wi-Fi."
             } finally {
                 mutableBusy.value = false
             }

@@ -103,7 +103,7 @@ def connection(root, action, args, *, phone=False):
     fields = CONNECTION_FIELDS
     if action == 'connection-firewall':
         from desktop.firewall import apply
-        apply(root, remove=args.get('remove') is True)
+        apply(root, remove=args.get('remove') is True, include_control=True)
         return {'applied': True}
     with configuration.settings_write_lock(root):
         current = configuration.load(root)

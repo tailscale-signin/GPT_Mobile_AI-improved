@@ -47,7 +47,7 @@ Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 [Tasks]
 Name: "startup"; Description: "Start Gateway when I sign in"; Flags: checkedonce; Check: NeedsInitialSettings
 Name: "desktopicon"; Description: "Add a desktop shortcut"; Flags: unchecked
-Name: "firewall"; Description: "Allow phone connections on this PC's private network (Windows may ask for approval)"; Flags: checkedonce; Check: UsesPhoneNetwork
+Name: "firewall"; Description: "Allow phone connections for network-enabled Gateway (local-only settings stay private)"; Flags: checkedonce; Check: UsesPhoneNetwork
 
 [Icons]
 Name: "{group}\Gateway Dashboard"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; WorkingDir: "{app}"; IconFilename: "{app}\releases\{#GatewayVersion}\Gateway.exe"; AppUserModelID: "GPTMobile.Gateway"
@@ -95,7 +95,10 @@ end;
 
 function UsesPhoneNetwork: Boolean;
 begin
-  Result := NeedsInitialSettings and (ModePage.SelectedValueIndex <> 1);
+  { Interactive repair/update may add the missing phone control port. The
+    installed validator preserves local-only settings; unattended updates never
+    request a new firewall opening. }
+  Result := not WizardSilent and (not NeedsInitialSettings or (ModePage.SelectedValueIndex <> 1));
 end;
 
 procedure InitializeWizard;

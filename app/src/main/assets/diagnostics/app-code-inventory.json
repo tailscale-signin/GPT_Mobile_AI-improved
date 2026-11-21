@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "eed2a11984b95e0126ff6fb7c1b12b9e6533e17ff160571d6acffcbe709c3547",
+  "source_digest": "bd79c3f2b4ebc62e29e583becb9c27f4d1d6cbdff00fd446054b4720a44c81db",
   "file_count": 2788,
   "indexed_line_count": 462184,
   "line_coverage_available": false,
@@ -15999,7 +15999,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "d237061bbe6cbea6fbc87455c3b124dade0b3dd7f3eb7ab3310f3e43a4036b45",
+      "sha256": "b6e3be0ef22779b7b9ce1e4df37599c69a274151e12e04f8b2c517c0f1c9ac4c",
       "indexed_lines": 1155
     },
     {

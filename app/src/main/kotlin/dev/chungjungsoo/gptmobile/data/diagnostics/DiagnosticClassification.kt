@@ -5,7 +5,8 @@ internal data class DiagnosticClassification(
     val category: String,
     val severity: String,
     val actionable: Boolean,
-    val recovery: String = "not_reported"
+    val recovery: String = "not_reported",
+    val nativeReturnCode: Int? = null
 )
 
 internal fun classifyDiagnostic(level: String?, tag: String?, message: String): DiagnosticClassification {
@@ -35,8 +36,8 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             text.startsWith("moonshine_") &&
             (text.startsWith("moonshine_released") || text.startsWith("moonshine_decoder_close") || "cancelled=true" in text) ->
             DiagnosticClassification("native_voice_cleanup", "info", false)
-        transcriptionCode == 0 -> DiagnosticClassification("native_transcription_success", "info", false)
-        transcriptionCode != null -> DiagnosticClassification("native_operation_failure", "error", true, "inspect_operation_receipt")
+        transcriptionCode == 0 -> DiagnosticClassification("native_transcription_success", "info", false, nativeReturnCode = 0)
+        transcriptionCode != null -> DiagnosticClassification("native_operation_failure", "error", true, "inspect_operation_receipt", transcriptionCode)
         tag == "Android" && capturedTag == "sherpa-onnx" && isSherpaConfigurationRecord(text) ->
             DiagnosticClassification("native_voice_configuration", "info", false)
         tag == "VoiceTiming" && text.startsWith("kokoro_terminal") && Regex("(?:^| · )reason=(?:timeout|engine_failed|synthesis_failed|audio_failed|text_queue_full|memory_pressure|pronunciation_unavailable|lexicon_unavailable)(?: · |$)").containsMatchIn(text) ->
@@ -68,6 +69,9 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         tag == "MCP" && (text.startsWith("connect start") || text.startsWith("connected")) -> DiagnosticClassification("connectivity_progress", "info", false)
         ("strictmode" in text || capturedTag == "strictmode") && "networkviolation" in text -> DiagnosticClassification("main_thread_network_io", "warning", true, "move_network_and_socket_cleanup_to_io")
         "strictmode" in text && ("diskreadviolation" in text || "diskwriteviolation" in text) -> DiagnosticClassification("main_thread_disk_io", "warning", true, "move_work_to_io")
+        (capturedTag in setOf("sqliteconnectionpool", "supportsqlitedatabase", "room") || tag in setOf("Database", "Room")) &&
+            Regex("database (?:is )?(?:locked|busy)|sqlite_busy|connection pool.*(?:wait|starv)").containsMatchIn(text) ->
+            DiagnosticClassification("encrypted_database_stall", "warning", true, "move_encrypted_database_work_off_main_and_bound_lock_wait")
         "method exceeds compiler instruction limit" in text || "method exceeds compiler" in text -> DiagnosticClassification("compiler_method_size", "warning", true, "split_coroutine_stages")
         text.startsWith("synthesis_quality") && ("missing_contribution_link" in text || "word_target_undershot" in text || "word_limit_exceeded" in text || "exact_word_count_unmet" in text) -> DiagnosticClassification("combined_contract", "warning", true, "retain_answer_and_review_quality")
         text.startsWith("discovery_negotiation") && ("outcome=legacy_fallback" in text || "outcome=legacy_initialization_required" in text) -> DiagnosticClassification("compatibility_probe", "info", false)

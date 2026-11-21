@@ -657,6 +657,12 @@ class OpenAIAPIImpl @Inject constructor(
                 ResilientStreamingClient.executeWithRetry(
                     config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
                     shouldRetry = { dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity) },
+                    shouldRetryFailure = { failure ->
+                        if (!receivedAssistantPayload && !receivedGatewayToolActivity && ResilientStreamingClient.causesNeedNetworkRecovery(failure)) {
+                            dispatchRetryGuard.rejectedBeforeExecution()
+                        }
+                        dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity)
+                    },
                     onRetry = { attempt, delay, failure ->
                         ProviderConnectivityPreflight.failed(config.apiUrl, failure)
                         LocalServiceHealth.recordLocalFailure(config.apiUrl, failure)
@@ -817,6 +823,15 @@ class OpenAIAPIImpl @Inject constructor(
             ResilientStreamingClient.executeWithRetry(
                 config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
                 shouldRetry = { dispatchRetryGuard.mayRetry(receivedResponsePayload) },
+                shouldRetryFailure = { failure ->
+                    if (!receivedResponsePayload && ResilientStreamingClient.causesNeedNetworkRecovery(failure)) {
+                        // DNS/unresolved-address failures never reached the remote endpoint, even
+                        // when this route permits server tools. Clear dispatch uncertainty before
+                        // the bounded transport retry; accepted streams remain checkpoint-only.
+                        dispatchRetryGuard.rejectedBeforeExecution()
+                    }
+                    dispatchRetryGuard.mayRetry(receivedResponsePayload)
+                },
                 onRetry = { attempt, delay, failure ->
                     ProviderConnectivityPreflight.failed(effectiveConfig.apiUrl, failure)
                     LocalServiceHealth.recordLocalFailure(effectiveConfig.apiUrl, failure)

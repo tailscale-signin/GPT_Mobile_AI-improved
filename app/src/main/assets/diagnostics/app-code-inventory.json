@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "0d488bb8d4a3911155c42634c3368a99e0cd982fbae176d73f403fd3b184a711",
+  "source_digest": "2b35d0e4e434dfe61faa47d2db9959b302ade546e38277be24d89aed09992975",
   "file_count": 2788,
-  "indexed_line_count": 462198,
+  "indexed_line_count": 462245,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 235,
-      "indexed_line_count": 40901
+      "indexed_line_count": 40908
     },
     {
       "id": "agent_tools",
@@ -89,7 +89,7 @@
       "id": "local_inference",
       "label": "Local inference and admission",
       "file_count": 111,
-      "indexed_line_count": 14860
+      "indexed_line_count": 14879
     },
     {
       "id": "gateway_client",
@@ -101,7 +101,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 102,
-      "indexed_line_count": 10373
+      "indexed_line_count": 10389
     },
     {
       "id": "github",
@@ -131,7 +131,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 95,
-      "indexed_line_count": 14488
+      "indexed_line_count": 14493
     },
     {
       "id": "benchmark",
@@ -809,8 +809,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunCoordinator.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "2e1fa197449a5a515612f5fe292c0160d954ebabf6ee0ad32f040aa0c80a65da",
-      "indexed_lines": 1599
+      "sha256": "d75eac52ff8ed9d266a9bf66dd59ee54f7eb1ac461c27fca1171d61edddbff19",
+      "indexed_lines": 1606
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunTerminalDiagnostics.kt",
@@ -5471,8 +5471,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticClassification.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "0699fecbac5a2621d071336c1e14c53387aa11793972fe9835defcc97e2ef1aa",
-      "indexed_lines": 262
+      "sha256": "d3e1322fb8dc294d6211de19bcd418519c5aeabb0656ad04a9964c91a7475e85",
+      "indexed_lines": 266
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticClockReconciliation.kt",
@@ -5940,8 +5940,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StructuredDiagnosticExport.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "04dbc1d634d6e93e99ce5c7f7ec91d9b53fe15a64c77b0f518735d3de03be534",
-      "indexed_lines": 254
+      "sha256": "16b3d8cffd342b5d087e5967ea243fbed49a8faa9e4c4b4efbf4bce6fdb0d4cd",
+      "indexed_lines": 255
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
@@ -8362,8 +8362,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/LocalModelSourceImport.kt",
       "area_id": "local_inference",
       "kind": "source",
-      "sha256": "5506905857fd04649a200bf1b3d4e7c310a44d47a46533c54210b85c474aa4fd",
-      "indexed_lines": 51
+      "sha256": "b28c79c55892ab41ba4d9822aac1940e8af805e8a4c025fa72ec41c9d10ad532",
+      "indexed_lines": 64
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/LocalModelTransferGuard.kt",
@@ -8768,8 +8768,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/NativeExitEvidence.kt",
       "area_id": "local_inference",
       "kind": "source",
-      "sha256": "b897a11b090a6ddab542523241a467cfd21cb3f62d62226bd4861d2f6fc99d63",
-      "indexed_lines": 33
+      "sha256": "e79ac91762fc993e5c59e94f6118d3a9d1799a44dcfbaa875915f43e7f81e7fa",
+      "indexed_lines": 39
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/NativeHandleLifecycle.kt",
@@ -9720,8 +9720,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "0644536553d3994882d56ba4e13faebdb559d3b7b11c45671516090c2f6dfbfa",
-      "indexed_lines": 1213
+      "sha256": "dcbb9c5fbdec7d073a7d2aacfe45a509310e5e567db4b1e16a18b2e74cf2faa4",
+      "indexed_lines": 1228
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAICompletionDecoder.kt",
@@ -9916,8 +9916,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ResilientStreamingClient.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "d636571d5a10c541d195ec01c2647af156caf9e4df0824b7d12f380e90ffd11d",
-      "indexed_lines": 179
+      "sha256": "4c976b0782b3021f452cf05bf2b88abe8d315092a3f3c568dcb02a0def069b54",
+      "indexed_lines": 180
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/SelectedProfileRoute.kt",

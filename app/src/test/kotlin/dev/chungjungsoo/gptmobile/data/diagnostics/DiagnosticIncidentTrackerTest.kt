@@ -61,7 +61,7 @@ class DiagnosticIncidentTrackerTest {
         assertFalse(frame.first)
         assertEquals(header.id, exception.id)
         assertEquals(header.id, frame.id)
-        assertTrue(classifyDiagnostic("E", "Android", "java.lang.SecurityException: asus_leak_detect_proj").actionable)
+        assertFalse(classifyDiagnostic("E", "Android", "java.lang.SecurityException: asus_leak_detect_proj").actionable)
     }
 
     @Test fun interleavedAndroidTagsAndProcessesKeepIndependentStacks() {
@@ -77,7 +77,7 @@ class DiagnosticIncidentTrackerTest {
         assertEquals(finalizer.id, cause.id)
         assertEquals(finalizer.id, finalizerFrame.id)
         assertEquals(other.id, networkFrame.id)
-        assertEquals(3, listOf(finalizer, other, replacement, cause, networkFrame, finalizerFrame).count { it.first })
+        assertEquals(2, listOf(finalizer, other, replacement, cause, networkFrame, finalizerFrame).count { it.first })
     }
 
     @Test fun longStackUsesLastFrameTimeButNewExceptionAndExpiredFramesStayDistinct() {

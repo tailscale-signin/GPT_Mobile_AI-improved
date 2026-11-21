@@ -4772,6 +4772,11 @@ class ChatRepositoryImpl(
                 authorizationRevision = dispatchAuthority.revision,
                 sourceRunId = runId,
                 inferenceProfile = platform,
+                latestDeadlineGrant = {
+                    workspace?.dao?.githubTaskEvidence(user.chatId, "github-evidence:$binding:deadline_grant_")
+                        ?.maxByOrNull { it.id.substringAfterLast('_').toIntOrNull() ?: 0 }
+                        ?.let { workspace?.protectedSynthesisCheckpoint(it.id) }
+                },
                 readSources = dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(if (reuse) previousTask else githubEffectiveTask),
                 fixtureDecisionMode = githubContext?.let { context ->
                     settingRepository.getFeatureSettings().githubDecisionMode(user.chatId, context)
@@ -4832,6 +4837,7 @@ class ChatRepositoryImpl(
                 it.restore()
                 val definitions = evidenceTools.filter { tool -> tool.nativeGitHub }.map { tool -> tool.tool.definition }
                 it.retainTaskContract(if (reuse) previousTask else githubEffectiveTask, sourceMessageId ?: user.id, definitions, callLimit, executionCallLimit)
+                if (reuse) it.authorizeTimeWindow(originalUserRequest, user.id, user.createdAt)
                 it.retainPolicy(dispatchAuthority.revision, definitions)
             }
         }

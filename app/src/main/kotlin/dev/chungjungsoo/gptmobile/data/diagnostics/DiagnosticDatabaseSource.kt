@@ -215,6 +215,25 @@ class DiagnosticDatabaseSource @Inject constructor(
         }
     }
 
+    /** The journal needs only authorized run IDs. Avoid hydrating and projecting a database row per ID. */
+    internal suspend fun journalRunIds(chatId: Int, fullHistory: Boolean, beforeRead: suspend () -> Unit): Set<String> = withContext(Dispatchers.IO) {
+        require(chatId > 0)
+        beforeRead()
+        val limit = if (fullHistory) "" else " LIMIT 4"
+        val snapshot = database.openHelper.readableDatabase.query(
+            SimpleSQLiteQuery("SELECT run_id FROM agent_runs WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC$limit", arrayOf(chatId))
+        ).use { cursor ->
+            buildSet {
+                while (cursor.moveToNext()) {
+                    currentCoroutineContext().ensureActive()
+                    add(cursor.getString(0))
+                }
+            }
+        }
+        beforeRead()
+        snapshot
+    }
+
     internal suspend fun capture(
         chatId: Int,
         section: String,

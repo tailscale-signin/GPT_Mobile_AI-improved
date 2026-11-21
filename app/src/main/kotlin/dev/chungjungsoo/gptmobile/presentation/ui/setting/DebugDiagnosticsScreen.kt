@@ -235,6 +235,17 @@ internal fun RequestDiagnostic(request: ModelInvocation, now: Long, settings: Ap
         if (settings.debugShowNetwork || settings.debugShowRuntime) MetricLine("Request elapsed", formatLatency(if (request.status == "RUNNING") (now - request.startedAt).coerceAtLeast(0) else request.durationMs))
         if (settings.debugShowTotalTokens) MetricLine(if (request.estimated) "Input / output estimate" else "Reported input / output", "${request.inputTokens} / ${request.outputTokens}")
         if (settings.debugShowTotalTokens) MetricLine("Usage source", "Input: ${request.inputTokenSource}; output: ${request.outputTokenSource}")
+        if (settings.debugShowRuntime) {
+            val settingsReceipt = remember(request.usageEvidenceJson) {
+                runCatching { kotlinx.serialization.json.Json.parseToJsonElement(request.usageEvidenceJson.orEmpty()) as? kotlinx.serialization.json.JsonObject }
+                    .getOrNull()?.get("request_settings") as? kotlinx.serialization.json.JsonObject
+            }
+            fun setting(key: String) = (settingsReceipt?.get(key) as? kotlinx.serialization.json.JsonPrimitive)?.takeUnless { it == kotlinx.serialization.json.JsonNull }?.content
+            val requested = setting("requested_mode") ?: setting("requested_allow_reasoning") ?: "Unknown"
+            MetricLine("Reasoning requested", requested)
+            MetricLine("Reasoning sent", setting("serialized_control") ?: if (settingsReceipt == null) "Unknown" else "No control recorded")
+            MetricLine("Reasoning confirmed by provider", setting("effective_reasoning") ?: "Unknown")
+        }
         if (settings.debugShowRuntime) request.actualRuntime?.let { MetricLine("Executed runtime", it) }
         if (settings.debugShowRuntime) request.finishReason?.let { MetricLine("Finish reason", it) }
         if (settings.debugShowTimeToFirstToken) MetricLine("First text token", formatLatency(request.firstTokenMs))

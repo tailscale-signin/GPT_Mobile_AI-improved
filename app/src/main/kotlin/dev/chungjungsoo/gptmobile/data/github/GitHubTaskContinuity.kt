@@ -40,7 +40,8 @@ internal object GitHubTaskContinuity {
             "retry", "retry full", "retry failed stage", "try again", "proceed primary-only", "proceed primary only",
             "continue primary-only", "continue primary only", "primary-only"
         ) ||
-        GitHubNativeContinuation.matches(text)
+        GitHubNativeContinuation.matches(text) ||
+        GitHubExecutionLimits.renewedDuration(text) != null
 
     fun followUp(text: String): Boolean = normalized(text) in
         setOf(

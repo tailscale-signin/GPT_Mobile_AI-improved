@@ -15,6 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
@@ -38,7 +39,8 @@ internal class GitHubEvidenceBook(
     internal val fixtureDecisionMode: GitHubDecisionMode? = null,
     private val approvalResolution: suspend (JsonObject) -> List<JsonObject> = { emptyList() },
     private val sourceRunId: String? = null,
-    private val inferenceProfile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2? = null
+    private val inferenceProfile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2? = null,
+    private val latestDeadlineGrant: suspend () -> JsonObject? = { null }
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -123,6 +125,8 @@ internal class GitHubEvidenceBook(
             ?: AttemptKey(tool, arguments)
 
     @Volatile private var taskContract: JsonObject? = null
+
+    @Volatile private var deadlineGrant: JsonObject? = null
 
     /** Stable task identity already includes account, conversation, repository and branch scope. */
     fun checkpointBinding(): String = binding
@@ -322,7 +326,8 @@ internal class GitHubEvidenceBook(
             }
             val sourceTime = (savedSource?.get("observed_at_ms") as? JsonPrimitive)?.longOrNull
                 ?: (result.executionReceipt?.get("source_observed_at_ms") as? JsonPrimitive)?.longOrNull
-            put("observed_at_ms", sourceTime ?: if (origin == "LIVE" && !result.sharedResult) now() else 0)
+            val observedAt = sourceTime?.takeIf { it > 0 } ?: now().takeIf { sourceTime == null && origin == "LIVE" && !result.sharedResult }
+            put("observed_at_ms", observedAt?.let(::JsonPrimitive) ?: JsonNull)
             put("epoch", savedSource?.get("epoch") ?: JsonPrimitive(epoch))
             savedSource?.get("receipt_id")?.let { put("source_observation_receipt_id", it) }
             put("source_head_sha", head?.let(::JsonPrimitive) ?: JsonNull)
@@ -658,6 +663,7 @@ internal class GitHubEvidenceBook(
                 "GITHUB_TASK_IDENTITY_CHANGED: The retained task belongs to a different accepted request. No operation was dispatched."
             }
             taskContract = previous
+            deadlineGrant = latestDeadlineGrant()?.takeIf { it["binding"] == previous["binding"] && it["source_message_id"] == previous["source_message_id"] } ?: deadlineGrant
             return@withLock
         }
         val acceptedAt = now()
@@ -690,12 +696,35 @@ internal class GitHubEvidenceBook(
         taskContract = accepted
     }
 
-    suspend fun deadlineTiming(): JsonObject {
-        val contract = (taskContract ?: load("task_contract"))?.takeIf { it["binding"] == JsonPrimitive(binding) && it["repository"] == JsonPrimitive(repository) }
-        return GitHubExecutionLimits.deadlineTiming(contract, now())
+    /** A persisted user message authorizes one window. Replaying that message keeps the same end time. */
+    suspend fun authorizeTimeWindow(instruction: String, messageId: Int, messageCreatedSeconds: Long) = mutex.withLock {
+        val duration = GitHubExecutionLimits.renewedDuration(instruction) ?: return@withLock
+        val contract = taskContract ?: return@withLock
+        val source = (contract["source_message_id"] as? JsonPrimitive)?.intOrNull ?: return@withLock
+        val previous = deadlineGrant ?: contract
+        val end = (previous["deadline_at_ms"] as? JsonPrimitive)?.longOrNull ?: return@withLock
+        val nowMs = now()
+        if (messageId <= source || messageCreatedSeconds !in 1..(nowMs / 1000)) return@withLock
+        val sent = messageCreatedSeconds * 1000
+        if (sent + 999 < end || messageId <= ((previous["grant_message_id"] as? JsonPrimitive)?.intOrNull ?: source)) return@withLock
+        val grant = buildJsonObject {
+            put("binding", binding)
+            put("source_message_id", source)
+            put("grant_message_id", messageId)
+            put("accepted_at_ms", sent)
+            put("deadline_at_ms", sent + duration)
+            put("previous_deadline_at_ms", end)
+        }
+        save("deadline_grant_$messageId", grant)
+        deadlineGrant = grant
     }
 
-    suspend fun remainingTaskMillis(): Long? = ((taskContract ?: load("task_contract"))?.get("deadline_at_ms") as? JsonPrimitive)?.longOrNull
+    suspend fun deadlineTiming(): JsonObject {
+        val contract = (taskContract ?: load("task_contract"))?.takeIf { it["binding"] == JsonPrimitive(binding) && it["repository"] == JsonPrimitive(repository) }
+        return GitHubExecutionLimits.deadlineTiming(deadlineGrant ?: contract, now())
+    }
+
+    suspend fun remainingTaskMillis(): Long? = ((deadlineGrant ?: taskContract ?: load("task_contract"))?.get("deadline_at_ms") as? JsonPrimitive)?.longOrNull
         ?.let { (it - now()).coerceAtLeast(0) }
 
     suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull

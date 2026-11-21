@@ -305,7 +305,7 @@ class GitHubTaskTrustTest {
         assertEquals("GITHUB_TASK_INCOMPLETE", failure.errorCode)
         assertEquals(JsonPrimitive("task_budget"), failure.failureDetails?.get("failed_stage"))
         assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), failure.failureDetails?.get("stop_reason"))
-        assertEquals(JsonPrimitive("NEW_TASK_REQUIRED"), failure.failureDetails?.get("recovery_action"))
+        assertEquals(JsonPrimitive("AUTHORIZE_NEW_TIME_WINDOW"), failure.failureDetails?.get("recovery_action"))
         assertEquals(JsonPrimitive(false), failure.failureDetails?.get("resume_allowed"))
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
         assertTrue(text.contains("Time limit reached"))
@@ -316,7 +316,7 @@ class GitHubTaskTrustTest {
         assertEquals(JsonPrimitive("BLOCKED"), saved["task_state"])
         assertEquals(JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED"), saved["blocking_condition"])
         assertEquals(GitHubTaskLifecycle.State.BLOCKED, GitHubTaskLifecycle.terminal(saved))
-        assertEquals(JsonPrimitive("NEW_TASK_REQUIRED"), (saved["execution_ledger"] as JsonObject)["recovery"])
+        assertEquals(JsonPrimitive("AUTHORIZE_NEW_TIME_WINDOW"), (saved["execution_ledger"] as JsonObject)["recovery"])
         assertTrue((saved["pending_approvals"] as JsonArray).isNotEmpty())
         assertTrue(saved["stop_reason"] is JsonObject)
         val runAcceptance = GitHubRunAcceptance.capture(saved, "expired-run", 1, 2, 3)

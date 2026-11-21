@@ -86,7 +86,8 @@ internal object GitHubEvidencePolicy {
         val immutable = receipt?.get("immutable") == JsonPrimitive(true) || stableResourceNumber
         val semanticsMismatch = claim["resource_type"]?.let { it != JsonPrimitive(resourceType) } == true ||
             claim["field_type"]?.let { it != JsonPrimitive(fieldType) } == true
-        val unknownObservationTime = timestamp <= 0 || timestamp > now
+        val withoutClock = timestamp <= 0 && receipt != null && GitHubEvidenceExcerpts.pinnedSource(receipt, path)
+        val unknownObservationTime = timestamp <= 0 && !withoutClock || timestamp > now
         val stale = unknownObservationTime || !immutable && (now - timestamp > MAX_AGE_MS || receipt?.get("epoch") != JsonPrimitive(currentEpoch))
         val status = when {
             receipt == null || observed == null || "value" !in claim -> "NOT_MEASURED"
@@ -106,16 +107,17 @@ internal object GitHubEvidencePolicy {
             "value" !in claim -> "CLAIM_VALUE_MISSING"
             observed == null -> "POINTER_NOT_IN_EVIDENCE"
             semanticsMismatch -> "FIELD_SEMANTICS_MISMATCH"
+            status == "CONTRADICTED" -> "VALUE_MISMATCH"
             unknownObservationTime -> "OBSERVATION_TIME_UNKNOWN"
             status == "HISTORICAL" -> "HISTORICAL_OBSERVATION"
             status == "STALE" -> "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED"
-            status == "CONTRADICTED" -> "VALUE_MISMATCH"
             else -> "EXACT_RECEIPT_MATCH"
         }
         // Preserve the decision above. These are its effective, verification-time
         // observations, not a later reconstruction from the retained receipt.
         val freshnessPredicates = when {
             status == "NOT_MEASURED" -> null
+            withoutClock -> emptyList()
             timestamp <= 0 -> listOf("OBSERVATION_TIME_UNAVAILABLE")
             timestamp > now -> listOf("OBSERVATION_TIME_FUTURE")
             status == "CONTRADICTED" || immutable -> emptyList()
@@ -141,7 +143,8 @@ internal object GitHubEvidencePolicy {
             put("pointer", path)
             put("resource_type", resourceType)
             put("field_type", fieldType)
-            put("observed_at_ms", timestamp)
+            put("observed_at_ms", timestamp.takeIf { it > 0 }?.let(::JsonPrimitive) ?: JsonNull)
+            if (withoutClock) put("freshness_basis", "PINNED_SOURCE_IDENTITY")
             if (status in setOf("VERIFIED", "HISTORICAL", "CONTRADICTED")) put("observed", requireNotNull(observed))
         }
     }

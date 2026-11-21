@@ -192,7 +192,7 @@ class ChatViewModel @Inject constructor(
         if (decision.workspace != dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions.workspaceKey(workspace) || isGenerationBusy()) return
         val turn = _groupedMessages.value.userMessages.indexOfFirst { it.id == decision.sourceMessageId }
         val profile = enabledPlatformsInChat.indexOf(decision.profileUid)
-        if (turn >= 0 && profile >= 0) retryChat(turn, profile) else _attachmentNotice.value = "Your choice is saved. Open the original task and retry it to continue."
+        if (turn >= 0 && profile >= 0) retryChat(turn, profile, null, answeredDecision = true) else _attachmentNotice.value = "Your choice is saved. Open the original task and retry it to continue."
     }
     fun stopGitHubDecision(id: String) {
         viewModelScope.launch {
@@ -1336,6 +1336,13 @@ class ChatViewModel @Inject constructor(
                 advancePendingGeneration()
             }
         }
+    }
+
+    fun continueWithTime(turn: Int, profileUid: String?) {
+        if (turn != _groupedMessages.value.userMessages.lastIndex || isGenerationBusy() || profileUid !in enabledPlatformsInChat) return
+        selectNextMessageProfile(profileUid)
+        if (profileUid == null || nextMessageProfileUid.value != profileUid) return
+        submitOrQueueQuestion(dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.RENEWAL_EXAMPLE, emptyList())
     }
 
     fun sendContinueResponse() {
@@ -2583,7 +2590,7 @@ class ChatViewModel @Inject constructor(
 
     fun retryChat(turnIndex: Int, platformIndex: Int) = retryChat(turnIndex, platformIndex, null)
 
-    private fun retryChat(turnIndex: Int, platformIndex: Int, requestedRecovery: dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction?) {
+    private fun retryChat(turnIndex: Int, platformIndex: Int, requestedRecovery: dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction?, answeredDecision: Boolean = false) {
         val currentAssistantMessage = _groupedMessages.value.assistantMessages
             .getOrNull(turnIndex)
             ?.getOrNull(platformIndex)
@@ -2599,6 +2606,12 @@ class ChatViewModel @Inject constructor(
             return
         }
         val failureDetails = previousRun?.terminalError ?: currentAssistantMessage.timeline.lastOrNull { it.runError != null }?.runError
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(failureDetails) ||
+            dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.isExpiredFailure(currentAssistantMessage.content)
+        ) {
+            _attachmentNotice.value = "The time allowance ended. Send “Continue for 10 minutes” to reopen the saved task."
+            return
+        }
         gitHubApprovalRetryBlock(failureDetails, gitHubApprovalPending)?.let {
             _attachmentNotice.value = it
             return
@@ -2616,7 +2629,7 @@ class ChatViewModel @Inject constructor(
         }
         if (_chatRoom.value.conversationMode != ConversationMode.COMBINED) {
             val error = currentAssistantMessage.timeline.lastOrNull { it.runError != null }?.runError ?: previousRun?.terminalError
-            dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(error)?.let {
+            dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(error)?.takeUnless { answeredDecision }?.let {
                 _attachmentNotice.value = it
                 return
             }

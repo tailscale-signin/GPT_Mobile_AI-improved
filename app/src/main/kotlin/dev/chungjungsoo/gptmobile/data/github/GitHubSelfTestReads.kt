@@ -14,6 +14,43 @@ import kotlinx.serialization.json.put
 
 /** Dependency-aware smoke reads. Identifiers retain the resource type that supplied them. */
 internal object GitHubSelfTestReads {
+    /** Selectors come from successful PR operations in the admitted workspace. A fixture
+     * or historical PR may demonstrate a read capability, but never becomes a write target. */
+    fun pullNumber(receipts: List<JsonObject>): JsonPrimitive? {
+        val retired = GitHubSelfTestFixtures.retiredReadPredicate(receipts.mapIndexed { index, receipt -> index.toString() to receipt }.toMap())
+        return pullSelector(receipts.filterNot(retired))?.get("number") as? JsonPrimitive
+    }
+
+    private fun pullSelector(receipts: List<JsonObject>): JsonObject? {
+        val eligible = receipts.asReversed().filter {
+            it["trusted"] == JsonPrimitive(true) &&
+                it["success"] == JsonPrimitive(true) &&
+                it["verification_eligible"] != JsonPrimitive(false) &&
+                it["repository_role"] != JsonPrimitive("READ_SOURCE") &&
+                it.text("tool").githubOperationFamily() == "github_pr"
+        }
+        fun number(value: JsonElement?): JsonPrimitive? = (value as? JsonPrimitive)?.contentOrNull
+            ?.takeIf { it.matches(Regex("[1-9][0-9]{0,9}")) }?.toIntOrNull()?.let(::JsonPrimitive)
+        val rows = eligible.flatMap { receipt ->
+            val root = GitHubInventoryObservation.planningRoot(receipt) ?: return@flatMap emptyList()
+            if ((receipt["arguments"] as? JsonObject)?.text("action") != "list") return@flatMap emptyList()
+            ((root["pull_requests"] ?: root["items"]) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        }
+        return (rows.filter { it.text("state") == "open" } + rows).firstNotNullOfOrNull { row -> number(row["number"])?.let { JsonObject(row + ("number" to it)) } }
+            ?: eligible.firstNotNullOfOrNull { receipt ->
+                val args = receipt["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
+                if (args.text("action") !in setOf("headers", "context", "comments", "reviews", "threads", "create")) return@firstNotNullOfOrNull null
+                val root = GitHubInventoryObservation.planningRoot(receipt)
+                val pull = root?.get("pull_request") as? JsonObject
+                val returned = number(pull?.get("number") ?: root?.get("pull_number") ?: root?.get("number"))
+                val requested = number(args["pull_number"])
+                if (returned != null && requested != null && requested != returned) return@firstNotNullOfOrNull null
+                (returned ?: requested)?.let { id ->
+                    JsonObject((pull ?: root).orEmpty().filterKeys { it in setOf("head", "head_sha", "state") } + ("number" to id))
+                }
+            }
+    }
+
     fun next(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): ProviderEvent.ToolCall? = available(tools, receipts).firstOrNull()
 
     /** Compute dependency recipes once per checklist, rather than once per capability row. */
@@ -68,13 +105,7 @@ internal object GitHubSelfTestReads {
         val job = workflowJobs.job
         val needsJobDependency = GitHubSelfTestWorkflowJobs.needsJobDependency(tools, observations)
         val jobsRun = if (needsJobDependency) workflowJobs.nextRun else run
-        val pullRequests = records("github_pr", "list", "pull_requests", "items").filter { it["number"] is JsonPrimitive }
-        val pr = pullRequests.firstOrNull { it.text("state") == "open" } ?: pullRequests.firstOrNull()
-            ?: listOf("headers", "context").firstNotNullOfOrNull { action ->
-                roots("github_pr", action).firstNotNullOfOrNull { root ->
-                    ((root["pull_request"] as? JsonObject) ?: root).takeIf { it["number"] is JsonPrimitive }
-                }
-            }
+        val pr = pullSelector(observations)
         val issue = records("github_issue", "list", "items", "issues").firstOrNull { "pull_request" !in it }
         val release = records("github_release", "list", "items", "releases").firstOrNull()
             ?: roots("github_release", "status").firstNotNullOfOrNull { root ->

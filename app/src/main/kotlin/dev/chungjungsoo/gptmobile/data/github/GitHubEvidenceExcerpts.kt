@@ -17,6 +17,36 @@ internal object GitHubEvidenceExcerpts {
     private const val MAX_EXCERPTS = 24
     private const val MAX_TEXT = 1800
 
+    private val sourcePointer = Regex("""(/data)?/items/(\d+)/content#L\d+-L\d+""")
+
+    /** Only a file range tied to its immutable source can bypass the observation clock. */
+    fun pinnedSource(receipt: JsonObject, pointer: String): Boolean {
+        if (receipt["immutable"] != JsonPrimitive(true) || (receipt["tool"] as? JsonPrimitive)?.content?.githubOperationFamily() != "github_read") return false
+        val match = sourcePointer.matchEntire(pointer) ?: return false
+        val result = receipt["result"] as? JsonObject ?: return false
+        val root = (if (match.groupValues[1].isEmpty()) result else result["data"] as? JsonObject) ?: return false
+        val index = match.groupValues[2].toIntOrNull() ?: return false
+        val item = (root["items"] as? JsonArray)?.getOrNull(index) as? JsonObject ?: return false
+        val path = (item["path"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank) ?: return false
+        val blob = (item["sha"] as? JsonPrimitive)?.contentOrNull?.takeIf(sha::matches) ?: return false
+        val revision = (root["commit_sha"] as? JsonPrimitive)?.contentOrNull?.takeIf(sha::matches) ?: return false
+        val args = receipt["arguments"] as? JsonObject
+        if (listOf(item["commit_sha"], args?.get("commit_sha"), receipt["source_head_sha"]).filterIsInstance<JsonPrimitive>()
+                .mapNotNull { it.contentOrNull }.any { !it.equals(revision, true) }
+        ) {
+            return false
+        }
+        if (item["expected_blob_sha"]?.let { it != JsonPrimitive(blob) } == true) return false
+        val digest = receipt["result_sha256"] ?: return false
+        if (receipt["review_projection"] == JsonPrimitive("EXACT_VALUES_WITH_DURABLE_ORIGINAL")) {
+            val excerpt = (receipt["retained_excerpts"] as? JsonObject)?.get(pointer) as? JsonObject ?: return false
+            return receipt["verified_source_digest"] == digest &&
+                excerpt["resource"] == JsonPrimitive(path) &&
+                excerpt["revision"] == JsonPrimitive(revision)
+        }
+        return item["content"] is JsonPrimitive && digest == JsonPrimitive(GitHubRepositoryStateStore.digest(result.toString()))
+    }
+
     fun collect(receipt: JsonObject): Map<String, JsonObject> {
         if (receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true)) return emptyMap()
         if (receipt["review_projection"] == JsonPrimitive("EXACT_VALUES_WITH_DURABLE_ORIGINAL")) {

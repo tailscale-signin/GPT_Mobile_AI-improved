@@ -556,6 +556,7 @@ internal object GitHubTestChecklist {
         val selected = if (observedOnly) coverage.cumulative.filter { capability -> historical.any { matches(it, capability) } } else coverage.cumulative
         if (selected.isEmpty()) return JsonArray(emptyList())
         val allTrusted = trusted(receipts)
+        val knownPull = GitHubSelfTestReads.pullNumber(allTrusted)
         val graphObservation = GitHubSelfTestPrerequisites.graphObservation(allTrusted)
         val readyReads = GitHubSelfTestReads.available(tools, allTrusted).associateBy { it.name.githubOperationFamily() to it.arguments.text("action") }
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts).filterIsInstance<JsonObject>()
@@ -638,6 +639,7 @@ internal object GitHubTestChecklist {
                     !readOnly(capability) -> GitHubSelfTestFixtures.prerequisite(capability.tool, capability.action)
                     capability.tool == "github_issue" -> "No issue identifier observed from the issue inventory; a pull request number cannot satisfy this dependency."
                     capability.tool == "github_pr" && capability.action == "copilot_task_status" -> "Requires a task ID from the selected Copilot task inventory or a saved creation receipt."
+                    capability.tool == "github_pr" && knownPull != null -> "Pull request #${knownPull.content} is recorded. This action still needs an eligible invocation under its current tool schema."
                     capability.tool == "github_pr" -> "No pull request identifier observed from the pull request inventory."
                     capability.tool == "github_ci" -> "Requires an observed workflow/run and a completed job for logs or a failed completed run for failure analysis."
                     capability.tool == "repository_graph" -> "Graph prerequisite: $graphObservation. Preparation has not executed this capability and does not change graph authorization."
@@ -683,6 +685,7 @@ internal object GitHubTestChecklist {
                     !readOnly(capability) -> GitHubCriterionBlocker.OWNED_FIXTURE_REQUIRED
                     capability.tool == "github_issue" -> GitHubCriterionBlocker.ISSUE_ID_REQUIRED
                     capability.tool == "github_pr" && capability.action == "copilot_task_status" -> GitHubCriterionBlocker.OPERATION_IDENTITY_REQUIRED
+                    capability.tool == "github_pr" && knownPull != null -> GitHubCriterionBlocker.EXECUTION_NOT_EXERCISED
                     capability.tool == "github_pr" -> GitHubCriterionBlocker.PULL_REQUEST_ID_REQUIRED
                     capability.tool == "github_ci" -> GitHubCriterionBlocker.WORKFLOW_RUN_OR_JOB_REQUIRED
                     capability.tool == "github_release" -> GitHubCriterionBlocker.RELEASE_OR_TAG_REQUIRED

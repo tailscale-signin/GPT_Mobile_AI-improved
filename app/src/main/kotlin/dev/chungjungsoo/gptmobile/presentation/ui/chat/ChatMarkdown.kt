@@ -885,7 +885,7 @@ private fun HighlightedCodeContent(
     isDarkTheme: Boolean,
     sourceOffset: Int
 ) {
-    val cacheKey = "$isDarkTheme:$language:$code"
+    val cacheKey = remember(isDarkTheme, language, code) { "$isDarkTheme:$language:$code" }
     val cached = codeHighlightCache.get(cacheKey)
 
     val highlightedCode by produceState(
@@ -1169,11 +1169,12 @@ private fun DefaultParagraph(
             current.type == org.intellij.markdown.MarkdownElementTypes.IMAGE || current.children.any(::hasImage)
         if (hasImage(node)) listOf(annotated) else paragraphPages(annotated)
     }
+    val pageOffsets = remember(pages) { pages.runningFold(0) { offset, page -> offset + page.length } }
     var visiblePages by remember(node.startOffset) { mutableIntStateOf(1) }
     Column {
         pages.take(visiblePages).forEachIndexed { index, page ->
             key(index) {
-                val reportLayout = rememberGitHubTextLayout("source:$lineOffset:$index", lineOffset + pages.take(index).sumOf { it.length }, firstAppearanceAddsLines = index == 0)
+                val reportLayout = rememberGitHubTextLayout("source:$lineOffset:$index", lineOffset + pageOffsets[index], firstAppearanceAddsLines = index == 0)
                 MarkdownText(page, node, Modifier, style, onTextLayout = { result, _ -> reportLayout(result) }, sourceContent = content)
             }
         }

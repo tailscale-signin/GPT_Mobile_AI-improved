@@ -71,6 +71,7 @@ class ProgressiveToolCatalog(
         initial.firstOrNull { it.name.substringBefore("__").endsWith("_inspect") } ?: initial.first()
     }
 
+    private val plannedOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
     private val taskRequired = definitions.filter { definition ->
         definition.modelVisible &&
             !conversational &&
@@ -78,12 +79,18 @@ class ProgressiveToolCatalog(
                 definition.name == "read_recovery_context" ||
                     AgentToolCapability.USER_DECISION in definition.capabilities ||
                     (
-                        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
-                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task) &&
+                        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in plannedOperations &&
                             !deferInitially(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name))
                         )
                 )
     }.let { preferredInitialContracts(it, initialNames) }
+    private val implementationTools = if (upfrontEngineering.isEmpty()) {
+        emptyList()
+    } else {
+        taskRequired.filter {
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in setOf("github_read", "github_stage_patch", "github_commit", "github_ci", "github_pr")
+        }.sortedBy { listOf("github_read", "github_stage_patch", "github_commit", "github_ci", "github_pr").indexOf(dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name)) }
+    }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val omissions = mutableMapOf<String, String>()
     private val active = (
@@ -305,7 +312,7 @@ class ProgressiveToolCatalog(
         if (existing != null && existing != definition) return false
         candidates[definition.name] = definition
         val explicitRequired = explicitlyRequiredToolNames(taskText, candidates.keys).mapNotNull { candidates[resolveName(it)] }
-        val selected = window(explicitRequired + definition + taskRequired + active.mapNotNull(candidates::get))
+        val selected = window(explicitRequired + definition + implementationTools + taskRequired + active.mapNotNull(candidates::get))
             .distinctBy { it.name }
         active.clear()
         active.addAll(selected.map { it.name })
@@ -639,7 +646,7 @@ class ProgressiveToolCatalog(
         }
         val explicit = names.mapNotNull(candidates::get) + listOfNotNull(exact)
         val retained = ranked(taskText).filter { it.name in active }
-        val selected = window(explicit + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))
+        val selected = window(explicit + implementationTools + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))
             .distinctBy { it.name }
         active.clear()
         active.addAll(selected.map { it.name })

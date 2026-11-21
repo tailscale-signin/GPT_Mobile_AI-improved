@@ -1174,6 +1174,7 @@ internal class GitHubRepositorySession(
                 put("requested_eof", requestedEnd == -1)
                 put("line_limit", if (requestedEnd == -1) 2000L else maximumLines?.toLong() ?: (end.toLong() - start + 1))
                 put("start_offset", offset)
+                put("content_start_line", start + (0 until offset).count { selected[it] == '\n' })
                 put("content", excerpt)
                 put("truncated", truncated || end < lines.size || start > 1 || offset > 0)
                 put("range_complete", offset == 0 && !truncated)

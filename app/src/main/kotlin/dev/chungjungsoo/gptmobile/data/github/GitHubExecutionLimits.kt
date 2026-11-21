@@ -30,8 +30,19 @@ internal object GitHubExecutionLimits {
         }
     }
 
+    private val renewal = Regex("""(?i)(?:please )?(?:resume|continue) for ([1-9][0-9]{0,3}) (minutes?|hours?)[.!]?""")
+    const val RENEWAL_EXAMPLE = "Continue for 10 minutes"
+    fun renewedDuration(text: String): Long? {
+        val match = renewal.matchEntire(GitHubTaskContinuity.request(text)) ?: return null
+        val minutes = match.groupValues[1].toLong() * if (match.groupValues[2].startsWith("h", true)) 60 else 1
+        return minutes.takeIf { it in 1..1440 }?.times(60_000L)
+    }
+
+    fun isExpiredFailure(details: String?): Boolean = details != null &&
+        ("ACCEPTED_TASK_DEADLINE_REACHED" in details || "The task's time limit has been reached" in details)
+
     fun expiredTaskFailure(check: DeadlineCheck? = null) = ProviderEvent.Failed(
-        "The task's time limit has been reached. Saved results and unfinished work are retained. Start a new task to allow more work.",
+        "The task's time limit has been reached. Your results are saved. Send “$RENEWAL_EXAMPLE” to continue this task with a new time allowance.",
         errorCode = "GITHUB_TASK_INCOMPLETE",
         taskOutcome = "BLOCKED",
         failureDetails = buildJsonObject {
@@ -42,7 +53,7 @@ internal object GitHubExecutionLimits {
             put("failure_origin", "APPLICATION")
             put("failure_domain", "APPLICATION_VERIFICATION")
             put("stop_reason", "ACCEPTED_TASK_DEADLINE_REACHED")
-            put("recovery_action", "NEW_TASK_REQUIRED")
+            put("recovery_action", "AUTHORIZE_NEW_TIME_WINDOW")
             put("resume_allowed", false)
             put("dispatched", false)
             put("retryable", false)

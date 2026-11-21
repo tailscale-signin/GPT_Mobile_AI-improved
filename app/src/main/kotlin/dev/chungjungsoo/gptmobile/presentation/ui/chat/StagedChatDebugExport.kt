@@ -37,7 +37,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
@@ -231,6 +230,7 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("appCommit", BuildConfig.APP_COMMIT)
                         put("testedShaAvailability", "A retained exact tested SHA is included in compact_failure_summary; otherwise its status is NOT_RETAINED.")
                         put("fullHistorySelected", includeHistory)
+                        put("journalScope", if (includeHistory) "All runs in this conversation" else "Four most recent runs in this conversation")
                         put("capturedAtMillis", System.currentTimeMillis())
                     },
                     evidence = false
@@ -395,20 +395,10 @@ internal suspend fun writeStagedChatDiagnostics(
             if (journal == null) {
                 sink.omit("RUN_JOURNAL_UNAVAILABLE")
             } else {
-                val runIds = linkedSetOf<String>()
-                database.capture(room.id, "run_index", maximumCharacters, {
+                val runIds = database.journalRunIds(room.id, includeHistory) {
                     authorized()
                     sink.checkBudget()
-                }, { row ->
-                    if ((row["table"] as? JsonPrimitive)?.content == "agent_runs") {
-                        val runId = ((row["fields"] as? JsonObject)?.get("run_id") as? JsonPrimitive)?.contentOrNull
-                        if (runId == null) {
-                            sink.omit("RUN_JOURNAL_ID_UNAVAILABLE")
-                        } else {
-                            runIds += runId
-                        }
-                    }
-                }, { sink.omit(it) })
+                }
                 journal.streamRuns(
                     runIds,
                     beforeRead = {

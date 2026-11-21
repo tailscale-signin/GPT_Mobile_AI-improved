@@ -15,6 +15,7 @@ public partial class MainWindow
         var left=new DockPanel{Margin=new Thickness(0,0,12,0)};layout.Children.Add(left);
         var options=new StackPanel();DockPanel.SetDock(options,Dock.Top);left.Children.Add(options);
         var query=Ui.Field(options,"Search saved work");
+        query.ToolTip="Search conversation text or enter outcome:completed, outcome:interrupted, or outcome:blocked followed by optional search text.";
         var filter=Ui.Select(options,"Collection",new[]{"Conversations","Favorites","Archived","Bookmarked messages"});
         var list=new ListBox{DisplayMemberPath="Label"};AutomationProperties.SetName(list,"Saved results");
         var detail=new StackPanel();var reader=new ScrollViewer{Content=detail,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};

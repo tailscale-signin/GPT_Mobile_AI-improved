@@ -25,11 +25,14 @@ class FollowUpAgentSession(
         do {
             val additions = inbox.snapshot()
             if (additions.size > applied) {
-                val handoff = additions.joinToString("") { "\n\nFollow-up from user:\n${it.text}" }
+                val handoff = additions.joinToString("") {
+                    if (ConversationSteering.from(it.text) == ConversationSteering.CORRECTION) "\n\nCorrection from user (supersedes the conflicting instruction):\n${it.text}" else "\n\nFollow-up from user:\n${it.text}"
+                }
                 active = continuation(handoff, answerTail.toString(), exchanges)
                 replayedCallIds += exchanges.flatMap { it.calls }.map { it.callId }
                 applied = additions.size
-                emit(ProviderEvent.Notice("Follow-up added to the original request.", persistent = false))
+                val notice = if (ConversationSteering.from(additions.last().text) == ConversationSteering.CORRECTION) "Correction received. The next step uses your updated instruction." else "Follow-up added to the original request."
+                emit(ProviderEvent.Notice(notice, persistent = false))
             }
             var completed = false
             var failed = false

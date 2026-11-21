@@ -8,7 +8,7 @@ import kotlinx.serialization.json.longOrNull
 
 /** Local search vocabulary. These are historical observations and user reports, never execution authority. */
 internal object GitHubSavedOutcome {
-    private val search = Regex("""(?i)^outcome:(build|diagnosis|decision|pr|worked|failed|visual)(?:\s+(.+))?$""")
+    private val search = Regex("""(?i)^outcome:(build|diagnosis|decision|pr|worked|failed|visual|completed|interrupted|blocked)(?:\s+(.+))?$""")
     private val note = Regex("""(?i)^(?:feedback:\s*(worked|failed)|(?:visual )?evidence:)\s+(ev_[a-f0-9]{24})(?:\s+(.{1,600}))?$""", RegexOption.DOT_MATCHES_ALL)
     private val revision = Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")
     private val aliases = mapOf("last working build" to "build", "last diagnosis" to "diagnosis", "last accepted decision" to "decision", "last completed pr" to "pr")
@@ -21,6 +21,13 @@ internal object GitHubSavedOutcome {
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
+
+    fun messageId(record: JsonObject, chatId: Int): Int? {
+        if (record.text("kind") == "decision") return record.text("source_message_id").toIntOrNull()?.takeIf { it > 0 }
+        if (record.text("kind") != "user_outcome" || record.text("chat_id") != chatId.toString()) return null
+        val task = record.text("task_id").split(':')
+        return task.takeIf { it.size == 2 && it.first() == chatId.toString() }?.last()?.toIntOrNull()?.takeIf { it > 0 }
+    }
 
     fun category(record: JsonObject): String? {
         if (record.text("kind") == "user_outcome" &&

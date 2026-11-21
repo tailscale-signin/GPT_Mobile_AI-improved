@@ -80,6 +80,7 @@ class GitHubEngineeringMemory @Inject constructor(
                         put("schema_version", 1)
                         put("scope", scope)
                         put("kind", "decision")
+                        put("source_message_id", decision.sourceMessageId)
                         put("commit_sha", context.commitSha)
                         put("source_receipt", "user-decision:${decision.id}")
                         put("observed_at_ms", System.currentTimeMillis())

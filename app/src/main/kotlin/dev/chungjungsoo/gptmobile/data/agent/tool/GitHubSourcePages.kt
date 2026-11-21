@@ -40,12 +40,50 @@ internal object GitHubSourcePages {
         val slices = mutableListOf<JsonObject>()
         val end = FIRST + inputs.sumOf { (it as JsonObject).text("content").orEmpty().length + 1 }
         if (offset !in FIRST until end) return null
+        val jumps = mutableListOf<JsonObject>()
+        if (offset == FIRST && bytes >= 3072) {
+            var base = FIRST
+            var used = 0
+            fun offer(row: JsonObject, line: Int, position: Int) {
+                val recipe = buildJsonObject {
+                    put("path", row.getValue("path"))
+                    put("line", line)
+                    put("call", call(position, bytes))
+                }
+                val size = recipe.toString().encodeToByteArray().size + 1
+                if (jumps.size < 8 && used + size <= bytes / 4) {
+                    jumps += recipe
+                    used += size
+                }
+            }
+            for (raw in inputs) {
+                val row = raw as JsonObject
+                val content = row.text("content").orEmpty()
+                val line = ((row["content_start_line"] ?: row["start_line"]) as JsonPrimitive).intOrNull ?: return null
+                if (base > FIRST) offer(row, line, base)
+                if (inputs.size == 1 && content.length > bytes * 2) {
+                    var lines = line
+                    var threshold = bytes
+                    for (i in content.indices) {
+                        if (content[i] != '\n') continue
+                        lines++
+                        if (i >= threshold && i + 1 < content.length) {
+                            offer(row, lines, base + i + 1)
+                            threshold = i + maxOf(bytes, content.length / 6)
+                            if (jumps.size >= 6) break
+                        }
+                    }
+                }
+                base += content.length + 1
+            }
+        }
         var next = offset
         fun envelope() = buildJsonObject {
             put("schema", GitHubResultViews.SCHEMA)
             put("operation", "github_read")
             put("commit_sha", source.getValue("commit_sha"))
             put("items", JsonArray(slices))
+            if (jumps.isNotEmpty()) put("range_calls", JsonArray(jumps))
             put("source_page", true)
             put("local_page_complete", next == end)
             source["evidence_id"]?.let { put("evidence_id", it) }

@@ -639,7 +639,7 @@ internal class GitHubVerifiedSession(
 
     private fun deliverRetainedReport(): Flow<ProviderEvent> = flow {
         validatePublication()
-        val saved = evidence.retainedAnswer()
+        val saved = evidence.retainedAnswer(includeEarlierFindings = true)
         if (saved == null) {
             emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.RETAINED_REPORT_UNAVAILABLE))
             return@flow
@@ -909,7 +909,7 @@ internal class GitHubVerifiedSession(
             val text = if (stalled) {
                 val blockers = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["blocker"] != null }
                 "No new test evidence or changed blockers since the saved checkpoint. ${receipts.size} receipts retained. " +
-                    "Resume is waiting on these dependencies:\n\n" + blockers.distinctBy { it["blocker"] }.joinToString("\n") { "- ${(it["blocker"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()}" }
+                    "Send “Show the last useful report” to reopen earlier findings. Remaining dependencies:\n\n" + blockers.distinctBy { it["blocker"] }.joinToString("\n") { "- ${(it["blocker"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()}" }
             } else {
                 renderedText
             }

@@ -6979,18 +6979,22 @@ class ChatRepositoryImpl(
         chatRoomV2Dao.updateDraft(chatId, draftText, timestamp)
     }
 
-    override suspend fun searchChatsV2(query: String): List<ChatRoomV2> {
-        if (query.isBlank()) {
-            return chatRoomV2Dao.getChatRooms()
-        }
+    override suspend fun searchChatsV2(query: String): List<ChatRoomV2> = searchMatchesV2(query).map { it.room }
 
-        dev.chungjungsoo.gptmobile.data.github.GitHubSavedOutcome.query(query)?.let { (outcome, terms) ->
-            val store = workspace ?: return emptyList()
-            val candidates = if (terms.isBlank()) chatRoomV2Dao.getChatRooms() else searchChatsV2Literal(terms)
-            val byId = candidates.filterNot { it.isTemporary }.associateBy { it.id }
-            return withContext(Dispatchers.IO) { store.chatsByOutcome(outcome, byId.keys).mapNotNull(byId::get) }
+    override suspend fun searchMatchesV2(query: String): List<ChatSearchMatch> {
+        if (query.isBlank()) return chatRoomV2Dao.getChatRooms().map { ChatSearchMatch(it) }
+        val (outcome, terms) = dev.chungjungsoo.gptmobile.data.github.GitHubSavedOutcome.query(query)
+            ?: return searchChatsV2Literal(query).map { ChatSearchMatch(it) }
+        val candidates = if (terms.isBlank()) chatRoomV2Dao.getChatRooms() else searchChatsV2Literal(terms)
+        val byId = candidates.filterNot { it.isTemporary }.associateBy { it.id }
+        return withContext(Dispatchers.IO) {
+            val anchors = if (outcome in setOf("completed", "interrupted", "blocked")) {
+                agentRunDao.chatsWithRecordedOutcome(outcome.uppercase(java.util.Locale.ROOT)).associate { it.chatId to it.messageId }
+            } else {
+                workspace?.chatsByOutcome(outcome, byId.keys).orEmpty()
+            }
+            anchors.mapNotNull { (id, message) -> byId[id]?.let { ChatSearchMatch(it, message) } }
         }
-        return searchChatsV2Literal(query)
     }
 
     private suspend fun searchChatsV2Literal(query: String): List<ChatRoomV2> {

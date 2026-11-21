@@ -21,22 +21,26 @@ internal object SerializedToolSourceRanges {
         fun record(payload: JsonElement?, id: String?) {
             if (ranges.size >= 32) return
             val raw = (payload as? JsonPrimitive)?.takeIf { it.isString }?.content
-            val page = payload as? JsonObject ?: raw?.takeIf { it.length <= 65_536 && it.startsWith('{') && "\"source_page\"" in it }?.let {
+            val page = payload as? JsonObject ?: raw?.takeIf { it.length <= 65_536 && it.startsWith('{') && "github_read" in it }?.let {
                 runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull()
             } ?: return
-            if (page["source_page"] != JsonPrimitive(true) || page.text("operation") != "github_read") return
-            val commit = page.text("commit_sha")?.takeIf(revision::matches) ?: return
-            for (row in (page["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()) {
+            if (page.text("operation") != "github_read" || page.text("schema") != "github.operation.v1") return
+            val source = if (page["source_page"] == JsonPrimitive(true)) page else page["data"] as? JsonObject ?: return
+            val commit = source.text("commit_sha")?.takeIf(revision::matches) ?: return
+            for (row in (source["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()) {
                 if (ranges.size >= 32) return
                 val content = (row["content"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
                 val path = row.text("path")?.takeIf { it.isNotBlank() } ?: continue
                 val blob = row.text("sha")?.takeIf(revision::matches) ?: continue
-                val start = (row["range_offset"] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 } ?: continue
+                val start = ((row["range_offset"] ?: row["start_offset"]) as? JsonPrimitive)?.intOrNull ?: 0
+                val line = ((row["content_start_line"] ?: row["start_line"]) as? JsonPrimitive)?.intOrNull ?: continue
+                if (start < 0 || line <= 0) continue
                 ranges += buildJsonObject {
                     id?.let { put("call_id_sha256", DiagnosticRecordChunks.sha256(it)) }
                     put("commit_sha", commit)
                     put("blob_sha", blob)
                     put("path_sha256", DiagnosticRecordChunks.sha256(path))
+                    put("start_line", line)
                     put("offset_utf16", start)
                     put("length_utf16", content.length)
                     put("excerpt_sha256", DiagnosticRecordChunks.sha256(content))

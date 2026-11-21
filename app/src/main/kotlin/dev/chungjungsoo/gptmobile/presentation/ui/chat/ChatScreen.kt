@@ -1296,9 +1296,28 @@ private fun ChatScreenContent(
                             bottomInteractionContent?.invoke()
                             visibleGitHubDecisions.forEach { decision ->
                                 key(decision.id) {
+                                    val timing = remember(decision.id, decision.offeredAtMillis, agentRunsById, invocationsByRun, toolEventsByRun) {
+                                        val runs = agentRunsById.values.filter { it.userMessageId == decision.sourceMessageId && it.profileUid == decision.profileUid }
+                                        val start = runs.mapNotNull { it.startedAt }.minOrNull()?.times(1000)
+                                        val offered = decision.offeredAtMillis
+                                        val work = if (start == null || offered == null) {
+                                            null
+                                        } else {
+                                            val intervals = runs.flatMap { run ->
+                                                invocationsByRun[run.runId].orEmpty().filter { it.durationMs > 0 }.map { it.startedAt to it.startedAt + it.durationMs } +
+                                                    toolEventsByRun[run.runId].orEmpty().filterNot { it.toolName.substringBefore("__") == "github_decide" }.mapNotNull {
+                                                        val from = it.startedAt ?: return@mapNotNull null
+                                                        val to = it.completedAt ?: return@mapNotNull null
+                                                        from * 1000 to to * 1000
+                                                    }
+                                            }
+                                            dev.chungjungsoo.gptmobile.data.github.observedGitHubWorkMillis(start, offered, intervals)
+                                        }
+                                        start to work
+                                    }
                                     GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer ->
                                         chatViewModel.answerGitHubDecision(decision.id, option, answer)
-                                    }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })
+                                    }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) }, runStartedMs = timing.first, observedWorkMs = timing.second)
                                 }
                             }
                             approvals.forEach { approval ->

@@ -260,4 +260,87 @@ class ConversationCompletionReplayTest {
             )
         )
     }
+
+    @Test fun compareLosslessPagesWithFilePagesAtTheSameAllowance() {
+        val raw = source(*(1..4).map { file -> (1..240).joinToString("\n") { "val row$it = \"file $file [📘] — example\"" } }.toTypedArray())
+        fun replay(detail: String): Pair<Int, Int> {
+            val views = GitHubResultViews(pageBytes = 4096)
+            var page = views.present("session", "github_read", "github_read", AgentToolResult("original", ToolResultContent.Json(raw), false), buildJsonObject { put("response_detail", detail) })
+            val cursors = mutableSetOf<String>()
+            var bytes = 0
+            do {
+                val current = (page.content as ToolResultContent.Json).value.jsonObject
+                bytes += current.toString().encodeToByteArray().size
+                val next = (current["continuation_call"] as? JsonObject)?.get("arguments")?.jsonObject?.get("view_cursor")?.jsonPrimitive?.content ?: break
+                assertTrue(cursors.add(next) && cursors.size <= 400)
+                page = views.read("session", "github_read", "github_read", next, "page-" + cursors.size)
+                assertFalse(page.isError)
+            } while (true)
+            return cursors.size + 1 to bytes
+        }
+        val targeted = GitHubResultViews(pageBytes = 4096)
+        val first = (targeted.present("scope", "github_read", "github_read", AgentToolResult("batch", ToolResultContent.Json(raw), false)).content as ToolResultContent.Json).value.jsonObject
+        val file = first.getValue("range_calls").jsonArray.map { it.jsonObject }.single { it["path"] == JsonPrimitive("File3.kt") }
+        val cursor = file.getValue("call").jsonObject.getValue("arguments").jsonObject.getValue("view_cursor").jsonPrimitive.content
+        assertTrue(targeted.read("other", "github_read", "github_read", cursor, "foreign").isError)
+        val selected = (targeted.read("scope", "github_read", "github_read", cursor, "select").content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("File3.kt"), selected.getValue("items").jsonArray.first().jsonObject["path"])
+        val rawPages = replay("full")
+        val filePages = replay("compact")
+        assertTrue("raw=$rawPages file=$filePages", filePages.first < rawPages.first && filePages.second < rawPages.second)
+        println("Four-file replay, 4096-byte page budget: raw=$rawPages file=$filePages (pages, serialized UTF-8 bytes)")
+    }
+
+    @Test fun unchangedBlockerRetainsEarlierSubstantiveReportButKeepsItsNewVerdict() = runBlocking {
+        val records = mutableMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("work", "owner/repo", "topic", emptySet(), load = { records[it] }, save = { k, v -> records[k] = v })
+        val (receipts, epoch) = book.snapshot()
+        val prior = buildJsonObject { put("claims", JsonArray(listOf(buildJsonObject { put("status", "VERIFIED") }))) }
+        val blocked = buildJsonObject {
+            put("progress_state", "BLOCKED_UNCHANGED")
+            put("completion_verified", false)
+        }
+        assertTrue(book.retainAnswerIfCurrent("The build failed before tests started.", prior, epoch, receipts.keys))
+        assertTrue(book.retainAnswerIfCurrent("Waiting for the baseline.", blocked, epoch, receipts.keys))
+        assertEquals("Waiting for the baseline.", book.retainedAnswer()?.first)
+        val earlier = requireNotNull(book.retainedAnswer(includeEarlierFindings = true))
+        assertTrue(earlier.first.contains("before tests started") && earlier.first.contains("Waiting for the baseline"))
+        assertEquals(blocked, earlier.second)
+    }
+
+    @Test fun planningUsesDependenciesAndSeparatesInspectionFromPublication() {
+        fun ids(task: String) = GitHubOperationPlanner.plan(task).jsonArray.map { it.jsonObject.getValue("id").jsonPrimitive.content }
+        val inspect = ids("Review the staged changes, release notes and merge policy. Read-only.")
+        assertFalse(inspect.any { it in setOf("stage_patch", "commit_staged_patch", "merge_gate", "publish_release") })
+        val repair = ids("Fix the defect and open a draft PR. Do not publish or merge.")
+        assertTrue(repair.containsAll(listOf("prerequisites", "select_defect", "regression", "stage_patch", "validation", "draft_pr")))
+        assertTrue(repair.indexOf("select_defect") < repair.indexOf("stage_patch"))
+        assertFalse(repair.any { it == "publish_release" || it == "merge_gate" })
+        assertTrue("publish_release" in ids("Publish a release"))
+        assertTrue("publish_release" in ids("Fix the build, then publish this release"))
+        assertFalse("publish_release" in ids("Publish the PR comment"))
+        val withBuild = ids("Fix the build failure")
+        assertEquals(withBuild.distinct(), withBuild)
+    }
+
+    @Test fun taskSteeringAndSearchLinksStayBoundToTheirIntendedWork() {
+        assertTrue(GitHubTaskContinuity.reportOnly("How is this task going?"))
+        assertFalse(GitHubTaskContinuity.reportOnly("What is the status of PR #42?"))
+        val steering = dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.Companion
+        assertEquals("CORRECTION", steering.from("Actually, keep the previous baseline").name)
+        assertEquals("CANCEL", steering.from("Please cancel this task.").name)
+        assertEquals("ADDITION", steering.from("Explain how to cancel this task").name)
+        val feedback = buildJsonObject {
+            put("kind", "user_outcome")
+            put("chat_id", 7)
+            put("task_id", "7:42")
+        }
+        assertEquals(42, GitHubSavedOutcome.messageId(feedback, 7))
+        assertNull(GitHubSavedOutcome.messageId(feedback, 8))
+    }
+
+    @Test fun observedWorkOnlyCountsOverlappingIntervalsOnceWithinTheDecisionWindow() {
+        assertEquals(50L, observedGitHubWorkMillis(10, 80, listOf(0L to 20L, 15L to 40L, 60L to 120L)))
+        assertNull(observedGitHubWorkMillis(10, 80, emptyList()))
+    }
 }

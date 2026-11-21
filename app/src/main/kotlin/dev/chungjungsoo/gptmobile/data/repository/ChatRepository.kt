@@ -14,6 +14,8 @@ import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import kotlinx.coroutines.flow.Flow
 
+data class ChatSearchMatch(val room: ChatRoomV2, val messageId: Int? = null)
+
 interface ChatRepository {
 
     /** Validate known privacy constraints before asking for or dispatching user input. */
@@ -139,6 +141,7 @@ interface ChatRepository {
     suspend fun setChatArchived(chatId: Int, isArchived: Boolean)
     suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean)
     suspend fun searchChatsV2(query: String): List<ChatRoomV2>
+    suspend fun searchMatchesV2(query: String): List<ChatSearchMatch> = searchChatsV2(query).map { ChatSearchMatch(it) }
     suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?)
     suspend fun saveComposerDraft(chatId: Int, text: String?, attachments: String, timestamp: Long?) = updateDraft(chatId, text, timestamp)
     suspend fun checkCombinedQueuedJob(runId: String): String

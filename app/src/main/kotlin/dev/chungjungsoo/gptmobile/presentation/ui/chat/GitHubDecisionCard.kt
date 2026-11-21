@@ -47,7 +47,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, onAnswer: (Int?, String?) -> Unit, onResume: () -> Unit, onStop: () -> Unit) {
+internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, onAnswer: (Int?, String?) -> Unit, onResume: () -> Unit, onStop: () -> Unit, runStartedMs: Long? = null, observedWorkMs: Long? = null) {
     var custom by rememberSaveable(decision.id) { mutableStateOf(false) }
     var answer by rememberSaveable(decision.id) { mutableStateOf("") }
     val revisionInput = decision.options.any { it.enterValue }
@@ -82,6 +82,12 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
                     "Waiting for your choice"
                 }
                 Text("$label · ${seconds / 60}m ${seconds % 60}s", style = MaterialTheme.typography.labelMedium)
+                runStartedMs?.takeIf { it <= started }?.let { beginning ->
+                    Text("Elapsed ${dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(beginning, decision.answeredAtMillis ?: now)}", style = MaterialTheme.typography.bodySmall)
+                }
+                observedWorkMs?.let { duration ->
+                    Text("Recorded model and tool time before this choice · ${dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(0, duration)}", style = MaterialTheme.typography.bodySmall)
+                }
                 if (decision.answer == null) Text("Work on this choice is paused. An explicit task deadline keeps running while you decide.", style = MaterialTheme.typography.bodySmall)
             }
             if (decision.answer == null && title != decision.question.trim()) Text(decision.question, style = MaterialTheme.typography.bodyMedium)

@@ -207,7 +207,10 @@
     "Resolve Gateway chat model selection and preserve GitHub integration prerequisites, resource identities, verification reserves, and decision wait times.",
     "Retain pinned source ranges, recover task time windows, and test resumed conversations against pull request prerequisites.",
     "Sign provenance for the tested Gateway installer and portable ZIP and verify their public downloads against the merged main revision.",
-    "Retain source ranges across replay and interruption, report the measured replay budget and planning stage, index evidenced task outcomes, and batch diagnostic writes."
+    "Retain source ranges across replay and interruption, report the measured replay budget and planning stage, index evidenced task outcomes, and batch diagnostic writes.",
+    "Deliver source by file and line through stable native continuation handles. Verify pinned source by repository identity and retain the last supported report, typed prerequisites and scoped time renewal.",
+    "Open saved outcomes at their recorded turn on Android, filter Gateway conversations by terminal status, and handle unambiguous live status, corrections and task cancellation in the conversation.",
+    "Measure observed active work separately from decision waits. Trace CPU/GPU frame overlap, expose wire-observed source ranges, and exercise the workspace and journal export in the optimized Android benchmark."
   ],
   "limitations": [
     "Physical Android, selected-provider audio and research, Windows Gateway restart, Docker execution, and same-device performance comparisons require live qualification.",
@@ -292,7 +295,8 @@
     "Privacy Mode masks supported text locally and keeps each request’s replacement map in memory. Remote eligibility depends on the current profile, account, upstream endpoint and routing settings. Default-plugin confirmation comes from the account owner and expires within 24 hours. Live account behavior, third-party retention practices, and end-to-end operation on a paired phone and PC still require field verification.",
     "Native Copilot cloud tasks use the public-preview Agent tasks API, currently requiring Copilot Business or Enterprise and a user token with Agent tasks permission. Live entitlement, installed Android-to-Gateway execution, and exact-PR CI/merge acceptance remain unqualified; remote task completion never supplies merge authorization.",
     "Gateway capability failure evidence requires a hosted reporter advertising GATEWAY_CAPABILITY_EVIDENCE_V1; an older host leaves the exact approved report pending. The observed connect-timeout chain does not establish its endpoint or service root cause, and #1768 requires matching installed Android/Gateway acceptance.",
-    "Native Gateway and paired-owner controls require matching Android and Windows\nbuilds. Physical phone pairing, host firewall behavior, Windows accessibility\nand live selected-provider/GitHub execution require observed acceptance; source,\nhost tests and build checks do not establish those outcomes."
+    "Native Gateway and paired-owner controls require matching Android and Windows\nbuilds. Physical phone pairing, host firewall behavior, Windows accessibility\nand live selected-provider/GitHub execution require observed acceptance; source,\nhost tests and build checks do not establish those outcomes.",
+    "The conversation replay measures local pages and serialized bytes with synthetic pinned files. Production model turns, provider tokens or billing, end-to-end completion, device frame pacing and export duration require corresponding live measurement."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -367,6 +371,7 @@
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubWorkflowExecutionInstrumentedTest.kt",
     "app/src/benchmark/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/benchmark/AppLogBenchmarkFixture.kt",
     "app/src/benchmark/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/benchmark/ChatBenchmarkActivity.kt",
+    "app/src/benchmark/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/benchmark/DiagnosticExportFixture.kt",
     "app/src/benchmark/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/benchmark/GatewayReconnectBenchmarkFixture.kt",
     "app/src/main/AndroidManifest.xml",
     "app/src/main/assets/diagnostics/app-code-inventory.json",
@@ -852,6 +857,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDecisionNotifications.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDraftRepair.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubElapsedTime.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemory.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryAccessRejected.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryPolicy.kt",
@@ -1116,7 +1122,9 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMask.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/ProviderApprovalSource.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/privacy/VerifiedPrivateRoute.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/ConversationSteering.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueue.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/FollowUpAgentSession.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/GatewayQueueModelAdmission.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/GatewayQueueStore.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/GatewayQueueWakeWorker.kt",
@@ -2513,6 +2521,7 @@
     "docs/ci-cd/main-ruleset.json",
     "docs/ci-cd/modernization.md",
     "docs/contracts/gateway-diagnostic-schema-v2.json",
+    "docs/conversation-completion-coverage.md",
     "docs/design/github-chat-rich-evidence-summaries-2026-11-16.md",
     "docs/engineering-completion-followup.md",
     "docs/engineering/app-audit-gateway-2026-11-07-task.json",

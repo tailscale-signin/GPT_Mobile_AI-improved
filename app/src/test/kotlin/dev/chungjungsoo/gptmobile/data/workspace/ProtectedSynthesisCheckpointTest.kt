@@ -52,6 +52,33 @@ class ProtectedSynthesisCheckpointTest {
         database.close()
     }
 
+    @Test fun outcomeSearchOpensTheRetainedTurnAndAvoidsNewerUnrelatedAnswers() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Builds")).toInt()
+        val dao = database.agentPersistenceDao()
+        val user = dao.insertMessage(MessageV2(chatId = chat, content = "Build this", platformType = null)).toInt()
+        val answer = dao.insertMessage(MessageV2(chatId = chat, content = "Built", platformType = "p", currentRunId = "first")).toInt()
+        fun attempt(id: String, at: Long) = AgentRun(id, chat, user, answer, "p", "provider", "model", status = "COMPLETED", createdAt = at, displayRole = "DIRECT_REPLY")
+        database.agentRunDao().upsert(attempt("first", 1))
+        assertEquals(answer, database.agentRunDao().chatsWithRecordedOutcome("COMPLETED").single().messageId)
+        database.agentRunDao().upsert(attempt("second", 2))
+        assertEquals(user, database.agentRunDao().chatsWithRecordedOutcome("COMPLETED").single().messageId)
+        val store = WorkspaceRepository(database, vault)
+        store.saveProtectedSynthesisCheckpoint(
+            "engineering:scope:decision:1",
+            chat,
+            "scope",
+            buildJsonObject {
+                put("kind", "decision")
+                put("confidence", "USER_DECISION_NOT_EXECUTION_AUTHORITY")
+                put("source_message_id", user)
+            },
+            engineeringMemory = true
+        )
+        assertEquals(mapOf(chat to user), store.chatsByOutcome("decision", setOf(chat)))
+        assertTrue(store.chatsByOutcome("build", setOf(chat)).isEmpty())
+        assertTrue(database.agentRunDao().chatsWithRecordedOutcome("INTERRUPTED").isEmpty())
+    }
+
     @Test fun conditionalRecoveryCheckpointCannotReplaceChangedEvidenceOrASupersededOwner() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Recovery")).toInt()
         val user = database.agentPersistenceDao().insertMessage(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = chat, content = "Task", platformType = null)).toInt()

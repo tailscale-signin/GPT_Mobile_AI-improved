@@ -1,5 +1,12 @@
 # GPT Mobile 0.9.66.11 (build 145) and Windows Gateway 18.1.0
 
+### Conversation completion
+
+Source reads now expose file and line ranges, including local jumps within saved batches. Interrupted tasks retain their supported findings, and saved-outcome searches can open the original turn. Decision cards distinguish observed work from time spent waiting.
+
+The conversation replay measures local pages and serialized bytes with synthetic pinned files. Production model turns, provider tokens or billing, end-to-end completion, device frame pacing and export duration require corresponding live measurement.
+
+
 Gateway connections remember the selected inference model, identify an active model from the backend catalog, and offer a picker when several candidates remain. GitHub integration checks keep the open PR and its revision, classify prerequisites before bulk reads, and show the available tool budget. Verification reports open with a short summary. Expand the details to inspect receipts or see why an operation stopped. Baseline decisions report time spent waiting for a choice.
 
 Windows Gateway 18.1.0 includes the rebuilt setup and desktop workspaces. The Android voice update uses Kokoro model timing for caption highlights.

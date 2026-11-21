@@ -907,7 +907,32 @@ class ChatViewModel @Inject constructor(
         return true
     }
 
+    private fun handleActiveTaskControl(text: String): Boolean {
+        val control = dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.from(text)
+        if (control !in setOf(dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.STATUS, dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.CANCEL)) return false
+        val status = control == dev.chungjungsoo.gptmobile.data.queue.ConversationSteering.STATUS
+        val active = _agentRunsById.value.values.filter {
+            it.chatId == _chatRoom.value.id && it.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_REMOTE_JOB, AgentRunStatus.WAITING_PROVIDER_LIMIT)
+        }
+        if (status && active.isEmpty()) return false
+        _attachmentNotice.value = when {
+            status -> active.groupingBy { it.status }.eachCount().entries.joinToString(" · ") { (state, count) -> "$count ${state.lowercase().replace('_', ' ')}" }
+            active.isEmpty() -> "There is no active task to cancel in this conversation."
+            active.distinctBy { it.userMessageId }.size > 1 -> "Several tasks are active in this conversation. Use the stop control on the task you want to cancel."
+            else -> {
+                agentRunCoordinator.cancelRuns(active.mapTo(mutableSetOf()) { it.runId })
+                "Cancellation requested for the current task."
+            }
+        }
+        if (question.text.toString() == text) question.clearText()
+        return true
+    }
+
     private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>, attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace(), gatewayAdmissionChecked: Boolean = false, reasoningAdmissionChecked: Boolean = false) {
+        if (attachments.isEmpty() && _voiceAdmission.value?.requestId != attempt.requestId && handleActiveTaskControl(questionText)) {
+            attempt.finish("TASK_CONTROL_HANDLED")
+            return
+        }
         if (_combinedSettingsSaveState.value.isCommitting) {
             _attachmentNotice.value = "Saving the Combined setup. Your message draft is kept."
             attempt.finish("VALIDATION_REJECTED")

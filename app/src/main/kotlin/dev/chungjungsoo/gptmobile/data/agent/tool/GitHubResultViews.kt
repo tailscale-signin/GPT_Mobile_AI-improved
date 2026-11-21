@@ -474,7 +474,8 @@ internal class GitHubResultViews(
         // and a guessed fragment offset never grant pagination access.
         val recipes = listOfNotNull(page["recovery_call"] as? JsonObject, page["continuation_call"] as? JsonObject, page["original_call"] as? JsonObject) +
             listOf("recovery_options", "continuation_options").flatMap { key -> (page[key] as? JsonArray).orEmpty().filterIsInstance<JsonObject>() }
-        recipes.forEach { recipe ->
+        val rangeCalls = (page["range_calls"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { it["call"] as? JsonObject }
+        (recipes + rangeCalls).forEach { recipe ->
             val arguments = recipe["arguments"] as? JsonObject
             (arguments?.get("view_cursor") as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(entry.issuedCursors::add)
         }

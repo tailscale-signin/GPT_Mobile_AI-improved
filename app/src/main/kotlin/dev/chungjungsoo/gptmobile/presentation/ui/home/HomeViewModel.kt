@@ -109,6 +109,8 @@ class HomeViewModel @Inject constructor(
     private val _selectedFolderId = MutableStateFlow<String?>(null)
     val selectedFolderId = _selectedFolderId.asStateFlow()
     private var folderMembers = emptyMap<Int, String>()
+    private var outcomeAnchors = emptyMap<Int, Int?>()
+    private var outcomeQuery = ""
     private var allChats = emptyList<ChatRoomV2>()
     private val _folderError = MutableStateFlow<String?>(null)
     val folderError = _folderError.asStateFlow()
@@ -321,11 +323,13 @@ class HomeViewModel @Inject constructor(
             .distinctUntilChanged()
             .mapLatest { query ->
                 val hidden = hiddenWorkspaceChildIds()
-                query to chatRepository.searchChatsV2(query).filterNot { it.id in hidden }
+                query to chatRepository.searchMatchesV2(query).filterNot { it.room.id in hidden }
             }
             .onEach { (query, rooms) ->
                 if (_searchQuery.value == query) {
-                    allChats = rooms
+                    outcomeAnchors = rooms.filter { it.messageId != null }.associate { it.room.id to it.messageId }
+                    outcomeQuery = query
+                    allChats = rooms.map { it.room }
                     publishFolderChats()
                 }
             }
@@ -601,6 +605,12 @@ class HomeViewModel @Inject constructor(
 
     fun openConversation(room: ChatRoomV2, onOpen: (ChatRoomV2, Int?) -> Unit) {
         viewModelScope.launch {
+            if (outcomeQuery == _searchQuery.value) {
+                outcomeAnchors[room.id]?.let {
+                    onOpen(room, it)
+                    return@launch
+                }
+            }
             val pending = completedGenerations.value.firstOrNull { it.visibleChatId == room.id }
             if (pending != null && pending.chatId != room.id) {
                 val targetRoom = (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).firstOrNull { it.id == pending.chatId }

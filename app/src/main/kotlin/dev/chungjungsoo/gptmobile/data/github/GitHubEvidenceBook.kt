@@ -756,11 +756,25 @@ internal class GitHubEvidenceBook(
         if (epoch != expectedEpoch || records.keys != expectedReceiptIds) return@withLock false
         require(text.isNotBlank() && text.length <= 1_048_576)
         val receiptDigest = digest(expectedReceiptIds.sorted().joinToString("\n"))
+        if (!substantiveReport(verdict)) {
+            val key = digest(binding).take(24)
+            val prior = load("answer_current_$key")
+            if (prior != null &&
+                prior["binding"] == JsonPrimitive(binding) &&
+                prior["epoch"] == JsonPrimitive(epoch) &&
+                prior["receipt_set_digest"] == JsonPrimitive(receiptDigest) &&
+                substantiveReport(prior["verdict"] as? JsonObject)
+            ) {
+                val retained = JsonObject(prior.filterKeys { it in setOf("binding", "epoch", "text", "text_sha256", "receipt_set_digest") })
+                if (load("answer_useful_current_$key") != retained) save("answer_useful_current_$key", retained)
+            }
+        }
         saveCurrent(
             "answer",
             buildJsonObject {
                 put("schema", "github.saved-answer.v1")
                 put("binding", binding)
+                put("epoch", epoch)
                 put("text", text)
                 put("text_sha256", digest(text))
                 put("receipt_set_digest", receiptDigest)
@@ -770,7 +784,16 @@ internal class GitHubEvidenceBook(
         true
     }
 
-    suspend fun retainedAnswer(): Pair<String, JsonObject>? {
+    private fun substantiveReport(verdict: JsonObject?): Boolean = verdict != null &&
+        verdict["progress_state"] != JsonPrimitive("BLOCKED_UNCHANGED") &&
+        (
+            verdict["completion_verified"] == JsonPrimitive(true) ||
+                (verdict["claims"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any {
+                    it["status"] in setOf(JsonPrimitive("VERIFIED"), JsonPrimitive("HISTORICAL"), JsonPrimitive("INFERRED"))
+                }
+            )
+
+    suspend fun retainedAnswer(includeEarlierFindings: Boolean = false): Pair<String, JsonObject>? {
         val saved = load("answer_current_" + digest(binding).take(24)) ?: return null
         val text = (saved["text"] as? JsonPrimitive)?.contentOrNull ?: return null
         val verdict = saved["verdict"] as? JsonObject ?: return null
@@ -781,6 +804,20 @@ internal class GitHubEvidenceBook(
             saved["receipt_set_digest"] != JsonPrimitive(digest(snapshot().first.keys.sorted().joinToString("\n")))
         ) {
             return null
+        }
+        if (saved["epoch"] != null && saved["epoch"] != JsonPrimitive(epoch)) return null
+        if (includeEarlierFindings && !substantiveReport(verdict)) {
+            val prior = load("answer_useful_current_" + digest(binding).take(24))
+            val earlier = (prior?.get("text") as? JsonPrimitive)?.contentOrNull
+            if (!earlier.isNullOrBlank() &&
+                earlier.length <= 1_048_576 &&
+                prior["binding"] == saved["binding"] &&
+                prior["epoch"] == JsonPrimitive(epoch) &&
+                prior["receipt_set_digest"] == saved["receipt_set_digest"] &&
+                prior["text_sha256"] == JsonPrimitive(digest(earlier))
+            ) {
+                return "$earlier\n\n## Latest checkpoint\n\n$text" to verdict
+            }
         }
         return text to verdict
     }
@@ -1050,7 +1087,7 @@ internal class GitHubEvidenceBook(
         private const val SIMPLE_RECEIPT_MAX_BYTES = 1_400_000
         private const val ORIGINAL_RECEIPT_MAX_BYTES = 8 * 1024 * 1024
 
-        fun currentSnapshot(id: String): Boolean = id.matches(Regex("(?:verification|checklist|answer|claim_extraction)_current_[a-f0-9]{24}"))
+        fun currentSnapshot(id: String): Boolean = id.matches(Regex("(?:verification|checklist|answer|answer_useful|claim_extraction)_current_[a-f0-9]{24}"))
 
         /** Preparing a verdict does not prove that its visible delivery completed. */
         fun publishedChecklistDigest(checkpoint: JsonObject?): JsonPrimitive? =

@@ -17,7 +17,9 @@ internal data class GitHubWorkflowPreset(val id: String, val title: String, val 
 
         private val implementationRequest = Regex("""(?i)\b(?:implement|fix|patch|repair|refactor)\b""")
         private val planningOnly = Regex("""(?i)\b(?:read.only|without (?:editing|modifying|changing)|do not (?:implement|edit|change)|(?:plan|design) (?:only|before)|(?:explain|suggest|describe) (?:how|a fix))\b""")
-        fun implementation(request: String): Boolean = !planningOnly.containsMatchIn(request) &&
+        fun implementation(request: String): Boolean = !GitHubChecklistScope.readOnly(request) &&
+            !planningOnly.containsMatchIn(request) &&
+            !request.trimStart().startsWith("how ", ignoreCase = true) &&
             (fromRequest(request)?.let { it.id == "implement_issue" } ?: implementationRequest.containsMatchIn(request))
 
         fun selected(id: String): GitHubWorkflowPreset = all.firstOrNull { it.id == id } ?: all.first { it.id == DEFAULT_ID }

@@ -289,9 +289,10 @@ SEARCH_ATTEMPT_FIELDS = {"search_attempt_count", "search_dispatched_attempt_coun
 COUNTS.add("reconciliation_tracked_signature_count")
 FLAGS.add("round_catalog_discovery_available")
 ENUMS["reconciliation_source"] = {"SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"}
+ENUMS["graph_transport_kind"] = {"DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN"}
 ENUMS["url_reader_refusal"] = {"DOMAIN_SCOPE", "HOP_LIMIT", "LOCATION_MISSING", "LOOP", "LOCATION_INVALID", "HTTP_ACCESS_DENIED", "TURN_DENIAL_CACHE"}
 FIELDS_BY_AREA["INCIDENT"].update({"reconciliation_source", "reconciliation_tracked_signature_count"})
-FIELDS_BY_AREA["TOOL"].update({"url_reader_refusal", "round_catalog_discovery_available"})
+FIELDS_BY_AREA["TOOL"].update({"url_reader_refusal", "round_catalog_discovery_available", "graph_transport_kind"})
 COUNTS.update(SEARCH_ATTEMPT_FIELDS)
 ENUMS["search_failure_observation"] = {"UPSTREAM_CHALLENGE", "NO_ENGINE_SUCCEEDED"}
 ENUMS["catalog_selector_state"] = {"MIXED_INVENTORY_SELECTORS", "ACTION_NOT_STRING", "ACTION_WITHOUT_NAMES", "NAMES_NOT_ARRAY",

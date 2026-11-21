@@ -391,8 +391,19 @@ internal object ToolReportDiagnostics {
             // The HTTP status and uncertainty belong to the original graph operation,
             // not the report preview. A mismatched/edited receipt must not supply its cause.
             if (result.isError && receipt["error_code"] == JsonPrimitive(result.errorCode)) {
-                (receipt["reason_code"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
-                    ?.takeIf { it in graphReasons }?.let { put("tool_reason_code", it) }
+                val reason = (receipt["reason_code"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                if (reason == "TRANSPORT_UNAVAILABLE" &&
+                    result.errorCode == "REPOSITORY_GRAPH_UNAVAILABLE" &&
+                    result.dispatched &&
+                    receipt["dispatched"] == JsonPrimitive(true) &&
+                    receipt["phase"] in setOf(JsonPrimitive("FAILED"), JsonPrimitive("UNKNOWN_OUTCOME"))
+                ) {
+                    put("tool_reason_code", "GRAPH_TRANSPORT_UNAVAILABLE")
+                    (receipt["graph_transport_kind"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                        ?.takeIf { it in IssueReportDiagnostics.graphTransportKinds }?.let { put("graph_transport_kind", it) }
+                } else {
+                    reason?.takeIf { it in graphReasons }?.let { put("tool_reason_code", it) }
+                }
             }
             (receipt["graph_index_attempt_hash"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
                 ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }?.let { put("graph_index_attempt_hash", it) }

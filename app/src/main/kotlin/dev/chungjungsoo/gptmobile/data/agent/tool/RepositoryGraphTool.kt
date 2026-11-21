@@ -8,7 +8,11 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphPrerequisite
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
+import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -234,6 +238,12 @@ internal class RepositoryGraphTool(
                     retryAfterMillis?.takeIf { it in 0..86_400_000 }?.let { put("retry_after_ms", it) }
                     rateLimitObservation?.let { put("graph_rate_limit", it) }
                     (prerequisite?.prerequisites?.firstOrNull()?.name ?: admission?.code ?: operation?.failureCode ?: (cause as? GatewayGraphHttpFailure)?.code)?.let { put("reason_code", it) }
+                    if (prerequisite?.prerequisites?.firstOrNull() == GatewayGraphPrerequisite.TRANSPORT_UNAVAILABLE) {
+                        val ioCause = generateSequence<Throwable>(prerequisite) { it.cause }.take(16).filterIsInstance<IOException>().firstOrNull()
+                        ioCause?.let(::networkFailureKind)?.takeUnless { it == NetworkFailureKind.CANCELLED }?.let {
+                            put("graph_transport_kind", it.name)
+                        }
+                    }
                     ToolExceptionEvidence.fields(cause).forEach { (key, value) -> put(key, value) }
                 }
             )

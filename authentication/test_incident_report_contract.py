@@ -2000,6 +2000,14 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
         self.assertEqual(76, len(capsule.POLICY_FIELD_NAMES))
 
+    def test_graph_transport_archives_only_closed_tool_values(self):
+        for kind in ("DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN"):
+            capture = self.capture("TOOL", {"tool_reason_code": "GRAPH_TRANSPORT_UNAVAILABLE", "graph_transport_kind": kind})
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for area, value in (("PROVIDER", "DNS"), ("TOOL", "private endpoint"), ("TOOL", True)):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, {"graph_transport_kind": value}))
+
     def test_reader_and_reconciliation_evidence_is_scoped_and_bounded(self):
         for area, fields in (
             ("INCIDENT", {"reconciliation_source": "SAVED_AND_TRACKED", "reconciliation_tracked_signature_count": 1024}),

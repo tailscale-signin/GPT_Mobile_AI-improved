@@ -7,6 +7,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphPrerequisite
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -232,6 +234,38 @@ class ToolReportIncidentProjectionTest {
         assertFalse(ToolReportDiagnostics.fields(event, forged).containsKey("tool_reason_code"))
         val forgedReason = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) + ("reason_code" to JsonPrimitive("UNTRUSTED_GRAPH_CAUSE"))))
         assertFalse(ToolReportDiagnostics.fields(event, forgedReason).containsKey("tool_reason_code"))
+    }
+
+    @Test fun graphTransportReportsOnlyTheCurrentGatewayFailure() = runBlocking {
+        val call = event("""{"action":"metrics"}""").copy(modelToolName = "repository_graph__selected")
+        for ((cause, expected) in listOf(
+            java.net.ConnectException("private endpoint") to "DISCONNECTED",
+            java.net.UnknownHostException("private host") to "DNS",
+            java.net.SocketTimeoutException("private URL") to "TIMEOUT",
+            java.io.IOException("private detail") to "UNKNOWN",
+            null to null
+        )) {
+            val tool = RepositoryGraphTool(call.modelToolName) {
+                val unavailable = GatewayGraphUnavailableException("private gateway", listOf(GatewayGraphPrerequisite.TRANSPORT_UNAVAILABLE))
+                if (cause != null) unavailable.initCause(cause)
+                throw GatewayGraphOperationException(unavailable, null, null, "RESTORE_SELECTED_GATEWAY_CONNECTION", false)
+            }
+            val result = tool.execute(call.callId, buildJsonObject { put("action", "metrics") })
+            val fields = ToolReportDiagnostics.fields(call, result)
+            val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+            assertEquals(JsonPrimitive("GRAPH_TRANSPORT_UNAVAILABLE"), report.values["tool_reason_code"])
+            assertEquals(expected?.let(::JsonPrimitive), report.values["graph_transport_kind"])
+            assertEquals(expected != null, "GRAPH_TRANSPORT_EVIDENCE_V1" in report.requiredServiceFeatures())
+            assertFalse(report.toString().contains("private"))
+            val forged = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) + ("graph_transport_kind" to JsonPrimitive("private detail"))))
+            assertFalse("graph_transport_kind" in ToolReportDiagnostics.fields(call, forged))
+            for (key in listOf("schema", "call_id", "action", "reason_code", "error_code", "phase", "dispatched")) {
+                val unbound = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) - key))
+                val observed = ToolReportDiagnostics.fields(call, unbound)
+                assertFalse(key, "graph_transport_kind" in observed)
+                assertFalse(key, observed["tool_reason_code"] == "GRAPH_TRANSPORT_UNAVAILABLE")
+            }
+        }
     }
 
     @Test fun gatewayHttp500ClosedClassProjectsThroughOwnedToolReceipt() = runBlocking {

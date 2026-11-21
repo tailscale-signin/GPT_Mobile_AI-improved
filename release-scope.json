@@ -2897,6 +2897,7 @@
     "gateway/desktop/acceptance_builder.py",
     "gateway/desktop/acceptance_discovery.py",
     "gateway/desktop/acceptance_discovery_dialog.py",
+    "gateway/desktop/account_address.py",
     "gateway/desktop/admission_panel.py",
     "gateway/desktop/analysis_export.py",
     "gateway/desktop/analysis_panel.py",

@@ -21,6 +21,15 @@ internal fun capacityAdmissionEvidence(error: RequestCapacityException, monotoni
             observedCount("admission_capacity_age_ms", monotonicMillis - it)
         }
     }
+    error.planningInput?.let { plan ->
+        put("admission_capacity_provenance", plan.provenance.name)
+        // At this boundary only the instructions and current turns have been charged.
+        if (plan.costs.total.toLong() == error.promptTokens) {
+            observedCount("admission_system_tokens", plan.costs.system.toLong())
+            observedCount("admission_current_request_tokens", plan.costs.currentMessage.toLong())
+            observedCount("admission_attachment_reserve_tokens", plan.costs.attachments.toLong())
+        }
+    }
     error.budget?.let { budget ->
         for ((component, field) in listOf(
             "system_instructions" to "admission_system_tokens",

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
+import dev.chungjungsoo.gptmobile.data.context.CapacityProvenance
 import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
 import dev.chungjungsoo.gptmobile.data.context.ContextCostBreakdown
 import dev.chungjungsoo.gptmobile.data.context.ContextPlan
@@ -202,7 +203,8 @@ internal fun planAuthorizedToolContext(
     githubMode: Boolean = false,
     requestedTask: String? = null,
     requireToolExecution: Boolean = true,
-    allowOutputReduction: Boolean = false
+    allowOutputReduction: Boolean = false,
+    planningProvenance: CapacityProvenance = CapacityProvenance.UNKNOWN
 ): ContextPlan {
     // Saved receipts and prepared evidence can contain tool names and imperatives.
     // They remain context, never new requirements attributed to the user.
@@ -218,7 +220,7 @@ internal fun planAuthorizedToolContext(
         task.lineSequence().none { it.trim() == "[github-workflow-preset:test_integration]" }
     val fullGitHubCatalog = effectiveGitHubMode && !scopedGitHubStatus
     // Current user intent wins over repository keywords in memory or workspace instructions.
-    if (!fullGitHubCatalog && CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits)
+    if (!fullGitHubCatalog && CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits, planningProvenance = planningProvenance)
     val definitions = tools.map { it.tool.definition }
     val recovery = definitions.filter { it.modelVisible && it.name == "read_recovery_context" }
     val required = (
@@ -272,7 +274,14 @@ internal fun planAuthorizedToolContext(
         if (fitted.output < output) effectiveLimits = normalized.copy(outputTokens = fitted.output)
     }
     val prioritized = (pinnedSchemas + advertised.filter { it.name == ProgressiveToolCatalog.NAME } + advertised).distinctBy { it.name }
-    val plan = ContextBudgetService.plan(turns, prompt, prioritized, effectiveLimits, admittedGitHubBudget?.toolResults)
+    val plan = ContextBudgetService.plan(
+        turns,
+        prompt,
+        prioritized,
+        effectiveLimits,
+        admittedGitHubBudget?.toolResults,
+        if (effectiveLimits.contextTokens == limits.contextTokens) planningProvenance else CapacityProvenance.UNKNOWN
+    )
     val omittedRequired = pinnedSchemas.filterNot { wanted -> plan.tools.any { it.name == wanted.name } }
     if (omittedRequired.isNotEmpty()) {
         admittedGitHubBudget?.let { budget ->

@@ -3539,13 +3539,13 @@ class ChatRepositoryImpl(
                     val intent = if (dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.isToolFollowUp(task)) turns.dropLast(1).takeLast(6).lastOrNull { !dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.isToolFollowUp(it.userMessage.effectiveContent()) }?.userMessage?.effectiveContent().orEmpty() else ""
                     val required = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.requiredToolNames(task + "\n" + intent + "\n" + platform.systemPrompt.orEmpty(), tools.map { it.tool.definition })
                     val relevant = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.relevantTools(task, tools.map { it.tool.definition }, required).map { it.name }.toSet()
-                    val plan = planPrimaryContext(turns, prompt, tools.filter { it.tool.definition.name in relevant }, admittedSettings, true, githubMode = false, requestedTask = requestedTask, requireToolExecution = requireToolExecution)
+                    val plan = planPrimaryContext(turns, prompt, tools.filter { it.tool.definition.name in relevant }, admittedSettings, true, githubMode = false, requestedTask = requestedTask, requireToolExecution = requireToolExecution, capacityDecision = capacityDecision)
                     plan.copy(
                         authorizedTools = if (relevant.isEmpty()) plan.authorizedTools else tools.map { it.tool.definition },
                         toolOmissions = plan.toolOmissions + tools.filterNot { it.tool.definition.name in relevant }.associate { it.modelToolName to dev.chungjungsoo.gptmobile.data.context.ToolOmissionReason.NOT_NEEDED }
                     )
                 } else {
-                    planPrimaryContext(turns, prompt, tools, admittedSettings, true, githubMode, requestedTask, requireToolExecution, allowOutputReduction = combined == null && features.tokenBudget.outputTokens <= 0)
+                    planPrimaryContext(turns, prompt, tools, admittedSettings, true, githubMode, requestedTask, requireToolExecution, capacityDecision, allowOutputReduction = combined == null && features.tokenBudget.outputTokens <= 0)
                 }
             }
         }
@@ -3987,7 +3987,7 @@ class ChatRepositoryImpl(
         }
     }
 
-    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean, allowOutputReduction: Boolean = false): dev.chungjungsoo.gptmobile.data.context.ContextPlan {
+    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean, capacityDecision: dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.PrimaryContextDecision, allowOutputReduction: Boolean = false): dev.chungjungsoo.gptmobile.data.context.ContextPlan {
         // A saved ChatMcpToolConfig may exist for a text-only conversation.
         // Reserve unknown-route tool headroom only when this request actually
         // exposes executable tools (or is a GitHub workflow).
@@ -4008,7 +4008,8 @@ class ChatRepositoryImpl(
             githubMode,
             requestedTask,
             requireToolExecution,
-            allowOutputReduction
+            allowOutputReduction,
+            capacityDecision.toolPlanningProvenance(limits.contextTokens, planningLimits.contextTokens)
         )
     }
 

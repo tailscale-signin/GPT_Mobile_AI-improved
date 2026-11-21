@@ -77,7 +77,7 @@ object ContextBudgetService {
         history = turns.filterNot { it.isCurrentTurn }.sumOf { estimate(it.userMessage.content).toLong() + estimate(it.assistantMessage?.content.orEmpty()) + 16 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
         attachments = turns.sumOf { (it.userMessage.attachments.size.toLong() + (it.assistantMessage?.attachments?.size ?: 0)) * 2048 }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     )
-    fun plan(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>, settings: TokenBudgetSettings, toolResultReserveCap: Int? = null): ContextPlan {
+    fun plan(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>, settings: TokenBudgetSettings, toolResultReserveCap: Int? = null, planningProvenance: CapacityProvenance = CapacityProvenance.UNKNOWN): ContextPlan {
         val config = settings.normalized()
         val outputLimit = config.outputTokens.takeIf { it > 0 }
         if (config.contextTokens == Int.MAX_VALUE) {
@@ -115,7 +115,11 @@ object ContextBudgetService {
                 output.toLong(),
                 config.contextTokens.toLong(),
                 TokenMeasurementKind.UTF8_ESTIMATE,
-                planningToolResultReserveTokens = resultReserve
+                planningToolResultReserveTokens = resultReserve,
+                planningInput = RequestCapacityException.PlanningInput(
+                    breakdown(current, system, emptyList()),
+                    if (config.contextTokens == settings.contextTokens) planningProvenance else CapacityProvenance.UNKNOWN
+                )
             )
         }
         val promptLimit = config.contextTokens - output - resultReserve - safety

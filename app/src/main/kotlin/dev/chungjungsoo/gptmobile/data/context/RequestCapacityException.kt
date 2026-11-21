@@ -11,11 +11,14 @@ internal class RequestCapacityException(
     val measurement: TokenMeasurementKind,
     val budget: PromptBudgetReceipt? = null,
     val capacityObservation: CapacityAdmissionObservation? = null,
-    val planningToolResultReserveTokens: Int? = null
+    val planningToolResultReserveTokens: Int? = null,
+    val planningInput: PlanningInput? = null
 ) : IllegalStateException("$code: $message${budget?.let { " ${it.explain()}." }.orEmpty()}${capacityGuidance(code, promptTokens, safetyTokens, capacityTokens, measurement, planningToolResultReserveTokens ?: 0)}") {
     init {
         require(code in CODES)
     }
+
+    data class PlanningInput(val costs: ContextCostBreakdown, val provenance: CapacityProvenance)
 
     companion object {
         val CODES = setOf("CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED")

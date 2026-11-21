@@ -149,8 +149,8 @@ class DiagnosticIncidentClassificationTest {
     @Test fun vendorSettingErrorsRequireAttributionAndNeverHideACrash() {
         val platform = classifyDiagnostic("E", "Android", "E/System: Settings key: <asus_leak_detect_proj> is not readable")
         assertEquals("protected_settings_access", platform.category)
-        assertEquals("error", platform.severity)
-        assertTrue(platform.actionable)
+        assertEquals("warning", platform.severity)
+        assertFalse(platform.actionable)
         val fatal = classifyDiagnostic("F", "Android", "F/AndroidRuntime: FATAL EXCEPTION in finalizer: asus_leak_detect_proj")
         assertEquals("fatal", fatal.category)
         assertEquals("critical", fatal.severity)

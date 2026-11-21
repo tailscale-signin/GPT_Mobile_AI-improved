@@ -352,8 +352,8 @@ class GatewayAPIImpl internal constructor(
     }
 
     private companion object {
-        const val CAPABILITY_CONNECT_TIMEOUT_MS = 1_500L
-        const val CAPABILITY_REQUEST_TIMEOUT_MS = 2_500L
+        const val CAPABILITY_CONNECT_TIMEOUT_MS = 3_000L
+        const val CAPABILITY_REQUEST_TIMEOUT_MS = 5_000L
         const val RECOVERY_CONNECT_TIMEOUT_MS = 5_000L
         const val RECOVERY_REQUEST_TIMEOUT_MS = 10_000L
     }

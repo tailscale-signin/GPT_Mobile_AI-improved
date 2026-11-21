@@ -57,6 +57,18 @@ RUN curl -fsSL --retry 3 https://download.jetbrains.com/kotlin-lsp/262.2310.0/ko
 ENV ANDROID_HOME=/opt/android ANDROID_SDK_ROOT=/opt/android
 RUN curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -o /tmp/sdk.zip && echo "7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee  /tmp/sdk.zip" | sha256sum -c - && mkdir -p /opt/android/cmdline-tools && unzip -q /tmp/sdk.zip -d /tmp/sdk && mv /tmp/sdk/cmdline-tools /opt/android/cmdline-tools/19 && rm /tmp/sdk.zip && yes | /opt/android/cmdline-tools/19/bin/sdkmanager --licenses >/dev/null
 RUN /opt/android/cmdline-tools/19/bin/sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1' 'platform-tools'
+RUN mkdir -p /opt/gateway-kokoro-deps && \
+    curl -fsSL --retry 3 https://codeload.github.com/k2-fsa/sherpa-onnx/tar.gz/af2d8d81dbfa61c4cea4c568da78f3982edca005 -o /opt/gateway-kokoro-deps/sherpa-onnx-af2d8d81dbfa61c4cea4c568da78f3982edca005.tar.gz && \
+    echo "afcafe3c34bc2f15a363ad791fa1644a69bf0977a58c1b4f617468976c2faeb5  /opt/gateway-kokoro-deps/sherpa-onnx-af2d8d81dbfa61c4cea4c568da78f3982edca005.tar.gz" | sha256sum -c - && \
+    curl -fsSL --retry 3 https://codeload.github.com/festvox/flite/tar.gz/e9e2e37c329dbe98bfeb27a1828ef9a71fa84f88 -o /opt/gateway-kokoro-deps/flite-e9e2e37c329dbe98bfeb27a1828ef9a71fa84f88.tar.gz && \
+    echo "1eebf476797cea10b4706cfbb9db9ba34f7b8ccb1fe7e0069b0b7528e0b0be46  /opt/gateway-kokoro-deps/flite-e9e2e37c329dbe98bfeb27a1828ef9a71fa84f88.tar.gz" | sha256sum -c - && \
+    curl -fsSL --retry 3 https://codeload.github.com/JuliaStrings/utf8proc/tar.gz/refs/tags/v2.12.0 -o /opt/gateway-kokoro-deps/utf8proc-v2.12.0.tar.gz && \
+    echo "f564011d38b2888d583d510b08e69ffa15aa117155db1b9b49ef1dfe1fa25111  /opt/gateway-kokoro-deps/utf8proc-v2.12.0.tar.gz" | sha256sum -c - && \
+    curl -fsSL --retry 3 https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.28.2/onnxruntime-android-arm64-v8a-static_lib-1.28.2.zip -o /opt/gateway-kokoro-deps/onnxruntime-android-arm64-v8a-static_lib-1.28.2.zip && \
+    echo "bc68410f35f13df82c260830bf476ee5565f5efd0ec7622297829a929613c6c0  /opt/gateway-kokoro-deps/onnxruntime-android-arm64-v8a-static_lib-1.28.2.zip" | sha256sum -c - && \
+    curl -fsSL --retry 3 https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.28.2/onnxruntime-android-x86_64-static_lib-1.28.2.zip -o /opt/gateway-kokoro-deps/onnxruntime-android-x86_64-static_lib-1.28.2.zip && \
+    echo "f49dbf456ffe71dd417afb2123ef15202f8f57a4b2a05f12af1cf71f55448137  /opt/gateway-kokoro-deps/onnxruntime-android-x86_64-static_lib-1.28.2.zip" | sha256sum -c -
+ENV GPTMOBILE_KOKORO_DEPENDENCY_CACHE=/opt/gateway-kokoro-deps
 """
 ANDROID_PREPARE_INIT = """// Only used while the image has network access. Resolve test runner and lint tooling too.
 gradle.beforeProject { project ->

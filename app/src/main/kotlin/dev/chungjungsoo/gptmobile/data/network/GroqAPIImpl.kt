@@ -39,7 +39,7 @@ class GroqAPIImpl @Inject constructor(
 
             ProviderCooldown.withPermit(config) {
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(request), config, request.model, request.maxCompletionTokens)
-                networkClient().preparePost(endpoint) {
+                networkClient.inferenceClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
                     setBody(admittedPayload)

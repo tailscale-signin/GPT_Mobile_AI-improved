@@ -11,7 +11,10 @@ import org.junit.Test
 class VoiceCaptionTest {
     @Test fun longRepliesRetainTheirEntireEndingAndUnicode() {
         val reply = "A complete phrase with punctuation. ".repeat(500) + "The important ending: 你好 👋"
-        for (phase in listOf(VoicePhase.THINKING, VoicePhase.PREPARING, VoicePhase.SPEAKING, VoicePhase.PAUSED)) {
+        for (phase in listOf(VoicePhase.THINKING, VoicePhase.PREPARING)) {
+            assertNull(VoiceCaption.from(VoiceState(phase = phase, reply = reply)))
+        }
+        for (phase in listOf(VoicePhase.SPEAKING, VoicePhase.PAUSED)) {
             val caption = requireNotNull(VoiceCaption.from(VoiceState(phase = phase, transcript = "My question", reply = reply)))
             assertEquals(reply, caption.text)
             assertEquals("AI reply", caption.speaker)

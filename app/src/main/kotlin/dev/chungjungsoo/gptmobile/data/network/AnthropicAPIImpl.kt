@@ -127,7 +127,7 @@ class AnthropicAPIImpl @Inject constructor(
                     responseEvidence = null
                     ProviderCooldown.withPermit(config) {
                         val admittedPayload = requestPreparation.prepare(json.encodeToString(messageRequest), config, messageRequest.model, null)
-                        networkClient().preparePost(endpoint) {
+                        networkClient.inferenceClient().preparePost(endpoint) {
                             applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                             contentType(ContentType.Application.Json)
                             setBody(admittedPayload)

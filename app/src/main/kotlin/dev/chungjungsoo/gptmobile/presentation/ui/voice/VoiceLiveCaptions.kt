@@ -39,9 +39,9 @@ import androidx.compose.ui.semantics.verticalScrollAxisRange
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
@@ -52,7 +52,14 @@ import kotlin.math.roundToInt
 @Composable
 internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Modifier = Modifier) {
     val caption = remember(state.phase, state.transcript, state.reply, state.playbackCaption, state.hasDraft) {
-        VoiceCaption.from(state) ?: VoiceCaption("Your words will appear here", "", false)
+        VoiceCaption.from(state)
+    }
+    if (caption == null) return
+    val speaking = state.phase == VoicePhase.SPEAKING
+    val motion = voiceMotionEnabled()
+    val opacity = remember(speaking, motion) { Animatable(if (speaking && motion) 0f else 1f) }
+    LaunchedEffect(opacity) {
+        if (opacity.value < 1f) opacity.animateTo(1f, tween(2000))
     }
     key(caption.speaker) {
         VoiceCaptionText(
@@ -60,7 +67,7 @@ internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Mo
             state.spokenRange,
             state.phase == VoicePhase.SPEAKING,
             compact,
-            modifier.testTag("voice_live_captions").padding(horizontal = 12.dp)
+            modifier.graphicsLayer { alpha = opacity.value }.testTag("voice_live_captions").padding(horizontal = 12.dp)
         )
     }
 }
@@ -85,7 +92,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val width = constraints.maxWidth.coerceAtLeast(1)
         val layout = remember(caption.text, focusStyle, measurer, width) {
-            measurer.measure(AnnotatedString(caption.text), style = focusStyle, constraints = Constraints(maxWidth = width))
+            measurer.measure(AnnotatedString(caption.text), style = focusStyle.copy(fontWeight = FontWeight.Bold), constraints = Constraints(maxWidth = width))
         }
         val lastLine = layout.lineCount - 1
         val offset = active?.first ?: if (speaking) lastSpoken else caption.text.length
@@ -148,7 +155,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                                     if (highlight != null) {
                                         val from = maxOf(start, highlight.first)
                                         val to = minOf(end, highlight.last + 1)
-                                        if (from < to) addStyle(SpanStyle(color = accent, textDecoration = TextDecoration.Underline), from - start, to - start)
+                                        if (from < to) addStyle(SpanStyle(color = accent, fontWeight = FontWeight.Bold), from - start, to - start)
                                     }
                                 }
                             }

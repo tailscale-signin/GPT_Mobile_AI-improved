@@ -131,7 +131,7 @@ class GoogleAPIImpl @Inject constructor(
                 ) {
                     ProviderCooldown.withPermit(config) {
                         val admittedPayload = requestPreparation.prepare(NetworkClient.json.encodeToString(request), config, model, null)
-                        networkClient().preparePost(endpoint) {
+                        networkClient.inferenceClient().preparePost(endpoint) {
                             applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                             header(GOOGLE_API_KEY_HEADER, config.token ?: "")
                             parameter("alt", "sse")

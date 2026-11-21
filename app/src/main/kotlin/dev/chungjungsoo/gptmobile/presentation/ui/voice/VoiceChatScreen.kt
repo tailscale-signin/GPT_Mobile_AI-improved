@@ -823,6 +823,8 @@ private fun VoiceChatSessionScreen(
                 model = model,
                 profileName = profileName,
                 status = status,
+                session = state,
+                captions = captions,
                 controls = messageControls,
                 spokenReplies = spokenReplies,
                 changeSpokenReplies = ::setSpokenReplies,
@@ -871,7 +873,7 @@ private fun VoiceChatSessionScreen(
                         session.pause()
                         model.selectVoiceProfile(uid) {}
                     },
-                    openTranscript = ::openChat,
+                    openTranscript = { chatView = true },
                     openSettings = {
                         val currentState = session.states.value
                         val currentAdmission = model.voiceAdmission.value

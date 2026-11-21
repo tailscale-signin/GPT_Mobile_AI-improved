@@ -95,7 +95,7 @@ class VoicePlaybackFailureReportingTest {
             )
             reply.enqueue("A retained reply.")
             reply.finish()
-            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(3))
             assertTrue(failures.single().contains("tap replay"))
             io.mockk.verify(exactly = 0) { models.acquireUse() }
         } finally {

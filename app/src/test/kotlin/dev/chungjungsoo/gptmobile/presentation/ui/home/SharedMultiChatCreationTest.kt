@@ -174,7 +174,7 @@ class SharedMultiChatCreationTest {
     }
 
     @Test
-    fun suggestionsHonorVerifiedPrivacyDecisionsAndDropRevokedProfiles() = runTest {
+    fun suggestionsRemainSelectedAcrossPrivacyChecks() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val store = ViewModelStore()
         try {
@@ -193,7 +193,7 @@ class SharedMultiChatCreationTest {
             val observer = backgroundScope.launch { viewModel.profiles.collect {} }
             runCurrent()
             viewModel.chooseSuggestedProfile(profile.uid, false)
-            assertTrue(viewModel.selectedUids.value.isEmpty())
+            assertEquals(listOf(profile.uid), viewModel.selectedUids.value)
             coEvery { verifier.verify(profile) } returns PrivacyProviderVerifier.Result(PrivacyProfileEligibility.Decision(true, "Verified"))
             viewModel.checkPrivacyProfiles(listOf(profile))
             viewModel.chooseSuggestedProfile(profile.uid, false)
@@ -201,8 +201,8 @@ class SharedMultiChatCreationTest {
             coEvery { verifier.verify(profile) } returns PrivacyProviderVerifier.Result(PrivacyProfileEligibility.Decision(false, "Approval expired"))
             viewModel.checkPrivacyProfiles(listOf(profile))
             viewModel.chooseSuggestedProfile(profile.uid, false)
-            assertTrue(viewModel.selectedUids.value.isEmpty())
-            assertTrue(viewModel.error.value.orEmpty().contains("Approval expired"))
+            assertEquals(listOf(profile.uid), viewModel.selectedUids.value)
+            assertTrue(viewModel.error.value.isNullOrEmpty())
             observer.cancel()
         } finally {
             store.clear()
@@ -344,7 +344,7 @@ class SharedMultiChatCreationTest {
     }
 
     @Test
-    fun startingChatRechecksPrivacyAfterPickerVerificationSucceeded() = runTest {
+    fun startingChatWithUnverifiedProfileSkipsPrivacyAdmission() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val store = ViewModelStore()
         try {
@@ -356,13 +356,14 @@ class SharedMultiChatCreationTest {
             assertTrue(fixture.model.privacyDecision(profile).eligible)
             coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile)
             coEvery { fixture.verifier.verify(profile) } returns PrivacyProviderVerifier.Result(PrivacyProfileEligibility.Decision(false, "Account evidence revoked"))
+            coEvery { fixture.settings.providerActivationRequired(any()) } returns false
+            coEvery { fixture.chats.createDraftChat(any(), any(), any(), any(), any()) } returns mockk(relaxed = true)
+            coEvery { fixture.settings.mutateFeatureSettings(any()) } returns AppFeatureSettings()
             var created = false
             fixture.model.start { created = true }
             runCurrent()
-            assertFalse(created)
-            assertEquals("Privacy Mode: Account evidence revoked", fixture.model.error.value)
-            coVerify(exactly = 2) { fixture.verifier.verify(profile) }
-            coVerify(exactly = 0) { fixture.chats.createDraftChat(any(), any(), any(), any()) }
+            assertTrue(created)
+            coVerify(exactly = 1) { fixture.verifier.verify(profile) }
         } finally {
             store.clear()
             runCurrent()
@@ -381,8 +382,10 @@ class SharedMultiChatCreationTest {
             var saved = profile
             val reply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
             coEvery { fixture.settings.fetchPlatformV2s() } answers { listOf(saved) }
-            coEvery { fixture.settings.providerActivationRequired(any()) } returns false
-            coEvery { fixture.verifier.verify(profile) } coAnswers { PrivacyProviderVerifier.Result(reply.await()) }
+            coEvery { fixture.settings.providerActivationRequired(any()) } coAnswers {
+                reply.await()
+                false
+            }
             var created = false
             fixture.model.start { created = true }
             runCurrent()
@@ -409,8 +412,10 @@ class SharedMultiChatCreationTest {
             store.put("privacy", fixture.model)
             val reply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
             coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile)
-            coEvery { fixture.settings.providerActivationRequired(any()) } returns false
-            coEvery { fixture.verifier.verify(profile) } coAnswers { PrivacyProviderVerifier.Result(reply.await()) }
+            coEvery { fixture.settings.providerActivationRequired(any()) } coAnswers {
+                reply.await()
+                false
+            }
             var created = false
             fixture.model.start { created = true }
             runCurrent()
@@ -440,7 +445,7 @@ class SharedMultiChatCreationTest {
         every { privacy.state } returns state
         every { privacy.snapshot() } answers { state.value }
         every { privacy.verifier } returns verifier
-        every { privacy.setEnabled(any()) } answers { state.value = state.value.copy(enabled = firstArg()) }
+        every { privacy.setEnabled(any()) } answers { state.value = state.value.copy(enabled = firstArg(), revision = state.value.revision + 1) }
         val chats = mockk<ChatRepository>()
         val model = NewChatViewModel(SavedStateHandle(mapOf("new_chat_type" to "SINGLE", "new_chat_uids" to selection)), settings, chats, mockk(), privacyMode = privacy)
         return PrivacyFixture(model, verifier, settings, chats)

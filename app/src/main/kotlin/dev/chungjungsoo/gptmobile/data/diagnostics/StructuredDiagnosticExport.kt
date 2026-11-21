@@ -100,6 +100,7 @@ internal fun structuredDiagnosticLine(
         put("causalIncidentId", text("causalIncidentId"))
         put("retryable", (parsedFields["retryable"] as? JsonPrimitive)?.booleanOrNull)
         put("recovery", classification.recovery)
+        classification.nativeReturnCode?.let { put("nativeReturnCode", it) }
         put("occurredAtMillis", occurredAt)
         put("capturedAtMillis", capturedAt)
         put("stageObservedAtMillis", number("stageObservedAtMillis"))

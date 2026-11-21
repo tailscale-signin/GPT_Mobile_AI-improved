@@ -45,7 +45,11 @@ internal fun networkFailureKind(failure: Throwable): NetworkFailureKind {
 }
 
 internal fun NetworkFailureKind.userMessage(partialOutput: Boolean, responseAccepted: Boolean = false): String = when (this) {
-    NetworkFailureKind.DNS -> "DNS could not resolve the configured endpoint. Check your connection and DNS settings, then retry the saved prompt."
+    NetworkFailureKind.DNS -> when {
+        partialOutput -> "DNS resolution failed after output started. Your partial response is saved. Check DNS or VPN connectivity and continue from the saved response."
+        responseAccepted -> "DNS resolution failed after the request was accepted. Check DNS or VPN connectivity and resume from saved results."
+        else -> "DNS could not resolve the configured endpoint. Check your connection and DNS settings, then retry the saved prompt."
+    }
     NetworkFailureKind.DISCONNECTED -> "The configured endpoint is unreachable. Check its address, listener, firewall and network connection, then retry."
     NetworkFailureKind.ABORTED -> when {
         partialOutput -> "The connection was interrupted. Your partial response has been retained; continue after connectivity returns."

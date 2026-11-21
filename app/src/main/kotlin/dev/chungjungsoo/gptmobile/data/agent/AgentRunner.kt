@@ -206,7 +206,7 @@ class AgentRunner(
             return@flow
         }
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
-            emit(failed("Ambiguous tool aliases: resolve duplicate model-facing names before execution."))
+            emit(failed("AMBIGUOUS_TOOL_ALIAS", "Ambiguous tool aliases: resolve duplicate model-facing names before execution."))
             return@flow
         }
         val guardedSession = session.withGenerationSafety(GenerationSafety(limits.maxGeneratedCharacters, limits.detectRepetition))
@@ -244,7 +244,7 @@ class AgentRunner(
             } else if (limits.githubTask && exchanges.isNotEmpty()) {
                 finishFromRetained(guardedSession, ProviderEvent.Failed("Agent run timed out after $runTimeoutMillis ms. Completed receipts are retained; unfinished work can be resumed.", errorCode = "RUN_DEADLINE_REACHED"), true)
             } else {
-                emit(failed("Agent run timed out after $runTimeoutMillis ms."))
+                emit(failed("TIMEOUT", "Agent run timed out after $runTimeoutMillis ms."))
             }
         }
     }.withGitHubTerminalDelivery(limits.githubTask && limits.combined == null)
@@ -341,7 +341,7 @@ class AgentRunner(
                 observedToolCalls += round.observedCalls
                 if (round.batchRejected) {
                     if (limits.combined?.requested?.singlePass == true) {
-                        emit(failed(round.failure ?: "Tool batch rejected. Retry this profile explicitly; no calls from this batch were executed."))
+                        emit(failed("TOOL_BATCH_REJECTED", round.failure ?: "Tool batch rejected. Retry this profile explicitly; no calls from this batch were executed."))
                         return
                     }
                     val recovery = recoverRejectedBatch(session, round, exposedDefinitions, observedToolCalls, observedLimit, rounds, batchRepairAttempted, stormFinalizationAttempted, finalResponseRequested) ?: return
@@ -368,7 +368,7 @@ class AgentRunner(
                         emit(AgentRunEvent.Notice(TOOLS_UNAVAILABLE_MESSAGE, persistent = true))
                         continue
                     }
-                    emit(failed(round.failure ?: "Tools are unavailable for this model."))
+                    emit(failed("TOOL_UNAVAILABLE", round.failure ?: "Tools are unavailable for this model."))
                     return
                 }
                 if (round.failure != null) {
@@ -922,6 +922,7 @@ class AgentRunner(
                 state.protocolRecoveryAttempted -> "TOOL_RETRY_EXHAUSTED"
                 session.handlesToolsInternally -> "BACKEND_HANDLED_TOOLS"
                 limits.combined?.requested?.singlePass == true -> "SINGLE_PASS_NOT_RETRYABLE"
+                round.textEmitted && !limits.githubTask -> "TEXT_ALREADY_EMITTED"
                 else -> "NO_SAFE_REPAIR"
             }
             val observedDetails = JsonObject(
@@ -1352,7 +1353,7 @@ class AgentRunner(
         }
         emit(AgentRunEvent.Notice("An oversized or invalid tool batch was stopped before dispatch. Retry with at most ${limits.maxToolCallsPerRound} calls per batch; completed evidence remains available.", persistent = true))
         if (stormFinalizationAttempted || session.handlesToolsInternally || !limits.allowToolStormFinalization) {
-            emit(failed("TOOL_BATCH_OVERSIZE: partial answer and completed evidence retained. The provider did not honor tool-free finalization."))
+            emit(failed("TOOL_BATCH_OVERSIZE", "TOOL_BATCH_OVERSIZE: partial answer and completed evidence retained. The provider did not honor tool-free finalization."))
             return null
         }
         return BatchRejectionRecovery(emptyList(), false)
@@ -1404,7 +1405,7 @@ class AgentRunner(
     ): ToolCatalogUpdate? {
         val additions = discovered.filter { it.definition.name !in toolByName && it.definition.name !in executableToolByName && (consecutiveToolFailures[it.definition.name] ?: 0) < 2 && (toolCallsByName[it.definition.name] ?: 0) < (if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN) }
         if (additions.groupBy { it.definition.name }.any { it.value.size > 1 }) {
-            emit(failed("Ambiguous discovered tool aliases; no discovered action dispatched."))
+            emit(failed("AMBIGUOUS_TOOL_ALIAS", "Ambiguous discovered tool aliases; no discovered action dispatched."))
             return null
         }
         val selectedSchemas = selectedForRound((exposedDefinitions + additions.map { it.definition }).distinctBy { it.name }, selectDefinitions)
@@ -2324,7 +2325,7 @@ class AgentRunner(
         return result.toString()
     }
 
-    private fun failed(message: String) = AgentRunEvent.Provider(ProviderEvent.Failed(message))
+    private fun failed(code: String, message: String) = AgentRunEvent.Provider(ProviderEvent.Failed(message, errorCode = code))
 
     companion object {
         private const val MAX_SAME_TOOL_CALLS_PER_RUN = 24

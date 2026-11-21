@@ -31,7 +31,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
@@ -64,7 +64,8 @@ class VoiceConversationInstrumentedTest {
         }
         val microphone = compose.onNodeWithTag("voice_microphone_toggle").assertIsDisplayed()
         val initialBounds = microphone.fetchSemanticsNode().boundsInRoot
-        compose.runOnIdle { session.value = session.value.copy(reply = fullReply) }
+        compose.onNodeWithTag("voice_caption_text").assertDoesNotExist()
+        compose.runOnIdle { session.value = session.value.copy(phase = VoicePhase.SPEAKING, reply = fullReply) }
         compose.onNodeWithTag("voice_caption_text").assertTextEquals(fullReply)
         compose.onNodeWithTag("voice_live_captions").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("voice_caption_text").assertIsDisplayed()
@@ -134,7 +135,8 @@ class VoiceConversationInstrumentedTest {
         val active = line("Three fish").layoutInput
         val mark = active.text.spanStyles.single()
         assertEquals("fish", active.text.text.substring(mark.start, mark.end))
-        assertEquals(TextDecoration.Underline, mark.item.textDecoration)
+        assertEquals(FontWeight.Bold, mark.item.fontWeight)
+        assertEquals(null, mark.item.textDecoration)
         assertEquals(active.style.fontSize.value * .75f, line("Two").layoutInput.style.fontSize.value, .01f)
         assertEquals(active.style.fontSize.value * .5f, line("One").layoutInput.style.fontSize.value, .01f)
         compose.onNodeWithText("Six", useUnmergedTree = true).assertDoesNotExist()
@@ -148,7 +150,7 @@ class VoiceConversationInstrumentedTest {
     }
 
     @Test fun accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing() {
-        val session = mutableStateOf(VoiceState(phase = VoicePhase.THINKING, reply = (1..40).joinToString("\n") { "Caption line $it" }))
+        val session = mutableStateOf(VoiceState(phase = VoicePhase.PAUSED, reply = (1..40).joinToString("\n") { "Caption line $it" }))
         compose.setContent {
             MaterialTheme { VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp)) }
         }

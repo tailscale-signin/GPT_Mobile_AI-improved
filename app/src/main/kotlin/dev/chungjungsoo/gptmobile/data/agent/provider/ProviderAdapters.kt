@@ -126,7 +126,9 @@ class OpenAIResponsesAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
-                dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.MaskedProviderCall.Key] == null) {
+                    dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                }
                 require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
                 val effectiveOutputTokens = constraints.outputLimit(platform.maxTokens)
                 if (constraints.maxOutputTokens != null) {
@@ -796,7 +798,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
-                dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.MaskedProviderCall.Key] == null) {
+                    dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                }
                 require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
                 var providerExchanges = exchanges.map { exchange ->
                     exchange.copy(
@@ -1474,7 +1478,9 @@ class AnthropicMessagesAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
-                dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.MaskedProviderCall.Key] == null) {
+                    dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                }
                 require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
                 val thinkingPolicy = anthropicThinkingPolicy(
                     model = platform.model,
@@ -1765,7 +1771,9 @@ class GeminiAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
-                dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.MaskedProviderCall.Key] == null) {
+                    dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                }
                 require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
                 val effectiveOutputTokens = constraints.outputLimit(platform.maxTokens)
                 if (constraints.maxOutputTokens != null) {

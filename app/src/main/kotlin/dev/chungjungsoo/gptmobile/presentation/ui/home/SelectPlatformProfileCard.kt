@@ -70,13 +70,11 @@ internal fun SelectPlatformProfileCard(
     gatewayAvailability: GatewayAvailability? = null,
     animateGateway: Boolean = false,
     onFocus: (Boolean) -> Unit = {},
-    privacyRestriction: String? = null,
     privacyStatus: PrivacyProfileEligibility.Status? = null
 ) {
     val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
     val unavailable = androidx.compose.runtime.remember(profile, health, now) { dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) }
-    val privacyBlocked = privacyRestriction != null
     val privacyLabel = when (privacyStatus) {
         PrivacyProfileEligibility.Status.AVAILABLE -> "Privacy · Available"
         PrivacyProfileEligibility.Status.CHECKING -> "Privacy · Checking"
@@ -104,8 +102,8 @@ internal fun SelectPlatformProfileCard(
             val metricsWidth = (maxWidth * .45f).coerceAtLeast(48.dp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(
-                    Modifier.weight(1f).heightIn(min = 64.dp).testTag("profile_select_${profile.uid}").alpha(if ((unavailable != null || privacyBlocked) && !selected) 0.42f else 1f)
-                        .combinedClickable(enabled = selected || (unavailable == null && !privacyBlocked), role = Role.Checkbox, onClick = { onToggle(profile.uid) }, onLongClick = onFavorite)
+                    Modifier.weight(1f).heightIn(min = 64.dp).testTag("profile_select_${profile.uid}").alpha(if (unavailable != null && !selected) 0.42f else 1f)
+                        .combinedClickable(enabled = selected || unavailable == null, role = Role.Checkbox, onClick = { onToggle(profile.uid) }, onLongClick = onFavorite)
                         .semantics(mergeDescendants = true) {
                             toggleableState = ToggleableState(selected)
                             privacyLabel?.let { stateDescription = it }
@@ -119,7 +117,7 @@ internal fun SelectPlatformProfileCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Checkbox(checked = selected, onCheckedChange = null, enabled = selected || (unavailable == null && !privacyBlocked))
+                    Checkbox(checked = selected, onCheckedChange = null, enabled = selected || unavailable == null)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
@@ -146,9 +144,6 @@ internal fun SelectPlatformProfileCard(
                         }
                         privacyLabel?.let { label ->
                             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.testTag("privacy_profile_status_${profile.uid}"))
-                        }
-                        privacyRestriction?.takeIf { privacyStatus == null }?.let { reason ->
-                            Text("Privacy Mode: $reason", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(profile.model, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.primary, maxLines = lines, overflow = TextOverflow.Ellipsis)
                     }

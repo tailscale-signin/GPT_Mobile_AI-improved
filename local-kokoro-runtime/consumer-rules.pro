@@ -1,0 +1,2 @@
+-keep class dev.melo.kokoro.TimedKokoro { *; }
+-keep class dev.melo.kokoro.TimedKokoro$Audio { *; }

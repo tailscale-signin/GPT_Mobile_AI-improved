@@ -8,14 +8,14 @@ import org.junit.Test
 class KokoroSpeechTextTest {
     @Test fun anOutOfLexiconContractionUsesKnownWordsAtItsOriginalCaptionRange() {
         val projection = KokoroSpeechText.timed("We're here") { it in setOf("we", "are", "here") }
-        assertEquals(listOf(KokoroCaptionPart("we are", 0..4), KokoroCaptionPart("here", 6..9)), projection.captionParts)
+        assertEquals(listOf(KokoroPhrase("we are here", listOf(0..4, 0..4, 6..9))), projection.phrases)
         assertNull(KokoroSpeechText.projectedParts("we're") { it == "we" })
     }
 
     @Test fun technicalInitialismsContinueWithAlignedCaptionsAndLexiconLetters() {
         val projection = KokoroSpeechText.timed("VR GPU NPU") { it.length == 1 }
         assertEquals("v r g p u n p u", projection.parts?.joinToString(" "))
-        assertEquals(listOf(0..1, 3..5, 7..9), projection.captionParts.map { it.range })
+        assertEquals(List(2) { 0..1 } + List(3) { 3..5 } + List(3) { 7..9 }, projection.phrases!!.single().wordRanges)
     }
 
     @Test fun projectedStreamChunksKeepNumbersAtChunkStartsInsteadOfReparsingListMarkup() {
@@ -63,11 +63,8 @@ class KokoroSpeechTextTest {
                 .bufferedReader().useLines(KokoroLexicon::words)
             val text = "Here Gráphgear, here."
             val projection = KokoroSpeechText.timed(text, words::contains)
-            assertEquals(
-                listOf(KokoroCaptionPart("here", 0..3), KokoroCaptionPart("g r a p h g e a r,", 5..13), KokoroCaptionPart("here.", 16..19)),
-                projection.captionParts
-            )
-            assertEquals(projection.captionParts.map { it.speech }, projection.parts)
+            assertEquals(listOf(0..3) + List(9) { 5..13 } + listOf(16..19), projection.phrases!!.single().wordRanges)
+            assertEquals(KokoroSpeechText.projectedParts(text, words::contains), projection.parts)
             assertEquals(listOf("here g r a p h g e a r, here."), KokoroSpeechText.projectedParts(text, words::contains))
             assertEquals(KokoroPronunciationObservation(2, 0, 1, 9, 0, null), projection.observation)
         }
@@ -77,8 +74,8 @@ class KokoroSpeechTextTest {
         val words = setOf("here", "a", "unknown", "word")
         val longWord = "a".repeat(300)
         val projection = KokoroSpeechText.timed("ab $longWord here", words::contains)
-        assertEquals(listOf("unknown word", "unknown word", "here"), projection.parts)
-        assertEquals(listOf(0..1, 3..302, 304..307), projection.captionParts.map { it.range })
+        assertEquals(listOf("unknown word unknown word here"), projection.parts)
+        assertEquals(listOf(0..1, 0..1, 3..302, 3..302, 304..307), projection.phrases!!.single().wordRanges)
         assertEquals(KokoroPronunciationObservation(1, 0, 2, 0, 0, null), projection.observation)
         assertEquals(listOf("word here"), KokoroSpeechText.projectedParts("ab here") { it in words && it != "unknown" })
     }

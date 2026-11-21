@@ -1,15 +1,16 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "c4ad96fb3d1509a6bf0b054ff1462fba56f0ea462944b14debab43cb59cf0072",
-  "file_count": 2772,
-  "indexed_line_count": 460088,
+  "source_digest": "5f06e2ef61a7ff3b8211e486fbf821adbe30e6dcb274829800bf158b77c689ac",
+  "file_count": 2776,
+  "indexed_line_count": 460333,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
     "production_roots": [
       "app/src/main",
       "local-gguf-runtime/src/main",
+      "local-kokoro-runtime/src/main",
       "core-domain/src/commonMain",
       "core-domain/src/jvmMain",
       "gateway",
@@ -147,8 +148,8 @@
     {
       "id": "voice_and_media",
       "label": "Voice and media",
-      "file_count": 32,
-      "indexed_line_count": 6426
+      "file_count": 36,
+      "indexed_line_count": 6671
     },
     {
       "id": "portable_domain",
@@ -12071,22 +12072,22 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "86ac8c5d81ebcd989a3ecec4598253e9415297b1c6684f33347216b84f31d663",
-      "indexed_lines": 46
+      "sha256": "9923fd9d65598855a485370cc9a8a0d90a631ce20fa6600a0a9cef09224202ab",
+      "indexed_lines": 53
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "c1c2c7d0ac92f2d45ab1b39a8478d8dfe3101198e39848ef250f9be4d2fdfe16",
-      "indexed_lines": 208
+      "sha256": "8f48d177a92ef5da09b4c890a917379328572e089f690e90ad5e19e7b4249643",
+      "indexed_lines": 215
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "31ee79c61d273ca7e759796794b79363a497f8096258be1a445df851de5381eb",
-      "indexed_lines": 937
+      "sha256": "255fdd9c9abc64322f9ac15d460dd8c74759df3584f58fc858886cebb360c298",
+      "indexed_lines": 896
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
@@ -12169,8 +12170,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePcmCaptions.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "25acd36b76aff7111d233796f3869cd8bff0d53e8aaba31b64b739d7d2d29797",
-      "indexed_lines": 44
+      "sha256": "142e094ecd0bbf51efe007bc7c2eb943087e300407cda32e5f528a01aabb571e",
+      "indexed_lines": 53
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackFailure.kt",
@@ -19444,6 +19445,34 @@
       "kind": "source",
       "sha256": "145c4535b03f940586c71f1780831197818288e28ff36be8eda9666211815e9b",
       "indexed_lines": 10
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/AndroidManifest.xml",
+      "area_id": "voice_and_media",
+      "kind": "source",
+      "sha256": "571f2735faf5e857752ee057ac8ef63425576a721616c60b86ee5d4c0a2d682f",
+      "indexed_lines": 1
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/CMakeLists.txt",
+      "area_id": "voice_and_media",
+      "kind": "source",
+      "sha256": "7214affb7b217cb25e9e3a2782f3ef2184678e3b1fff7b7dc904bd3dc05e656b",
+      "indexed_lines": 51
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/cpp/timed_kokoro.cpp",
+      "area_id": "voice_and_media",
+      "kind": "source",
+      "sha256": "5fe8482886aa5cf4cc76db08a71469ac958afd7d414a15b2dd9bad0f02f8a9a6",
+      "indexed_lines": 172
+    },
+    {
+      "path": "local-kokoro-runtime/src/main/java/dev/melo/kokoro/TimedKokoro.java",
+      "area_id": "voice_and_media",
+      "kind": "source",
+      "sha256": "047d2ac239b73566446dd1056dbb6e29cd186e9dc67db42925c3906f0075ca2b",
+      "indexed_lines": 39
     },
     {
       "path": "mcp/amazon/bridge.mjs",

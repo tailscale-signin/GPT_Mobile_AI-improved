@@ -16,7 +16,11 @@ internal data class KokoroPronunciationObservation(
     val unknownWordLength: Int? = null
 )
 
-internal data class KokoroSpeechProjection(val parts: List<String>?, val observation: KokoroPronunciationObservation, val captionParts: List<KokoroCaptionPart> = emptyList())
+internal data class KokoroPhrase(val speech: String, val wordRanges: List<IntRange>)
+
+internal data class KokoroSpeechProjection(val phrases: List<KokoroPhrase>?, val observation: KokoroPronunciationObservation) {
+    val parts: List<String>? get() = phrases?.map { it.speech }
+}
 
 /** Sherpa drops unknown keys, so all spoken substitutions must exist in the installed lexicon. */
 internal object KokoroSpeechText {
@@ -56,7 +60,7 @@ internal object KokoroSpeechText {
         val formatCharacters = invisibleFormat.findAll(projected).count()
         val plain = Normalizer.normalize(projected.replace(invisibleFormat, ""), Normalizer.Form.NFKD)
             .replace(marks, "").replace('’', '\'').replace('−', '-')
-        val captionParts = mutableListOf<KokoroCaptionPart>()
+        val wordRanges = mutableListOf<IntRange>()
         // Offsets are UTF-16 in the displayed speech projection. Record the source of each
         // normalized code unit only when normalization actually changed the string.
         val origins = if (timed && plain != projected) {
@@ -66,7 +70,11 @@ internal object KokoroSpeechText {
                     val end = index + Character.charCount(projected.codePointAt(index))
                     val source = projected.substring(index, end)
                     val normalized = Normalizer.normalize(source.replace(invisibleFormat, ""), Normalizer.Form.NFKD).replace(marks, "")
-                    repeat(normalized.length) { add(index until end) }
+                    if (normalized.isEmpty() && marks.matches(source) && isNotEmpty()) {
+                        this[lastIndex] = last().first until end
+                    } else {
+                        repeat(normalized.length) { add(index until end) }
+                    }
                     index = end
                 }
             }
@@ -78,20 +86,18 @@ internal object KokoroSpeechText {
         var initialismWords = 0
         var unknownWords = 0
         var spelledLetters = 0
-        fun outcome(parts: List<String>?, failure: KokoroPronunciationFailure? = null, unknownWordLength: Int? = null) = KokoroSpeechProjection(
+        fun outcome(parts: List<KokoroPhrase>?, failure: KokoroPronunciationFailure? = null, unknownWordLength: Int? = null) = KokoroSpeechProjection(
             parts,
-            KokoroPronunciationObservation(knownWords, initialismWords, unknownWords, spelledLetters, formatCharacters, failure, unknownWordLength),
-            captionParts
+            KokoroPronunciationObservation(knownWords, initialismWords, unknownWords, spelledLetters, formatCharacters, failure, unknownWordLength)
         )
         if (plain.codePoints().anyMatch { it > 127 && Character.isLetterOrDigit(it) }) return outcome(null, KokoroPronunciationFailure.UNSUPPORTED_SCRIPT)
-        val result = mutableListOf<String>()
+        val result = mutableListOf<KokoroPhrase>()
         val part = StringBuilder()
         var words = 0
         fun flush() {
             if (words > 0) {
-                val speech = part.toString()
-                result += speech
-                if (timed) captionParts += KokoroCaptionPart(speech, sourceRange)
+                result += KokoroPhrase(part.toString(), wordRanges.toList())
+                wordRanges.clear()
             }
             part.clear()
             words = 0
@@ -100,6 +106,7 @@ internal object KokoroSpeechText {
             if (words == MAX_PART_WORDS || part.length + word.length + 1 > MAX_PART_CHARS) flush()
             if (part.isNotEmpty()) part.append(' ')
             part.append(word)
+            if (timed) wordRanges += sourceRange
             words++
         }
         fun appendSpelling(key: String): Boolean {
@@ -119,8 +126,8 @@ internal object KokoroSpeechText {
                 continue
             }
             if (timed) {
-                flush()
-                sourceRange = if (origins == null) match.range else origins[match.range.first].first..origins[match.range.last].last
+                val original = if (origins == null) match.range else origins[match.range.first].first..origins[match.range.last].last
+                sourceRange = if (original.last < clipped.length) original else IntRange.EMPTY
             }
             val expanded = when {
                 value.any(Char::isDigit) -> spokenNumber(value)

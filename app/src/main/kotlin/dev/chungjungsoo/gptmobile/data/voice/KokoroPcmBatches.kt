@@ -25,10 +25,13 @@ internal class VoiceQuietLimiter(sampleRate: Int, maxQuietMs: Int) {
     private val limit = sampleRate * maxQuietMs / 1000
     private var quietFrames = 0
 
-    fun filter(samples: FloatArray): FloatArray {
+    /** Rewrites sorted, phrase-relative frame boundaries onto the retained PCM timeline. */
+    fun filter(samples: FloatArray, boundaries: IntArray = IntArray(0)): FloatArray {
+        var nextBoundary = 0
         var result: FloatArray? = null
         var count = 0
         for ((index, sample) in samples.withIndex()) {
+            while (nextBoundary < boundaries.size && boundaries[nextBoundary] == index) boundaries[nextBoundary++] = count
             if (kotlin.math.abs(sample) <= 0.0003f) {
                 if (quietFrames == limit) {
                     if (result == null) result = samples.copyOf()
@@ -40,6 +43,10 @@ internal class VoiceQuietLimiter(sampleRate: Int, maxQuietMs: Int) {
             }
             result?.set(count, samples[index])
             count++
+        }
+        while (nextBoundary < boundaries.size) {
+            require(boundaries[nextBoundary] == samples.size)
+            boundaries[nextBoundary++] = count
         }
         return result?.copyOf(count) ?: samples
     }

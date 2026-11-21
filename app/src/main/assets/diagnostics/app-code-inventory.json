@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "432f25e5e08dba5e92ac00d90c4574af3a5dcacc819557b4456f85ff847439e3",
+  "source_digest": "f7e969611e95c2c4bd08e2a4a9c7389dabc7ff27c06f5e70a139a893255691a7",
   "file_count": 2779,
-  "indexed_line_count": 460806,
+  "indexed_line_count": 460808,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -125,7 +125,7 @@
       "id": "persistence",
       "label": "Databases, backup and storage",
       "file_count": 110,
-      "indexed_line_count": 14787
+      "indexed_line_count": 14789
     },
     {
       "id": "diagnostics_and_export",
@@ -11127,8 +11127,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "606c94c45ffc7213fe8aab262108fe1abb38f0c02218abd384aa3353b1129ffb",
-      "indexed_lines": 294
+      "sha256": "0c6ef8e554a3de5ed6ad47b9b295723804625e372b2dae45d3fdfae51d22fb27",
+      "indexed_lines": 296
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolPrecheckEvidence.kt",

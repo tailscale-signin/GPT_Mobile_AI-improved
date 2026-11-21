@@ -714,10 +714,13 @@ class GatewayGraphRepositoryTest {
             assertTrue(!reportContext.exceptionFingerprint.isNullOrBlank())
             assertTrue((values["exception_type_hashes"] as kotlinx.serialization.json.JsonArray).contains(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("exception-type", IOException::class.java.name))))
             assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("tool-reason-code", "TRANSPORT_UNAVAILABLE")), values["original_reason_code_hash"])
+            assertEquals(JsonPrimitive("GRAPH_TRANSPORT_UNAVAILABLE"), values["tool_reason_code"])
+            assertEquals(JsonPrimitive("UNKNOWN"), values["graph_transport_kind"])
             assertEquals(null, reportContext.remoteAcceptance)
             assertEquals(null, reportContext.httpStatus)
             val approved = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport("33333333-3333-4333-8333-333333333333", "debug", "1.0", 1, "abcdef0", "16", 36, "Fixture", feature = "tools", errorCode = "REPOSITORY_GRAPH_UNAVAILABLE", context = reportContext).approvedPayload()
-            for (secret in listOf("private", "IOException", "TRANSPORT_UNAVAILABLE", "cause_types")) assertFalse(secret, approved.contains(secret))
+            assertFalse(approved.contains(JsonPrimitive("TRANSPORT_UNAVAILABLE").toString()))
+            for (secret in listOf("private", "IOException", "cause_types")) assertFalse(secret, approved.contains(secret))
         }
     }
 

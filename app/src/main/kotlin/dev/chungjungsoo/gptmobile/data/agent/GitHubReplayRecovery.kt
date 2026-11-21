@@ -185,7 +185,11 @@ internal object GitHubReplayRecovery {
         result["previously_delivered"] = JsonPrimitive(consumed)
         // The omitted page may never have reached the model. Recover that exact
         // page before offering any cursor that skips past its unread records.
-        (source["recovery_call"] as? JsonObject)?.takeUnless { consumed }?.let { recovery ->
+        val completeSourceCorrection = source["operation"] == JsonPrimitive("github_read") &&
+            source["local_page_complete"] == JsonPrimitive(true) &&
+            source["recovery_action"] == JsonPrimitive("RECOVER_SOURCE_EVIDENCE") &&
+            source["correction_call"] is JsonObject
+        (source["recovery_call"] as? JsonObject)?.takeUnless { consumed || completeSourceCorrection }?.let { recovery ->
             result["continuation_call"] = recovery
             result.remove("continuation_options")
             source["recovery_options"]?.let { result["continuation_options"] = it }

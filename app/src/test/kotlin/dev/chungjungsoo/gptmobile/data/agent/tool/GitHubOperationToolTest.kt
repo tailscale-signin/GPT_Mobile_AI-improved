@@ -425,7 +425,16 @@ class GitHubOperationToolTest {
         val next = result(failed).getValue("data").jsonObject.getValue("correction_call").jsonObject
         assertEquals(JsonPrimitive("github_read__api"), next["tool"])
         assertEquals(ranges, next["arguments"])
-        assertFalse("correction_call" in result(tool.execute("handle-only", saved)).getValue("data").jsonObject)
+        assertEquals(next, result(failed)["correction_call"])
+        val handleOnly = tool.execute("handle-only", saved)
+        val recovery = result(handleOnly).getValue("correction_call").jsonObject
+        assertFalse("correction_call" in result(handleOnly).getValue("data").jsonObject)
+        assertEquals(JsonPrimitive("github_context__api"), recovery["tool"])
+        assertEquals(args("""{"action":"recovery"}"""), recovery["arguments"])
+        val compact = dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery.compact(handleOnly.content, 2048)
+        val replay = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery.envelope(requireNotNull(compact)))
+        assertEquals(recovery, replay["correction_call"])
+        assertFalse("continuation_call" in replay)
     }
 
     @Test fun missingPinnedPathProvidesDiscoveryInsteadOfAnotherGuessedRead() = runBlocking {

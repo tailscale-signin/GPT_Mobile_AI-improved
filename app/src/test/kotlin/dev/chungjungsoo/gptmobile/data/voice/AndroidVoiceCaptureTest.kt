@@ -276,6 +276,11 @@ class AndroidVoiceCaptureTest {
 
     @Test fun inputSilencedDuringReadNeverReachesTheSpeechDecoder() {
         val fixture = Fixture()
+        val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, {})
+        val probe = trace.advance(1, reset = true)
+        fixture.capture.bindDiagnostics(probe)
+        `when`(fixture.manager.mode).thenReturn(AudioManager.MODE_IN_COMMUNICATION)
+        `when`(fixture.manager.isMicrophoneMute).thenReturn(false)
         fixture.beforeRead = { fixture.silenced = true }
         try {
             fixture.capture.start()
@@ -284,9 +289,17 @@ class AndroidVoiceCaptureTest {
             assertEquals("capture_read", failure.phase)
             assertEquals(0L, failure.capturedSamples)
             assertTrue(fixture.capture.read().isEmpty())
+            val report = requireNotNull(IssueReportContext.fromFields("VOICE_STATE", trace.incidentFields(), 1000).diagnostics)
+            assertEquals(JsonPrimitive(false), report.values["voice_silenced_system_mic_muted"])
+            assertEquals(JsonPrimitive("IN_COMMUNICATION"), report.values["voice_silenced_audio_mode"])
+            assertTrue(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics.SILENCED_INPUT_FEATURE in report.requiredServiceFeatures())
+            probe.captureAttempt()
+            assertFalse("voice_silenced_audio_mode" in trace.incidentFields())
+            assertFalse("voice_silenced_system_mic_muted" in trace.incidentFields())
             verify(fixture.record).stop()
         } finally {
             fixture.capture.close()
+            trace.close()
         }
     }
 

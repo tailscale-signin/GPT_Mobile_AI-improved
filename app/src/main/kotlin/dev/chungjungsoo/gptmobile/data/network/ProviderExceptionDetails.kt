@@ -309,6 +309,14 @@ internal fun providerExceptionDetails(
                 put("retryable", false)
                 put("repair", "CHECK_CONNECTION")
                 put("partial_output_preserved", partialOutput)
+                error.requested?.let { requested ->
+                    put("reasoning_requested_mode", requested.name)
+                    if (requested != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO) {
+                        put("reasoning_admission_basis", "NO_VERIFIED_CONTROL")
+                        put("reasoning_control_state", error.gatewayFailure?.reasoningControlState ?: "UNVERIFIED")
+                    }
+                }
+                if (error.gatewayFailure != null) put("reasoning_route_kind", "GATEWAY")
                 put(
                     "reasoning_probe_observation",
                     when {

@@ -60,7 +60,7 @@ internal class GitHubResultViews(
         }
     }
 
-    fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes): AgentToolResult {
+    fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes, sourceCorrection: JsonObject? = null): AgentToolResult {
         val pageBytes = minOf(this.pageBytes, maxPageBytes.coerceAtLeast(2048))
         fun value(content: ToolResultContent): JsonElement? = when (content) {
             is ToolResultContent.Json -> content.value
@@ -129,8 +129,10 @@ internal class GitHubResultViews(
         if (small.toString().toByteArray().size <= pageBytes) {
             authorize(entry, small)
             store(id, entry)
+            val visible = sourceCorrection?.let { JsonObject(small + mapOf("correction_call" to it, "recovery_action" to JsonPrimitive("RECOVER_SOURCE_EVIDENCE"))) }
+                ?.takeIf { it.toString().encodeToByteArray().size <= pageBytes } ?: small
             return upstream.copy(
-                content = ToolResultContent.Json(small),
+                content = ToolResultContent.Json(visible),
                 executionReceipt = JsonObject(
                     upstream.executionReceipt.orEmpty() + sourceIdentity(entry) + buildJsonObject {
                         summary?.let { put("semantic_summary", it) }

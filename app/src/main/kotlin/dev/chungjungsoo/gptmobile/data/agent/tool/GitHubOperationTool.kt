@@ -603,7 +603,14 @@ internal class GitHubOperationTool(
         } else {
             paged
         }
-        return retainSavedView(views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance))
+        // A saved page of a missing-source error can only replay the same error.
+        // Expose the scoped recipe built above so it also survives model replay compaction.
+        val sourceCorrection = if (operation == "github_read" && presented.isError && !presented.dispatched && presented.errorCode == "EVIDENCE_UNAVAILABLE") {
+            (body?.get("correction_call") ?: body?.get("recovery_call")) as? JsonObject
+        } else {
+            null
+        }
+        return retainSavedView(views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance, sourceCorrection = sourceCorrection))
     }
 
     private fun argumentPrecheck(callId: String, message: String, reason: String) = AgentToolResult(

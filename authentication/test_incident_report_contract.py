@@ -57,6 +57,20 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_search_readiness_and_silenced_input_accept_only_bounded_observations(self):
+        for area, fields in (
+            ("INCIDENT", {"app_search_readiness": "NO_ENGINE_RESOLVED"}),
+            ("VOICE", {"voice_silenced_audio_mode": "IN_COMMUNICATION",
+                       "voice_silenced_system_mic_muted": False}),
+        ):
+            capture = self.capture(area, fields)
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+            for key in fields:
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture(area, {key: "private device or connection"}))
+                with self.subTest(area=area, key=key), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("TOOL", {key: fields[key]}))
+
     def test_remote_pagination_and_provider_limit_reports_survive_submission(self):
         pagination = {
             "remote_pagination_page": 6, "remote_pagination_pages_observed": 1, "remote_pagination_reported_total": 170,

@@ -2439,7 +2439,9 @@ class ChatRepositoryImpl(
                             return@preparedDispatch
                         }
                         if (appSearchRequested) {
-                            val evidence = AppAssistedSearch.prepare(effectiveUserMessages, aggregatedTools, trace, runId, 6000, ::emit) ?: return@preparedDispatch
+                            val evidence = AppAssistedSearch.prepare(effectiveUserMessages, aggregatedTools, trace, runId, 6000, ::emit) {
+                                AppAssistedSearch.readiness(chatToolConfig?.allToolsDisabled == true, platform.disableAllTools, platform.disableRemoteTools, resolvedTools, taskRoutedTools, boundedTools)
+                            } ?: return@preparedDispatch
                             appendPreparedEvidence(evidence)
                         }
                         if (!resumeWriterOnly) prepareConnectedMemory()

@@ -474,14 +474,7 @@ internal class KokoroVoiceOutput(
                     playback.diagnostics?.playbackFocus(
                         if (focusResult == null) VoiceDiagnosticTrace.Focus.ERROR else VoiceDiagnosticTrace.Focus.DENIED,
                         attempt,
-                        when (mode) {
-                            null -> null
-                            AudioManager.MODE_NORMAL -> VoiceDiagnosticTrace.PlaybackAudioMode.NORMAL
-                            AudioManager.MODE_RINGTONE -> VoiceDiagnosticTrace.PlaybackAudioMode.RINGTONE
-                            AudioManager.MODE_IN_CALL -> VoiceDiagnosticTrace.PlaybackAudioMode.IN_CALL
-                            AudioManager.MODE_IN_COMMUNICATION -> VoiceDiagnosticTrace.PlaybackAudioMode.IN_COMMUNICATION
-                            else -> VoiceDiagnosticTrace.PlaybackAudioMode.OTHER
-                        }
+                        VoiceDiagnosticTrace.PlaybackAudioMode.observed(mode)
                     )
                     val retryDelay = kokoroFocusRetryDelay(attempt, mode)
                     if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && retryDelay != null) {

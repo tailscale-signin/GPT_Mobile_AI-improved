@@ -19,7 +19,7 @@ internal object CombinedWriterPreflight {
         if (!observation.permitsRequest && observation.status == dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus.UNSUPPORTED) {
             throw dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException(requestedMode)
         }
-        if (!observation.permitsRequest || !observation.routeVerified) throw dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException(observation.safeReasonCode?.takeIf { it.startsWith("REASONING_CAPABILITY_") } ?: "REASONING_CAPABILITY_UNVERIFIED")
+        if (!observation.permitsRequest || !observation.routeVerified) throw dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityUnavailableException(observation.safeReasonCode?.takeIf { it.startsWith("REASONING_CAPABILITY_") } ?: "REASONING_CAPABILITY_UNVERIFIED", requested = requestedMode)
         return observation
     }
 

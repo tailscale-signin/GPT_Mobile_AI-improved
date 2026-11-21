@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import kotlin.coroutines.AbstractCoroutineContextElement
@@ -56,19 +57,44 @@ internal object AppAssistedSearch {
         }
     }
 
-    suspend fun prepare(messages: List<MessageV2>, tools: List<ResolvedAgentTool>, trace: ToolTraceSession, runId: String, maxCharacters: Int, emit: suspend (ApiState) -> Unit): String? {
+    enum class Readiness(val guidance: String) {
+        CHAT_TOOLS_DISABLED("Tools are disabled for this chat. Enable chat tools and retry."),
+        PROFILE_TOOLS_DISABLED("Tools are disabled for this profile. Enable profile tools and retry."),
+        PROFILE_REMOTE_DISABLED("Remote tools are disabled for this profile. Review the profile's remote tool settings."),
+        NO_ENGINE_RESOLVED("Open Tools → Effective search inventory to check the engines available to this profile."),
+        ROUTED_ENGINE_MISSING("The profile resolved a search engine, but this chat did not select it. Check the chat's tool selection."),
+        BOUND_ENGINE_MISSING("A search engine was selected but did not reach the authorized tools for this turn. Check the turn's tool settings."),
+        AGGREGATE_NOT_CREATED("An app-assisted search tool was unavailable for this turn. Check Tools → Effective search inventory.")
+    }
+
+    fun readiness(chatDisabled: Boolean, profileDisabled: Boolean, remoteDisabled: Boolean, resolved: List<ResolvedAgentTool>, routed: List<ResolvedAgentTool>, bound: List<ResolvedAgentTool>): Readiness {
+        fun List<ResolvedAgentTool>.hasEngine() = any { it.modelToolName == "web_search" || it.isWebSearchEngine() }
+        return when {
+            chatDisabled -> Readiness.CHAT_TOOLS_DISABLED
+            profileDisabled -> Readiness.PROFILE_TOOLS_DISABLED
+            !resolved.hasEngine() -> if (remoteDisabled) Readiness.PROFILE_REMOTE_DISABLED else Readiness.NO_ENGINE_RESOLVED
+            !routed.hasEngine() -> Readiness.ROUTED_ENGINE_MISSING
+            !bound.hasEngine() -> Readiness.BOUND_ENGINE_MISSING
+            else -> Readiness.AGGREGATE_NOT_CREATED
+        }
+    }
+
+    suspend fun prepare(messages: List<MessageV2>, tools: List<ResolvedAgentTool>, trace: ToolTraceSession, runId: String, maxCharacters: Int, emit: suspend (ApiState) -> Unit, unavailableReason: () -> Readiness = { Readiness.AGGREGATE_NOT_CREATED }): String? {
         val state = kotlinx.coroutines.currentCoroutineContext()[AppSearchContext]
         state?.attempted = true
         val search = tools.firstOrNull { it.modelToolName == "web_search" }
         if (search == null) {
+            val observed = unavailableReason()
             emit(
                 ApiState.Error(
-                    "Web search is unavailable for this profile. Open Tools → Effective search inventory to enable an authorized search engine, then retry.",
+                    "Web search is unavailable. ${observed.guidance}",
                     errorCode = "TOOL_UNAVAILABLE",
                     taskOutcome = "BLOCKED",
                     failureDetails = buildJsonObject {
                         put("failed_stage", "tool_readiness")
                         put("operation", "web_search")
+                        put("search_readiness_observation", observed.name)
+                        put("failure_origin", "APPLICATION")
                         put("dispatched", false)
                         put("remote_acceptance", "NO")
                     }

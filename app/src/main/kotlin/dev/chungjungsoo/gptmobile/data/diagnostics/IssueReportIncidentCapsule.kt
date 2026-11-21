@@ -161,6 +161,7 @@ internal object IssueReportIncidentCapsule {
         "tool_event_persistence_operation" to setOf("START"),
         "tool_event_persistence_phase" to setOf("ALLOCATE_SEQUENCE", "INSERT"),
         "tool_event_persistence_failure" to setOf("RUN_SEQUENCE_CONFLICT", "EVENT_ID_CONFLICT", "RUN_FOREIGN_KEY", "NOT_NULL", "UNKNOWN_CONSTRAINT", "SEQUENCE_EXHAUSTED"),
+        "app_search_readiness" to setOf("CHAT_TOOLS_DISABLED", "PROFILE_TOOLS_DISABLED", "PROFILE_REMOTE_DISABLED", "NO_ENGINE_RESOLVED", "ROUTED_ENGINE_MISSING", "BOUND_ENGINE_MISSING", "AGGREGATE_NOT_CREATED"),
         "review_comparison_state" to setOf("HEAD_REQUIRED", "BASELINE_REQUIRED", "BASE_REF_REQUIRED", "BASE_REF_BLOCKED", "PR_BASE_LOOKUP", "PR_BASE_UNVERIFIED", "BASE_SHA_REQUIRED", "COMPARISON_PAGES_PENDING", "READ_CHANGED_SOURCE", "COMPARE_REQUIRED"),
         "review_comparison_policy" to setOf("UNRESOLVED", "EXPLICIT_BASE_SHA", "EXPLICIT_BASE_REF", "OBSERVED_PR_BASE", "DEFAULT_BRANCH_HEAD"),
         "chat_delivery_terminal" to setOf("DONE"),
@@ -324,7 +325,7 @@ internal object IssueReportIncidentCapsule {
 
     fun fieldsFor(area: String): Set<String> = common + when (area) {
         "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields + repeatHistoryFields + LAST_UNSENT_CODE + inventoryPaginationFields
-        "INCIDENT" -> setOf("github_prerequisite_observation") + combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure", "provider_error_code_state", "provider_error_origin")
+        "INCIDENT" -> setOf("github_prerequisite_observation", "app_search_readiness") + combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure", "provider_error_code_state", "provider_error_origin")
         "ACCEPTANCE" -> setOf("github_prerequisite_observation") + acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + policyResponseFields + GitHubAcceptancePublicationEvidence.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
         "GATEWAY" -> gatewayFields
         "PROVIDER" -> providerFields + setOf("provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash")
@@ -501,6 +502,18 @@ internal object IssueReportIncidentCapsule {
         val phase = listOf("failed_stage", "failedStage", "failurePhase", "phase", "stage").firstNotNullOfOrNull { text(fields[it]) }
             ?.lowercase(Locale.ROOT)?.takeIf { it in phases } ?: "unknown"
         put("incident_phase", phase)
+        remove("app_search_readiness")
+        if (area == "INCIDENT" &&
+            feature == ReportFeature.CHAT &&
+            source == "CHAT_FAILURE" &&
+            code == "TOOL_UNAVAILABLE" &&
+            phase == "tool_readiness" &&
+            text(fields["operation"]) == "web_search" &&
+            (fields["dispatched"] == false || fields["dispatched"] == JsonPrimitive(false)) &&
+            text(fields["remote_acceptance"]) == "NO"
+        ) {
+            text(fields["search_readiness_observation"])?.let { validValue("app_search_readiness", JsonPrimitive(it)) }?.let { put("app_search_readiness", it) }
+        }
         if (area == "INCIDENT" && source == "CHAT_FAILURE" && text(fields["failed_stage"]) == "review_comparison") {
             for ((sourceKey, reportKey) in listOf("state" to "review_comparison_state", "comparison_policy" to "review_comparison_policy")) {
                 text(fields[sourceKey])?.let { validValue(reportKey, JsonPrimitive(it)) }?.let { put(reportKey, it) }

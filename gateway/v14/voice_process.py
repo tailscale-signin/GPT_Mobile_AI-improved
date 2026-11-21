@@ -238,4 +238,3 @@ class SidecarCudaBackend:
                         stream.close()
                     except OSError:
                         pass
-

@@ -39,13 +39,20 @@ class NativeBridgeTest(unittest.TestCase):
                     installation_id=IDENTITY['gateway_id'], principal_id='paired:phone-one',
                     revision=3, status=status, **extra)
 
-    def test_phone_setup_uses_one_signed_link_without_phone_ip(self):
-        """The Windows default path uses the tested TLS-pinned invitation, not a peer IP allowlist."""
+    def test_phone_setup_keeps_same_account_address_and_private_wifi_link(self):
+        """Use the host’s Tailscale offer when present and the TLS-pinned link for Wi-Fi."""
         ui = (Path(__file__).resolve().parents[1] / 'desktop' / 'native' / 'MainWindow.Control.cs').read_text(encoding='utf-8')
         connection = ui.split('private void BuildConnectPhone()', 1)[1].split('private void BuildAndroid()', 1)[0]
-        self.assertIn('Copy secure phone link', connection)
-        self.assertIn('Call("control-connect-address", new JsonObject { ["host"] = SelectedHost() })', connection)
-        self.assertIn('Clipboard.SetText(invitation)', connection)
+        setup, private_wifi = connection.split('private void AddPrivatePhoneLink(', 1)
+        account = setup.split('if (direct.Length > 0)', 1)[1].split('else', 1)[0]
+        self.assertIn('current.Text("account_connection_url", "")', setup)
+        self.assertIn('Copy Tailscale address', account)
+        self.assertIn('Clipboard.SetText(direct)', account)
+        self.assertNotIn('control-connect-address', setup)
+        self.assertIn('AddPrivatePhoneLink(form, hint, host, ip, viewEpoch)', setup.split(account, 1)[1])
+        self.assertIn('Copy secure phone link', private_wifi)
+        self.assertIn('Call("control-connect-address", new JsonObject { ["host"] = SelectedHost() })', private_wifi)
+        self.assertIn('Clipboard.SetText(invitation)', private_wifi)
         self.assertNotIn('["phone_ip"]', connection)
         self.assertNotIn('Phone Wi-Fi IP', connection)
         self.assertIn('Engineering is enabled automatically', connection)

@@ -1,8 +1,10 @@
 # Windows and Android Gateway controls
 
-Open **Gateway settings** on Android, enter the PC’s IP and tap **Connect**. The default Gateway port is 8090. Engineering starts enabled for a new owner. The PC’s model, GitHub connection and approved repositories determine which jobs can run.
+Open **Connect phone** on Windows. If the Gateway uses Tailscale, copy the displayed PC address or enter the PC’s Tailscale IP in **Gateway settings** on Android, then tap **Connect**. Both devices must use the same Tailscale account. The PC verifies the phone’s identity through its local Tailscale daemon. The default Gateway port is 8090.
 
-Same-account Tailscale connections use the device identity verified by the local Tailscale daemon. For first access on a trusted private Wi-Fi network, open **Connect phone** on Windows, enter the phone’s Wi-Fi IP and select **Allow this phone to connect**. Enter the PC’s IP on the phone within five minutes. Windows scopes the offer to the selected socket peer. Android uses the advertised certificate fingerprint and signs its connection over TLS. Subsequent connections use the stored certificate and device key, including after the phone’s IP changes. Windows can revoke the device under **Settings → Devices**. Existing scoped owner and viewer grants retain their permissions.
+On trusted private Wi-Fi, select **Copy secure phone link** on Windows. Paste the full link into **Gateway settings** on Android and tap **Connect** within five minutes. If the PC has several network interfaces, **Advanced network choice** lets you select the one your phone can reach. Android verifies the certificate fingerprint in the link and signs its request over TLS. Future connections use the saved certificate and device key, including after the phone’s IP changes. Windows can revoke the device under **Settings → Devices**.
+
+Engineering starts enabled for a new owner. The PC’s model, GitHub connection and approved repositories determine which jobs can run. Existing owner and viewer grants retain their permissions.
 
 ## What a setting means
 

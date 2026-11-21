@@ -196,46 +196,22 @@ public partial class MainWindow
                 form.Children.Add(Ui.Button("Enable phone connection", () => Navigate("Settings/Connection"), true));
                 return;
             }
-            ComboBox? adapter = null;
-            if (ip.Equals(System.Net.IPAddress.Any) || ip.Equals(System.Net.IPAddress.IPv6Any))
+            string direct = current.Text("account_connection_url", "");
+            if (direct.Length > 0)
             {
-                var choices = NetworkInterface.GetAllNetworkInterfaces()
-                    .Where(n => n.OperationalStatus == OperationalStatus.Up)
-                    .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address)
-                    .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a))
-                    .Select(a => a.ToString()).Distinct().ToArray();
-                if (choices.Length == 0)
+                hint.Text = "Enter this PC’s Tailscale address in Gateway settings on your phone. Sign in to the same Tailscale account on both devices.";
+                var address = Ui.Field(form, "Tailscale address", direct);
+                address.IsReadOnly = true;
+                form.Children.Add(Ui.Button("Copy Tailscale address", () =>
                 {
-                    hint.Text = "Connect this PC to a private network, then reopen this screen.";
-                    return;
-                }
-                if (choices.Length > 1)
-                {
-                    var advanced = Ui.Column(Ui.Text("Choose another PC network only if needed.", 13, "MutedBrush"));
-                    adapter = Ui.Select(advanced, "PC network", choices);
-                    form.Children.Add(new Expander { Header = "Advanced network choice", Content = advanced });
-                }
-                host = choices[0];
+                    Clipboard.SetText(direct);
+                    status.Text = "Tailscale address copied.";
+                }, true));
             }
-
-            string SelectedHost() => adapter?.SelectedItem?.ToString() ?? host;
-            hint.Text = "No phone IP or manual Engineering setup. Copy a private connection link and paste it once into the Android app.";
-            form.Children.Add(Ui.Button("Copy secure phone link", () => Run(async () =>
+            else
             {
-                // A short-lived TLS-pinned owner invitation; never use the legacy
-                // phone-IP allowance or silently grant access to unpaired clients.
-                var result = await Call("control-connect-address", new JsonObject { ["host"] = SelectedHost() });
-                var invitation = result.Text("address", "");
-                if (!Uri.TryCreate(invitation, UriKind.Absolute, out var uri) ||
-                    uri.Scheme != Uri.UriSchemeHttp || uri.Fragment.Length < 2)
-                    throw new InvalidOperationException("A secure phone invitation could not be created.");
-                Clipboard.SetText(invitation);
-                if (epoch == viewEpoch)
-                {
-                    hint.Text = "Link copied. On your phone, open Gateway settings, paste it and tap Connect. Link expires in five minutes.";
-                    status.Text = "Secure phone link copied.";
-                }
-            }), true));
+                AddPrivatePhoneLink(form, hint, host, ip, viewEpoch);
+            }
             form.Children.Add(Ui.Text("Engineering is enabled automatically for the connected owner. Existing repository permissions, device identity and job approvals still apply.", 13, "MutedBrush"));
             form.Children.Add(Ui.Button("Network and firewall settings", () => Navigate("Settings/Connection")));
 
@@ -244,6 +220,52 @@ public partial class MainWindow
                 Ui.Actions(Ui.Button("GitHub connection", () => Navigate("Tools/GitHub")),
                     Ui.Button("Repositories", () => Navigate("Tools/Repositories"))))));
         });
+    }
+
+    private void AddPrivatePhoneLink(StackPanel form, TextBlock hint, string host, System.Net.IPAddress ip, int viewEpoch)
+    {
+        ComboBox? adapter = null;
+        if (ip.Equals(System.Net.IPAddress.Any) || ip.Equals(System.Net.IPAddress.IPv6Any))
+        {
+            var choices = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up)
+                .Select(n => n.GetIPProperties())
+                .OrderByDescending(properties => properties.GatewayAddresses.Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork))
+                .SelectMany(properties => properties.UnicastAddresses).Select(a => a.Address)
+                .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a))
+                .Select(a => a.ToString()).Distinct().ToArray();
+            if (choices.Length == 0)
+            {
+                hint.Text = "Connect this PC to a private network, then reopen this screen.";
+                return;
+            }
+            if (choices.Length > 1)
+            {
+                var advanced = Ui.Column(Ui.Text("Choose another PC network only if needed.", 13, "MutedBrush"));
+                adapter = Ui.Select(advanced, "PC network", choices);
+                form.Children.Add(new Expander { Header = "Advanced network choice", Content = advanced });
+            }
+            host = choices[0];
+        }
+
+        string SelectedHost() => adapter?.SelectedItem?.ToString() ?? host;
+        hint.Text = "Copy a private connection link and paste it into Gateway settings on your phone.";
+        form.Children.Add(Ui.Button("Copy secure phone link", () => Run(async () =>
+        {
+            // A short-lived TLS-pinned owner invitation; never use the legacy
+            // phone-IP allowance or silently grant access to unpaired clients.
+            var result = await Call("control-connect-address", new JsonObject { ["host"] = SelectedHost() });
+            var invitation = result.Text("address", "");
+            if (!Uri.TryCreate(invitation, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttp || uri.Fragment.Length < 2)
+                throw new InvalidOperationException("A secure phone invitation could not be created.");
+            Clipboard.SetText(invitation);
+            if (epoch == viewEpoch)
+            {
+                hint.Text = "Link copied. On your phone, open Gateway settings, paste it and tap Connect. Link expires in five minutes.";
+                status.Text = "Secure phone link copied.";
+            }
+        }), true));
     }
 
     private void BuildAndroid()
@@ -259,7 +281,7 @@ public partial class MainWindow
         }
         catch (NetworkInformationException) { }
         var host = Ui.Select(setup, "Control listener interface", addresses.Distinct());
-        setup.Children.Add(Ui.Text("Use the private interface reachable from your phone. Connect phone configures the TLS listener when you allow a Wi-Fi address.", 13, "MutedBrush"));
+        setup.Children.Add(Ui.Text("Use the private interface reachable from your phone. Connect phone configures the TLS listener when you copy a secure phone link.", 13, "MutedBrush"));
         var port = Ui.Field(setup, "Control TLS port", "8091");
         var listenerState = Ui.Text("Reading owner control listener…", 13, "MutedBrush"); setup.Children.Add(listenerState);
         bool ReachableSelection() => System.Net.IPAddress.TryParse(host.SelectedItem?.ToString(), out var selected) && !System.Net.IPAddress.IsLoopback(selected);

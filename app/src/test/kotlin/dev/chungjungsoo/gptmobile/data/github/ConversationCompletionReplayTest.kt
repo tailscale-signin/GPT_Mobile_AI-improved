@@ -1,8 +1,20 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
+import dev.chungjungsoo.gptmobile.data.agent.AgentTool
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolExchangeCompactor
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubResultViews
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -289,6 +301,92 @@ class ConversationCompletionReplayTest {
         val filePages = replay("compact")
         assertTrue("raw=$rawPages file=$filePages", filePages.first < rawPages.first && filePages.second < rawPages.second)
         println("Four-file replay, 4096-byte page budget: raw=$rawPages file=$filePages (pages, serialized UTF-8 bytes)")
+    }
+
+    @Test fun lookupCompletesWithFewerProviderRoundsAndFewerEstimatedReplayTokens() = runBlocking {
+        val files = (0..3).map { file ->
+            (1..220).joinToString("\n") { line -> "val row$line = \"file $file sample text\"" }
+        }
+        val batch = source(*files.toTypedArray())
+        val ranges = JsonArray(
+            files.indices.map { index ->
+                buildJsonObject {
+                    put("path", "File$index.kt")
+                    put("start_line", 1)
+                    put("end_line", 220)
+                }
+            }
+        )
+        val wanted = "File3.kt"
+        val expected = files.last().lineSequence().first()
+        data class Cost(val rounds: Int, val estimatedReplayTokens: Int)
+
+        suspend fun runLookup(detail: String): Cost {
+            val views = GitHubResultViews(pageBytes = 4096)
+            var rounds = 0
+            var estimatedReplayTokens = 0
+            var fetches = 0
+            var legacyContentPointer: String? = null
+            val read = object : AgentTool {
+                override val definition = GitHubOperationTool.definition("github_read", "github_read")
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    val cursor = arguments["view_cursor"]?.jsonPrimitive?.content
+                    if (cursor != null) return views.read("lookup", definition.name, definition.name, cursor, callId)
+                    assertEquals(ranges, arguments["ranges"])
+                    assertEquals(JsonPrimitive(commit), arguments["commit_sha"])
+                    fetches++
+                    return views.present("lookup", definition.name, definition.name, AgentToolResult(callId, ToolResultContent.Json(batch), false), arguments)
+                }
+            }
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    rounds++
+                    estimatedReplayTokens += ToolExchangeCompactor.estimateTokens(exchanges)
+                    val content = exchanges.lastOrNull()?.results?.lastOrNull()?.content as? ToolResultContent.Json
+                    val page = content?.value?.jsonObject
+                    val items = (page?.get("items") as? JsonArray).orEmpty().map { it.jsonObject }
+                    val fragments = (page?.get("fragments") as? JsonArray).orEmpty().map { it.jsonObject }
+                    for (fragment in fragments) {
+                        val pointer = fragment["pointer"]?.jsonPrimitive?.content ?: continue
+                        if (pointer.endsWith("/path") && fragment["value"] == JsonPrimitive(wanted)) {
+                            legacyContentPointer = pointer.removeSuffix("/path") + "/content"
+                        }
+                    }
+                    val raw = legacyContentPointer?.let { pointer -> fragments.firstOrNull { it["pointer"] == JsonPrimitive(pointer) && it["offset"] == JsonPrimitive(0) } }
+                    val source = items.firstOrNull { it["path"] == JsonPrimitive(wanted) && it["range_offset"] == JsonPrimitive(0) }?.get("content") ?: raw?.get("value")
+                    if (source != null) {
+                        emit(ProviderEvent.TextDelta(source.jsonPrimitive.content.lineSequence().first()))
+                    } else {
+                        val jumps = (page?.get("range_calls") as? JsonArray).orEmpty().map { it.jsonObject }
+                        val next = jumps.firstOrNull { it["path"] == JsonPrimitive(wanted) }?.get("call") ?: page?.get("continuation_call")
+                        val arguments = if (page == null) {
+                            buildJsonObject {
+                                put("action", "ranges")
+                                put("commit_sha", commit)
+                                put("ranges", ranges)
+                                put("response_detail", detail)
+                            }
+                        } else {
+                            requireNotNull(next) { "No issued continuation can reach the target file" }.jsonObject.getValue("arguments").jsonObject
+                        }
+                        emit(ProviderEvent.ToolCall("lookup-$rounds", read.definition.name, arguments))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val limits = AgentRunLimits(githubTask = true, maxRounds = 32, maxReplayTokens = 32_768, maxReplayResultTokens = 2048)
+            val events = AgentRunner(limits).run(session, listOf(read)).toList()
+            val providerEvents = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertEquals(expected, providerEvents.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+            assertFalse(providerEvents.any { it is ProviderEvent.Failed })
+            assertEquals(1, fetches)
+            return Cost(rounds, estimatedReplayTokens)
+        }
+
+        val legacy = runLookup("full")
+        val current = runLookup("compact")
+        assertTrue("legacy=$legacy, file=$current", current.rounds < legacy.rounds && current.estimatedReplayTokens < legacy.estimatedReplayTokens)
+        println("Verified source lookup with scripted provider: legacy=$legacy, file=$current")
     }
 
     @Test fun unchangedBlockerRetainsEarlierSubstantiveReportButKeepsItsNewVerdict() = runBlocking {

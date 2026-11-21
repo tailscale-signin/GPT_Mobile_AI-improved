@@ -2,7 +2,16 @@
 
 This index connects the 120 requested behaviors to their implementation paths. It includes features already on the PR and changes made for the build 144 incident. Each entry identifies the implementation that can be inspected. Installed-device, provider and account outcomes are qualified separately.
 
-The focused replay compares four synthetic pinned files with a 4,096-byte page allowance. It verifies consecutive Unicode source, targeted jumps, recovery after recreation, trust and revision checks, expired grants, partial reports, interrupted answers, planning and outcome filters. The Receipts view counts verified, delivered tasks and receipt-backed requirements across up to 24 recent accepted tasks in the conversation. Opening the view reads existing protected records. Updated captures also export each task measurement. The optimized Android benchmark also exercises real workspace and journal exporters with synthetic data. At a 4,096-byte allowance the raw view delivered 15 pages and 58,648 serialized UTF-8 bytes. The file view delivered 13 pages and 51,347 bytes. A direct request for the fourth file took one local read. These are local measurements. Provider billing, physical-device frame rate, capture duration and production task completion require an installed build and live runs.
+The incident replay checks consecutive Unicode source, targeted jumps, recovery after recreation, trust and revision checks, expired grants, partial reports, interrupted answers, planning and outcome filters. Two controlled comparisons use the same 4,096-byte page allowance for each path.
+
+| Completed replay | Generic JSON pages | File and source-range pages |
+|---|---:|---:|
+| Deliver four complete synthetic files | 15 pages, 58,648 serialized bytes | 13 pages, 51,347 serialized bytes |
+| Identify the first declaration of the fourth file in a separate batch | 10 provider rounds, 18,580 estimated tool-history input tokens | 3 provider rounds, 3,138 estimated tool-history input tokens |
+
+The lookup runs the Android agent with its GitHub read schema and a scripted provider. Both paths fetched the same pinned batch once and returned the exact expected declaration. The token estimate adds the tool calls and results the runner actually supplied on each round. Instructions, schemas, user text, provider-side caching and billing are outside that estimate. The direct jump to the fourth file took one local saved-view read.
+
+The Receipts view counts verified, delivered tasks and receipt-backed requirements across up to 24 recent accepted tasks in the conversation. Opening the view reads existing protected records. Captures also export each task measurement. The optimized Android benchmark exercises the workspace and journal exporters with synthetic data. Physical-device frame rate, capture duration and production task completion require installed runs.
 
 ## Task control and continuation
 

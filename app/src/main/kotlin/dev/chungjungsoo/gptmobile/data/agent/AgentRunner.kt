@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import java.net.URI
@@ -399,7 +400,7 @@ class AgentRunner(
                             }
                         }
                     }
-                    val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), retainedUnknownOutcome || unknownOutcomes.isNotEmpty(), recoveryState) ?: return
+                    val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), retainedUnknownOutcome, unknownOutcomes.size, recoveryState) ?: return
                     exposedDefinitions = recovery.definitions
                     if (recovery.restoreRound) rounds--
                     if (recovery.finalize) {
@@ -804,10 +805,23 @@ class AgentRunner(
         definitions: List<AgentToolDefinition>,
         finalResponseRequested: Boolean,
         hasToolWork: Boolean,
-        hasUnknownOutcome: Boolean,
+        retainedUnknownOutcome: Boolean,
+        unknownSignatureCount: Int,
         state: RoundRecoveryState
     ): RoundRecovery? {
         val roundFailure = requireNotNull(round.failure)
+        val hasUnknownOutcome = retainedUnknownOutcome || unknownSignatureCount > 0
+        fun unresolvedToolEvidence() = buildJsonObject {
+            put(
+                "reconciliation_source",
+                when {
+                    retainedUnknownOutcome && unknownSignatureCount > 0 -> "SAVED_AND_TRACKED"
+                    retainedUnknownOutcome -> "SAVED_UNSETTLED_CALL"
+                    else -> "TRACKED_CALL_SIGNATURE"
+                }
+            )
+            put("reconciliation_tracked_signature_count", unknownSignatureCount.coerceAtMost(1024))
+        }
         if (GatewayOutcomeRecovery.requiresReconciliation(roundFailure, round.errorCode)) {
             // Even a tool-free repair can reach a gateway with server tools enabled.
             // Leave the terminal delivery boundary to report the retained failure without another model request.
@@ -817,7 +831,7 @@ class AgentRunner(
         if (round.errorCode in ToolFailureMetadata.authorityInvalidationCodes || round.taskOutcome == "CONFIGURATION_INVALIDATED") {
             val details = if (hasUnknownOutcome) {
                 JsonObject(
-                    round.failureDetails.orEmpty() - "dispatched" + kotlinx.serialization.json.buildJsonObject {
+                    round.failureDetails.orEmpty() - "dispatched" + unresolvedToolEvidence() + kotlinx.serialization.json.buildJsonObject {
                         put("failed_stage", "tool_dispatch")
                         put("blocked_stage", round.failureDetails?.get("failed_stage") ?: JsonPrimitive("provider_admission"))
                         round.failureDetails?.get("dispatched")?.let { put("blocked_stage_dispatched", it) }
@@ -840,7 +854,7 @@ class AgentRunner(
                         errorCode = "RECONCILIATION_REQUIRED",
                         taskOutcome = "PARTIAL",
                         failureDetails = JsonObject(
-                            round.failureDetails.orEmpty() + kotlinx.serialization.json.buildJsonObject {
+                            round.failureDetails.orEmpty() + unresolvedToolEvidence() + kotlinx.serialization.json.buildJsonObject {
                                 put("failed_stage", "tool_dispatch")
                                 put("interrupted_provider_code", round.errorCode.orEmpty())
                                 put("requires_reconciliation", true)
@@ -1255,6 +1269,7 @@ class AgentRunner(
                         put("dispatched", false)
                         put("retryable", false)
                         put("available_tool_count", availableNames.size)
+                        put("discovery_available", ProgressiveToolCatalog.NAME in availableNames)
                         // A suggested reader or search tool must actually be available in this round.
                         when {
                             call.name.substringAfterLast("__") in setOf("read_url", "firecrawl_scrape", "fetch_url") && "url" in call.arguments && "read_url" in availableNames -> put("suggested_tool", "read_url")
@@ -1825,13 +1840,8 @@ class AgentRunner(
                         put("retryable", false)
                         put("request_replay_allowed", false)
                         put("logical_continuation_allowed", false)
-                        put(
-                            "cause_types",
-                            kotlinx.serialization.json.JsonArray(
-                                generateSequence(error) { cause -> cause.cause?.takeUnless { it === cause } }
-                                    .take(16).map { JsonPrimitive(it.javaClass.name) }.toList()
-                            )
-                        )
+                        IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.AGENT_ROUND_CATCH)
+                            .forEach { (key, value) -> put(key, value) }
                     }
                 }
                 failure = if (toolDefinitionsRejected) {

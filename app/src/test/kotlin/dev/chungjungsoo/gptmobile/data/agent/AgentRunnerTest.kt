@@ -166,6 +166,32 @@ class AgentRunnerTest {
         assertFalse(results.last().dispatched)
     }
 
+    @Test fun failedRoundReportsOneTrackedWriteWithoutRepeatingIt() = runBlocking {
+        var executions = 0
+        var rounds = 0
+        val write = tool("record_change") { id, _ ->
+            executions++
+            AgentToolResult(id, ToolResultContent.Text("uncertain"), true, errorCode = "DISPATCH_OUTCOME_UNKNOWN")
+        }
+        val provider = session { _, _ ->
+            flow {
+                if (rounds++ == 0) {
+                    emit(toolCall("first", write.definition.name))
+                    emit(ProviderEvent.Completed)
+                } else {
+                    emit(ProviderEvent.Failed("Interrupted", errorCode = "PROVIDER_INVOCATION_FAILED"))
+                }
+            }
+        }
+        val events = AgentRunner().run(provider, listOf(write)).toList()
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals(1, executions)
+        assertEquals(2, rounds)
+        assertEquals("RECONCILIATION_REQUIRED", failure.errorCode)
+        assertEquals(JsonPrimitive("TRACKED_CALL_SIGNATURE"), failure.failureDetails?.get("reconciliation_source"))
+        assertEquals(JsonPrimitive(1), failure.failureDetails?.get("reconciliation_tracked_signature_count"))
+    }
+
     @Test fun replayAdmissionFailureRecordsPlanningWithoutProviderDispatch() = runBlocking {
         val provider = session { _, _ -> error("No request should reach the provider") }
         val events = AgentRunner(AgentRunLimits(maxReplayTokens = 0)).run(provider, listOf(tool { id, _ -> AgentToolResult(id, ToolResultContent.Text("unused"), false) })).toList()
@@ -1023,6 +1049,9 @@ class AgentRunnerTest {
             assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
             assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
             assertFalse(failure.failureDetails.orEmpty().containsKey("dispatched"))
+            assertEquals(JsonPrimitive("AGENT_ROUND_CATCH"), failure.failureDetails?.get("incident_capture_site"))
+            val fingerprint = failure.failureDetails?.get("exception_fingerprint") as? JsonPrimitive
+            assertTrue(fingerprint?.content?.matches(Regex("[a-f0-9]{64}")) == true)
             assertFalse(failure.failureDetails.toString().contains("private"))
             val retained = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             assertEquals("PROVIDER_INVOCATION_FAILED", retained.category)

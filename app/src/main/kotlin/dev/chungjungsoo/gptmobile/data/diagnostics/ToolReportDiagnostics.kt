@@ -51,6 +51,40 @@ internal object ToolReportDiagnostics {
         }
     }
 
+    private fun readerRefusal(event: ToolEvent?, result: AgentToolResult): String? {
+        val receipt = result.executionReceipt ?: return null
+        if (event?.modelToolName != "read_url" ||
+            event.callId != result.callId ||
+            !result.isError ||
+            receipt["schema"] != JsonPrimitive("gptmobile.search-operation.v1") ||
+            receipt["provider"] != JsonPrimitive("read_url") ||
+            receipt["callId"] != JsonPrimitive(result.callId) ||
+            receipt["errorCode"] != JsonPrimitive(result.errorCode)
+        ) {
+            return null
+        }
+        val observation = (receipt["reader_refusal"] as? JsonPrimitive)?.contentOrNull
+        val before = !result.dispatched &&
+            receipt["phase"] == JsonPrimitive("PRECHECK") &&
+            receipt["state"] == JsonPrimitive("PRECHECK_REJECTED") &&
+            receipt["requestSent"] == JsonPrimitive(false)
+        val after = result.dispatched &&
+            receipt["phase"] in setOf(JsonPrimitive("RETRIEVAL"), JsonPrimitive("REDIRECT_PRECHECK")) &&
+            receipt["state"] == JsonPrimitive("FAILED") &&
+            receipt["requestSent"] == JsonPrimitive(true)
+        return when (result.errorCode) {
+            "REDIRECT_FAILED" -> observation?.takeIf {
+                it == "DOMAIN_SCOPE" && (before || after) || after && it in setOf("HOP_LIMIT", "LOCATION_MISSING", "LOOP", "LOCATION_INVALID")
+            }
+            "SOURCE_ACCESS_BLOCKED" -> when {
+                after && receipt["httpStatus"] in setOf(JsonPrimitive(401), JsonPrimitive(403)) -> "HTTP_ACCESS_DENIED"
+                observation == "TURN_DENIAL_CACHE" && (before || after) && receipt["httpStatus"] == null -> observation
+                else -> null
+            }
+            else -> null
+        }
+    }
+
     /** The public alias describes the retained earlier index; the unsent current result stays unchanged. */
     fun reportCode(event: ToolEvent?, result: AgentToolResult): String? {
         val receipt = result.executionReceipt
@@ -73,6 +107,12 @@ internal object ToolReportDiagnostics {
             receipt["repair_action"] == JsonPrimitive("CHECK_SAVED_INDEX") &&
             receipt["recovery_action"] == JsonPrimitive("RECONCILE_OUTCOME")
         if (savedIndexPrecheck) return "RECONCILIATION_REQUIRED"
+        if (result.errorCode == "REDIRECT_FAILED") {
+            when (readerRefusal(event, result)) {
+                "DOMAIN_SCOPE" -> return "SOURCE_ACCESS_BLOCKED"
+                "HOP_LIMIT", "LOCATION_MISSING", "LOOP", "LOCATION_INVALID" -> return "SOURCE_UNAVAILABLE"
+            }
+        }
         return when (searchFailure(event, result)) {
             "UPSTREAM_CHALLENGE" -> "SOURCE_ACCESS_BLOCKED"
             "NO_ENGINE_SUCCEEDED" -> "SOURCE_UNAVAILABLE"
@@ -89,6 +129,7 @@ internal object ToolReportDiagnostics {
         put("tool_name_hash", IssueReportContext.identifierHash("tool-name", event.modelToolName))
         putAll(ToolInventoryPaginationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
         putAll(dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
+        readerRefusal(event, result)?.let { put("url_reader_refusal", it) }
         searchFailure(event, result)?.let { observation ->
             put("search_failure_observation", observation)
             val receipt = requireNotNull(result.executionReceipt)
@@ -161,6 +202,14 @@ internal object ToolReportDiagnostics {
             pathReceipt["dispatched"] == JsonPrimitive(false)
         ) {
             put("tool_error_code", "TOOL_UNAVAILABLE")
+            if (result.isError &&
+                result.callId == event.callId &&
+                pathReceipt["reason_code"] == JsonPrimitive("UNKNOWN_TOOL") &&
+                pathReceipt["phase"] == JsonPrimitive("PREFLIGHT_REJECTED") &&
+                pathReceipt["retryable"] == JsonPrimitive(false)
+            ) {
+                (pathReceipt["discovery_available"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("round_catalog_discovery_available", it) }
+            }
             (pathReceipt["available_tool_count"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..100_000 }?.let { put("round_catalog_tool_count", it) }
         }
         if (result.errorCode == "INVALID_ARGUMENTS" &&

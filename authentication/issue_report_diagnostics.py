@@ -286,6 +286,12 @@ ENUMS["composer_lifecycle"] = {"INITIALIZED", "CREATED", "STARTED", "RESUMED", "
 ENUMS["composer_input_mode"] = {"TOUCH", "KEYBOARD"}
 FLAGS.update({"composer_focused", "composer_ime_visible", "composer_enabled", "composer_window_focused"})
 SEARCH_ATTEMPT_FIELDS = {"search_attempt_count", "search_dispatched_attempt_count", "search_budget_rejected_attempt_count"}
+COUNTS.add("reconciliation_tracked_signature_count")
+FLAGS.add("round_catalog_discovery_available")
+ENUMS["reconciliation_source"] = {"SAVED_AND_TRACKED", "SAVED_UNSETTLED_CALL", "TRACKED_CALL_SIGNATURE"}
+ENUMS["url_reader_refusal"] = {"DOMAIN_SCOPE", "HOP_LIMIT", "LOCATION_MISSING", "LOOP", "LOCATION_INVALID", "HTTP_ACCESS_DENIED", "TURN_DENIAL_CACHE"}
+FIELDS_BY_AREA["INCIDENT"].update({"reconciliation_source", "reconciliation_tracked_signature_count"})
+FIELDS_BY_AREA["TOOL"].update({"url_reader_refusal", "round_catalog_discovery_available"})
 COUNTS.update(SEARCH_ATTEMPT_FIELDS)
 ENUMS["search_failure_observation"] = {"UPSTREAM_CHALLENGE", "NO_ENGINE_SUCCEEDED"}
 ENUMS["catalog_selector_state"] = {"MIXED_INVENTORY_SELECTORS", "ACTION_NOT_STRING", "ACTION_WITHOUT_NAMES", "NAMES_NOT_ARRAY",
@@ -402,7 +408,7 @@ def _valid_value(key, value):
         return 100 <= value <= 599
     if key == "model_preparation_load_requests":
         return 0 <= value <= 1
-    if key in SEARCH_ATTEMPT_FIELDS:
+    if key in SEARCH_ATTEMPT_FIELDS or key == "reconciliation_tracked_signature_count":
         return 0 <= value <= 1024
     if key == "conflict_pending_tool_count":
         return 0 <= value <= 128

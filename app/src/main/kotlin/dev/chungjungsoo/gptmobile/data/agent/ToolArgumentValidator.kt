@@ -251,6 +251,17 @@ internal object ToolArgumentValidator {
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
         if (toolName == "read_url") return readUrlCorrection(arguments, schema)
         val operation = toolName.githubOperationFamily()
+        if (operation == "github_pr" && arguments["action"] == JsonPrimitive("list")) {
+            val properties = schema["properties"] as? JsonObject
+            val pageSchema = properties?.get("per_page") as? JsonObject
+            if (pageSchema?.get("type") != JsonPrimitive("integer") || "view_cursor" in arguments) return null
+            val supplied = (arguments["per_page"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val pageSize = supplied?.takeIf { it.length in 1..3 && it.all { ch -> ch in '0'..'9' } }?.toIntOrNull()
+            if (pageSize != null && pageSize in 1..100) {
+                val corrected = JsonObject(arguments + ("per_page" to JsonPrimitive(pageSize)))
+                return corrected.takeIf { errors(it, schema).isEmpty() && GitHubOperationArguments.errors(operation, it).isEmpty() }
+            }
+        }
         jobsReadWithoutCursor(toolName, arguments)?.let { fresh ->
             return fresh.takeIf { errors(it, schema).isEmpty() }
         }

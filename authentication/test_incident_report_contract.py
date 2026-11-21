@@ -2000,8 +2000,28 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
         self.assertEqual(76, len(capsule.POLICY_FIELD_NAMES))
 
+    def test_reader_and_reconciliation_evidence_is_scoped_and_bounded(self):
+        for area, fields in (
+            ("INCIDENT", {"reconciliation_source": "SAVED_AND_TRACKED", "reconciliation_tracked_signature_count": 1024}),
+            ("TOOL", {"url_reader_refusal": "LOCATION_MISSING"}),
+            ("TOOL", {"round_catalog_discovery_available": False}),
+        ):
+            capture = self.capture(area, fields)
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+            other_area = "TOOL" if area == "INCIDENT" else "INCIDENT"
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(other_area, fields))
+        for area, fields in (
+            ("INCIDENT", {"reconciliation_tracked_signature_count": 1025}),
+            ("INCIDENT", {"reconciliation_source": "private text"}),
+            ("TOOL", {"url_reader_refusal": "private endpoint"}),
+            ("TOOL", {"round_catalog_discovery_available": "false"}),
+        ):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, fields))
+
     def test_exception_capture_survives_validation_without_claiming_provider_dispatch(self):
-        for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH", "PROVIDER_ADAPTER_STREAM_CATCH", "CHAT_REPOSITORY_ERROR_VALUE"):
+        for site in ("AGENT_ROUND_CATCH", "CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH", "PROVIDER_ADAPTER_STREAM_CATCH", "CHAT_REPOSITORY_ERROR_VALUE"):
             with self.subTest(site=site):
                 capture = self.capture("INCIDENT", {
                     "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",

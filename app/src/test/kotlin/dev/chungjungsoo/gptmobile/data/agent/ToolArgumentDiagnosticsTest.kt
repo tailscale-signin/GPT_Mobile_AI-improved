@@ -36,6 +36,28 @@ class ToolArgumentDiagnosticsTest {
         put("additionalProperties", false)
     }
 
+    @Test fun pullListCorrectsOnlyAnExplicitValidStringPageSize() {
+        val schema = GitHubOperationTool.definition("github_pr").inputSchema
+        for (size in listOf("1", "25", "100", "0", "101", "12.5", "private")) {
+            val arguments = buildJsonObject {
+                put("action", "list")
+                put("state", "open")
+                put("per_page", size)
+            }
+            assertTrue(ToolArgumentValidator.errors(arguments, schema).isNotEmpty())
+            val refusal = ToolArgumentValidator.rejection("pr-list", "github_pr", arguments, schema)
+            assertFalse(refusal.dispatched)
+            val body = (refusal.content as ToolResultContent.Json).value as JsonObject
+            if (size in listOf("1", "25", "100")) {
+                val corrected = (body.getValue("correction_call") as JsonObject).getValue("arguments") as JsonObject
+                assertEquals(JsonObject(arguments + ("per_page" to JsonPrimitive(size.toInt()))), corrected)
+                assertTrue(ToolArgumentValidator.errors(corrected, schema).isEmpty())
+            } else {
+                assertFalse("correction_call" in body)
+            }
+        }
+    }
+
     @Test fun readerCorrectionPreservesFiltersAndUnknownKeysStayPrivateInReports() {
         val schema = Json.parseToJsonElement("""{"type":"object","properties":{"url":{"type":"string"},"includeLinks":{"type":"boolean"},"excludeDomains":{"type":"array","items":{"type":"string"}}},"required":["url"],"additionalProperties":false}""") as JsonObject
         val args = Json.parseToJsonElement("""{"url":"https://example.invalid","include_links":"true","excludeDomains":["example.org"]}""") as JsonObject

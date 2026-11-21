@@ -61,6 +61,54 @@ class ToolReportIncidentProjectionTest {
         assertNull(ToolReportDiagnostics.reportCode(call, challenge.copy(dispatched = false)))
     }
 
+    @Test fun readerRedirectReasonRequiresTheSameObservedRequest() {
+        val call = event("""{"url":"https://private.example/private"}""").copy(modelToolName = "read_url")
+        val receipt = buildJsonObject {
+            put("schema", "gptmobile.search-operation.v1")
+            put("provider", "read_url")
+            put("callId", call.callId)
+            put("errorCode", "REDIRECT_FAILED")
+            put("phase", "RETRIEVAL")
+            put("state", "FAILED")
+            put("requestSent", true)
+            put("reader_refusal", "LOCATION_MISSING")
+        }
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("private"), true, errorCode = "REDIRECT_FAILED", executionReceipt = receipt)
+        assertEquals("SOURCE_UNAVAILABLE", ToolReportDiagnostics.reportCode(call, result))
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(call, result), 1_800_000_000_000))
+        assertEquals(JsonPrimitive("LOCATION_MISSING"), capture.values["url_reader_refusal"])
+        assertTrue("READER_AND_RUN_FAILURE_DETAILS_V1" in capture.requiredServiceFeatures())
+        assertFalse(capture.toString().contains("private"))
+        for (key in listOf("callId", "errorCode", "provider", "state", "requestSent", "reader_refusal")) {
+            val unbound = result.copy(executionReceipt = JsonObject(receipt - key))
+            assertNull(key, ToolReportDiagnostics.reportCode(call, unbound))
+            assertFalse(key, "url_reader_refusal" in ToolReportDiagnostics.fields(call, unbound))
+        }
+        assertNull(ToolReportDiagnostics.reportCode(call, result.copy(dispatched = false)))
+    }
+
+    @Test fun unknownToolKeepsTheDiscoveryStateOfThatRoundOnly() {
+        val call = event("{}")
+        val receipt = buildJsonObject {
+            put("schema", "gptmobile.round-tool-catalog.v1")
+            put("call_id", call.callId)
+            put("reason_code", "UNKNOWN_TOOL")
+            put("phase", "PREFLIGHT_REJECTED")
+            put("dispatched", false)
+            put("retryable", false)
+            put("available_tool_count", 4)
+            put("discovery_available", false)
+        }
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("private"), true, dispatched = false, errorCode = "TOOL_NOT_AVAILABLE", executionReceipt = receipt)
+        val fields = ToolReportDiagnostics.fields(call, result)
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive(false), capture.values["round_catalog_discovery_available"])
+        assertTrue("READER_AND_RUN_FAILURE_DETAILS_V1" in capture.requiredServiceFeatures())
+        for (key in listOf("call_id", "discovery_available", "reason_code", "phase", "retryable")) {
+            assertFalse(key, "round_catalog_discovery_available" in ToolReportDiagnostics.fields(call, result.copy(executionReceipt = JsonObject(receipt - key))))
+        }
+    }
+
     @Test fun rejectedDiscoveryRetainsOnlyTheSelectorShape() {
         val invalid = mapOf(
             """{"action":"search"}""" to "ACTION_WITHOUT_NAMES",

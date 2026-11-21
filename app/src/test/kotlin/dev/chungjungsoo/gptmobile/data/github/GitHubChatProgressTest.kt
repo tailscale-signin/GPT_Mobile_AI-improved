@@ -66,6 +66,51 @@ class GitHubChatProgressTest {
         assertTrue(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
     }
 
+    @Test fun savedHealthyChecksCannotReplaceFreshFailureOrAllowPolicyOnlyRecovery() {
+        listOf("shared", "retained").forEach { source ->
+            val progress = GitHubChatProgress { 0L }
+            observeChecks(progress, "fresh-failure", failed = 1, policy = "UNKNOWN")
+            val failure = progress.summarySnapshot().recentSteps.single()
+            observeChecks(progress, "saved-healthy", failed = 0, policy = "UNKNOWN", savedSource = source)
+            assertTrue("$source results must preserve the fresh failure", failure in progress.summarySnapshot().recentSteps)
+            observeChecks(progress, "fresh-policy", policy = "VERIFIED_PRESENT")
+            assertTrue("$source results must not erase the failed-check condition", failure in progress.summarySnapshot().recentSteps)
+            assertFalse(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+
+            observeChecks(progress, "fresh-healthy", failed = 0, policy = "VERIFIED_PRESENT")
+            assertFalse(failure in progress.summarySnapshot().recentSteps)
+            assertTrue(progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+        }
+    }
+
+    @Test fun savedFailedChecksCannotRestoreAConditionAlreadyResolvedByFreshEvidence() {
+        listOf("shared", "retained").forEach { source ->
+            val progress = GitHubChatProgress { 0L }
+            observeChecks(progress, "fresh-failure", failed = 1, policy = "UNKNOWN")
+            observeChecks(progress, "fresh-healthy", failed = 0, policy = "UNKNOWN")
+            val currentProblem = progress.summarySnapshot().recentSteps.single()
+            observeChecks(progress, "saved-failure", failed = 1, policy = "UNKNOWN", savedSource = source)
+            assertTrue("$source results must preserve the current problem", currentProblem in progress.summarySnapshot().recentSteps)
+
+            observeChecks(progress, "fresh-policy", policy = "VERIFIED_PRESENT")
+            assertFalse(currentProblem in progress.summarySnapshot().recentSteps)
+            assertTrue("Fresh evidence resolved both conditions", progress.summarySnapshot().recentSteps.any { it.contains("available again") })
+        }
+    }
+
+    private fun observeChecks(progress: GitHubChatProgress, id: String, failed: Int? = null, policy: String, savedSource: String? = null) {
+        val args = json("""{"action":"checks","commit_sha":"${"a".repeat(40)}"}""")
+        val counts = failed?.let { ""","check_counts":{"successful":1,"skipped":0,"in_progress":0,"failed":$it,"other_completed":0},"check_inventory_complete":true""" }.orEmpty()
+        val facts = json("""{"schema":"github.semantic-summary.v1","operation":"github_context","required_checks_state":"$policy"$counts}""")
+        val call = ProviderEvent.ToolCall(id, "github_context", args)
+        val receipt = kotlinx.serialization.json.buildJsonObject {
+            put("semantic_summary", facts)
+            if (savedSource == "retained") put("read_source", kotlinx.serialization.json.JsonPrimitive("RETAINED"))
+        }
+        progress.observeResult(call, AgentToolResult(id, ToolResultContent.Text("bounded"), false, executionReceipt = receipt, sharedResult = savedSource == "shared"))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = call.name, toolCallId = id, toolArgs = args)))
+    }
+
     @Test fun issueProgressNamesTheObservedProblemWithoutRepeatingItsRawReport() {
         val progress = GitHubChatProgress { 0L }
         val args = json("""{"action":"get","issue_number":2229}""")
@@ -94,7 +139,7 @@ class GitHubChatProgressTest {
         val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertEquals("I have lines 8–12 of src/Compile.kt.", summary.text)
         assertFalse(summary.modelAuthored)
-        assertFalse(facts.toString().contains("PRIVATE SOURCE"))
+        assertFalse(progress.summarySnapshot().toString().contains("PRIVATE SOURCE"))
     }
 
     @Test fun repeatedHistoryRetrievalDoesNotFloodThePreview() {

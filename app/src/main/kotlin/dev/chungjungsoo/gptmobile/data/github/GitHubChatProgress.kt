@@ -238,7 +238,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         completed++
                         val observed = resultObservations.remove(progress.toolCallId)
                         val saved = savedResults.remove(progress.toolCallId)
-                        if (observed?.problem != true && observed?.saved != true && !saved) {
+                        val freshResult = observed?.saved != true && !saved
+                        if (observed?.problem != true && freshResult) {
                             resolveProblem(problemScope, observed?.resolvedConditions.orEmpty())?.let {
                                 selectedAuthoredSummary = false
                                 pendingSummary = null
@@ -255,7 +256,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                             pendingSummary = null
                         }
                         if (observed != null || sourceFocus(progress.toolArgs).isNotBlank() || operation.mutation) {
-                            rememberStep(observed?.summary ?: observation(name, false, false, progress.toolArgs), problemScope = problemScope.takeIf { observed?.problem == true }, requiredResolutions = observed?.unresolvedConditions.orEmpty(), resolvedConditions = observed?.resolvedConditions.orEmpty())
+                            // Saved facts remain visible as history but cannot replace a current
+                            // blocker or change the fresh evidence required to resolve it.
+                            rememberStep(observed?.summary ?: observation(name, false, false, progress.toolArgs), problemScope = problemScope.takeIf { observed?.problem == true && freshResult }, requiredResolutions = observed?.unresolvedConditions.orEmpty(), resolvedConditions = observed?.resolvedConditions.orEmpty())
                         } else {
                             revision++
                         }

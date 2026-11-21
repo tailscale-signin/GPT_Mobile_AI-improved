@@ -4,10 +4,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,7 +26,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.uniformResponseSource
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.research.feature.ResearchResponseBlock
 import dev.chungjungsoo.gptmobile.data.research.feature.researchResponseBlocks
-import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -147,36 +142,15 @@ internal fun AssistantChronologicalContent(
                     responseIcon?.invoke()
                     Column(Modifier.weight(1f)) {
                         if (isLoading && !progressLivesInHeader) {
-                            ChatGenerationProgress(toolEvents, items)
+                            androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp))
                         } else {
                             androidx.compose.foundation.layout.Spacer(Modifier.fillMaxWidth())
-                        }
-                    }
-                    if (effectiveExecutionTrace && (timeline.any { it.type != AssistantTimelineItemType.TEXT } || fallbackThoughts.isNotBlank() || toolEvents.isNotEmpty())) {
-                        IconButton(onClick = { onExpandedChange(!expanded) }) {
-                            Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Collapse activity" else "Expand activity", tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
             }
             if (hasGatewaySource) {
                 Text("Gateway", style = MaterialTheme.typography.labelMedium, color = ResponseSourceAppearance.gatewayForeground(MaterialTheme.colorScheme.primary, responseSurface), modifier = Modifier.padding(bottom = 4.dp))
-            }
-            val reportedModels = remember(timeline, originalSource, combinedManifest) {
-                if (originalSource == null && combinedManifest == null) {
-                    timeline.asSequence().filter { it.type == AssistantTimelineItemType.TEXT && it.content.isNotBlank() }
-                        .mapNotNull { it.outputLineage?.takeIf { owner -> owner.origin == dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT }?.reportedModelId }
-                        .mapNotNull { dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(it) }.distinct().take(8).toList()
-                } else {
-                    emptyList()
-                }
-            }
-            val modelLabel = when {
-                reportedModels.isNotEmpty() -> "Reported model · ${reportedModels.joinToString()}"
-                else -> (originalSource?.source?.modelName?.takeIf { it.isNotBlank() } ?: documentSource?.modelId ?: selectedModel?.takeIf { originalSource == null })?.takeIf { it.isNotBlank() }?.let { "Selected model · $it" }
-            }
-            modelLabel?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
             }
             beforeAnswer()
             key(answerIdentity) {

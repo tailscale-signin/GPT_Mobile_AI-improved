@@ -203,7 +203,7 @@ fun ChatScreen(
     bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
     val mediaPreview = rememberChatMediaPreview(chatViewModel.chatRoom, chatViewModel::addSelectedFile, chatViewModel::notifyAttachmentCopyFailed)
-    CompositionLocalProvider(LocalUniversalProgressInHeader provides showTopBar, LocalChatMediaPreview provides mediaPreview) {
+    CompositionLocalProvider(LocalUniversalProgressInHeader provides false, LocalChatMediaPreview provides mediaPreview) {
         ConversationViewport { viewportWidth, viewportHeight ->
             ChatScreenContent(
                 chatViewModel = chatViewModel,
@@ -415,6 +415,7 @@ private fun ChatScreenContent(
             dismissButton = { TextButton(onClick = chatViewModel::dismissFreeProviderNotice) { Text("Keep draft") } }
         )
     }
+    var showStatistics by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     var showOutline by rememberSaveable { mutableStateOf(false) }
     var pendingJumpKey by rememberSaveable { mutableStateOf<String?>(null) }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
@@ -915,6 +916,7 @@ private fun ChatScreenContent(
                         showProfileManagement = true
                     },
                     onOutlineClick = { showOutline = true },
+                    onStatisticsClick = { showStatistics = true },
                     gatewayStatus = when {
                         gatewayReadiness.any { it.phase == dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase.BLOCKED } -> "Needs attention"
                         gatewayReadiness.any { it.busy } -> "Preparing"
@@ -925,7 +927,7 @@ private fun ChatScreenContent(
                     expanded = chatHeaderExpanded,
                     onExpandedChange = { chatHeaderExpanded = it },
                     progress = {
-                        if (!isIdle && entryPositioned) {
+                        if (githubPromptMode && !isIdle && entryPositioned) {
                             val latestReply = groupedMessages.assistantMessages.lastOrNull()?.lastOrNull()
                             val events = latestReply?.effectiveRunId()?.let(toolEventsByRun::get).orEmpty()
                             ChatGenerationProgress(
@@ -1258,7 +1260,7 @@ private fun ChatScreenContent(
                         },
                     animate = featureSettings.responseAnimation,
                     scrollInput = scrollInput,
-                    showAnchorDots = githubPromptMode && entryPositioned && groupedMessages.userMessages.isNotEmpty(),
+                    showAnchorDots = entryPositioned && groupedMessages.userMessages.isNotEmpty(),
                     onFollow = ::followChatBottom
                 )
             }
@@ -1598,10 +1600,20 @@ private fun ChatScreenContent(
             )
         }
 
+        if (showStatistics) {
+            ChatStatisticsDialog(
+                groupedMessages.assistantMessages.map { it.size },
+                groupedMessages.userMessages.size,
+                toolEventsByRun.values.sumOf { it.size },
+                invocationDiagnostics,
+                hasOlderHistory,
+                chatViewModel::loadOlderMessages
+            ) { showStatistics = false }
+        }
         if (showOutline) {
             AlertDialog(
                 onDismissRequest = { showOutline = false },
-                title = { Text(stringResource(R.string.outline_title)) },
+                title = { Text("Table of contents") },
                 text = {
                     LazyColumn {
                         if (hasOlderHistory) item { TextButton(onClick = chatViewModel::loadOlderMessages) { Text("Load earlier turns") } }
@@ -1613,7 +1625,13 @@ private fun ChatScreenContent(
                                 revealedArchivedTurns = groupedMessages.userMessages.size
                                 pendingJumpKey = chatMessagePairKey(message, index)
                                 showOutline = false
-                            }) { Text(stringResource(R.string.outline_turn, index + 1, message.content.take(100)), maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                            }, modifier = Modifier.fillMaxWidth()) {
+                                Text((index + 1).toString().padStart(2, '0'), style = MaterialTheme.typography.titleMedium)
+                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(message.content.take(150), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text("${groupedMessages.assistantMessages.getOrNull(index).orEmpty().size} responses", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
                         }
                     }
                 },
@@ -2117,9 +2135,6 @@ internal fun ChatMessagePair(
                         select = { next -> if (hasCombinedTabs) onCombinedProfileClick(combinedProfiles.getOrNull(next - 1)?.uid) else onPlatformClick(messageIndex, next) }
                     )
             ) {
-                if (!hasCombinedTabs && !LocalChatProgressInHeader.current) {
-                    GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
-                }
                 if (isCombinedConversation && combinedSynthesisIndex < 0) {
                     val unavailable = assistantMessages.flatMap { it.timeline }.lastOrNull { it.combinedTurn?.deliveryStatus == "MERGE_UNAVAILABLE" }?.combinedTurn
                     if (unavailable != null) {
@@ -2525,6 +2540,7 @@ private fun ChatTopBar(
     onExportChatItemClick: () -> Unit,
     onDisablePlatformClick: () -> Unit = {},
     onOutlineClick: () -> Unit = {},
+    onStatisticsClick: () -> Unit = {},
     gatewayStatus: String? = null,
     onGatewayStatus: () -> Unit = {},
     expanded: Boolean,
@@ -2630,10 +2646,10 @@ private fun ChatTopBar(
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 ) { Text("Outline") }
                 OutlinedButton(
-                    onClick = onExportChatItemClick,
+                    onClick = onStatisticsClick,
                     enabled = isMenuItemEnabled,
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                ) { Text("Export") }
+                ) { Text("Statistics") }
             }
         }
         progress()

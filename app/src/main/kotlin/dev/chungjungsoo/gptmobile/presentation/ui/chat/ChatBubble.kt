@@ -50,8 +50,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
@@ -428,7 +426,6 @@ fun OpponentChatBubble(
         }
         onInspectContext?.takeIf { debugMode }?.let { add(BubbleAction(stringResource(R.string.bubble_context), Icons.Rounded.Description, !isLoading, it)) }
         add(BubbleAction(retryLabel ?: stringResource(R.string.retry), Icons.Rounded.Refresh, canRetry && !isLoading && !holdGitHubAnswer, onRetryClick))
-        if (effectiveExecutionTrace && hasDetails) add(BubbleAction(stringResource(R.string.details), Icons.Rounded.HelpOutline) { activityExpanded = !activityExpanded })
     }
     val senderLabel = stringResource(R.string.assistant_message)
     BubbleActionHost(identity = contentIdentity, actions = actions) {
@@ -493,18 +490,14 @@ fun OpponentChatBubble(
                                     responseIcon?.invoke()
                                 }
                             }
-                        } else if (isLoading || timeline.any { it.progressCheckpoint } || toolEvents.isNotEmpty()) {
+                        } else if (isLoading || hasDetails || timeline.any { it.progressCheckpoint } || toolEvents.isNotEmpty()) {
                             {
-                                IconButton(onClick = { activityExpanded = !activityExpanded }, modifier = Modifier.testTag("chat_activity_history")) {
-                                    Icon(
-                                        if (activityExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                                        if (activityExpanded) "Hide activity history" else "Show activity history",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
+                                IconButton(onClick = { activityExpanded = !activityExpanded }, modifier = Modifier.testTag("chat_activity_history").semantics { contentDescription = if (activityExpanded) "Hide activity history" else "Show activity history" }) {
+                                    GPTMobileIcon(loading = false)
                                 }
                             }
                         } else {
-                            responseIcon
+                            responseIcon ?: { GPTMobileIcon(loading = false) }
                         },
                         beforeAnswer = {
                             if (githubTask == null && (isLoading || activityExpanded)) {

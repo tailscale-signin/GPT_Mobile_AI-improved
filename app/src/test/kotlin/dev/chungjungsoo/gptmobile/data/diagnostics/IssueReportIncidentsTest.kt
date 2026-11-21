@@ -310,6 +310,29 @@ class IssueReportIncidentsTest {
         assertFalse(raw.contains("PrivateClass"))
     }
 
+    @Test fun replayCapacityFailureReportsOnlyCurrentPlanningEvidence() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf(
+            "failed_stage" to "planning",
+            "failure_origin" to "APPLICATION",
+            "dispatched" to false,
+            "replay_budget_state" to "NO_CONTINUATION_ALLOWANCE",
+            "replay_allowance" to 0,
+            "replay_exchange_count" to 2
+        )
+        IssueReportIncidents.chatFailure("REPLAY_EVIDENCE_REQUIRED", false, null, fields)
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("REPLAY_EVIDENCE_REQUIRED", report.errorCode)
+        val diagnostics = requireNotNull(report.context?.diagnostics)
+        assertEquals(JsonPrimitive("NO_CONTINUATION_ALLOWANCE"), diagnostics.values["replay_budget_state"])
+        assertEquals(JsonPrimitive(0), diagnostics.values["replay_allowance"])
+        assertEquals(JsonPrimitive(2), diagnostics.values["replay_exchange_count"])
+        assertFalse("replay_tokens" in diagnostics.values)
+        assertTrue("REPLAY_BUDGET_EVIDENCE_V1" in diagnostics.requiredServiceFeatures())
+        val other = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", fields)
+        assertTrue(IssueReportDiagnostics.replayBudgetFields.none { it in other })
+    }
+
     @Test fun genericTerminalFailurePreservesSanitizedApplicationFramesAcrossTheFlowBoundary() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val error = IllegalArgumentException("PRIVATE_PROMPT https://private.example/token")

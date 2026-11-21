@@ -15,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -77,7 +78,12 @@ class AgentRunnerTest {
             .run(provider, listOf(reader)).toList()
         val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().last()
         assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
-        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        val budget = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive(false), budget["dispatched"])
+        assertEquals(JsonPrimitive("COMPACTED_IDENTITIES_EXCEED_ALLOWANCE"), budget["replay_budget_state"])
+        assertEquals(JsonPrimitive(128), budget["replay_allowance"])
+        assertEquals(JsonPrimitive(1), budget["replay_exchange_count"])
+        assertTrue(budget.getValue("replay_tokens").jsonPrimitive.content.toInt() > 128)
         assertEquals(1, requests)
         assertEquals(1, executions)
         assertEquals(arguments, events.filterIsInstance<AgentRunEvent.ToolStarted>().single().call.arguments)
@@ -199,8 +205,12 @@ class AgentRunnerTest {
         val events = AgentRunner(AgentRunLimits(maxReplayTokens = 0)).run(provider, listOf(tool { id, _ -> AgentToolResult(id, ToolResultContent.Text("unused"), false) })).toList()
         val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
         assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
-        assertEquals(kotlinx.serialization.json.JsonPrimitive("planning"), failure.failureDetails?.get("failed_stage"))
-        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        val budget = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("planning"), budget["failed_stage"])
+        assertEquals(JsonPrimitive(false), budget["dispatched"])
+        assertEquals(JsonPrimitive("NO_INITIAL_ALLOWANCE"), budget["replay_budget_state"])
+        assertEquals(JsonPrimitive(0), budget["replay_allowance"])
+        assertFalse("replay_tokens" in budget || "replay_exchange_count" in budget)
     }
 
     @Test fun upstreamDnsFailureKeepsItsObservedStageAndNormalizedCode() = runBlocking {

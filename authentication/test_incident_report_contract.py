@@ -2000,6 +2000,24 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(policy_keys | profile_keys | override_keys | behavior_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
         self.assertEqual(76, len(capsule.POLICY_FIELD_NAMES))
 
+    def test_replay_capacity_reason_and_estimates_are_bounded_incident_fields(self):
+        code = "REPLAY_EVIDENCE_REQUIRED"
+        fields = {"causal_failure_code": code, "replay_budget_state": "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE",
+                  "replay_allowance": 128, "replay_tokens": 341, "replay_exchange_count": 2}
+        capture = self.capture("INCIDENT", fields)
+        report = self.report(capture)
+        report.update(feature="chat", errorCode=code)
+        report["context"]["source"] = "CHAT_FAILURE"
+        _, issue = issue_from_report(report)
+        self.assertIn(code, issue["title"])
+        self.assertIn("replay_allowance", issue["body"])
+        for key, value in (("replay_tokens", -1), ("replay_allowance", True), ("replay_exchange_count", "2"),
+                           ("replay_tokens", 16_000_001), ("replay_budget_state", "private text")):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {key: value}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"replay_allowance": 0}))
+
     def test_graph_transport_archives_only_closed_tool_values(self):
         for kind in ("DNS", "DISCONNECTED", "ABORTED", "TIMEOUT", "TLS", "UNKNOWN"):
             capture = self.capture("TOOL", {"tool_reason_code": "GRAPH_TRANSPORT_UNAVAILABLE", "graph_transport_kind": kind})

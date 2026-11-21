@@ -502,6 +502,16 @@ internal object IssueReportIncidentCapsule {
         val phase = listOf("failed_stage", "failedStage", "failurePhase", "phase", "stage").firstNotNullOfOrNull { text(fields[it]) }
             ?.lowercase(Locale.ROOT)?.takeIf { it in phases } ?: "unknown"
         put("incident_phase", phase)
+        if (area != "INCIDENT" ||
+            feature != ReportFeature.CHAT ||
+            source != "CHAT_FAILURE" ||
+            code != "REPLAY_EVIDENCE_REQUIRED" ||
+            phase != "planning" ||
+            text(fields["failure_origin"]) != "APPLICATION" ||
+            fields["dispatched"] !in setOf(false, JsonPrimitive(false))
+        ) {
+            IssueReportDiagnostics.replayBudgetFields.forEach(::remove)
+        }
         remove("app_search_readiness")
         if (area == "INCIDENT" &&
             feature == ReportFeature.CHAT &&

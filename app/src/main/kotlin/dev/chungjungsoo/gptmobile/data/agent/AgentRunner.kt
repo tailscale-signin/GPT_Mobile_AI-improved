@@ -196,6 +196,9 @@ class AgentRunner(
                         failureDetails = kotlinx.serialization.json.buildJsonObject {
                             put("failed_stage", "planning")
                             put("dispatched", false)
+                            put("failure_origin", "APPLICATION")
+                            put("replay_budget_state", "NO_INITIAL_ALLOWANCE")
+                            put("replay_allowance", effectiveReplayTokens.coerceAtLeast(0))
                         }
                     )
                 )
@@ -1747,6 +1750,10 @@ class AgentRunner(
                         failureDetails = kotlinx.serialization.json.buildJsonObject {
                             put("failed_stage", "planning")
                             put("dispatched", false)
+                            put("failure_origin", "APPLICATION")
+                            put("replay_budget_state", "NO_CONTINUATION_ALLOWANCE")
+                            put("replay_allowance", replayLimit.coerceAtLeast(0))
+                            put("replay_exchange_count", exchanges.size)
                         }
                     )
                 )
@@ -1784,6 +1791,9 @@ class AgentRunner(
                         failureDetails = buildJsonObject {
                             put("failed_stage", "planning")
                             put("dispatched", false)
+                            put("failure_origin", "APPLICATION")
+                            put("replay_budget_state", "COMPACTED_IDENTITIES_EXCEED_ALLOWANCE")
+                            put("replay_exchange_count", exchanges.size)
                             put("retryable", false)
                             put("replay_tokens", compactedReplayTokens)
                             put("replay_allowance", replayLimit)

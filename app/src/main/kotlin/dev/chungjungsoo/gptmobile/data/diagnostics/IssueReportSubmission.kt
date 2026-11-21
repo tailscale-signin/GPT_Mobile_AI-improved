@@ -182,6 +182,7 @@ internal class IssueReportSubmission(
                 if ("attachment" in report) add("REPORT_TEXT_ATTACHMENT_V1")
                 if (codes.any { it in REVIEW_CODES }) add("REVIEW_COMPARISON_V1")
                 if (codes.any { it in RECOVERY_CODES }) add("ISSUE_RECOVERY_CODES_V1")
+                if ("REPLAY_EVIDENCE_REQUIRED" in codes) add("REPLAY_BUDGET_EVIDENCE_V1")
                 if ("GITHUB_TOOL_CONTEXT_BUDGET" in codes) add("GITHUB_SCHEMA_BUDGET_EVIDENCE_V1")
                 if ("GITHUB_PROFILE_LOCKED" in codes) add("PROFILE_SELECTION_EVIDENCE_V1")
                 if ("GITHUB_COOLDOWN_ACTIVE" in codes || code(diagnostics?.values?.get("tool_error_code")) == "GITHUB_COOLDOWN_ACTIVE") add("GH_COOLDOWN_V1")

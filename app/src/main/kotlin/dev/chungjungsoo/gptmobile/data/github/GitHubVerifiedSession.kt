@@ -1163,7 +1163,7 @@ internal class GitHubVerifiedSession(
             )
         }
         val currentProgress = if (internalFault) emptySet() else GitHubExecutionContinuation.progressKeys(retained)
-        val staleReceiptIds = if (internalFault) emptySet() else GitHubExecutionContinuation.staleReceiptIds(report)
+        val staleReceiptIds = if (internalFault) emptyList() else GitHubExecutionContinuation.staleReceiptIds(report)
         if (partial &&
             draft != null &&
             originalFailure == null &&

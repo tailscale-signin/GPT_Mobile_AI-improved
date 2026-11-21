@@ -889,9 +889,10 @@ internal class GitHubEvidenceBook(
         val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, budget)
         val retention = retentionStatus()
         val previous = diagnostic() ?: load("verification_current_" + digest(binding).take(24))
-        if (previous == null) {
+        val planId = "verification_plan_" + digest("$binding|$task").take(24)
+        if (previous == null && load(planId) == null) {
             save(
-                "verification_plan_" + digest("$binding|$task").take(24),
+                planId,
                 buildJsonObject {
                     put("binding", binding)
                     put("task_state", GitHubTaskLifecycle.State.PLANNED.name)

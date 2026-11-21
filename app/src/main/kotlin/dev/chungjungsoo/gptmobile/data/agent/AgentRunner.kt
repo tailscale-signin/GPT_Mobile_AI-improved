@@ -922,6 +922,7 @@ class AgentRunner(
                 state.protocolRecoveryAttempted -> "TOOL_RETRY_EXHAUSTED"
                 session.handlesToolsInternally -> "BACKEND_HANDLED_TOOLS"
                 limits.combined?.requested?.singlePass == true -> "SINGLE_PASS_NOT_RETRYABLE"
+                round.textEmitted && !limits.githubTask -> "TEXT_ALREADY_EMITTED"
                 else -> "NO_SAFE_REPAIR"
             }
             val observedDetails = JsonObject(

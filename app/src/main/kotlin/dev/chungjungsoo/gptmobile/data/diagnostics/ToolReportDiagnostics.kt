@@ -284,6 +284,7 @@ internal object ToolReportDiagnostics {
                     val kind = when {
                         "view_cursor" in arguments -> "SAVED_CURSOR"
                         evidence == null -> "NO_HANDLE"
+                        evidence.matches(Regex("ev_[a-f0-9]{24}")) -> "VERIFICATION_RECEIPT"
                         evidence.matches(Regex("[a-f0-9]{64}")) -> "DIGEST_SHAPED"
                         else -> "NONCANONICAL_HANDLE"
                     }

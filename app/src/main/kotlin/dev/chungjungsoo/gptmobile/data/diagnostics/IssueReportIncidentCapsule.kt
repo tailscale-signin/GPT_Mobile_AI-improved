@@ -225,7 +225,7 @@ internal object IssueReportIncidentCapsule {
         "tls_failure_kind" to setOf("CERTIFICATE", "PROTOCOL", "HANDSHAKE", "OTHER"),
         "provider_tool_rejection" to setOf("TOOL_USE_FAILED"),
         "tool_protocol_frame_kind" to setOf("MISSING_FUNCTION_NAME", "UNFINISHED_STREAM", "NON_OBJECT_ARGUMENTS", "MALFORMED_JSON"),
-        "tool_protocol_recovery_outcome" to setOf("TEXT_FALLBACK_EXHAUSTED", "TOOL_RETRY_EXHAUSTED", "BACKEND_HANDLED_TOOLS", "SINGLE_PASS_NOT_RETRYABLE", "NO_SAFE_REPAIR"),
+        "tool_protocol_recovery_outcome" to setOf("TEXT_FALLBACK_EXHAUSTED", "TOOL_RETRY_EXHAUSTED", "BACKEND_HANDLED_TOOLS", "SINGLE_PASS_NOT_RETRYABLE", "TEXT_ALREADY_EMITTED", "NO_SAFE_REPAIR"),
         "reasoning_probe_observation" to setOf("GATEWAY_OBSERVATION_AVAILABLE", "DEADLINE_WITHOUT_GATEWAY_OBSERVATION", "NO_GATEWAY_OBSERVATION"),
         "gateway_terminal_status" to setOf("completed", "failed", "cancelled", "canceled", "interrupted"),
         "gateway_result_quality" to setOf("complete", "partial"),

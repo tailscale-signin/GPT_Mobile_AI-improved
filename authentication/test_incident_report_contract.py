@@ -338,6 +338,7 @@ class IncidentReportContractTest(unittest.TestCase):
             "TOOL_RETRY_EXHAUSTED",
             "BACKEND_HANDLED_TOOLS",
             "SINGLE_PASS_NOT_RETRYABLE",
+            "TEXT_ALREADY_EMITTED",
             "NO_SAFE_REPAIR",
         )
         for value in choices:

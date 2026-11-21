@@ -66,6 +66,23 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
             Text(if (decision.answer == null) title else "Choice saved", style = MaterialTheme.typography.titleSmall, color = colors.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
         }
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            decision.offeredAtMillis?.takeIf { !decision.automatic }?.let { started ->
+                val now by androidx.compose.runtime.produceState(System.currentTimeMillis(), decision.id, decision.answeredAtMillis) {
+                    while (decision.answer == null) {
+                        value = System.currentTimeMillis()
+                        kotlinx.coroutines.delay(1_000)
+                    }
+                }
+                val seconds = ((decision.answeredAtMillis ?: now) - started).coerceAtLeast(0) / 1000
+                val label = if (decision.answer != null) {
+                    "Decision time"
+                } else if (revisionInput) {
+                    "Waiting for baseline selection"
+                } else {
+                    "Waiting for your choice"
+                }
+                Text("$label · ${seconds / 60}m ${seconds % 60}s", style = MaterialTheme.typography.labelMedium)
+            }
             if (decision.answer == null && title != decision.question.trim()) Text(decision.question, style = MaterialTheme.typography.bodyMedium)
             if (decision.context.isNotBlank()) Text(decision.context, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
             if (decision.answer == null) {

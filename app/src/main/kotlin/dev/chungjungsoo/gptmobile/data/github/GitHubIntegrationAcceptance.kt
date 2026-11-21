@@ -37,6 +37,41 @@ internal object GitHubIntegrationAcceptance {
                 var proof: List<JsonObject> = emptyList()
                 var conditionalFixture = false
                 val assessment: Pair<Boolean, String> = when {
+                    "classify" in text && "capabilit" in text && "before" in text -> {
+                        val plan = fixturePreflight?.get("capability_classification") as? JsonObject
+                        val states = plan?.get("states") as? JsonObject
+                        proof = eligible.filter { it.text("receipt_id") in plan?.ids().orEmpty() }
+                        val valid = !states.isNullOrEmpty() &&
+                            proof.isNotEmpty() &&
+                            catalog["complete"] == JsonPrimitive(true) &&
+                            plan?.text("request_digest") == GitHubEvidenceBook.digest(task) &&
+                            plan["inventory_version"] == catalog["inventory_version"]
+                        valid to if (valid) "Saved prerequisites for ${states?.size} in-scope actions before bulk execution." else "The pre-execution capability classification for this task and catalog is missing."
+                    }
+                    "exact-sha" in text && "continuation" in text && "reserve" in text -> {
+                        val executions = GitHubTestChecklist.workflowExecutions(receipts).filterIsInstance<JsonObject>()
+                        val targets = executions.filter { it["execution_verified"] == JsonPrimitive(true) && it["commit_sha"] == source["repository_revision"] }
+                        val jobs = eligible.filter { receipt ->
+                            val job = data(receipt)
+                            args(receipt).text("action") == "jobs" &&
+                                targets.any { it["run_id"] == job["run_id"] && it["commit_sha"] == job["head_sha"] } &&
+                                (job["jobs"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any {
+                                    it.text("status") == "completed" && it.text("conclusion") == "success" && Regex("(?i)\\btests?\\b").containsMatchIn(it.text("name"))
+                                }
+                        }
+                        val discovery = receipts.values.filter { it.text("tool") == GitHubAuthorizedCatalog.TOOL || remotePage(it) }
+                        val reserveKept = discovery.isNotEmpty() &&
+                            discovery.all {
+                                val budget = it["tool_budget"] as? JsonObject
+                                val used = (budget?.get("used") as? JsonPrimitive)?.intOrNull
+                                val limit = (budget?.get("limit") as? JsonPrimitive)?.intOrNull
+                                used != null && limit != null && limit - used >= GitHubChecklistBudget.VERIFICATION_RESERVE
+                            }
+                        val pages = GitHubTestChecklist.pendingPages(receipts)
+                        proof = jobs + eligible.filter { it["receipt_id"] in targets.map { run -> run["dispatch_receipt"] } }
+                        (jobs.isNotEmpty() && reserveKept && pages.all { it["arguments"] is JsonObject && it.text("tool").isNotBlank() }) to
+                            "Exact-revision test job receipts: ${jobs.size}. Saved pending page recipes: ${pages.size}. Discovery preserved the verification reserve: $reserveKept."
+                    }
                     listOf("separate", "separation", "distinguish").any { it in text } && "device" in text && ("mock" in text || "live" in text) -> {
                         proof = eligible
                         (eligible.isNotEmpty() && classes.text("classification_status") == "COMPLETE") to

@@ -150,6 +150,20 @@ internal fun GatewayControlSettingsDialog(onDismiss: () -> Unit, initialProfileU
                         }
                     }
                     profile?.let {
+                        val choices by model.modelChoices.collectAsStateWithLifecycle()
+                        if (it.model.isBlank()) {
+                            val options = choices[it.uid to it.apiUrl].orEmpty()
+                            Text(if (options.isEmpty()) "Model unavailable" else "Choose a Gateway model")
+                            val target = it
+                            for (id in options) {
+                                OutlinedButton(onClick = { model.chooseModel(target, id) }, enabled = !busy) { Text(id) }
+                            }
+                            if (options.isEmpty()) TextButton(onClick = { model.refresh(target, forceNetwork = true) }, enabled = !busy) { Text("Refresh models") }
+                        } else {
+                            Text("Model · ${it.model}")
+                            val modelStatus by model.modelStatus.collectAsStateWithLifecycle()
+                            modelStatus[it.uid]?.let { status -> Text(status, style = MaterialTheme.typography.bodySmall) }
+                        }
                         val direct by model.direct.collectAsStateWithLifecycle()
                         val overviews by model.networkOverview.collectAsStateWithLifecycle()
                         val overview = overviews[it.uid to it.apiUrl]?.takeIf { _ -> initialPairingLink == null && states[it.uid]?.phase == GatewayControlPhase.UNPAIRED }

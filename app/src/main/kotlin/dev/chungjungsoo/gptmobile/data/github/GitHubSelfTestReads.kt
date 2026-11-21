@@ -68,7 +68,8 @@ internal object GitHubSelfTestReads {
         val job = workflowJobs.job
         val needsJobDependency = GitHubSelfTestWorkflowJobs.needsJobDependency(tools, observations)
         val jobsRun = if (needsJobDependency) workflowJobs.nextRun else run
-        val pr = records("github_pr", "list", "pull_requests", "items").firstOrNull()
+        val pullRequests = records("github_pr", "list", "pull_requests", "items").filter { it["number"] is JsonPrimitive }
+        val pr = pullRequests.firstOrNull { it.text("state") == "open" } ?: pullRequests.firstOrNull()
             ?: listOf("headers", "context").firstNotNullOfOrNull { action ->
                 roots("github_pr", action).firstNotNullOfOrNull { root ->
                     ((root["pull_request"] as? JsonObject) ?: root).takeIf { it["number"] is JsonPrimitive }
@@ -162,7 +163,19 @@ internal object GitHubSelfTestReads {
                 recipe("github_ci", "job", "job_id" to id, "run_id" to job["run_id"], "run_attempt" to job["run_attempt"], "expected_head_sha" to sha)
                 recipe("github_ci", "logs", "job_id" to id, "run_id" to job["run_id"], "run_attempt" to job["run_attempt"], "expected_head_sha" to sha, "start_line" to JsonPrimitive(1), "end_line" to JsonPrimitive(40))
             }
-            pr?.get("number")?.let { id -> listOf("headers", "context", "comments", "reviews", "threads").forEach { recipe("github_pr", it, "pull_number" to id) } }
+            pr?.get("number")?.let { id ->
+                val head = ((pr["head"] as? JsonObject)?.get("sha") ?: pr["head_sha"]) as? JsonPrimitive
+                val expected = head?.takeIf { it.content.matches(Regex("[a-fA-F0-9]{40}")) }
+                val supportsHead = tools.any { it.name.githubOperationFamily() == "github_pr" && (it.inputSchema["properties"] as? JsonObject)?.containsKey("expected_head_sha") == true }
+                listOf("headers", "context", "comments", "reviews", "threads", "agent_merge_status").forEach { action ->
+                    recipe("github_pr", action, "pull_number" to id, "expected_head_sha" to expected.takeIf { supportsHead })
+                }
+            }
+            recipe("github_pr", "copilot_tasks")
+            records("github_pr", "copilot_tasks", "tasks").firstOrNull()?.let { observed ->
+                val key = listOf("gateway_job_id", "request_id", "id").firstOrNull { observed[it] is JsonPrimitive && observed.text(it).isNotBlank() }
+                if (key != null) recipe("github_pr", "copilot_task_status", (if (key == "id") "task_id" else key) to observed[key])
+            }
             issue?.get("number")?.let { id -> listOf("headers", "context", "comments", "history").forEach { recipe("github_issue", it, "issue_number" to id) } }
         }
         for ((name, recipe) in recipes) {

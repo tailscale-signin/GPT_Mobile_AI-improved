@@ -47,7 +47,9 @@ data class GitHubChatDecision(
     val answer: String? = null,
     val delivered: Boolean = false,
     val cancelled: Boolean = false,
-    val automatic: Boolean = false
+    val automatic: Boolean = false,
+    val offeredAtMillis: Long? = null,
+    val answeredAtMillis: Long? = null
 ) {
     init {
         require(chatId > 0 && sourceMessageId > 0 && profileUid.isNotBlank() && workspace.isNotBlank())
@@ -93,10 +95,11 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
         val current = mutex.withLock {
             loadLocked()
             val existing = mutable.value.firstOrNull { it.id == proposal.id }
-            require(existing == null || existing.copy(answer = null, delivered = false, cancelled = false, automatic = false, persistent = proposal.persistent) == proposal) { "Decision identity changed." }
+            require(existing == null || existing.copy(answer = null, delivered = false, cancelled = false, automatic = false, persistent = proposal.persistent, offeredAtMillis = proposal.offeredAtMillis, answeredAtMillis = proposal.answeredAtMillis) == proposal) { "Decision identity changed." }
             val decision = existing ?: proposal.let {
                 val label = if (useSuggestion) it.recommended?.let(it.options::get)?.takeUnless(GitHubDecisionOption::enterValue)?.label else null
-                if (label == null) it else it.copy(answer = label, automatic = true)
+                val at = System.currentTimeMillis()
+                if (label == null) it.copy(offeredAtMillis = at) else it.copy(answer = label, automatic = true, offeredAtMillis = at, answeredAtMillis = at)
             }.also {
                 check(mutable.value.count { !it.delivered } < MAX_PENDING) { "Answer or dismiss an existing GitHub decision before adding another." }
                 val retained = mutable.value.filter { !it.delivered } + mutable.value.filter { it.delivered }.takeLast(MAX_HISTORY)
@@ -136,7 +139,7 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
             require(GitHubReviewComparison.acceptsBaselineInput(answer)) { "Enter one commit, tag or branch." }
         }
         require(answer.isNotBlank() && answer.length <= 2000)
-        save(mutable.value.map { if (it.id == id) it.copy(answer = answer) else it })
+        save(mutable.value.map { if (it.id == id) it.copy(answer = answer, answeredAtMillis = System.currentTimeMillis()) else it })
         GitHubDecisionResponse(true, id in waiters)
     }
 
@@ -148,7 +151,7 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
     suspend fun dismiss(id: String, chatId: Int) = mutex.withLock {
         loadLocked()
         // A live run must receive an explicit stop instruction, never a vanished form.
-        save(mutable.value.map { if (it.id == id && it.chatId == chatId && !it.delivered) it.copy(answer = "Stop this task. Do not implement the proposed choice.", delivered = it.id !in waiters, cancelled = true) else it })
+        save(mutable.value.map { if (it.id == id && it.chatId == chatId && !it.delivered) it.copy(answer = "Stop this task. Do not implement the proposed choice.", delivered = it.id !in waiters, cancelled = true, answeredAtMillis = System.currentTimeMillis()) else it })
     }
 
     suspend fun setPersistent(chatId: Int, persistent: Boolean) = mutex.withLock {

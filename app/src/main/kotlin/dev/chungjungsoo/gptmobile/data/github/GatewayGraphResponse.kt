@@ -28,7 +28,8 @@ internal class GatewayGraphOperationException(
     val indexOutcomeUnknown: Boolean,
     val failureCode: String = graphFailureCode(cause),
     val indexAttemptHash: String? = null,
-    val currentIndexOutcomeUnknown: Boolean = false
+    val currentIndexOutcomeUnknown: Boolean = false,
+    val targetRevision: String? = null
 ) : IllegalStateException(cause.message ?: "Repository graph unavailable.", cause)
 
 /** Keeps a bad response or rejected identity distinct from a disconnected host. */

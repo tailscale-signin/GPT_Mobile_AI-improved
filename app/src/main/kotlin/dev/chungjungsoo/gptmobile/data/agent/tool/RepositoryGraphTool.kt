@@ -43,6 +43,7 @@ internal class RepositoryGraphTool(
         if (options.keys.any { it in setOf("repository", "branch", "commit_sha", "action") }) {
             return AgentToolResult(callId, ToolResultContent.Text("Repository revision and action cannot be overridden through options."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
+        val started = System.nanoTime()
         return try {
             val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000)))
             val observed = query(payload)
@@ -81,6 +82,7 @@ internal class RepositoryGraphTool(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
+            val elapsedMillis = (System.nanoTime() - started) / 1_000_000
             val operation = failure as? GatewayGraphOperationException
             val cause = operation?.cause ?: failure
             val admission = cause as? GatewayGraphAdmissionException
@@ -124,6 +126,19 @@ internal class RepositoryGraphTool(
                 ToolResultContent.Json(
                     buildJsonObject {
                         put("code", code)
+                        put("operation", requireNotNull(arguments["action"]))
+                        put("elapsed_ms", elapsedMillis)
+                        operation?.targetRevision?.let { put("target_revision", it) }
+                        (cause as? GatewayGraphHttpFailure)?.requestId?.let { put("gateway_http_request_id", it) }
+                        if (readAction && !unresolved && admission == null) {
+                            put(
+                                "recheck_after_recovery",
+                                buildJsonObject {
+                                    put("tool", definition.name)
+                                    put("arguments", arguments)
+                                }
+                            )
+                        }
                         prerequisite?.diagnostic()?.forEach { (key, value) -> put(key, value) }
                         if (prerequisite == null) {
                             put(
@@ -215,6 +230,9 @@ internal class RepositoryGraphTool(
                     put("call_id", callId)
                     put("action", requireNotNull(arguments["action"]))
                     put("error_code", code)
+                    put("elapsed_ms", elapsedMillis)
+                    operation?.targetRevision?.let { put("target_revision", it) }
+                    (cause as? GatewayGraphHttpFailure)?.requestId?.let { put("gateway_http_request_id", it) }
                     put(
                         "phase",
                         if (admission != null) {

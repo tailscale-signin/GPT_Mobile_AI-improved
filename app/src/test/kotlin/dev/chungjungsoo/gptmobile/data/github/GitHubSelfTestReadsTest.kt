@@ -9,6 +9,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSelfTestReadsTest {
+    @Test fun compactPullInventoryKeepsTheOpenPullAndItsObservedRevision() {
+        val head = "a".repeat(40)
+        val original = json("""{"pull_requests":[{"number":2014,"state":"closed"},{"number":1970,"state":"open","head":{"sha":"$head"}}]}""")
+        val receipt = json("""{"trusted":true,"success":true,"tool":"github_pr","arguments":{"action":"list"},"result":{"observationTruncated":true,"excerpt":{}}}""")
+        val retained = JsonObject(receipt + ("inventory_observation" to requireNotNull(GitHubInventoryObservation.capture(original))))
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_pr")
+        val next = GitHubSelfTestReads.available(listOf(tool), listOf(retained))
+        val headers = next.single { it.arguments["action"] == JsonPrimitive("headers") }
+        assertEquals(JsonPrimitive(1970), headers.arguments["pull_number"])
+        assertEquals(JsonPrimitive(head), headers.arguments["expected_head_sha"])
+    }
+
     @Test fun releaseDetailUsesTheObservedReleaseIdEvenWhenItsTagHasNoPublishedRelease() {
         val definition = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_release")
         val listed = json("""{"trusted":true,"success":true,"tool":"github_release","arguments":{"action":"list"},"result":{"items":[{"id":452622158,"draft":true,"tag_name":"v1"}]}}""")

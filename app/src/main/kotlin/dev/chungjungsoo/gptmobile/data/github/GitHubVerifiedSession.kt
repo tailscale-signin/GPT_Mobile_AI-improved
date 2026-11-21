@@ -284,7 +284,9 @@ internal class GitHubVerifiedSession(
         }
         if (GitHubTestChecklist.integration(task)) {
             val receipts = evidence.snapshot().first
-            val fixturePreflight = evidence.fixtureApprovalPreflight()
+            val fixturePreflight = withContext(computationDispatcher) {
+                evidence.classifyBeforeAcquisition(task, authorizedTools, receipts, evidence.fixtureApprovalPreflight())
+            }
             val planningRemaining = remainingToolCalls()
             val planningBudget = evidence.stageBudget(receipts, planningRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
             val (checkpoint, planned, missing) = withContext(computationDispatcher) {
@@ -307,13 +309,16 @@ internal class GitHubVerifiedSession(
             val next = when {
                 planned != null && planned.name.substringBefore("__") == "github_commit" && planned.arguments["action"] in setOf(kotlinx.serialization.json.JsonPrimitive("delete_branch"), kotlinx.serialization.json.JsonPrimitive("delete_fixture_branch")) -> planned
                 acquisitionAllowed && catalogNext != null -> catalogNext
-                acquisitionAllowed && catalogComplete && discovery != null && planned == null && missing.isNotEmpty() && !discoveryAlreadyTried -> ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(discoveryArgs.toString()).take(20), discovery.name, discoveryArgs)
+                acquisitionAllowed && catalogComplete && discovery != null && missing.isNotEmpty() && !discoveryAlreadyTried -> ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(discoveryArgs.toString()).take(20), discovery.name, discoveryArgs)
                 else -> planned
             }
             if (checkpoint != lastChecklist) {
                 if (receipts.isNotEmpty()) withContext(computationDispatcher) { evidence.retainChecklist(checkpoint) }
                 lastChecklist = checkpoint
-                if (receipts.isNotEmpty()) {
+                if (receipts.isEmpty()) {
+                    val limit = planningBudget["effective_call_limit"] ?: planningRemaining
+                    if (limit != null) progress("Starting GitHub integration checks with $limit tool calls available and ${GitHubChecklistBudget.VERIFICATION_RESERVE} reserved for verification.")
+                } else {
                     progress(GitHubTestChecklist.progressSummary(checkpoint, next))
                 }
             }
@@ -772,7 +777,7 @@ internal class GitHubVerifiedSession(
                     emit(
                         ProviderEvent.TextDelta(
                             "The answer review could not finish. The draft remains unverified, and no GitHub completion is claimed. " +
-                                "Saved operations are retained. Explicit resumption revalidates the review configuration and reuses receipts; completed operations are not repeated.\n\nRecorded failure: `${failure.errorCode}`.",
+                                "Choose Resume review to recheck the review configuration. Saved operations are retained. Explicit resumption revalidates the review configuration and reuses receipts; completed operations are not repeated.\n\nRecorded failure: `${failure.errorCode}`.",
                             dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, failure.invocationId)
                         )
                     )

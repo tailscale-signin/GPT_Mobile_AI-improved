@@ -141,7 +141,7 @@ class GatewayEngineeringClient internal constructor(
                         if (path == "graph") {
                             // Preserve the response observation without retaining its body or
                             // replaying a POST whose index outcome may still be uncertain.
-                            throw GatewayGraphHttpFailure.fromResponse(response.status.value, GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"]), detail)
+                            throw GatewayGraphHttpFailure.fromResponse(response.status.value, GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"]), detail, response.headers["X-Gateway-Http-Request-Id"])
                         }
                         val preflight = runCatching { error?.get("preflight")?.let { json.decodeFromJsonElement(GatewayEngineeringPreflight.serializer(), it) } }.getOrNull()
                         if (preflight != null && !preflight.ready && preflight.blockers.isNotEmpty()) {

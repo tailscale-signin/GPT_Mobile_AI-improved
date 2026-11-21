@@ -128,6 +128,13 @@ internal object GitHubIntegrationReport {
             if (failed.isNotEmpty()) append("**Failed operations** · ").append(failed.joinToString(", ") { safe(it.text("id")) }).append(".\n\n")
             append("**${stop.text("code")}**: ${safe(stop.text("detail"))}\n\n")
         }
+        if (!complete) {
+            val preparation = checkpoint["preparation"] as? JsonObject
+            val groups = preparation?.array("blockers").orEmpty()
+            val next = groups.firstOrNull { it.text("code") == "FIXTURE_APPROVAL_MODE_REQUIRED" } ?: groups.firstOrNull()
+            next?.strings("explanations")?.firstOrNull()?.let { append("**Next action** · ${safe(it)}\n\n") }
+        }
+        append("### Verification details\n\n")
         append("Of the passed required capabilities, ${passedCapabilities.count { it["live_verified"] == JsonPrimitive(true) }} have live response evidence and ${passedCapabilities.count { it["live_verified"] != JsonPrimitive(true) }} qualify only the recorded response scope. Cached or local acceptance does not establish live transport or application/device execution.\n\n")
         append("${exercisedFamilies.size}/${activeFamilies.size} known authorized GitHub operation families have live observations. ")
         append("${exercisedNames.size}/${activeNames.size} known authorized GitHub tools have live observations; these counts retain exact tool names. ")

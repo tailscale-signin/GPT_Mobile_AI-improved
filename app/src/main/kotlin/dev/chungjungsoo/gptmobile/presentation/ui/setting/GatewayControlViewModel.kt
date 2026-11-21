@@ -60,6 +60,8 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
 
     private val preparationStatus = MutableStateFlow<Map<String, String>>(emptyMap())
     val modelStatus = preparationStatus.asStateFlow()
+    private val candidates = MutableStateFlow<Map<Pair<String, String>, List<String>>>(emptyMap())
+    val modelChoices = candidates.asStateFlow()
     private var connectionPreparation: Job? = null
 
     fun refresh(profile: PlatformV2, forceNetwork: Boolean = false) {
@@ -69,6 +71,7 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
                 val current = settings.fetchPlatformV2s().singleOrNull { it.uid == profile.uid && it.enabled && it.apiUrl == profile.apiUrl }
                 if (current != null) {
                     repository.refresh(current)
+                    if (current.model.isBlank() && (forceNetwork || (current.uid to current.apiUrl) !in candidates.value)) resolveProfileModel(current)
                     if (repository.states.value[current.uid]?.phase == GatewayControlPhase.UNPAIRED) {
                         val config = ProviderRequestConfig(current.apiUrl, current.token, profileUid = current.uid)
                         val key = current.uid to current.apiUrl
@@ -211,18 +214,12 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
         }
 
         if (matching.isEmpty()) {
-            val models = try {
-                withTimeoutOrNull(4_000) { ProfileModelCatalog().load(profile) }.orEmpty()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                emptyList()
-            }
-            settings.addPlatformV2(profile.copy(model = models.singleOrNull()?.id.orEmpty()))
-        } else if (matching.single().enabled == false) {
+            settings.addPlatformV2(profile)
+        } else if (!matching.single().enabled) {
             val existing = settings.fetchPlatformV2s().single { it.uid == profile.uid && it.apiUrl == profile.apiUrl }
             if (!existing.enabled) settings.updatePlatformV2(existing.copy(enabled = true))
         }
+        resolveProfileModel(profile)
         val saved = settings.fetchPlatformV2s().single { it.uid == profile.uid && it.enabled && it.apiUrl == profile.apiUrl }
         if (admission == null) {
             selectConnectedGateway(saved)
@@ -231,24 +228,59 @@ internal class GatewayControlViewModel @Inject constructor(private val settings:
         }
         onConnected(saved.uid)
         val control = repository.states.value[saved.uid]
-        if (control?.writable == true && control.engineeringBindingConfirmed && control.snapshot?.desired?.get("backend") == control.snapshot?.effective?.get("backend")) {
-            val selected = (control.snapshot?.desired?.get("model") as? JsonPrimitive)?.content.orEmpty().ifBlank { saved.model }
-            connectionPreparation?.cancel()
-            if (selected.isNotBlank()) {
-                connectionPreparation = viewModelScope.launch {
-                    try {
-                        val mode = ReasoningPolicy.preference(saved.reasoning, settings.getFeatureSettings().llamaReasoningModes[saved.uid])
-                        preparation.prepareSelected(saved.copy(model = selected), mode) { state ->
-                            state?.let { preparationStatus.value += (saved.uid to it.message) }
-                        }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        preparationStatus.value += (saved.uid to "Could not confirm model readiness. Use Prepare model to retry.")
-                    }
+        if (saved.model.isNotBlank()) {
+            val allowLoad = control?.writable == true &&
+                control.engineeringBindingConfirmed &&
+                control.snapshot?.desired?.get("backend") == control.snapshot?.effective?.get("backend") &&
+                ((control.snapshot?.desired?.get("model") as? JsonPrimitive)?.content.orEmpty().ifBlank { saved.model } == saved.model)
+            checkConnectedModel(saved, allowLoad)
+        }
+    }
+
+    private fun checkConnectedModel(profile: PlatformV2, allowLoad: Boolean) {
+        connectionPreparation?.cancel()
+        connectionPreparation = viewModelScope.launch {
+            try {
+                val mode = ReasoningPolicy.preference(profile.reasoning, settings.getFeatureSettings().llamaReasoningModes[profile.uid])
+                preparation.prepareSelectedWhile(profile, mode, forceRefresh = true, validateSelection = {
+                    check(settings.fetchPlatformV2s().any { it.uid == profile.uid && it.enabled && it.apiUrl == profile.apiUrl && it.model == profile.model })
+                }, allowLoad = allowLoad) { state ->
+                    state?.let { preparationStatus.value += (profile.uid to it.message) }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                preparationStatus.value += (profile.uid to "Could not confirm readiness for ${profile.model}. Refresh the connection to recheck.")
             }
         }
+    }
+
+    private suspend fun resolveProfileModel(profile: PlatformV2) {
+        if (profile.model.isNotBlank()) return
+        val key = profile.uid to profile.apiUrl
+        val options = try {
+            withTimeoutOrNull(4_000) { ProfileModelCatalog().load(profile) }.orEmpty()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val configured = (repository.states.value[profile.uid]?.snapshot?.effective?.get("model") as? JsonPrimitive)?.content.orEmpty()
+        val selected = dev.chungjungsoo.gptmobile.data.repository.gatewayProfileModel(options, configured)
+        candidates.value += (key to options.map { it.id })
+        if (selected != null) saveModel(profile, selected)
+    }
+
+    private suspend fun saveModel(profile: PlatformV2, selected: String): PlatformV2 {
+        require(selected in candidates.value[profile.uid to profile.apiUrl].orEmpty())
+        val current = settings.fetchPlatformV2s().single { it.uid == profile.uid && it.enabled && it.apiUrl == profile.apiUrl }
+        if (current.model.isNotBlank()) return current
+        return current.copy(model = selected).also { settings.updatePlatformV2(it) }
+    }
+
+    fun chooseModel(profile: PlatformV2, selected: String) = run(profile) { current ->
+        val saved = saveModel(current, selected)
+        checkConnectedModel(saved, allowLoad = false)
     }
 
     fun prepareModel(profile: PlatformV2, model: String, onMessage: (String) -> Unit) = run(profile) { current ->

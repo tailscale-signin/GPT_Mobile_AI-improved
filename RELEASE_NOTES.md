@@ -1,3 +1,9 @@
+# GPT Mobile 0.9.66.11 (build 145) and Windows Gateway 18.1.0
+
+Gateway connections remember the selected inference model, identify an active model from the backend catalog, and offer a picker when several candidates remain. GitHub integration checks keep the open PR and its revision, classify prerequisites before bulk reads, and show the available tool budget. Verification reports open with a short summary. Expand the details to inspect receipts or see why an operation stopped. Baseline decisions report time spent waiting for a choice.
+
+Windows Gateway 18.1.0 includes the rebuilt setup and desktop workspaces. The Android voice update uses Kokoro model timing for caption highlights.
+
 # GPT Mobile 0.9.66.10 (build 144) and Windows Gateway 18.0.0
 
 Release validation now starts every required workflow when the Android version or coordinated publication request changes. Publication still waits for successful checks on the exact main commit, including development environments and Windows installer verification.

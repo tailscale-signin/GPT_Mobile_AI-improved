@@ -178,9 +178,17 @@ fun ChatMarkdown(
     onContentDrawn: (() -> Unit)? = null,
     adaptiveAnswerLength: Int? = null
 ) {
-    GitHubLineDocument(contentIdentity, content) {
-        AdaptiveAnswerTypography(content, adaptiveAnswerLength) {
-            ChatMarkdownContent(content = content, contentIdentity = contentIdentity, memoryValues = memoryValues, highlightSentence = highlightSentence, highlightProgress = highlightProgress, streaming = streaming, animateStreaming = animateStreaming && !(streaming && wording != null), proseColor = proseColor, provenance = provenance, wording = wording, outputTrace = outputTrace, modifier = modifier, minimumPendingHeight = minimumPendingHeight, onContentDrawn = onContentDrawn)
+    val split = remember(content) {
+        if (content.startsWith("# GitHub verification report") && "\n### Verification details\n" in content) content.indexOf("\n### Verification details\n") else -1
+    }
+    var showDetails by androidx.compose.runtime.saveable.rememberSaveable(contentIdentity.toString(), split >= 0) { mutableStateOf(false) }
+    val visible = if (split >= 0 && !showDetails && !streaming) content.take(split).trimEnd() else content
+    GitHubLineDocument(contentIdentity, visible) {
+        AdaptiveAnswerTypography(visible, adaptiveAnswerLength) {
+            ChatMarkdownContent(content = visible, contentIdentity = contentIdentity, memoryValues = memoryValues, highlightSentence = highlightSentence, highlightProgress = highlightProgress, streaming = streaming, animateStreaming = animateStreaming && !(streaming && wording != null), proseColor = proseColor, provenance = provenance, wording = wording, outputTrace = outputTrace, modifier = modifier, minimumPendingHeight = minimumPendingHeight, onContentDrawn = onContentDrawn)
+        }
+        if (split >= 0 && !streaming) {
+            TextButton(onClick = { showDetails = !showDetails }) { Text(if (showDetails) "Hide verification details" else "Show receipts and verification details") }
         }
     }
 }

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
@@ -85,6 +86,36 @@ internal class GitHubEvidenceBook(
         val preflight = GitHubTestChecklist.fixtureApprovalPreflight(fixtureDecisionMode, binding, repository, branch, runtimeIdentity())
         save(fixturePreflightId, preflight)
         preflight
+    }
+
+    suspend fun classifyBeforeAcquisition(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, preflight: JsonObject): JsonObject {
+        if ("capability_classification" in preflight || tools.isEmpty() || receipts.values.any { it["tool"] != JsonPrimitive(GitHubAuthorizedCatalog.TOOL) }) return preflight
+        val catalog = GitHubAuthorizedCatalog.snapshot(receipts, tools)
+        if (catalog["complete"] != JsonPrimitive(true)) return preflight
+        val states = buildJsonObject {
+            GitHubTestChecklist.rows(receipts, tools, task, preflight).filterIsInstance<JsonObject>().filter { it["required"] == JsonPrimitive(true) }.forEach { row ->
+                val blocker = (row["blocker_code"] as? JsonPrimitive)?.content.orEmpty()
+                val state = when {
+                    "APPROVAL" in blocker || blocker == "USER_DECISION_REQUIRED" -> "APPROVAL_BLOCKED"
+                    "FIXTURE" in blocker -> "FIXTURE_BLOCKED"
+                    blocker in setOf("WORKFLOW_RUN_OR_JOB_REQUIRED", "CHECK_SUBSCRIPTION_REQUIRED") -> "WORKFLOW_INPUT_REQUIRED"
+                    blocker == "EXECUTION_NOT_EXERCISED" -> "READY"
+                    else -> "LIVE_EVIDENCE_REQUIRED"
+                }
+                put((row.getValue("id") as JsonPrimitive).content, state)
+            }
+        }
+        if (states.isEmpty()) return preflight
+        val plan = buildJsonObject {
+            put("request_digest", digest(task))
+            put("inventory_version", catalog.getValue("inventory_version"))
+            put("receipt_ids", catalog.getValue("receipt_ids"))
+            put("states", states)
+        }
+        return mutex.withLock {
+            val saved = load(fixturePreflightId) ?: preflight
+            if ("capability_classification" in saved) saved else JsonObject(saved + ("capability_classification" to plan)).also { save(fixturePreflightId, it) }
+        }
     }
 
     private fun attemptKey(tool: String, arguments: JsonObject): AttemptKey =

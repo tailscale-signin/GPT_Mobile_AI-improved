@@ -75,13 +75,14 @@ internal class GatewayGraphHttpFailure(
     val httpStatus: Int,
     val retryAfterMillis: Long? = null,
     val rateLimitObservation: JsonObject? = null,
-    val internalCode: String? = null
+    val internalCode: String? = null,
+    val requestId: String? = null
 ) : IllegalStateException("The selected gateway repository graph request failed (HTTP $httpStatus). Check its saved status before continuing an unconfirmed index request.") {
     val code: String get() = (rateLimitObservation?.get("code") as? JsonPrimitive)?.contentOrNull ?: internalCode ?: "GRAPH_HTTP_REJECTED"
 
     companion object {
         /** A gateway 429 and an upstream GitHub rejection describe separate request boundaries. */
-        fun fromResponse(status: Int, retryAfterMillis: Long?, detail: JsonObject?): GatewayGraphHttpFailure {
+        fun fromResponse(status: Int, retryAfterMillis: Long?, detail: JsonObject?, requestId: String? = null): GatewayGraphHttpFailure {
             fun text(key: String) = (detail?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             val code = text("code")
             val origin = text("rate_limit_origin")
@@ -115,7 +116,7 @@ internal class GatewayGraphHttpFailure(
             } else {
                 null
             }
-            return GatewayGraphHttpFailure(status, retryAfterMillis, observation, internalCode)
+            return GatewayGraphHttpFailure(status, retryAfterMillis, observation, internalCode, requestId?.takeIf { it.matches(Regex("[a-fA-F0-9-]{16,64}")) })
         }
     }
 }

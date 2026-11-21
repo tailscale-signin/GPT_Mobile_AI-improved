@@ -76,7 +76,15 @@ internal class GitHubProgressNarrator(
         }
         val prompt = current.prompt()
         val reservation = TextTokenEstimate.estimate(INSTRUCTION + prompt) + OUTPUT_TOKENS
-        if (reservation > tokenBudget - reservedTokens || !admit(reservation, workReplayTokens)) return
+        if (reservation > tokenBudget - reservedTokens || !admit(reservation, workReplayTokens)) {
+            validate()
+            if (snapshot().revision != current.revision) return
+            lastAttemptAt = at
+            lastRevision = current.revision
+            lastEvidenceKey = evidenceKey
+            publishFacts(factual, evidenceKey, factKeys)
+            return
+        }
         validate()
         lastAttemptAt = at
         lastRevision = current.revision

@@ -193,7 +193,7 @@ class ProgressiveToolCatalog(
     }
     override val definition = AgentToolDefinition(
         NAME,
-        "List authorized tools with {} or search by query/names. For GitHub, one name plus action returns its action schema. Omit action for all. Follow continuation_call exactly. Tools appear next round.",
+        "List authorized tools with {}. Omit unused fields. Supply query as text or names as an array of strings. For GitHub, one name plus action returns its action schema. Omit action for all. Follow continuation_call exactly. Tools appear next round.",
         buildJsonObject {
             put("type", "object")
             put(

@@ -413,10 +413,13 @@ class ChatViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val conversationUsage = (invocationLedger?.usageForChat(chatRoomId) ?: flowOf(emptyList())).sample(250)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val researchProfileStatistics = combine(
         researchSessions,
         researchExecutionState,
-        (invocationLedger?.usageForChat(chatRoomId) ?: flowOf(emptyList())).sample(250),
+        conversationUsage,
         researchDatabase?.research()?.jobs()?.map { rows -> rows.filter { it.chatId == chatRoomId } }?.distinctUntilChanged() ?: flowOf(emptyList())
     ) { sessions, executions, requests, jobs ->
         val byRoot = sessions.values.filter { it.chatId == chatRoomId }.groupBy { it.turnId }

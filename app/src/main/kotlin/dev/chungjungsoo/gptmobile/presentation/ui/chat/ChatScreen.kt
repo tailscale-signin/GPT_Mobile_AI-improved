@@ -1601,11 +1601,12 @@ private fun ChatScreenContent(
         }
 
         if (showStatistics) {
+            val usage by chatViewModel.conversationUsage.collectAsStateWithLifecycle()
             ChatStatisticsDialog(
                 groupedMessages.assistantMessages.map { it.size },
                 groupedMessages.userMessages.size,
                 toolEventsByRun.values.sumOf { it.size },
-                invocationDiagnostics,
+                usage,
                 hasOlderHistory,
                 chatViewModel::loadOlderMessages
             ) { showStatistics = false }

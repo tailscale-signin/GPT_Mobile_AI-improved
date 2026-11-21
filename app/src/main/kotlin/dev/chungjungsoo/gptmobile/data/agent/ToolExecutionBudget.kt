@@ -741,7 +741,7 @@ class ToolExecutionBudget(
     private fun outputBudgetMessage(): String {
         val configured = outputByteLimit.get().coerceAtLeast(0)
         return "Tool-result byte budget exhausted: $configured/$configured bytes used. " +
-            "Use the successful results already available; completed delegated research should still be summarized."
+            "Summarize the successful results already available. A further read needs a new allowance for tool-result bytes; increasing the call limit alone cannot admit it."
     }
 
     private companion object {

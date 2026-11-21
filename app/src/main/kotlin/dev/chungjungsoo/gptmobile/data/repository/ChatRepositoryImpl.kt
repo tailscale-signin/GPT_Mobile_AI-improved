@@ -6557,6 +6557,8 @@ class ChatRepositoryImpl(
                                     dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.boundaryFields(
                                         dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.AGENT_FAILED_EVENT
                                     ) + mapOf(
+                                        "failed_event_provider_text_seen" to kotlinx.serialization.json.JsonPrimitive(providerTextSeen),
+                                        "failed_event_answer_emitted" to kotlinx.serialization.json.JsonPrimitive(visibleAnswerEmitted),
                                         "failed_event_code_present" to kotlinx.serialization.json.JsonPrimitive(providerEvent.errorCode != null),
                                         "failed_event_invocation_present" to kotlinx.serialization.json.JsonPrimitive(providerEvent.invocationId != null),
                                         "failed_event_details_present" to kotlinx.serialization.json.JsonPrimitive(!providerEvent.failureDetails.isNullOrEmpty())

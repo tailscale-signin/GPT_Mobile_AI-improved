@@ -186,15 +186,18 @@
     "native": "PASS: real pinned Kokoro/ORT JNI audio and word timings, frontend parity, before/in-flight cancellation and reset; pronunciation and executed-provider-evidence CTests.",
     "gateway": "PASS:125 Python suites/1607 reported tests (32 platform/optional-dependency skips) plus7 browser tests in locked core environment; supplemental23-case voice suite passed with0 skips using hash-verified NumPy2.3.5. Windows Python3.12/3.13 Gateway stability44948109989 passed on44e1656e, including repaired path/newline cases, voice23 tests (2 optional NumPy skips), durable-event stress and authentication188/188. Windows installer44948109947 also passed.",
     "authentication": "PASS:188 tests, including compatibility with existing hosted voice-report vocabulary.",
-    "credentials": "PASS: pinned Gitleaks8.30.1 scanned all8712 reachable commits with the same heads/tags/PR merge as CI. Both original findings were independently verified SHA-256 values for tests/fixtures/voice-frontend-tokens.json in the generated Gateway manifest (implementation commit and merge preview). Exact manifest path/fixture entry exception clears those false positives. Real-scanner controls still reject the same line elsewhere, an unrelated credential, and another manifest token entry."
+    "credentials": "PASS: pinned Gitleaks8.30.1 scanned all8712 reachable commits with the same heads/tags/PR merge as CI. Both original findings were independently verified SHA-256 values for tests/fixtures/voice-frontend-tokens.json in the generated Gateway manifest (implementation commit and merge preview). Exact manifest path/fixture entry exception clears those false positives. Real-scanner controls still reject the same line elsewhere, an unrelated credential, and another manifest token entry.",
+    "pr_voice_head": "PASS: all 15 applicable workflow groups on ad26151b2916bf25feb20bcb99c5f233e7de790d. The Android audit executed 11882 tests:11877 passed,0 failures/errors,5 dedicated-heap skips; separate PR heap gates passed. New concurrent source requires fresh combined-head validation.",
+    "combined_integration": "Focused progress behavior:38 actual-source JVM tests passed with0 failures/skips, including two regressions that failed before the fix. Hosted report readiness:12 tests passed, including missing-capability rejection, future-capability compatibility and native-only operation without a network call. CI on incoming386997d found Collection<String> vs List<String> at GitHubVerifiedSession1171; the internal-fault empty result is now a List. A local full Android compile process exited unexpectedly during KSP without a compiler diagnostic; full combined-head Actions remain required. Combined canonical fast validation passed592 tests plus resource, inventory, policy, regex and provenance checks."
   },
   "publication": {
-    "status": "READY_PR_AWAITING_FINAL_EXACT_COMMIT_CHECKS"
+    "status": "DRAFT_AWAITING_COMBINED_HEAD_VALIDATION_AND_CONCURRENT_SCOPE"
   },
   "concurrent_commits_preserved": [
     "6a905e21188c659d50f6bcbb8bbbcf9999eda12f",
     "d65b306d867fc54617e179b2de15e1b8883ed340",
-    "87390e2800ee5749c0b2c4eb7f3379cc0be58f02"
+    "87390e2800ee5749c0b2c4eb7f3379cc0be58f02",
+    "386997d862447884142698b1623abefdee15c7ee"
   ],
-  "concurrent_repair": "Preserved the incoming build-146 test compilation fixes, release-scope repair, and generated audit-inventory refresh. Subsequent fixture and Windows path corrections retain those commits."
+  "concurrent_repair": "Preserved build-146 fixture, release-scope and generated inventory repairs plus the incoming conversation continuity/diagnostic changes. Integration corrects list typing in stale receipt recovery, keeps retained progress observations from changing fresh blockers, and requires the new hosted conversation-recovery reporting capability. Additional concurrent approved design work remains pending on the same draft PR."
 }

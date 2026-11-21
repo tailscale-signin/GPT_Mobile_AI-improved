@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Intent
 import androidx.benchmark.macro.BaselineProfileMode
 import androidx.benchmark.macro.CompilationMode
+import androidx.benchmark.macro.ExperimentalMetricApi
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
@@ -26,7 +27,9 @@ class AppPerformanceBenchmark {
 
     @Test fun coldStart() = benchmark.measureRepeated(PACKAGE, listOf(StartupTimingMetric()), CompilationMode.None(), startupMode = StartupMode.COLD, iterations = 10, setupBlock = { pressHome() }) { startActivityAndWait() }
 
-    @Test fun exportWorkspaceAndJournal() = benchmark.measureRepeated(
+    @OptIn(ExperimentalMetricApi::class)
+    @Test
+    fun exportWorkspaceAndJournal() = benchmark.measureRepeated(
         PACKAGE,
         listOf(FrameTimingMetric(), androidx.benchmark.macro.TraceSectionMetric("conversation.export")),
         CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 2),

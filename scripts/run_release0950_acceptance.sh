@@ -215,12 +215,16 @@ folder = Path('app/build/acceptance-0950')
 check_instrumentation(folder / 'native-memory-instrumentation.txt')
 for test in (
     'upgradePreservesConversationHistoryAndPrivacyUseSurvivesReopen',
+    'upgradeLocksOnlyPreviouslyPrivateRoomsAndStaleUpdatesCannotUnlockThem',
 ):
     check_instrumentation(folder / 'privacy-migration-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.database.PrivacyModeMigrationInstrumentedTest', test)
 for test in (
     'unmaskedProfilePermanentlyRemovesTheSharedUserHighlightInEitherOrder',
     'staleUserSnapshotCannotRestoreHighlightsAfterAnUnmaskedSend',
     'staleSnapshotCannotClearPrivacyMarkerOrChangeAnotherConversation',
+    'permanentPrivacySurvivesAllSnapshotWritesAndRemainsSeparateFromUseEvidence',
+    'durablePrivatePolicyMarksInputPendingEvenOutsidePrivateExecutionContext',
+    'duplicatesBranchesAndEvidenceFreeRetriesInheritPermanentPrivacy',
     'staleSnapshotsCannotRestoreOrWidenProtectionForCurrentBodyAndRevisions',
     'editedSnapshotBodiesAndUnownedRevisionsCannotBorrowProtection',
     'snapshotRejectsMessagesOwnedByAnotherConversation',

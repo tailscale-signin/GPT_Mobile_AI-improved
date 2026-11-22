@@ -33,7 +33,14 @@ class MemoryRepository(
         encodeDefaults = true
     }
 
-    suspend fun read(): FactVaultSnapshot? = database.withTransaction { readLocked() }
+    suspend fun read(): FactVaultSnapshot? = database.withTransaction { readProtectedLocked() }
+
+    private suspend fun readProtectedLocked(): FactVaultSnapshot? {
+        val stored = readLocked() ?: return null
+        val protected = dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.protect(stored, database.chatRoomDao().privacyLockedChatIds().toSet())
+        if (protected != stored) writeLocked(protected, stored)
+        return protected
+    }
 
     private suspend fun readLocked(): FactVaultSnapshot? {
         val state = dao.state() ?: return null
@@ -166,7 +173,7 @@ class MemoryRepository(
 
     /** Portable plaintext exists only inside the password-protected backup's secret envelope. */
     suspend fun exportPortable(): Map<String, String> = database.withTransaction {
-        val snapshot = readLocked() ?: return@withTransaction emptyMap()
+        val snapshot = readProtectedLocked() ?: return@withTransaction emptyMap()
         val records = (dao.records("REVISION") + dao.records("TOMBSTONE")).map { row ->
             val bytes = decrypt(row)
             try {
@@ -222,12 +229,15 @@ class MemoryRepository(
             val suppressed = incoming.suppressedIds + protected?.suppressedIds.orEmpty()
             val evidence = incoming.suppressedEvidence + protected?.suppressedEvidence.orEmpty()
             val messages = incoming.suppressedMessages + protected?.suppressedMessages.orEmpty()
-            val restored = incoming.copy(
-                suppressedIds = suppressed,
-                suppressedEvidence = evidence,
-                suppressedMessages = messages,
-                suppressedChats = incoming.suppressedChats + protected?.suppressedChats.orEmpty(),
-                facts = incoming.facts.filterNot { it.sourceChatId in protected?.suppressedChats.orEmpty() || it.id in suppressed || "${it.scope}:${it.evidenceHash}" in evidence || "${it.scope}:${it.sourceChatId}:${it.sourceMessageId}" in messages }
+            val restored = dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.protect(
+                incoming.copy(
+                    suppressedIds = suppressed,
+                    suppressedEvidence = evidence,
+                    suppressedMessages = messages,
+                    suppressedChats = incoming.suppressedChats + protected?.suppressedChats.orEmpty(),
+                    facts = incoming.facts.filterNot { it.sourceChatId in protected?.suppressedChats.orEmpty() || it.id in suppressed || "${it.scope}:${it.evidenceHash}" in evidence || "${it.scope}:${it.sourceChatId}:${it.sourceMessageId}" in messages }
+                ),
+                database.chatRoomDao().privacyLockedChatIds().toSet()
             )
             database.withTransaction {
                 dao.clearFacts()

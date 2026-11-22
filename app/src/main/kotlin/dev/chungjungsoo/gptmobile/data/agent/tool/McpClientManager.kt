@@ -258,6 +258,7 @@ class McpClientManager internal constructor(
         listToolsWithReceipt(config, forceRefresh, awaitCompletion, passiveBackoff).tools
 
     internal suspend fun listToolsWithReceipt(config: McpConnectionConfig, forceRefresh: Boolean, awaitCompletion: Boolean, passiveBackoff: Boolean): McpDiscoveryReceipt {
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         val discoveryContext = kotlinx.coroutines.currentCoroutineContext()[McpDiscoveryContext]
             ?: McpDiscoveryContext(if (forceRefresh) McpDiscoveryTrigger.EXPLICIT_UNSPECIFIED else McpDiscoveryTrigger.AUTOMATIC_RESOLUTION)
         return if (discoveryContext.beforeOwnedDispatch == null) {
@@ -345,6 +346,11 @@ class McpClientManager internal constructor(
         } else {
             null
         }
+        // A shared application-owned producer must not discard its initiating chat's
+        // policy or inherit the settings of whichever conversation is visible later.
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+        val privacy = dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext.capture()
+            ?: dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(null, false)
         val (producer, source) = synchronized(catalogueProducers) {
             // Awaiters can observe a terminal producer before its completion handler
             // removes it. Only share live discovery; explicit refresh must not inherit
@@ -354,7 +360,7 @@ class McpClientManager internal constructor(
                 recordDecision(McpDiscoveryDecision.SHARED_PRODUCER)
                 return@synchronized shared to McpDiscoverySource.SHARED
             }
-            val owned = producerScope.async(context = discoveryContext, start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            val owned = producerScope.async(context = discoveryContext + privacy, start = kotlinx.coroutines.CoroutineStart.LAZY) {
                 recordDecision(McpDiscoveryDecision.START_ACQUISITION)
                 withTimeout(catalogueTimeoutMs) {
                     val epoch = catalogue.epoch

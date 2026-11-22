@@ -44,7 +44,8 @@ internal fun GatewayConversationIcon(
     modifier: Modifier = Modifier,
     animate: Boolean = true,
     conversationType: NewChatType? = null,
-    privacyEnabled: Boolean = false
+    privacyEnabled: Boolean = false,
+    privacyLocked: Boolean = false
 ) {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.CREATED)
     val reduced by FrameEffectPressure.guard.reduced.collectAsStateWithLifecycle()
@@ -95,7 +96,7 @@ internal fun GatewayConversationIcon(
                 }
             }
             if (privacyEnabled) {
-                ConversationPrivacyBadge(Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 1.dp))
+                ConversationPrivacyBadge(Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 1.dp), locked = privacyLocked)
             }
         }
     }

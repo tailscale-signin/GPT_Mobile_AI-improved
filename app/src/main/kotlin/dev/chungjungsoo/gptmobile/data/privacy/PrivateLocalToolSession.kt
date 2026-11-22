@@ -43,7 +43,8 @@ internal class PrivateLocalToolSession(
     tools: List<AgentTool>,
     private val open: suspend (List<ConversationTurn>, PlatformV2) -> AgentProviderSession
 ) : AgentProviderSession {
-    private val policy = store.snapshot()
+    private val privacy = checkNotNull(ConversationPrivacyContext.capture()) { "Conversation privacy policy is unavailable." }
+    private val policy = store.effectiveSnapshot(privacy.enabled)
     private val authorized = tools.associate { it.definition.name to it.definition }
 
     init {
@@ -54,7 +55,7 @@ internal class PrivateLocalToolSession(
     }
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
-        if (store.snapshot() != policy) {
+        if (store.effectiveSnapshot(privacy.enabled) != policy) {
             emit(rejected("DISPATCH_POLICY_CHANGED", "Privacy settings changed. Resend with the current settings."))
             return@flow
         }
@@ -79,7 +80,7 @@ internal class PrivateLocalToolSession(
         }
         val inherited = context[RequestAuthorizationGuard]
         val privateAuthority = RequestAuthorizationGuard("${inherited?.revision.orEmpty()}:private-local-${policy.revision}", inherited?.authority) {
-            check(store.snapshot() == policy) { "DISPATCH_POLICY_CHANGED: Privacy settings changed. Resend with the current settings." }
+            check(store.effectiveSnapshot(privacy.enabled) == policy) { "DISPATCH_POLICY_CHANGED: Privacy settings changed. Resend with the current settings." }
             inherited?.validate?.invoke()
         }
         privateAuthority.validate()
@@ -111,7 +112,7 @@ internal class PrivateLocalToolSession(
         val privateContext = privateAuthority + reply
         val session = withContext(privateContext) { open(roundTurns, roundProfile) }
         // Opening a transport may suspend. Recheck before even its first event.
-        if (store.snapshot() != policy) {
+        if (store.effectiveSnapshot(privacy.enabled) != policy) {
             emit(rejected("DISPATCH_POLICY_CHANGED", "Privacy settings changed. Resend with the current settings."))
             return@flow
         }
@@ -141,7 +142,7 @@ internal class PrivateLocalToolSession(
             emit(rejected("OUTPUT_PROTOCOL_INVALID", "The private text transport stopped before completing its tool decision."))
             return@flow
         }
-        if (store.snapshot() != policy) {
+        if (store.effectiveSnapshot(privacy.enabled) != policy) {
             emit(rejected("DISPATCH_POLICY_CHANGED", "Privacy settings changed. Resend with the current settings."))
             return@flow
         }
@@ -154,7 +155,7 @@ internal class PrivateLocalToolSession(
             }
         }
         emit(ProviderEvent.Completed)
-    }
+    }.flowOn(privacy)
 
     private fun evidence(exchanges: List<AgentToolExchange>): String? = try {
         val data = BoundedPrivateToolData()

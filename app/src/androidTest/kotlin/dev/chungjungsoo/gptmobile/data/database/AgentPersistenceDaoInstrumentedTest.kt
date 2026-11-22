@@ -178,6 +178,65 @@ class AgentPersistenceDaoInstrumentedTest {
     }
 
     @Test
+    fun permanentPrivacySurvivesAllSnapshotWritesAndRemainsSeparateFromUseEvidence() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val room = newChat().copy(privacyModeLocked = true).let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        val stale = room.copy(privacyModeLocked = false, title = "Stale title")
+
+        dao.saveChatSnapshot(stale, emptyList(), emptyMap())
+        dao.updateChatRoom(stale)
+        database.chatRoomDao().editChatRoom(stale)
+        database.chatRoomDao().addChatRoom(stale)
+
+        val saved = requireNotNull(dao.getChatRoom(room.id))
+        assertTrue(saved.privacyModeLocked)
+        assertFalse(saved.privacyModeEnabled)
+        assertEquals("Stale title", saved.title)
+    }
+
+    @Test
+    fun durablePrivatePolicyMarksInputPendingEvenOutsidePrivateExecutionContext() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val room = newChat().copy(privacyModeLocked = true).let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+
+        val turn = dao.persistAgentTurn(
+            PersistAgentTurnRequest(
+                chatRoom = room.copy(privacyModeLocked = false),
+                userMessage = MessageV2(content = "Protect Alice before dispatch", platformType = null),
+                runs = listOf(AgentRunDraft("locked-input", "profile-1", "OPENAI", "model")),
+                chatPlatformModels = mapOf("profile-1" to "model")
+            )
+        )
+
+        assertTrue(turn.chatRoom.privacyModeLocked)
+        assertFalse(turn.chatRoom.privacyModeEnabled)
+        assertFalse(requireNotNull(turn.userMessage.timeline.last().privacyProtection).confirmed)
+        val edited = turn.userMessage.copy(content = "Protect Bob before dispatch")
+        dao.saveChatSnapshot(room.copy(privacyModeLocked = false), listOf(edited) + turn.assistantMessages, emptyMap())
+        assertFalse(requireNotNull(dao.recoveryMessage(edited.id)?.timeline?.last()?.privacyProtection).confirmed)
+    }
+
+    @Test
+    fun duplicatesBranchesAndEvidenceFreeRetriesInheritPermanentPrivacy() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val room = newChat().copy(privacyModeLocked = true).let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        val user = MessageV2(chatId = room.id, content = "Original private question", platformType = null)
+            .let { it.copy(id = dao.insertMessage(it).toInt()) }
+
+        val duplicate = dao.duplicateChatWithHistory(room.id, "Private copy", 100)
+        val branch = dao.duplicateChatWithHistory(room.id, "Private branch", 101, user.copy(content = "Edited private question"))
+        val retry = dao.createEvidenceFreeRetry(room.id, "Fresh private question", "profile-1", "model", 102)
+
+        for (derived in listOf(duplicate, branch, retry)) {
+            assertTrue(derived.privacyModeLocked)
+            assertTrue(requireNotNull(dao.getChatRoom(derived.id)).privacyModeLocked)
+            assertFalse(derived.privacyModeEnabled)
+        }
+        assertEquals(room.id, branch.parentChatId)
+        assertEquals(user.id, branch.branchMessageId)
+    }
+
+    @Test
     fun staleSnapshotsCannotRestoreOrWidenProtectionForCurrentBodyAndRevisions() = runBlocking {
         val dao = database.agentPersistenceDao()
         val text = "Alice and Bob"

@@ -83,7 +83,7 @@ data class AppAuditFixtureEvidence(
 
 /** Settings metadata only. Custom terms, category choices and replacement maps are never read here. */
 @Serializable
-data class AppAuditPrivacyEvidence(val enabled: Boolean?, val revision: Long?, val changedDuringProbe: Boolean? = null)
+data class AppAuditPrivacyEvidence(val enabled: Boolean?, val revision: Long?, val changedDuringProbe: Boolean? = null, val featureAvailable: Boolean? = null)
 
 @Serializable
 data class AppAuditRecoveryEvidence(
@@ -93,7 +93,7 @@ data class AppAuditRecoveryEvidence(
 )
 
 internal fun appAuditPrivacySnapshot(): AppAuditPrivacyEvidence? = runCatching { PrivacyModeStore.auditPolicySnapshot() }.getOrNull()?.let {
-    AppAuditPrivacyEvidence(it.enabled, it.revision.takeIf { revision -> revision >= 0 })
+    AppAuditPrivacyEvidence(PrivacyModeStore.active(), it.protectionRevision.takeIf { revision -> revision >= 0 }, featureAvailable = it.enabled)
 }
 
 internal fun appAuditPrivacyObservation(before: AppAuditPrivacyEvidence?, after: AppAuditPrivacyEvidence?): AppAuditPrivacyEvidence? =

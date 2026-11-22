@@ -2056,7 +2056,7 @@ class ChatViewModel @Inject constructor(
                 check(validated.participantUids.all { profiles[it]?.enabled == true }) { "A selected AI profile is unavailable." }
                 var room = _chatRoom.value
                 if (room.id <= 0) {
-                    room = chatRepository.createDraftChat(room.activePlatform, ConversationMode.COMBINED, room.title, room.combinedPrimaryUid)
+                    room = chatRepository.createDraftChat(room.activePlatform, ConversationMode.COMBINED, room.title, room.combinedPrimaryUid, privacyModeLocked = room.privacyModeLocked)
                     _chatRoom.value = room
                     settingRepository.ensureConversationIdentity(room.id, _combinedConversationIdentity.value)
                 }
@@ -4517,7 +4517,7 @@ class ChatViewModel @Inject constructor(
                     val platform = _platformsInApp.value.firstOrNull { it.uid in activeUids && it.enabled }
                         ?: _platformsInApp.value.firstOrNull()
                         ?: return@launch
-                    chatRepository.generateAiTitle(userContext, assistantContext, platform)
+                    chatRepository.generateAiTitle(userContext, assistantContext, platform, chatId = room.id)
                 }
                 val cleaned = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.clean(aiTitle.orEmpty())
                     ?: dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.clean(userContext)

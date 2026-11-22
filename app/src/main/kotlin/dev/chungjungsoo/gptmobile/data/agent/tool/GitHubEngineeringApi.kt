@@ -50,6 +50,7 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
 
     private suspend fun execute(path: String, method: String, body: JSONObject?, readOnlyHealthQuery: Boolean = false): String = withContext(Dispatchers.IO) {
         dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+        val privacy = dev.chungjungsoo.gptmobile.data.network.CapturedRequestPrivacy.capture(kotlinx.coroutines.currentCoroutineContext())
         require(path.startsWith("/") && !path.startsWith("//") && '\r' !in path && '\n' !in path)
         val credential = requireNotNull(token()?.takeIf { it.isNotBlank() && '\r' !in it && '\n' !in it }) { "Reconnect the GitHub account" }
         if (method != "GET" && !readOnlyHealthQuery) {
@@ -70,6 +71,7 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
             val requestBody = body?.toString()?.toRequestBody(JSON_MEDIA)
                 ?: if (method in setOf("POST", "PUT", "PATCH")) ByteArray(0).toRequestBody(JSON_MEDIA) else null
             val request = Request.Builder()
+                .tag(dev.chungjungsoo.gptmobile.data.network.CapturedRequestPrivacy::class.java, privacy)
                 .url(if (path == "/graphql") origins.graphQl else "${origins.rest}$path")
                 .header("Authorization", "Bearer $credential")
                 .header("Accept", "application/vnd.github+json")
@@ -141,7 +143,9 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
         // replay an engineering mutation inside the HTTP transport.
         private val transport = OkHttpClient.Builder()
             .addNetworkInterceptor { chain ->
-                if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) throw IOException("PRIVACY_SERVICE_UNVERIFIED")
+                val privacy = dev.chungjungsoo.gptmobile.data.network.ConversationPrivacyHttp.policy(chain.request())
+                privacy.recheckAuthorization()
+                if (privacy.conversation?.enabled == true) throw IOException("PRIVACY_SERVICE_UNVERIFIED")
                 chain.proceed(chain.request())
             }
             .retryOnConnectionFailure(false)

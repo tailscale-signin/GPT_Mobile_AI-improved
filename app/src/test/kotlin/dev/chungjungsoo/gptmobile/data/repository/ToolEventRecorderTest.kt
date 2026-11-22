@@ -1231,7 +1231,7 @@ private class FakeAgentPersistenceDao :
     }
 
     override suspend fun insertChatRoom(chatRoom: ChatRoomV2): Long = unused()
-    override suspend fun updateChatRoom(chatRoom: ChatRoomV2) = unused<Unit>()
+    override suspend fun rawUpdateChatRoom(chatRoom: ChatRoomV2) = unused<Unit>()
     override suspend fun insertMessage(message: MessageV2): Long = unused()
     override suspend fun insertRun(run: AgentRun) = unused<Unit>()
     override suspend fun insertToolEvent(event: ToolEvent) {

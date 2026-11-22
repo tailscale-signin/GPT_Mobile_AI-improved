@@ -39,7 +39,7 @@ class ConversationProgressPresentationTest {
                 title = "Private conversation",
                 enabledPlatform = if (type == NewChatType.MULTI_CHAT) listOf("one", "two") else listOf("one"),
                 conversationMode = if (type == NewChatType.COMBINED) ConversationMode.COMBINED else ConversationMode.STANDARD,
-                privacyModeEnabled = privacyEnabled
+                privacyModeLocked = privacyEnabled
             )
             MaterialTheme {
                 ChatListItem(
@@ -64,15 +64,15 @@ class ConversationProgressPresentationTest {
             val badge = compose.onNodeWithTag("conversation_privacy_badge", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
             assertTrue(badge.center.x > icon.center.x)
             assertTrue(badge.center.y > icon.center.y)
-            compose.onNodeWithContentDescription("Privacy Mode", useUnmergedTree = true).assertExists()
+            compose.onNodeWithContentDescription("Permanently private conversation", useUnmergedTree = true).assertExists()
         }
         compose.runOnIdle { privacyEnabled = false }
         compose.onNodeWithTag("conversation_privacy_badge", useUnmergedTree = true).assertDoesNotExist()
-        compose.onNodeWithContentDescription("Privacy Mode", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Permanently private conversation", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun privacyBadgeAndGatewayConnectionRemainVisibleWithoutOverlapping() {
-        val room = ChatRoomV2(id = 1, title = "Private gateway", conversationMode = ConversationMode.GATEWAY, privacyModeEnabled = true)
+        val room = ChatRoomV2(id = 1, title = "Private gateway", conversationMode = ConversationMode.GATEWAY, privacyModeLocked = true)
         var working by mutableStateOf(true)
         compose.setContent {
             MaterialTheme {
@@ -86,9 +86,20 @@ class ConversationProgressPresentationTest {
             assertTrue(cloud.bottom <= privacy.top)
             assertTrue(privacy.center.x > mode.center.x)
             assertTrue(privacy.center.y > mode.center.y)
-            compose.onNodeWithContentDescription("Privacy Mode", useUnmergedTree = true).assertExists()
+            compose.onNodeWithContentDescription("Permanently private conversation", useUnmergedTree = true).assertExists()
             compose.runOnIdle { working = false }
         }
+    }
+
+    @Test fun historicalPrivacyMarkerDoesNotClaimAPermanentLock() {
+        val room = ChatRoomV2(id = 1, title = "Historical privacy", privacyModeEnabled = true, privacyModeLocked = false)
+        compose.setContent {
+            MaterialTheme {
+                ChatListItem(room, 0, HomeViewModel.ChatListState(chats = listOf(room)), false, false, "Selected profile", emptyList(), onItemClick = {}, onItemLongClick = {}, animateStatus = false)
+            }
+        }
+        compose.onNodeWithContentDescription("Privacy Mode used previously", useUnmergedTree = true).assertExists()
+        compose.onNodeWithContentDescription("Permanently private conversation", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun completionFlashesOnlyAfterVisibleActivityAndTerminalBarsDoNotReplay() {

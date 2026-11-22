@@ -68,7 +68,7 @@ class PrivacyModeViewModel @Inject constructor(
     fun setCategory(category: PrivacyCategory, enabled: Boolean) = store.requestCategory(category, enabled)
 }
 
-/** Simple master switch; maximum safeguards when enabled, individual categories default ON. */
+/** Availability for new private conversations; saved conversation locks remain permanent. */
 @Composable
 internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -84,7 +84,7 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("Privacy Mode", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (state.enabled) "ON · Local text masking" else "OFF · Standard profile availability",
+                    if (state.enabled) "Available for new private chats" else "Unavailable for new private chats",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -103,7 +103,12 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
             }
         }
         Text(
-            "When on, Privacy Mode masks personal details on this device and checks cloud routes for no training, content logging or routine retention. All enabled profiles can be selected. Unverified providers receive masked text under their own retention policies.",
+            "Enable this option to make Private chat available in New Chat. Select it there to permanently protect that conversation and every selected AI profile. New chats start unchecked. Turning this option off only prevents new private chats; saved private chats stay protected after reopening or restarting the app.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            "Private conversations mask personal details on this device and check cloud routes for no training, content logging or routine retention. All enabled profiles can be selected. Unverified providers receive masked text under their own retention policies.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

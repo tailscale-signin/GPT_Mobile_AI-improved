@@ -48,8 +48,11 @@ private fun appAuditFixtureStateText(state: AppAuditFixtureState): String = buil
 @Composable
 internal fun AppAuditPrivacyDetails(policy: AppAuditPrivacyEvidence?) {
     if (policy == null) return
+    policy.featureAvailable?.let { available ->
+        Text("Private chat available in New Chat: ${if (available) "yes" else "no"}", style = MaterialTheme.typography.bodySmall)
+    }
     Text(
-        "Recorded privacy mode: ${when (policy.enabled) {
+        "${if (policy.featureAvailable != null) "Conversation protection during this probe" else "Recorded legacy privacy setting"}: ${when (policy.enabled) {
             true -> "enabled"
             false -> "disabled"
             null -> "not observed"

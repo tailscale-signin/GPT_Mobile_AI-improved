@@ -251,6 +251,7 @@ private fun ChatScreenContent(
 ) {
     val voiceControls = dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoiceMessageControls.current
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
+    dev.chungjungsoo.gptmobile.presentation.common.PrivateConversationScreenProtection(chatRoom.privacyModeLocked)
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val providerWaitDeadlines by chatViewModel.providerWaitDeadlines.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
@@ -911,6 +912,7 @@ private fun ChatScreenContent(
                     isTitleCustomized = chatRoom.isTitleCustomized,
                     isMenuItemEnabled = chatRoom.id > 0,
                     isModelItemEnabled = chatViewModel.enabledPlatformsInChat.isNotEmpty(),
+                    privacyLocked = chatRoom.privacyModeLocked,
                     onBackAction = onBackFromChat,
                     scrollBehavior = scrollBehavior,
                     onChatTitleItemClick = chatViewModel::openChatTitleDialog,
@@ -2569,6 +2571,7 @@ private fun ChatTopBar(
     onDisablePlatformClick: () -> Unit = {},
     onOutlineClick: () -> Unit = {},
     onStatisticsClick: () -> Unit = {},
+    privacyLocked: Boolean = false,
     gatewayStatus: String? = null,
     onGatewayStatus: () -> Unit = {},
     expanded: Boolean,
@@ -2654,6 +2657,14 @@ private fun ChatTopBar(
             ),
             scrollBehavior = scrollBehavior
         )
+        if (privacyLocked) {
+            Text(
+                "Private chat · Privacy stays on for this conversation",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag("chat_permanent_privacy")
+            )
+        }
         AnimatedVisibility(
             visible = expanded,
             enter = expandVertically(animationSpec = tween(280)) + fadeIn(tween(280)),

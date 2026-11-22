@@ -34,7 +34,7 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [34])
 class AgentRunExecutionTest {
     private class Fixture(gateway: GatewayChatSubmission? = null) {
-        val chats = mockk<ChatRepository>()
+        val chats = mockk<ChatRepository>().also { repository -> coEvery { repository.conversationPrivacyLocked(any()) } returns false }
         val settings = mockk<SettingRepository>()
         val completions = mockk<GenerationCompletionStore>(relaxed = true)
         val terminals = MutableStateFlow<Map<String, Triple<MessageV2, String, String?>>>(emptyMap())
@@ -106,6 +106,47 @@ class AgentRunExecutionTest {
         } finally {
             releaseFirst.complete(Unit)
             fixture.coordinator.cancelChatAndJoin(1)
+        }
+    }
+
+    @Test fun applicationOwnedRunsReloadAndKeepEachConversationsPrivacy() = runBlocking {
+        val fixture = Fixture()
+        val private = fixture.request("private", 2)
+        val ordinary = fixture.request("ordinary", 3).let { request ->
+            request.copy(chatId = 2, assistantMessage = request.assistantMessage.copy(chatId = 2), userMessages = request.userMessages.map { it.copy(chatId = 2) }, assistantMessages = request.assistantMessages.map { turn -> turn.map { it.copy(chatId = 2) } })
+        }
+        coEvery { fixture.chats.conversationPrivacyLocked(1) } returns true
+        coEvery { fixture.chats.conversationPrivacyLocked(2) } returns false
+        val firstReady = CompletableDeferred<Unit>()
+        val secondReady = CompletableDeferred<Unit>()
+        coEvery { fixture.chats.completeChat(any(), any(), any(), "private", any(), any()) } returns flow {
+            assertTrue(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
+            firstReady.complete(Unit)
+            secondReady.await()
+            assertTrue(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
+            emit(ApiState.Success("Private answer."))
+            emit(ApiState.Done)
+        }
+        coEvery { fixture.chats.completeChat(any(), any(), any(), "ordinary", any(), any()) } returns flow {
+            firstReady.await()
+            assertEquals(false, dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
+            secondReady.complete(Unit)
+            emit(ApiState.Success("Ordinary answer."))
+            emit(ApiState.Done)
+        }
+        try {
+            fixture.coordinator.resumeProviderRequests(listOf(private, ordinary))
+            assertEquals(AgentRunStatus.COMPLETED, fixture.terminal("private").second)
+            assertEquals(AgentRunStatus.COMPLETED, fixture.terminal("ordinary").second)
+            fixture.idle()
+            assertEquals(false, dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
+            coVerify(exactly = 1) { fixture.chats.conversationPrivacyLocked(1) }
+            coVerify(exactly = 1) { fixture.chats.conversationPrivacyLocked(2) }
+        } finally {
+            firstReady.complete(Unit)
+            secondReady.complete(Unit)
+            fixture.coordinator.cancelChatAndJoin(1)
+            fixture.coordinator.cancelChatAndJoin(2)
         }
     }
 

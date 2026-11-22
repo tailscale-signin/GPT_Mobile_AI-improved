@@ -174,6 +174,7 @@ internal fun VoiceChatScreen(
     presentation: VoiceRoomPresentationViewModel = hiltViewModel()
 ) {
     val room by model.chatRoom.collectAsStateWithLifecycle()
+    dev.chungjungsoo.gptmobile.presentation.common.PrivateConversationScreenProtection(room.privacyModeLocked)
     LaunchedEffect(room.id, room.createdAt, room.isTemporary) {
         presentation.rememberVoiceRoom(VoiceRoomIdentity.persistent(room.id, room.createdAt, room.isTemporary))
     }

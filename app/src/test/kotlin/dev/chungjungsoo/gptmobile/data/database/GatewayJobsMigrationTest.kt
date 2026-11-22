@@ -229,7 +229,7 @@ class GatewayJobsMigrationTest {
     }
 
     private fun assertCurrentSchemaAndCaptureIndex(database: SupportSQLiteDatabase) {
-        assertEquals(53, database.version)
+        assertEquals(54, database.version)
         database.query("PRAGMA index_info(`index_workspace_records_chatId_updatedAt`)").use { columns ->
             val names = buildList { while (columns.moveToNext()) add(columns.getString(2)) }
             assertEquals(listOf("chatId", "updatedAt"), names)

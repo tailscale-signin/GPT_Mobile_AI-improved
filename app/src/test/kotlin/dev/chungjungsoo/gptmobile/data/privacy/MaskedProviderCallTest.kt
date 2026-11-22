@@ -231,7 +231,7 @@ class MaskedProviderCallTest {
             savedInputs += message to receipt
             afterInput()
         }
-        private val executionContext: CoroutineContext = if (owner == null) protection else protection + owner
+        private val executionContext: CoroutineContext = ConversationPrivacyContext(27, true) + if (owner == null) protection else protection + owner
         lateinit var outgoingTurns: List<ConversationTurn>
         lateinit var outgoingProfile: PlatformV2
         var opens = 0
@@ -244,7 +244,7 @@ class MaskedProviderCallTest {
         }
 
         init {
-            every { store.snapshot() } answers { state }
+            every { store.effectiveSnapshot(true) } answers { state }
             coEvery { store.privateTerms() } returns listOf("private-code-4927")
         }
 

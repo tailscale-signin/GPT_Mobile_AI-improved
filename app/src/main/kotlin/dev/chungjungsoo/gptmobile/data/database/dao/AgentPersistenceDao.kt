@@ -250,7 +250,18 @@ interface AgentPersistenceDao :
     }
 
     @Update
-    suspend fun updateChatRoom(chatRoom: ChatRoomV2)
+    suspend fun rawUpdateChatRoom(chatRoom: ChatRoomV2)
+
+    @Transaction
+    suspend fun updateChatRoom(chatRoom: ChatRoomV2) {
+        val current = getChatRoom(chatRoom.id)
+        rawUpdateChatRoom(
+            chatRoom.copy(
+                privacyModeEnabled = chatRoom.privacyModeEnabled || current?.privacyModeEnabled == true,
+                privacyModeLocked = chatRoom.privacyModeLocked || current?.privacyModeLocked == true
+            )
+        )
+    }
 
     @Insert
     suspend fun insertMessage(message: MessageV2): Long
@@ -1024,7 +1035,8 @@ interface AgentPersistenceDao :
             activePlatform = listOf(profileUid),
             createdAt = now,
             updatedAt = now,
-            isTemporary = source.isTemporary
+            isTemporary = source.isTemporary,
+            privacyModeLocked = source.privacyModeLocked
         )
         val room = draft.copy(id = insertChatRoom(draft).toInt())
         val user = insertMessage(MessageV2(chatId = room.id, content = question, platformType = null, createdAt = now)).toInt()
@@ -1087,7 +1099,7 @@ interface AgentPersistenceDao :
             val roomSnapshot = (if (request.queuedPromptId == null) pinnedRequestRoom else current).let { room ->
                 if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED) room.copy(combinedPrimaryUid = current.combinedPrimaryUid ?: room.combinedPrimaryUid ?: room.activePlatform.firstOrNull()) else room
             }
-            val merged = roomSnapshot.copy(draftText = if (submittedDraft) null else current.draftText, draftAttachments = if (submittedDraft) "[]" else current.draftAttachments, draftUpdatedAt = if (submittedDraft) null else current.draftUpdatedAt, lastShareToken = current.lastShareToken, privacyModeEnabled = roomSnapshot.privacyModeEnabled || current.privacyModeEnabled || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
+            val merged = roomSnapshot.copy(draftText = if (submittedDraft) null else current.draftText, draftAttachments = if (submittedDraft) "[]" else current.draftAttachments, draftUpdatedAt = if (submittedDraft) null else current.draftUpdatedAt, lastShareToken = current.lastShareToken, privacyModeEnabled = roomSnapshot.privacyModeEnabled || current.privacyModeEnabled || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active(), privacyModeLocked = roomSnapshot.privacyModeLocked || current.privacyModeLocked)
             updateChatRoom(merged)
             merged
         }
@@ -1100,7 +1112,7 @@ interface AgentPersistenceDao :
                             privacyProtection = dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(
                                 message.content,
                                 emptyList(),
-                                confirmed = !dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
+                                confirmed = !chatRoom.privacyModeLocked && !dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
                             )
                         )
                 )
@@ -1117,7 +1129,7 @@ interface AgentPersistenceDao :
                             privacyProtection = dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(
                                 message.content,
                                 emptyList(),
-                                confirmed = !dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
+                                confirmed = !chatRoom.privacyModeLocked && !dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
                             )
                         )
                     )
@@ -1192,7 +1204,8 @@ interface AgentPersistenceDao :
     ) {
         require(chatRoom.id > 0)
         val current = requireNotNull(getChatRoom(chatRoom.id))
-        updateChatRoom(chatRoom.copy(draftText = current.draftText, draftAttachments = current.draftAttachments, draftUpdatedAt = current.draftUpdatedAt, lastShareToken = current.lastShareToken, privacyModeEnabled = chatRoom.privacyModeEnabled || current.privacyModeEnabled))
+        val privacyLocked = chatRoom.privacyModeLocked || current.privacyModeLocked
+        updateChatRoom(chatRoom.copy(draftText = current.draftText, draftAttachments = current.draftAttachments, draftUpdatedAt = current.draftUpdatedAt, lastShareToken = current.lastShareToken, privacyModeEnabled = chatRoom.privacyModeEnabled || current.privacyModeEnabled, privacyModeLocked = privacyLocked))
 
         val incomingIds = messages.asSequence().map(MessageV2::id).filter { it > 0 }.toSet()
         val removedMessages = getMessages(chatRoom.id).filter { it.id !in incomingIds }
@@ -1201,7 +1214,7 @@ interface AgentPersistenceDao :
         messages.forEach { message ->
             val saved = if (message.id > 0) requireNotNull(rawRecoveryMessage(message.id)?.decodedArchiveText()) { "The saved message was deleted." } else null
             require(saved == null || saved.chatId == chatRoom.id && saved.platformType == message.platformType) { "The saved message belongs to another conversation or role." }
-            val persisted = retainSnapshotPrivacy(message.copy(chatId = chatRoom.id), saved)
+            val persisted = retainSnapshotPrivacy(message.copy(chatId = chatRoom.id), saved, privacyLocked)
             if (persisted.id == 0) {
                 insertMessage(persisted)
             } else {
@@ -1216,7 +1229,7 @@ interface AgentPersistenceDao :
     }
 
     /** A UI snapshot cannot restore or widen evidence changed by a later provider dispatch. */
-    private fun retainSnapshotPrivacy(message: MessageV2, saved: MessageV2?): MessageV2 {
+    private fun retainSnapshotPrivacy(message: MessageV2, saved: MessageV2?, privacyLocked: Boolean): MessageV2 {
         fun timeline(
             text: String,
             incoming: List<AssistantTimelineItem>,
@@ -1236,7 +1249,7 @@ interface AgentPersistenceDao :
         }
         val sameOwner = saved?.currentRunId == message.currentRunId && saved?.ownershipFence == message.ownershipFence
         return message.copy(
-            timeline = timeline(message.content, message.timeline, saved?.content?.takeIf { sameOwner }, saved?.timeline.orEmpty(), message.platformType == null && PrivacyModeStore.active()),
+            timeline = timeline(message.content, message.timeline, saved?.content?.takeIf { sameOwner }, saved?.timeline.orEmpty(), message.platformType == null && (privacyLocked || PrivacyModeStore.active())),
             revisions = message.revisions.map { revision ->
                 val previous = saved?.revisions?.singleOrNull { it.runId == revision.runId && it.createdAt == revision.createdAt }
                 val fromLatest = previous == null && revision.runId != null && revision.runId == saved?.currentRunId && revision.content == saved.content

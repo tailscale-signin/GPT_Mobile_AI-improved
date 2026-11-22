@@ -108,6 +108,7 @@ fun GitHubWorkspaceScreen(
     initialChatId: Int? = null,
     initialContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
     newConversation: Boolean = false,
+    privacyModeLocked: Boolean = false,
     onReviewEvidenceAccess: () -> Unit = {},
     onNavigateToLocalModels: () -> Unit = {},
     onManageProfiles: () -> Unit = {},
@@ -163,15 +164,17 @@ fun GitHubWorkspaceScreen(
     val jobsModel: GatewayJobsViewModel = hiltViewModel()
     val gatewayJobs by jobsModel.state.collectAsStateWithLifecycle()
     GatewayJobsObservation(jobsModel, commandContext?.mainProfileUid ?: visibleProgrammer.profileUid)
-    val repositoryMapAvailable = commandContext != null && visibleProgrammer.chatId?.let { it > 0 } == true && visibleProgrammer.chatId == programmerState.chatId
+    val privateWorkspace = privacyModeLocked || programmerState.privacyModeLocked != false
+    dev.chungjungsoo.gptmobile.presentation.common.PrivateConversationScreenProtection(privateWorkspace)
+    val repositoryMapAvailable = !privateWorkspace && commandContext != null && visibleProgrammer.chatId?.let { it > 0 } == true && visibleProgrammer.chatId == programmerState.chatId
     var repositoryMapOpen by remember(commandContext) { mutableStateOf(false) }
     val engineeringJob = if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)) {
         engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && (it.request.profileId ?: it.profileUid) == engineeringProfile?.uid && it.job?.terminal == false }?.job
     } else {
         null
     }
-    LaunchedEffect(connection.connectionUid, initialProfileUid, initialChatId) {
-        programmer.configureSession(initialProfileUid, initialChatId, newConversation)
+    LaunchedEffect(connection.connectionUid, initialProfileUid, initialChatId, privacyModeLocked) {
+        programmer.configureSession(initialProfileUid, initialChatId, newConversation, privacyModeLocked)
     }
     LaunchedEffect(commandContext, programmerState.draftLoaded, programmerState.chatId, state.uiReady, state.setupRequired) {
         if (state.uiReady && !state.setupRequired && commandContext != null && programmerState.draftLoaded && programmerState.chatId == null) programmer.ensureConversation()
@@ -620,7 +623,7 @@ fun GitHubWorkspaceScreen(
                                         viewModel::loadPullRequests,
                                         chatId = visibleProgrammer.chatId,
                                         profile = statusProfile,
-                                        graphContext = mapContext,
+                                        graphContext = mapContext.takeUnless { privateWorkspace },
                                         model = statusModel,
                                         graphProfile = repositoryGraphProfile,
                                         onConfigureGateway = { tab = 5 },

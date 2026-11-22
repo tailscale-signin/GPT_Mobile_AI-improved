@@ -15,7 +15,8 @@ import okhttp3.Interceptor
 
 /** Also covers an already running tool, its queued requests, retries and redirects. */
 internal val PrivateExternalServiceGate = createClientPlugin("PrivateExternalServiceGate") {
-    on(SendingRequest) { _, _ -> PrivacyModeStore.requireUnprotectedTransport() }
+    onRequest { request, _ -> ConversationPrivacyHttp.capture(request).withPolicy { PrivacyModeStore.requireUnprotectedTransport() } }
+    on(SendingRequest) { request, _ -> ConversationPrivacyHttp.capture(request).withPolicy { PrivacyModeStore.requireUnprotectedTransport() } }
 }
 
 /** Only a model selected by an active readiness probe can be sent in a metadata query. */
@@ -73,15 +74,22 @@ internal object PrivateGatewayMetadata {
     }
 }
 
-internal val PrivateMetadataGate = createClientPlugin("PrivateMetadataGate") {
+internal class PrivateMetadataGateConfig {
+    var allowMaskedProvider: Boolean = false
+}
+
+internal val PrivateMetadataGate = createClientPlugin("PrivateMetadataGate", ::PrivateMetadataGateConfig) {
+    val allowMaskedProvider = pluginConfig.allowMaskedProvider
     onRequest { request, _ ->
+        ConversationPrivacyHttp.capture(request)
         currentCoroutineContext()[MetadataResponseObservation]?.let { request.attributes.put(MetadataResponseObservation.requestAttribute, it) }
     }
     onResponse { response ->
         response.call.attributes.getOrNull(MetadataResponseObservation.requestAttribute)?.responded()
     }
     on(SendingRequest) { request, _ ->
-        if (PrivacyModeStore.active()) {
+        val captured = ConversationPrivacyHttp.capture(request)
+        if (captured.conversation?.enabled == true && !(allowMaskedProvider && captured.maskedProvider)) {
             val url = request.url.build().toString().toHttpUrlOrNull()
             if (url == null || !PrivateGatewayMetadata.allows(request.method.value, url, request.attributes.getOrNull(PrivateGatewayMetadata.grantKey))) throw PrivateMetadataDenied()
         }

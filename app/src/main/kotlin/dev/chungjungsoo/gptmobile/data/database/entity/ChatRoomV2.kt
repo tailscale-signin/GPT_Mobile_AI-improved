@@ -85,7 +85,11 @@ data class ChatRoomV2(
 
     /** Records Privacy Mode use for this conversation, independently of the current global toggle. */
     @ColumnInfo(name = "privacy_mode_enabled", defaultValue = "0")
-    val privacyModeEnabled: Boolean = false
+    val privacyModeEnabled: Boolean = false,
+
+    /** Permanent conversation policy. The default also protects privacy-marked legacy JSON backups. */
+    @ColumnInfo(name = "privacy_mode_locked", defaultValue = "0")
+    val privacyModeLocked: Boolean = privacyModeEnabled
 ) : Parcelable
 
 class StringListConverter {

@@ -15,6 +15,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
 import dev.melo.kokoro.TimedKokoro
 import java.io.File
 import java.util.UUID
@@ -30,13 +31,14 @@ internal fun createKokoroVoiceOutput(
     context: Context,
     models: LocalVoiceModelStore,
     attributes: () -> AudioAttributes,
-    rate: () -> Float
+    rate: () -> Float,
+    privacy: () -> ConversationPrivacyContext? = ConversationPrivacyContext::capture
 ): KokoroOutput {
     val levels = kotlinx.coroutines.flow.MutableStateFlow<Float?>(null)
     val feedback = kotlinx.coroutines.flow.MutableStateFlow(VoiceSynthesisFeedback())
     return DeferredKokoroOutput(levels, feedback) {
         try {
-            KokoroVoiceOutput(context, models, attributes, rate, levels, feedback)
+            KokoroVoiceOutput(context, models, attributes, rate, levels, feedback, privacy)
         } catch (error: LinkageError) {
             AppLogRecorder.record("VoiceEngine", "kokoro_startup_failed · type=${error.javaClass.simpleName}", "W")
             null
@@ -227,7 +229,8 @@ internal class KokoroVoiceOutput(
     private val attributes: () -> AudioAttributes,
     private val rate: () -> Float,
     private val measuredOutput: kotlinx.coroutines.flow.MutableStateFlow<Float?> = kotlinx.coroutines.flow.MutableStateFlow(null),
-    private val measuredSynthesis: kotlinx.coroutines.flow.MutableStateFlow<VoiceSynthesisFeedback> = kotlinx.coroutines.flow.MutableStateFlow(VoiceSynthesisFeedback())
+    private val measuredSynthesis: kotlinx.coroutines.flow.MutableStateFlow<VoiceSynthesisFeedback> = kotlinx.coroutines.flow.MutableStateFlow(VoiceSynthesisFeedback()),
+    private val privacy: () -> ConversationPrivacyContext? = ConversationPrivacyContext::capture
 ) : KokoroOutput {
     private val application = context.applicationContext
     private val audioManager = application.getSystemService(AudioManager::class.java)
@@ -393,7 +396,8 @@ internal class KokoroVoiceOutput(
         val onTimedRange: TimedSpokenRangeObserver?,
         val pause: VoicePauseDuration,
         val performance: VoicePerformanceMode,
-        val rate: Float
+        val rate: Float,
+        val privacy: ConversationPrivacyContext?
     ) {
         val id = UUID.randomUUID().toString()
         val startedAt = SystemClock.elapsedRealtime()
@@ -561,7 +565,9 @@ internal class KokoroVoiceOutput(
             playback.lastProgress = SystemClock.elapsedRealtime()
             main.removeCallbacks(playback.watchdog)
             main.postDelayed(playback.watchdog, 1_000)
-            synthesis.execute { synthesize(playback, speed, playbackAttributes) }
+            synthesis.execute {
+                ConversationPrivacyContext.withCaptured(playback.privacy) { synthesize(playback, speed, playbackAttributes) }
+            }
         }
         val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(playbackAttributes)
@@ -637,7 +643,7 @@ internal class KokoroVoiceOutput(
                 }
             }
         }
-        playback = Playback(replyId, voice, ModelKey(voice.lexicon, effectiveThreads(voice.lexicon), speechFactory), focus, watchdog, complete, error, diagnosticProbe, playbackStarted, spokenRange, timedSpokenRange, pause, performance, speed)
+        playback = Playback(replyId, voice, ModelKey(voice.lexicon, effectiveThreads(voice.lexicon), speechFactory), focus, watchdog, complete, error, diagnosticProbe, playbackStarted, spokenRange, timedSpokenRange, pause, performance, speed, privacy())
         active = playback
         playback.warmAtRequest = reusableModel(playback.key) != null
         measuredSynthesis.value = VoiceSynthesisFeedback(threads = playback.key.threads, warmAtRequest = playback.warmAtRequest, bufferState = "preparing")

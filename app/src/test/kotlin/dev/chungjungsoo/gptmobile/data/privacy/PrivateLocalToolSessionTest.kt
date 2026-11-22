@@ -301,21 +301,23 @@ class PrivateLocalToolSessionTest {
         var response: (Int, List<ConversationTurn>) -> List<ProviderEvent> = { _, _ -> listOf(ProviderEvent.TextDelta("Done."), ProviderEvent.Completed) }
 
         init {
-            every { store.snapshot() } answers { state }
+            every { store.effectiveSnapshot(true) } answers { state }
             coEvery { store.privateTerms() } returns listOf(secret)
         }
 
-        fun session(tools: List<AgentTool>): AgentProviderSession = PrivateLocalToolSession(store, profile, turns, tools) { roundTurns, roundProfile ->
-            maskedProviderSession(store, roundProfile, roundTurns) { wireTurns, wireProfile ->
-                outgoing += wireProfile.systemPrompt.orEmpty() + wireTurns.joinToString { it.userMessage.content + it.assistantMessage?.content.orEmpty() }
-                assertFalse(outgoing.last().contains(secret))
-                object : AgentProviderSession {
-                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
-                        assertTrue(tools.isEmpty() && exchanges.isEmpty())
-                        assertTrue(currentCoroutineContext()[MaskedProviderCall.Key] != null)
-                        requireNotNull(currentCoroutineContext()[RequestAuthorizationGuard]).validate()
-                        dispatches++
-                        response(dispatches, wireTurns).forEach { emit(it) }
+        fun session(tools: List<AgentTool>): AgentProviderSession = ConversationPrivacyContext.withCaptured(ConversationPrivacyContext(27, true)) {
+            PrivateLocalToolSession(store, profile, turns, tools) { roundTurns, roundProfile ->
+                maskedProviderSession(store, roundProfile, roundTurns) { wireTurns, wireProfile ->
+                    outgoing += wireProfile.systemPrompt.orEmpty() + wireTurns.joinToString { it.userMessage.content + it.assistantMessage?.content.orEmpty() }
+                    assertFalse(outgoing.last().contains(secret))
+                    object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                            assertTrue(tools.isEmpty() && exchanges.isEmpty())
+                            assertTrue(currentCoroutineContext()[MaskedProviderCall.Key] != null)
+                            requireNotNull(currentCoroutineContext()[RequestAuthorizationGuard]).validate()
+                            dispatches++
+                            response(dispatches, wireTurns).forEach { emit(it) }
+                        }
                     }
                 }
             }

@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
 import dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate
 import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -51,7 +52,7 @@ class GitHubPrivacyAuditTransportTest {
         assertTrue(preferences.edit().putBoolean("privacy_mode_enabled", enabled).putLong("privacy_revision", preferences.getLong("privacy_revision", 0) + 1).commit())
     }
 
-    @Test fun allAuditReadsUseTheRealPrivacyGateAndCanImmediatelyRetryAfterPolicyChanges() = runTest {
+    @Test fun privateAuditDenialsDoNotBlockAnOrdinaryConversationUsingTheSameClient() = runTest {
         var requests = 0
         val scheduler = GitHubRequestScheduler()
         val http = HttpClient(
@@ -64,7 +65,7 @@ class GitHubPrivacyAuditTransportTest {
             val client = GitHubWorkspaceClient("fixture-token", http, persistentState = false, scheduler = scheduler)
             privacy(true)
             for (check in AppAuditGitHubCatalog.live) {
-                val observation = appAuditGitHubRead(check, repository, "7", client) {}
+                val observation = withContext(ConversationPrivacyContext(1, true)) { appAuditGitHubRead(check, repository, "7", client) {} }
                 assertEquals(check.id, AppAuditOutcome.BLOCKED, observation.outcome)
                 assertEquals("PRIVACY_SERVICE_UNVERIFIED", observation.reasonCode)
                 assertEquals("local_validation", observation.failurePhase)
@@ -89,13 +90,21 @@ class GitHubPrivacyAuditTransportTest {
     @Test fun laterPolicyDenialRetainsTheEarlierHttpResponse() = runTest {
         var requests = 0
         val scheduler = GitHubRequestScheduler()
+        val rejectLaterAttempt = io.ktor.client.plugins.api.createClientPlugin("RejectLaterUnverifiedAttempt") {
+            on(io.ktor.client.plugins.api.SendingRequest) { _, _ ->
+                if (requests > 0) throw dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport()
+            }
+        }
         val http = HttpClient(
             MockEngine {
                 requests++
                 privacy(true)
                 respond("", HttpStatusCode.NotModified)
             }
-        ) { install(PrivateExternalServiceGate) }
+        ) {
+            install(rejectLaterAttempt)
+            install(PrivateExternalServiceGate)
+        }
         try {
             val client = GitHubWorkspaceClient("fixture-token", http, conditionalReads = false, persistentState = false, scheduler = scheduler)
             val observation = appAuditGitHubRead(AppAuditGitHubCatalog.live.first(), repository, "7", client) {}
@@ -129,7 +138,7 @@ class GitHubPrivacyAuditTransportTest {
             }
             val accounting = GitHubDispatchAccounting(record = {})
             privacy(true)
-            val failure = runCatching { withContext(accounting) { client.execute("create_issue", arguments) } }.exceptionOrNull()
+            val failure = runCatching { withContext(accounting + ConversationPrivacyContext(1, true)) { client.execute("create_issue", arguments) } }.exceptionOrNull()
             assertTrue(failure?.isLocalPrivacyPolicyRejection() == true)
             val denied = accounting.finish(AgentToolResult("write", ToolResultContent.Text("Policy denied"), true, errorCode = "PRIVACY_SERVICE_UNVERIFIED", dispatched = false), true)
             assertFalse(denied.dispatched)

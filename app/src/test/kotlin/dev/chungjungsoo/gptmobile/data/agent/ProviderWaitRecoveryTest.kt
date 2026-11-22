@@ -558,6 +558,7 @@ class ProviderWaitRecoveryTest {
 
     private fun repository(fixture: Fixture): dev.chungjungsoo.gptmobile.data.repository.ChatRepository = mockk<dev.chungjungsoo.gptmobile.data.repository.ChatRepository>(relaxed = true).also { repository ->
         every { repository.observeAgentRuns(1) } returns flow { emit(fixture.database.agentRunDao().getByChatId(1)) }
+        coEvery { repository.conversationPrivacyLocked(any()) } coAnswers { fixture.database.chatRoomDao().getChatRoom(firstArg())?.privacyModeLocked }
         coEvery { repository.isCombinedTurnCancelled(any()) } returns false
         coEvery { repository.finishActiveAgentRun(any(), any(), any(), any()) } coAnswers {
             fixture.database.agentRunDao().finishActive(firstArg(), secondArg(), thirdArg(), arg(3)) == 1

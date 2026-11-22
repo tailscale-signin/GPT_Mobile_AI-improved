@@ -201,7 +201,7 @@ class ResearchStartupReconcilerTest {
             acceptedResearch = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchRequirement(50, 90, "WEB_ONLY")
         )
         val combined = dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(requested, dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.resolve(requested), root)
-        val repository = mockk<dev.chungjungsoo.gptmobile.data.repository.ChatRepository>(relaxed = true)
+        val repository = mockk<dev.chungjungsoo.gptmobile.data.repository.ChatRepository>(relaxed = true).also { chats -> coEvery { chats.conversationPrivacyLocked(any()) } coAnswers { db.chatRoomDao().getChatRoom(firstArg())?.privacyModeLocked } }
         every { repository.observeAgentRuns(1) } returns db.agentRunDao().observeByChatId(1)
         coEvery { repository.researchPersistenceAllowed(1) } returns true
         coEvery { repository.finishQueuedAgentRun(any(), any(), any(), any()) } coAnswers {

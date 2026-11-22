@@ -73,6 +73,9 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         onOpenRepositoryMap?.let { open ->
             OutlinedButton(onClick = open, modifier = Modifier.fillMaxWidth().testTag("github_repository_map")) { Text("Repository map") }
         }
+        if (state.privacyModeLocked == true) {
+            Text("Private chat · Repository map requests and external sharing require a verified private route.", style = MaterialTheme.typography.bodySmall)
+        }
         var gatewayMenu by remember { mutableStateOf(false) }
         OutlinedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -105,6 +108,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                         Text("Share repository map results from $repository with ${inference.model}", Modifier.weight(1f))
                         Switch(
                             checked = state.profileSettings.graphSharingConsent == consentKey,
+                            enabled = state.privacyModeLocked == false,
                             onCheckedChange = { enabled -> onSettings(state.profileSettings.copy(graphSharingConsent = consentKey.takeIf { enabled })) }
                         )
                     }
@@ -112,6 +116,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
                         Text("Run approved Gateway checks and share the output with ${inference.model}", Modifier.weight(1f))
                         Switch(
                             checked = state.profileSettings.workspaceCheckConsent == consentKey,
+                            enabled = state.privacyModeLocked == false,
                             onCheckedChange = { enabled -> onSettings(state.profileSettings.copy(workspaceCheckConsent = consentKey.takeIf { enabled })) }
                         )
                     }

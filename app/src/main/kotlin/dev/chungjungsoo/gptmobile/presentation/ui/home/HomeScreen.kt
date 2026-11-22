@@ -1299,7 +1299,8 @@ internal fun ChatListItem(
                                 hasUnreadResponse,
                                 animate = motionEnabled,
                                 conversationType = conversationType(chatRoom, isResearch, isGitHub),
-                                privacyEnabled = chatRoom.privacyModeEnabled
+                                privacyEnabled = chatRoom.privacyModeLocked || chatRoom.privacyModeEnabled,
+                                privacyLocked = chatRoom.privacyModeLocked
                             )
                         } else {
                             ConversationModeSymbol(chatRoom, isResearch, hasUnreadResponse, isGitHub)
@@ -1335,8 +1336,8 @@ private fun ConversationModeSymbol(
             Modifier.size(24.dp),
             tint = MaterialTheme.colorScheme.primary
         )
-        if (chatRoom.privacyModeEnabled) {
-            ConversationPrivacyBadge(Modifier.align(Alignment.BottomEnd).offset(x = 6.dp, y = 6.dp))
+        if (chatRoom.privacyModeLocked || chatRoom.privacyModeEnabled) {
+            ConversationPrivacyBadge(Modifier.align(Alignment.BottomEnd).offset(x = 6.dp, y = 6.dp), locked = chatRoom.privacyModeLocked)
         }
     }
 }

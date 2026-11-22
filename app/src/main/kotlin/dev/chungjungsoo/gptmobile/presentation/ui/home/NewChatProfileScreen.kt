@@ -107,6 +107,8 @@ internal fun NewChatProfileScreen(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val features by viewModel.features.collectAsStateWithLifecycle()
     val privacy by viewModel.privacyState.collectAsStateWithLifecycle()
+    val privacySelected by viewModel.privacySelected.collectAsStateWithLifecycle()
+    dev.chungjungsoo.gptmobile.presentation.common.PrivateConversationScreenProtection(privacySelected)
     val privacyUpdates by viewModel.privacyUpdates.collectAsStateWithLifecycle()
     val privacyChecking by viewModel.privacyChecking.collectAsStateWithLifecycle()
     val selected by viewModel.selectedUids.collectAsStateWithLifecycle()
@@ -155,15 +157,15 @@ internal fun NewChatProfileScreen(
     val sort = ProfileSort.entries.firstOrNull { it.name == sortName } ?: ProfileSort.FAVORITES
     val labels = remember(profiles) { collectReusableProfileLabels(profiles.map { it.labels }) }
     val checkedProfiles by viewModel.checkedProfiles.collectAsStateWithLifecycle()
-    LaunchedEffect(profiles, privacy, windowFocused, privacyRefresh, privacySettingsOpen) {
+    LaunchedEffect(profiles, privacy, privacySelected, windowFocused, privacyRefresh, privacySettingsOpen) {
         if (windowFocused && !privacySettingsOpen) {
             do {
                 viewModel.checkPrivacyProfiles(profiles)
-                if (privacy.enabled) delay(60_000)
-            } while (privacy.enabled)
+                if (privacySelected) delay(60_000)
+            } while (privacySelected)
         }
     }
-    val privacyDecisions = remember(profiles, privacy, checkedProfiles) {
+    val privacyDecisions = remember(profiles, privacySelected, checkedProfiles) {
         profiles.filter { it.enabled }.associate { it.uid to viewModel.privacyDecision(it) }
     }
     val availableUids = remember(profiles) {
@@ -257,10 +259,11 @@ internal fun NewChatProfileScreen(
                     },
                     actions = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Privacy Mode", style = MaterialTheme.typography.labelSmall)
+                            Text("Private chat", style = MaterialTheme.typography.labelSmall)
                             Checkbox(
-                                checked = privacy.enabled,
+                                checked = privacySelected,
                                 onCheckedChange = viewModel::setPrivacyMode,
+                                enabled = !creating && (privacy.enabled || privacySelected),
                                 modifier = Modifier.testTag("new_chat_privacy_mode")
                             )
                         }
@@ -271,14 +274,35 @@ internal fun NewChatProfileScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
-                    if (privacyUpdates.saving) Text("Saving privacy settings…", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        if (privacySelected) {
+                            "Privacy will be permanent for this conversation and every selected AI profile, including after restart. Turning it off in Options will not unlock saved private chats."
+                        } else {
+                            "Select Private chat to protect this conversation permanently. New conversations start with this choice off."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("new_chat_privacy_scope")
+                    )
+                    if (!privacy.enabled) {
+                        Text(
+                            if (privacySelected) {
+                                "Enable Privacy Mode in Options again to create this private conversation, or explicitly clear Private chat."
+                            } else {
+                                "Enable Privacy Mode in Options to make Private chat available."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (privacySelected) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(onClick = { privacySettingsOpen = true }, modifier = Modifier.testTag("privacy_profile_settings")) { Text("Privacy options") }
+                    if (privacyUpdates.saving) Text("Saving privacy options…", style = MaterialTheme.typography.bodySmall)
                     if (privacyUpdates.failed) {
-                        Text("Privacy settings could not be saved. Review the current choice and retry.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        Text("Privacy options could not be saved. Review availability and retry.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = { viewModel.retryPrivacySave() }, enabled = !privacyUpdates.saving, modifier = Modifier.testTag("new_chat_privacy_retry")) {
                             Text("Retry saving")
                         }
                     }
-                    if (privacy.enabled) {
+                    if (privacySelected) {
                         Text("Profile privacy checks", style = MaterialTheme.typography.titleSmall)
                         val counts = privacyDecisions.values.groupingBy { it.status }.eachCount()
                         Text(
@@ -296,7 +320,6 @@ internal fun NewChatProfileScreen(
                             TextButton(onClick = { privacyRefresh++ }, enabled = !privacyChecking, modifier = Modifier.testTag("privacy_profiles_recheck")) {
                                 Text(if (privacyChecking) "Checking profiles…" else "Recheck profiles")
                             }
-                            TextButton(onClick = { privacySettingsOpen = true }, modifier = Modifier.testTag("privacy_profile_settings")) { Text("Privacy settings") }
                         }
                     }
                     ProfileSearchField(query, { query = it }, Modifier.testTag("new_chat_search"))
@@ -425,7 +448,7 @@ internal fun NewChatProfileScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     SelectPlatformProfileCard(
                         profile = profile,
-                        privacyStatus = privacyDecisions[profile.uid]?.status.takeIf { privacy.enabled },
+                        privacyStatus = privacyDecisions[profile.uid]?.status.takeIf { privacySelected },
                         selected = profile.uid in currentSelection,
                         insight = insights[profile.uid]?.takeIf { it.matches(profile) },
                         onToggle = viewModel::toggleProfile,
@@ -445,7 +468,7 @@ internal fun NewChatProfileScreen(
                             }
                         }
                     )
-                    if (privacy.enabled) {
+                    if (privacySelected) {
                         val decision = viewModel.privacyDecision(profile)
                         Text(decision.explanation, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("privacy_profile_reason_${profile.uid}"))
                         decision.policyUrl?.let { url ->

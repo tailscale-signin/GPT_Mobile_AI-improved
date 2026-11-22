@@ -1,5 +1,8 @@
 # 0.9.66.13 — 2026-11-22
 
+- Make Options enable the availability of private chats, with a separate permanent privacy choice for every profile selected in New Chat. Keep saved private chats protected when Options is disabled, across restart, retry, copy and restore; migrate existing privacy history conservatively with Room 54.
+- Scope provider, background, local-tool and voice transport to the originating conversation, preserving ordinary chats during concurrent private work. Retain screen protection and clear private-chat labels independently of feature availability.
+- Isolate private memories, documents and legacy mixed-source evidence through edits, deletion and restore; keep private content out of shared research indexes and unsupported external workflows. Preserve responsive profile selection, New Chat and asynchronous settings saves.
 - Complete comparison coverage when GitHub pages arrive out of order; retain the original failed page receipts and exact remaining fragment obligations, and honor the requested bounded comparison page size.
 - Distinguish full tool-result delivery from compacted evidence summaries. Use exact delivered-content proof to resume saved pages across restarts without skipping unread fragments or changing an explicit reread.
 - Plan stage-aware output capacity with a visible-output target and allow one materially changed empty-output repair. Preserve explicit reasoning choices, accepted context limits, durable provider waits and unknown-operation reconciliation; effort-only provider APIs cannot guarantee a fixed visible-token reserve.

@@ -890,6 +890,14 @@ class ChatRepositoryImpl(
         parentRunId: String,
         onInvocation: (String) -> Unit
     ): AgentProviderSession {
+        val conversationPrivacy = checkNotNull(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext]) {
+            "CONVERSATION_POLICY_UNAVAILABLE: Research must retain its originating conversation policy."
+        }
+        agentPersistenceDao.recoveryRun(parentRunId)?.let { parent ->
+            check(conversationPrivacy.chatId == parent.chatId) { "CONVERSATION_PRIVACY_MISMATCH: The research owner changed." }
+            val room = checkNotNull(agentPersistenceDao.getChatRoom(parent.chatId)) { "CONVERSATION_POLICY_UNAVAILABLE: The research conversation is no longer available." }
+            check(!room.privacyModeLocked) { "PRIVACY_SERVICE_UNVERIFIED: This private conversation cannot use an unverified research service." }
+        }
         dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         require(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.minimum(role) != null)
         require(outputTokens in 256..8192 && prompt.toByteArray().size <= 96 * 1024)
@@ -1745,6 +1753,31 @@ class ChatRepositoryImpl(
         chatToolConfig: ChatMcpToolConfig?,
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = flow {
+        val chatId = userMessages.lastOrNull()?.chatId?.takeIf { it > 0 }
+        val room = chatId?.let { agentPersistenceDao.getChatRoom(it) }
+        if (chatId != null && room == null) {
+            emit(ApiState.Error("This conversation is no longer available. Reopen it before sending.", errorCode = "CONVERSATION_POLICY_UNAVAILABLE", taskOutcome = "BLOCKED"))
+            emit(ApiState.Done)
+            return@flow
+        }
+        val inheritedPrivacy = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext]
+        if (inheritedPrivacy?.enabled == true && (room?.privacyModeLocked != true || inheritedPrivacy.chatId != chatId)) {
+            emit(ApiState.Error("Private conversation content cannot be sent through an ordinary conversation.", errorCode = "CONVERSATION_PRIVACY_MISMATCH", taskOutcome = "BLOCKED"))
+            emit(ApiState.Done)
+            return@flow
+        }
+        val privacy = dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(chatId, room?.privacyModeLocked == true)
+        emitAll(completeChatWithPrivacy(userMessages, assistantMessages, platform, runId, chatToolConfig, stage).flowOn(privacy))
+    }.flowOn(Dispatchers.Default)
+
+    private fun completeChatWithPrivacy(
+        userMessages: List<MessageV2>,
+        assistantMessages: List<List<MessageV2>>,
+        platform: PlatformV2,
+        runId: String,
+        chatToolConfig: ChatMcpToolConfig?,
+        stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
+    ): Flow<ApiState> = flow {
         fun preflightError(code: String, message: String, failedStage: String, failure: Throwable, recovery: String, readiness: String? = null): ApiState.Error {
             val capsule = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
             val evidence = capsule.exceptionFields(failure, dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_PREFLIGHT)
@@ -1771,7 +1804,12 @@ class ChatRepositoryImpl(
                 )
             )
         }
-        val privateMode = privacyMode?.takeIf { it.snapshot().enabled }
+        if (PrivacyModeStore.active() && privacyMode == null) {
+            emit(ApiState.Error("Privacy protection is unavailable. Your private conversation remains saved locally.", errorCode = "CONVERSATION_POLICY_UNAVAILABLE", taskOutcome = "BLOCKED"))
+            emit(ApiState.Done)
+            return@flow
+        }
+        val privateMode = privacyMode?.takeIf { PrivacyModeStore.active() }
         if (privateMode != null) {
             userMessages.lastOrNull()?.chatId?.takeIf { it > 0 }?.let { agentPersistenceDao.markPrivacyModeUsed(it) }
         }
@@ -1894,7 +1932,7 @@ class ChatRepositoryImpl(
     }.withFailureBoundaryEvidence(runId, platform).withSystemOutputLineage(runId).flowOn(Dispatchers.Default)
 
     override suspend fun preflightAnswerPrivacy(platform: PlatformV2) = withContext(Dispatchers.Default) {
-        if (privacyMode?.snapshot()?.enabled == true) return@withContext
+        if (PrivacyModeStore.active()) return@withContext
         // UI entry points share this preflight with generation. Metadata parsing
         // and policy evaluation must not return to Main after the client's IO.
         if (platform.compatibleType != ClientType.OPENROUTER || privacyPreflight == null) return@withContext
@@ -7042,6 +7080,8 @@ class ChatRepositoryImpl(
 
     override suspend fun fetchChatListV2(): List<ChatRoomV2> = committedCombinedRooms(chatRoomV2Dao.getChatRooms())
 
+    override suspend fun conversationPrivacyLocked(chatId: Int): Boolean? = agentPersistenceDao.getChatRoom(chatId)?.privacyModeLocked
+
     private suspend fun committedCombinedRooms(rooms: List<ChatRoomV2>): List<ChatRoomV2> {
         val features = settingRepository.getFeatureSettings()
         return rooms.map { room ->
@@ -7148,6 +7188,8 @@ class ChatRepositoryImpl(
 
     override suspend fun checkCombinedQueuedJob(runId: String): String = withContext(Dispatchers.IO) {
         val run = requireNotNull(agentPersistenceDao.recoveryRun(runId))
+        val room = checkNotNull(agentPersistenceDao.getChatRoom(run.chatId)) { "CONVERSATION_POLICY_UNAVAILABLE: The queued conversation is no longer available." }
+        check(!room.privacyModeLocked) { "PRIVACY_SERVICE_UNVERIFIED: This private conversation cannot resume an unverified external job." }
         val snapshot = run.synthesisSnapshot?.takeIf { run.synthesisKey != null }?.let { raw ->
             require(dev.chungjungsoo.gptmobile.data.research.researchHash(raw) == run.synthesisKey)
             kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw).also { it.bindAcceptedStage() }
@@ -7874,9 +7916,11 @@ class ChatRepositoryImpl(
     override suspend fun generateAiTitle(
         userMessage: String,
         assistantMessage: String,
-        platform: PlatformV2
+        platform: PlatformV2,
+        chatId: Int?
     ): String? {
-        if (privacyMode?.snapshot()?.enabled == true) return null
+        val room = chatId?.takeIf { it > 0 }?.let { agentPersistenceDao.getChatRoom(it) }
+        if (PrivacyModeStore.active() || room == null || room.privacyModeLocked) return null
         if (settingRepository.getFeatureSettings().spendBudget.enforced) return null
         val authority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, platform)
         return withContext(authority) { titleSummarizer?.summarize(userMessage, assistantMessage, platform) }
@@ -7887,7 +7931,8 @@ class ChatRepositoryImpl(
         conversationMode: String,
         title: String,
         primaryProfileUid: String?,
-        firstMessage: String?
+        firstMessage: String?,
+        privacyModeLocked: Boolean
     ): ChatRoomV2 {
         val selected = profileUids.filter(String::isNotBlank).distinct()
         require(selected.isNotEmpty()) { "Choose at least one AI profile." }
@@ -7902,7 +7947,7 @@ class ChatRepositoryImpl(
             enabledPlatform = selected,
             activePlatform = selected,
             conversationMode = mode,
-            privacyModeEnabled = privacyMode?.snapshot()?.enabled == true,
+            privacyModeLocked = privacyModeLocked,
             combinedPrimaryUid = primaryProfileUid?.takeIf { it in selected && mode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED }
         )
         return room.copy(id = chatRoomV2Dao.addChatRoom(room).toInt())

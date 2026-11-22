@@ -651,6 +651,7 @@ class AgentRunCoordinator @Inject constructor(
                     if (remoteRuns.isNotEmpty()) {
                         val profiles = settingRepository.fetchPlatformV2s().associateBy { it.uid }
                         remoteRuns.forEach { run ->
+                            dev.chungjungsoo.gptmobile.data.privacy.requireUnprotectedConversationPrivacy(run.chatId, chatRepository::conversationPrivacyLocked)
                             val receipt = stopSavedGatewayRun(run, profiles[run.profileUid], gatewayAPI) {
                                 requireNotNull(gatewayChatSubmission) { "The saved gateway authority verifier is unavailable." }
                                     .ordinaryCancellationConfig(run)
@@ -790,6 +791,7 @@ class AgentRunCoordinator @Inject constructor(
         githubConversations: Set<Int>
     ) {
         val run = attempt.run
+        dev.chungjungsoo.gptmobile.data.privacy.requireUnprotectedConversationPrivacy(run.chatId, chatRepository::conversationPrivacyLocked)
         val token = dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
             .keysForNewRequest(profile.providerConnectionUid ?: profile.uid, profile.token).firstOrNull()
         val config = ProviderRequestConfig(baseUrl, token, profileUid = profile.uid)
@@ -1191,6 +1193,15 @@ class AgentRunCoordinator @Inject constructor(
         }
 
         private suspend fun executeRequest(): Boolean {
+            val locked = checkNotNull(chatRepository.conversationPrivacyLocked(request.chatId)) {
+                "CONVERSATION_POLICY_UNAVAILABLE: The saved conversation is no longer available."
+            }
+            return withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(request.chatId, locked)) {
+                executeUnderConversationPrivacy()
+            }
+        }
+
+        private suspend fun executeUnderConversationPrivacy(): Boolean {
             // Gateway admission can fail before the chat pipeline registers this run.
             // Resolve privacy first so those failures retain the same minimal journal.
             RunDiagnostics.journal?.let { journal ->

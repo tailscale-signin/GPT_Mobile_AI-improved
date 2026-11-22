@@ -26,6 +26,7 @@ internal class ResearchSourceIndexer(
     private val archivedRevisions = mutableMapOf<String, String>()
     private var archiveEpoch: Long? = null
     suspend fun index(snapshot: ResearchSnapshot, settings: AppFeatureSettings?): Boolean {
+        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) return false
         val epoch = archiveEpoch ?: (dao.sequence()?.archiveEpoch ?: 0L).also { archiveEpoch = it }
         val eligible = settings?.researchFeature?.enabled == true && settings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) && (dao.deleted("archive-clear") ?: 0) < createdAt
         var scheduled = false

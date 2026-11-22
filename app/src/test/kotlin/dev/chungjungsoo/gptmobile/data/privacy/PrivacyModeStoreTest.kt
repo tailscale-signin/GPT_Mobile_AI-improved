@@ -287,7 +287,7 @@ class PrivacyModeStoreTest {
     }
 
     @Test
-    fun queuedIntentIsImmediatelyVisibleToSnapshotsTransportAndAuditBeforePersistence() {
+    fun queuedAvailabilityIsImmediatelyVisibleToSettingsAndAuditButDoesNotActivateAConversation() {
         val fixture = Fixture()
         fixture.initializeActivePrivacy()
         val entered = CountDownLatch(1)
@@ -306,7 +306,7 @@ class PrivacyModeStoreTest {
             val enabled = fixture.store.snapshot()
             assertTrue(enabled.enabled)
             assertTrue(enabled.revision > before.revision)
-            assertTrue(PrivacyModeStore.active())
+            assertFalse(PrivacyModeStore.active())
             assertEquals(enabled, fixture.store.state.value)
             assertEquals(enabled, PrivacyModeStore.auditPolicySnapshot())
             assertFalse(fixture.values["privacy_mode_enabled"] as Boolean)
@@ -344,7 +344,7 @@ class PrivacyModeStoreTest {
         fixture.awaitUpdates()
         val enabled = fixture.store.snapshot()
         assertTrue(fixture.store.updates.value.failed)
-        assertTrue(PrivacyModeStore.active())
+        assertFalse(PrivacyModeStore.active())
         assertTrue(enabled.revision > original.revision)
         assertEquals(enabled, PrivacyModeStore.auditPolicySnapshot())
 
@@ -399,6 +399,43 @@ class PrivacyModeStoreTest {
             release.countDown()
             observing.cancel()
         }
+    }
+
+    @Test
+    fun optionsAvailabilityNeverChangesExistingConversationProtectionOrPreparedRevision() {
+        val fixture = Fixture()
+        val private = ConversationPrivacyContext(51, true)
+        val ordinary = ConversationPrivacyContext(52, false)
+        val original = ConversationPrivacyContext.withCaptured(private) { fixture.store.effectiveSnapshot() }
+        assertTrue(original.enabled)
+        fixture.store.setEnabled(true)
+        fixture.store.setEnabled(false)
+        val current = ConversationPrivacyContext.withCaptured(private) {
+            assertTrue(PrivacyModeStore.active())
+            fixture.store.effectiveSnapshot()
+        }
+        assertEquals(original, current)
+        assertEquals(original, fixture.recreate().effectiveSnapshot(true))
+        ConversationPrivacyContext.withCaptured(ordinary) {
+            assertFalse(fixture.store.effectiveSnapshot().enabled)
+            PrivacyModeStore.requireUnprotectedTransport()
+        }
+    }
+
+    @Test
+    fun maskingChangesStillInvalidatePreparedPrivateRequestsWhenFeatureAvailabilityIsOff() = runTest {
+        val fixture = Fixture()
+        val prepared = fixture.store.effectiveSnapshot(true)
+        fixture.store.setCategory(PrivacyCategory.LOCATIONS, false)
+        val categorized = fixture.store.effectiveSnapshot(true)
+        assertFalse(fixture.store.snapshot().enabled)
+        assertTrue(categorized.enabled)
+        assertFalse(PrivacyCategory.LOCATIONS in categorized.categories)
+        assertTrue(categorized.protectionRevision > prepared.protectionRevision)
+        fixture.store.savePrivateTerms("a new private term")
+        val updatedTerms = fixture.store.effectiveSnapshot(true)
+        assertTrue(updatedTerms.protectionRevision > categorized.protectionRevision)
+        assertNotEquals(categorized, updatedTerms)
     }
 
     private class Fixture {

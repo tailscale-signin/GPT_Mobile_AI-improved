@@ -16,7 +16,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 /** A separate, steady marker so working and unread states never obscure privacy. */
 @Composable
-internal fun ConversationPrivacyBadge(modifier: Modifier = Modifier) {
+internal fun ConversationPrivacyBadge(modifier: Modifier = Modifier, locked: Boolean = false) {
     Box(
         modifier.size(18.dp)
             .background(MaterialTheme.colorScheme.surface, CircleShape)
@@ -25,7 +25,7 @@ internal fun ConversationPrivacyBadge(modifier: Modifier = Modifier) {
     ) {
         Icon(
             Icons.Rounded.Lock,
-            "Privacy Mode",
+            if (locked) "Permanently private conversation" else "Privacy Mode used previously",
             Modifier.size(12.dp),
             tint = MaterialTheme.colorScheme.primary
         )

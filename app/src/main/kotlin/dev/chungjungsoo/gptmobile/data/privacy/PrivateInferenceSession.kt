@@ -42,8 +42,8 @@ internal class PrivateInferenceSession(
         val inferenceDispatched = java.util.concurrent.atomic.AtomicBoolean(false)
         try {
             check(tools.isEmpty() && exchanges.isEmpty()) { "External tools require separate privacy verification." }
-            val state = store.snapshot()
-            check(state.enabled) { "Privacy settings changed. Resend to confirm the new settings." }
+            check(PrivacyModeStore.active()) { "This request has no private conversation policy." }
+            val state = store.effectiveSnapshot(true)
             val mask = PrivateTextMask(state.categories, store.privateTerms())
             val protection = currentCoroutineContext()[PrivateProtectionContext]
             mask.seedIdentities(listOfNotNull(profile.systemPrompt) + turns.flatMap { listOfNotNull(it.userMessage.content, it.assistantMessage?.content) })
@@ -111,8 +111,8 @@ internal class PrivateInferenceSession(
                             check(verifier.routingUnchanged(profile, route))
                             check(verifier.accountUnchanged(profile, route))
                             authorization?.validate?.invoke()
+                            check(store.effectiveSnapshot(true) == state)
                         }
-                        check(store.snapshot() == state)
                         check(proof == null || verifier.approval(profile, route.url, proof.policyUrl) == proof)
                     } catch (_: Exception) {
                         throw IOException("The profile or its permissions changed before dispatch.")

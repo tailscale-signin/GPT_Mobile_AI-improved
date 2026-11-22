@@ -77,6 +77,49 @@ class GatewayConversationRepositoryTest {
         PersistAgentTurnRequest(ChatRoomV2(title = "Original local room", enabledPlatform = listOf("profile")), MessageV2(content = "Saved request", platformType = null), listOf(AgentRunDraft(UUID.randomUUID().toString(), "profile", "LLAMA", "model")), mapOf("profile" to "model"))
     )
 
+    @Test fun privateSavedConversationBlocksAdmissionAndPollingWithoutAnInheritedContext() = runBlocking {
+        val chatId = db.chatRoomDao().addChatRoom(ChatRoomV2(title = "Private", privacyModeLocked = true)).toInt()
+        assertFalse(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
+
+        val admission = runCatching { repository.reserveOrdinaryTurn(chatId, "profile", route.endpoint, "command", 1, 2, "run", "model") }.exceptionOrNull()
+        val bindingRead = runCatching { repository.boundSnapshot(chatId, "profile", "model") }.exceptionOrNull()
+        val recovery = runCatching { repository.refreshChat(chatId) }.exceptionOrNull()
+
+        assertTrue(admission is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        assertTrue(bindingRead is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        assertTrue(recovery is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        assertTrue(db.gatewayJobDao().submissionsForChat(chatId).isEmpty())
+        coVerify(exactly = 0) { client.scope(any()) }
+        coVerify(exactly = 0) { client.conversation(any(), any()) }
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
+    }
+
+    @Test fun retainedPrivateGatewayTranscriptBlocksDirectInstructionsBeforeNetworkOrReservation() = runBlocking {
+        val chatId = db.chatRoomDao().addChatRoom(ChatRoomV2(title = "Private", privacyModeLocked = true)).toInt()
+        db.gatewayJobDao().saveConversation(
+            dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord(
+                key, "gateway", "owner", "conversation", "profile", route.endpoint, "profile", chatId,
+                kotlinx.serialization.json.Json.encodeToString(GatewayConversationSnapshot.serializer(), snapshot)
+            )
+        )
+        val job = instructionJob()
+
+        val instruction = runCatching { repository.queueInstruction(job.key, "Private instruction", "instruction-command") }.exceptionOrNull()
+        val transcript = runCatching { repository.refreshTranscript(key) }.exceptionOrNull()
+
+        assertTrue(instruction is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        assertTrue(transcript is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        assertNull(db.gatewayJobDao().submission("instruction-command"))
+        db.gatewayJobDao().insertSubmission(
+            dev.chungjungsoo.gptmobile.data.database.entity.GatewaySubmissionRecord("private-pending", chatId, null, null, null, "profile", route.endpoint, "profile", "private-pending", "{}", "PENDING_INSTRUCTION", key, createdAtMillis = 1)
+        )
+        repository.refreshPendingInstructions()
+        assertTrue(runCatching { repository.refreshPendingInstructions(chatId) }.exceptionOrNull() is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport)
+        coVerify(exactly = 0) { commands.instruction(any(), any(), any()) }
+        coVerify(exactly = 0) { client.conversation(any(), any()) }
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
+    }
+
     private suspend fun saveEngineering(turn: PersistAgentTurnResult) {
         GatewayEngineeringStore(db, settings).add(GatewayEngineeringBinding("profile", route.endpoint, GatewayEngineeringRequest("owner/repo", "work", "main", "Saved request", "model", chatId = turn.chatRoom.id, requestId = turn.runs.single().runId, profileId = "profile"), principalId = "owner", localUserMessageId = turn.userMessage.id, localAssistantMessageId = turn.assistantMessages.single().id, localRunId = turn.runs.single().runId, gatewayId = "gateway"))
     }

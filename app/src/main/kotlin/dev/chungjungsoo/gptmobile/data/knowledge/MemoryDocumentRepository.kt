@@ -23,14 +23,18 @@ class MemoryDocumentRepository @Inject constructor(
 
     suspend fun index(title: String, text: String, chatId: Int? = null, projectId: String? = null, explicitlyRestore: Boolean = false, sourceKey: String? = null): String {
         require((chatId != null && chatId > 0) || projectId != null)
-        if (chatId != null) require(!scopeForChat(chatId).isTemporary) { "Temporary conversations do not index attachments." }
+        val caller = dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext.currentOrNull()
+        require(caller?.enabled != true || chatId != null && chatId == caller.chatId) { "Private conversation documents must remain in their original conversation." }
+        val boundary = chatId?.let { scopeForChat(it) }
+        if (boundary != null) require(!boundary.isTemporary) { "Temporary conversations do not index attachments." }
+        val retainedProjectId = projectId.takeUnless { boundary?.privacyLocked == true }
         require(text.isNotBlank() && text.length <= 1_000_000) { "Documents must contain text and be at most one million characters." }
         val id = documentId(chatId?.toString() ?: projectId.orEmpty(), title, sourceKey)
         val chunks = (text.indices step 1000).take(1000).mapIndexed { index, offset ->
             val end = (offset + 1200).coerceAtMost(text.length)
             KnowledgeChunk("$id:$index", id, index, offset, end, text.substring(offset, end))
         }
-        dao.replaceDocument(KnowledgeDocument(id, title.take(200), digest(text), projectId, chatId), chunks, explicitlyRestore)
+        dao.replaceDocument(KnowledgeDocument(id, title.take(200), digest(text), retainedProjectId, chatId), chunks, explicitlyRestore)
         val persisted = dao.document(id)
         // A suppressed document must never be silently restored in either index.
         if (persisted != null && !persisted.deleted) semantic?.indexDocument(persisted, dao.chunks(id))
@@ -45,6 +49,7 @@ class MemoryDocumentRepository @Inject constructor(
     suspend fun shareWithProject(id: String, projectId: String) {
         val document = requireNotNull(dao.document(id))
         require(!document.deleted)
+        require(document.chatId?.let { scopeForChat(it).privacyLocked } != true) { "Private conversation documents cannot be shared with a project." }
         index(
             document.title,
             readRange(id, 0, 1_000_000).text,

@@ -37,7 +37,8 @@ enum class PrivacyCategory(val title: String, val description: String) {
 data class PrivacyModeState(
     val enabled: Boolean = false,
     val categories: Set<PrivacyCategory> = PrivacyCategory.entries.toSet(),
-    val revision: Long = 0
+    val revision: Long = 0,
+    val protectionRevision: Long = revision
 ) {
     fun protects(category: PrivacyCategory): Boolean = enabled && category in categories
 }
@@ -88,10 +89,9 @@ class PrivacyModeStore @Inject constructor(
             application = context.applicationContext
             requestedPolicy = null
         }
-        fun active(): Boolean = requestedPolicy?.enabled ?: (
-            application?.getSharedPreferences("device_privacy", Context.MODE_PRIVATE)
-                ?.getBoolean("privacy_mode_enabled", false) == true
-            )
+
+        /** The feature switch is availability, not authority to change any conversation. */
+        fun active(): Boolean = ConversationPrivacyContext.currentOrNull()?.enabled == true
 
         /** Read-only diagnostic observation; unknown is not silently reported as disabled. */
         fun auditPolicySnapshot(): PrivacyModeState? {
@@ -105,7 +105,7 @@ class PrivacyModeStore @Inject constructor(
                 }
                 if (preferences.getLong("privacy_revision", 0) == revision) {
                     // A newly queued choice also supersedes a consistent older disk observation.
-                    return requestedPolicy ?: PrivacyModeState(enabled, categories, revision)
+                    return requestedPolicy ?: PrivacyModeState(enabled, categories, revision, preferences.getLong("privacy_protection_revision", revision))
                 }
             }
             return null
@@ -138,6 +138,12 @@ class PrivacyModeStore @Inject constructor(
     /** UI intent takes effect before disk I/O; readers never wait for the persistence monitor. */
     fun snapshot(): PrivacyModeState = requested ?: readConsistent()
 
+    /** Availability changes do not invalidate a private chat's prepared mask or unlock it. */
+    fun effectiveSnapshot(privacyLocked: Boolean = active()): PrivacyModeState {
+        val settings = snapshot()
+        return settings.copy(enabled = privacyLocked, revision = settings.protectionRevision)
+    }
+
     private fun readConsistent(): PrivacyModeState {
         while (true) {
             val revision = preferences.getLong("privacy_revision", 0)
@@ -148,7 +154,7 @@ class PrivacyModeStore @Inject constructor(
 
     fun requestEnabled(enabled: Boolean) {
         synchronized(stateLock) {
-            publish { it.copy(enabled = enabled) }
+            publish(protectionChanged = false) { it.copy(enabled = enabled) }
             writer.submit(PrivacySettingChange.Enabled(enabled))
         }
     }
@@ -165,7 +171,7 @@ class PrivacyModeStore @Inject constructor(
     fun setEnabled(enabled: Boolean) {
         synchronized(stateLock) {
             if (snapshot().enabled == enabled && requested == null) return
-            publish { it.copy(enabled = enabled) }
+            publish(protectionChanged = false) { it.copy(enabled = enabled) }
         }
         persistLatest()
     }
@@ -184,9 +190,12 @@ class PrivacyModeStore @Inject constructor(
     }
 
     /** Caller holds only the short state lock, never the disk-write monitor. */
-    private fun publish(change: (PrivacyModeState) -> PrivacyModeState) {
+    private fun publish(protectionChanged: Boolean = true, change: (PrivacyModeState) -> PrivacyModeState) {
         val current = snapshot()
-        val next = change(current).copy(revision = Math.incrementExact(current.revision))
+        val next = change(current).copy(
+            revision = Math.incrementExact(current.revision),
+            protectionRevision = if (protectionChanged) Math.incrementExact(current.protectionRevision) else current.protectionRevision
+        )
         // Transport checks and diagnostics share the complete effective policy before disk I/O.
         requestedPolicy = next
         requested = next
@@ -198,6 +207,7 @@ class PrivacyModeStore @Inject constructor(
         val target = snapshot()
         val editor = preferences.edit()
             .putLong("privacy_revision", target.revision)
+            .putLong("privacy_protection_revision", target.protectionRevision)
             .putBoolean("privacy_mode_enabled", target.enabled)
         PrivacyCategory.entries.forEach { editor.putBoolean("privacy_category_${it.name}", it in target.categories) }
         check(editor.commit()) { "Privacy settings could not be saved." }
@@ -216,6 +226,7 @@ class PrivacyModeStore @Inject constructor(
         categories = PrivacyCategory.entries.filterTo(mutableSetOf()) {
             preferences.getBoolean("privacy_category_${it.name}", true)
         },
-        revision = preferences.getLong("privacy_revision", 0)
+        revision = preferences.getLong("privacy_revision", 0),
+        protectionRevision = preferences.getLong("privacy_protection_revision", preferences.getLong("privacy_revision", 0))
     )
 }

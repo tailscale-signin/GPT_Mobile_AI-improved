@@ -31,8 +31,14 @@ data class ResearchSession(val runId: String, val chatId: Int, val snapshot: Res
 
 /** App-private bounded history, included in complete backups; temporary chats stay in RAM. */
 @Singleton
-class ResearchSessionStore @Inject constructor(@ApplicationContext context: Context, private val featureDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null, private val featureSettings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null) {
+class ResearchSessionStore @Inject constructor(@ApplicationContext context: Context, private val featureDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null, private val featureSettings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null, private val chats: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2? = null) {
     private val appContext = context
+
+    internal suspend fun sharedSourceIndexAllowed(chatId: Int): Boolean {
+        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) return false
+        if (chatId <= 0 || chats == null) return true
+        return chats.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.let { !it.privacyModeLocked && !it.isTemporary } == true
+    }
     private val directory = File(context.filesDir, "research-history")
     private val taskStore = ResearchTaskStore(directory)
     private val recoveryCorpora by lazy { dev.chungjungsoo.gptmobile.data.agent.RecoveryEvidenceCorpusStore(File(directory, "recovery-corpora")) }
@@ -470,7 +476,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         private val sourceIndexer by lazy { featureDatabase?.let { ResearchSourceIndexer(it, directory, runId, chatId, turnId, authority, publicEvidence, acceptedTools, createdAt) } }
         private suspend fun indexCommittedSources(snapshot: ResearchSnapshot): Boolean = try {
-            sourceIndexer?.index(snapshot, featureSettings?.getFeatureSettings()) ?: false
+            if (sharedSourceIndexAllowed(chatId)) sourceIndexer?.index(snapshot, featureSettings?.getFeatureSettings()) ?: false else false
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
         } catch (_: Exception) {
@@ -659,6 +665,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             sessionIndex.entries().filter { it.chatId in allowedChats }.forEach { entry ->
                 val session = read(entry.file) ?: return@forEach
                 if (session.chatId !in allowedChats || database.research().deleted("chat:${session.chatId}") != null) return@forEach
+                if (!sharedSourceIndexAllowed(session.chatId)) return@forEach
                 val receipt = "history:" + researchHash("${session.runId}|${session.authority}|${session.snapshot.updatedAt}")
                 if (database.research().imported(receipt)) return@forEach
                 session.snapshot.sources.forEach { source ->
@@ -989,7 +996,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 val dao = database.research()
                 val chatId = payload.number("chatId")
                 val receiptId = row.id.removePrefix("ingest:")
-                if (dao.deleted("chat:$chatId") != null) {
+                if (dao.deleted("chat:$chatId") != null || !sharedSourceIndexAllowed(chatId)) {
                     dao.acknowledge(row.id, row.createdAt)
                     continue
                 }

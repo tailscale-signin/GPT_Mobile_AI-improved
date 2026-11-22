@@ -20,6 +20,28 @@ import kotlinx.coroutines.launch
 open class ProtectedActivity : ComponentActivity() {
     private var unlocking = false
     private var cancellation: CancellationSignal? = null
+    private val privateScreens = mutableSetOf<Any>()
+
+    /** Scoped to visible private content in this window, independently of new-chat availability. */
+    @androidx.annotation.MainThread
+    internal fun protectPrivateConversation(): () -> Unit {
+        val token = Any()
+        privateScreens += token
+        applySecureWindow(dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.state.value)
+        return {
+            if (privateScreens.remove(token) && !isDestroyed) {
+                applySecureWindow(dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.state.value)
+            }
+        }
+    }
+
+    private fun applySecureWindow(privacy: dev.chungjungsoo.gptmobile.data.security.DevicePrivacySnapshot?) {
+        if (privacy == null || privacy.secureScreen || privacy.appLock || privateScreens.isNotEmpty()) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,12 +68,11 @@ open class ProtectedActivity : ComponentActivity() {
     }
 
     private fun applyPrivacy(privacy: dev.chungjungsoo.gptmobile.data.security.DevicePrivacySnapshot?) {
+        applySecureWindow(privacy)
         if (privacy == null) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             window.decorView.visibility = View.INVISIBLE
             return
         }
-        if (privacy.secureScreen || privacy.appLock) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         if (!privacy.appLock) {
             authenticated = false
             window.decorView.visibility = View.VISIBLE

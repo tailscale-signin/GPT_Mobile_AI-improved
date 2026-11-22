@@ -36,7 +36,7 @@ import org.robolectric.annotation.Config
 class AgentRunProviderWaitTest {
     @Test fun preflightPersistenceExceptionRecordsItsUnknownOutcomeBeforeAnyModelDispatch() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
-        val chats = mockk<ChatRepository>()
+        val chats = mockk<ChatRepository>().also { repository -> coEvery { repository.conversationPrivacyLocked(any()) } returns false }
         val settings = mockk<SettingRepository>()
         val waits = mockk<ProviderWaitStore>()
         val platform = PlatformV2(uid = "p", name = "Primary", compatibleType = ClientType.CUSTOM, model = "model", apiUrl = "https://writer.example/v1", token = "preflight-${java.util.UUID.randomUUID()}")
@@ -66,7 +66,7 @@ class AgentRunProviderWaitTest {
     @Test fun terminalQuotaPathsRetainTheirExactNoWaitReasonWithTheOriginalFailure() = runBlocking {
         for (reason in listOf("DECISION_UNAVAILABLE", "REJECTION_NOT_REPLAY_SAFE", "WAIT_STORE_UNAVAILABLE")) {
             val context = RuntimeEnvironment.getApplication()
-            val chats = mockk<ChatRepository>()
+            val chats = mockk<ChatRepository>().also { repository -> coEvery { repository.conversationPrivacyLocked(any()) } returns false }
             val settings = mockk<SettingRepository>()
             val platform = PlatformV2(uid = "p", name = "Primary", compatibleType = ClientType.CUSTOM, model = "model", apiUrl = "https://writer.example/v1")
             val user = MessageV2(id = 1, chatId = 1, content = "Original task", platformType = null)
@@ -113,7 +113,7 @@ class AgentRunProviderWaitTest {
 
     @Test fun localRecoveryRefusalPublishesTypedBlockedStateBeforeAnyRetainedCombinedFallback() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
-        val chats = mockk<ChatRepository>()
+        val chats = mockk<ChatRepository>().also { repository -> coEvery { repository.conversationPrivacyLocked(any()) } returns false }
         val settings = mockk<SettingRepository>()
         val platform = PlatformV2(uid = "p", name = "Primary", compatibleType = ClientType.CUSTOM, model = "model", apiUrl = "https://writer.example/v1")
         val user = MessageV2(id = 1, chatId = 1, content = "Original task", platformType = null)
@@ -141,7 +141,7 @@ class AgentRunProviderWaitTest {
 
     @Test fun resumedWaitCannotAdoptPermissionChangesAfterItsIndependentLaunch() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
-        val chats = mockk<ChatRepository>()
+        val chats = mockk<ChatRepository>().also { repository -> coEvery { repository.conversationPrivacyLocked(any()) } returns false }
         val settings = mockk<SettingRepository>()
         val platform = PlatformV2(id = 3, uid = "p", name = "Primary", compatibleType = ClientType.CUSTOM, model = "model", apiUrl = "https://writer.example/v1")
         var permission = "accepted-wait"
@@ -190,7 +190,7 @@ class AgentRunProviderWaitTest {
     @Test fun failedDurablePauseStillTerminalizesTheRunWithItsRetainedPartial() = runBlocking {
         for (pauseFailure in listOf(IllegalStateException("PROVIDER_WAIT_AUTHORITY_CHANGED"), IOException("Checkpoint unavailable"))) {
             val context = RuntimeEnvironment.getApplication()
-            val chats = mockk<ChatRepository>()
+            val chats = mockk<ChatRepository>().also { repository -> coEvery { repository.conversationPrivacyLocked(any()) } returns false }
             val settings = mockk<SettingRepository>()
             val waits = mockk<ProviderWaitStore>()
             val platform = PlatformV2(uid = "p", name = "Primary", compatibleType = ClientType.CUSTOM, model = "model", apiUrl = "https://writer.example/v1")

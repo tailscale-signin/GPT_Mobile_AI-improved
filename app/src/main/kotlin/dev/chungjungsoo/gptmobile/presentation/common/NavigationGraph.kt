@@ -907,7 +907,16 @@ fun NavGraphBuilder.settingNavigation(
 }
 
 fun NavGraphBuilder.githubChatNavigation(navController: NavHostController, toolConnectionsViewModel: ToolConnectionsViewModel, onLaunchOAuth: (String) -> Unit = {}) {
-    composable("github_chat/{profileUid}", arguments = listOf(navArgument("profileUid") { type = NavType.StringType })) { entry ->
+    composable(
+        "github_chat/{profileUid}?privacyLocked={privacyLocked}",
+        arguments = listOf(
+            navArgument("profileUid") { type = NavType.StringType },
+            navArgument("privacyLocked") {
+                type = NavType.BoolType
+                defaultValue = false
+            }
+        )
+    ) { entry ->
         val toolState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
         val connection = dev.chungjungsoo.gptmobile.presentation.ui.setting.gitHubModeConnection(toolState)
         if (connection != null) {
@@ -916,6 +925,7 @@ fun NavGraphBuilder.githubChatNavigation(navController: NavHostController, toolC
                 onDismiss = { navController.navigateUp() },
                 initialProfileUid = entry.arguments?.getString("profileUid"),
                 newConversation = true,
+                privacyModeLocked = entry.arguments?.getBoolean("privacyLocked") == true,
                 onOpenConversation = { id -> navController.navigate("chat_room/$id") },
                 onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },

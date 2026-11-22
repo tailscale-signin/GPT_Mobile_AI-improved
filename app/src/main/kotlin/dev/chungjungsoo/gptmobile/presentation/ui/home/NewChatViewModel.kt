@@ -62,6 +62,8 @@ class NewChatViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppFeatureSettings())
     val privacyState: StateFlow<PrivacyModeState> = privacyMode?.state ?: MutableStateFlow(PrivacyModeState())
     val privacyUpdates: StateFlow<PrivacySettingsSaveState> = privacyMode?.updates ?: MutableStateFlow(PrivacySettingsSaveState())
+    val privacySelected = savedStateHandle.getStateFlow("new_chat_privacy_selected", false)
+    private val privacySelectionRevision = AtomicLong()
     val typeName = savedStateHandle.getStateFlow("new_chat_type", "")
     internal val gatewayAvailability = combine(profiles, features, typeName) { savedProfiles, settings, type ->
         gatewayAvailabilityTargets(savedProfiles, settings, type == NewChatType.GITHUB.name)
@@ -105,13 +107,13 @@ class NewChatViewModel @Inject constructor(
     val privacyChecking = _privacyChecking.asStateFlow()
 
     fun privacyDecision(profile: PlatformV2): PrivacyProfileEligibility.Decision =
-        if (privacyState.value.enabled) checked.value[profile] ?: PrivacyProfileEligibility.evaluate(profile, true) else PrivacyProfileEligibility.evaluate(profile, false)
+        if (privacySelected.value) checked.value[profile] ?: PrivacyProfileEligibility.evaluate(profile, true) else PrivacyProfileEligibility.evaluate(profile, false)
 
     suspend fun checkPrivacyProfiles(items: List<PlatformV2>) {
         val store = privacyMode ?: return
         val generation = privacyCheckGeneration.incrementAndGet()
         val state = store.snapshot()
-        if (!state.enabled) {
+        if (!privacySelected.value) {
             checked.value = emptyMap()
             _privacyChecking.value = false
             return
@@ -161,10 +163,16 @@ class NewChatViewModel @Inject constructor(
     }
 
     fun setPrivacyMode(enabled: Boolean) {
+        if (enabled && !privacySelected.value && !privacyState.value.enabled) {
+            _error.value = "Enable Privacy Mode in Options before selecting it for this conversation."
+            return
+        }
+        if (privacySelected.value == enabled) return
+        privacySelectionRevision.incrementAndGet()
         privacyCheckGeneration.incrementAndGet()
         checked.value = emptyMap()
         _privacyChecking.value = false
-        privacyMode?.requestEnabled(enabled)
+        savedStateHandle["new_chat_privacy_selected"] = enabled
         clearError()
     }
 
@@ -319,6 +327,11 @@ class NewChatViewModel @Inject constructor(
             val created = mutableListOf<ChatRoomV2>()
             try {
                 val creationPrivacy = privacyMode?.snapshot()
+                val privacyLocked = privacySelected.value
+                val selectionRevision = privacySelectionRevision.get()
+                require(!privacyLocked || creationPrivacy?.enabled == true) {
+                    "Privacy Mode is unavailable in Options. Enable it again or explicitly clear Privacy for this new conversation."
+                }
                 // Opening a workspace or saving a draft does not dispatch provider or tool work.
                 // Outbound operations retain their own live privacy and permission checks.
                 val available = settings.fetchPlatformV2s().filter { it.enabled }
@@ -348,7 +361,7 @@ class NewChatViewModel @Inject constructor(
                 require(choice.requiredPluginId?.let { settings.getFeatureSettings().isToolPluginEnabled(it) } != false) {
                     "This chat mode's plugin was disabled. Enable it before continuing."
                 }
-                require(privacyMode?.snapshot() == creationPrivacy) {
+                require(privacyMode?.snapshot() == creationPrivacy && privacySelectionRevision.get() == selectionRevision) {
                     "Privacy settings changed while checking. Recheck your profiles before starting."
                 }
                 val currentProfiles = settings.fetchPlatformV2s()
@@ -356,7 +369,7 @@ class NewChatViewModel @Inject constructor(
                     "A selected AI profile changed while checking. Recheck your selection before starting."
                 }
                 if (choice == NewChatType.GITHUB) {
-                    val nextRoute = "github_chat/${android.net.Uri.encode(selected.single())}"
+                    val nextRoute = "github_chat/${android.net.Uri.encode(selected.single())}?privacyLocked=$privacyLocked"
                     savedStateHandle["new_chat_finished_route"] = nextRoute
                     onCreated(nextRoute)
                     return@launch
@@ -375,7 +388,8 @@ class NewChatViewModel @Inject constructor(
                         mode,
                         title,
                         primary,
-                        firstMessage.value.takeIf { it.isNotBlank() && choice in setOf(NewChatType.SINGLE, NewChatType.RESEARCH) }
+                        firstMessage.value.takeIf { it.isNotBlank() && choice in setOf(NewChatType.SINGLE, NewChatType.RESEARCH) },
+                        privacyModeLocked = privacyLocked
                     )
                     val chatId = created.single().id
                     settings.mutateFeatureSettings {

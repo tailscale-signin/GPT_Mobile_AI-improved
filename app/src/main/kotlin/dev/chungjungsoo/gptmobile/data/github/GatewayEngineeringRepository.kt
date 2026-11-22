@@ -170,6 +170,7 @@ class GatewayEngineeringRepository @Inject constructor(
     }
 
     private suspend fun config(binding: GatewayEngineeringBinding): ProviderRequestConfig {
+        conversations.requireUnprotectedConversation(binding.chatId)
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == binding.profileUid && it.enabled }
             ?: error("The saved engineering AI profile is unavailable. The gateway job is retained.")
         check(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile) && profile.apiUrl.trimEnd('/') == binding.endpoint) { "The saved job requires its original local Llama or Ollama engineering connection. Restore that profile to reconnect." }
@@ -266,6 +267,7 @@ class GatewayEngineeringRepository @Inject constructor(
         originalContext: GitHubConversationContext? = null,
         draftRepair: GitHubDraftRepair? = null
     ): GatewayEngineeringBinding = submissionLock.withLock {
+        conversations.requireUnprotectedConversation(chatId)
         require(objective.isNotBlank() && objective.length <= 16000 && taskScope in setOf("read", "plan", "implement"))
         requireGatewayCommitPermission(objective, taskScope)
         require(taskScope != "implement" || branch != base || sourceBranch == branch && sourceSha?.matches(Regex("(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})")) == true) { "Implementing from the base branch requires its pinned source commit so the gateway can create a separate owned working branch." }
@@ -438,6 +440,7 @@ class GatewayEngineeringRepository @Inject constructor(
 
     private suspend fun poll(requestId: String, allowCreate: Boolean, maxPages: Int, admissionAllowed: () -> Boolean = { true }): GatewayEngineeringBinding = synchronization.withLock {
         var binding = bindings().single { it.request.requestId == requestId }
+        conversations.requireUnprotectedConversation(binding.chatId)
         val admissionState = store.admissionState(requestId)
         if (binding.job == null && admissionState?.startsWith("REJECTED:") == true) {
             if (allowCreate) throw GatewayEngineeringRequestRejected(admissionState.substringAfter(':').toIntOrNull() ?: 400, "The gateway rejected this saved command. Refresh the conversation and review a new command before submitting.")
@@ -520,6 +523,7 @@ class GatewayEngineeringRepository @Inject constructor(
                 store.markAdmission(requestId, "DISPATCHING")
                 val job = try {
                     if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed before dispatch. The saved command was not sent.")
+                    conversations.requireUnprotectedConversation(binding.chatId)
                     client.create(verifiedConfig, binding.request)
                 } catch (rejected: GatewayEngineeringRequestRejected) {
                     store.markAdmission(requestId, if (attemptedBefore || rejected.commandOutcomeUnknown) "OUTCOME_UNKNOWN" else "REJECTED:${rejected.httpStatus}")

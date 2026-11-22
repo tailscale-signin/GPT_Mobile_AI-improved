@@ -238,6 +238,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                         observation.privacyPolicy?.let { policy ->
                             buildJsonObject {
                                 put("enabled", policy.enabled?.let(::JsonPrimitive) ?: JsonNull)
+                                put("featureAvailable", policy.featureAvailable?.let(::JsonPrimitive) ?: JsonNull)
                                 put("revision", policy.revision?.takeIf { it >= 0 }?.let(::JsonPrimitive) ?: JsonNull)
                                 put("changedDuringProbe", policy.changedDuringProbe?.let(::JsonPrimitive) ?: JsonNull)
                             }

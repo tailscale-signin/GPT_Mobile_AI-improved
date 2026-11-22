@@ -690,7 +690,7 @@ class CompleteBackupManager @Inject constructor(
                     // Per-file keys preserve unrelated drafts on this installation. The
                     // journal retains the complete previous key set for exact rollback.
                     if (effective.includes(CompleteBackupSection.GITHUB_WORKSPACE)) selectedSecrets = oldSecrets.filterKeys { dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.isDraftKey(it) } + selectedSecrets
-                    val protectedMemory = if (effective.includes(CompleteBackupSection.MEMORY)) memoryStore?.read() else null
+                    val protectedMemory = if (effective.includes(CompleteBackupSection.MEMORY) || restoreConversations) memoryStore?.read() else null
                     val oldProtection = savedProtection()
                     val restoreTransactionId = UUID.randomUUID().toString()
                     // Restored inference credentials cannot silently inherit a different account's

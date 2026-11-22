@@ -18,6 +18,7 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.core.content.ContextCompat
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
 import java.util.Locale
 
 /** Created only in an enabled, visible voice session. Audio is never recorded to an app file. */
@@ -55,6 +56,10 @@ class AndroidVoiceAudio internal constructor(
 
     @Volatile private var generation = 0L
     private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+    private var conversationPrivacy: () -> ConversationPrivacyContext? = ConversationPrivacyContext::capture
+    internal fun bindConversationPrivacy(capture: () -> ConversationPrivacyContext?) {
+        conversationPrivacy = capture
+    }
     private var playbackStarted: (() -> Unit)? = null
     private var spokenRange: ((Int, String, IntRange) -> Unit)? = null
     override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
@@ -130,7 +135,7 @@ class AndroidVoiceAudio internal constructor(
     private val mutableVoiceCatalog = kotlinx.coroutines.flow.MutableStateFlow(SpeechVoiceCatalogState.UNINITIALIZED)
     internal val voiceCatalogState: kotlinx.coroutines.flow.StateFlow<SpeechVoiceCatalogState> = mutableVoiceCatalog
     private var voiceQueryInFlight: Long? = null
-    private fun eligibleVoices(voices: Collection<android.speech.tts.Voice>, language: String = languageTag, online: Boolean = allowOnlineSpeech) = voices
+    private fun eligibleVoices(voices: Collection<android.speech.tts.Voice>, language: String = languageTag, online: Boolean = allowOnlineSpeech && conversationPrivacy()?.enabled != true) = voices
         .filter { (online || !it.isNetworkConnectionRequired) && it.locale.language == Locale.forLanguageTag(language).language && "notInstalled" !in it.features.orEmpty() }
         .sortedWith(compareByDescending<android.speech.tts.Voice> { it.quality }.thenByDescending { it.locale.toLanguageTag() == language }.thenBy { it.latency }.thenBy { it.name })
     fun voices(): List<Pair<String, String>> = eligibleVoices(installedVoices).take(12).mapIndexed { index, voice ->
@@ -183,7 +188,7 @@ class AndroidVoiceAudio internal constructor(
         val locale = languageTag.takeIf { it.matches(Regex("[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8}){0,4}")) } ?: "und"
         diagnostics(
             "VoiceRecognition",
-            "recognition_error=${error ?: "not_reported"} · errorCode=$code · failedStage=$stage · dispatched=$dispatched · incidentId=voice:$sessionId:$ticket · retryAfterMs=${recognitionGate.remainingMillis()} · locale=$locale · onDevice=${!allowOnlineSpeech}",
+            "recognition_error=${error ?: "not_reported"} · errorCode=$code · failedStage=$stage · dispatched=$dispatched · incidentId=voice:$sessionId:$ticket · retryAfterMs=${recognitionGate.remainingMillis()} · locale=$locale · onDevice=${recognizerOnDevice ?: (!allowOnlineSpeech || conversationPrivacy()?.enabled == true)}",
             "W"
         )
     }
@@ -193,7 +198,7 @@ class AndroidVoiceAudio internal constructor(
     var allowOnlineSpeech: Boolean = false
     var speechRate: Float = 1f
     var selectedVoice: String? = null
-    val processingLocation: String get() = if (allowOnlineSpeech) "System speech service may use the network" else "On device speech only"
+    val processingLocation: String get() = if (allowOnlineSpeech && conversationPrivacy()?.enabled != true) "System speech service may use the network" else "On device speech only"
     fun routeName(): String = runCatching { audioManager?.communicationDevice?.productName?.toString() }.getOrNull() ?: "System audio route"
     fun routes(): List<Pair<Int, String>> = audioManager?.availableCommunicationDevices.orEmpty().map { it.id to it.productName.toString() }
     fun selectRoute(id: Int): Boolean = runCatching {
@@ -212,6 +217,7 @@ class AndroidVoiceAudio internal constructor(
     override fun listen(listener: VoiceAudio.Listener) {
         check(Looper.myLooper() == Looper.getMainLooper())
         if (closed || recognitionActive) return
+        val privacy = conversationPrivacy()
         stop()
         val observations = diagnosticProbe
         observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
@@ -256,7 +262,7 @@ class AndroidVoiceAudio internal constructor(
             )
         }
         try {
-            val onDevice = !allowOnlineSpeech || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
+            val onDevice = !allowOnlineSpeech || privacy?.enabled == true
             if (!recognitionService.available(onDevice)) {
                 recognitionGate.bindingFailed(sessionId)
                 recognitionFailure("SPEECH_SERVICE_UNAVAILABLE", failedStage, false, ticket)
@@ -496,8 +502,10 @@ class AndroidVoiceAudio internal constructor(
                     failedStage = "service_start"
                     dispatched = true
                     observations?.captureAttempt()
-                    if (!onDevice) dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
-                    engine.startListening(intent)
+                    ConversationPrivacyContext.withCaptured(privacy) {
+                        if (!onDevice) dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                        engine.startListening(intent)
+                    }
                 } catch (failure: Exception) {
                     failedStart(failure)
                 }
@@ -526,6 +534,7 @@ class AndroidVoiceAudio internal constructor(
         speak(text, false, complete, error)
 
     private fun speak(text: String, online: Boolean, complete: () -> Unit, error: (String) -> Unit) {
+        val privacy = conversationPrivacy()
         stop()
         if (closed) return
         val ticket = generation
@@ -576,7 +585,7 @@ class AndroidVoiceAudio internal constructor(
                 }
             }
         }
-        val config = SpeechConfiguration(languageTag, selectedVoice, online, speechRate.coerceIn(.5f, 2f), routeMode != null)
+        val config = SpeechConfiguration(languageTag, selectedVoice, online && privacy?.enabled != true, speechRate.coerceIn(.5f, 2f), routeMode != null)
         val play: () -> Unit = play@{
             val engine = tts?.takeIf { speechReady } ?: return@play
             if (!closed && ticket == generation) observations?.engineReady(wasWarm)
@@ -727,7 +736,7 @@ class AndroidVoiceAudio internal constructor(
                             }
                         }
                         if (!admitted) return@work
-                        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() && engine.voice?.isNetworkConnectionRequired != false) {
+                        if (privacy?.enabled == true && engine.voice?.isNetworkConnectionRequired != false) {
                             fail("Choose an offline voice for Privacy Mode. Captions are still available.", retireEngine = true)
                             return@work
                         }

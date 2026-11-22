@@ -51,6 +51,10 @@ class SharedToolCallBroker(
         if (scopeId.isNullOrBlank() || !shareableReadOnly) return tool
 
         return object : OwnedAgentTool {
+            init {
+                dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.inherit(this, tool)
+            }
+
             override val definition = tool.definition
             override val searchValidationOwner get() = tool.searchValidationOwner
             override val managesExecutionBudget = tool.managesExecutionBudget

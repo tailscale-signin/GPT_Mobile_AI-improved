@@ -23,6 +23,9 @@ internal enum class McpDiscoverySource { FRESH, SHARED, CACHED }
 
 internal data class McpDiscoveryReceipt(val tools: List<Tool>, val source: McpDiscoverySource)
 
+/** The denied request was local, but an earlier exchange in this discovery cannot be unsent. */
+internal class McpDiscoveryPolicyRejection(cause: Throwable, val responseObservedAtEpochMs: Long?) : IllegalStateException("Privacy Mode blocked a later metadata request.", cause)
+
 internal enum class McpDiscoveryTrigger { AUTOMATIC_RESOLUTION, AUTOMATIC_HEALTH, USER_RECONNECT, AUDIT_REFRESH, OAUTH_REFRESH, EXPLICIT_UNSPECIFIED }
 
 internal enum class McpDiscoveryDecision { REQUESTED, PAUSED_CONFIGURATION, PAUSED_AUTHENTICATION, WAITING_BACKOFF, LIVE_CACHE, SHARED_PRODUCER, START_ACQUISITION }

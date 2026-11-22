@@ -38,6 +38,8 @@ internal fun appAuditQualificationPlan(
         )
         put("pendingChecks", gaps.size)
         put("pendingChecksScope", "RETAINED_PLAN")
+        put("selectedModelQualification", if (run.options.selectedProfileIds.isEmpty()) "NO_PROFILE_SELECTED" else "BENCHMARK_EXECUTION_REQUIRED")
+        put("modelNextAction", if (run.options.selectedProfileIds.isEmpty()) "SELECT_EXACT_SAVED_PROFILE_FOR_NEW_AUDIT_THEN_PREPARE_BENCHMARK" else "PREPARE_EXACT_SELECTED_PROFILE_BENCHMARK")
         put("scope", "Named target fixtures and external suites require independent execution evidence. This worklist does not execute tools, change retained results, establish service identity, or claim line coverage.")
         put("acceptance", "Review evidence from the authorized harness against the exact app build, source inventory, accepted plan and configuration binding. Reject stale, mismatched, untrusted, incomplete or uncertain receipts. Discovery alone cannot satisfy tool execution.")
         put(
@@ -75,6 +77,7 @@ internal fun appAuditQualificationPlan(
                         else -> configurationResult?.outcome?.name ?: "CHECK_REQUIRED"
                     }
                     val credentialRefreshRequired = discoveryResult?.reasonCode == "MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED"
+                    val privacyBlocked = discoveryResult?.reasonCode == "PRIVACY_SERVICE_UNVERIFIED"
                     val credentialBlocked = !credentialRefreshRequired &&
                         discoveryResult?.observation?.let {
                             it.validationRule == "CREDENTIAL_REAUTHORIZATION_REQUIRED" ||
@@ -110,6 +113,7 @@ internal fun appAuditQualificationPlan(
                         entry.evidenceKind in TARGET_EXECUTION_KINDS && configurationReadiness != "READY" -> "CONFIGURATION_CHECK_REQUIRED"
                         entry.evidenceKind in TARGET_EXECUTION_KINDS && credentialRefreshRequired -> "CREDENTIAL_REFRESH_REQUIRED"
                         entry.evidenceKind in TARGET_EXECUTION_KINDS && credentialBlocked -> "CREDENTIAL_REAUTHORIZATION_REQUIRED"
+                        entry.evidenceKind in TARGET_EXECUTION_KINDS && privacyBlocked -> "PRIVACY_POLICY_REVIEW_REQUIRED"
                         entry.evidenceKind in TARGET_EXECUTION_KINDS && discoveryReadiness !in setOf("NOT_REQUIRED", "VERIFIED") -> "DISCOVERY_RECHECK_REQUIRED"
                         entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION && noToolsAdvertised -> "NO_TOOLS_ADVERTISED"
                         entry.evidenceKind == AppAuditEvidenceKind.TOOL_EXECUTION -> "TARGET_FIXTURE_REQUIRED"
@@ -160,6 +164,7 @@ internal fun appAuditQualificationPlan(
                                 "ENABLE_PERMISSION_REQUIRED" -> "REVIEW_OPTIONAL_PLUGIN_PERMISSION_THEN_START_NEW_AUDIT"
                                 "CREDENTIAL_REFRESH_REQUIRED" -> "RECONNECT_SAVED_CONNECTION_THEN_START_NEW_AUDIT"
                                 "CREDENTIAL_REAUTHORIZATION_REQUIRED" -> "REAUTHORIZE_SAVED_CONNECTION_THEN_RECHECK"
+                                "PRIVACY_POLICY_REVIEW_REQUIRED" -> "REVIEW_EXACT_SERVICE_PRIVACY_POLICY_THEN_RECHECK"
                                 "NO_TOOLS_ADVERTISED" -> "CHECK_TOOL_EXPOSURE_OR_EXCLUDE_RESOURCE_ONLY_CONNECTION"
                                 "DISCOVERY_RECHECK_REQUIRED" -> when (discoveryResult?.observation?.validationRule) {
                                     "RESPONSE_ID_MATCH_REQUIRED" -> "REPAIR_MCP_RESPONSE_ID_CORRELATION_THEN_RECONNECT"

@@ -58,7 +58,7 @@ internal suspend fun maskedProviderSession(
                     is ProviderEvent.TextDelta -> answer.append(event.text)
                     ProviderEvent.Completed -> {
                         if (answer.isNotEmpty()) {
-                            val restored = restore(answer.toString())
+                            val restored = currentCoroutineContext()[PrivateToolReplyMask]?.restore(answer.toString(), restore) ?: restore(answer.toString())
                             protection?.restored(restored)
                             emit(ProviderEvent.TextDelta(restored.text))
                         }

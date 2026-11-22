@@ -24,6 +24,10 @@ internal class PersonalDataGuardedTool(
 ) : AgentTool by child,
     dev.chungjungsoo.gptmobile.data.agent.PreparableAgentTool,
     dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool {
+    init {
+        dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.inherit(this, child)
+    }
+
     constructor(child: AgentTool, permitted: suspend () -> Boolean) : this(child, permitted, null)
 
     override val executionOwner = (child as? dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool)?.executionOwner ?: dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner.CLIENT

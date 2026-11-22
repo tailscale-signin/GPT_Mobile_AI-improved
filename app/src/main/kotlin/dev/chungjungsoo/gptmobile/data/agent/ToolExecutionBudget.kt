@@ -132,6 +132,10 @@ class ToolExecutionBudget(
         authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true },
         definitionOverride: AgentToolDefinition? = null
     ): AgentTool = object : PreparableAgentTool, OwnedAgentTool, ApprovedReadOnlyAgentTool, ProgressiveCatalogCarrier {
+        init {
+            dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.inherit(this, tool)
+        }
+
         override val definition = definitionOverride ?: tool.definition
         override val progressiveCatalog get() = tool.argumentCatalog()
         override val searchValidationOwner get() = tool.searchValidationOwner
@@ -340,7 +344,7 @@ class ToolExecutionBudget(
                     val sharedContext = physicalContext?.let { CombinedToolDispatchScope(it, physicalIdentity) } ?: kotlin.coroutines.EmptyCoroutineContext
                     val observed = withContext(sharedContext + ToolBudgetScope(this@ToolExecutionBudget)) {
                         currentCoroutineContext().ensureActive()
-                        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+                        dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.requireExecution(tool)
                         physicalToolStarted = true
                         if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, attributedProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
                     }

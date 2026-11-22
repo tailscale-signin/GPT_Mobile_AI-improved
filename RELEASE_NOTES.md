@@ -87,6 +87,10 @@ The exact release commit must pass the required main workflows, artifact identit
 
 ## Privacy visibility and local protection
 
+- Keep enabled calculator, current-date and supplied-text slicing tools available in Privacy Mode through trusted local execution. Each model continuation masks tool arguments and results and retains profile, plugin and personal-data permissions.
+- Report privacy-blocked GitHub and MCP requests as local policy decisions with known non-dispatch. Preserve earlier uncertain operations and genuine connection recovery state; a local denial does not create a network cooldown or invalidate a working catalogue.
+- Preserve bounded DNS, TLS, connection, timeout and HTTP evidence in audit results. Record fixed assertion identities, attempted and passed counts, safe expected/observed states and privacy-policy revisions without exporting request bodies, private terms or credentials.
+- Show the original cached failure, observation age and recorded retry eligibility. Repair actions keep the exact saved connection identity, and untested tools, models and device checks retain explicit qualification steps.
 - Make Privacy Mode changes effective immediately while saving on a background writer shared by Settings and New Chat. Keep toggles and navigation responsive during disk writes, preserve the latest choice across rapid changes, and expose save failure/retry without cancelling saves when a screen closes.
 - Load provider verification status and run account setup away from the UI thread. Confine loading and recoverable errors to account setup; retain authority checks, uncertain-write reconciliation and cancellation cleanup.
 - Keep profile selection and draft chat creation independent of unfinished or failed provider verification, including opening a local GitHub workspace or Research draft. Enforce privacy when external work is actually dispatched. Add regression coverage for privacy status changes, pending verification, stale save completions and main-thread responsiveness.

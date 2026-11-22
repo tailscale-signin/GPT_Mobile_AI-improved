@@ -19,6 +19,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolFailureMetadataTest {
+    @Test fun typedMetadataPrivacyDenialKeepsItsCauseWithoutErasingEarlierDispatch() {
+        val denied = java.io.IOException("private wrapper", dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied())
+        assertEquals("PRIVACY_SERVICE_UNVERIFIED", ToolFailureMetadata.classify(denied))
+        assertEquals("PRIVACY_SERVICE_UNVERIFIED", ToolFailureMetadata.authorityCode(denied))
+        val precheck = requireNotNull(ToolFailureMetadata.authorityPrecheck("local", "mcp", denied))
+        assertFalse(precheck.dispatched)
+        assertEquals("PRIVACY_SERVICE_UNVERIFIED", precheck.errorCode)
+        val earlier = ToolResultEnvelope.error("earlier", "DISPATCH_OUTCOME_UNKNOWN", "Earlier operation uncertain", dispatched = true)
+        val retained = requireNotNull(ToolFailureMetadata.withAuthorityFailure(earlier, denied, "tool_execution"))
+        assertTrue(retained.dispatched)
+        assertEquals("DISPATCH_OUTCOME_UNKNOWN", retained.errorCode)
+        assertEquals("RECONCILIATION_REQUIRED", ToolFailureMetadata.authorityFailure(retained, hasUnknownOutcome = true).errorCode)
+        assertNull(ToolFailureMetadata.authorityCode(java.io.IOException("PRIVACY_SERVICE_UNVERIFIED")))
+    }
+
     @Test fun observedGitHubPreflightProjectsItsStageAndExactCallWithoutPrivateReceiptValues() {
         val original = githubPreflight().let {
             it.copy(

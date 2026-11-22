@@ -10,10 +10,12 @@ import dev.chungjungsoo.gptmobile.data.audit.AppAuditRun
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditScore
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSelectedModelProbeSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSummary
+import dev.chungjungsoo.gptmobile.data.audit.appAuditBlockingPrerequisiteIds
 import dev.chungjungsoo.gptmobile.data.audit.appAuditInterpretation
 import dev.chungjungsoo.gptmobile.data.audit.appAuditScore
 import dev.chungjungsoo.gptmobile.data.audit.appAuditSummary
 import dev.chungjungsoo.gptmobile.data.audit.appAuditTargetAliases
+import dev.chungjungsoo.gptmobile.data.audit.safeAuditReason
 
 private const val MCP_RESPONSE_CORRELATION_GUIDANCE = "The bridge or proxy returned a response ID that did not match the request. When the request ID is available, return its exact value and JSON type on both success and error responses. Check the bridge and proxy error handling, then reconnect to verify discovery and tools/list. The upstream cause is not established by the mismatch alone."
 
@@ -23,7 +25,8 @@ internal data class AppAuditEntryPresentation(
     val active: Boolean,
     val includedInScore: Boolean,
     val targetAlias: String? = null,
-    val currentSavedName: String? = null
+    val currentSavedName: String? = null,
+    val blockingPrerequisiteCount: Int = 0
 )
 
 internal data class AppAuditComponentPresentation(
@@ -39,7 +42,8 @@ internal data class AppAuditPresentation(
     val components: List<AppAuditComponentPresentation>,
     val evidenceText: String,
     val configurationText: String,
-    val prerequisiteText: String
+    val prerequisiteText: String,
+    val modelQualificationText: String
 ) {
     val scoreText: String get() = "Measured check pass score: ${benchmarkMetricText(score.score, "/ 100", 1)}"
     val weightText: String get() = "Passing weight ${score.passedWeight} / measured weight ${score.measuredWeight}"
@@ -79,7 +83,8 @@ internal fun appAuditPresentation(run: AppAuditRun, currentTargetNames: Map<Stri
                     run.activeProbeId == entry.id,
                     result != null && appAuditScore(run.copy(plan = listOf(entry), results = listOf(result))).measuredWeight > 0,
                     entry.targetId?.let(targets::get),
-                    entry.targetId?.let(currentTargetNames::get)
+                    entry.targetId?.let(currentTargetNames::get),
+                    appAuditBlockingPrerequisiteIds(run, entry).size
                 )
             },
             appAuditSummary(run.copy(plan = plan))
@@ -94,7 +99,12 @@ internal fun appAuditPresentation(run: AppAuditRun, currentTargetNames: Map<Stri
         "${interpretation.disabledTargets} disabled integrations · ${interpretation.optionalAbsentTargets} optional integrations not installed. These settings do not establish a defect."
     val prerequisiteText = "${interpretation.credentialBlockers} credential blockers · ${interpretation.dependentUntestedChecks} execution checks depend on an unresolved prerequisite. " +
         "Dependent checks remain included in the untested total; they are not additional connection failures."
-    return AppAuditPresentation(appAuditSummary(run), appAuditScore(run), components, evidenceText, configurationText, prerequisiteText)
+    val modelQualificationText = if (run.options.selectedProfileIds.isEmpty()) {
+        "No model profile was selected for this audit. To qualify generation, select the exact saved profile in a new comprehensive audit, then prepare and explicitly run its model benchmark."
+    } else {
+        "Selected model profiles require their own executed benchmarks to qualify generation. Configuration and gateway metadata do not measure model answers, latency or throughput."
+    }
+    return AppAuditPresentation(appAuditSummary(run), appAuditScore(run), components, evidenceText, configurationText, prerequisiteText, modelQualificationText)
 }
 
 /** Display-only current labels. Exact UIDs never fall back to a name, URL or another target. */
@@ -146,6 +156,43 @@ internal fun appAuditRetryabilityText(retryable: Boolean?): String = when (retry
     true -> "Retryable: yes, after the connection's recovery conditions are met."
     false -> "Retryable: no automatic retry. Correct the problem, then explicitly reconnect or check again."
     null -> "Retryable: not determined. Inspect the connection before retrying."
+}
+
+internal fun appAuditRecoveryText(result: AppAuditResult): List<String> = buildList {
+    val recovery = result.observation.recovery
+    val retryAt = recovery?.retryEligibleAtEpochMs?.takeIf { it in 0 until Long.MAX_VALUE }
+    if (result.observationSource == AppAuditObservationSource.CACHE) {
+        val original = recovery?.originalReasonCode?.let(::safeAuditReason)?.takeUnless { it == "UNKNOWN_REASON" }
+        add(original?.let { "Original diagnostic code: $it" } ?: "Original diagnostic code: not separately recorded.")
+        original?.let(::appAuditReasonCodeMessage)?.let { add("Original cause: $it") }
+    }
+    when {
+        recovery?.explicitReconnectRequired == true -> add("An explicit reconnect is required after correcting this connection. The audit does not clear its recovery state.")
+        retryAt != null -> {
+            if (retryAt <= result.startedAtEpochMs) {
+                add("The recorded retry delay had elapsed when this check began. Current connection and policy conditions must still permit a fresh check.")
+            } else {
+                add("Recorded retry eligibility: no earlier than ${benchmarkResultDate(retryAt)}. Current connection and policy conditions must still permit a fresh check.")
+            }
+        }
+        result.observationSource == AppAuditObservationSource.CACHE -> add("Retry eligibility was not recorded. Review the exact connection's current recovery state before checking again.")
+    }
+}
+
+internal fun appAuditQualificationNextAction(item: AppAuditEntryPresentation): String? {
+    if (item.active || item.result?.outcome != AppAuditOutcome.UNTESTED) return null
+    val prerequisites = if (item.blockingPrerequisiteCount > 0) {
+        "Review ${item.blockingPrerequisiteCount} unresolved configuration or discovery ${if (item.blockingPrerequisiteCount == 1) "check" else "checks"} for this exact target first. "
+    } else {
+        ""
+    }
+    return when (item.entry.evidenceKind) {
+        AppAuditEvidenceKind.TOOL_EXECUTION -> "Next qualification step: ${prerequisites}If this integration is needed, run an authorized, bounded fixture for the named tool and retain its execution receipt. A catalogue read does not execute tools."
+        AppAuditEvidenceKind.MODEL_EXECUTION -> "Next qualification step: ${prerequisites}Prepare this exact saved profile in the model benchmark queue, review the suite, then explicitly run it."
+        AppAuditEvidenceKind.EXTERNAL_SUITE -> "Next qualification step: run the named external suite against this app build and retain its result, build identity and required device or service evidence. This audit remains unmeasured for that suite."
+        AppAuditEvidenceKind.DEVICE_MEASUREMENT -> "Next qualification step: run the named device measurement on the intended hardware and retain the device, build and measurement receipt. Configuration alone cannot qualify device performance."
+        else -> "Next qualification step: review this check's prerequisite, then resume remaining checks or start a new audit with the intended configuration."
+    }
 }
 
 internal fun AppAuditEvidenceKind.auditLabel(): String = when (this) {
@@ -217,10 +264,21 @@ internal fun appAuditReasonCodeMessage(code: String?): String? = when (code) {
     "GITHUB_AUDIT_REQUEST_LIMIT", "GITHUB_AUDIT_TARGET_LIMIT" -> "The explicit GitHub connection or physical request limit was reached. Additional work remains untested; the audit does not expand its accepted budget."
     "GITHUB_AUDIT_RESOURCE_UNAVAILABLE" -> "The selected GitHub resource returned unavailable. This does not establish deletion or identify the missing permission."
     "GITHUB_AUDIT_TRANSPORT_UNAVAILABLE" -> "A GitHub read could not complete because transport or the remote service was unavailable. Review the recorded dispatch and HTTP evidence."
+    "GITHUB_AUDIT_DNS_FAILED" -> "The GitHub host could not be resolved. Check the saved endpoint and network DNS, then retry after recovery conditions permit it."
+    "GITHUB_AUDIT_TLS_FAILED" -> "A secure connection to GitHub could not be established. Review the endpoint and certificate or trust configuration before checking again."
+    "GITHUB_AUDIT_CONNECTION_FAILED" -> "The GitHub connection could not be established. Check the host, port and network route, then retry after recovery conditions permit it."
+    "GITHUB_AUDIT_TIMEOUT" -> "The bounded GitHub request timed out. Review its dispatch evidence and retry eligibility before requesting another read."
+    "GITHUB_AUDIT_STREAM_INTERRUPTED" -> "The GitHub response stream ended before this check had a usable response. Inspect the recorded HTTP and dispatch evidence before checking again."
+    "GITHUB_AUDIT_CLIENT_FAILURE" -> "A local GitHub client operation failed without a usable response. Its cause is not classified as a network outage; inspect the fixed failure phase and report the affected check."
     "GITHUB_AUDIT_LIVE_RESPONSE_REQUIRED" -> "No complete fresh GitHub response was established. Cached information cannot pass a live integration check."
     "GITHUB_AUDIT_RESPONSE_INVALID" -> "GitHub responded, but the named response did not satisfy this check's contract. Review the bounded status evidence."
     "MCP_NETWORK_IO_FAILED" -> "Discovery failed during network I/O before a more specific transport receipt was available. Review this exact connection's host, port and service, then retry after its bounded recovery delay. Receipt of the request by the server is unknown."
     "MCP_RESPONSE_ID_MISMATCH" -> MCP_RESPONSE_CORRELATION_GUIDANCE
+    "PRIVACY_SERVICE_UNVERIFIED" -> "Privacy policy did not permit this unverified service transport. Review the exact connection's privacy compatibility before checking again. This policy rejection does not establish a network outage."
+    "LOCAL_FIXTURE_POLICY_BLOCKED" -> "Privacy policy blocked fixture setup before the intended assertion could run. This is an unmeasured setup blocker; inspect the fixture's local transport classification."
+    "LOCAL_FIXTURE_SETUP_FAILED" -> "The local fixture did not evaluate an assertion. Repair its setup and run the check again; this result supplies no measured contract assertion."
+    "LOCAL_FIXTURE_EXECUTION_FAILED" -> "The local fixture stopped unexpectedly. Earlier assertion counts are retained, but they do not establish that the full contract passed."
+    "LOCAL_CONTRACT_FAILED" -> "A local contract assertion failed. Open evidence details for its fixed assertion ID, passed and attempted counts, and any expected and observed fixture state."
     "NETWORK_READS_DISABLED", "NETWORK_READS_NOT_SELECTED" -> "Service reads were disabled for this plan. Enable them and start a new audit to measure this connection."
     "MODEL_EXECUTION_NOT_SELECTED", "MODEL_BENCHMARK_REQUIRED" -> "Model generation is untested in this audit. Prepare this exact saved profile in the model benchmark queue, review the suite, then explicitly run it."
     "MODEL_PROFILE_NOT_CONFIGURED" -> "The selected model profile is unavailable or incomplete. Review that saved profile before preparing a benchmark."

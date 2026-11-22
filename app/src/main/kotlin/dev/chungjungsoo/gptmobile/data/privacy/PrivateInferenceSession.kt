@@ -142,7 +142,7 @@ internal class PrivateInferenceSession(
                 }
                 emit(ProviderEvent.Usage(inputTokens = count("prompt_tokens", "input_tokens"), outputTokens = count("completion_tokens", "output_tokens"), totalTokens = count("total_tokens")))
             }
-            val restored = restore(text)
+            val restored = currentCoroutineContext()[PrivateToolReplyMask]?.restore(text, restore) ?: restore(text)
             protection?.restored(restored)
             emit(ProviderEvent.TextDelta(restored.text))
             emit(ProviderEvent.Completed)

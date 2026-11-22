@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolCatalogConnectionDiscovery
 import dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiscoveryState
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
@@ -142,7 +143,6 @@ class McpClientManager internal constructor(
         }
         val previousKey = transportConfigurationKeys.put(config.connectionUid, key)
         if (previousKey != null && previousKey != key) resetHealth(config.connectionUid)
-        if (refresh) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
         configurationFailures[config.connectionUid]?.let { failedIdentity ->
             if (!refresh && failedIdentity == quarantineIdentity) throw McpEndpointConfigurationException()
             configurationFailures.remove(config.connectionUid, failedIdentity)
@@ -403,15 +403,27 @@ class McpClientManager internal constructor(
     }
 
     private suspend fun fetchCatalogue(config: McpConnectionConfig, forceRefresh: Boolean): List<Tool> {
+        // A policy denial cannot replace server health or invalidate its retained catalogue.
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
         val observation = healthOrder.begin(config.connectionUid, config.validatedKey(), config.configurationRevision)
+        val responseEvidence = dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation()
+        var retained: DiscoveryPolicyState? = null
         healthOrder.publish(observation) {
+            retained = DiscoveryPolicyState(
+                _health.value[config.connectionUid],
+                validatedCatalogues[config.connectionUid],
+                protocolFailures[config.connectionUid],
+                configurationFailures[config.connectionUid],
+                providerCooldowns[config.connectionUid],
+                transportConfigurationKeys[config.connectionUid]
+            )
             _health.update { current ->
                 val previous = current[config.connectionUid] ?: McpConnectionHealth()
                 current + (config.connectionUid to previous.copy(toolReadiness = if (previous.toolsReady) McpToolReadiness.READY else McpToolReadiness.DISCOVERING))
             }
         }
         return try {
-            withContext(dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt(0, observation.operationId)) {
+            withContext(dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt(0, observation.operationId) + responseEvidence) {
                 listToolsUnchecked(config, forceRefresh, observation)
             }
         } catch (cancelled: CancellationException) {
@@ -419,6 +431,17 @@ class McpClientManager internal constructor(
             if (cancelled is kotlinx.coroutines.TimeoutCancellationException) recordFailure(config.connectionUid, McpCatalogueTimeoutException(catalogueTimeoutMs), observation = observation, stage = "discovery")
             throw cancelled
         } catch (error: Exception) {
+            if (error.isLocalPrivacyPolicyRejection()) {
+                healthOrder.publish(observation) {
+                    if (!observation.responseObserved) retained?.restore(config.connectionUid)
+                }
+                val earlierResponse = responseEvidence.observedAtEpochMs
+                val earlierUncertainRead = generateSequence<Throwable>(error) { it.cause }.take(16).any { cause ->
+                    cause.suppressed.take(8).any { it is java.io.IOException && !it.isLocalPrivacyPolicyRejection() }
+                }
+                if (earlierResponse != null || earlierUncertainRead) throw McpDiscoveryPolicyRejection(error, earlierResponse)
+                throw error
+            }
             if (error is McpBackoffException) throw error
             // The remembered endpoint gate is not a new HTTP exchange or observation.
             if (error is McpEndpointConfigurationException && error.httpStatus == null) throw error
@@ -448,6 +471,28 @@ class McpClientManager internal constructor(
         }
     }
 
+    /** A denied request did not establish new health; restore only under its ordered observation. */
+    private inner class DiscoveryPolicyState(
+        val health: McpConnectionHealth?,
+        val validated: Pair<String, List<Tool>>?,
+        val protocolFailure: Pair<String, McpProtocolConfigurationException>?,
+        val configurationFailure: String?,
+        val cooldown: Pair<String, Long>?,
+        val transportKey: String?
+    ) {
+        fun restore(uid: String) {
+            _health.update { if (health == null) it - uid else it + (uid to health) }
+            fun <T> restore(map: MutableMap<String, T>, value: T?) {
+                if (value == null) map.remove(uid) else map[uid] = value
+            }
+            restore(validatedCatalogues, validated)
+            restore(protocolFailures, protocolFailure)
+            restore(configurationFailures, configurationFailure)
+            restore(providerCooldowns, cooldown)
+            restore(transportConfigurationKeys, transportKey)
+        }
+    }
+
     private suspend fun listToolsUnchecked(config: McpConnectionConfig, forceRefresh: Boolean, observation: McpHealthObservationOrder.Token): List<Tool> {
         modernTransport(config, forceRefresh)?.let { transport ->
             return transport.listTools(config).also {
@@ -471,6 +516,7 @@ class McpClientManager internal constructor(
                         val page = session.client.listTools(
                             request = if (cursor == null) ListToolsRequest() else ListToolsRequest(PaginatedRequestParams(cursor))
                         )
+                        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation]?.responded()
                         dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(URI(config.endpointUrl).host)
                         tools += page.tools
                         check(tools.size <= MAX_DISCOVERED_TOOLS) { "MCP server returned too many tools." }
@@ -653,10 +699,11 @@ class McpClientManager internal constructor(
     internal fun failureReportFields(connectionUid: String?, error: Throwable, phase: String): kotlinx.serialization.json.JsonObject {
         val snapshot = connectionUid?.let { _health.value[it] }
         val observedAt = snapshot?.let { listOfNotNull(it.lastFailureAtMs, it.lastSuccessAtMs).maxOrNull() }
+        val policyBlocked = error.isLocalPrivacyPolicyRejection()
         return dev.chungjungsoo.gptmobile.data.diagnostics.McpReportDiagnostics.fields(
             connectionUid = connectionUid,
-            failurePhase = phase,
-            failureCategory = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error).name,
+            failurePhase = if (policyBlocked) "local_validation" else phase,
+            failureCategory = if (policyBlocked) "POLICY_BLOCKED" else dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error).name,
             connectionState = snapshot?.state?.name,
             readinessState = snapshot?.toolReadiness?.name,
             connectionHealth = snapshot?.connectionHealth?.name,
@@ -671,8 +718,8 @@ class McpClientManager internal constructor(
 
     suspend fun probe(config: McpConnectionConfig): Boolean = try {
         config.validateLocalConfiguration()
-        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
-        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.probe(config.endpointUrl)
+        dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.probe(config.endpointUrl, bypassRecovery = true)
         listTools(config, forceRefresh = true, awaitCompletion = true)
         catalogueAvailability(config).executionAvailable
     } catch (deadline: kotlinx.coroutines.TimeoutCancellationException) {
@@ -695,6 +742,7 @@ class McpClientManager internal constructor(
         discoveredTools: List<Tool>? = null,
         executionVerified: Boolean? = null
     ) = healthOrder.publish(observation) {
+        observation.responseObserved = true
         // Catalog/transport success cannot clear an authorization or quota block for this credential.
         val cooldown = providerCooldowns[connectionUid]
         if (cooldown?.first == observation.key && cooldown.second > nowMs()) {
@@ -750,7 +798,7 @@ class McpClientManager internal constructor(
     }
 
     private fun recordFailure(connectionUid: String, error: Throwable, retryAtMs: Long? = null, observation: McpHealthObservationOrder.Token, stage: String = "execution") {
-        if (dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error) == dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.DNS_RECOVERY) return
+        if (error.isLocalPrivacyPolicyRejection() || dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error) == dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.DNS_RECOVERY) return
         healthOrder.publish(observation) {
             validatedCatalogues.remove(connectionUid)
             modern?.close(connectionUid)
@@ -768,6 +816,7 @@ class McpClientManager internal constructor(
                     else -> null
                 }
             }
+            if (httpStatus != null) observation.responseObserved = true
             val safeDetail = (localFailure ?: protocolFailure)?.message
                 ?: if (causes.any { it is StreamableHttpError }) "MCP transport request failed; HTTP status=${httpStatus ?: "unavailable"}. Check the connection settings and server status." else error.message.orEmpty()
             var updated = McpConnectionHealth()
@@ -944,6 +993,10 @@ class McpClientManager internal constructor(
                 withContext(NonCancellable) { invalidate(config.connectionUid, session) }
                 throw error
             } catch (error: Exception) {
+                if (error.isLocalPrivacyPolicyRejection()) throw error
+                if (generateSequence<Throwable>(error) { it.cause }.take(16).any { it is StreamableHttpError }) {
+                    kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation]?.responded()
+                }
                 val staleSession = error.isMcpStaleSession()
                 val interruptedRead = error.isMcpInterruptedRead()
                 invalidate(config.connectionUid, session)
@@ -1007,10 +1060,12 @@ class McpClientManager internal constructor(
             }
             AppLogRecorder.record("MCP", "Connect started · operation_id=${observation.operationId} · connection=${config.connectionUid} · host=$endpointHost · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs")
             val result = runCatching {
+                val responseEvidence = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation]
                 val connectivity = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
                 val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP connection is waiting for the single connectivity probe; retryAfterMs=${connectivity.recoveryDelayMillis(endpointHost)}.")
                 try {
                     val transport = StreamableHttpClientTransport(httpClient, config.endpointUrl) {
+                        responseEvidence?.let { attributes.put(dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation.requestAttribute, it) }
                         timeout {
                             connectTimeoutMillis = transportConnectTimeoutMs
                             requestTimeoutMillis = effectiveSessionTimeoutMs + 2_000
@@ -1033,7 +1088,10 @@ class McpClientManager internal constructor(
                             withContext(dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt(0, observation.operationId)) { client.connect(transport) }
                             true
                         }
-                        if (connected == true) connectivity.success(endpointHost)
+                        if (connected == true) {
+                            responseEvidence?.responded()
+                            connectivity.success(endpointHost)
+                        }
                         if (connected != true) throw McpInitializationTimeoutException()
                         AppLogRecorder.record("MCP", "Connect completed · operation_id=${observation.operationId} · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs}")
                         Session(key, client)

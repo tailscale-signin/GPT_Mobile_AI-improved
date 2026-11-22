@@ -287,7 +287,7 @@ class PrivacyModeStoreTest {
     }
 
     @Test
-    fun queuedIntentIsImmediatelyVisibleToSnapshotsAndTransportBeforePersistence() {
+    fun queuedIntentIsImmediatelyVisibleToSnapshotsTransportAndAuditBeforePersistence() {
         val fixture = Fixture()
         fixture.initializeActivePrivacy()
         val entered = CountDownLatch(1)
@@ -300,6 +300,7 @@ class PrivacyModeStoreTest {
             fixture.store.requestCategory(PrivacyCategory.CONTACTS, false)
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             val before = fixture.store.snapshot()
+            assertEquals(before, PrivacyModeStore.auditPolicySnapshot())
 
             fixture.store.requestEnabled(true)
             val enabled = fixture.store.snapshot()
@@ -307,6 +308,8 @@ class PrivacyModeStoreTest {
             assertTrue(enabled.revision > before.revision)
             assertTrue(PrivacyModeStore.active())
             assertEquals(enabled, fixture.store.state.value)
+            assertEquals(enabled, PrivacyModeStore.auditPolicySnapshot())
+            assertFalse(fixture.values["privacy_mode_enabled"] as Boolean)
 
             fixture.store.requestCategory(PrivacyCategory.LOCATIONS, false)
             val categorized = fixture.store.snapshot()
@@ -314,6 +317,7 @@ class PrivacyModeStoreTest {
             assertFalse(PrivacyCategory.CONTACTS in categorized.categories)
             assertTrue(categorized.revision > enabled.revision)
             assertEquals(1, fixture.commits.get())
+            assertEquals(categorized, PrivacyModeStore.auditPolicySnapshot())
 
             fixture.store.requestEnabled(false)
             val disabled = fixture.store.snapshot()
@@ -321,10 +325,48 @@ class PrivacyModeStoreTest {
             assertTrue(disabled.revision > categorized.revision)
             assertFalse(PrivacyModeStore.active())
             assertEquals(disabled, fixture.store.state.value)
+            assertEquals(disabled, PrivacyModeStore.auditPolicySnapshot())
         } finally {
             release.countDown()
             fixture.awaitUpdates()
         }
+        assertEquals(fixture.store.snapshot(), PrivacyModeStore.auditPolicySnapshot())
+    }
+
+    @Test
+    fun auditRetainsTheEffectivePolicyAfterPersistenceFailsBeforeChangingPreferences() {
+        val fixture = Fixture()
+        fixture.initializeActivePrivacy()
+        val original = fixture.store.snapshot()
+        fixture.beforeMemoryCommit = { throw IOException("Simulated preference write failure") }
+
+        fixture.store.requestEnabled(true)
+        fixture.awaitUpdates()
+        val enabled = fixture.store.snapshot()
+        assertTrue(fixture.store.updates.value.failed)
+        assertTrue(PrivacyModeStore.active())
+        assertTrue(enabled.revision > original.revision)
+        assertEquals(enabled, PrivacyModeStore.auditPolicySnapshot())
+
+        fixture.store.requestCategory(PrivacyCategory.LOCATIONS, false)
+        fixture.awaitUpdates()
+        val categorized = fixture.store.snapshot()
+        assertFalse(PrivacyCategory.LOCATIONS in categorized.categories)
+        assertTrue(categorized.revision > enabled.revision)
+        assertEquals(categorized, PrivacyModeStore.auditPolicySnapshot())
+        assertTrue(fixture.values.isEmpty())
+        assertTrue(fixture.persistedValues.isEmpty())
+
+        fixture.beforeMemoryCommit = null
+        fixture.store.retrySaving()
+        fixture.awaitUpdates()
+
+        assertEquals(PrivacySettingsSaveState(), fixture.store.updates.value)
+        assertEquals(categorized, fixture.store.snapshot())
+        assertEquals(categorized, PrivacyModeStore.auditPolicySnapshot())
+        assertEquals(true, fixture.persistedValues["privacy_mode_enabled"])
+        assertEquals(false, fixture.persistedValues["privacy_category_LOCATIONS"])
+        assertEquals(categorized.revision, fixture.persistedValues["privacy_revision"])
     }
 
     @Test
@@ -367,6 +409,8 @@ class PrivacyModeStoreTest {
 
         @Volatile var failNextCommit = false
 
+        @Volatile var beforeMemoryCommit: (() -> Unit)? = null
+
         @Volatile var afterMemoryCommit: (() -> Unit)? = null
         val vault = ControlledVault()
         private val preferences = mockk<SharedPreferences>()
@@ -392,6 +436,7 @@ class PrivacyModeStoreTest {
                 every { editor.commit() } answers {
                     commits.incrementAndGet()
                     commitThreads += Thread.currentThread()
+                    beforeMemoryCommit?.invoke()
                     values.putAll(pending)
                     afterMemoryCommit?.invoke()
                     (!failNextCommit).also { saved ->

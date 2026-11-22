@@ -8,6 +8,7 @@ import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.util.AttributeKey
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.currentCoroutineContext
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
@@ -73,6 +74,12 @@ internal object PrivateGatewayMetadata {
 }
 
 internal val PrivateMetadataGate = createClientPlugin("PrivateMetadataGate") {
+    onRequest { request, _ ->
+        currentCoroutineContext()[MetadataResponseObservation]?.let { request.attributes.put(MetadataResponseObservation.requestAttribute, it) }
+    }
+    onResponse { response ->
+        response.call.attributes.getOrNull(MetadataResponseObservation.requestAttribute)?.responded()
+    }
     on(SendingRequest) { request, _ ->
         if (PrivacyModeStore.active()) {
             val url = request.url.build().toString().toHttpUrlOrNull()

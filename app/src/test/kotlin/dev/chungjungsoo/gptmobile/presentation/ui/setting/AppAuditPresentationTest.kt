@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.audit.AppAuditEvidenceKind
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditObservationSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOutcome
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPrerequisite
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditRecoveryEvidence
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -12,6 +13,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAuditPresentationTest {
+    @Test fun qualificationGuidanceSeparatesOptionalToolWorkModelWorkAndExternalMeasurements() {
+        val tool = auditEntry("tool", AppAuditEvidenceKind.TOOL_EXECUTION)
+        val base = AppAuditEntryPresentation(tool, auditResult(tool, AppAuditOutcome.UNTESTED, attempted = false), false, false, blockingPrerequisiteCount = 2)
+        val toolAction = checkNotNull(appAuditQualificationNextAction(base))
+        assertTrue(toolAction.contains("2 unresolved"))
+        assertTrue(toolAction.contains("If this integration is needed"))
+        assertTrue(toolAction.contains("execution receipt"))
+        val model = tool.copy(evidenceKind = AppAuditEvidenceKind.MODEL_EXECUTION)
+        assertTrue(checkNotNull(appAuditQualificationNextAction(base.copy(entry = model))).contains("exact saved profile"))
+        val device = tool.copy(evidenceKind = AppAuditEvidenceKind.DEVICE_MEASUREMENT)
+        assertTrue(checkNotNull(appAuditQualificationNextAction(base.copy(entry = device))).contains("intended hardware"))
+        val suite = tool.copy(evidenceKind = AppAuditEvidenceKind.EXTERNAL_SUITE)
+        assertTrue(checkNotNull(appAuditQualificationNextAction(base.copy(entry = suite))).contains("named external suite"))
+        assertNull(appAuditQualificationNextAction(base.copy(active = true)))
+        assertNull(appAuditQualificationNextAction(base.copy(result = auditResult(tool))))
+        val presentation = appAuditPresentation(auditRun(listOf(tool), listOf(checkNotNull(base.result))))
+        assertTrue(presentation.modelQualificationText.contains("No model profile was selected"))
+        assertEquals(0, presentation.score.measuredWeight)
+    }
+
+    @Test fun cachedRecoveryKeepsOriginalCauseAndRecordedEligibilitySeparateFromCurrentHealth() {
+        val entry = auditEntry("cached", AppAuditEvidenceKind.LIVE_METADATA)
+        val cached = auditResult(entry, AppAuditOutcome.BLOCKED, AppAuditObservationSource.CACHE, reason = "MCP_BACKOFF_ACTIVE").let {
+            it.copy(startedAtEpochMs = 1000, observation = it.observation.copy(recovery = AppAuditRecoveryEvidence("MCP_NETWORK_IO_FAILED", 2000)))
+        }
+        val pending = appAuditRecoveryText(cached).joinToString("\n")
+        assertTrue(pending.contains("Original diagnostic code: MCP_NETWORK_IO_FAILED"))
+        assertTrue(pending.contains("no earlier than"))
+        assertTrue(pending.contains("Current connection and policy conditions"))
+        val elapsed = appAuditRecoveryText(cached.copy(startedAtEpochMs = 3000)).joinToString("\n")
+        assertTrue(elapsed.contains("delay had elapsed"))
+        val reconnect = appAuditRecoveryText(cached.copy(observation = cached.observation.copy(recovery = AppAuditRecoveryEvidence("PRIVATE_CAUSE", Long.MAX_VALUE, true)))).joinToString("\n")
+        assertFalse(reconnect.contains("PRIVATE_CAUSE"))
+        assertTrue(reconnect.contains("explicit reconnect is required"))
+        assertFalse(reconnect.contains("no earlier than"))
+    }
+
     @Test fun disabledAndAbsentTargetsAndTheirDependentChecksAreConfigurationAndEvidenceGaps() {
         val disabled = auditEntry("disabled", AppAuditEvidenceKind.CONFIGURATION, "plugins").copy(targetId = "connection:disabled")
         val absent = auditEntry("absent", AppAuditEvidenceKind.CONFIGURATION, "plugins").copy(targetId = "native:optional")

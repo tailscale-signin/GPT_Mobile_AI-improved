@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -20,7 +21,7 @@ internal object ToolFailureMetadata {
 
     fun authorityCode(error: Throwable): String? = causes(error).firstNotNullOfOrNull { cause ->
         when {
-            cause is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport -> dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport.CODE
+            cause is dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport || cause is dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied -> dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport.CODE
             cause is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException -> "DISPATCH_POLICY_CHANGED"
             cause is dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected && cause.code in authorityInvalidationCodes -> cause.code
             cause is IllegalStateException && cause.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true -> "DISPATCH_POLICY_CHANGED"
@@ -118,6 +119,7 @@ internal object ToolFailureMetadata {
     }
 
     fun classify(error: Throwable): String {
+        if (error.isLocalPrivacyPolicyRejection()) return dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport.CODE
         causes(error).filterIsInstance<RequiredToolReadinessFailure>().firstOrNull()?.let { return it.errorCode }
         val classified = ErrorClassification.classify(error)
         if (classified.errorCode in ToolResultEnvelope.unknownOutcomeCodes) return classified.errorCode

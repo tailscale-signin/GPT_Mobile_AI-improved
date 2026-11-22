@@ -2131,6 +2131,8 @@ class IncidentReportContractTest(unittest.TestCase):
             ("PROVIDER", {"payload_contract": "OPENAI_RESPONSES", "provider_parameter": "input", "provider_rejection_category": "INVALID_REQUEST"}),
             ("TOOL", {"mcp_failure_phase": "execution", "mcp_failure_category": "MCP_TOOL_ERROR"}),
             ("TOOL", {"mcp_failure_phase": "execution", "mcp_failure_category": "MCP_OUTPUT_INVALID"}),
+            ("TOOL", {"mcp_failure_phase": "local_validation", "mcp_failure_category": "POLICY_BLOCKED",
+                      "tool_error_code": "PRIVACY_SERVICE_UNVERIFIED"}),
             ("PROVIDER", {"provider_rejection_category": "BILLING_UNAVAILABLE", "gateway_terminal_status": "failed"}),
             ("INCIDENT", {"combined_requirement_gap": "TOPIC", "combined_issue_count": 84, "combined_failed_check_count": 3,
                           "combined_unverified_check_count": 6, "combined_repair_rounds": 2,

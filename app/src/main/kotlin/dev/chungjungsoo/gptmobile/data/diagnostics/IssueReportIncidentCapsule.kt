@@ -229,7 +229,7 @@ internal object IssueReportIncidentCapsule {
         "saved_view_owner_operation" to IssueReportContext.operations,
         "saved_view_restore_state" to setOf("NOT_FOUND", "LOAD_FAILED", "IDENTITY_REJECTED", "RESTORED", "BODY_MISSING", "BODY_MISSING_INDEX_PRESENT", "BODY_UNREADABLE", "CURSOR_INDEX_MISSING", "CURSOR_INDEX_INVALID", "INVALID_VIEW_ID"),
         "mcp_failure_phase" to setOf("configuration", "catalog", "discovery", "initialization", "execution", "connection", "dns", "tls", "oauth_refresh", "local_validation"),
-        "mcp_failure_category" to (mcpHealth - "HEALTHY" + setOf("MCP_TOOL_ERROR", "MCP_OUTPUT_INVALID")),
+        "mcp_failure_category" to (mcpHealth - "HEALTHY" + setOf("MCP_TOOL_ERROR", "MCP_OUTPUT_INVALID", "POLICY_BLOCKED")),
         "mcp_connection_health" to mcpHealth,
         "mcp_connection_state" to setOf("CONNECTED", "DEGRADED", "UNREACHABLE", "AUTHENTICATION_REQUIRED", "RECOVERING"),
         "mcp_readiness_state" to setOf("NOT_DISCOVERED", "DISCOVERING", "READY", "STALE"),

@@ -37,6 +37,7 @@ import dev.chungjungsoo.gptmobile.data.audit.AppAuditPlanEntry
 import dev.chungjungsoo.gptmobile.data.audit.safeAuditDiagnosticField
 import dev.chungjungsoo.gptmobile.data.audit.safeAuditFailureCategory
 import dev.chungjungsoo.gptmobile.data.audit.safeAuditFailurePhase
+import dev.chungjungsoo.gptmobile.data.audit.safeAuditFixtureEvidence
 import dev.chungjungsoo.gptmobile.data.audit.safeAuditReason
 import dev.chungjungsoo.gptmobile.data.audit.safeAuditRemoteIdentity
 import dev.chungjungsoo.gptmobile.data.audit.safeAuditValidationRule
@@ -88,6 +89,9 @@ internal fun AppAuditControls(
                 }
                 Text("Optional reads use configured connections with bounded requests. This audit does not generate model answers or run tools that change external data.", style = MaterialTheme.typography.bodySmall)
                 Text("GitHub reads use up to two saved connections and their selected workspace repository/ref, with six checks per connection and at most 36 requests. Select the intended repository in GitHub mode before starting.", style = MaterialTheme.typography.bodySmall)
+                if (selectedProfileIds.isEmpty()) {
+                    Text("No model profile selected. To qualify model generation, choose an optional model target below, then prepare and explicitly run its benchmark after the audit.", style = MaterialTheme.typography.bodySmall)
+                }
                 TextButton(onClick = { showTargets = !showTargets }) {
                     Text(if (showTargets) "Hide optional model targets" else "Optional model targets (${selectedProfileIds.size} selected)")
                 }
@@ -170,6 +174,7 @@ internal fun AppAuditResultCard(
             Text(presentation.evidenceText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.configurationText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.prerequisiteText, style = MaterialTheme.typography.bodySmall)
+            Text(presentation.modelQualificationText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.coverageNotice, style = MaterialTheme.typography.bodySmall)
             Text("The score is 100 × passing weight / measured weight for eligible named checks. Configuration, cached information and untested checks do not earn points. It is separate from model quality and performance scores.", style = MaterialTheme.typography.bodySmall)
             Text(presentation.countsText, style = MaterialTheme.typography.bodySmall)
@@ -257,6 +262,10 @@ internal fun AppAuditEntryCard(
             }
             Text(status, style = MaterialTheme.typography.bodyMedium, color = if (result?.outcome == AppAuditOutcome.FAIL) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
             Text(appAuditReason(item), style = MaterialTheme.typography.bodySmall)
+            appAuditQualificationNextAction(item)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            safeAuditFixtureEvidence(result?.observation?.fixtureEvidence)?.let { fixture ->
+                Text("Fixture assertions: ${fixture.passed} passed / ${fixture.attempted} attempted", style = MaterialTheme.typography.bodySmall)
+            }
             if (result?.observationSource == AppAuditObservationSource.CACHE) {
                 Text("This is a retained observation. Review the saved connection, then explicitly request a bounded fresh discovery check. Authentication, permission and recovery conditions still apply.", style = MaterialTheme.typography.bodySmall)
                 result.observation.observedAtEpochMs?.let { time ->
@@ -264,6 +273,7 @@ internal fun AppAuditEntryCard(
                 } ?: Text("Original observation time: not recorded. This audit's check time does not establish cache freshness.", style = MaterialTheme.typography.bodySmall)
                 appAuditCacheAgeText(result)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
+            result?.let(::appAuditRecoveryText)?.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
             appAuditConnectionUid(item)?.takeIf { onOpenConnection != null }?.let { uid ->
                 OutlinedButton(onClick = { onOpenConnection?.invoke(uid) }) { Text(appAuditConnectionActionLabel(item)) }
             }
@@ -296,6 +306,8 @@ internal fun AppAuditEntryCard(
                 Text("Diagnostic code: ${(result?.reasonCode ?: item.entry.reasonCode)?.let(::safeAuditReason) ?: "Not recorded"}", style = MaterialTheme.typography.bodySmall)
                 Text("Dispatch: ${result?.dispatchEvidence?.name?.lowercase()?.replace('_', ' ') ?: "not attempted"}", style = MaterialTheme.typography.bodySmall)
                 Text(appAuditRetryabilityText(result?.observation?.retryable), style = MaterialTheme.typography.bodySmall)
+                AppAuditFixtureDetails(result?.observation?.fixtureEvidence, item.entry.probeId)
+                AppAuditPrivacyDetails(result?.observation?.privacyPolicy)
                 if (result?.outcome in setOf(AppAuditOutcome.FAIL, AppAuditOutcome.BLOCKED)) {
                     Text("Failure phase: ${safeAuditFailurePhase(result?.observation?.failurePhase)?.replace('_', ' ') ?: "Not recorded"}", style = MaterialTheme.typography.bodySmall)
                 }

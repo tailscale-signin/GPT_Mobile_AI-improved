@@ -13,6 +13,26 @@ class GatewayAppDiagnosticProjectionTest {
     private val run = "11111111-1111-1111-1111-111111111111"
     private val invocation = "22222222-2222-2222-2222-222222222222"
 
+    @Test fun privacyPolicyRemainsSpecificWhileEarlierUnknownOutcomeKeepsItsPriority() {
+        for (unknown in listOf(false, true)) {
+            val message = structuredDiagnosticEventMessage(
+                "Finished",
+                mapOf(
+                    "runId" to run,
+                    "callId" to invocation,
+                    "tool" to "github_read",
+                    "errorCode" to "PRIVACY_SERVICE_UNVERIFIED",
+                    "executionState" to if (unknown) "UNKNOWN_OUTCOME" else "PRECHECK_REJECTED",
+                    "dispatched" to unknown
+                )
+            )
+            val result = requireNotNull(gatewayAppDiagnosticProjection(AppLogEntry(1000, "E", "Tool", message)))
+            assertEquals(JsonPrimitive(if (unknown) "DISPATCH_UNCERTAIN" else "PRIVACY_SERVICE_UNVERIFIED"), result["error_code"])
+            assertEquals(JsonPrimitive("manual"), result["retry_class"])
+            assertEquals(JsonPrimitive("PRIVACY_SERVICE_UNVERIFIED"), (result["bounded_attributes"] as JsonObject)["reason_code"])
+        }
+    }
+
     @Test fun unknownCausesRetainTheRecorderAndLocalClassificationWithoutExportingFreeText() {
         val spoofed = mapOf("source_recorder_family" to "gateway", "source_error_class" to "fatal", "detail" to "private-event-body")
         val malformed = structuredDiagnosticEventMessage("OBSERVED", spoofed + ("outcome" to "invalid_response"))

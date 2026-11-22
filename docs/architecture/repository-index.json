@@ -811,6 +811,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditEnvironmentCollector.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditEnvironmentIdentity.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditFixtureEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditFixtureSource.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubCatalog.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubContractSource.kt",
@@ -905,6 +906,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditEvidenceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditExportFixtureCatalogTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditFixtureEvidenceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditFixtureSourceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubContractSourceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubProbeSourceTest.kt",
@@ -923,7 +925,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditRunnerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelProbeSourceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditSelectedModelServicesTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditStoreIntegrationTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditStoreIntegrationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/GitHubPrivacyAuditTransportTest.kt"
       ]
     },
     "workflows": {

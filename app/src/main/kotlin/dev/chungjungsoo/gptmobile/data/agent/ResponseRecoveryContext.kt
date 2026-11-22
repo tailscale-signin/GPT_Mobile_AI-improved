@@ -185,6 +185,10 @@ internal class ResponseRecoveryContext(
 
     /** An old mutation receipt needs explicit intent; argument equality alone is not identity. */
     fun reuseCompletedTool(tool: AgentTool, realName: String, connectionUid: String?, readOnly: Boolean = false, canReuse: (suspend () -> Boolean)? = null): AgentTool = object : AgentTool {
+        init {
+            dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.inherit(this, tool)
+        }
+
         override val definition = if (rootWorkId == null || readOnly) {
             tool.definition
         } else {

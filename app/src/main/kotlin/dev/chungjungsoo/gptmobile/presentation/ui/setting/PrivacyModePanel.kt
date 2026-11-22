@@ -134,6 +134,7 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
         }
         if (details) {
             Text("Each cloud model and upstream is checked before sending text. Strict Zero Data Retention excludes routine Safety Retention; fallback, response caching and supported plugins are disabled. External tools, attachments and voice require separate verification.", style = MaterialTheme.typography.bodySmall)
+            Text("Enabled calculator, current-date and text-slicing tools run on this device. Their results pass through the same personal-data permissions and local masking before reaching a model. GitHub, Research and connected service tools remain blocked until their external routes meet the privacy requirements.", style = MaterialTheme.typography.bodySmall)
             Text("Available means the required checks passed. Not verified means a check is incomplete. Incompatible means the route conflicts with a privacy requirement. Free providers are checked individually and may remain unavailable.", style = MaterialTheme.typography.bodySmall)
             Text("Automated masking recognizes common formats and your custom terms. Provider agreements may allow legally required exceptions and non-content usage metadata. Other cloud providers require their applicable account and endpoint approvals.", style = MaterialTheme.typography.bodySmall)
         }

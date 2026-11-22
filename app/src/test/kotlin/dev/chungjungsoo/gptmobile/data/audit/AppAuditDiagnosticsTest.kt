@@ -28,6 +28,18 @@ class AppAuditDiagnosticsTest {
         assertEquals("endpoint", safeAuditDiagnosticField("endpoint"))
     }
 
+    @Test fun typedNetworkPolicyAndFixtureOutcomesRemainAllowlistedWithoutFreeText() {
+        listOf("local_validation", "dns", "tls", "connection", "transport", "response_stream", "admission", "validation", "fixture", "fixture_setup").forEach {
+            assertEquals(it, safeAuditFailurePhase(it))
+        }
+        listOf("POLICY_BLOCKED", "DNS_FAILURE", "TLS_FAILURE", "NETWORK_UNAVAILABLE", "ACCESS_DENIED", "WAITING_RECOVERY", "RESOURCE_UNAVAILABLE", "RESPONSE_INVALID", "LOCAL_VALIDATION", "CLIENT_FAILURE", "FIXTURE_SETUP_FAILED", "FIXTURE_EXECUTION_FAILED").forEach {
+            assertEquals(it, safeAuditFailureCategory(it))
+        }
+        listOf("GITHUB_AUDIT_DNS_FAILED", "GITHUB_AUDIT_TLS_FAILED", "GITHUB_AUDIT_CONNECTION_FAILED", "GITHUB_AUDIT_TIMEOUT", "GITHUB_AUDIT_STREAM_INTERRUPTED", "GITHUB_AUDIT_CLIENT_FAILURE", "PRIVACY_SERVICE_UNVERIFIED", "LOCAL_FIXTURE_POLICY_BLOCKED", "LOCAL_FIXTURE_SETUP_FAILED", "LOCAL_FIXTURE_EXECUTION_FAILED").forEach {
+            assertEquals(it, safeAuditReason(it))
+        }
+    }
+
     @Test
     fun unknownProviderValuesAndPrivateKeysNeverBecomeDisplayOrExportCodes() {
         for (private in listOf(null, "PRIVATE_CREDENTIAL", "https://private.example/token", "result.private_account", "credential\nAuthorization")) {

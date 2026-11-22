@@ -4,6 +4,26 @@ from authentication.issue_report_diagnostics import CORE_FIELDS, validate_diagno
 
 
 class FailureDetailsTest(unittest.TestCase):
+    def test_privacy_denial_is_a_closed_policy_category_not_a_network_failure(self):
+        from authentication import incident_report_contract as capsule
+
+        def capture(area, fields):
+            return {**self.snapshot(area, fields), "schemaVersion": 3,
+                    "unavailableFields": sorted((CORE_FIELDS[area] | capsule.CORE) - fields.keys())}
+
+        for area, fields in (
+            ("TOOL", {"tool_error_code": "PRIVACY_SERVICE_UNVERIFIED", "mcp_failure_phase": "local_validation",
+                      "mcp_failure_category": "POLICY_BLOCKED", "mcp_connection_health": "CONNECTION_REFUSED",
+                      "mcp_health_observation": "RETAINED_SNAPSHOT"}),
+            ("PROVIDER", {"provider_failure_code": "PRIVACY_SERVICE_UNVERIFIED"}),
+        ):
+            sample = capture(area, fields)
+            self.assertEqual(sample, validate_diagnostics(sample))
+        for field, value in (("tool_error_code", "PRIVACY_SERVICE_UNVERIFIED private detail"),
+                             ("mcp_failure_category", "POLICY_BLOCKED private detail")):
+            with self.assertRaises(ValueError):
+                validate_diagnostics(capture("TOOL", {field: value}))
+
     def snapshot(self, area, values):
         return {"schemaVersion": 1, "area": area, "capturedAtMillis": 1700000000000,
                 "captureMode": "INCIDENT", "values": values,

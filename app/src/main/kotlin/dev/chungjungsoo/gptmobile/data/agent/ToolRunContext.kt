@@ -12,6 +12,10 @@ class ToolRunContext(val runId: String) : AbstractCoroutineContextElement(Key) {
 fun AgentTool.withRunContext(runId: String): AgentTool {
     val original = this
     return object : OwnedAgentTool, ProgressiveCatalogCarrier {
+        init {
+            dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.inherit(this, original)
+        }
+
         override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = original.withChildBudget(bind).withRunContext(runId)
         override val definition = original.definition
         override val progressiveCatalog get() = original.argumentCatalog()

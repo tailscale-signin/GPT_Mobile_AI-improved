@@ -44,10 +44,11 @@ class ProviderFailureReportTest {
             val fields = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
             val expected = requireNotNull(IssueReportContext.identifierHash("provider-error-code", upstream))
             assertEquals(JsonPrimitive(expected), fields["original_error_code_hash"])
-            val diagnostics = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", fields, 1000).diagnostics)
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1000)
+            val diagnostics = requireNotNull(context.diagnostics)
             assertEquals(JsonPrimitive(expected), diagnostics.values["original_error_code_hash"])
             assertEquals(JsonPrimitive(event.code), diagnostics.values["provider_failure_code"])
-            assertEquals(JsonPrimitive(200), diagnostics.values["http_status"])
+            assertEquals(200, context.httpStatus)
             assertFalse(diagnostics.values.containsKey("upstream_error_code_hash"))
             if (upstream.startsWith("private")) {
                 assertFalse(diagnostics.toString().contains(upstream))

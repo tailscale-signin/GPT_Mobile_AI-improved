@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
 import java.io.IOException
 import java.time.ZonedDateTime
@@ -77,7 +78,7 @@ internal object GitHubReadRetry {
                 retries++
             } catch (failure: IOException) {
                 currentCoroutineContext().ensureActive()
-                if (!readOnly || retries >= 2 || failure is HttpFailure && !transientStatus(failure.status)) throw failure
+                if (failure.isLocalPrivacyPolicyRejection() || !readOnly || retries >= 2 || failure is HttpFailure && !transientStatus(failure.status)) throw failure
                 if (networkFailureKind(failure) in setOf(NetworkFailureKind.TLS, NetworkFailureKind.CANCELLED)) throw failure
                 val serverDelay = (failure as? HttpFailure)?.let { retryAfterMillis(it.retryAfter) } ?: 0L
                 // Leave long server cooldowns to the task's durable waiting state; never retry early.

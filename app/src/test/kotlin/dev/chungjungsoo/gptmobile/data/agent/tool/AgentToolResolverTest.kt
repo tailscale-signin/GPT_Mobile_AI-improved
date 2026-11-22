@@ -55,6 +55,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun privacyModeResolvesOnlyOwnedLocalImplementationsWithoutDiscoveringServices() = runBlocking {
+        val profile = PlatformV2(uid = "private-local", name = "Private local")
+        val dao = io.mockk.spyk(ResolverFakeToolConnectionDao())
+        dao.bind(connection("remote", ToolConnectionType.MCP), binding(profile.uid, "remote", "current_date"))
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        io.mockk.mockkObject(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.Companion) {
+            io.mockk.every { dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() } returns true
+            val resolver = resolver(dao = dao, settings = settings)
+            val local = resolver.resolve(profile.uid)
+            assertEquals(listOf("calculate_expression", "current_date", "read_file_slice"), local.map { it.modelToolName })
+            assertTrue(local.all { dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.isTransportFree(it.tool) })
+            resolver.warmSelectedCatalogues(profile.uid)
+            coVerify(exactly = 0) { dao.listConnections() }
+            coVerify(exactly = 0) { dao.listBindingsWithConnections(any()) }
+            assertFalse(local.single { it.modelToolName == "calculate_expression" }.tool.execute("calculator", buildJsonObject { put("expression", "6 * 7") }).isError)
+            settings.features = settings.features.copy(toolPluginStates = mapOf(ToolPluginId.CALCULATOR to false))
+            assertFalse(local.single { it.modelToolName == "calculate_expression" }.executionAdmission(buildJsonObject { put("expression", "6 * 7") }).invoke())
+            assertTrue(local.single { it.modelToolName == "current_date" }.executionAdmission(buildJsonObject {}).invoke())
+        }
+    }
+
+    @Test fun privateLocalResolutionRetainsChatAndProfileDisableControls() = runBlocking {
+        val profile = PlatformV2(uid = "private-local", name = "Private local")
+        io.mockk.mockkObject(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.Companion) {
+            io.mockk.every { dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active() } returns true
+            val subject = resolver(settings = ResolverFakeSettingRepository(listOf(profile)))
+            assertTrue(subject.resolve(profile.uid, ChatMcpToolConfig(allToolsDisabled = true)).isEmpty())
+            assertEquals(listOf("current_date"), subject.resolve(profile.uid, ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf("current_date"))).map { it.modelToolName })
+            for (disabled in listOf(profile.copy(disableAllTools = true), profile.copy(disableLocalTools = true), profile.copy(enabled = false))) {
+                assertTrue(resolver(settings = ResolverFakeSettingRepository(listOf(disabled))).resolve(profile.uid).isEmpty())
+            }
+            assertEquals(3, resolver(settings = ResolverFakeSettingRepository(listOf(profile.copy(disableRemoteTools = true)))).resolve(profile.uid).size)
+        }
+    }
+
     @Test fun explicitGatewayMapCannotReuseSharingConsentForADifferentRequestedModel() = runBlocking {
         val profile = PlatformV2(uid = "cloud-map", name = "Cloud map", model = "approved-model")
         val selected = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("native", "owner", "repo", "main", "a".repeat(40), profile.uid)
@@ -249,6 +284,22 @@ class AgentToolResolverTest {
         dao.upsertConnection(connection)
         settings.features = settings.features.copy(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(copilotExecutionOwner = dev.chungjungsoo.gptmobile.data.github.GitHubCopilotExecutionOwner.ANDROID_DIRECT)))
         assertFalse(pr.executionAdmission(status)())
+    }
+
+    @Test fun transportFreeAdmissionUsesTheSameGitHubProfileProjectionAsResolution() = runBlocking {
+        val profile = PlatformV2(uid = "github-local", name = "GitHub local", disableAllTools = true, disableLocalTools = true, disableRemoteTools = true)
+        val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val subject = resolver(settings = settings)
+        val selected = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf("calculate_expression", "current_date", "read_file_slice"), github = workspace)
+        assertTrue(subject.resolve(profile.uid).isEmpty())
+        val tools = subject.resolve(profile.uid, selected)
+        assertEquals(listOf("calculate_expression", "current_date", "read_file_slice"), tools.map { it.modelToolName })
+        assertTrue(tools.all { it.executionAdmission(buildJsonObject {}).invoke() })
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.CURRENT_DATE, false)
+        assertFalse(tools.single { it.modelToolName == "current_date" }.executionAdmission(buildJsonObject {}).invoke())
+        assertTrue(tools.single { it.modelToolName == "calculate_expression" }.executionAdmission(buildJsonObject {}).invoke())
+        assertTrue(subject.resolve(profile.uid).isEmpty())
     }
 
     @Test fun githubOverrideEnablesSearchWithoutChangingOrdinaryProfileAndRevokesLive() = runBlocking {

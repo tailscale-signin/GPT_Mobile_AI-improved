@@ -1241,6 +1241,14 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertIn(code, self.issued[-1]["title"])
                 self.assertIn(f"-023ms E {feature} {code}", self.issued[-1]["body"])
 
+    def test_local_privacy_denial_survives_public_report_validation(self):
+        code = "PRIVACY_SERVICE_UNVERIFIED"
+        report = {**self.metadata(), "source": "debug", "feature": "tools", "errorCode": code,
+                  "events": [f"-023ms E tools {code}"]}
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertIn(code, self.issued[-1]["title"])
+        self.assertIn(f"-023ms E tools {code}", self.issued[-1]["body"])
+
     def test_unknown_extended_failure_codes_remain_rejected(self):
         report = {**self.metadata(), "source": "debug", "feature": "voice", "errorCode": "VOICE_SESSION_FAILED"}
         for change in (

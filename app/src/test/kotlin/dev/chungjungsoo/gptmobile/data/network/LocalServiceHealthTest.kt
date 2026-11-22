@@ -10,6 +10,20 @@ import org.junit.Before
 import org.junit.Test
 
 class LocalServiceHealthTest {
+    @Test fun policyRejectionNeitherCreatesNorClearsARealConnectivityFailure() {
+        val url = "https://privacy.example/mcp"
+        val policy = java.io.IOException("wrapper", PrivateMetadataDenied())
+        LocalServiceHealth.recordFailure(url, policy)
+        assertEquals(0L, LocalServiceHealth.retryAfterMillis(url))
+        assertEquals(ConnectionHealth.UNKNOWN, LocalServiceHealth.health(url))
+        LocalServiceHealth.recordFailure(url, java.net.ConnectException("Connection refused"))
+        val originalWindow = LocalServiceHealth.retryAfterMillis(url)
+        repeat(3) { LocalServiceHealth.recordFailure(url, policy) }
+        assertTrue(originalWindow > 0)
+        assertTrue(LocalServiceHealth.retryAfterMillis(url) <= originalWindow)
+        assertEquals(ConnectionHealth.CONNECTION_REFUSED, LocalServiceHealth.health(url))
+    }
+
     @Test fun gatewayAliasesShareOnlyTransportFailuresAndExplicitReconnectReopensTheService() {
         val capabilities = "http://100.64.0.2:8090/v1/gateway/capabilities"
         val ready = "http://100.64.0.2:8090/gateway/ready"

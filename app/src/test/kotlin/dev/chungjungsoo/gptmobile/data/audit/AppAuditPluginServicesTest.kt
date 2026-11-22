@@ -65,6 +65,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAuditPluginServicesTest {
+    @Test fun compoundPrivacyRejectionRemainsBlockedWithItsEarlierDispatchEvidence() = runBlocking {
+        for (observedAt in listOf(null, System.currentTimeMillis())) {
+            val setup = Setup()
+            val connection = connection()
+            setup.configure(listOf(connection))
+            coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+                freshMcpReceipt()
+                throw dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryPolicyRejection(
+                    dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied(),
+                    observedAt
+                )
+            }
+            val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+            val observation = setup.source.execute(entry, context())
+            assertEquals(AppAuditOutcome.BLOCKED, observation.outcome)
+            assertEquals("PRIVACY_SERVICE_UNVERIFIED", observation.reasonCode)
+            assertEquals("POLICY_BLOCKED", observation.failureCategory)
+            assertEquals(if (observedAt == null) AppAuditDispatchEvidence.UNKNOWN else AppAuditDispatchEvidence.CONFIRMED, observation.dispatchEvidence)
+            assertEquals(AppAuditObservationSource.LIVE, observation.observationSource)
+            assertNull(observation.httpStatus)
+            assertEquals(false, observation.retryable)
+        }
+    }
+
     @Test
     fun equivalentSavedBindingsKeepTheirFrozenIdentityAndRequireExplicitReadiness() = runBlocking {
         val client = mockk<GatewayEngineeringClient>()
@@ -427,8 +451,33 @@ class AppAuditPluginServicesTest {
         assertEquals(false, result.retryable)
         assertEquals(AppAuditObservationSource.CACHE, result.observationSource)
         assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, result.dispatchEvidence)
+        assertEquals(AppAuditRecoveryEvidence("MCP_AUTHENTICATION_REQUIRED", null, true), result.recovery)
         assertFalse(result.toString().contains("PRIVATE_SERVER_VALUE"))
         assertEquals(0, markers)
+        confirmVerified(setup.resolver)
+    }
+
+    @Test
+    fun cachedRecoveryPreservesOriginalCauseAndFiniteRetryEligibilityWithoutDispatch() = runBlocking {
+        val setup = Setup()
+        setup.configure(listOf(connection()))
+        val retryAt = System.currentTimeMillis() + 60_000
+        every { setup.mcp.healthSnapshot(any()) } returns McpConnectionHealth(
+            state = McpConnectionHealthState.UNREACHABLE,
+            lastFailureAtMs = 123,
+            nextRetryAtMs = retryAt,
+            lastErrorCode = "MCP_NETWORK_IO_FAILED",
+            lastError = "PRIVATE_NETWORK_CAUSE"
+        )
+        val entry = setup.source.plan(AppAuditOptions(allowNetworkReads = true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+        var dispatched = false
+        val result = setup.source.execute(entry, context { dispatched = true })
+        assertEquals(AppAuditOutcome.BLOCKED, result.outcome)
+        assertEquals(AppAuditObservationSource.CACHE, result.observationSource)
+        assertEquals(123L, result.observedAtEpochMs)
+        assertEquals(AppAuditRecoveryEvidence("MCP_NETWORK_IO_FAILED", retryAt, false), result.recovery)
+        assertFalse(dispatched)
+        assertFalse(result.toString().contains("PRIVATE_NETWORK_CAUSE"))
         confirmVerified(setup.resolver)
     }
 

@@ -110,6 +110,7 @@ class AgentToolResolver @Inject constructor(
     private val repositoryMaps: dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
+        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) return
         val features = settingRepository.getFeatureSettings()
         val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } ?: return
         if (!features.remoteMcpConnections || !profile.enabled || profile.disableAllTools || profile.disableRemoteTools) return
@@ -179,7 +180,6 @@ class AgentToolResolver @Inject constructor(
         cachedCataloguesOnly: Boolean = false,
         requestedModel: String? = null
     ): List<ResolvedAgentTool> {
-        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) return emptyList()
         if (chatToolConfig?.github != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sessionAudit(userMessage?.content.orEmpty())) return emptyList()
         val platforms = settingRepository.fetchPlatformV2s()
         val featureSettings = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
@@ -199,6 +199,25 @@ class AgentToolResolver @Inject constructor(
         val freeProfile = consentPlatform?.let { it.compatibleType == ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null } == true
         val disableRemote = platform?.disableRemoteTools == true
         val disableLocal = platform?.disableLocalTools == true
+        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) {
+            if (platform?.enabled != true || disableLocal || chatToolConfig?.allToolsDisabled == true) return emptyList()
+            // Do not load bindings, discover services, or instantiate tools with external dependencies.
+            return finalizeResolvedTools(
+                resolveTransportFreeBuiltIns(profileUid, platform, featureSettings, chatToolConfig),
+                profileUid,
+                platform,
+                featureSettings,
+                emptyList(),
+                chatToolConfig,
+                freeProfile,
+                disableRemote = true,
+                disableLocal = false,
+                onConnectionError = onConnectionError,
+                chatId = userMessage?.chatId,
+                consentPlatform = consentPlatform,
+                personalContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]
+            )
+        }
         val researchSelection = chatToolConfig?.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(depth = featureSettings.delegationFor(profileUid).strategy)
         fun paperAccess(features: AppFeatureSettings, current: PlatformV2?, selection: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection): Boolean = if (examinationRunKey == null) {
             dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, current?.disableRemoteTools == false && !current.disableAllTools) == null
@@ -588,16 +607,34 @@ class AgentToolResolver @Inject constructor(
                 resolved += tool.resolved(null, "Memory", tool.definition.name)
             }
         }
+        resolved += resolveTransportFreeBuiltIns(profileUid, platform, featureSettings, chatToolConfig)
+        return resolved
+    }
+
+    private fun resolveTransportFreeBuiltIns(profileUid: String, platform: PlatformV2?, featureSettings: AppFeatureSettings, chatToolConfig: ChatMcpToolConfig?): List<ResolvedAgentTool> {
+        val resolved = mutableListOf<Pair<ResolvedAgentTool, String>>()
         if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CURRENT_DATE)) {
-            resolved += CurrentDateTool(java.time.Clock.system(runCatching { java.time.ZoneId.of(featureSettings.pluginExecution[ToolPluginId.CURRENT_DATE]?.timeZone.orEmpty()) }.getOrDefault(java.time.ZoneId.systemDefault()))).resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
+            resolved += CurrentDateTool(java.time.Clock.system(runCatching { java.time.ZoneId.of(featureSettings.pluginExecution[ToolPluginId.CURRENT_DATE]?.timeZone.orEmpty()) }.getOrDefault(java.time.ZoneId.systemDefault()))).resolved(null, null, BuiltInAgentTool.CURRENT_DATE) to ToolPluginId.CURRENT_DATE
         }
         if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CALCULATOR)) {
-            resolved += CalculatorTool(featureSettings.pluginExecution[ToolPluginId.CALCULATOR]?.decimalPlaces ?: 8).resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
+            resolved += CalculatorTool(featureSettings.pluginExecution[ToolPluginId.CALCULATOR]?.decimalPlaces ?: 8).resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION) to ToolPluginId.CALCULATOR
         }
         if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_FILES)) {
-            resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
+            resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE) to ToolPluginId.READ_FILES
         }
-        return resolved
+        return resolved.map { (tool, plugin) ->
+            tool.withAdmissionGate {
+                val features = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
+                val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, chatToolConfig?.github) }
+                current != null &&
+                    platform != null &&
+                    current.enabled &&
+                    !current.disableAllTools &&
+                    !current.disableLocalTools &&
+                    dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
+                    features.isToolPluginEnabledForProfile(profileUid, plugin)
+            }
+        }
     }
 
     private suspend fun resolveRemoteBuiltIns(

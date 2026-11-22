@@ -140,7 +140,7 @@ internal object LocalServiceHealth {
         val causes = generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
         // A denied preflight/cooldown is not another physical connection attempt,
         // including when an SDK or gateway layer wraps the original exception.
-        if (causes.any { it is kotlinx.coroutines.CancellationException || it is LocalServiceUnavailableException }) return
+        if (failure.isLocalPrivacyPolicyRejection() || causes.any { it is kotlinx.coroutines.CancellationException || it is LocalServiceUnavailableException }) return
         val uri = endpoint(url) ?: return
         val health = classify(failure)
         if (endpointLocality(url) == EndpointLocality.EXTERNAL) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(uri.host, failure)
@@ -162,15 +162,15 @@ internal object LocalServiceHealth {
         if (states.size >= 128) states.keys.firstOrNull()?.let(states::remove)
     }
 
-    suspend fun probe(url: String) = withContext(Dispatchers.IO) {
+    suspend fun probe(url: String, bypassRecovery: Boolean = false) = withContext(Dispatchers.IO) {
         if (endpointLocality(url) == EndpointLocality.EXTERNAL) return@withContext
         val uri = endpoint(url) ?: return@withContext
-        requireAvailable(url)
+        if (bypassRecovery) reachability.invalidate() else requireAvailable(url)
         try {
             val generation = networkEpoch
             val observed = reachability.probe("$generation|${transportKey(uri)}") {
                 // A queued caller sees the first attempt's cooldown instead of opening another socket.
-                requireAvailable(url)
+                if (!bypassRecovery) requireAvailable(url)
                 try {
                     Socket().use { it.connect(InetSocketAddress(uri.host, port(uri)), 3_000) }
                 } catch (failure: IOException) {

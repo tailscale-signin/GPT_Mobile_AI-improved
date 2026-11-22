@@ -1,5 +1,7 @@
 # 0.9.66.13 — 2026-11-22
 
+- Allow trusted calculator, date and supplied-text slicing tools in Privacy Mode while masking model continuations and preserving permissions; keep external service tools behind their existing privacy checks.
+- Distinguish local privacy rejection from GitHub/MCP network failure, preserve earlier uncertain operations and genuine cooldowns, and retain bounded audit assertion, transport, policy and recovery evidence with exact-connection repair guidance.
 - Make the repository map work directly on the phone without Gateway, with immediate revision-bound structure, progressive resumable source indexing, source navigation, search and explicitly qualified relationship candidates. Preserve native GitHub permissions and encrypted cache identity; retain Gateway as an explicit optional analysis source.
 - Clarify first-chat readiness, phone/cloud/network processing routes, actual local processor receipts, research adapter availability and backup recovery guidance.
 - Centralize provider session dispatch and reduce optional preparation for routine tasks only within explicitly enabled automatic/adaptive choices, preserving accepted participants, reviews and budgets.

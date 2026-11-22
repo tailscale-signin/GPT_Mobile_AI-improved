@@ -396,7 +396,12 @@ internal class AppAuditPluginServices @Inject constructor(
                 validationField = safeAuditDiagnosticField(presentation.validationField),
                 observedAtEpochMs = previous.lastFailureAtMs?.takeIf { it >= 0 },
                 configurationRevision = safeAuditConfigurationRevision(previous.failureConfigurationRevision),
-                declaredRpcErrorCode = presentation.declaredRpcErrorCode
+                declaredRpcErrorCode = presentation.declaredRpcErrorCode,
+                recovery = AppAuditRecoveryEvidence(
+                    originalReasonCode = previous.lastErrorCode?.takeIf { it in AppAuditPluginProbeSource.reasonCodes },
+                    retryEligibleAtEpochMs = retryAt.takeIf { it in 0 until Long.MAX_VALUE },
+                    explicitReconnectRequired = retryAt == Long.MAX_VALUE
+                )
             )
         }
         return null
@@ -457,7 +462,8 @@ internal class AppAuditPluginServices @Inject constructor(
                 presentation.dispatchEvidence == "CONFIRMED" -> AppAuditDispatchEvidence.CONFIRMED
                 else -> AppAuditDispatchEvidence.UNKNOWN
             }
-            val prerequisiteBlocked = dispatch == AppAuditDispatchEvidence.NOT_DISPATCHED &&
+            val prerequisiteBlocked = presentation.errorCode == "PRIVACY_SERVICE_UNVERIFIED" ||
+                dispatch == AppAuditDispatchEvidence.NOT_DISPATCHED &&
                 presentation.errorCode in setOf("MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID", "MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED")
             AppAuditObservation(
                 if (cached || prerequisiteBlocked || !dispatched && source == McpDiscoverySource.SHARED) AppAuditOutcome.BLOCKED else AppAuditOutcome.FAIL,
@@ -479,7 +485,14 @@ internal class AppAuditPluginServices @Inject constructor(
                 validationField = safeAuditDiagnosticField(presentation.validationField),
                 observedAtEpochMs = presentation.observedAtEpochMs?.takeIf { it >= 0 } ?: System.currentTimeMillis().takeUnless { cached },
                 configurationRevision = safeAuditConfigurationRevision(presentation.configurationRevision) ?: (admittedRevision ?: stableRevision).takeUnless { cached || source == McpDiscoverySource.SHARED },
-                declaredRpcErrorCode = presentation.declaredRpcErrorCode
+                declaredRpcErrorCode = presentation.declaredRpcErrorCode,
+                recovery = currentHealth.nextRetryAtMs?.let { retryAt ->
+                    AppAuditRecoveryEvidence(
+                        originalReasonCode = currentHealth.lastErrorCode?.takeIf { it in AppAuditPluginProbeSource.reasonCodes },
+                        retryEligibleAtEpochMs = retryAt.takeIf { it in 0 until Long.MAX_VALUE },
+                        explicitReconnectRequired = retryAt == Long.MAX_VALUE
+                    )
+                }
             )
         }
     }

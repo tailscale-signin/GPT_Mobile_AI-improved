@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import io.ktor.http.HttpMethod
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -180,7 +181,7 @@ internal class GitHubExecutionJournal(
                 // index could not be refreshed. Never downgrade it to uncertainty.
                 if (store.read(scope, "execution:$identity")?.text("status") == "RUNNING") {
                     try {
-                        val provenRejection = failure is GitHubRequestRejected || failure is GitHubRequestCircuit.Open || failure is GitHubRequestScheduler.AdmissionRejected || singleHttpRequest && failure is GitHubRequestScheduler.Capacity || failure is IllegalArgumentException
+                        val provenRejection = failure.isLocalPrivacyPolicyRejection() || failure is GitHubRequestRejected || failure is GitHubRequestCircuit.Open || failure is GitHubRequestScheduler.AdmissionRejected || singleHttpRequest && failure is GitHubRequestScheduler.Capacity || failure is IllegalArgumentException
                         terminal = finish(identity, claim, if (provenRejection && !attempts.uncertainOrAccepted) "REJECTED" else "RECONCILE_REQUIRED")
                     } catch (checkpointFailure: Throwable) {
                         failure.addSuppressed(checkpointFailure)

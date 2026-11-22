@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
@@ -45,7 +46,8 @@ internal class GitHubRequestCircuit(
             if (permit.probe) probing = false
             return
         }
-        val transient = failure is IOException &&
+        val transient = !failure.isLocalPrivacyPolicyRejection() &&
+            failure is IOException &&
             networkFailureKind(failure) !in setOf(NetworkFailureKind.TLS, NetworkFailureKind.CANCELLED) &&
             (failure !is GitHubReadRetry.HttpFailure || GitHubReadRetry.transientStatus(failure.status))
         if (!transient) {

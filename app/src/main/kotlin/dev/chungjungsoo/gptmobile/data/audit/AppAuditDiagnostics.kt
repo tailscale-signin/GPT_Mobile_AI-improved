@@ -16,11 +16,12 @@ internal fun appAuditConfigurationRevision(fingerprint: String?): String? = fing
 
 private val AUDIT_FAILURE_PHASES = setOf(
     "local_validation", "oauth_refresh", "dns", "tls", "connection", "initialization", "protocol_negotiation", "discovery", "catalogue", "execution",
-    "mcp_discovery", "gateway_capabilities", "admission", "validation"
+    "mcp_discovery", "gateway_capabilities", "admission", "validation", "transport", "response_stream", "fixture", "fixture_setup"
 )
 private val AUDIT_FAILURE_CATEGORIES = setOf(
     "LOCAL_VALIDATION", "AUTHENTICATION_REQUIRED", "PROTOCOL_CONFIGURATION", "ENDPOINT_CONFIGURATION", "TLS_FAILURE", "DNS_FAILURE",
-    "RECONNECT_REQUIRED", "WAITING_RECOVERY", "NETWORK_UNAVAILABLE", "MCP_STATE_OR_CATALOG_INVALID", "DISCOVERY_FAILED"
+    "RECONNECT_REQUIRED", "WAITING_RECOVERY", "NETWORK_UNAVAILABLE", "MCP_STATE_OR_CATALOG_INVALID", "DISCOVERY_FAILED",
+    "POLICY_BLOCKED", "ACCESS_DENIED", "RESOURCE_UNAVAILABLE", "RESPONSE_INVALID", "FIXTURE_SETUP_FAILED", "FIXTURE_EXECUTION_FAILED", "CLIENT_FAILURE"
 )
 private val AUDIT_VALIDATION_RULES = McpLocalValidationRule.entries.mapTo(mutableSetOf()) { it.name } + setOf(
     "OAUTH_REFRESH_UNAVAILABLE", "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", "PROTOCOL_VERSIONS_LIMIT_EXCEEDED",

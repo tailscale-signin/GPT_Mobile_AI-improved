@@ -590,7 +590,7 @@ ENUMS = {
     'combined_requirement_gap': {'CURRENT_ARTICLE', 'LENGTH', 'TOPIC', 'OTHER'},
     'search_cursor_state': {'RETAINED_SEARCH_MISSING', 'PAGE_BOUNDARY_UNOBSERVED'},
     'mcp_failure_phase': {'configuration', 'catalog', 'discovery', 'initialization', 'execution', 'connection', 'dns', 'tls', 'oauth_refresh', 'local_validation'},
-    'mcp_failure_category': (MCP_HEALTH - {'HEALTHY'}) | {'MCP_TOOL_ERROR', 'MCP_OUTPUT_INVALID'},
+    'mcp_failure_category': (MCP_HEALTH - {'HEALTHY'}) | {'MCP_TOOL_ERROR', 'MCP_OUTPUT_INVALID', 'POLICY_BLOCKED'},
     'mcp_connection_health': MCP_HEALTH,
     'mcp_connection_state': {'CONNECTED', 'DEGRADED', 'UNREACHABLE', 'AUTHENTICATION_REQUIRED', 'RECOVERING'},
     'mcp_readiness_state': {'NOT_DISCOVERED', 'DISCOVERING', 'READY', 'STALE'},

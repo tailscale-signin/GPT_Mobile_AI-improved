@@ -83,15 +83,33 @@ class PrivacyModeStore @Inject constructor(
     companion object {
         @Volatile private var application: Context? = null
 
-        @Volatile private var requestedMaster: Boolean? = null
+        @Volatile private var requestedPolicy: PrivacyModeState? = null
         fun initialize(context: Context) {
             application = context.applicationContext
-            requestedMaster = null
+            requestedPolicy = null
         }
-        fun active(): Boolean = requestedMaster ?: (
+        fun active(): Boolean = requestedPolicy?.enabled ?: (
             application?.getSharedPreferences("device_privacy", Context.MODE_PRIVATE)
                 ?.getBoolean("privacy_mode_enabled", false) == true
             )
+
+        /** Read-only diagnostic observation; unknown is not silently reported as disabled. */
+        fun auditPolicySnapshot(): PrivacyModeState? {
+            requestedPolicy?.let { return it }
+            val preferences = application?.getSharedPreferences("device_privacy", Context.MODE_PRIVATE) ?: return null
+            repeat(3) {
+                val revision = preferences.getLong("privacy_revision", 0)
+                val enabled = preferences.getBoolean("privacy_mode_enabled", false)
+                val categories = PrivacyCategory.entries.filterTo(mutableSetOf()) {
+                    preferences.getBoolean("privacy_category_${it.name}", true)
+                }
+                if (preferences.getLong("privacy_revision", 0) == revision) {
+                    // A newly queued choice also supersedes a consistent older disk observation.
+                    return requestedPolicy ?: PrivacyModeState(enabled, categories, revision)
+                }
+            }
+            return null
+        }
 
         fun requireUnprotectedTransport() {
             if (active()) throw UnverifiedServiceTransport()
@@ -169,7 +187,8 @@ class PrivacyModeStore @Inject constructor(
     private fun publish(change: (PrivacyModeState) -> PrivacyModeState) {
         val current = snapshot()
         val next = change(current).copy(revision = Math.incrementExact(current.revision))
-        requestedMaster = next.enabled
+        // Transport checks and diagnostics share the complete effective policy before disk I/O.
+        requestedPolicy = next
         requested = next
         mutable.value = next
     }
@@ -186,7 +205,7 @@ class PrivacyModeStore @Inject constructor(
             // A completed older write cannot undo a newer tap or revive its authorization.
             if (requested == target) {
                 requested = null
-                requestedMaster = null
+                requestedPolicy = null
                 mutable.value = readConsistent()
             }
         }

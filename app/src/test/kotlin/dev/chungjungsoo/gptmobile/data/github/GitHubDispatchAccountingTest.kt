@@ -13,6 +13,29 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubDispatchAccountingTest {
+    @Test fun knownLocalRejectionSettlesOnlyItsOwnAttemptAndKeepsEarlierUncertainty() = runTest {
+        for (earlierMutation in listOf(false, true)) {
+            val accounting = GitHubDispatchAccounting(record = {})
+            withContext(accounting) {
+                if (earlierMutation) GitHubDispatchAccounting.started(true)
+                val local = GitHubDispatchAccounting.started(true)
+                GitHubDispatchAccounting.locallyRejected(local)
+                GitHubDispatchAccounting.locallyRejected(local)
+            }
+            val result = accounting.finish(
+                AgentToolResult("privacy", ToolResultContent.Text("local policy"), true, dispatched = false, errorCode = "PRIVACY_SERVICE_UNVERIFIED"),
+                true
+            )
+            val receipt = requireNotNull(result.executionReceipt)
+            assertEquals(earlierMutation, result.dispatched)
+            assertEquals(JsonPrimitive(1), receipt["local_request_rejections"])
+            assertEquals(JsonPrimitive(if (earlierMutation) 1 else 0), receipt["mutation_requests"])
+            assertEquals(JsonPrimitive(if (earlierMutation) 1 else 0), receipt["unknown_mutations"])
+            assertEquals(JsonPrimitive(earlierMutation), receipt["requires_reconciliation"])
+            assertEquals(if (earlierMutation) "RECONCILIATION_REQUIRED" else "PRIVACY_SERVICE_UNVERIFIED", result.errorCode)
+        }
+    }
+
     @Test fun issueContinuationDiagnosticsRequireTheCompleteTypedShapeAndCannotReplaceAccounting() = runTest {
         for (state in GitHubInspection.InvalidIssueContinuation.State.entries) {
             val failure = GitHubInspection.InvalidIssueContinuation(state)

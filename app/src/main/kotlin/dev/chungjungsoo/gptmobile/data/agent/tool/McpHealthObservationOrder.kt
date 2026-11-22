@@ -10,7 +10,10 @@ internal class McpHealthObservationOrder {
         val configurationRevision: String? = null,
         /** Created before dispatch; shared by transport and MCP terminal diagnostics. */
         val operationId: String = java.util.UUID.randomUUID().toString().replace("-", "")
-    )
+    ) {
+        /** Set only while publishing this operation's response; a later local denial cannot undo it. */
+        var responseObserved: Boolean = false
+    }
     private data class State(val key: String, val epoch: Long, val configurationRevision: String?, var published: Long = 0)
     private val states = mutableMapOf<String, State>()
     private var sequence = 0L

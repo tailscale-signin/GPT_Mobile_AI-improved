@@ -1,0 +1,201 @@
+{
+  "schema": "development-task-checkpoint.v1",
+  "task": "privacy-audit-completion-2026-11-22",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "main",
+  "baseSha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "workingBranch": "fix/diagnostic-execution-completion-2026-11-22",
+  "startingHead": "3f047bce0b95443d5aefd2d4ba453fe12d3baad1",
+  "pullRequest": 2254,
+  "intent": "Implement the reviewed privacy/local-tool and audit-classification repairs, preserve concurrent work, validate the complete candidate and publish through existing release gates.",
+  "authority": "User explicitly authorized implementation, draft push, verified main merge and publication on 2026-11-22.",
+  "checkpointScope": "Versioned development checkpoint; no running Android engineering task database is available and no runtime operation receipt is fabricated.",
+  "state": "READY_FOR_HOSTED_VALIDATION",
+  "workstreams": [
+    {
+      "id": "LOCAL_TOOLS",
+      "state": "IMPLEMENTED_PENDING_INTEGRATED_VALIDATION",
+      "acceptance": "Trusted local calculator/date/text-slicing tools and owned audit fixtures work with privacy enabled through a masked private-session tool protocol; external and untrusted tools retain transport policy, result masking and normal permissions."
+    },
+    {
+      "id": "NETWORK_CLASSIFICATION",
+      "state": "IMPLEMENTED_PENDING_INTEGRATED_VALIDATION",
+      "acceptance": "GitHub and MCP preserve typed privacy/local rejection, known non-dispatch, genuine network phases and uncertain transmission without artificial network cooldowns."
+    },
+    {
+      "id": "AUDIT_EVIDENCE",
+      "state": "IMPLEMENTED_PENDING_INTEGRATED_VALIDATION",
+      "acceptance": "Audit exports retain bounded assertion, policy, timing and recovery evidence, accurate scores and exact-target actions without sensitive content."
+    },
+    {
+      "id": "INTEGRATED_VALIDATION",
+      "state": "IN_PROGRESS",
+      "acceptance": "Required current-head repository, Android, native, emulator, Gateway and release validation pass; concurrent changes remain preserved."
+    },
+    {
+      "id": "PUBLICATION",
+      "state": "PENDING",
+      "acceptance": "Main passes required release gates and published Android/Gateway assets, tag identity and provenance are read back."
+    }
+  ],
+  "qualificationLimits": [
+    "Live saved-connection reauthorization requires the connection owner's credentials; this work provides the correct exact-target action and test coverage.",
+    "Physical handset, audio-route and Adreno/Hexagon performance require hardware measurements and remain distinct from host/emulator validation.",
+    "Optional absent integrations and unexecuted fixtures remain honestly unqualified."
+  ],
+  "lastReconciledHead": "06ab96439deea13262fa48130eed367914e914d0",
+  "validation": [
+    {
+      "head": "459261b5b537b8eee2479927488e81e455a4c39c",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASS",
+      "repositoryTests": 615,
+      "scope": "Baseline before new privacy and audit changes; generated inventories, policy, resources, regex, native provenance and whitespace passed."
+    },
+    {
+      "head": "e9148ab3dd6df0d1ffb67a630304c1a93c139aed",
+      "command": ":core-domain:jvmTest",
+      "result": "PASS",
+      "tests": 4,
+      "scope": "Actual Gradle JVM tests with repository-pinned dependencies; isolated task cache preserves concurrent worker locks."
+    },
+    {
+      "command": ":app:kspDebugKotlin",
+      "result": "INTERRUPTED",
+      "scope": "Both bounded local generation attempts (3 GiB and 4 GiB) ended when the Gradle daemon exited unexpectedly before a result. No Android compilation or test pass is claimed; mandatory hosted Android gates remain required."
+    },
+    {
+      "head": "6f6abbf0",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASS",
+      "repositoryTests": 615,
+      "scope": "Integrated privacy, network and audit source before the final calculator/report projection follow-ups. Generated files, policy, secret scan, resources, regex and provenance checks passed."
+    },
+    {
+      "head": "a246f7fb75a769f86995ac3f165e5d57d8eae0a1",
+      "command": "Focused actual-source JVM host behavior harness",
+      "result": "PASS",
+      "tests": 18,
+      "scope": "Nine private session/envelope behavior cases and nine calculator cases. Android/application boundary ports are supplied by the harness; this is not a full Android or integrated AgentRunner result. Prior calculator source failed the two new log2 behavior/arity-domain cases."
+    },
+    {
+      "head": "514fe5473968a8dcd0d9766e9c0e74bca870955c",
+      "command": "python -m unittest discover -s authentication -t . -p test_*.py -v",
+      "result": "PASS",
+      "tests": 202,
+      "scope": "Full authentication/reporting service suite against the integrated source with repository-pinned dependencies."
+    },
+    {
+      "command": "Gateway diagnostic contract suite",
+      "result": "PASS",
+      "tests": 4,
+      "scope": "Generated canonical PRIVACY_SERVICE_UNVERIFIED choice, failure and reason fields pass durable ingestion, restart and export behavior."
+    },
+    {
+      "head": "523e1636878da2d23b6162e8290349f34b6a01c1",
+      "command": "bash scripts/validate-local.sh fast; ktlint 1.3.1 on changed Kotlin files",
+      "result": "PASS",
+      "repositoryTests": 615,
+      "kotlinFiles": 87,
+      "scope": "Final calculator/reporting integration through remote26560d62; canonical host checks and Kotlin style pass. Subsequent phone-map and OAuth commits require refreshed integration checks."
+    },
+    {
+      "head": "6030cffd",
+      "command": "bash scripts/validate-local.sh fast; ktlint 1.3.1",
+      "result": "PASS",
+      "repositoryTests": 615,
+      "kotlinFiles": 89,
+      "scope": "Integrated phone map and OAuth policy preservation before responsive privacy settings integration; not a full Android build."
+    },
+    {
+      "command": "python gateway/check_gateway.py",
+      "result": "PASS",
+      "tests": 1616,
+      "platformSkipped": 33,
+      "browserTests": 7,
+      "gatewayManifestSha256": "481d6bc1b4a6a0e1bf6725baac6debc9b1b4675381ccf0e99bd26d272a0bd40b",
+      "scope": "All 126 isolated Python suites and browser bridge completed, exit0, with existing host/platform skips. Required Windows and exact-head hosted gates remain separate. Initial stale generated package hash was repaired before this successful run."
+    },
+    {
+      "command": "bash scripts/validate-local.sh fast; python3 scripts/check_release_scope.py; git diff --check",
+      "result": "PASS",
+      "repositoryTests": 615,
+      "scope": "Complete integrated candidate through remote06ab9643, OAuth policy preservation and pending-policy audit correction. Generated inventories, contracts, secret scan, resource/regex/native provenance and bounded release scope passed before draft push."
+    },
+    {
+      "command": "Existing actual-source privacy store JVM host harness",
+      "result": "PASS",
+      "tests": 14,
+      "scope": "Actual PrivacyModeStore, PrivacySettingsWriter, SecretVault and test source; Context/SharedPreferences are mocked, ControlledVault and narrow provider/logging/Hilt ports provide the host boundary. Baseline failed exactly two pending-policy audit regressions; corrected source passes all14. Android persistence/DI/full dispatch are not claimed."
+    },
+    {
+      "head": "f3b9b408c41d078d140062da38270bf0e75fdf84",
+      "workflowRun": 45064285717,
+      "job": 137338173693,
+      "result": "OBSOLETE_FAILURE_TRIAGED",
+      "tests": 12515,
+      "failed": 3,
+      "skipped": 5,
+      "scope": "Older CI result is not current-head approval. Cursor guidance and exact-config Gateway mock corrections were already preserved from concurrent commits. Corrected the remaining provider report test to assert HTTP status on authoritative IssueReportContext.httpStatus; existing classification/hash/privacy assertions and production schema remain unchanged. Current-head hosted execution is still required."
+    }
+  ],
+  "concurrentWork": [
+    {
+      "head": "459261b5b537b8eee2479927488e81e455a4c39c",
+      "action": "Preserved native Kokoro APK ABI/dependency checks and eight-way atomic built-in binding replacement regression."
+    },
+    {
+      "head": "e9148ab3dd6df0d1ffb67a630304c1a93c139aed",
+      "action": "Preserved Research editor saving/read-only state and snapshot-based settings save regression."
+    },
+    {
+      "head": "a0ac4b01d55fb837893e742728c625b257b48dbe",
+      "action": "Preserved current Research goal instrumentation and retained review evidence."
+    },
+    {
+      "head": "24a12620de2aa4ed11eae4bc38dc4210c454ed8a",
+      "action": "Preserved atomic binding ownership/import validation, all persistence cases and exact-config Gateway regressions."
+    },
+    {
+      "head": "87204b86",
+      "action": "Preserved mixed SQL argument typing in the device persistence regression helper."
+    },
+    {
+      "head": "66cbf7122c28f9d895ee1863e613287fe44baeed",
+      "action": "Preserved Research recomposition behavior and focused Android validation evidence."
+    },
+    {
+      "head": "26560d62a29b9d9cc628d5d5bf2bc64554222e9d",
+      "action": "Preserved GitHub decision readability, wrapped large-font actions, expanded titles and Compose layout regression."
+    },
+    {
+      "head": "38098840f81a7216c5d2ad6d09d37c3f22f57e56",
+      "action": "Preserved phone repository maps, source indexing, model-tool access, cache identity and optional Gateway analysis; reconciled privacy-aware resolver and regression coverage."
+    },
+    {
+      "head": "06ab96439deea13262fa48130eed367914e914d0",
+      "action": "Preserved responsive privacy settings persistence, provider verification setup and local draft chat creation; aligned audit evidence with the effective pending policy."
+    }
+  ],
+  "implementationCommits": [
+    "4d448aac5b8f19ad5e7e91c6c12468f29810e999",
+    "e88610e8847336a0c8ad6b2bf75bdd056495f834",
+    "71550a38c022dd4862af9eb214a6680ac1cc805f",
+    "82e103445a3fa7b49070fda4b65a9a89e95f406d",
+    "ea17012f441c1c30f6fca8b9827372949b7accfe",
+    "a246f7fb75a769f86995ac3f165e5d57d8eae0a1",
+    "eb1ede2dc77d137d0f818092067a55279dbe66ca",
+    "101356a6ea0684ec083c7c9f584d6420e9fbe500"
+  ],
+  "reviewRegressions": [
+    "Preserve MCP health/cooldown on privacy change at the send boundary.",
+    "Retain earlier confirmed or uncertain sends before a later local denial.",
+    "Mask quoted, backslash and multiline private terms before receipt serialization.",
+    "Parse tool control before restoring string leaves; restored prose cannot become an executable command.",
+    "Encoded tool arguments remain bounded by byte, nesting and node limits.",
+    "Privacy/local failure codes survive public diagnostic allowlists without overriding earlier uncertain transmission.",
+    "Calculator log2 accepts digit-bearing known identifiers while rejecting unknown functions and invalid arity/domain.",
+    "OAuth refresh or rediscovery privacy denial preserves current policy cause and prior HTTP401 confirmed dispatch without leaking OAuth prose.",
+    "Audit policy evidence observes the same effective pending privacy state enforced during background settings persistence and failures."
+  ]
+}

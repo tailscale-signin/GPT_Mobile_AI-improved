@@ -67,7 +67,10 @@ internal object ToolResultEnvelope {
     fun error(callId: String, code: String, message: String, dispatched: Boolean = false): AgentToolResult =
         AgentToolResult(callId, ToolResultContent.Text(message), true, errorCode = code, dispatched = dispatched)
 
-    fun encode(tool: String, result: AgentToolResult): String = buildJsonObject {
+    fun encode(tool: String, result: AgentToolResult): String = document(tool, result).toString()
+
+    /** Structured callers can protect exact data leaves before wire serialization. */
+    fun document(tool: String, result: AgentToolResult): JsonObject = buildJsonObject {
         put("schema", "gptmobile.tool-result.v1")
         put("tool", tool)
         put("callId", result.callId)
@@ -111,7 +114,7 @@ internal object ToolResultEnvelope {
         put("evidenceAllowanceReached", result.outputBudgetExhausted)
         put("data", element(result.content))
         if (result.assistMetadata.isNotEmpty()) put("assist", JsonArray(result.assistMetadata))
-    }.toString()
+    }
 
     fun element(content: ToolResultContent): JsonElement = when (content) {
         is ToolResultContent.Json -> content.value

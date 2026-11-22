@@ -1873,7 +1873,7 @@ class ChatRepositoryImpl(
             }
             emitAll(preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, githubTools, fence, boundStage))
         } else {
-            val privateTools = ChatMcpToolConfig(allToolsDisabled = true, allowAllByDefault = false, delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false))
+            val privateTools = (githubTools ?: ChatMcpToolConfig()).copy(delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false))
             val protection = dev.chungjungsoo.gptmobile.data.privacy.PrivateProtectionContext(agentPersistenceDao::recordPrivacyProtection)
             try {
                 emitAll(
@@ -2348,7 +2348,7 @@ class ChatRepositoryImpl(
                         val boundedTools = dev.chungjungsoo.gptmobile.data.assist.LocalAssistToolBinder.bind(
                             tools = authorizedBoundedTools,
                             candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM },
-                            enabled = !verificationOnlyRequested && chatToolConfig?.github == null && runFeatures.assistEnabled(),
+                            enabled = !verificationOnlyRequested && chatToolConfig?.github == null && runFeatures.assistEnabled() && kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.Key] == null,
                             supportsPrimaryRuntime = platform.compatibleType != ClientType.LITERT_LM,
                             allowPerTurnTool = chatToolConfig?.combined == null && supportsTools && !platform.disableAllTools && !platform.disableLocalTools && chatToolConfig?.allToolsDisabled != true && !synthesisRun && !resumeWriterOnly && taskRecovery?.primaryOnly != true && !localResearch && !reviewedPreparationUnavailable,
                             admitPerTurnTool = { planningTool -> toolBudget.bind(planningTool) },
@@ -4420,6 +4420,7 @@ class ChatRepositoryImpl(
         prepareRecovery: suspend (List<ResolvedAgentTool>) -> dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext?,
         onRecovery: (dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext?) -> Unit
     ): List<ResolvedAgentTool> {
+        val privateTurn = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.Key] != null
         var recovery: dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext? = null
         suspend fun resolveAuthorizedTools(cachedOnly: Boolean = true): List<ResolvedAgentTool> {
             val catalog = if (preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.DIRECT || platform.disableAllTools || (!supportsTools && !sourceAcquisitionRequested)) {
@@ -4456,13 +4457,14 @@ class ChatRepositoryImpl(
                     )
                 )
             } + listOfNotNull(
-                recovery?.takeIf { it.contentLength > 0 && supportsTools }?.tool()?.let {
+                recovery?.takeIf { it.contentLength > 0 && supportsTools && !privateTurn }?.tool()?.let {
                     ResolvedAgentTool(it, null, "Saved response", it.definition.name, it.definition.name, shareableReadOnly = true)
                 }
             )
         }
         val cacheObservation = dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation()
         fun deferredToolDirectory(): List<ResolvedAgentTool> {
+            if (privateTurn) return emptyList()
             val task = effectiveUserMessages.lastOrNull()?.content.orEmpty()
             if (dev.chungjungsoo.gptmobile.data.agent.CombinedTaskContract.from(task).historicalSurvey && !sourceAcquisitionRequested && !Regex("(?i)\\b(?:search|sources|citations|tools|verify|latest|current|today)\\b").containsMatchIn(task)) return emptyList()
             val acquired = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
@@ -5421,12 +5423,13 @@ class ChatRepositoryImpl(
                 }
             }
             AppLogRecorder.record("Context", "REQUEST_BUDGET · runId=$runId · requestKind=$kind · phase=initial_advertisement · authorizedTools=${if (textOnly) 0 else contextPlan.authorizedTools.size} · advertisedSchema=see_WIRE_SCHEMA · ${costs.diagnostic()}", if (costs.total > 131_072) "W" else "I")
+            val privateTextOnly = privateTurn && platform.compatibleType != ClientType.LITERT_LM
             suspend fun providerSession(sessionTurns: List<ConversationTurn>, profile: PlatformV2): AgentProviderSession =
-                providerSessions.openSession(sessionTurns, profile, constraints) {
+                providerSessions.openSession(sessionTurns, profile, if (privateTextOnly) constraints.withoutTools() else constraints) {
                     dev.chungjungsoo.gptmobile.data.agent.provider.LocalProviderSessionOptions(
-                        tools = if (textOnly) emptyList() else effectiveTools.map(::bindGitHubTarget),
+                        tools = if (textOnly || privateTextOnly) emptyList() else effectiveTools.map(::bindGitHubTarget),
                         fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true, researchReport = chatToolConfig?.research?.researchToggle == true),
-                        advertisedTools = if (textOnly) emptyList() else contextPlan.tools,
+                        advertisedTools = if (textOnly || privateTextOnly) emptyList() else contextPlan.tools,
                         progressSettings = progressSettings,
                         githubMode = chatToolConfig?.github != null && !textOnly
                     )
@@ -5434,10 +5437,17 @@ class ChatRepositoryImpl(
 
             val routedSession = if (privateTurn && platform.compatibleType != ClientType.LITERT_LM) {
                 val store = requireNotNull(privacyMode)
-                if (store.verifier.verify(invocationPlatform).route != null) {
-                    dev.chungjungsoo.gptmobile.data.privacy.PrivateInferenceSession(store.verifier, store, invocationPlatform, turns, constraints) { privacyAlternatives(platform) }
-                } else {
-                    dev.chungjungsoo.gptmobile.data.privacy.maskedProviderSession(store, invocationPlatform, turns, ::providerSession)
+                dev.chungjungsoo.gptmobile.data.privacy.PrivateLocalToolSession(
+                    store,
+                    invocationPlatform,
+                    turns,
+                    if (textOnly) emptyList() else effectiveTools.map { it.tool }
+                ) { privateTurns, privateProfile ->
+                    if (store.verifier.verify(privateProfile).route != null) {
+                        dev.chungjungsoo.gptmobile.data.privacy.PrivateInferenceSession(store.verifier, store, privateProfile, privateTurns, constraints.withoutTools()) { privacyAlternatives(platform) }
+                    } else {
+                        dev.chungjungsoo.gptmobile.data.privacy.maskedProviderSession(store, privateProfile, privateTurns, ::providerSession)
+                    }
                 }
             } else {
                 providerSession(turns, invocationPlatform)
@@ -5948,16 +5958,20 @@ class ChatRepositoryImpl(
             effectiveTools.map(::bindGitHubTarget)
         }
 
-        val catalog = primaryToolCatalog(
-            effectiveTools,
-            runnerTools,
-            groundedSession,
-            budgetSettings,
-            latestUser,
-            contextPlan,
-            chatToolConfig?.github != null,
-            limits.contextTokens
-        )
+        val catalog = if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.Key] != null) {
+            null
+        } else {
+            primaryToolCatalog(
+                effectiveTools,
+                runnerTools,
+                groundedSession,
+                budgetSettings,
+                latestUser,
+                contextPlan,
+                chatToolConfig?.github != null,
+                limits.contextTokens
+            )
+        }
         // Exhausted execution budgets and writer-only stages must not erase the
         // still-authorized identity/contracts used to restore durable evidence.
         // Only runnerTools are executable; this catalog is a read-validation scope.

@@ -1,8 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -2329,7 +2331,7 @@ class GitHubWorkspaceClient(
             scheduler.recordRequest()
             if (!readOnlyQuery) GitHubMutationAttempts.dispatched()
             val observationId = GitHubDispatchAccounting.started(!readOnlyQuery)
-            val response = client.githubRequest(apiOrigins.graphQl) {
+            val response = accountedRequest(apiOrigins.graphQl, observationId, !readOnlyQuery) {
                 method = HttpMethod.Post
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
@@ -2816,7 +2818,7 @@ class GitHubWorkspaceClient(
                 scheduler.recordRequest()
                 if (method != HttpMethod.Get) GitHubMutationAttempts.dispatched()
                 val observationId = GitHubDispatchAccounting.started(method != HttpMethod.Get, path)
-                var response = client.githubRequest("${apiOrigins.rest}$path") {
+                var response = accountedRequest("${apiOrigins.rest}$path", observationId, method != HttpMethod.Get) {
                     this.method = method
                     header(HttpHeaders.Accept, "application/vnd.github+json")
                     header(HttpHeaders.UserAgent, "GPT-Mobile-App")
@@ -2837,7 +2839,7 @@ class GitHubWorkspaceClient(
                     rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
                     scheduler.recordRequest()
                     val recoveryObservationId = GitHubDispatchAccounting.started(false, path)
-                    response = client.githubRequest("${apiOrigins.rest}$path") {
+                    response = accountedRequest("${apiOrigins.rest}$path", recoveryObservationId, false) {
                         header(HttpHeaders.Accept, "application/vnd.github+json")
                         header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                         header("X-GitHub-Api-Version", API_VERSION)
@@ -2934,6 +2936,17 @@ class GitHubWorkspaceClient(
     }
 
     private fun immutablePath(path: String): Boolean = Regex("/(?:git/(?:blobs|trees)|commits)/[a-fA-F0-9]{40,64}(?:[/?]|$)").containsMatchIn(path) && !path.contains("check-runs") && !path.substringBefore('?').endsWith("/status") || Regex("[?&]ref=[a-fA-F0-9]{40,64}(?:&|$)").containsMatchIn(path)
+
+    private suspend fun accountedRequest(url: String, observationId: String?, mutation: Boolean, block: HttpRequestBuilder.() -> Unit): GitHubBoundedResponse = try {
+        client.githubRequest(url, block)
+    } catch (failure: Exception) {
+        if (failure.isLocalPrivacyPolicyRejection()) {
+            GitHubDispatchAccounting.locallyRejected(observationId)
+            scheduler.recordLocalRequestRejection()
+            if (mutation) GitHubMutationAttempts.rejected()
+        }
+        throw failure
+    }
 
     private fun requestHint(
         status: Int,

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticMessageForStorage
 import dev.chungjungsoo.gptmobile.data.network.ConnectionHealth
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 
@@ -30,6 +31,27 @@ internal data class McpFailurePresentation(
 internal fun mcpFailurePresentation(error: Throwable, health: McpConnectionHealth): McpFailurePresentation {
     val causes = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
     causes.filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+    if (error.isLocalPrivacyPolicyRejection()) {
+        val compound = causes.filterIsInstance<McpDiscoveryPolicyRejection>().firstOrNull()
+        return McpFailurePresentation(
+            outcome = "POLICY_BLOCKED",
+            errorCode = "PRIVACY_SERVICE_UNVERIFIED",
+            retryable = false,
+            message = if (compound == null) {
+                "Privacy Mode blocked this service request before it was sent. Your saved connection and catalogue are unchanged. Review the Privacy Mode setting before retrying this service."
+            } else {
+                "Privacy Mode blocked a later metadata request. Earlier exchange evidence is retained for this discovery. Review the Privacy Mode setting before retrying this service."
+            },
+            phase = "local_validation",
+            dispatchEvidence = when {
+                compound == null -> "NOT_DISPATCHED"
+                compound.responseObservedAtEpochMs != null -> "CONFIRMED"
+                else -> "UNKNOWN"
+            },
+            retryDecision = "AFTER_POLICY_CHANGE",
+            observedAtEpochMs = compound?.responseObservedAtEpochMs
+        )
+    }
     val protocolFailure = causes.filterIsInstance<McpProtocolConfigurationException>().firstOrNull()
     val localFailure = causes.filterIsInstance<McpLocalValidationException>().firstOrNull()
     val endpointFailure = causes.filterIsInstance<McpEndpointConfigurationException>().firstOrNull()

@@ -2391,7 +2391,7 @@ class AgentRunner(
             )
         }
         try {
-            dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
+            dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.requireExecution(tool)
         } catch (blocked: dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport) {
             return requireNotNull(ToolFailureMetadata.authorityPrecheck(call.callId, call.name, blocked))
         }

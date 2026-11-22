@@ -263,7 +263,8 @@ class GatewayGraphRepository @Inject constructor(
         } catch (failure: Exception) {
             // This typed prerequisite rejection is returned before graph execution.
             // Other HTTP failures can follow a saved batch and remain uncertain.
-            if (!dispatched || failure is GatewayGraphUnavailableException) {
+            val graphRequestUnsent = failure is GatewayGraphPrivacyRejected && failure.requestUnsent
+            if (!dispatched || graphRequestUnsent || failure is GatewayGraphUnavailableException) {
                 attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token, executed = false) } }
             }
             val unavailable = when {
@@ -280,7 +281,7 @@ class GatewayGraphRepository @Inject constructor(
             // The prior checkpoint may have been confirmed and replaced during this call.
             // Never pair a newer checkpoint's unknown flag with the dispatched attempt's token.
             val attemptHash = if (unknown) observed?.attemptHash else dispatchedAttemptHash
-            val currentIndexUnknown = dispatched && dispatchedAttemptHash != null && unknown && observed?.attemptHash == dispatchedAttemptHash
+            val currentIndexUnknown = dispatched && !graphRequestUnsent && dispatchedAttemptHash != null && unknown && observed?.attemptHash == dispatchedAttemptHash
             val repair = when (unavailable) {
                 is GatewayGraphUnavailableException -> unavailable.prerequisites.firstOrNull()?.nextAction
                 is GatewayGraphAdmissionException -> unavailable.repairAction

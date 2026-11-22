@@ -23,6 +23,64 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpReadRecoveryTest {
+    @Test fun wrappedCancellationDoesNotRetryOrInventInterruptedReadEvidence() = runTest {
+        val cancelled = CancellationException("Owner cancelled the request")
+        for (failure in listOf(
+            IOException("connection reset", cancelled),
+            IllegalStateException("SDK wrapper", IOException("unexpected end of stream", cancelled))
+        )) {
+            val evidence = MetadataResponseObservation()
+            var attempts = 0
+            var pauses = 0
+            val observed = withContext(evidence) {
+                runCatching {
+                    withMcpReadRecovery("tools/list", pause = { pauses++ }) {
+                        attempts++
+                        throw failure
+                    }
+                }.exceptionOrNull()
+            }
+            assertSame(cancelled, observed)
+            assertEquals(1, attempts)
+            assertEquals(0, pauses)
+            assertFalse(evidence.hasInterruptedRead)
+            assertNull(evidence.observedAtEpochMs)
+            assertTrue(cancelled.suppressed.isEmpty())
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        }
+    }
+
+    @Test fun wrappedRetryCancellationRetainsEarlierReadAndResponseEvidence() = runTest {
+        val cancelled = CancellationException("Owner cancelled the retry")
+        val evidence = MetadataResponseObservation()
+        evidence.responded()
+        val responseAt = evidence.observedAtEpochMs
+        var attempts = 0
+        val observed = withContext(evidence) {
+            runCatching {
+                withMcpReadRecovery("tools/list", pause = {}) {
+                    if (++attempts == 1) throw EOFException("Earlier response was interrupted")
+                    throw IOException("socket closed", cancelled)
+                }
+            }.exceptionOrNull()
+        }
+        assertSame(cancelled, observed)
+        assertEquals(2, attempts)
+        assertTrue(evidence.hasInterruptedRead)
+        assertEquals(responseAt, evidence.observedAtEpochMs)
+        assertTrue(cancelled.suppressed.isEmpty())
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+    }
+
+    @Test fun genericTlsReadInterruptionIsNotAHandshakeAdmissionFailure() = runTest {
+        val evidence = MetadataResponseObservation()
+        withContext(evidence) {
+            recordMcpInterruptedRead(javax.net.ssl.SSLException("Secure stream ended", EOFException("Response was truncated")))
+        }
+        assertTrue(evidence.hasInterruptedRead)
+        assertNull(evidence.observedAtEpochMs)
+    }
+
     @Test fun concurrentDiscoveryScopesDoNotBorrowInterruptedReadEvidence() = runTest {
         val interrupted = MetadataResponseObservation()
         val untouched = MetadataResponseObservation()
@@ -68,6 +126,7 @@ class McpReadRecoveryTest {
             java.net.ConnectException("Connection refused") to 1,
             javax.net.ssl.SSLHandshakeException("Untrusted peer").apply { initCause(EOFException()) } to 1,
             javax.net.ssl.SSLPeerUnverifiedException("Peer not verified") to 1,
+            javax.net.ssl.SSLException("Rejected certificate", java.security.cert.CertificateException()) to 1,
             PrivateMetadataDenied() to 1
         )) {
             val evidence = MetadataResponseObservation()

@@ -1,5 +1,8 @@
 # 0.9.66.13 — 2026-11-22
 
+- Keep automatic phone-map checks within supported native actions, while retaining explicitly selected Gateway analysis and source-bound recovery.
+- Record Gateway map privacy rejection from actual request evidence, clearing only a newly proven unsent index attempt and preserving earlier exchanges and unresolved jobs.
+- Propagate cancellation wrapped by MCP transport failures before reconnect or replay, while retaining earlier observed responses and interrupted reads.
 - Reject altered saved tool-result bytes with the typed recovery-integrity error, without fabricating observed receipt counts or digests.
 - Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.
 - Preserve the selected Phone or Gateway source through repository-map status recovery, saved jobs and cursor continuation, keeping their evidence and pending work separate.

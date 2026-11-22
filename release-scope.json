@@ -91,7 +91,10 @@
     "Validate every present stored journal projection hash against its retained body before recovery, replay and explicit budget retry; preserve legacy absent-hash compatibility and settled-call deduplication.",
     "Start speech when all bounded PCM queue slots are occupied even when partial phrase tails leave accepted duration below the measured reserve; retain queue and reserve limits, lifecycle fences and deadline behavior.",
     "Report invalid retained journal projections as typed recovery-integrity failures while omitting unverified observed digests and counts; preserve legacy recovery, settled-call deduplication and prior budget refusal checks.",
-    "Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references."
+    "Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.",
+    "Keep automatic phone-map recipes within native capabilities while retaining explicit Gateway analysis and source provenance.",
+    "Preserve actual Gateway graph exchange evidence through local privacy rejection and clear only a proven unsent new index attempt.",
+    "Propagate wrapped MCP cancellation before reconnect or replay while retaining earlier response and interruption facts."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -592,6 +595,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayAdmissionClientTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayConversationRepositoryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringSubmissionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphPrivacyDispatchTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepositoryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceContractTest.kt",

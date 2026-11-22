@@ -15,6 +15,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.api.Send
 import io.ktor.client.plugins.api.SendingRequest
 import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -25,6 +26,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -262,10 +265,26 @@ class McpPrivacyTransportTest {
         }
     }
 
-    @Test fun anInterruptedCachedLegacyReadSurvivesALocalReconnectRejection() = runBlocking(ConversationPrivacyContext(601, false)) {
+    @Test fun anInterruptedCachedLegacyReadSurvivesALocalReconnectRejection() = assertInterruptedCachedLegacyRead(tlsWrapped = false)
+
+    @Test fun anSslWrappedCachedLegacyReadSurvivesALocalReconnectRejection() = assertInterruptedCachedLegacyRead(tlsWrapped = true)
+
+    private fun assertInterruptedCachedLegacyRead(tlsWrapped: Boolean) = runBlocking(ConversationPrivacyContext(601, false)) {
         FixtureServer(legacy = true).use { server ->
             val denyReconnect = AtomicBoolean(false)
             val localGate = createClientPlugin("RejectInterruptedLegacyReconnect") {
+                on(Send) { request ->
+                    try {
+                        proceed(request)
+                    } catch (failure: Exception) {
+                        // The fixture receives the read before closing without headers.
+                        // Wrap that real interruption; this does not simulate a TLS handshake.
+                        if (tlsWrapped && denyReconnect.get() && !failure.isLocalPrivacyPolicyRejection()) {
+                            throw javax.net.ssl.SSLException("Secure stream ended", failure)
+                        }
+                        throw failure
+                    }
+                }
                 on(SendingRequest) { _, _ -> if (denyReconnect.get()) throw PrivateMetadataDenied() }
             }
             val http = HttpClient(CIO) {
@@ -295,6 +314,47 @@ class McpPrivacyTransportTest {
                 assertEquals(originalCatalogue, manager.peekTools(config))
                 assertEquals(0L, LocalServiceHealth.retryAfterMillis(config.endpointUrl))
             } finally {
+                manager.closeAll()
+                http.close()
+            }
+        }
+    }
+
+    @Test fun wrappedLegacyCancellationCannotReconnectOrDispatchAnotherRead() = runBlocking(ConversationPrivacyContext(602, false)) {
+        FixtureServer(legacy = true).use { server ->
+            val armed = AtomicBoolean(false)
+            val cancelledSends = AtomicInteger()
+            val cancelled = CancellationException("Owner cancelled the legacy read")
+            val localGate = createClientPlugin("CancelLegacyReadBeforeSend") {
+                on(SendingRequest) { _, _ ->
+                    if (armed.get()) {
+                        if (cancelledSends.incrementAndGet() == 1) throw java.io.IOException("connection reset", cancelled)
+                        throw PrivateMetadataDenied()
+                    }
+                }
+            }
+            val http = HttpClient(CIO) {
+                expectSuccess = false
+                install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+                install(SSE)
+                install(localGate)
+                install(PrivateMetadataGate)
+                install(HttpTimeout) { requestTimeoutMillis = 5_000 }
+            }
+            val manager = McpClientManager(http, retryJitterMs = { 0 })
+            val config = McpConnectionConfig("privacy-legacy-cancel", server.url, true)
+            try {
+                assertEquals(listOf("echo"), manager.listTools(config, awaitCompletion = true).map { it.name })
+                armed.set(true)
+                val failure = requireNotNull(runCatching { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }.exceptionOrNull())
+                assertTrue(failure is CancellationException)
+                assertTrue(generateSequence(failure) { it.cause }.take(16).any { it === cancelled })
+                assertEquals(1, cancelledSends.get())
+                assertEquals(1, server.methods.count { it == "initialize" })
+                assertEquals(1, server.methods.count { it == "tools/list" })
+                assertTrue(cancelled.suppressed.isEmpty())
+            } finally {
+                armed.set(false)
                 manager.closeAll()
                 http.close()
             }

@@ -34,6 +34,9 @@ internal class GatewayGraphOperationException(
     val targetRevision: String? = null
 ) : IllegalStateException(cause.message ?: "Repository graph unavailable.", cause)
 
+/** Evidence for this graph POST only; earlier capability or preparation exchanges remain separate. */
+internal class GatewayGraphPrivacyRejected(cause: Exception, val requestUnsent: Boolean) : IllegalStateException(cause.message, cause)
+
 /** Keeps a bad response or rejected identity distinct from a disconnected host. */
 internal class GatewayGraphIntegrityException(val code: String, message: String) : IllegalStateException(message)
 

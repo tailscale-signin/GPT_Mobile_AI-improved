@@ -997,6 +997,10 @@ class McpClientManager internal constructor(
                 withContext(NonCancellable) { invalidate(config.connectionUid, session) }
                 throw error
             } catch (error: Exception) {
+                error.mcpCancellationCause()?.let { cancelled ->
+                    withContext(NonCancellable) { invalidate(config.connectionUid, session) }
+                    throw cancelled
+                }
                 if (error.isLocalPrivacyPolicyRejection()) throw error
                 if (generateSequence<Throwable>(error) { it.cause }.take(16).any { it is StreamableHttpError }) {
                     kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation]?.responded()

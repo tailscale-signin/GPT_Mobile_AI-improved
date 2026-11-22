@@ -22,6 +22,7 @@ internal object GitHubSelfTestGraph {
     }
 
     private val pendingJobStates = setOf("QUEUED", "RUNNING", "PAUSED", "INTERRUPTED")
+    private val phoneActions = setOf("status", "index", "architecture", "query", "node", "callers", "callees", "path", "impact", "metrics")
 
     private fun evidence(receipts: List<JsonObject>, graphOwner: JsonObject? = null): Evidence? {
         val trusted = receipts.filter {
@@ -103,13 +104,16 @@ internal object GitHubSelfTestGraph {
         // index mutation, observes progress; stopped jobs require explicit action.
         if (evidence.job != null && !evidence.indexed) return emptyList()
         val recipes = buildList {
-            fun recipe(action: String, vararg fields: Pair<String, JsonElement>) = add(
-                buildJsonObject {
-                    put("action", action)
-                    evidence.preparation.sourceArguments().forEach { (key, value) -> put(key, value) }
-                    fields.forEach { (key, value) -> put(key, value) }
-                }
-            )
+            fun recipe(action: String, vararg fields: Pair<String, JsonElement>) {
+                if (evidence.preparation.mapSource() != "gateway" && action !in phoneActions) return
+                add(
+                    buildJsonObject {
+                        put("action", action)
+                        evidence.preparation.sourceArguments().forEach { (key, value) -> put(key, value) }
+                        fields.forEach { (key, value) -> put(key, value) }
+                    }
+                )
+            }
             if (state.text("status") == "NOT_INDEXED") {
                 recipe("index")
                 return@buildList

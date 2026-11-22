@@ -14,12 +14,14 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
 import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
 import dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected
+import dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
 import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -55,10 +57,11 @@ internal class RepositoryGraphTool(
         val mapSource = arguments["map_source"] ?: JsonPrimitive("phone")
         val phone = mapSource == JsonPrimitive("phone")
         val phoneAccounting = if (phone) GitHubDispatchAccounting() else null
+        val gatewayObservation = if (phone) null else MetadataResponseObservation(currentCoroutineContext()[MetadataResponseObservation])
         val started = System.nanoTime()
         val result = try {
             val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000), "map_source" to mapSource))
-            val observed = if (phoneAccounting != null) withContext(phoneAccounting) { query(payload) } else query(payload)
+            val observed = if (phoneAccounting != null) withContext(phoneAccounting) { query(payload) } else withContext(requireNotNull(gatewayObservation)) { query(payload) }
             // GatewayGraphRepository replaces this object with its typed local observation.
             // Remote graph results cannot author checkpoint join or confirmation evidence.
             val checkpoint = (observed["index_checkpoint"] as? JsonObject)?.takeUnless { phone }
@@ -134,7 +137,8 @@ internal class RepositoryGraphTool(
                 operation?.repairAction ?: admission?.repairAction ?: prerequisite?.prerequisites?.firstOrNull()?.nextAction
             }
             val code = if (privacyDenied) UnverifiedServiceTransport.CODE else phoneCode ?: admission?.code ?: (cause as? dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException)?.code ?: "REPOSITORY_GRAPH_UNAVAILABLE"
-            val localRejection = admission != null || phoneCooldown != null || phoneRejection?.status == 0
+            val locallyDeniedGateway = privacyDenied && gatewayObservation != null && gatewayObservation.observedAtEpochMs == null && !gatewayObservation.hasInterruptedRead
+            val localRejection = admission != null || phoneCooldown != null || phoneRejection?.status == 0 || locallyDeniedGateway
             val readAction = arguments["action"] !in setOf(JsonPrimitive("index"), JsonPrimitive("note"))
             // A transport/readiness failure of a status read may trigger one independent,
             // authorized native read. Typed readiness does not include graph policy,
@@ -321,7 +325,7 @@ internal class RepositoryGraphTool(
                     (if (privacyDenied) code else phoneCode ?: prerequisite?.prerequisites?.firstOrNull()?.name ?: admission?.code ?: operation?.failureCode ?: (cause as? GatewayGraphHttpFailure)?.code)?.let { put("reason_code", it) }
                     if (privacyDenied) {
                         put("authority_invalidation_code", code)
-                        put("authority_failed_stage", "tool_execution")
+                        put("authority_failed_stage", if (localRejection) "tool_precheck" else "tool_execution")
                         put("resume_required", true)
                     }
                     if (prerequisite?.prerequisites?.firstOrNull() == GatewayGraphPrerequisite.TRANSPORT_UNAVAILABLE) {

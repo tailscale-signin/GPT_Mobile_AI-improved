@@ -7,7 +7,7 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
 /** Same-probe exchange evidence only; no endpoint, credentials, content or historical health. */
-internal class MetadataResponseObservation : AbstractCoroutineContextElement(Key) {
+internal class MetadataResponseObservation(private val parent: MetadataResponseObservation? = null) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<MetadataResponseObservation> {
         val requestAttribute = AttributeKey<MetadataResponseObservation>("metadata.response.observation")
     }
@@ -18,10 +18,12 @@ internal class MetadataResponseObservation : AbstractCoroutineContextElement(Key
 
     fun responded() {
         lastResponse.set(System.currentTimeMillis().coerceAtLeast(0))
+        parent?.responded()
     }
 
     /** A later local rejection cannot erase a read whose response was not established. */
     fun readInterrupted() {
         interruptedRead.set(true)
+        parent?.readInterrupted()
     }
 }

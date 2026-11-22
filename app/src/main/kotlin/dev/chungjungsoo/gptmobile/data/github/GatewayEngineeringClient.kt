@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
 import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException
+import dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
@@ -12,12 +13,15 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlRepository
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayPairedRequestSource
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.HttpStatement
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -26,9 +30,12 @@ import io.ktor.http.contentType
 import io.ktor.http.encodeURLParameter
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readLine
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -66,7 +73,15 @@ class GatewayEngineeringClient internal constructor(
         val exchange: suspend () -> String = {
             gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST", operationId = operationId) { headers ->
                 // A safe GET retry gets a fresh nonce. Writes are never automatically replayed.
-                val paired = pairedRequests?.prepare(config, if (body == null) "GET" else "POST", "/$root/$path", body.orEmpty())
+                val paired = try {
+                    pairedRequests?.prepare(config, if (body == null) "GET" else "POST", "/$root/$path", body.orEmpty())
+                } catch (failure: Exception) {
+                    generateSequence<Throwable>(failure) { it.cause }.take(16).filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+                    // Preparation can exchange metadata, but the following graph POST
+                    // has not started. Its unsent checkpoint must not become uncertain.
+                    if (path == "graph" && failure.isLocalPrivacyPolicyRejection()) throw GatewayGraphPrivacyRejected(failure, requestUnsent = true)
+                    throw failure
+                }
                 val repositoryRequest = path == "repository-operations" || path.startsWith("repository-operations/")
                 val repositoryRequestId = if (repositoryRequest) GitHubDispatchAccounting.started(body != null) else null
                 (paired?.http ?: if (body == null) readHttp else http).prepareRequest(paired?.endpoint ?: endpoint) {
@@ -85,7 +100,7 @@ class GatewayEngineeringClient internal constructor(
                         requestTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
                         socketTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
                     }
-                }.execute { response ->
+                }.executeObserved(path) { response ->
                     if (repositoryRequest) GitHubDispatchAccounting.responded(body != null, response.status.value, repositoryRequestId, response.headers["X-Request-ID"])
                     GatewayClientDiagnostics.observe(diagnostic, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
                     if (path == "capabilities" && response.status.value in setOf(404, 501)) throw UnsupportedEngineeringGateway()
@@ -223,6 +238,33 @@ class GatewayEngineeringClient internal constructor(
                 throw capabilityReadFailure(failure, preparationPost = body != null, operationId = GatewayClientDiagnostics.operationIdentity(diagnostic.extraHeaders))
             }
             throw failure
+        }
+    }
+
+    /** Observe each physical request before a safe-read retry can replace its failure. */
+    private suspend fun <T> HttpStatement.executeObserved(path: String, block: suspend (HttpResponse) -> T): T {
+        val observation = MetadataResponseObservation(currentCoroutineContext()[MetadataResponseObservation])
+        return withContext(observation) {
+            try {
+                execute { response ->
+                    observation.responded()
+                    block(response)
+                }
+            } catch (failure: Exception) {
+                val causes = generateSequence<Throwable>(failure) { it.cause }.take(16).toList()
+                causes.filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+                val privacyDenied = failure.isLocalPrivacyPolicyRejection()
+                if (!privacyDenied &&
+                    causes.any { it is IOException } &&
+                    causes.none { it is java.net.ConnectException || it is java.net.UnknownHostException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }
+                ) {
+                    observation.readInterrupted()
+                }
+                if (path == "graph" && privacyDenied) {
+                    throw GatewayGraphPrivacyRejected(failure, requestUnsent = observation.observedAtEpochMs == null && !observation.hasInterruptedRead)
+                }
+                throw failure
+            }
         }
     }
 

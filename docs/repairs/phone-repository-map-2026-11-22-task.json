@@ -8,7 +8,7 @@
   "pull_request": 2254,
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "phone-repository-map-2026-11-22",
-  "state": "READY_FOR_HOSTED_VALIDATION",
+  "state": "LOCAL_VALIDATION_COMPLETE_DRAFT_PUSH_PENDING",
   "intent": [
     "Display repository structure directly from the selected immutable GitHub revision without Gateway",
     "Progressively index cached source on the phone and expose definitions, imports and qualified relationship candidates",
@@ -21,17 +21,20 @@
   "authorization": "User explicitly requested all proposed repository-map changes on the latest PR, followed by merge after green checks and publication.",
   "validation": {
     "focused_tests": "PASS: 101 actual-component tests (24 engine, 10 session, 6 provider authorization, 31 ViewModel, 12 presentation, 7 facade, 3 model tool, 8 Gateway fallback); platform boundaries isolated",
-    "canonical_host": "PASS: 616 tests and all canonical fast checks on 6e788707 plus final CI repairs",
+    "canonical_host": "PASS:616tests and all canonical fast checks on891e77cf plus current MCP/Gateway privacy/phone recipe repairs; generated inventories, dependencies, ICU, resources, provenance and whitespace pass.",
     "android_ci": "PENDING: required exact final head validation",
     "physical_device": "NOT_RUN",
     "published_release": "PENDING",
     "focused_ui_routing_tool_tests": "PASS: 61 actual-component tests, platform boundaries isolated",
     "compose_compile": "PASS: actual map UI and ViewModel sources against cached AndroidX/Compose compiler",
     "local_android_compile": "BLOCKED: Gradle daemon disappeared during KSP, then KAPT stub generation; not a successful build",
-    "changed_kotlin": "PASS: ktlint 1.3.1 on 27 changed Kotlin files against 66cbf7122c28f9d895ee1863e613287fe44baeed",
+    "changed_kotlin": "PASS:ktlint1.3.1 on all13 current changed Kotlin files, including new dedicated Gateway regression and regenerated inventory.",
     "release_scope": "PASS: bounded scoped manifest includes concurrent and phone-map changes",
     "integration_followup": "PASS: 98 focused current-component tests (30 engine, 47 UI, 21 provider/tool/fallback), actual Compose compilation and ktlint on all changed production/test Kotlin files; platform boundaries isolated",
-    "hosted_integration_repair": "PASS: 42 focused repair cases; full current-head Android validation still required"
+    "hosted_integration_repair": "PASS: 42 focused repair cases; full current-head Android validation still required",
+    "cause_chain_followup": "PASS:29unique focused MCP cases, exact18-method core union, actualSDK/CIO controls,4-filektlint. Full manager/Robolectric and physicalTLS not run.",
+    "gateway_privacy_receipt": "PASS:8dedicated actual-component tests (unchanged baseline5failures),6-filektlint and independentreview; unused platform boundaries isolated.",
+    "phone_recipe_capabilities": "PASS:23focused actual-planner cases (8independent+15repository methods), including incoming typed-legacy/source controls. Baseline3522 reproduces2capabilityfailures. Three unchanged checklist integration methods remain outsidehost boundary and mandatoryinhostedCI."
   },
   "reconciled_remote_heads": [
     "e9148ab3dd6df0d1ffb67a630304c1a93c139aed",
@@ -42,7 +45,18 @@
     "9173e21455fecd3ef331e9a4aba13709928bfa39",
     "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2",
     "fea1a6ac82756817aad485b6267e4294873bfb8b",
-    "6e788707cc216b6e92b2189a343dedd9ceaad4b8"
+    "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+    "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+    "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+    "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
+    "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+    "c818b9161978e03a6a8e848d1a1066159f7c2718",
+    "f0250cf0c82b0a1939af9721a814c89129be377a",
+    "35228794d6fb667a56f0ff97c80672852093d74b",
+    "c14e2eb10ff90bf6da0f1f45734e9bc42c25f580",
+    "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
+    "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e"
   ],
   "privacy_integration": {
     "source_sha": "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
@@ -84,5 +98,99 @@
     "mcp_retry": "PASS: pinned fea1 baseline, 12 cases / 3 failures; current 6e-compatible source, 16 cases / 0 failures, including actual Ktor wrapped-error and real MCP SDK/CIO/local-server reconnect. Per-invocation interruption survives local retry rejection; policy, cancellation and Not connected controls remain unsent. Four concurrent immutable-conversation tests are preserved. Whole-manager/Robolectric execution remains hosted scope.",
     "integrated_source_sha": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
     "concurrent_privacy_policy": "Adopted permanent per-conversation policy and Room schema 54 from 6e788707. Its immutable conversation tests replace the obsolete global-toggle mid-request scenario. Preserved the independently reproduced prior-interrupted-read accounting repair and adapted its regressions to the current semantics."
+  },
+  "current_integration_fixture_repair": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "source_sha": "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
+    "working_branch": "work/phone-repository-map-2026-11-22",
+    "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "failed_run_sha": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "run_id": 45074676939,
+    "job_id": 137371424410,
+    "observation": "12803 tests,41 failed,5 skipped. Four failures already have later fixture repairs. Current Gateway-oriented graph tests omit explicit map_source and reject on the native default before their intended scenarios. Compact resolver schema exceeds2000-token assertion at2008.",
+    "intent": [
+      "Correct explicit Gateway graph fixture routing and preserve exact persisted/event argument identity, native defaults and uncertainty assertions",
+      "Keep compact native schema within its existing budget without relaxing admission, privacy or response contracts",
+      "Review other inherited failures for already active worker repairs; preserve all concurrent changes and qualify exact final head",
+      "Retain authoritative map source in generated saved Gateway index recovery recipes, with actual-source regressions; preserve native no-reconciliation semantics and exact receipt identity.",
+      "Reconcile three stale diagnostic test expectations with existing protocol-2 reporter readiness and comparison application-guard classification, retaining unsupported-service/no-dispatch controls and immutable approved payloads; verify actual production paths before changing tests."
+    ],
+    "validation": "Shared37-case repair adopted at35228794 and stronger fixtures atc14e2eb1. Independent3522 diagnostics10/10 passed after exact3-failure baseline; compact schemas1976tokens pass strict<2000 after2008baseline. Final current-head full Android suite pending; no claim that all37 cases independently ran. Currentc14 stronger reporter feature-gate tests independently rerun:10/10pass, production sources unchanged byede2.",
+    "production_finding": "GitHubSelfTestGraph generates pending/saved Gateway index status and availability recovery arguments without map_source. With native phone default, these actual recovery recipes can choose the wrong source.",
+    "ownership": "Overlapping37-case repairs belong to the shared full-suite workstream; this workstream retains independent schema/graph/diagnostic reproduction and incoming-commit review.",
+    "independent_diagnostics_baseline": "PASS reproduction: currentc818 actual receipt/context/diagnostic/serialization/submission + OkHttp compile;10 focused tests yield exactly3 hosted failures, with7 capability/version/unchanged-payload controls passing. No diagnostic repository edits; shared full-suite workstream owns repair.",
+    "integrated_source_sha": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8"
+  },
+  "mcp_cause_chain_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "source_sha": "c818b9161978e03a6a8e848d1a1066159f7c2718",
+    "working_branch": "work/phone-repository-map-2026-11-22",
+    "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "status": "MERGED_SOURCE_UNION_FOCUSED_VALIDATION_PASSED",
+    "findings": [
+      "New blanket SSLException evidence exclusion conflicts with legacy interrupted-read retry after a sent read; later typed local denial can erase prior uncertainty.",
+      "Inherited wrapped CancellationException can pass modern and legacy retry admission even though interruption accounting correctly excludes it."
+    ],
+    "intent": [
+      "Reproduce actual read/reconnect cause-chain behavior with focused real-source regressions before correction.",
+      "Keep known pre-dispatch handshake/connect/DNS failures distinct from uncertain established-transport reads and preserve earlier confirmed/interrupted facts.",
+      "Prevent wrapped cancellation from replaying reads; retain typed policy denial, one-read-retry bounds, no mutation replay and immutable conversation semantics.",
+      "Preserve concurrent37-case/full-suite and feature work; publish only after exact-head qualification."
+    ],
+    "validation": "Unchangedc818 actual-source baseline27cases/6failures; minimal fix27/0. Separate actualSDK/CIO3-case baseline2failures/current3pass. TLS case wraps an actual request interruption after a plaintext local server receives the request; physical TLS-engine behavior not claimed. Wrapped cancellation preserves identity and avoids reconnect. Four owned files passktlint1.3.1 anddiff-check; independent source review found no issue. Final integrated recheck follows Gateway metadata-observer parent forwarding.",
+    "preserved_remote_sha": "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e",
+    "integrated_validation": {
+      "unique_focused_cases": 29,
+      "result": "PASSED",
+      "shared_observer_sha256": "e050700c2315ab873471a671be05f85610febc1bf49420c39d556c0a5cf967c4",
+      "method": "Recompiled actual merged recovery, shared observer and all18 core-test methods. Verified retained legacy-session and SDK source identity. Ran29 unique core/legacy/Ktor/actualSDK cases; incoming15 and retained17 core methods preserved as exact18-method union. Four-filektlint and both working/cached diff-check passed. Sources unchanged byc14e2eb1.",
+      "evidence": "/workspace/scratch/c067b3dc0a58/mcp-cause-chain-host/repair-evidence.json",
+      "whole_android_ci": "PENDING"
+    }
+  },
+  "gateway_privacy_receipt_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "source_sha": "c818b9161978e03a6a8e848d1a1066159f7c2718",
+    "working_branch": "work/phone-repository-map-2026-11-22",
+    "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "status": "FOCUSED_REPAIR_PASSED",
+    "finding": "Explicit Gateway GraphTool typed local privacy denial is omitted from localRejection and can report dispatched=true/FAILED/tool_execution for an unsent call.",
+    "intent": "Use actual request/exchange evidence to distinguish zero-send local denial from earlier completed/uncertain exchanges, while preserving a prior unknown-index obligation. Add a dedicated actual-source regression without competing with shared Gateway graph fixture edits.",
+    "validation": "Exact saved pre-edit source compiles and8dedicatedtests reproduce5failures; formatted corrected source compiles andall8pass. Actual client request/capability/graph slices, fullrepository/checkpoint/state/tool andrealKtor privacygate/context; unusedengineering/Android/settings/diagnostic boundaries isolated. Six-filektlint1.3.1 anddiff-check pass; independentreviewfoundnoissue.",
+    "approved_files": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClient.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/MetadataResponseObservation.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphResponse.kt",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphPrivacyDispatchTest.kt"
+    ],
+    "required_controls": [
+      "Real first-send gate with zero dispatch",
+      "Earlier confirmed response retained",
+      "Earlier interrupted exchange retained through later denial",
+      "Prior unknown index remains unresolved",
+      "Fresh denied graphPOST clears only own token",
+      "Paired prepare denial before graphPOST preserves earlier prepare exchanges",
+      "Cancellation does not falsely clear unknown dispatched work"
+    ],
+    "source_review": "Root and MCP agent independent reviews found no additional issue: per-request observer forwards monotonic facts to invocation parent; typed graph-local unsent proof includes paired-prepare denial; repository confirms only its own attempt as notexecuted. Prior unknown checkpoint and earlier exchange facts remain separate. All8dedicatedcases pass.",
+    "integrated_source_sha": "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e",
+    "android_signature_review": "PASS independent read-only actual constructor/interface/KtorAPI review; no concrete harness signature mismatch. Whole Android compilation remains required."
+  },
+  "phone_recipe_capability_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "source_sha": "35228794d6fb667a56f0ff97c80672852093d74b",
+    "working_branch": "work/phone-repository-map-2026-11-22",
+    "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+    "finding": "Independent8-case source recipe replay confirms fixed source/selector provenance, but automatic phone plans still schedule Gateway-only notes/requirements/wiki/prs and ungated contract/diagnose work.",
+    "intent": "Restrict automatic phone graph recipes to supported native capabilities while retaining explicit Gateway recipes and typed legacy provenance. Reject unproven source-less saved-job inference rather than weakening incoming trust checks.",
+    "validation": "PASS:23focused actual-planner cases (8independent+15repository methods), including incoming typed-legacy/source controls. Baseline3522 reproduces2capabilityfailures. Three unchanged checklist integration methods remain outsidehost boundary and mandatoryinhostedCI.",
+    "status": "FOCUSED_REPAIR_PASSED",
+    "integrated_source_sha": "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e"
   }
 }

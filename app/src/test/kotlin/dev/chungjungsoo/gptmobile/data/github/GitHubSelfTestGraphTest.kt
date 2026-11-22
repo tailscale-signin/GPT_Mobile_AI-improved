@@ -264,12 +264,12 @@ class GitHubSelfTestGraphTest {
     }
 
     @Test fun indexedArchitectureAndQuerySupplyRealBoundedSelectors() {
-        val architecture = graph("architecture", """"communities":[{"files":["src/Producer.kt","src/Consumer.kt"]}],"dependencies":{"src/Consumer.kt":["src/Producer.kt"]}""")
-        val prepared = calls(indexed(), architecture).associateBy { it.arguments["action"] }
-        assertEquals(json("""{"action":"query","query":"src/Producer.kt","options":{"limit":8,"depth":1}}"""), prepared[JsonPrimitive("query")]?.arguments)
-        assertEquals(json("""{"action":"contracts","options":{"producer":"src/Producer.kt","consumer":"src/Consumer.kt"}}"""), prepared[JsonPrimitive("contracts")]?.arguments)
-        val query = graph("query", """"nodes":[{"id":"node-1","path":"src/Producer.kt","commit_sha":"$sha"},{"id":"node-2","path":"src/Consumer.kt","commit_sha":"$sha"}],"edges":[{"source":"node-1","target":"node-2"}]}""".dropLast(1))
-        val selected = calls(indexed(), architecture, query).associateBy { it.arguments["action"] }
+        val architecture = graph("architecture", """"communities":[{"files":["src/Producer.kt","src/Consumer.kt"]}],"dependencies":{"src/Consumer.kt":["src/Producer.kt"]}""").fromSource("gateway")
+        val prepared = calls(indexed().fromSource("gateway"), architecture).associateBy { it.arguments["action"] }
+        assertEquals(json("""{"action":"query","map_source":"gateway","query":"src/Producer.kt","options":{"limit":8,"depth":1}}"""), prepared[JsonPrimitive("query")]?.arguments)
+        assertEquals(json("""{"action":"contracts","map_source":"gateway","options":{"producer":"src/Producer.kt","consumer":"src/Consumer.kt"}}"""), prepared[JsonPrimitive("contracts")]?.arguments)
+        val query = graph("query", """"nodes":[{"id":"node-1","path":"src/Producer.kt","commit_sha":"$sha"},{"id":"node-2","path":"src/Consumer.kt","commit_sha":"$sha"}],"edges":[{"source":"node-1","target":"node-2"}]}""".dropLast(1)).fromSource("gateway")
+        val selected = calls(indexed().fromSource("gateway"), architecture, query).associateBy { it.arguments["action"] }
         listOf("node", "callers", "callees", "impact").forEach { action -> assertEquals(JsonPrimitive("node-1"), selected[JsonPrimitive(action)]?.arguments?.get("symbol")) }
         assertEquals(json("""{"source":"node-1","target":"node-2","depth":2}"""), selected[JsonPrimitive("path")]?.arguments?.get("options"))
         assertNull(selected[JsonPrimitive("diff")])
@@ -292,9 +292,9 @@ class GitHubSelfTestGraphTest {
             "edges":[{"source":"file-consumer","target":"file-producer","relation":"depends_on","confidence":"INFERRED"}],
             "has_more":false,"next_cursor":null,"result_cursor":null,"truncated":false,"returned_nodes":2,"returned_edges":1,"page_offset":0
             """.trimIndent()
-        )
-        val prepared = calls(indexed(), architecture).associateBy { it.arguments["action"] }
-        assertEquals(json("""{"action":"query","query":"src/Consumer.kt","options":{"limit":8,"depth":1}}"""), prepared[JsonPrimitive("query")]?.arguments)
+        ).fromSource("gateway")
+        val prepared = calls(indexed().fromSource("gateway"), architecture).associateBy { it.arguments["action"] }
+        assertEquals(json("""{"action":"query","map_source":"gateway","query":"src/Consumer.kt","options":{"limit":8,"depth":1}}"""), prepared[JsonPrimitive("query")]?.arguments)
         assertEquals(json("""{"producer":"src/Producer.kt","consumer":"src/Consumer.kt"}"""), prepared[JsonPrimitive("contracts")]?.arguments?.get("options"))
         assertNull(prepared[JsonPrimitive("path")])
         val query = graph(
@@ -308,8 +308,8 @@ class GitHubSelfTestGraphTest {
             "edges":[{"source":"consumer-call","target":"producer-call","relation":"calls","confidence":"RESOLVED","line":4}],
             "has_more":false,"next_cursor":null,"result_cursor":null,"truncated":false,"returned_nodes":2,"returned_edges":1,"page_offset":0
             """.trimIndent()
-        )
-        val selected = calls(indexed(), architecture, query).associateBy { it.arguments["action"] }
+        ).fromSource("gateway")
+        val selected = calls(indexed().fromSource("gateway"), architecture, query).associateBy { it.arguments["action"] }
         listOf("node", "callers", "callees", "impact").forEach { action ->
             assertEquals(JsonPrimitive("consumer-call"), selected[JsonPrimitive(action)]?.arguments?.get("symbol"))
         }
@@ -337,9 +337,27 @@ class GitHubSelfTestGraphTest {
 
     @Test fun diagnoseUsesOnlyObservedLogsForTheExactRevision() {
         fun logs(head: String) = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"logs","expected_head_sha":"$head"},"result":{"excerpts":[{"line":1,"text":"error in src/Producer.kt"}]}}""")
-        assertTrue(calls(indexed(), logs("b".repeat(40))).none { it.arguments["action"] == JsonPrimitive("diagnose") })
-        val diagnose = calls(indexed(), logs(sha)).single { it.arguments["action"] == JsonPrimitive("diagnose") }
+        assertTrue(calls(indexed().fromSource("gateway"), logs("b".repeat(40))).none { it.arguments["action"] == JsonPrimitive("diagnose") })
+        val diagnose = calls(indexed().fromSource("gateway"), logs(sha)).single { it.arguments["action"] == JsonPrimitive("diagnose") }
         assertEquals(json("""{"log":"error in src/Producer.kt"}"""), diagnose.arguments["options"])
+    }
+
+    @Test fun phonePreparationKeepsSupportedReadsWithoutSchedulingGatewayOnlyAnalysis() {
+        val architecture = graph("architecture", """"nodes":[{"id":"consumer","path":"src/Consumer.kt"},{"id":"producer","path":"src/Producer.kt"}],"edges":[{"source":"consumer","target":"producer","relation":"depends_on"}]""")
+        val query = graph("query", """"nodes":[{"id":"consumer","path":"src/Consumer.kt"},{"id":"producer","path":"src/Producer.kt"}],"edges":[{"source":"consumer","target":"producer","relation":"call_candidate"}]""")
+        val logs = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"logs","expected_head_sha":"$sha"},"result":{"excerpts":[{"text":"error in src/Consumer.kt"}]}}""")
+        for (source in listOf(null, "phone")) {
+            fun selected(receipt: JsonObject) = if (source == null) receipt else receipt.fromSource(source)
+            val initial = calls(selected(indexed()))
+            assertEquals(setOf("architecture", "metrics"), initial.map { (it.arguments["action"] as JsonPrimitive).content }.toSet())
+            val reads = calls(selected(indexed()), selected(architecture), selected(query), logs)
+            assertEquals(setOf("metrics", "node", "callers", "callees", "impact", "path"), reads.map { (it.arguments["action"] as JsonPrimitive).content }.toSet())
+            assertTrue((initial + reads).all { it.arguments["map_source"] == source?.let(::JsonPrimitive) })
+        }
+        val gateway = calls(indexed().fromSource("gateway"), architecture.fromSource("gateway"), query.fromSource("gateway"), logs)
+        val gatewayActions = gateway.map { (it.arguments["action"] as JsonPrimitive).content }.toSet()
+        assertTrue(gatewayActions.containsAll(listOf("notes", "requirements", "wiki", "prs", "contracts", "diagnose")))
+        assertTrue(gateway.all { it.arguments["map_source"] == JsonPrimitive("gateway") })
     }
 
     @Test fun partialIndexStaysBlockedWithItsContinuationAndPreservesVerificationBudget() {

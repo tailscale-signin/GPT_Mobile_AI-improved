@@ -275,7 +275,7 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                             Text(if (state.onPhone) "Source collection: ${metadata?.text("processed_files", "0")} / ${metadata?.text("expected_files", "—")} files\nRelationships are source candidates; compiler resolution is unavailable." else "Answer accuracy: ${result.text("accuracy")}\nToken savings: ${result.text("token_savings")}", style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                    if (nodes.isEmpty() && result.text("status") in setOf("NOT_FOUND_IN_INDEX", "NO_PATH_IN_INDEX")) item { Text("No matching relationship in this index. Use source search to investigate unindexed or dynamic code.") }
+                    graph.resultGuidance(result.text("status"))?.let { message -> item { Text(message) } }
                 }
             }
         }

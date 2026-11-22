@@ -267,6 +267,48 @@
       "tests": 615,
       "command": "bash scripts/validate-local.sh fast",
       "scope": "Combined source through 3f047b plus seven APK regressions, strict Gateway fixture and mandatory concurrent Room receipt; all 407 changed paths are in the exact release scope. Generated inventory, schema metadata, regex, resources, icons, provenance and whitespace checks passed. Hosted Android and signed publication remain pending."
+    },
+    {
+      "suite": "phone graph review regressions",
+      "result": "PASS",
+      "tests": 30,
+      "scope": "Actual PhoneRepositoryGraph and PhoneRepositorySourceIndex sources with the complete graph JUnit class: relative imports, long paths, full admitted queue, exhausted search, bounded impact and exact-depth complete leaves. Pinned Kotlin compilation and ktlint passed; Android device performance remains unqualified."
+    },
+    {
+      "suite": "combined repository map UI review",
+      "result": "PASS",
+      "tests": 64,
+      "scope": "Actual six map Compose sources compile with Compose compiler2.4.20;32 ViewModel,14 presentation,7 routing,3 map-tool and8 Gateway fallback host cases pass. Platform/service boundaries are isolated in the harness; not a whole-app Android build."
+    },
+    {
+      "suite": "explicit Gateway fallback authorization fixtures",
+      "result": "PASS",
+      "tests": 18,
+      "scope": "Actual current graph tool/fallback/error sources and authorization/envelope boundaries pass all three focused test classes. DTO and unused capability boundaries are harness stubs; no native fallback arguments or permissions were broadened."
+    },
+    {
+      "suite": "provider report HTTP-status assertion reconciliation",
+      "result": "PENDING_HOSTED_ANDROID",
+      "scope": "The prior full Android suite executed12,515 tests with3 failures. Concurrent cursor and selected-Gateway repairs already resolve two fixture defects; the third now asserts authoritative context.httpStatus==200 and absence from the closed nested field set. Actual full report class execution remains required in current-head CI."
+    },
+    {
+      "suite": "closed audit transport-stage export alignment",
+      "result": "PENDING_HOSTED_ANDROID",
+      "scope": "Source and regression review, pinned formatting and audit harness catalogue check pass. The new exact round-trip test covers six emitted stages and exclusion of unknown/private strings. Actual full export-test execution remains required in hosted Android CI."
+    },
+    {
+      "suite": "combined phone map session and preparation dispatcher",
+      "result": "PASS",
+      "tests": 11,
+      "scope": "Actual repositoryMap block, whole-scope Dispatchers.Default, graph/parser/store/index sources and full session/index-preparation classes on9173 plus preserved graph corrections. Includes the caller-dispatch regression; unrelated platform/client boundaries remain fixtures."
+    },
+    {
+      "suite": "final combined map and audit integration canonical fast validation",
+      "result": "PASS",
+      "tests": 615,
+      "command": "bash scripts/validate-local.sh fast",
+      "duration_seconds": 40.704,
+      "scope": "Preserved every concurrent commit through9173e214 with graph completeness, retired-response, explicit Gateway fallback and closed audit-stage export corrections. All530 changed paths pass the exact scope;12 changed Kotlin files pass pinned formatting. Generated inventories, schema metadata, regex,36 XML resources, icons, native provenance and whitespace pass. Current-head full Android/device/security/package checks and signed publication remain mandatory."
     }
   ],
   "hardware_qualification": "Physical phone GPU/NPU performance and audio route calibration require device execution evidence; host tests and successful compilation alone are not qualification.",
@@ -360,6 +402,66 @@
       "head": "3f047bce0b95443d5aefd2d4ba453fe12d3baad1",
       "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
       "action": "Kept the compact exact-issued cursor wording and all concurrent evidence. Retained exact selected-config refresh stubbing and explicit null-selection verification in the combined fixture."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "e9148ab3dd6df0d1ffb67a630304c1a93c139aed",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved Research read-only/saving controls, live draft state and one immutable save snapshot; independently reviewed both settings call sites and regression coverage."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "a0ac4b01d55fb837893e742728c625b257b48dbe",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved the corrected Research instrumentation label without weakening its custom-goal or small-screen assertions."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "24a12620de2aa4ed11eae4bc38dc4210c454ed8a",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved binding UID ownership checks, atomic enable/disable/import validation, all 26 mandatory persistence receipts and exact selected-Gateway refresh fixtures."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "87204b8667233f1d01334cdae2765d1f152d6545",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved explicit Any? SQL bind argument typing after the actual Android instrumentation compiler failure."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "66cbf7122c28f9d895ee1863e613287fe44baeed",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved Research state assertions after completed recomposition and recorded focused Android/JVM evidence."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "26560d62a29b9d9cc628d5d5bf2bc64554222e9d",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved large-font GitHub choices with wrapped actions, readable expanded titles and the actual TextLayoutResult regression."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "38098840f81a7216c5d2ad6d09d37c3f22f57e56",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved default phone repository maps, bounded source indexing, account/revision-bound caches and explicit Gateway selection. Independently reviewed routing, live authority checks and source limits; added precise graph and stale-response corrections."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "06ab96439deea13262fa48130eed367914e914d0",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved immediate privacy-policy intent, serialized background persistence, retry, asynchronous provider verification and local draft creation. Independently reviewed locking, cancellation, revision and actual transport enforcement."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved trusted private local tools, typed GitHub/MCP transport evidence, bounded audit export and effective policy observations. Reconciled the authoritative provider HTTP-status fixture with the independently added closed-schema assertion."
+    },
+    {
+      "event": "concurrent map dispatcher correction preserved",
+      "head": "9173e21455fecd3ef331e9a4aba13709928bfa39",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved complete phone-map preparation on Dispatchers.Default, retained authority/cancellation context and the actual caller-dispatch regression. Independently reviewed all local returns and nested cache/parse boundaries."
     }
   ],
   "integration_regressions": [
@@ -377,7 +479,14 @@
     "Keep the reporting-service closed upstream-code mirror aligned with the safe Android numeric authentication/rate-limit values; reject non-string, unlisted and private values.",
     "Verify the Kokoro timing and QNN adapter ELF libraries and same-ABI dependencies in every final APK without weakening pinned runtime or alignment checks.",
     "Require the current selected Gateway refresh configuration and retain explicit null-selection coverage.",
-    "Require one surviving complete built-in binding after simultaneous transactional enables; preserve legacy normalization and archive safety."
+    "Require one surviving complete built-in binding after simultaneous transactional enables; preserve legacy normalization and archive safety.",
+    "Scope relative-import memoization to the calling directory, including Python modules encoded in source text.",
+    "Keep the complete bounded source-to-target path and inspect every admitted queue node before concluding a path is absent.",
+    "Report path and impact search limits explicitly, preserve valid partial impact candidates, and retain all byte, node, depth and paging bounds.",
+    "Recheck the current map generation after a suspended architecture refresh before publishing indexing-paused state.",
+    "Exercise Gateway fallback revocation with an explicit Gateway source while keeping native status arguments and phone no-fallback behavior unchanged.",
+    "Assert provider HTTP status at its authoritative IssueReportContext field while preserving hash-only classification and the closed nested diagnostic schema.",
+    "Retain the six closed GitHub transport stage values in audit exports; unknown or private stage strings remain excluded."
   ],
-  "last_reconciled_remote_head": "3f047bce0b95443d5aefd2d4ba453fe12d3baad1"
+  "last_reconciled_remote_head": "9173e21455fecd3ef331e9a4aba13709928bfa39"
 }

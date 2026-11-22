@@ -19,6 +19,7 @@ import org.junit.Test
 
 class GitHubGraphStatusFallbackTest {
     private val arguments = JsonObject(mapOf("action" to JsonPrimitive("status")))
+    private val gatewayArguments = JsonObject(arguments + ("map_source" to JsonPrimitive("gateway")))
     private val receipt = JsonObject(mapOf("read_requests" to JsonPrimitive(1)))
 
     @Test fun authorizedNativeStatusKeepsItsIndependentReceiptAndFinishesApproval() = runTest {
@@ -66,7 +67,7 @@ class GitHubGraphStatusFallbackTest {
             allowed = false
             throw IOException("gateway disconnected")
         }
-        val result = graph.execute("graph", arguments)
+        val result = graph.execute("graph", gatewayArguments)
         val recovery = ((result.content as ToolResultContent.Json).value as JsonObject)["native_fallback"] as JsonObject
         assertEquals(JsonPrimitive(false), recovery["dispatched"])
         assertEquals(JsonPrimitive("PERMISSION_DENIED"), recovery["error_code"])
@@ -91,7 +92,7 @@ class GitHubGraphStatusFallbackTest {
             throw IOException("gateway disconnected")
         }
         withContext(RequestAuthorizationGuard("profile") { check(allowed) }) {
-            assertTrue(graph.execute("graph", arguments).isError)
+            assertTrue(graph.execute("graph", gatewayArguments).isError)
         }
         assertEquals(0, reads)
     }

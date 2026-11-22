@@ -17,6 +17,15 @@ internal data class RepositoryGraphPresentation(
     val externalConnections: Int = 0,
     val omittedNodes: Int = 0
 ) {
+    /** Search bounds do not establish absence; partial candidates remain useful evidence. */
+    fun resultGuidance(status: String): String? = when {
+        status == "IMPACT_SEARCH_LIMIT_REACHED" -> "The impact search reached its limit. Results may be incomplete; narrow the source and try again."
+        nodes.isNotEmpty() -> null
+        status == "PATH_SEARCH_LIMIT_REACHED" -> "The path search reached its limit before it could establish a result. Narrow the source or target and try again."
+        status in setOf("NOT_FOUND_IN_INDEX", "NO_PATH_IN_INDEX") -> "No matching relationship in this index. Use source search to investigate unindexed or dynamic code."
+        else -> null
+    }
+
     fun search(query: String): RepositoryGraphPresentation {
         val term = query.trim()
         if (term.isEmpty()) return this

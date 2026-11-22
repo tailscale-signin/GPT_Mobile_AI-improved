@@ -45,7 +45,8 @@
     "Retain bounded audit assertion identities, passed/attempted counts, safe policy revisions and typed transport evidence with exact-target recovery and qualification guidance.",
     "Preserve the canonical privacy rejection code across approved Android, Gateway and issue-report diagnostic projections.",
     "Make the repository map work directly on the phone without Gateway, with revision-bound tree browsing, progressive resumable source indexing, cached symbol and relationship candidates, native GitHub model-tool access, explicit coverage and optional Gateway analysis.",
-    "Restore responsive privacy toggles and navigation with immediate requested-state/revision publication, serialized background persistence and explicit retry; load provider verification asynchronously while preserving outbound privacy enforcement and account mutation reconciliation."
+    "Restore responsive privacy toggles and navigation with immediate requested-state/revision publication, serialized background persistence and explicit retry; load provider verification asynchronously while preserving outbound privacy enforcement and account mutation reconciliation.",
+    "Preserve complete bounded repository-map paths, directory-scoped relative imports and truthful path/impact search limits; prevent retired source refreshes from pausing a newly selected map and retain explicit Gateway fallback authorization."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -379,6 +380,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderSessionDispatcherTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolverTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/CalculatorToolTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphStatusFallbackTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationToolTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSourcePageRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/LocalDelegationCoordinatorTest.kt",

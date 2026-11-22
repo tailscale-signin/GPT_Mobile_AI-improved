@@ -35,6 +35,33 @@ import org.junit.Test
 
 class AppAuditExportTest {
     @Test
+    fun typedGitHubFailureStagesRoundTripWhilePrivateStagesAreRemoved() = runBlocking {
+        val check = entry().copy(sourceId = AppAuditGitHubCatalog.LIVE_SOURCE, probeId = "github_live_account_v1")
+        val observedStages = listOf("local_validation", "dns", "tls", "connection", "transport", "response_stream")
+        for (stage in observedStages + listOf("PRIVATE_STAGE_CANARY", "unreported_stage")) {
+            val observation = AppAuditObservation(
+                AppAuditOutcome.UNAVAILABLE,
+                "GITHUB_AUDIT_TRANSPORT_UNAVAILABLE",
+                stage = stage,
+                evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,
+                observationSource = AppAuditObservationSource.NONE,
+                dispatchEvidence = AppAuditDispatchEvidence.ATTEMPTED,
+                failurePhase = stage
+            )
+            val saved = export(batch(run(listOf(check)).copy(results = listOf(AppAuditResult(check.id, observation, 10, 11, 1, true)))))
+            val record = saved.getValue("results").jsonArray.single().jsonObject
+            if (stage in observedStages) {
+                assertEquals(stage, record.getValue("stage").jsonPrimitive.content)
+                assertEquals(stage, record.getValue("failurePhase").jsonPrimitive.content)
+            } else {
+                assertEquals("UNKNOWN_STAGE", record.getValue("stage").jsonPrimitive.content)
+                assertEquals(JsonNull, record.getValue("failurePhase"))
+                assertFalse(saved.toString().contains(stage))
+            }
+        }
+    }
+
+    @Test
     fun fixturePolicyBlockExportsBoundedBoundaryMetadataWithoutEarningMeasuredScore() = runBlocking {
         val private = "PRIVATE_RECOVERY_CAUSE"
         val check = entry().copy(probeId = "budget_precheck_v1", evidenceKind = AppAuditEvidenceKind.LOCAL_CONTRACT, safetyClass = AppAuditSafetyClass.LOCAL_READ)

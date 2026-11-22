@@ -495,6 +495,39 @@ class RepositoryGraphViewModelTest {
         assertNull(model.state.value.mapNextCursor)
     }
 
+    @Test fun retiredPhoneArchitectureCannotPauseTheNewGatewaySource() = runTest {
+        var batches = 0
+        var lastRefreshStarted = false
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } coAnswers {
+            batches++
+            phoneResponse(json("""{"has_more":true,"index_cursor":"batch-$batches","graph":{"processed_files":$batches,"expected_files":100}}"""), "index")
+        }
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } coAnswers {
+            if (batches == RepositoryGraphViewModel.MAX_PHONE_INDEX_PAGES) {
+                lastRefreshStarted = true
+                withContext(NonCancellable) { delay(100) }
+            }
+            phoneResponse(json("""{"nodes":[{"id":"retired-phone-source"}],"has_more":false}"""), "architecture")
+        }
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context, "gateway")
+        advanceUntilIdle()
+        model.request("index")
+        runCurrent()
+        assertEquals(RepositoryGraphViewModel.MAX_PHONE_INDEX_PAGES, batches)
+        assertTrue(lastRefreshStarted)
+        model.selectSource("gateway")
+        runCurrent()
+        assertFalse(model.state.value.indexingPaused)
+        advanceUntilIdle()
+        assertEquals("gateway", model.state.value.mapSource)
+        assertEquals(indexed, model.state.value.result)
+        assertFalse(model.state.value.indexingPaused)
+        assertFalse(model.state.value.busy)
+        assertNull(model.state.value.indexCursor)
+        assertNull(model.state.value.visibleMap)
+    }
+
     @Test fun phoneIndexingProgressesAcrossBatchesAndPublishesTheirSourceMap() = runTest {
         val partial = json("""{"has_more":true,"index_cursor":"phone-batch-two","graph":{"commit_sha":"${context.commitSha}","processed_files":24,"expected_files":25}}""")
         val complete = json("""{"has_more":false,"graph":{"commit_sha":"${context.commitSha}","processed_files":25,"expected_files":25}}""")

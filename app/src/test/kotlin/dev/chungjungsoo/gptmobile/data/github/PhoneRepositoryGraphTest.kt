@@ -211,6 +211,21 @@ class PhoneRepositoryGraphTest {
         assertEquals(setOf("current", "running"), result.objects("nodes").filter { it.text("kind") == "variable" }.map { it.text("name") }.toSet())
     }
 
+    @Test fun relativePythonImportCacheRetainsEachCallerDirectory() {
+        val sources = mapOf(
+            "one/main.py" to "from .support import run\ndef first():\n    run()",
+            "one/support.py" to "def run():\n    pass",
+            "two/main.py" to "from .support import run\ndef second():\n    run()",
+            "two/support.py" to "def run():\n    pass"
+        )
+        val result = execute(tree(*sources.keys.toTypedArray()), cached(sources))
+        val imports = result.objects("edges").filter { it.text("relation") == "import_candidate" }
+        assertEquals(
+            setOf("one/main.py" to "one/support.py", "two/main.py" to "two/support.py"),
+            imports.map { it.text("source") to it.text("target") }.toSet()
+        )
+    }
+
     @Test fun symlinksAreInventoryOnlyAndCannotCreateUnfinishableSourceCoverage() {
         val tree = buildJsonObject {
             put(
@@ -285,6 +300,105 @@ class PhoneRepositoryGraphTest {
         assertTrue(impact.text("limitations").contains("No executed tests"))
     }
 
+    @Test fun longPathPreservesItsRequestedStartAndEndAcrossResultPages() {
+        val source = callChain(150)
+        val tree = tree("Long.kt")
+        val cache = cached(mapOf("Long.kt" to source))
+        fun symbol(name: String) = execute(tree, cache, "node", buildJsonObject { put("symbol", name) }).objects("candidates").single().text("id")
+        val result = execute(
+            tree,
+            cache,
+            "path",
+            buildJsonObject {
+                put("source", "f0")
+                put("target", "f150")
+                put("budget_bytes", 32000)
+            },
+            complete = true
+        )
+        val path = result["path"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(151, path.size)
+        assertEquals(symbol("f0"), path.first())
+        assertEquals(symbol("f150"), path.last())
+        assertEquals("f0", result.objects("nodes").first().text("name"))
+        assertEquals("true", result.text("has_more"))
+        assertEquals("true", result.text("path_search_complete"))
+        assertEquals("false", result["graph"]!!.jsonObject.text("graph_truncated"))
+        assertTrue(result.toString().toByteArray(Charsets.UTF_8).size <= 32000)
+    }
+
+    @Test fun pathSearchExaminesTargetsAlreadyQueuedAtTheVisitLimit() {
+        val sources = fanOutSources(1999)
+        val result = execute(
+            tree(*sources.keys.toTypedArray()),
+            cached(sources),
+            "path",
+            buildJsonObject {
+                put("source", "root")
+                put("target", "leaf1999")
+            },
+            complete = true
+        )
+        assertEquals("INDEXED", result.text("status"))
+        assertEquals(listOf("root", "leaf1999"), result.objects("nodes").map { it.text("name") })
+        assertEquals(2, result["path"]!!.jsonArray.size)
+        assertEquals("true", result.text("path_search_complete"))
+        assertEquals("false", result["graph"]!!.jsonObject.text("graph_truncated"))
+    }
+
+    @Test fun exhaustedPathSearchDoesNotClaimNoPathInACompleteSourceIndex() {
+        val sources = fanOutSources(2000)
+        val tree = tree(*sources.keys.toTypedArray())
+        val cache = cached(sources)
+        val coverage = execute(tree, cache, "metrics", complete = true)
+        assertEquals("true", coverage["graph"]!!.jsonObject.text("coverage_complete"))
+        val result = execute(
+            tree,
+            cache,
+            "path",
+            buildJsonObject {
+                put("source", "root")
+                put("target", "leaf2000")
+            },
+            complete = true
+        )
+        assertEquals("PATH_SEARCH_LIMIT_REACHED", result.text("status"))
+        assertTrue(result["path"]!!.jsonArray.isEmpty())
+        assertEquals("false", result.text("path_search_complete"))
+        assertEquals("true", result["graph"]!!.jsonObject.text("graph_truncated"))
+        assertEquals("false", result["graph"]!!.jsonObject.text("coverage_complete"))
+    }
+
+    @Test fun impactDepthLimitReportsUnseenCallersAsIncomplete() {
+        val result = execute(
+            tree("Chain.kt"),
+            cached(mapOf("Chain.kt" to callChain(10))),
+            "impact",
+            buildJsonObject { put("symbol", "f10") },
+            complete = true
+        )
+        assertEquals((2..10).map { "f$it" }.toSet(), result.objects("nodes").map { it.text("name") }.toSet())
+        assertEquals("IMPACT_SEARCH_LIMIT_REACHED", result.text("status"))
+        assertEquals("false", result.text("impact_search_complete"))
+        assertEquals("true", result["graph"]!!.jsonObject.text("graph_truncated"))
+        assertEquals("false", result["graph"]!!.jsonObject.text("coverage_complete"))
+    }
+
+    @Test fun impactLeafAtTheDepthLimitRemainsComplete() {
+        val result = execute(
+            tree("Chain.kt"),
+            cached(mapOf("Chain.kt" to callChain(8))),
+            "impact",
+            buildJsonObject { put("symbol", "f8") },
+            complete = true
+        )
+        assertEquals((0..8).map { "f$it" }.toSet(), result.objects("nodes").map { it.text("name") }.toSet())
+        assertEquals("INDEXED", result.text("status"))
+        assertEquals("true", result.text("impact_search_complete"))
+        assertEquals("false", result["graph"]!!.jsonObject.text("graph_truncated"))
+        assertEquals("true", result["graph"]!!.jsonObject.text("coverage_complete"))
+    }
+
     @Test fun statusPreservesPreparationContinuationAndUsesCompactShardCounts() {
         val status = buildJsonObject {
             put("complete", true)
@@ -330,6 +444,13 @@ class PhoneRepositoryGraphTest {
         assertTrue(source.objects("definitions").isEmpty())
         assertTrue(source.objects("calls").isEmpty())
     }
+
+    private fun callChain(last: Int) = (0..last).joinToString("\n") { index -> if (index < last) "fun f$index() { f${index + 1}() }" else "fun f$index() {}" }
+
+    private fun fanOutSources(leaves: Int) = mapOf(
+        "Root.kt" to "fun root() {\n" + (1..leaves).joinToString("\n") { "leaf$it()" } + "\n}",
+        "Leaves.kt" to (1..leaves).joinToString("\n") { "fun leaf$it() {}" }
+    )
 
     private fun execute(tree: JsonObject, cached: Map<String, JsonObject> = emptyMap(), action: String = "architecture", args: JsonObject = JsonObject(emptyMap()), complete: Boolean = false) = PhoneRepositoryGraph.execute(context, tree, cached, buildJsonObject { put("complete", complete) }, JsonObject(args + ("action" to JsonPrimitive(action))))
     private fun tree(vararg paths: String) = buildJsonObject {

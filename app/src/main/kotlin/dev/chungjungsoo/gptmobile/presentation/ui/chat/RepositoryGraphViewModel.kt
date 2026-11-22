@@ -361,6 +361,7 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: Repositor
                             // Coverage updates after every bounded source batch. Refresh
                             // the diagram periodically without rebuilding it on every file.
                             loadArchitecture(response.result)
+                            if (!current()) return@withTimeout
                         }
                         if (!more) break
                         if (pages >= pageBudget) {

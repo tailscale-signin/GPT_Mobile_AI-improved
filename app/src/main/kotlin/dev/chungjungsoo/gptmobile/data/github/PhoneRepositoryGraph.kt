@@ -179,7 +179,8 @@ internal object PhoneRepositoryGraph {
         val importCache = mutableMapOf<String, List<String>>()
         orderedShards.forEach { (path, shard) ->
             shard.objects("imports").take(1000).forEach { imported ->
-                val importKey = (if (imported.text("module").isBlank()) "" else path.substringBeforeLast('/', "")) + "\u0000" + imported.text("text") + "\u0000" + imported.text("module")
+                // Relative Python imports retain their module in text, not the quoted-module field.
+                val importKey = path.substringBeforeLast('/', "") + "\u0000" + imported.text("text") + "\u0000" + imported.text("module")
                 val candidates = importCache.getOrPut(importKey) { importCandidates(path, imported, filePaths, filesByStem, filesByDirectory) }
                 if (candidates.isEmpty()) unresolved++
                 candidates.forEach { target ->
@@ -252,7 +253,8 @@ internal object PhoneRepositoryGraph {
                 extra["relationship_scope"] = JsonPrimitive("LEXICAL_CALL_CANDIDATES")
             }
             "impact" -> {
-                val distances = traverse(selectedIds().toList(), allEdges.filter { it.text("relation") != "contains" && it.text("relation") != "declares" }, reverse = true)
+                val traversal = traverse(selectedIds().toList(), allEdges.filter { it.text("relation") != "contains" && it.text("relation") != "declares" }, reverse = true)
+                val distances = traversal.distances
                 resultNodes = allNodes.filter { it.text("id") in distances }
                 resultEdges = allEdges.filter { it.text("source") in distances && it.text("target") in distances }
                 extra["paths"] = JsonArray(
@@ -264,16 +266,22 @@ internal object PhoneRepositoryGraph {
                     }
                 )
                 extra["relationship_scope"] = JsonPrimitive("CANDIDATE_IMPACT_REQUIRES_VERIFICATION")
-                if (distances.size >= MAX_NEIGHBORS) graphTruncated = true
+                extra["impact_search_complete"] = JsonPrimitive(traversal.complete)
+                if (!traversal.complete) {
+                    graphTruncated = true
+                    outcome = "IMPACT_SEARCH_LIMIT_REACHED"
+                }
             }
             "path" -> {
                 val targets = matches(arguments.text("target")).mapTo(mutableSetOf()) { it.text("id") }
-                val sequence = findPath(selected.map { it.text("id") }, targets, allEdges)
-                val ids = sequence.toSet()
+                val search = findPath(selected.map { it.text("id") }, targets, allEdges)
+                val sequence = search.path
+                if (!search.complete) graphTruncated = true
                 resultNodes = sequence.mapNotNull(nodes::get)
                 resultEdges = sequence.zipWithNext().mapNotNull { (from, to) -> allEdges.firstOrNull { it.text("source") == from && it.text("target") == to } }
                 extra["path"] = JsonArray(sequence.map(::JsonPrimitive))
-                if (ids.isEmpty()) outcome = "NO_PATH_IN_INDEX"
+                extra["path_search_complete"] = JsonPrimitive(search.complete)
+                if (sequence.isEmpty()) outcome = if (search.complete) "NO_PATH_IN_INDEX" else "PATH_SEARCH_LIMIT_REACHED"
             }
             "metrics" -> {
                 extra["metrics"] = buildJsonObject {
@@ -412,33 +420,42 @@ internal object PhoneRepositoryGraph {
         }.take(8).toList()
     }
 
-    private fun traverse(start: List<String>, edges: List<JsonObject>, reverse: Boolean): Map<String, Int> {
+    private data class Traversal(val distances: Map<String, Int>, val complete: Boolean)
+
+    private fun traverse(start: List<String>, edges: List<JsonObject>, reverse: Boolean): Traversal {
         val adjacent = edges.groupBy { it.text(if (reverse) "target" else "source") }
         val distance = linkedMapOf<String, Int>()
         val queue = ArrayDeque<String>()
+        var complete = start.size <= MAX_NEIGHBORS
         start.take(MAX_NEIGHBORS).forEach {
             distance[it] = 0
             queue.addLast(it)
         }
-        while (queue.isNotEmpty() && distance.size < MAX_NEIGHBORS) {
+        while (queue.isNotEmpty()) {
             val current = queue.removeFirst()
             val depth = distance.getValue(current)
-            if (depth >= 8) continue
             adjacent[current].orEmpty().forEach { edge ->
                 val next = edge.text(if (reverse) "source" else "target")
-                if (next !in distance && distance.size < MAX_NEIGHBORS) {
-                    distance[next] = depth + 1
-                    queue.addLast(next)
+                if (next !in distance) {
+                    if (depth < 8 && distance.size < MAX_NEIGHBORS) {
+                        distance[next] = depth + 1
+                        queue.addLast(next)
+                    } else {
+                        complete = false
+                    }
                 }
             }
         }
-        return distance
+        return Traversal(distance, complete)
     }
 
-    private fun findPath(start: List<String>, targets: Set<String>, edges: List<JsonObject>): List<String> {
+    private data class PathSearch(val path: List<String>, val complete: Boolean)
+
+    private fun findPath(start: List<String>, targets: Set<String>, edges: List<JsonObject>): PathSearch {
         val adjacent = edges.groupBy { it.text("source") }
         val previous = mutableMapOf<String, String?>()
         val queue = ArrayDeque<String>()
+        var complete = start.size <= MAX_NEIGHBORS
         start.take(MAX_NEIGHBORS).forEach {
             previous[it] = null
             queue.addLast(it)
@@ -448,22 +465,28 @@ internal object PhoneRepositoryGraph {
             if (current in targets) {
                 val result = mutableListOf(current)
                 var prior = previous[current]
-                while (prior != null && result.size < 128) {
+                // The predecessor map is already bounded; keep the entire source-to-target path.
+                // Response-byte and node-page limits still apply after reconstruction.
+                while (prior != null) {
                     result += prior
                     prior = previous[prior]
                 }
-                return result.reversed()
+                return PathSearch(result.reversed(), true)
             }
-            if (previous.size >= MAX_NEIGHBORS) break
+            // A discovery limit must not hide a target already waiting in the bounded queue.
             adjacent[current].orEmpty().forEach { edge ->
                 val next = edge.text("target")
-                if (next !in previous && previous.size < MAX_NEIGHBORS) {
-                    previous[next] = current
-                    queue.addLast(next)
+                if (next !in previous) {
+                    if (previous.size < MAX_NEIGHBORS) {
+                        previous[next] = current
+                        queue.addLast(next)
+                    } else {
+                        complete = false
+                    }
                 }
             }
         }
-        return emptyList()
+        return PathSearch(emptyList(), complete)
     }
 
     // A leading slash cannot be a valid repository-relative file ID. Hashing also

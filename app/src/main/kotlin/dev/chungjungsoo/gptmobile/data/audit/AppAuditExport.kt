@@ -480,7 +480,7 @@ private val AUDIT_LABELS = AppAuditPluginProbeSource.labels + AppAuditSelectedMo
     "memory_validity_v1" to "Memory validity boundaries and decay arithmetic",
     "memory_graph_v1" to "Knowledge graph extraction and bounded recall"
 )
-private val AUDIT_STAGES = AppAuditPluginProbeSource.stages + setOf("admission", "execution", "interruption", "validation", "fixture", "fixture_setup")
+private val AUDIT_STAGES = AppAuditPluginProbeSource.stages + setOf("admission", "execution", "interruption", "validation", "fixture", "fixture_setup", "local_validation", "dns", "tls", "connection", "transport", "response_stream")
 private val AUDIT_REASONS = AppAuditPluginProbeSource.reasonCodes + AppAuditSelectedModelProbeSource.reasonCodes + AppAuditGitHubCatalog.reasonCodes + setOf(
     "AUDIT_VERSION_CHANGED", "INVALID_COVERAGE_CLAIM", "AUDIT_SOURCE_CHANGED", "AUDIT_MANIFEST_CHANGED", "INVALID_AUDIT_MANIFEST",
     "INVALID_AUDIT_RECEIPTS", "INVALID_AUDIT_BUDGET", "RUN_BUDGET_EXHAUSTED", "RUN_DEADLINE_EXCEEDED", "NOT_SELECTED", "NOT_CONFIGURED",

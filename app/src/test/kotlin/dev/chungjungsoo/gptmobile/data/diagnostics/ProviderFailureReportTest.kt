@@ -49,6 +49,7 @@ class ProviderFailureReportTest {
             assertEquals(JsonPrimitive(expected), diagnostics.values["original_error_code_hash"])
             assertEquals(JsonPrimitive(event.code), diagnostics.values["provider_failure_code"])
             assertEquals(200, context.httpStatus)
+            assertFalse(diagnostics.values.containsKey("http_status"))
             assertFalse(diagnostics.values.containsKey("upstream_error_code_hash"))
             if (upstream.startsWith("private")) {
                 assertFalse(diagnostics.toString().contains(upstream))

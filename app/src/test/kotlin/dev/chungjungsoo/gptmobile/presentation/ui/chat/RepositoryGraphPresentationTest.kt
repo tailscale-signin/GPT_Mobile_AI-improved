@@ -70,6 +70,35 @@ class RepositoryGraphPresentationTest {
         assertEquals(0, neighborhood.externalConnections)
     }
 
+    @Test fun boundedPathSearchStaysDistinctFromAnEmptyCompletedSearch() {
+        val empty = RepositoryGraphPresentation(emptyList(), emptyList())
+        val limited = requireNotNull(empty.resultGuidance("PATH_SEARCH_LIMIT_REACHED"))
+        assertTrue(limited.contains("reached its limit"))
+        assertTrue(limited.contains("Narrow the source or target"))
+        assertFalse(limited.contains("No matching relationship"))
+        val noPath = requireNotNull(empty.resultGuidance("NO_PATH_IN_INDEX"))
+        assertTrue(noPath.contains("No matching relationship in this index"))
+        assertEquals(noPath, empty.resultGuidance("NOT_FOUND_IN_INDEX"))
+        assertNull(empty.resultGuidance("INDEXED"))
+        assertNull(empty.resultGuidance("UNREPORTED_STATUS"))
+        val visible = repositoryGraphPresentation(json("""{"nodes":[{"id":"observed-source"}]}"""))
+        for (status in listOf("PATH_SEARCH_LIMIT_REACHED", "NO_PATH_IN_INDEX", "NOT_FOUND_IN_INDEX")) {
+            assertNull(visible.resultGuidance(status))
+        }
+    }
+
+    @Test fun incompleteImpactKeepsItsPartialCandidatesAndShowsTheSearchLimit() {
+        val result = json("""{"status":"IMPACT_SEARCH_LIMIT_REACHED","nodes":[{"id":"source"},{"id":"candidate"}],"edges":[{"source":"candidate","target":"source","relation":"call_candidate"}],"impact_search_complete":false}""")
+        val graph = repositoryGraphPresentation(result)
+        val guidance = requireNotNull(graph.resultGuidance(result.graphText("status")))
+        assertTrue(guidance.contains("impact search reached its limit"))
+        assertTrue(guidance.contains("Results may be incomplete"))
+        assertFalse(guidance.contains("No matching relationship"))
+        assertEquals(listOf("source", "candidate"), graph.nodes.map { it.graphText("id") })
+        assertTrue(graph.edges.single().graphCandidate())
+        assertEquals(guidance, RepositoryGraphPresentation(emptyList(), emptyList()).resultGuidance("IMPACT_SEARCH_LIMIT_REACHED"))
+    }
+
     @Test fun candidateLinksRetainTheirUncertaintyThroughFilteringAndPagination() {
         val graph = repositoryGraphPresentation(json("""{"nodes":[{"id":"folder","path":"src"},{"id":"a","path":"src/A.kt"},{"id":"b","path":"src/B.kt"}],"edges":[{"source":"folder","target":"a","relation":"contains","confidence":"verified"},{"source":"a","target":"b","relation":"call_candidate","confidence":"candidate"}]}"""))
         assertFalse(graph.edges.first().graphCandidate())

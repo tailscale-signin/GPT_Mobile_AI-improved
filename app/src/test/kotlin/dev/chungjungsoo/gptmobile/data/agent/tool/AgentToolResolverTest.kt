@@ -1835,6 +1835,8 @@ private class ResolverFakeToolConnectionDao : ToolConnectionDao {
         .filter { it.profileUid == profileUid }
         .sortedWith(compareBy<AgentToolBinding> { it.toolName }.thenBy { it.connectionUid ?: "" }.thenBy { it.bindingUid })
 
+    override suspend fun rawBindingByUid(bindingUid: String): AgentToolBinding? = bindings[bindingUid]
+
     override suspend fun insertBindingRow(binding: AgentToolBinding) {
         bindings[binding.bindingUid] = binding
     }

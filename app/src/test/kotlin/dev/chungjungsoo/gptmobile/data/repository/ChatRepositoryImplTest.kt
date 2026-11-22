@@ -3118,6 +3118,8 @@ private class SingleToolConnectionDao(
 
     override suspend fun listBindingsByProfile(profileUid: String): List<AgentToolBinding> = bindings.filter { it.profileUid == profileUid }
 
+    override suspend fun rawBindingByUid(bindingUid: String): AgentToolBinding? = bindings.firstOrNull { it.bindingUid == bindingUid }
+
     override suspend fun insertBindingRow(binding: AgentToolBinding) = Unit
 
     override suspend fun deleteConnectionToolBindingsForTypes(profileUid: String, toolName: String, connectionTypes: List<String>) = Unit

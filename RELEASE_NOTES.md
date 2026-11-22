@@ -29,6 +29,7 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 - Show configured phone inference, recognized cloud APIs, observed Gateway routes and other network services separately. A private address or engineering Gateway binding does not establish where a different inference endpoint runs.
 - Separate requested local processors from native execution receipts. Failed, recovering and released runtimes do not display retained receipts as current readiness.
 - Explain unavailable research adapters, document text recovery and backup transfer boundaries alongside the existing controls, including credentials, model downloads and device-specific NPU packages.
+- Apply built-in tool changes atomically across settings and imports. Consolidate duplicate built-in grants within selected restore data while preserving other profiles, tools and connection-backed bindings.
 
 ## Task efficiency and provider consistency
 

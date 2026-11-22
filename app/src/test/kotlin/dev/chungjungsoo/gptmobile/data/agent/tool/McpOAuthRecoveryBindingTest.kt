@@ -178,6 +178,8 @@ class McpOAuthRecoveryBindingTest {
         }
         override suspend fun deleteConnectionByUid(connectionUid: String) = error("Not used by this OAuth test")
         override suspend fun listBindingsByProfile(profileUid: String): List<AgentToolBinding> = emptyList()
+        override suspend fun rawBindingByUid(bindingUid: String): AgentToolBinding? = null
+
         override suspend fun insertBindingRow(binding: AgentToolBinding) = error("Not used by this OAuth test")
         override suspend fun deleteConnectionToolBindingsForTypes(profileUid: String, toolName: String, connectionTypes: List<String>) = error("Not used by this OAuth test")
         override suspend fun deleteBuiltInToolBinding(profileUid: String, toolName: String) = error("Not used by this OAuth test")

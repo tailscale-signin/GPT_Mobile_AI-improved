@@ -2,9 +2,13 @@ package dev.chungjungsoo.gptmobile.data.database
 
 import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupDatabase
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSelection
 import dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
@@ -12,24 +16,30 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
+import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectedRange
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt
 import dev.chungjungsoo.gptmobile.data.privacy.effectivePrivacyProtectedValues
+import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
+import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -715,6 +725,161 @@ class AgentPersistenceDaoInstrumentedTest {
     }
 
     private fun toolConnection(uid: String) = ToolConnection(uid, uid, uid, "MCP", "https://example.com", "NONE", null, null)
+
+    @Test
+    fun builtInToolBinding_replacesImportedBindingsWithinItsExactScope() = runBlocking {
+        val dao = database.toolConnectionDao()
+        dao.upsertConnection(bindingConnection("mcp"))
+        val original = AgentToolBinding("legacy-1", "profile-1", null, BuiltInAgentTool.READ_URL, 1)
+        val otherProfile = original.copy(bindingUid = "other-profile", profileUid = "profile-2")
+        val otherTool = original.copy(bindingUid = "other-tool", toolName = BuiltInAgentTool.CURRENT_DATE)
+        val remote = original.copy(bindingUid = "remote-read-url", connectionUid = "mcp")
+        // Restored IDs replace the same built-in scope through the supported boundary while SQL guards stay active.
+        listOf(original, original.copy(bindingUid = "legacy-2"), otherProfile, otherTool, remote).forEach { dao.insertBinding(it) }
+
+        val replacement = original.copy(bindingUid = "replacement", createdAt = 3)
+        dao.replaceReadUrlBinding(replacement)
+
+        assertEquals(setOf(replacement, otherTool, remote), dao.listBindingsByProfile("profile-1").toSet())
+        assertEquals(listOf(otherProfile), dao.listBindingsByProfile("profile-2"))
+        dao.removeReadUrlBinding("profile-1")
+        assertEquals(setOf(otherTool, remote), dao.listBindingsByProfile("profile-1").toSet())
+
+        // Generic configuration/legacy imports retain previously representable tool names.
+        val legacy = original.copy(bindingUid = "legacy-name-1", toolName = "retired_builtin")
+        dao.insertBinding(legacy)
+        dao.insertBinding(legacy.copy(bindingUid = "legacy-name-2"))
+        assertEquals(listOf("legacy-name-2"), dao.listBindingsByProfile("profile-1").filter { it.toolName == legacy.toolName }.map { it.bindingUid })
+    }
+
+    @Test
+    fun builtInToolBinding_rejectsForeignOwnershipAndInvalidRequests() = runBlocking {
+        val dao = database.toolConnectionDao()
+        dao.upsertConnection(bindingConnection("mcp"))
+        val retained = AgentToolBinding("retained", "profile-1", null, BuiltInAgentTool.READ_URL, 1)
+        val foreign = retained.copy(bindingUid = "foreign", profileUid = "profile-2")
+        dao.insertBinding(retained)
+        dao.insertBinding(foreign)
+        val invalid = listOf(
+            retained.copy(bindingUid = "wrong-profile", profileUid = "profile-2"),
+            retained.copy(bindingUid = "wrong-tool", toolName = BuiltInAgentTool.CURRENT_DATE),
+            retained.copy(bindingUid = "wrong-connection", connectionUid = "mcp"),
+            retained.copy(bindingUid = ""),
+            retained.copy(bindingUid = foreign.bindingUid)
+        )
+        for (binding in invalid) {
+            val failure = runCatching { dao.setBuiltInBinding(retained.profileUid, retained.toolName, binding) }.exceptionOrNull()
+            assertTrue(failure is IllegalArgumentException)
+            assertEquals(listOf(retained), dao.listBindingsByProfile("profile-1"))
+            assertEquals(listOf(foreign), dao.listBindingsByProfile("profile-2"))
+        }
+        assertTrue(runCatching { dao.setBuiltInBinding("profile-1", "unrecognized", null) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { dao.insertBinding(foreign.copy(profileUid = "profile-1")) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { dao.insertBinding(retained.copy(connectionUid = "mcp")) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { dao.insertBinding(retained.copy(toolName = BuiltInAgentTool.CURRENT_DATE)) }.exceptionOrNull() is IllegalArgumentException)
+        assertEquals(listOf(retained), dao.listBindingsByProfile("profile-1"))
+        assertEquals(listOf(foreign), dao.listBindingsByProfile("profile-2"))
+    }
+
+    @Test
+    fun builtInToolBinding_failedReplacementRollsBackThePreviousGrant() = runBlocking {
+        val dao = database.toolConnectionDao()
+        val retained = AgentToolBinding("retained", "profile-1", null, BuiltInAgentTool.READ_URL, 1)
+        dao.insertBinding(retained)
+        database.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER reject_builtin_replacement BEFORE INSERT ON agent_tool_bindings " +
+                "WHEN NEW.profile_uid = 'profile-1' AND NEW.connection_uid IS NULL AND NEW.tool_name = 'read_url' " +
+                "BEGIN SELECT RAISE(ABORT, 'Injected binding persistence failure'); END"
+        )
+        try {
+            // Exercise the production setter directly: an outer test transaction would hide a missing DAO boundary.
+            val failure = runCatching { bindingRepository().setReadUrlBinding("profile-1", true) }.exceptionOrNull()
+            assertTrue(failure is SQLiteConstraintException)
+            assertEquals(listOf(retained), dao.listBindingsByProfile("profile-1"))
+        } finally {
+            database.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_builtin_replacement")
+        }
+    }
+
+    @Test
+    fun builtInToolBinding_concurrentUiAndImportWritesKeepOneGrant() = runBlocking {
+        val dao = database.toolConnectionDao()
+        val repository = bindingRepository()
+        val other = AgentToolBinding("other-profile", "profile-2", null, BuiltInAgentTool.READ_URL, 1)
+        dao.insertBinding(other)
+        val start = CompletableDeferred<Unit>()
+        coroutineScope {
+            val writes = (0 until 32).map { index ->
+                async(Dispatchers.Default) {
+                    start.await()
+                    if (index % 2 == 0) {
+                        repository.setReadUrlBinding("profile-1", true)
+                    } else {
+                        dao.insertBinding(AgentToolBinding("import-$index", "profile-1", null, BuiltInAgentTool.READ_URL, index.toLong()))
+                    }
+                }
+            }
+            start.complete(Unit)
+            writes.awaitAll()
+        }
+        assertEquals(1, dao.listBindingsByProfile("profile-1").size)
+        assertEquals(listOf(other), dao.listBindingsByProfile("profile-2"))
+        repository.setReadUrlBinding("profile-1", false)
+        assertTrue(dao.listBindingsByProfile("profile-1").isEmpty())
+        assertEquals(listOf(other), dao.listBindingsByProfile("profile-2"))
+    }
+
+    @Test
+    fun builtInToolBinding_stagedRestorePreservesUnselectedTools() = runBlocking {
+        val source = Room.inMemoryDatabaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            ChatDatabaseV2::class.java
+        ).build()
+        try {
+            val dao = source.toolConnectionDao()
+            dao.upsertConnection(bindingConnection("mcp-a"))
+            dao.upsertConnection(bindingConnection("mcp-b"))
+            val original = AgentToolBinding("old", "profile-1", null, BuiltInAgentTool.READ_URL, 1)
+            val newest = original.copy(bindingUid = "new-z", createdAt = 2)
+            val otherProfile = original.copy(bindingUid = "other-profile", profileUid = "profile-2")
+            val otherTool = original.copy(bindingUid = "other-tool", toolName = "retired_builtin")
+            val remoteA = original.copy(bindingUid = "remote-a", connectionUid = "mcp-a")
+            val remoteB = original.copy(bindingUid = "remote-b", connectionUid = "mcp-b")
+            listOf(newest, original, newest.copy(bindingUid = "new-a"), otherProfile, otherTool, remoteA, remoteB).forEach { dao.insertBindingRow(it) }
+            assertEquals(3, dao.listBindingsByProfile("profile-1").count { it.connectionUid == null && it.toolName == BuiltInAgentTool.READ_URL })
+            // Match prepareSnapshot: normalize the isolated legacy source before copying into a guarded destination.
+            source.withTransaction { AgentToolBindingDatabase.enforceBuiltInUniqueness(source.openHelper.writableDatabase) }
+            val expected = setOf(newest, otherProfile, otherTool, remoteA, remoteB)
+            for (selection in listOf(null, CompleteBackupSelection(setOf(CompleteBackupSection.TOOLS)), CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS)))) {
+                database.clearAllTables()
+                val kept = original.copy(bindingUid = "keep-1")
+                database.toolConnectionDao().insertBinding(kept)
+                database.withTransaction {
+                    if (selection == null) {
+                        CompleteBackupDatabase.restore(source.openHelper.writableDatabase, database.openHelper.writableDatabase)
+                    } else {
+                        CompleteBackupDatabase.restoreSections(source.openHelper.writableDatabase, database.openHelper.writableDatabase, selection)
+                    }
+                }
+                val actual = (database.toolConnectionDao().listBindingsByProfile("profile-1") + database.toolConnectionDao().listBindingsByProfile("profile-2")).toSet()
+                assertEquals(if (selection?.includes(CompleteBackupSection.CONVERSATIONS) == true) setOf(kept) else expected, actual)
+                database.openHelper.readableDatabase.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+            }
+        } finally {
+            source.close()
+        }
+    }
+
+    private fun bindingConnection(uid: String) = ToolConnection(uid, uid, uid, ToolConnectionType.MCP, null, ToolConnectionAuthType.NONE, null, null)
+
+    private fun bindingRepository() = ToolConnectionRepository(
+        database.toolConnectionDao(),
+        object : SecretVault {
+            override suspend fun put(secretRef: String, secret: ByteArray): Unit = error("Binding updates must not write credentials")
+            override suspend fun read(secretRef: String): ByteArray? = error("Binding updates must not read credentials")
+            override suspend fun delete(secretRef: String): Unit = error("Binding updates must not delete credentials")
+        }
+    )
 
     private suspend fun persistTurn(
         chatRoom: ChatRoomV2,

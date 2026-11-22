@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "bebed9f94336b3385db8d21d00b691c077647780b008c6b03d0aa1fe9dfd7d6e",
+  "source_digest": "64e917c35f97373b5f178c91fd8cdad8aae1b580dec1a73d147ec424b35c4c81",
   "file_count": 2888,
-  "indexed_line_count": 477304,
+  "indexed_line_count": 477326,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -125,7 +125,7 @@
       "id": "persistence",
       "label": "Databases, backup and storage",
       "file_count": 111,
-      "indexed_line_count": 15025
+      "indexed_line_count": 15047
     },
     {
       "id": "diagnostics_and_export",
@@ -5065,8 +5065,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolConnectionDao.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "9fe885e05c7286ed529acc1f3e2d5289a40ff9e0a0d7ef129c9fb1bcbd08f932",
-      "indexed_lines": 153
+      "sha256": "a29ea1f4e349cf6f2d44b68fb4ef7d5d09271a9092ceb04578c5519fbf7e25d9",
+      "indexed_lines": 179
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/AgentRun.kt",
@@ -11470,8 +11470,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolConnectionRepository.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "ae314ff361ba3f5ee6397a8244308ddffbeb69d20e7e57386397292caba320e4",
-      "indexed_lines": 246
+      "sha256": "4d2155f114af060a49ce970966a2208f6e47db95ac133608e3bceb91df3d5d1b",
+      "indexed_lines": 242
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
@@ -14907,7 +14907,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatProfileScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "ae1c5e93ea82d66d73209a694c48286a93aa7fb039edf258b04a40e09c3dc139",
+      "sha256": "9478ac31d1dfceda3654a6baa93ab6373414a4707a30f0cf78aa13f0663157db",
       "indexed_lines": 556
     },
     {

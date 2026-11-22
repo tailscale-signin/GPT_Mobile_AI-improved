@@ -42,15 +42,34 @@ interface ToolConnectionDao {
     @Query("SELECT * FROM agent_tool_bindings WHERE profile_uid = :profileUid ORDER BY tool_name, connection_uid, binding_uid")
     suspend fun listBindingsByProfile(profileUid: String): List<AgentToolBinding>
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBindingRow(binding: AgentToolBinding)
+
+    @Query("SELECT * FROM agent_tool_bindings WHERE binding_uid = :bindingUid")
+    suspend fun rawBindingByUid(bindingUid: String): AgentToolBinding?
+
+    /** Imports may retain legacy names, but cannot replace a different binding owner. */
     @Transaction
     suspend fun insertBinding(binding: AgentToolBinding) {
-        // Match REPLACE's existing connected-key behavior for the nullable built-in key.
+        val existing = rawBindingByUid(binding.bindingUid)
+        require(existing == null || existing.profileUid == binding.profileUid && existing.connectionUid == binding.connectionUid && existing.toolName == binding.toolName) {
+            "The binding ID belongs to another profile, connection or tool."
+        }
+        // SQLite's composite unique index does not collide on a NULL connection.
+        // Keep logical replacement and the insert in one transaction for UI and imports.
         if (binding.connectionUid == null) deleteBuiltInToolBinding(binding.profileUid, binding.toolName)
         insertBindingRow(binding)
     }
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertBindingRow(binding: AgentToolBinding)
+    @Transaction
+    suspend fun setBuiltInBinding(profileUid: String, toolName: String, binding: AgentToolBinding?) {
+        require(profileUid.isNotBlank()) { "A built-in tool requires a profile." }
+        require(toolName in BUILT_IN_TOOLS) { "Unknown built-in tool: $toolName" }
+        require(binding == null || binding.profileUid == profileUid && binding.toolName == toolName && binding.connectionUid == null && binding.bindingUid.isNotBlank()) {
+            "The built-in binding does not match its profile and tool."
+        }
+        if (binding == null) deleteBuiltInToolBinding(profileUid, toolName) else insertBinding(binding)
+    }
 
     @Query(
         """
@@ -113,13 +132,12 @@ interface ToolConnectionDao {
     @Transaction
     suspend fun replaceReadUrlBinding(binding: AgentToolBinding) {
         require(binding.toolName == BuiltInAgentTool.READ_URL)
-        deleteBuiltInToolBinding(binding.profileUid, BuiltInAgentTool.READ_URL)
-        insertBinding(binding)
+        setBuiltInBinding(binding.profileUid, BuiltInAgentTool.READ_URL, binding)
     }
 
     @Transaction
     suspend fun removeReadUrlBinding(profileUid: String) {
-        deleteBuiltInToolBinding(profileUid, BuiltInAgentTool.READ_URL)
+        setBuiltInBinding(profileUid, BuiltInAgentTool.READ_URL, null)
     }
 
     @Transaction
@@ -147,6 +165,14 @@ interface ToolConnectionDao {
     }
 
     companion object {
+        private val BUILT_IN_TOOLS = setOf(
+            BuiltInAgentTool.READ_URL,
+            BuiltInAgentTool.READ_FILE_SLICE,
+            BuiltInAgentTool.DEVICE_LOCATION,
+            BuiltInAgentTool.CALCULATE_EXPRESSION,
+            BuiltInAgentTool.GITHUB,
+            BuiltInAgentTool.CURRENT_DATE
+        )
         private const val WEB_SEARCH_TOOL = "web_search"
         private val WEB_SEARCH_TYPES = ToolConnectionType.WEB_SEARCH_TYPES.toList()
     }

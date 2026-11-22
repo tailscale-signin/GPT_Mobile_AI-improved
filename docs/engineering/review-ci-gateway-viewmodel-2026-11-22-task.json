@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "origin/review-pr-2254",
+  "base_sha": "85389f14ab1159d7d9d1c2c5b8ff6dfb84102e31",
+  "parent_pr": 2254,
+  "working_branch": "work/review-ci-gateway-viewmodel-2026-11-22",
+  "intent": "Reproduce the Gateway status ViewModel refresh mock failure and verify that explicit refresh targets only the selected gateway while preserving cancellation and measurement ownership.",
+  "status": "LOCAL_FIX_VERIFIED_PENDING_PARENT_INTEGRATION",
+  "requirements": [
+    {"id": "reproduce_reported_failure", "status": "EXACT_REFRESH_MOCK_FAILURE_REPRODUCED_AMONG_3_TESTS"},
+    {"id": "preserve_selected_connection_and_cancellation", "status": "STRICT_CONFIG_MOCKS_AND_EXPLICIT_REFRESH_OWNERSHIP_ASSERTED"},
+    {"id": "focused_behavior_validation", "status": "3_REAL_VIEWMODEL_AND_LIFECYCLE_BEHAVIOR_TESTS_PASSED"},
+    {"id": "canonical_fast_validation", "status": "PASSED_608_HOST_TESTS"},
+    {"id": "full_android_validation", "status": "PENDING_PARENT_CI"}
+  ]
+}

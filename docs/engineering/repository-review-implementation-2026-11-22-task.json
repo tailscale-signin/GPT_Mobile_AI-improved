@@ -8,7 +8,7 @@
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "integration_branch": "work/review-implementation-2026-11-22",
   "intent": "Implement the actionable repository review improvements and publish verified Android and Gateway releases from the existing shared PR while preserving concurrent changes.",
-  "status": "CI_REPAIRS_LOCALLY_VERIFIED_PENDING_FULL_ANDROID",
+  "status": "COMBINED_BINDING_AND_UNIT_REPAIRS_LOCALLY_VERIFIED_PENDING_ANDROID",
   "requirements": [
     {
       "id": "recovery",
@@ -51,7 +51,7 @@
     "No physical-phone latency, acoustic, battery, or accelerator result may be inferred from source or host tests.",
     "External providers, compatible runtime packages and Windows signing credentials retain their independently observed availability."
   ],
-  "preserved_concurrent_sha": "6e03f1e08f4273623a896c31a7a1d0b4fe3068d6",
+  "preserved_concurrent_sha": "a0ac4b01d55fb837893e742728c625b257b48dbe",
   "integrated_local_changes": [
     "setup_and_runtime_route_clarity",
     "capability_and_backup_guidance",
@@ -99,5 +99,56 @@
     "preserved_concurrent_repairs": "7c7634dff82f712b5122aa3d5dd4b0ba1b9c9d58",
     "research_callback_fix": "6e03f1e08f4273623a896c31a7a1d0b4fe3068d6",
     "canonical_host_result": "PASSED_AFTER_RECONCILIATION"
+  },
+  "binding_repair": {
+    "observed_source": "6e03f1e08f4273623a896c31a7a1d0b4fe3068d6",
+    "acceptance_run": 45059368354,
+    "jobs": [
+      137322973552,
+      137322973853
+    ],
+    "local_contracts": 5,
+    "mandatory_persistence_methods": 26,
+    "room_schema": 53,
+    "schema_changed": false,
+    "full_android": "PENDING_CURRENT_HEAD_CI",
+    "scope": "Atomic supported mutations/imports, database-open equivalent legacy normalization and INSERT/UPDATE guards; private staged backup preparation preserves original archive and unrelated scopes.",
+    "concurrent_database_guards": "85389f14ab1159d7d9d1c2c5b8ff6dfb84102e31",
+    "concurrent_enable_regression": "459261b5: preserves synchronized eight-way replacement coverage alongside mixed UI/import ownership coverage"
+  },
+  "full_suite_followup": {
+    "source": "50131133f01caf05f4467815b4d677b746e8b38f",
+    "run": 45059996467,
+    "job": 137323925528,
+    "artifact": 14770378564,
+    "artifact_sha256": "03129117559d3f0755b618fa92b0e0e3a5c554039c276d95f781949481b3294d",
+    "app_total": 12497,
+    "app_passed": 12490,
+    "app_failed": 2,
+    "app_skipped": 5,
+    "core_passed": 4,
+    "remaining": "Both known failures repaired. Combined exact-config Gateway ViewModel tests pass3/3; unchanged cursor admission/related tests pass14/14 with original1600/2000 budgets. Exact-head Android/emulatorCI pending.",
+    "schema_estimates": {
+      "ordinary": 1486,
+      "native_and_discovery": 1913
+    }
+  },
+  "latest_wiring_review": {
+    "source": "f3b9b408c41d078d140062da38270bf0e75fdf84",
+    "voice_focused_tests": 50,
+    "callback_shapes": "REVIEWED",
+    "presentation_followup": "Gateway row animation follows visible details, preventing stale hidden dialog state from pausing it.",
+    "research_save_followup": "e9148ab3 preserves loading and save state across research editors, field controls and selection history",
+    "instrumentation_wording_followup": "a0ac4b01 preserves the existing disabled 500-source/100%-depth Research assertion with current UI wording"
+  },
+  "combined_followup_validation": {
+    "canonical_host_tests": 615,
+    "canonical_host_result": "PASSED",
+    "changed_kotlin_format_files": 12,
+    "dao_contract_tests": 5,
+    "gateway_viewmodel_tests": 3,
+    "cursor_admission_tests": 14,
+    "mandatory_persistence_receipts": 26,
+    "full_android": "PENDING_CURRENT_HEAD_CI"
   }
 }

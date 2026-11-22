@@ -65,7 +65,9 @@ class GitHubGatewayStatusViewModelTest {
         coEvery { GatewayClientDiagnostics.diagnosticStatusFor(any()) } returns GatewayDiagnosticStatus()
         coEvery { GatewayClientDiagnostics.diagnosticPage(any(), any(), any(), any(), any()) } returns GatewayDiagnosticPage(emptyList(), null, 0)
         every { GatewayClientDiagnostics.refreshDiagnostics(any()) } returns Unit
-        justRun { client.refresh() }
+        justRun { client.refresh(null) }
+        justRun { client.refresh(gatewayConfig(gateway)) }
+        justRun { client.refresh(gatewayConfig(other)) }
         coEvery { client.readiness(any(), any()) } coAnswers {
             requested += "ready" to firstArg<ProviderRequestConfig>()
             assertEquals(inference.model, secondArg<String?>())
@@ -97,6 +99,8 @@ class GitHubGatewayStatusViewModelTest {
             assertTrue(requested.isEmpty())
             coVerify(exactly = 0) { client.readiness(any(), any()) }
             coVerify(exactly = 0) { client.read(any()) }
+            verify(exactly = 1) { client.refresh(null) }
+            verify(exactly = 0) { client.refresh(isNull(inverse = true)) }
 
             select(gateway.uid)
             runCurrent()
@@ -145,6 +149,7 @@ class GitHubGatewayStatusViewModelTest {
             verify(exactly = 1) { client.refresh(selectedConfig) }
             verify(exactly = 0) { client.refresh(null) }
             runCurrent()
+            verify(exactly = 1) { client.refresh(gatewayConfig(gateway)) }
             select(other.uid)
             runCurrent()
             assertTrue(oldCancelled.isCompleted)
@@ -154,6 +159,14 @@ class GitHubGatewayStatusViewModelTest {
             newReady.complete(ready())
             runCurrent()
             assertEquals(GatewayDashboardPhase.LIVE, model.state.value.phase)
+            assertEquals(other.apiUrl, requested.last().second.apiUrl)
+            assertEquals(other.token, requested.last().second.token)
+            model.refresh()
+            runCurrent()
+            verify(exactly = 1) { client.refresh(gatewayConfig(other)) }
+            verify(exactly = 1) { client.refresh(gatewayConfig(gateway)) }
+            verify(exactly = 0) { client.refresh(null) }
+            verify(exactly = 0) { client.refresh(match { it.profileUid == inference.uid }) }
             assertEquals(other.apiUrl, requested.last().second.apiUrl)
             assertEquals(other.token, requested.last().second.token)
             assertTrue(requested.none { it.second.profileUid == inference.uid })
@@ -175,6 +188,11 @@ class GitHubGatewayStatusViewModelTest {
             assertNotEquals(oldIdentity, model.state.value.target?.identity)
             assertEquals(edited.apiUrl, requested.last().second.apiUrl)
             assertEquals(edited.token, requested.last().second.token)
+            justRun { client.refresh(gatewayConfig(edited)) }
+            model.refresh()
+            runCurrent()
+            verify(exactly = 1) { client.refresh(gatewayConfig(edited)) }
+            verify(exactly = 0) { client.refresh(gatewayConfig(gateway)) }
 
             profiles.value = listOf(inference, other)
             runCurrent()
@@ -185,6 +203,9 @@ class GitHubGatewayStatusViewModelTest {
             model.refresh()
             advanceTimeBy(900_001)
             runCurrent()
+            verify(exactly = 1) { client.refresh(null) }
+            verify(exactly = 1) { client.refresh(gatewayConfig(edited)) }
+            verify(exactly = 0) { client.refresh(gatewayConfig(other)) }
             assertEquals(requestsAfterRemoval, requested.size)
             assertTrue(requested.none { it.second.profileUid in setOf(inference.uid, other.uid) })
         } finally {
@@ -207,4 +228,5 @@ class GitHubGatewayStatusViewModelTest {
 
     private fun ready() = GatewayReadinessObservation("a".repeat(32), true, true, true, false, 0)
     private fun observed() = GatewayDashboardObservation(parseGatewayDashboard(dashboardFixture()), 0)
+    private fun gatewayConfig(profile: PlatformV2) = ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, gatewayOwnerControl = true)
 }

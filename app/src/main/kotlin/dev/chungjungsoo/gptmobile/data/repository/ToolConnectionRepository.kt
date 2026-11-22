@@ -131,11 +131,7 @@ class ToolConnectionRepository internal constructor(
                 BuiltInAgentTool.CURRENT_DATE
             )
         ) { "Unknown built-in tool: $toolName" }
-        if (enabled) {
-            toolConnectionDao.insertBinding(newBinding(profileUid, null, toolName))
-        } else {
-            toolConnectionDao.deleteBuiltInToolBinding(profileUid, toolName)
-        }
+        toolConnectionDao.setBuiltInBinding(profileUid, toolName, if (enabled) newBinding(profileUid, null, toolName) else null)
     }
 
     suspend fun replaceMcpToolBindings(profileUid: String, selections: List<ToolBindingSelection>) {

@@ -287,6 +287,8 @@ internal class FakeToolConnectionDao(
 
     override suspend fun listBindingsByProfile(profileUid: String): List<AgentToolBinding> = bindings.filter { it.profileUid == profileUid }
 
+    override suspend fun rawBindingByUid(bindingUid: String): AgentToolBinding? = bindings.firstOrNull { it.bindingUid == bindingUid }
+
     override suspend fun insertBindingRow(binding: AgentToolBinding) {
         bindings.removeAll { it.bindingUid == binding.bindingUid }
         bindings += binding

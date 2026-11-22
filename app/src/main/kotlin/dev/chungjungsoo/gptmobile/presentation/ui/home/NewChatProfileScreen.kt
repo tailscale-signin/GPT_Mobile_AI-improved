@@ -428,7 +428,7 @@ internal fun NewChatProfileScreen(
                             detailsUid = profile.uid
                         },
                         gatewayAvailability = gatewayAvailability[profile.uid],
-                        animateGateway = profile.uid in visibleKeys && !optionsOpen && !sortOpen && !primaryOpen && !privacySettingsOpen && detailsUid == null,
+                        animateGateway = profile.uid in visibleKeys && !optionsOpen && !sortOpen && !primaryOpen && !privacySettingsOpen && details == null,
                         onFocus = { focused ->
                             if (focused) {
                                 focusedUid = profile.uid

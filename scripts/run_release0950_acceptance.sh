@@ -239,6 +239,11 @@ for test in (
     'deletePlatform_removesItsToolBindings',
     'builtInToolBinding_rejectsDuplicateProfileAndTool',
     'builtInToolBinding_replacesAtomicallyDuringConcurrentEnables',
+    'builtInToolBinding_replacesImportedBindingsWithinItsExactScope',
+    'builtInToolBinding_rejectsForeignOwnershipAndInvalidRequests',
+    'builtInToolBinding_failedReplacementRollsBackThePreviousGrant',
+    'builtInToolBinding_concurrentUiAndImportWritesKeepOneGrant',
+    'builtInToolBinding_stagedRestorePreservesUnselectedTools',
 ):
     check_instrumentation(folder / 'agent-persistence-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.database.AgentPersistenceDaoInstrumentedTest', test)
 for test in (

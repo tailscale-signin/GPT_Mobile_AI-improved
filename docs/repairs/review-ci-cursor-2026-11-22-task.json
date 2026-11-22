@@ -1,0 +1,49 @@
+{
+  "task": "review-ci-cursor-2026-11-22",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2254,
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "85389f14ab1159d7d9d1c2c5b8ff6dfb84102e31",
+  "working_branch": "work/review-ci-cursor-2026-11-22",
+  "intent": "Restore precise model-visible saved-view cursor provenance and exclusivity guidance across full, projected and inspect schemas without changing argument validation or token budgets.",
+  "status": "IMPLEMENTED_AWAITING_COMBINED_HEAD_CI",
+  "constraints": [
+    "No root working-tree or index edits",
+    "No remote mutation",
+    "Preserve ordinary <1600 and native with discovery <2000 schema token budgets",
+    "Preserve all argument constraints and existing behavior assertions",
+    "Do not regenerate inventories or release metadata"
+  ],
+  "source_evidence": {
+    "failed_head": "50131133f01caf05f4467815b4d677b746e8b38f",
+    "run_id": 45059996467,
+    "job_id": 137323925528,
+    "test": "GitHubArgumentAdmissionTest.savedViewCursorIsExclusiveInFullProjectedAndInspectSchemas",
+    "failure": "github_context__selected documents exact issued cursors"
+  },
+  "validation": {
+    "reproduction": "The unchanged savedViewCursorIsExclusiveInFullProjectedAndInspectSchemas test body failed on current base 85389f14 with the same github_context__selected exact-issued-cursor assertion as CI. Other 13 focused contract tests passed.",
+    "focused": "PASS: 14 Kotlin/JUnit tests, including the unchanged failing test across 14 full/projected/inspect variants. Actual GitHub schema factory, schema helpers and validator methods are extracted verbatim; GitHubActionSchema and provider classification sources are compiled directly, with narrow surrounding type stubs. This is not the complete Android application test runner.",
+    "schema_constraints": "PASS: all 14 operation input schemas match the base exactly except properties.view_cursor.description. No validation field, action, budget, prerequisite or exclusivity constraint changed.",
+    "schema_budgets": {
+      "ordinary_before": 1508,
+      "ordinary_after": 1514,
+      "ordinary_limit_exclusive": 1600,
+      "native_with_discovery_before": 1934,
+      "native_with_discovery_after": 1940,
+      "native_with_discovery_limit_exclusive": 2000
+    },
+    "formatting": "PASS: ktlint 1.3.1 on the changed Kotlin file; git diff --check.",
+    "fast": "BLOCKED: bash scripts/validate-local.sh fast passed CI policy and stopped at stale app audit source inventory. Root owns inventory regeneration at the combined head; no generated files were edited here.",
+    "android": "NOT_RUN: full Android SDK unavailable locally. The existing full GitHubArgumentAdmissionTest and schema-budget suites remain required in combined-head CI."
+  },
+  "schema_version": 1,
+  "base_ref": "origin/review-pr-2254",
+  "changes": [
+    "Restore the exact-issued cursor source and ONLY-field requirement in the shared view_cursor description inherited by full, action-projected and inspect schemas.",
+    "Preserve all existing admission-test assertions and every schema validation constraint."
+  ],
+  "reproduction_harness": "/workspace/scratch/dfab796cea9c/ci-agent-harness/cursor-85389f14/run.py",
+  "concurrent_source_sha": "f3b9b408c41d078d140062da38270bf0e75fdf84",
+  "concurrency": "Latest fetched f3b9b408 changes none of the schema factory, schema helpers, action projection, validator or cursor admission test. Root owns remote freshness, integration and publication."
+}

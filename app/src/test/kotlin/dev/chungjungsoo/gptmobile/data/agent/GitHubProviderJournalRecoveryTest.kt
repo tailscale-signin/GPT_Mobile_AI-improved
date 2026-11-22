@@ -43,6 +43,47 @@ class GitHubProviderJournalRecoveryTest {
     private val originalBinding = "$scope:configured:first-parent"
     private val tool = AgentToolDefinition("github_write", "Write an owned test fixture", JsonObject(emptyMap()))
     private val call = ProviderEvent.ToolCall("already-written", tool.name, buildJsonObject { put("branch", "codex-self-test/owned") })
+    private val originalProjection = "Local validation rejected the original source selector."
+    private val changedProjection = "This different body was never saved by the original execution."
+
+    @Test fun intactAndLegacySourceLessProjectionsSurviveTheProtectedProviderRestart() = runBlocking {
+        for (legacyProjection in listOf(false, true)) {
+            val observed = restartWithProjection(damageBody = false, sourceLess = true, legacyProjection = legacyProjection)
+            assertNull(observed.failure)
+            assertEquals(1, observed.reopened)
+            assertEquals(1, observed.providerRounds)
+            assertEquals(originalProjection, observed.providerBody)
+            assertTrue(observed.protectedOutputStillMatches)
+            assertTrue(observed.projectionMatchesBody)
+            assertEquals(0, observed.toolRedispatches)
+        }
+    }
+
+    @Test fun changedJournalBodyIsRejectedBeforeReceiptsRestorationOrProviderReopen() = runBlocking {
+        for (sourceLess in listOf(false, true)) {
+            val observed = restartWithProjection(damageBody = true, sourceLess = sourceLess)
+            assertTrue(observed.protectedOutputStillMatches)
+            assertFalse(observed.projectionMatchesBody)
+            assertEquals(0, observed.reopened)
+            assertEquals(0, observed.providerRounds)
+            assertEquals(0, observed.toolRedispatches)
+            assertNull(observed.providerBody)
+            for (failure in observed.unfencedReadFailures + observed.failure) {
+                assertTrue(failure is ProviderRecoveryFailure)
+                assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", failure?.message)
+                val correlation = (failure as ProviderRecoveryFailure).correlation
+                assertEquals(JsonPrimitive("TOOL_JOURNAL"), correlation["checkpoint_validation_stage"])
+                assertEquals(JsonPrimitive("TOOL_JOURNAL_CHANGED"), correlation["checkpoint_mismatch_reason"])
+                assertFalse("observed_tool_evidence_digest" in correlation)
+                assertFalse("observed_tool_journal_digest" in correlation)
+                assertFalse("settled_tool_count" in correlation)
+                assertFalse("unsettled_tool_count" in correlation)
+                assertEquals(JsonPrimitive(false), failure.event().failureDetails?.get("dispatched"))
+                assertFalse(correlation.toString().contains(originalProjection))
+                assertFalse(correlation.toString().contains(changedProjection))
+            }
+        }
+    }
 
     @Test fun recapturedCorrectedSourceCallKeepsItsOriginalIdentityThroughDiskRecovery() = runBlocking {
         val directory = Files.createTempDirectory("github-corrected-source-journal").toFile()
@@ -532,7 +573,7 @@ class GitHubProviderJournalRecoveryTest {
                         JsonObject(result + altered)
                     }
                     val restored = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true, expectedProviderJournalDigest = digest)
-                    val message = "Tool recovery ledger has invalid stored-result projection proof."
+                    val message = "PROVIDER_WAIT_CHECKPOINT_CHANGED"
                     assertEquals(message, runCatching { journal.providerWaitReceipts() }.exceptionOrNull()?.message)
                     assertEquals(message, runCatching { restored.recoverySnapshot() }.exceptionOrNull()?.message)
                     assertEquals(
@@ -593,7 +634,7 @@ class GitHubProviderJournalRecoveryTest {
             var dispatches = 0
             val restored = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
             assertEquals(
-                "Tool recovery ledger has invalid stored-result projection proof.",
+                "PROVIDER_WAIT_CHECKPOINT_CHANGED",
                 runCatching {
                     restored.execute(call) {
                         dispatches++
@@ -996,6 +1037,124 @@ class GitHubProviderJournalRecoveryTest {
             directory.deleteRecursively()
         }
     }
+
+    private suspend fun restartWithProjection(damageBody: Boolean, sourceLess: Boolean, legacyProjection: Boolean = false): ProjectionRestart {
+        val directory = Files.createTempDirectory("github-projection-integrity").toFile()
+        try {
+            val journal = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+            journal.enqueue(listOf(call))
+            journal.execute(call) {
+                AgentToolResult(call.callId, ToolResultContent.Text(originalProjection), isError = sourceLess, errorCode = if (sourceLess) "INVALID_ARGUMENTS" else null, dispatched = !sourceLess, sharedResult = sourceLess)
+            }
+            val journalFile = File(directory, "tool-batches/2/${combinedDigest(originalBinding)}.json")
+            val originalState = Json.parseToJsonElement(journalFile.readText()) as JsonObject
+            val entries = originalState.getValue("entries") as JsonObject
+            val entry = entries.getValue(call.callId) as JsonObject
+            val result = entry.getValue("result") as JsonObject
+            val digest = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(originalProjection)
+            assertEquals(if (sourceLess) JsonNull else JsonPrimitive(digest), result["sourceResultSha256"])
+            assertEquals(JsonPrimitive(originalProjection), result["body"])
+            assertEquals(JsonPrimitive(digest), result["projectionSha256"])
+            assertTrue((originalState.getValue("deliveredResultDigests") as JsonObject).isEmpty())
+            fun writeResult(updated: JsonObject) = journalFile.writeText(JsonObject(originalState + ("entries" to JsonObject(entries + (call.callId to JsonObject(entry + ("result" to updated)))))).toString())
+            if (legacyProjection) writeResult(JsonObject(result + ("projectionSha256" to JsonNull)))
+
+            val outputFile = File(directory, "protected-output.json")
+            fun output() = Json.parseToJsonElement(outputFile.readText()) as JsonObject
+            val context = buildJsonObject {
+                put("task_binding", taskBinding)
+                put("tool_checkpoint_binding", originalBinding)
+            }
+            val initial = GitHubOutputContinuationSession(
+                delegate = object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                        emit(ProviderEvent.Failed("Provider cooldown", errorCode = "429", providerLimit = ProviderLimitDecision("OPENROUTER", "profile", "model", 30_000, "provider-scope", "PROVIDER_RATE_LIMITED", true)))
+                    }
+                },
+                checkpointContext = context,
+                toolCheckpointBinding = originalBinding,
+                durableToolReceipts = journal::handoffReceipts,
+                durableProviderJournal = journal::providerWaitReceipts,
+                saveCheckpoint = { outputFile.writeText(it.toString()) }
+            ) { _, _, _ -> error("The initial attempt must save its provider wait") }
+                .streamRound(listOf(tool), journal.recoverySnapshot().completedExchanges).toList()
+            val expected = requireNotNull(initial.filterIsInstance<ProviderEvent.Failed>().single().providerLimit?.gitHubCheckpoint)
+            val protectedBytes = outputFile.readBytes()
+            assertTrue(expected.matches(output()))
+            assertEquals(JsonPrimitive(true), output()["tool_journal_complete"])
+            assertEquals(JsonPrimitive(1), output()["tool_journal_receipt_count"])
+
+            // Leave all receipt identities, flags and the protected output checkpoint
+            // unchanged. The saved projection is the only content-integrity boundary.
+            if (damageBody) writeResult(JsonObject(result + ("body" to JsonPrimitive(changedProjection))))
+            val protectedOutputStillMatches = outputFile.readBytes().contentEquals(protectedBytes) && expected.matches(output())
+            val stored = Json.parseToJsonElement(journalFile.readText()) as JsonObject
+            val storedEntry = (stored.getValue("entries") as JsonObject).getValue(call.callId) as JsonObject
+            val storedResult = storedEntry.getValue("result") as JsonObject
+            val storedBody = (storedResult.getValue("body") as JsonPrimitive).content
+            val projectionMatchesBody = storedResult["projectionSha256"] == JsonNull || storedResult["projectionSha256"] == JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(storedBody))
+            var reopened = 0
+            var providerRounds = 0
+            var providerBody: String? = null
+            var toolRedispatches = 0
+            val unfencedReadFailures = if (damageBody) {
+                val reader = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+                listOf(
+                    runCatching { reader.handoffReceipts(setOf(ToolHandoffReceipt.fingerprint(call))) }.exceptionOrNull(),
+                    runCatching { reader.providerWaitReceipts() }.exceptionOrNull(),
+                    runCatching { reader.recoverySnapshot() }.exceptionOrNull(),
+                    runCatching {
+                        reader.execute(call) {
+                            toolRedispatches++
+                            error("A completed operation must not be repeated")
+                        }
+                    }.exceptionOrNull()
+                )
+            } else {
+                emptyList()
+            }
+            val failure = runCatching {
+                val resolved = GitHubProviderToolCheckpoint.resolve(directory, 2, scope, "new-parent", expected, output(), persistent = true)
+                val restarted = ToolBatchCheckpoint.forTurn(directory, 2, resolved.binding, persistent = true, expectedProviderEvidenceDigest = resolved.evidenceDigest, expectedProviderJournalDigest = resolved.journalDigest)
+                val recovered = restarted.recoverySnapshot()
+                restarted.execute(call) {
+                    toolRedispatches++
+                    error("A completed operation must not be repeated")
+                }
+                val resumed = GitHubOutputContinuationSession(
+                    delegate = object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("A restart must use its saved provider boundary")
+                    },
+                    expectedProviderCheckpoint = expected,
+                    checkpointContext = context,
+                    toolCheckpointBinding = resolved.binding,
+                    toolCheckpointEvidenceDigest = resolved.evidenceDigest,
+                    toolCheckpointJournalDigest = resolved.journalDigest,
+                    durableToolReceipts = restarted::handoffReceipts,
+                    durableProviderJournal = restarted::providerWaitReceipts,
+                    readCheckpoint = { output() },
+                    saveCheckpoint = { outputFile.writeText(it.toString()) }
+                ) { _, replay, definitions ->
+                    reopened++
+                    assertEquals(listOf(tool), definitions)
+                    providerBody = ToolHandoffReceipt.payload(replay.single().results.single().content)
+                    object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                            providerRounds++
+                            emit(ProviderEvent.TextDelta("Continued from the unchanged retained receipt."))
+                            emit(ProviderEvent.Completed)
+                        }
+                    }
+                }.streamRound(listOf(tool), recovered.completedExchanges).toList()
+                assertEquals(ProviderEvent.Completed, resumed.last())
+            }.exceptionOrNull()
+            return ProjectionRestart(failure, reopened, providerRounds, providerBody, toolRedispatches, protectedOutputStillMatches, projectionMatchesBody, unfencedReadFailures)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    private data class ProjectionRestart(val failure: Throwable?, val reopened: Int, val providerRounds: Int, val providerBody: String?, val toolRedispatches: Int, val protectedOutputStillMatches: Boolean, val projectionMatchesBody: Boolean, val unfencedReadFailures: List<Throwable?>)
 
     private fun currentCheckpoint(exchanges: List<AgentToolExchange>): JsonObject {
         val legacy = legacyCheckpoint(exchanges)

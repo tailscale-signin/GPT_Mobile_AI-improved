@@ -167,6 +167,9 @@ class PrivateLocalToolSessionTest {
                 object : AgentProviderSession {
                     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
                         assertTrue(PrivacyModeStore.active())
+                        val privacy = requireNotNull(currentCoroutineContext()[ConversationPrivacyContext])
+                        assertEquals(27, privacy.chatId)
+                        assertTrue(privacy.enabled)
                         fixture.state = fixture.state.copy(revision = 2)
                         requireNotNull(currentCoroutineContext()[RequestAuthorizationGuard]).validate()
                         fixture.dispatches++
@@ -179,6 +182,7 @@ class PrivateLocalToolSessionTest {
         val failure = runCatching { session.streamRound(listOf(local.definition), emptyList()).toList() }.exceptionOrNull()
         assertTrue(failure?.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true)
         assertEquals(0, fixture.dispatches)
+        assertFalse(PrivacyModeStore.active())
     }
 
     @Test fun missingConversationPolicyFailsBeforeOpeningAnyProvider() = runTest {

@@ -157,9 +157,33 @@
       "FactVaultIdentityRegressionTest.kt": "4d5d40a0600f40ce0f8bea18a0dc2790bb0549aee6b4301975f4e3834f96e83d"
     }
   },
-  "last_reconciled_remote_head": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+  "last_reconciled_remote_head": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
   "pending_concurrent_scope": [
     "acceptance-completion-70afcf89: preserve and review the separately announced 16-finding/30-scenario implementation before final readiness.",
     "github-coding-benchmark-2026-11-22: preserve and review the separately announced benchmark audit implementation before final readiness."
-  ]
+  ],
+  "full_suite_fixture_review_followup": {
+    "source_base": "35228794d6fb667a56f0ff97c80672852093d74b",
+    "status": "INTEGRATED_FORMATTED_PENDING_HOSTED_ANDROID_TESTS",
+    "review": "All41 earlier6e788 failures mapped:4 already corrected in subsequent commits and37 corrected by352. Preserve every incoming production fix and fixture without weakening guards. This is a source review, not a current-head full-suite pass.",
+    "additional_regressions": [
+      "Ordinary audit observation remains effective privacy=false when featureAvailable=true, retaining measured score and revision; saved private observation retains changedDuringProbe=false",
+      "Private local provider callback retains conversation27 enabled=true; rejected callback performs no dispatch and leaves ambient policy inactive",
+      "Gateway engineering start, reconnect and observe reject both private and missing saved policy before model/profile preparation, admission writes and remote work; six policy checks, all downstream call counts zero"
+    ],
+    "local_validation": "Independent source review, pinned ktlint1.3.1 and whitespace checks pass. No faithful narrow runtime harness spans these complete repository/export/session graphs; full exact-current-head Android CI must execute the changed classes.",
+    "related_integrity_followup": "Acceptance checkpoint records two separate25-test actual-source host suites,616 canonical checks and the preserved incoming journal regression union. No deduplicated all-suite total is claimed.",
+    "publication_gate": "Keep draft for pending map/MCP follow-up, coding benchmark and agent integration scopes. Require green final PR head, exact main checks and signed Android/Gateway release readback.",
+    "concurrent_followup_preserved": "Keep c14 private-context active/cleanup and missing-policy constructor tests, real private Gateway admission guard regression and Robolectric wrapper for durable denied web-search evidence. Retain supplemental captured chat identity and start/reconnect/observe ordering assertions. Preserve the subsequent ede2 bounded PCM priming correction; its source and the new voice startup fixture failures remain subject to current-head CI.",
+    "new_hosted_observation": {
+      "run_id": 45080132750,
+      "source": "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+      "tests": 12916,
+      "failed": 48,
+      "skipped": 5,
+      "already_mapped_repaired_by_352": 37,
+      "new_cases_pending_current_source_triage": 11,
+      "new_groups": "One OpenRouter setup cancellation case and ten voice start/buffering/diagnostic/callback cases. This stale-source run is diagnostic evidence only, not qualification of the current head. Corresponding test classes have not changed since ba775, so do not dismiss the failures solely because the source revision is older."
+    }
+  }
 }

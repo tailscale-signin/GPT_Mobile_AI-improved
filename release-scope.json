@@ -7,7 +7,6 @@
     "Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.",
     "Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.",
     "Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.",
-    "Reserve accepted PCM against measured next-phrase synthesis time within a bounded five-second reserve, preserve natural first clauses, and align follow-up phrase targets to Quality 24 words, Balanced 16 and Fast 12 with adaptive Auto pacing.",
     "Separate first visible text, publishable phrase, queued speech, prepared PCM and presented audio timings; distinguish warm-at-request from engine reuse and show measured buffering, refill and effective-provider evidence.",
     "Repair Kokoro QNN partition proposals with a convex, static-interface graph adapter; select the concrete GPU or NPU device and keep dynamic duration/alignment sections on CPU within the same audio-and-timing inference.",
     "Qualify backend execution from valid PCM, aligned durations and actual kernel profiles for each prepared token shape; retain bounded device/model/runtime/lexicon/thread-scoped capability receipts and explicit rechecks. Auto retains CPU unless measured accelerator cost, including preparation, is at least 10% lower.",
@@ -90,7 +89,9 @@
     "Retain ambiguous interrupted TLS read evidence through legacy recovery while keeping typed handshake and peer-admission failures separate; preserve all existing certificate and retry policies.",
     "Keep saved-room privacy, reporter feature negotiation, audit metadata and schema-budget integration fixtures aligned with their complete production contracts.",
     "Validate every present stored journal projection hash against its retained body before recovery, replay and explicit budget retry; preserve legacy absent-hash compatibility and settled-call deduplication.",
-    "Start speech when all bounded PCM queue slots are occupied even when partial phrase tails leave accepted duration below the measured reserve; retain queue and reserve limits, lifecycle fences and deadline behavior."
+    "Start speech when all bounded PCM queue slots are occupied even when partial phrase tails leave accepted duration below the measured reserve; retain queue and reserve limits, lifecycle fences and deadline behavior.",
+    "Report invalid retained journal projections as typed recovery-integrity failures while omitting unverified observed digests and counts; preserve legacy recovery, settled-call deduplication and prior budget refusal checks.",
+    "Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",

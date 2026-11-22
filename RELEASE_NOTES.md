@@ -2,6 +2,11 @@
 
 Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains the Gateway 18 contract.
 
+## Recovery and request consistency
+
+- Reject altered saved tool-result bytes with the typed recovery-integrity error, without fabricating observed receipt counts or digests.
+- Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.
+
 ## Voice chat and captions
 
 - Give microphone and typed voice messages a dedicated conversational response policy: answer first in short natural sentences, ask one useful clarification when needed, and retain the selected profile's facts, permissions and privacy rules across queues, retries and recovered turns.

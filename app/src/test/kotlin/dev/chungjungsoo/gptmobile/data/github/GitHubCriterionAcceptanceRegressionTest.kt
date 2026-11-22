@@ -124,6 +124,21 @@ class GitHubCriterionAcceptanceRegressionTest {
         }
     }
 
+    @Test fun politeInspectionCannotBorrowCommitAndTestEvidence() {
+        val request = "Please inspect source and add a regression"
+        val requirements = GitHubRequestCompletion.requirements(request)
+        assertEquals(listOf("Please inspect source", "add a regression"), requirements)
+        val criterion = GitHubAcceptanceContract.criteria(request, requirements).first()
+        val records = linkedMapOf("implementation" to implementation(testPath), "unit-tests" to testJobs())
+        assertEquals(GitHubAcceptanceLedger.State.PASS, GitHubRequestCompletion.engineeringAcceptance(regressionAcceptance, records).state)
+        val missing = GitHubCriterionAcceptance.evaluate(criterion, regressionAcceptance, records.keys, records, now = 1002)
+        assertEquals(GitHubAcceptanceLedger.State.NOT_TESTED, missing?.state)
+
+        val observed = records + ("source" to source(sourcePath, "fun relevant() = true"))
+        val accepted = GitHubCriterionAcceptance.evaluate(criterion, regressionAcceptance, observed.keys, observed, now = 1002)
+        assertEquals(GitHubAcceptanceLedger.State.PASS, accepted?.state)
+    }
+
     @Test fun compoundInstructionAndTestInspectionRequiresBothObservedCategories() {
         val criterion = "Inspect repository instructions and relevant tests"
         val instructions = source("AGENTS.md", instructionSource)
@@ -263,6 +278,27 @@ class GitHubCriterionAcceptanceRegressionTest {
             GitHubAcceptanceLedger.State.PASS,
             assess(criterion, linkedMapOf("draft-create" to draftCreation(), "draft-read" to draftReadback()), links())?.state
         )
+    }
+
+    @Test fun politeDraftCriteriaRetainConstraintsAndExactReadback() {
+        val records = linkedMapOf("draft-create" to draftCreation(), "draft-read" to draftReadback())
+        for (prefix in listOf("Please", "PLEASE")) {
+            val criterion = "$prefix prepare a draft pull request titled \"Expected title\" in owner/repo"
+            assertEquals(GitHubAcceptanceLedger.State.PASS, assess(criterion, records, links())?.state)
+            for ((title, repository) in listOf("Different title" to "owner/repo", "Expected title" to "other/repository")) {
+                assertNotPassed(
+                    criterion,
+                    linkedMapOf("draft-create" to draftCreation(title = title, repository = repository), "draft-read" to draftReadback(title = title, repository = repository)),
+                    links()
+                )
+            }
+            for (read in listOf(draftReadback(number = 18), draftReadback(revision = parent), draftReadback(draft = false))) {
+                assertNotPassed(criterion, records + ("draft-read" to read), links())
+            }
+            for (suffix in listOf("with all required checks passing", "into the release branch")) {
+                assertNotPassed("$prefix prepare a draft pull request $suffix", records, links())
+            }
+        }
     }
 
     @Test fun unsupportedDraftConditionsCannotBeDiscardedByTheSimpleCreationEvaluator() {

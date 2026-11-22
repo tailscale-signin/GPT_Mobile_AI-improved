@@ -75,6 +75,8 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
     @Serializable private data class Result(val body: String, val json: Boolean, val error: Boolean, val dispatched: Boolean, val code: String?, val callLimit: Boolean, val outputLimit: Boolean, val execution: JsonObject? = null, val sourceResultSha256: String? = null, val projectionSha256: String? = null) {
         fun canProveDelivery(): Boolean = !error && code !in ToolResultEnvelope.unknownOutcomeCodes && execution?.get("requires_reconciliation") != JsonPrimitive(true)
 
+        fun hasValidProjection(): Boolean = projectionSha256 == null || projectionSha256 == dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(body)
+
         fun restore(id: String): AgentToolResult {
             // The body is an evictable replay projection. Its original identity was
             // captured before compaction and must survive a process restart.
@@ -121,21 +123,19 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         require(saved.binding == binding) { "Tool recovery authorization changed." }
         require(saved.entries.size <= 1024 && saved.pending.distinct().size == saved.pending.size && saved.pending.all(saved.entries::containsKey)) { "Tool recovery journal has invalid call identities." }
         require(saved.entries.all { (id, entry) -> id.isNotBlank() && id == entry.call.id }) { "Tool recovery journal has inconsistent receipts." }
+        // A protected receipt binds persisted bytes only if its saved projection
+        // still describes those bytes. Check before restoring or deriving receipts;
+        // legacy results without a saved hash derive their identity from the body.
+        if (saved.entries.values.any { it.result?.hasValidProjection() == false || it.priorBudgetRejection?.hasValidProjection() == false }) {
+            throw ProviderRecoveryFailure(
+                "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+                correlation = providerRecoveryCorrelation(saved, null, "TOOL_JOURNAL_CHANGED")
+            )
+        }
         saved.entries.values.forEach { entry ->
             val call = entry.call.event()
             if (call.originalInvocation != null) call.providerInvocation()
         }
-        // A stored projection can be the only retained result identity. Validate
-        // its bytes before either recovery evidence or replay can reuse that hash.
-        // Older journals without a projection hash retain their existing fallback.
-        require(
-            saved.entries.values.all { entry ->
-                listOfNotNull(entry.result, entry.priorBudgetRejection).all { result ->
-                    result.projectionSha256 == null ||
-                        result.projectionSha256 == dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body)
-                }
-            }
-        ) { "Tool recovery ledger has invalid stored-result projection proof." }
         require(saved.batches.size <= 1024 && saved.batches.sumOf { it.size } <= 8192 && saved.batches.all { batch -> batch.isNotEmpty() && batch.distinct().size == batch.size && batch.all(saved.entries::containsKey) }) { "Tool recovery journal has invalid batch identities." }
         require(saved.batches.isEmpty() || saved.pending.isEmpty() || saved.batches.last() == saved.pending) { "Tool recovery pending batch no longer matches its original grouping." }
         require(saved.consumedCallIds.size <= 1024 && saved.consumedCallIds.all { saved.entries[it]?.result != null }) { "Tool recovery ledger has invalid consumed identities." }
@@ -204,17 +204,21 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         return if (saved.jobContext == null && initialJob != null) saved.copy(jobContext = initialJob) else saved
     }
 
-    private fun providerRecoveryCorrelation(state: State, receipts: List<ToolHandoffReceipt>, reason: String): JsonObject = buildJsonObject {
+    private fun providerRecoveryCorrelation(state: State, receipts: List<ToolHandoffReceipt>?, reason: String): JsonObject = buildJsonObject {
         put("checkpoint_validation_stage", "TOOL_JOURNAL")
         put("checkpoint_mismatch_reason", reason)
         put("tool_checkpoint_binding_sha256", dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(binding))
         expectedProviderEvidenceDigest?.let { put("expected_tool_evidence_digest", it) }
         expectedProviderJournalDigest?.let { put("expected_tool_journal_digest", it) }
-        put("observed_tool_evidence_digest", GitHubProviderReplayEvidence.digest(receipts))
-        GitHubProviderReplayEvidence.journalDigest(receipts)?.let { put("observed_tool_journal_digest", it) }
+        if (receipts != null) {
+            put("observed_tool_evidence_digest", GitHubProviderReplayEvidence.digest(receipts))
+            GitHubProviderReplayEvidence.journalDigest(receipts)?.let { put("observed_tool_journal_digest", it) }
+        }
         put("queued_tool_count", state.entries.values.count { !it.started && it.result == null })
-        put("unsettled_tool_count", state.entries.values.count { it.started && it.result == null } + receipts.count { it.requiresReconciliation })
-        put("settled_tool_count", receipts.size)
+        if (receipts != null) {
+            put("unsettled_tool_count", state.entries.values.count { it.started && it.result == null } + receipts.count { it.requiresReconciliation })
+            put("settled_tool_count", receipts.size)
+        }
     }
     private fun write(state: State) {
         val bytes = json.encodeToString(state.copy(schemaVersion = 2)).toByteArray()

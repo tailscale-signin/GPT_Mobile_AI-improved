@@ -190,7 +190,7 @@ internal object GitHubCriterionAcceptance {
     private val sha = Regex("[a-fA-F0-9]{40}")
     private val testPath = Regex("(?i)(?:^|/)(?:tests?|androidTest|testFixtures)(?:/|$)|(?:Test|Tests|Spec)\\.[a-z]+$|(?:^|/)test_[^/]+\\.[a-z]+$")
     private val explicitPath = Regex("[A-Za-z0-9_./-]+\\.(?:kt|kts|java|md|py|js|ts|tsx|yml|yaml|json|xml)\\b")
-    private val draftPrefix = Regex("(?i)^(?:prepare|create)\\s+(?:a |the )?draft (?:pull request|pr)\\b")
+    private val draftPrefix = Regex("(?i)^(?:please\\s+)?(?:prepare|create)\\s+(?:a |the )?draft (?:pull request|pr)\\b")
     private fun instructionPath(path: String): Boolean = path.substringAfterLast('/').equals("AGENTS.md", true) || path.substringAfterLast('/').equals("instructions.md", true) || path.endsWith("/copilot-instructions.md", true) || "/instructions/" in "/$path"
     private fun ids(value: JsonObject, key: String) = (value[key] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     private fun native(receipt: JsonObject): JsonObject? {

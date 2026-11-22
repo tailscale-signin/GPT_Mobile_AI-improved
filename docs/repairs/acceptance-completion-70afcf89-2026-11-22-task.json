@@ -9,7 +9,7 @@
   "working_branch": "work/acceptance-completion-70afcf89",
   "intent": "Implement all 16 diagnostic review findings, preserve other workers changes, validate the current PR head, merge after required checks pass, validate the exact main commit and publish the scoped release.",
   "authorization": "User explicitly authorized implementation, draft PR push, merge after green, and publication after green on 2026-11-22.",
-  "state": "LOCAL_VALIDATION_COMPLETE_DRAFT_PUSH_PENDING",
+  "state": "POST_INTEGRATION_FOLLOWUP_VALIDATED_DRAFT_PUSH_PENDING",
   "guardrails": [
     "Preserve concurrent commits; never force push",
     "Never substitute earlier-head checks for current-head evidence",
@@ -655,5 +655,54 @@
     "Do not mark all30 scenarios passed: physical audio, frame latency and device export timing remain unmeasured.",
     "Full Android/Hilt/Room/Compose, orchestration, instrumentation, security and packaging require current-head hosted gates.",
     "The release remains explicitly scoped and does not claim completion of Unified Reliability v2."
-  ]
+  ],
+  "independent_integrity_and_criterion_followup": {
+    "source_base": "f0250cf0c82b0a1939af9721a814c89129be377a",
+    "journal_finding": "A source-less settled result body could change while its stored projectionSha256 and protected output checkpoint remained unchanged. Actual recovery accepted the unchanged journal identity and replayed the altered bytes.",
+    "journal_baseline": "Actual ToolBatchCheckpoint, compactor, source receipt, replay digest, resolver, GitHubProviderCheckpoint and output continuation session: 20 tests, 19 passing and the new damaged-body rejection regression failing. All 18 existing cases and intact-source-less control pass. protected_output_hash_valid=true; journal_digest_unchanged=true; reopened=1; provider_rounds=1; damaged_body_reached_provider=true; no failure.",
+    "criterion_finding": "The splitter supports a leading please but producer classification does not, so polite inspection requests lose the dedicated pinned-source evidence obligation. The original wording, IDs and source spans must remain unchanged while classification and draft-operation prefix rewriting agree.",
+    "status": "LOCAL_VALIDATION_COMPLETE_DRAFT_PUSH_PENDING",
+    "qualification": "Focused actual-source host harnesses isolate Android AtomicFile and unrelated platform/data ports. The criterion harness uses actual receipt classification and real positive draft verification, while unrelated comparison/bulk issue adapters fail closed. Original-cause Room attachment was independently reviewed but is not executed by the journal harness. Full exact-current-head Android/JVM, instrumentation and publication gates remain required.",
+    "integrated_parent": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
+    "journal_correction": "Retain the incoming projection checks for current results and prior budget rejections, emit the existing typed PROVIDER_WAIT_CHECKPOINT_CHANGED with TOOL_JOURNAL_CHANGED before restoring receipts or replay, and omit unavailable observed digest/count fields instead of fabricating zero evidence. Keep legacy missing/null hashes compatible.",
+    "journal_validation": {
+      "result": "PASS",
+      "tests": 25,
+      "repository_tests": 23,
+      "isolated_unchanged_counterexample_and_control": 2,
+      "source": "Integrated journal recovery source and every consulted harness dependency remain hash-identical after preserving c14. All25 integrated352 source cases remain qualified; full Android orchestration is still hosted-only.",
+      "coverage": [
+        "All18 pre-existing journal cases retained",
+        "Three incoming result/body/hash, absent-field legacy/dedup and prior budget refusal cases retained",
+        "Two local explicit-null legacy and unchanged-protected-output recovery cases retained",
+        "Changed body blocks unfenced receipt reads, restoration, execute and provider reopen; no payload leaked",
+        "No invented observed evidence or journal digests, settled count or unsettled count when projection integrity is invalid"
+      ],
+      "baseline": "The same initial20-case set against f025 passed19 and failed the damaged-body rejection case; provider reopened with altered retained bytes."
+    },
+    "criterion_validation": {
+      "result": "PASS",
+      "tests": 25,
+      "baseline_failures": 3,
+      "coverage": "Full actual GitHubAcceptanceContractTest and GitHubCriterionAcceptanceRegressionTest plus the existing task-recovery slice; all8 producer types, exact wording/IDs/spans/dependencies, source-proof denial and full-suffix draft evidence retained.",
+      "baseline": "Exactly the three added regression methods fail with unmodified f025 producer/draft-prefix sources; the remaining22 pass."
+    },
+    "canonical_validation": {
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 616,
+      "seconds": 51.06,
+      "result": "PASS",
+      "literal_regexes": 1950,
+      "dynamic_regexes_skipped": 99,
+      "resource_xml_files": 36,
+      "integrated_parent": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8"
+    },
+    "other_validation": [
+      "Pinned ktlint1.3.1 on all10 changed Kotlin files, including the generated inventory",
+      "Generated architecture, audit, diagnostic and agent metadata synchronized",
+      "Room schema history checker passed",
+      "git diff --check passed"
+    ],
+    "concurrent_followup_preserved": "c14 keeps the incoming stronger private callback/missing-policy tests, actual private Gateway admission guard test and real Robolectric denied-web-search wrapper. Our supplemental guard-order/context assertions are retained alongside them. Preserve the subsequent ede2 PCM queue-full priming correction and current 5.9-second bounded reserve declaration."
+  }
 }

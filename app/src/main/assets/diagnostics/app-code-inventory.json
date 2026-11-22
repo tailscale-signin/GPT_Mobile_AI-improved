@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "e74362b29658305adf6305fd3da6922d8d7c651b41a32d91e15e67a46bdb4fea",
+  "source_digest": "889e6170b1796b484d20a5f34624dc1471bf1985bbfc633af6ce8323d6c36795",
   "file_count": 2925,
-  "indexed_line_count": 485209,
+  "indexed_line_count": 485214,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -53,7 +53,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 246,
-      "indexed_line_count": 43208
+      "indexed_line_count": 43212
     },
     {
       "id": "agent_tools",
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 272,
-      "indexed_line_count": 49222
+      "indexed_line_count": 49223
     },
     {
       "id": "research",
@@ -2055,8 +2055,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchCheckpoint.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "cae6d88cd24708efa1e948932fa914621a5b43e682f19ac4b9026e28129f6ac9",
-      "indexed_lines": 605
+      "sha256": "3f646789a32c86a3a46f1dc6976ed57f7a8208eaaa92068857729d6932914f5d",
+      "indexed_lines": 609
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchPlan.kt",
@@ -6822,8 +6822,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceContract.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "fcafe4fea729358f2017781025933ded4f8f142050096b6bfa9206239ec7433f",
-      "indexed_lines": 112
+      "sha256": "cd5bb0f3d19942c584003899a74cb4381016bdf0726b0ee9954c0dfa536320ad",
+      "indexed_lines": 113
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceDiagnostics.kt",
@@ -7193,7 +7193,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCriterionAcceptance.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "b1e06cec402f72ba54fccaa720d5c664675884e77edd44976fd5014a45dabff4",
+      "sha256": "3aa03f93c8fe594ddca16557bc7c1eac2f27695816ab428e982084ce44af5381",
       "indexed_lines": 206
     },
     {

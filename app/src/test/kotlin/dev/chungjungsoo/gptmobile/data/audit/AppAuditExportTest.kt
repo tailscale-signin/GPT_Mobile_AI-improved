@@ -101,9 +101,22 @@ class AppAuditExportTest {
         assertTrue(record.getValue("privacyPolicy").jsonObject.getValue("enabled").jsonPrimitive.boolean)
         assertFalse(record.getValue("privacyPolicy").jsonObject.getValue("featureAvailable").jsonPrimitive.boolean)
         assertEquals(7, record.getValue("privacyPolicy").jsonObject.getValue("revision").jsonPrimitive.int)
+        assertFalse(record.getValue("privacyPolicy").jsonObject.getValue("changedDuringProbe").jsonPrimitive.boolean)
         assertEquals("UNKNOWN_REASON", record.getValue("recovery").jsonObject.getValue("originalReasonCode").jsonPrimitive.content)
         assertEquals(JsonNull, record.getValue("recovery").jsonObject.getValue("retryEligibleAtEpochMs"))
         assertEquals("NO_PROFILE_SELECTED", saved.getValue("run").jsonObject.getValue("modelQualification").jsonPrimitive.content)
+    }
+
+    @Test
+    fun availablePrivacyFeatureDoesNotRelabelAnOrdinaryObservationAsPrivate() = runBlocking {
+        val observed = result("entry", AppAuditOutcome.PASS)
+        val result = observed.copy(observation = observed.observation.copy(privacyPolicy = AppAuditPrivacyEvidence(false, 7, false, featureAvailable = true)))
+        val saved = export(batch(run().copy(results = listOf(result))))
+        val policy = saved.getValue("results").jsonArray.single().jsonObject.getValue("privacyPolicy").jsonObject
+        assertFalse(policy.getValue("enabled").jsonPrimitive.boolean)
+        assertTrue(policy.getValue("featureAvailable").jsonPrimitive.boolean)
+        assertEquals(7, policy.getValue("revision").jsonPrimitive.int)
+        assertEquals(1, saved.getValue("score").jsonObject.getValue("measuredWeight").jsonPrimitive.int)
     }
 
     @Test

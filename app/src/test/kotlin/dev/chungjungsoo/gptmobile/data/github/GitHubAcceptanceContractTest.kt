@@ -29,6 +29,25 @@ class GitHubAcceptanceContractTest {
         assertEquals(criteria, GitHubAcceptanceContract.criteria(request, GitHubRequestCompletion.requirements(request)))
     }
 
+    @Test fun politeCompoundCriteriaKeepTheirWordingSpansAndEvidenceProducers() {
+        val original = GitHubRequestCompletion.requirements(request)
+        val producers = GitHubAcceptanceContract.criteria(request, original).map { it.producer }
+        for (prefix in listOf("Please", "PLEASE")) {
+            val expected = original.map { "$prefix $it" }
+            val polite = expected.joinToString(". ")
+            val requirements = GitHubRequestCompletion.requirements(polite)
+            val criteria = GitHubAcceptanceContract.criteria(polite, requirements)
+            assertEquals(expected, requirements)
+            assertEquals(producers, criteria.map { it.producer })
+            for (criterion in criteria) {
+                assertEquals(criterion.text, polite.substring(requireNotNull(criterion.sourceStart), requireNotNull(criterion.sourceEnd)))
+                assertEquals(GitHubRequestCompletion.id(criterion.text), criterion.id)
+            }
+            assertEquals(listOf(criteria.first().id), criteria[1].dependencies)
+            assertEquals(criteria.dropLast(1).map { it.id }, criteria.last().dependencies)
+        }
+    }
+
     @Test fun preservedConstraintsAndConditionalOrQuotedCommandsDoNotAcquireIndependentAuthority() {
         val task = "$request\nBudget: 48 tool calls. Do not merge or publish."
         val contract = GitHubAcceptanceContract.json(task, GitHubRequestCompletion.requirements(task))
@@ -39,6 +58,10 @@ class GitHubAcceptanceContractTest {
             assertEquals(listOf(text), GitHubAcceptanceContract.split(text))
         }
         assertEquals(GitHubAcceptanceContract.Producer.REQUEST_SPECIFIC, GitHubAcceptanceContract.producer("Inspect the files and delete the branch"))
+        for (text in listOf("Please inspect the source and, only if approved, publish the release", "Please review this example: `implement the fix and run tests`", "Please do not merge or publish the branch")) {
+            assertEquals(listOf(text), GitHubAcceptanceContract.split(text))
+            assertEquals(GitHubAcceptanceContract.Producer.REQUEST_SPECIFIC, GitHubAcceptanceContract.producer(text))
+        }
     }
 
     @Test fun legacyContractRefinementPreservesOriginalAuthorityBudgetAndDeadline() {

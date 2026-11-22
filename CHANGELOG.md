@@ -1,5 +1,7 @@
 # 0.9.66.13 — 2026-11-22
 
+- Reject altered saved tool-result bytes with the typed recovery-integrity error, without fabricating observed receipt counts or digests.
+- Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.
 - Preserve the selected Phone or Gateway source through repository-map status recovery, saved jobs and cursor continuation, keeping their evidence and pending work separate.
 - Validate retained result bytes before reusing a saved journal projection hash, preserving legacy recovery and settled-call deduplication while rejecting changed results before dispatch.
 - Keep saved-conversation privacy admission, reporter capability negotiation, audit metadata and compact tool-schema limits aligned across the full-suite integration fixtures.

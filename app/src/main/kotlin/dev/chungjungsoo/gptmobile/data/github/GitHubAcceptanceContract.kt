@@ -42,6 +42,7 @@ internal object GitHubAcceptanceContract {
 
     private const val VERB = "(?:inspect|read|identify|implement|fix|repair|add|run|validate|review|prepare|report|create|update|test|publish|merge|deploy|delete|remove|push|commit|install|cancel|rerun|apply)"
     private val start = Regex("(?i)^(?:please\\s+)?$VERB\\b")
+    private val politePrefix = Regex("(?i)^please\\s+")
     private val separator = Regex("(?i)(?:[.;!?]\\s+|,\\s+(?:and\\s+)?|\\s+(?:and(?:\\s+then)?|then|also)\\s+)(?=(?:please\\s+)?$VERB\\b)")
     private val conditional = Regex("(?i)\\b(?:if|unless|until|when|provided that|only after)\\b")
     private val quoted = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"(?:\\\\.|[^\"\\\\])*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'")
@@ -60,7 +61,7 @@ internal object GitHubAcceptanceContract {
     }
 
     fun producer(text: String): Producer {
-        val plain = text.replace(quoted) { " ".repeat(it.value.length) }.trim().removePrefix("- ")
+        val plain = text.replace(quoted) { " ".repeat(it.value.length) }.trim().removePrefix("- ").replaceFirst(politePrefix, "")
         if (conditional.containsMatchIn(plain) || split(text).size > 1) return Producer.REQUEST_SPECIFIC
         return when {
             Regex("(?i)^(?:inspect|read)\\b.*\\b(?:instructions?|source|code|tests?|files?)\\b").containsMatchIn(plain) -> Producer.SOURCE_OBSERVATION

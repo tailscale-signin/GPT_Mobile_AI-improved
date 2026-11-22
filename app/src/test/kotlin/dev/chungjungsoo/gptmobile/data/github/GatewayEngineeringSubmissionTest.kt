@@ -99,6 +99,40 @@ class GatewayEngineeringSubmissionTest {
         }
     }
 
+    @Test fun privateOrUnavailableSavedConversationStopsSubmissionAndObservationBeforeRemoteWork() = runTest {
+        val binding = retainedBinding()
+        val repository = repository()
+        val workspace = GitHubConversationContext("github", "owner", "repo", "work", "a".repeat(40), selected.uid)
+        coEvery { store.bindings(null) } returns listOf(binding)
+        for (rejection in listOf(UnverifiedServiceTransport(), IllegalStateException("The saved conversation is unavailable."))) {
+            coEvery { conversations.requireUnprotectedConversation(8) } throws rejection
+
+            assertSame(rejection, runCatching { repository.start(8, workspace, "main", "work", "Inspect the parser", GatewayEngineeringSettings()) }.exceptionOrNull())
+            assertSame(rejection, runCatching { repository.reconnect("command") }.exceptionOrNull())
+            assertSame(rejection, runCatching { repository.observe("command") }.exceptionOrNull())
+        }
+
+        coVerify(exactly = 6) { conversations.requireUnprotectedConversation(8) }
+        coVerify(exactly = 0) {
+            store.admissionState(any())
+            store.add(any())
+            store.markAdmission(any(), any())
+            settings.fetchPlatformV2s()
+            modelPreparation.prepareSelected(any(), any(), any(), any())
+            client.principal(any(), any())
+            client.capabilities(any())
+            client.prepareBinding(any(), any())
+            client.bindingCapabilities(any(), any(), any())
+            client.preflight(any(), any())
+            client.create(any(), any())
+            client.get(any(), any(), any())
+            client.control(any(), any(), any())
+            history.identity(any())
+            history.command(any(), any())
+            history.observeCommand(any(), any())
+        }
+    }
+
     @Test fun importedConversationUsesFrozenServerDestinationAndModelWithoutPhoneWorkspace() = runTest {
         val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "canonical", profileId = selected.uid, model = "original-chat-model", repository = "original-owner/original-repository", branch = "original-work", base = "default-branch", revision = 42, sourceBranch = "original-source", sourceSha = "a".repeat(40), workingBranch = "original-work")
         val local = GatewayConversationRecord("key", "gateway", "owner", "canonical", originalGateway.uid, originalGateway.apiUrl, selected.uid, 8, Json.encodeToString(snapshot))

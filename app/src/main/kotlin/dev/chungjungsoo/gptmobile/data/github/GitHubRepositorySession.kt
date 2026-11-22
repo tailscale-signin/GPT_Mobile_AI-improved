@@ -390,7 +390,7 @@ internal class GitHubRepositorySession(
 
     /** Index coverage excludes binary and unsupported blobs that preparation never fetches. */
     private fun indexableSourceEntries(entries: List<JsonObject>): List<JsonObject> {
-        val extensions = setOf("kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "json", "yaml", "yml", "xml", "toml", "md", "c", "cpp", "h", "hpp", "rs", "go", "cs", "swift", "sh", "properties", "gradle", "txt")
+        val extensions = setOf("kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "json", "yaml", "yml", "xml", "toml", "md", "c", "cc", "cpp", "h", "hpp", "rs", "go", "cs", "swift", "sh", "properties", "gradle", "txt")
         val extensionless = setOf("README", "LICENSE", "DOCKERFILE", "MAKEFILE")
         return entries.filter { entry ->
             val path = entry.s("path")
@@ -431,8 +431,173 @@ internal class GitHubRepositorySession(
         }
     }
 
+    /** A map is a native read over the selected immutable tree, not a Gateway job. */
+    internal suspend fun repositoryMap(owner: String, repo: String, args: JsonObject): JsonObject {
+        require(args.toString().length <= 64_000) { "Repository map request is too large." }
+        val action = args.s("action").ifBlank { "status" }
+        if (action !in setOf("status", "index", "architecture", "query", "node", "callers", "callees", "path", "impact", "metrics")) {
+            throw GatewayGraphResultException("PHONE_GRAPH_OPERATION_UNSUPPORTED", "This operation requires the optional Gateway map.", "SELECT_GATEWAY_ANALYSIS")
+        }
+        require(args.s("commit_sha").sha()) { "Repository map requires an immutable selected commit." }
+        require(args.s("job_action").isBlank() && args["background"] != JsonPrimitive(true)) {
+            "Phone indexing runs in bounded foreground batches."
+        }
+        val context = resolve(owner, repo, args)
+        val tree = tree(context)
+        val entries = tree.getValue("tree").jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
+        val eligible = indexableSourceEntries(entries)
+        val sourceScope = blobScope(context)
+        val checkpointKey = "phone-map-progress:${context.commitSha}:${PhoneRepositoryGraph.PARSER_VERSION}"
+        val cursorPrefix = "phone-index:${GitHubRepositoryStateStore.digest("$accountId|$connectionUid|${context.owner.lowercase()}/${context.repo.lowercase()}|${context.commitSha}|${context.treeSha}|${PhoneRepositoryGraph.PARSER_VERSION}").take(32)}:"
+        val saved = store.read(sourceScope, checkpointKey)
+        val savedPosition = (saved?.get("prepared_through") as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..eligible.size } ?: 0
+        val suppliedCursor = args.s("index_cursor")
+        val start = when {
+            args["retry_failed"] == JsonPrimitive(true) -> 0
+            suppliedCursor.isNotBlank() -> {
+                if (!suppliedCursor.startsWith(cursorPrefix)) throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_STALE", "Refresh this repository map before continuing its index.", "REFRESH_PHONE_MAP")
+                suppliedCursor.removePrefix(cursorPrefix).toIntOrNull()?.takeIf { it in 0..eligible.size }
+                    ?: throw GatewayGraphResultException("PHONE_GRAPH_CURSOR_INVALID", "Refresh this repository map before continuing its index.", "REFRESH_PHONE_MAP")
+            }
+            else -> savedPosition
+        }
+
+        fun shardKey(entry: JsonObject) = "phone-graph:${PhoneRepositoryGraph.PARSER_VERSION}:${entry.s("path").substringAfterLast('.', "").lowercase()}:${entry.s("sha")}"
+        suspend fun shard(entry: JsonObject): JsonObject? = store.read(sourceScope, shardKey(entry))
+            ?.takeIf { it.s("blob_sha") == entry.s("sha") && it["parser_version"] == JsonPrimitive(PhoneRepositoryGraph.PARSER_VERSION) }
+
+        suspend fun retainShard(entry: JsonObject, blob: JsonObject): JsonObject {
+            val parsed = withContext(Dispatchers.Default) {
+                PhoneRepositoryGraph.sourceIndex(entry.s("path"), blob.s("content"))
+            }
+            val retained = buildJsonObject {
+                put("blob_sha", entry.s("sha"))
+                put("parser_version", PhoneRepositoryGraph.PARSER_VERSION)
+                put("phone_graph", parsed)
+            }
+            store.write(sourceScope, shardKey(entry), retained)
+            return retained
+        }
+
+        val batch = if (action == "index") {
+            buildIndex(
+                context,
+                buildJsonObject { put("index_cursor", start) },
+                alreadyPrepared = { entry -> shard(entry) != null },
+                onBlob = { entry, blob -> retainShard(entry, blob) }
+            ).also { store.write(sourceScope, checkpointKey, it) }
+        } else {
+            saved
+        }
+        val position = (batch?.get("prepared_through") as? JsonPrimitive)?.intOrNull?.takeIf { it in 0..eligible.size } ?: 0
+        val inspect = action !in setOf("status", "index")
+        val cached = linkedMapOf<String, JsonObject>()
+        var indexed = 0
+        var indexedSupported = 0
+        var partialSupported = 0
+        var shardBytes = 0
+        var sourceBytes = 0
+        var unparsedCached = 0
+        var retryableFiles = 0
+        var shardsTruncated = false
+        val focus = (args["paths"] as? JsonArray).orEmpty().map { it.jsonPrimitive.content }.toSet()
+        val query = args.s("query")
+        val prioritized = if (focus.isEmpty() && query.isBlank()) {
+            eligible
+        } else {
+            eligible.sortedByDescending {
+                (if (it.s("path") in focus) 2 else 0) + (if (query.isNotBlank() && it.s("path").contains(query, true)) 1 else 0)
+            }
+        }
+        for (entry in prioritized) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            var parsed = shard(entry)
+            val hasBlob = parsed != null || store.contains(sourceScope, "blob:${entry.s("sha")}")
+            if (!hasBlob) {
+                if (position == eligible.size &&
+                    PhoneRepositorySourceIndex.supports(entry.s("path")) &&
+                    entry.s("mode") !in setOf("120000", "160000") &&
+                    (entry["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()) in 0..MAX_BLOB_BYTES.toLong()
+                ) {
+                    retryableFiles++
+                }
+                continue
+            }
+            if (inspect && parsed == null) {
+                val size = entry["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
+                // Read-time preparation stays bounded. Explicit index batches finish
+                // other cached sources and persist their reusable compact shards.
+                if (size in 0..MAX_BLOB_BYTES.toLong() && sourceBytes + size <= 4 * 1024 * 1024) {
+                    cachedSource(sourceScope, "blob:${entry.s("sha")}")?.let { blob ->
+                        sourceBytes += blob.s("content").toByteArray(Charsets.UTF_8).size
+                        parsed = retainShard(entry, blob)
+                    }
+                }
+            }
+            val prepared = parsed
+            if (prepared != null) {
+                indexed++
+                val sourceIndex = prepared["phone_graph"] as? JsonObject
+                if (sourceIndex?.get("supported") == JsonPrimitive(true)) {
+                    indexedSupported++
+                    if (sourceIndex["complete"] != JsonPrimitive(true)) partialSupported++
+                }
+            } else {
+                unparsedCached++
+                if (position == eligible.size && PhoneRepositorySourceIndex.supports(entry.s("path")) && entry.s("mode") !in setOf("120000", "160000")) retryableFiles++
+            }
+            if (inspect && prepared != null) {
+                val size = prepared.toString().toByteArray(Charsets.UTF_8).size
+                if (shardBytes + size <= 24 * 1024 * 1024) {
+                    cached[entry.s("path")] = JsonObject(prepared + ("sha" to JsonPrimitive(entry.s("sha"))))
+                    shardBytes += size
+                } else {
+                    shardsTruncated = true
+                }
+            }
+        }
+        val treeComplete = tree["truncated"] != JsonPrimitive(true)
+        val coverageComplete = indexed == eligible.size && treeComplete
+        val more = !coverageComplete && position < eligible.size
+        val status = buildJsonObject {
+            batch?.filterKeys { it in setOf("prepared_through", "fetched_this_batch", "attempted_this_batch", "skipped_this_batch", "prepared_bytes_this_batch") }?.forEach { (name, value) -> put(name, value) }
+            put("commit_sha", context.commitSha)
+            put("tree_sha", context.treeSha)
+            put("total_paths", entries.size)
+            put("eligible_paths", eligible.size)
+            put("indexed_blobs", indexed)
+            put("indexed_eligible_blobs", indexed)
+            put("unparsed_cached_files", unparsedCached)
+            put("phone_indexed_supported_files", indexedSupported)
+            put("phone_partial_supported_files", partialSupported)
+            put("phone_retryable_files", retryableFiles)
+            put("processed_files", indexed)
+            put("expected_files", eligible.size)
+            put("excluded_nonindexable_paths", entries.size - eligible.size)
+            put("tree_complete", treeComplete)
+            put("complete", coverageComplete)
+            put("coverage_complete", coverageComplete)
+            put("processing_complete", coverageComplete || position == eligible.size)
+            put("preparation_finished", position == eligible.size && treeComplete)
+            put("has_more", more)
+            if (more) put("index_cursor", cursorPrefix + position)
+            put("cached_sources_truncated", shardsTruncated || inspect && unparsedCached > 0)
+            put("loaded_source_files", cached.size)
+            put("map_source", "phone")
+            put("graph_source", "PHONE")
+            put("index_coverage_scope", "ELIGIBLE_TEXT_SOURCE_ONLY")
+            put("compiler_resolution", false)
+        }
+        return withContext(Dispatchers.Default) { PhoneRepositoryGraph.execute(context, tree, cached, status, args) }
+    }
+
     /** Explicit foreground preparation. Every batch is bounded and pinned to one SHA. */
-    private suspend fun buildIndex(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
+    private suspend fun buildIndex(
+        context: GitHubTaskSnapshot,
+        args: JsonObject,
+        alreadyPrepared: (suspend (JsonObject) -> Boolean)? = null,
+        onBlob: (suspend (JsonObject, JsonObject) -> Unit)? = null
+    ): JsonObject {
         val entries = tree(context)["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
         val eligible = indexableSourceEntries(entries)
         val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..eligible.size) }
@@ -444,7 +609,7 @@ internal class GitHubRepositorySession(
         while (next < eligible.size && next - cursor < 100 && attempted < 24 && bytes < 4L * 1024 * 1024) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             val item = eligible[next++]
-            if (!forceLiveReads() && store.contains(blobScope(context), "blob:${item.s("sha")}")) continue
+            if (!forceLiveReads() && (alreadyPrepared?.invoke(item) ?: store.contains(blobScope(context), "blob:${item.s("sha")}"))) continue
             val size = item["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
             if (size > MAX_BLOB_BYTES || size < 0) {
                 skipped++
@@ -457,6 +622,7 @@ internal class GitHubRepositorySession(
             try {
                 attempted++
                 val retained = blob(context, item)
+                onBlob?.invoke(item, retained)
                 bytes += retained.s("content").toByteArray(Charsets.UTF_8).size
                 fetched++
             } catch (cancelled: kotlinx.coroutines.CancellationException) {

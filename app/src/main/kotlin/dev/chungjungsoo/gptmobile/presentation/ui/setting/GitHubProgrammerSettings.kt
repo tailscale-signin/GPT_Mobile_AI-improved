@@ -251,7 +251,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Cache source files", style = MaterialTheme.typography.titleSmall)
-                Text("Cache file contents for on-demand reads. Build the separate symbol and dependency index in Repository map.", style = MaterialTheme.typography.bodySmall)
+                Text("Cache file contents for on-demand reads and progressive Repository map analysis on this phone. Gateway is optional.", style = MaterialTheme.typography.bodySmall)
             }
             Switch(state.prepareIndex, onIndex, modifier = Modifier.testTag("github_index_option"))
         }

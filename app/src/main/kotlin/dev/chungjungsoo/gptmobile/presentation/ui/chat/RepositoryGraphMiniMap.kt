@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -119,7 +120,7 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, sele
                     moveTo(from.x, from.y)
                     quadraticBezierTo(control.x, control.y, to.x, to.y)
                 }
-                drawPath(path, color, style = Stroke(width = if (focused) 2.5.dp.toPx() else 1.5.dp.toPx()))
+                drawPath(path, color, style = Stroke(width = if (focused) 2.5.dp.toPx() else 1.5.dp.toPx(), pathEffect = if (edge.graphCandidate()) PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx())) else null))
                 val tangent = (to - control) / (to - control).getDistance().coerceAtLeast(1f)
                 val arrow = tangent * 7.dp.toPx()
                 val wing = Offset(-tangent.y, tangent.x) * 3.5.dp.toPx()
@@ -136,7 +137,7 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, sele
             val connections = visibleEdges.count { it.graphText("source") == id || it.graphText("target") == id }
             val outside = edges.count { it.graphText("source") == id || it.graphText("target") == id } - connections
             val accent = when (kind.lowercase()) {
-                "community", "module", "package" -> colors.tertiary
+                "community", "module", "package", "directory" -> colors.tertiary
                 "file" -> colors.secondary
                 else -> colors.primary
             }
@@ -158,7 +159,7 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, sele
                         Icon(
                             when (kind.lowercase()) {
                                 "file" -> Icons.Outlined.Description
-                                "community", "module", "package" -> Icons.Outlined.AccountTree
+                                "community", "module", "package", "directory" -> Icons.Outlined.AccountTree
                                 else -> Icons.Outlined.Code
                             },
                             contentDescription = null,

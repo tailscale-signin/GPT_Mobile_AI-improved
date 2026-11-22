@@ -264,6 +264,10 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStore.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceObservation.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraph.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositorySourceIndex.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositoryMapRepository.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/ConversationCompletionReplayTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayAdmissionClientTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayChatCreatorTest.kt",
@@ -513,7 +517,11 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStoreTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceStoreThreadTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GraphIndexContinuationTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GraphIndexExecutionEvidenceTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GraphIndexExecutionEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphRepositoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/PhoneRepositoryGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/RepositoryMapRepositoryTest.kt"
       ]
     },
     "engineering": {

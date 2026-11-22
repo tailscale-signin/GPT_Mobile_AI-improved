@@ -875,5 +875,8 @@ class GatewayGraphRepositoryTest {
         }
     }
 
-    private fun action(value: String) = buildJsonObject { put("action", value) }
+    private fun action(value: String) = buildJsonObject {
+        put("action", value)
+        put("map_source", "gateway")
+    }
 }

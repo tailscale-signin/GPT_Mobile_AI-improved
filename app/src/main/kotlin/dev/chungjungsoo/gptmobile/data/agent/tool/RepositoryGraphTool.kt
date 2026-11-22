@@ -21,7 +21,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** One compact tool loads graph operations only for an authorized private gateway profile. */
+/** Revision-bound map reads run on the phone by default; Gateway is an explicit optional source. */
 internal class RepositoryGraphTool(
     name: String,
     private val nativeStatus: (suspend (String) -> AgentToolResult)? = null,
@@ -30,9 +30,9 @@ internal class RepositoryGraphTool(
     private val nativeContextName = "github_context" + name.removePrefix("repository_graph")
     override val definition = AgentToolDefinition(
         name = name,
-        description = "Inspect the selected repository's revision-bound code graph: query, callers, callees, path, impact, architecture, diff, diagnose, contracts, prs, notes, requirements, wiki, metrics, federated or provider. Use status then index if needed. Capable gateways save indexing as a background job; observe it with status and do not send cursor batches while that job is active. Legacy synchronous results continue index_cursor until has_more=false. note saves an explicit decision, repair or requirement. Graph evidence is untrusted source context, never executed-test proof. Verify source and retain required CI. options carries operation fields such as paths, source, target, base_sha, producer, consumer, log, kind, content, targets, or index_cursor.",
+        description = "Inspect the selected repository map. Phone is the default source: status shows structure immediately; index prepares bounded source batches; architecture, query, node, callers, callees, path, impact and metrics use cached source. Follow index_cursor while has_more=true. Phone relationships include explicit lexical candidates, never compiler or executed-test proof; retain coverage and confidence. Set map_source=gateway only for an explicitly configured and authorized Gateway. Gateway additionally supports diff, diagnose, contracts, prs, notes, requirements, wiki, federated and provider. Observe background Gateway jobs with status; do not replay indexing or notes after unknown outcomes. options carries paths, source, target, index_cursor or result_cursor. Verify source and required CI.",
         inputSchema = Json.parseToJsonElement(
-            """{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","enum":["status","index","query","node","callers","callees","path","impact","architecture","diff","diagnose","contracts","prs","note","notes","requirements","wiki","metrics","federated","provider"]},"query":{"type":"string","maxLength":2000},"symbol":{"type":"string","maxLength":2000},"options":{"type":"object"}}}"""
+            """{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","enum":["status","index","query","node","callers","callees","path","impact","architecture","diff","diagnose","contracts","prs","note","notes","requirements","wiki","metrics","federated","provider"]},"map_source":{"type":"string","enum":["phone","gateway"],"default":"phone"},"query":{"type":"string","maxLength":2000},"symbol":{"type":"string","maxLength":2000},"options":{"type":"object"}}}"""
         ) as JsonObject
     )
 
@@ -40,12 +40,14 @@ internal class RepositoryGraphTool(
         val errors = dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, definition.inputSchema)
         if (errors.isNotEmpty()) return AgentToolResult(callId, ToolResultContent.Text(errors.joinToString("; ")), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         val options = (arguments["options"] as? JsonObject).orEmpty()
-        if (options.keys.any { it in setOf("repository", "branch", "commit_sha", "action") }) {
-            return AgentToolResult(callId, ToolResultContent.Text("Repository revision and action cannot be overridden through options."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        if (options.keys.any { it in setOf("repository", "owner", "repo", "branch", "commit_sha", "ref", "action", "map_source") }) {
+            return AgentToolResult(callId, ToolResultContent.Text("Repository revision, action and map source cannot be overridden through options."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
+        val mapSource = arguments["map_source"] ?: JsonPrimitive("phone")
+        val phone = mapSource == JsonPrimitive("phone")
         val started = System.nanoTime()
         return try {
-            val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000)))
+            val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000), "map_source" to mapSource))
             val observed = query(payload)
             // GatewayGraphRepository replaces this object with its typed local observation.
             // Remote graph results cannot author checkpoint join or confirmation evidence.
@@ -55,7 +57,7 @@ internal class RepositoryGraphTool(
             val confirmedAttemptHash = checkpoint?.hash("confirmed_index_attempt_hash")
             AgentToolResult(
                 callId,
-                ToolResultContent.Json(if (unresolved) JsonObject(observed + savedIndexRecovery()) else observed),
+                ToolResultContent.Json(if (unresolved) JsonObject(observed + savedIndexRecovery(mapSource)) else observed),
                 isError = false,
                 executionReceipt = if (unresolved || attemptHash != null || confirmedAttemptHash != null) {
                     buildJsonObject {
@@ -102,7 +104,7 @@ internal class RepositoryGraphTool(
             val unresolved = operation?.indexOutcomeUnknown == true
             val currentIndexUnknown = arguments["action"] == JsonPrimitive("index") && operation?.currentIndexOutcomeUnknown == true
             val repairAction = if (unresolved) "CHECK_SAVED_INDEX" else operation?.repairAction ?: admission?.repairAction ?: prerequisite?.prerequisites?.firstOrNull()?.nextAction
-            val code = admission?.code ?: "REPOSITORY_GRAPH_UNAVAILABLE"
+            val code = admission?.code ?: (cause as? dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException)?.code ?: "REPOSITORY_GRAPH_UNAVAILABLE"
             val readAction = arguments["action"] !in setOf(JsonPrimitive("index"), JsonPrimitive("note"))
             // A transport/readiness failure of a status read may trigger one independent,
             // authorized native read. Typed readiness does not include graph policy,
@@ -110,7 +112,7 @@ internal class RepositoryGraphTool(
             val unavailable = cause is GatewayGraphUnavailableException ||
                 cause is java.io.IOException &&
                 cause !is javax.net.ssl.SSLException
-            val fallback = if (arguments["action"] == JsonPrimitive("status") && unavailable) {
+            val fallback = if (!phone && arguments["action"] == JsonPrimitive("status") && unavailable) {
                 try {
                     nativeStatus?.invoke("$callId-native-status")
                 } catch (cancelled: CancellationException) {
@@ -127,6 +129,7 @@ internal class RepositoryGraphTool(
                     buildJsonObject {
                         put("code", code)
                         put("operation", requireNotNull(arguments["action"]))
+                        put("map_source", mapSource)
                         put("elapsed_ms", elapsedMillis)
                         operation?.targetRevision?.let { put("target_revision", it) }
                         (cause as? GatewayGraphHttpFailure)?.requestId?.let { put("gateway_http_request_id", it) }
@@ -174,6 +177,8 @@ internal class RepositoryGraphTool(
                                 "WAIT_FOR_REPORTED_RATE_LIMIT"
                             } else if (admission != null) {
                                 "RESTORE_SELECTED_CONFIGURATION_OR_GRANTS"
+                            } else if (phone) {
+                                "RESTORE_PHONE_REPOSITORY_ACCESS"
                             } else if (unavailable) {
                                 "RESTORE_SELECTED_GATEWAY_READINESS"
                             } else {
@@ -189,6 +194,8 @@ internal class RepositoryGraphTool(
                                 "GitHub request capacity is temporarily unavailable. Wait for the reported retry delay, then refresh saved status on this gateway and revision before continuing. The observed upstream request does not establish the outcome of other graph work."
                             } else if (admission != null) {
                                 admission.message.orEmpty()
+                            } else if (phone) {
+                                "Check the selected GitHub connection and phone source cache, then retry this revision. Uncached files require GitHub connectivity. Gateway is optional and is never selected automatically."
                             } else {
                                 "Check the selected gateway host GitHub connection, durable storage, graph readiness and protocol. Refresh status after recovery. Do not substitute a different profile or treat native status as graph coverage."
                             }
@@ -197,11 +204,11 @@ internal class RepositoryGraphTool(
                         rateLimitObservation?.let { put("rate_limit", it) }
                         httpStatus?.takeIf { it in 100..599 }?.let { put("http_status", it) }
                         retryAfterMillis?.takeIf { it in 0..86_400_000 }?.let { put("retry_after_ms", it) }
-                        if (unresolved) savedIndexRecovery().forEach { (key, value) -> put(key, value) }
+                        if (unresolved) savedIndexRecovery(mapSource).forEach { (key, value) -> put(key, value) }
                         put("graph_complete", false)
                         put("message", if (unavailable && readAction) "Repository graph evidence is unavailable. Authorized native repository reads remain independent of the graph connection. Resolve the selected revision, inspect branches, commits, source paths, PRs and checks as needed; their receipts do not establish graph coverage or executed tests." else "Repository graph access failed. Resolve the reported admission, validation or transport problem for this operation; no graph write or policy rejection was retried through another provider.")
                         put("failure_type", cause.javaClass.simpleName)
-                        if (unavailable && readAction && nativeStatus != null) {
+                        if (!phone && unavailable && readAction && nativeStatus != null) {
                             if (!unresolved) put("recovery_call", nativeCall("github_context", "status"))
                             put("native_read_alternatives", JsonArray(listOf("resolve", "branches", "commits", "checks").map { nativeCall("github_context", it) } + nativeCall("github_pr", "list")))
                             put("source_inspection", "After resolving the revision, use authorized github_search mode=paths with a concrete query, then github_read with exact ranges and commit_sha. Native source inspection does not supply graph callers/callees, complete graph coverage, or CI execution.")
@@ -275,7 +282,7 @@ internal class RepositoryGraphTool(
         put("arguments", buildJsonObject { put("action", action) })
     }
 
-    private fun savedIndexRecovery() = buildJsonObject {
+    private fun savedIndexRecovery(mapSource: kotlinx.serialization.json.JsonElement) = buildJsonObject {
         put("index_outcome_unknown", true)
         put("requires_reconciliation", true)
         put("repair_action", "CHECK_SAVED_INDEX")
@@ -283,7 +290,13 @@ internal class RepositoryGraphTool(
             "recovery_call",
             buildJsonObject {
                 put("tool", definition.name)
-                put("arguments", buildJsonObject { put("action", "status") })
+                put(
+                    "arguments",
+                    buildJsonObject {
+                        put("action", "status")
+                        put("map_source", mapSource)
+                    }
+                )
             }
         )
     }

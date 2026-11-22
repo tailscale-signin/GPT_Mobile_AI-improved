@@ -1,5 +1,6 @@
 # 0.9.66.13 — 2026-11-22
 
+- Make the repository map work directly on the phone without Gateway, with immediate revision-bound structure, progressive resumable source indexing, source navigation, search and explicitly qualified relationship candidates. Preserve native GitHub permissions and encrypted cache identity; retain Gateway as an explicit optional analysis source.
 - Clarify first-chat readiness, phone/cloud/network processing routes, actual local processor receipts, research adapter availability and backup recovery guidance.
 - Centralize provider session dispatch and reduce optional preparation for routine tasks only within explicitly enabled automatic/adaptive choices, preserving accepted participants, reviews and budgets.
 - Add per-success benchmark effort and configured API cost reporting with failed-attempt inclusion, immutable price evidence, explicit unknowns and exportable measurement scope.

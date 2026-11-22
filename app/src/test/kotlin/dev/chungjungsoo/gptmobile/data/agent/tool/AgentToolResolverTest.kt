@@ -55,6 +55,66 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun explicitGatewayMapCannotReuseSharingConsentForADifferentRequestedModel() = runBlocking {
+        val profile = PlatformV2(uid = "cloud-map", name = "Cloud map", model = "approved-model")
+        val selected = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("native", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("native", ToolConnectionType.GITHUB, "https://api.github.com"))
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        settings.features = settings.features.copy(
+            conversationGitHub = mapOf(7 to selected),
+            githubProfileOverrides = mapOf(
+                profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(
+                    engineeringGatewayProfileUid = "desktop",
+                    graphSharingConsent = dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.key(profile, selected.connectionUid, selected.repository.fullName, "desktop")
+                )
+            )
+        )
+        val maps = mockk<dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository>()
+        val resolver = resolver(dao = dao, settings = settings, repositoryMaps = maps)
+        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Show the repository map", platformType = null)
+        val graph = resolver.resolve(profile.uid, ChatMcpToolConfig(github = selected), message, requestedModel = "different-model").single { it.realToolName == "repository_graph" }
+        val result = graph.tool.execute(
+            "gateway-map",
+            buildJsonObject {
+                put("action", "architecture")
+                put("map_source", "gateway")
+            }
+        )
+        assertTrue(result.isError)
+        assertEquals("GRAPH_SOURCE_SHARING_REQUIRED", result.errorCode)
+        coVerify(exactly = 0) { maps.execute(any(), any()) }
+    }
+
+    @Test fun phoneGraphIsAvailableForCloudProfileWithSessionOnlyMemoryAndNoGateway() = runBlocking {
+        val profile = PlatformV2(uid = "cloud-map", name = "Cloud map")
+        val selected = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("native", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("native", ToolConnectionType.GITHUB, "https://api.github.com"))
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        settings.features = settings.features.copy(
+            conversationGitHub = mapOf(7 to selected),
+            githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(engineeringMemory = dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.SESSION_ONLY))
+        )
+        val maps = mockk<dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository>()
+        coEvery { maps.execute(selected, any()) } returns buildJsonObject {
+            put("map_source", "phone")
+            put("compiler_resolution", false)
+        }
+        val resolver = resolver(dao = dao, settings = settings, repositoryMaps = maps)
+        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Show the repository map", platformType = null)
+        val config = ChatMcpToolConfig(github = selected)
+        val tools = resolver.resolve(profile.uid, config, message)
+        val graph = tools.single { it.realToolName == "repository_graph" }
+        val result = graph.tool.execute("phone-map", buildJsonObject { put("action", "architecture") })
+        assertFalse(result.isError)
+        coVerify(exactly = 1) { maps.execute(selected, match { it["map_source"] == JsonPrimitive("phone") }) }
+        assertTrue(requireNotNull(graph.canReuseResult).invoke())
+        settings.features = settings.features.copy(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(githubTools = false)))
+        assertFalse(requireNotNull(graph.canReuseResult).invoke())
+        assertFalse(resolver.resolve(profile.uid, config, message).any { it.realToolName == "repository_graph" })
+    }
+
     @Test fun officialMcpCopilotAssignmentIsOffInOrdinaryChatsWithoutARepositoryWrapper() = runBlocking {
         val profile = PlatformV2(uid = "ordinary", name = "Ordinary")
         val remote = connection("official", ToolConnectionType.MCP, "https://api.githubcopilot.com/mcp", authType = ToolConnectionAuthType.NONE)
@@ -1664,7 +1724,8 @@ class AgentToolResolverTest {
         statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
         managerOverride: McpClientManager? = null,
         githubAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null,
-        copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null
+        copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null,
+        repositoryMaps: dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -1691,7 +1752,8 @@ class AgentToolResolverTest {
             gitHubRepositoryState = gitHubState,
             statistics = statistics,
             gitHubPublicAuth = githubAuth,
-            copilotGateway = copilotGateway
+            copilotGateway = copilotGateway,
+            repositoryMaps = repositoryMaps
         )
     }
 

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,12 +75,13 @@ internal fun RepositoryGraphStatusContent(
     onNextPage: () -> Unit = {},
     onPreviousPage: () -> Unit = {},
     onRetryFailed: () -> Unit = {},
-    onNeighborhood: (JsonObject) -> Unit = {}
+    onNeighborhood: (JsonObject) -> Unit = {},
+    onSourceChange: (String) -> Unit = {}
 ) {
     val map = state.visibleMap
     val graph = remember(map) { repositoryGraphPresentation(map) }
-    var query by remember(context, state.gatewayProfileUid, state.mapQuery) { mutableStateOf(state.mapQuery) }
-    var selectedNode by remember(context, state.gatewayProfileUid, map) { mutableStateOf<JsonObject?>(null) }
+    var query by remember(context, state.gatewayProfileUid, state.mapSource, state.mapQuery) { mutableStateOf(state.mapQuery) }
+    var selectedNode by remember(context, state.gatewayProfileUid, state.mapSource, map) { mutableStateOf<JsonObject?>(null) }
     val visible = remember(graph, selectedNode) { graph.neighborhood(selectedNode?.graphText("id")) }
     val metadata = (state.indexStatus?.get("graph") ?: state.result?.get("graph") ?: map?.get("graph")) as? JsonObject
     val processed = (metadata?.get("processed_files") as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull?.takeIf { it >= 0 }
@@ -91,15 +94,16 @@ internal fun RepositoryGraphStatusContent(
     val indexedEmpty = map != null && graph.nodes.isEmpty()
     val canContinue = !state.indexingOnGateway && (state.indexCursor != null || state.indexingPaused || state.indexJob?.graphText("state") in setOf("PAUSED", "INTERRUPTED"))
     val queryRecoverable = state.repairAction in setOf("NARROW_GRAPH_QUERY", "RESTART_MAP_SEARCH")
-    val blocked = state.error != null && !queryRecoverable || !gatewayConfigured || state.indexOutcomeUnknown
+    val sourceConfigured = state.onPhone || gatewayConfigured
+    val blocked = state.error != null && !queryRecoverable || !sourceConfigured || state.indexOutcomeUnknown
     val label = when {
-        !gatewayConfigured -> "Setup needed"
+        !sourceConfigured -> "Setup needed"
         state.indexOutcomeUnknown -> "Check required"
         state.error != null -> "Needs attention"
         state.indexingOnGateway -> "Building on gateway"
         state.busy -> if (state.operation == "index") "Updating index" else "Checking"
         jobState == "FAILED" -> "Indexing needs attention"
-        canContinue -> "Paused"
+        canContinue -> if (state.onPhone) "Source indexing available" else "Paused"
         graph.nodes.isNotEmpty() -> if (partial) "Partial map" else "Map available"
         indexedEmpty -> "No source links"
         state.result?.get("status") == JsonPrimitive("NOT_INDEXED") -> "Not indexed"
@@ -122,11 +126,18 @@ internal fun RepositoryGraphStatusContent(
                     if (showTitle) Text("Repository map", style = MaterialTheme.typography.titleMedium)
                     Text("${context.owner}/${context.repo}", style = MaterialTheme.typography.bodyMedium)
                 }
-                if ((state.busy || state.indexingOnGateway && state.error == null) && gatewayConfigured) {
-                    TextButton(onClick = onStop, modifier = Modifier.testTag("github_repository_map_stop")) { Text("Stop") }
+                if ((state.busy || state.indexingOnGateway && state.error == null) && sourceConfigured) {
+                    TextButton(onClick = onStop, modifier = Modifier.testTag("github_repository_map_stop")) { Text(if (state.onPhone && state.operation == "index") "Pause" else "Stop") }
                 } else {
-                    TextButton(onClick = onRefresh, enabled = gatewayConfigured, modifier = Modifier.testTag("github_repository_map_refresh")) { Text("Refresh") }
+                    TextButton(onClick = onRefresh, enabled = sourceConfigured, modifier = Modifier.testTag("github_repository_map_refresh")) { Text("Refresh") }
                 }
+            }
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = state.onPhone, onClick = { onSourceChange("phone") }, label = { Text("On this phone") }, modifier = Modifier.testTag("github_repository_map_source_phone"))
+                FilterChip(selected = !state.onPhone, onClick = { onSourceChange("gateway") }, enabled = gatewayConfigured, label = { Text("Gateway") }, modifier = Modifier.testTag("github_repository_map_source_gateway"))
+            }
+            if (state.onPhone) {
+                Text("Files load directly from GitHub. Source relationships are built on this phone; Gateway is optional.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -146,9 +157,9 @@ internal fun RepositoryGraphStatusContent(
                 Text(label, Modifier.padding(horizontal = 10.dp, vertical = 5.dp).testTag("github_repository_map_phase"), style = MaterialTheme.typography.labelMedium, color = if (blocked) colors.error else colors.primary)
             }
             when {
-                !gatewayConfigured -> RepositoryGraphRepair(
+                !sourceConfigured -> RepositoryGraphRepair(
                     "Choose an engineering gateway",
-                    "Select the connection that will build and retain this repository’s map.",
+                    "Select an optional gateway, or choose On this phone to use direct GitHub source indexing.",
                     state,
                     onConfigureGateway,
                     onRefresh,
@@ -175,19 +186,39 @@ internal fun RepositoryGraphStatusContent(
                         "Your selected gateway needs its own GitHub connection before it can map this revision. Open gateway settings to review the connection."
                     } else if (queryRecoverable) {
                         "Use the search below to request a smaller result or refresh the map’s first page."
+                    } else if (state.onPhone) {
+                        "Check the selected GitHub connection and repository access, then refresh. Saved source coverage remains available for this revision."
                     } else {
                         "Check the selected gateway, then refresh this map."
                     },
                     state,
-                    onConfigureGateway.takeUnless { queryRecoverable },
+                    onConfigureGateway.takeUnless { queryRecoverable || state.onPhone },
                     onRefresh
                 )
                 state.busy || state.indexingOnGateway -> RepositoryGraphProgress(state, processed, total)
                 canContinue -> {
-                    Text("Indexing is paused", style = MaterialTheme.typography.titleMedium)
-                    Text(if (state.indexCursor != null) "Continue from the saved source-file cursor for this revision." else "Review the retained progress, then continue indexing this revision.", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (state.onPhone && state.indexingPaused) {
+                            "Source indexing is paused"
+                        } else if (state.onPhone) {
+                            "Build source relationships"
+                        } else {
+                            "Indexing is paused"
+                        },
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        if (state.onPhone) {
+                            "Build symbols and relationship candidates in bounded batches. Cached files are reused at this revision, and progress can be paused."
+                        } else if (state.indexCursor != null) {
+                            "Continue from the saved source-file cursor for this revision."
+                        } else {
+                            "Review the retained progress, then continue indexing this revision."
+                        },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                     RepositoryGraphFileProgress(processed, total)
-                    Button(onClick = onIndex, modifier = Modifier.fillMaxWidth().testTag("github_repository_map_index")) { Text("Continue indexing") }
+                    Button(onClick = onIndex, modifier = Modifier.fillMaxWidth().testTag("github_repository_map_index")) { Text(if (state.onPhone && (processed ?: 0) == 0) "Build source map" else "Continue indexing") }
                 }
                 state.searchResult != null && graph.nodes.isEmpty() -> Text("No matching file or symbol was found in this index. Unindexed or dynamic code may still contain a match.", style = MaterialTheme.typography.bodyMedium)
                 graph.nodes.isEmpty() -> {
@@ -226,13 +257,22 @@ internal fun RepositoryGraphStatusContent(
                 if (statuses != null) Text(categories.joinToString(" · ") { (key, label) -> "${statuses.graphCount(key) ?: 0} $label" }, style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("github_repository_map_coverage"))
                 if (metadata["processing_complete"] == JsonPrimitive(true) && partial) Text("Processing finished with incomplete source coverage. Missing relationships remain unknown.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 if (retryable > 0 && !blocked && !state.busy && !state.indexingOnGateway) OutlinedButton(onClick = onRetryFailed, modifier = Modifier.testTag("github_repository_map_retry_failed")) { Text("Retry $retryable failed or recoverable files") }
-                if ((statuses?.graphCount("unsupported") ?: 0) > 0) Text("Unsupported files remain listed in coverage. Files above the size limit need a source read; unavailable parsers can be retried after updating the gateway.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                if ((statuses?.graphCount("unsupported") ?: 0) > 0) Text(if (state.onPhone) "Files outside the supported source formats or size limit remain visible in coverage. Their relationships are unknown." else "Unsupported files remain listed in coverage. Files above the size limit need a source read; unavailable parsers can be retried after updating the gateway.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                if (state.onPhone) {
+                    val cached = state.indexStatus?.graphCount("indexed_eligible_blobs")
+                    val eligible = state.indexStatus?.graphCount("eligible_paths")
+                    if (cached != null && eligible != null) Text("$cached of $eligible eligible source files cached on this phone", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("github_repository_map_cached_sources"))
+                    if (!state.busy && !canContinue) RepositoryGraphFileProgress(processed, total)
+                    Text("Solid lines show file structure. Dashed lines show source relationship candidates that may need verification. Language analysis is partial and does not prove compiler-resolved calls.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, modifier = Modifier.testTag("github_repository_map_confidence"))
+                }
             }
             if (state.modelAccess != "NOT_CHECKED") {
                 Text(
                     when (state.modelAccess) {
                         "PRIVATE_PROFILE_ELIGIBLE" -> "Your private AI profile can use this repository map."
                         "REMOTE_PROFILE_AUTHORIZED" -> "Your selected remote model can receive map results for this repository."
+                        "LOCAL_GITHUB_MAP" -> "Map browsing uses this phone’s GitHub connection."
+                        "NATIVE_GITHUB_AUTHORIZED" -> "Your selected AI profile can use this phone’s repository map through its GitHub tools."
                         else -> "Map browsing is available. Check repository sharing and Privacy Mode in settings to enable model access."
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -240,7 +280,7 @@ internal fun RepositoryGraphStatusContent(
                     modifier = Modifier.testTag("github_repository_map_model_access")
                 )
             }
-            if (gatewayConfigured && (map != null || metadata != null)) {
+            if (sourceConfigured && (map != null || metadata != null)) {
                 OutlinedTextField(query, { query = it.take(2000) }, label = { Text("Find a file or symbol") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("github_repository_map_search"))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { onSearch(query) }, enabled = !state.busy && !blocked, modifier = Modifier.testTag("github_repository_map_search_submit")) { Text("Search index") }
@@ -253,20 +293,21 @@ internal fun RepositoryGraphStatusContent(
                 }
                 state.mapFocusPath?.let { Text("Connections around $it", style = MaterialTheme.typography.labelMedium) }
                 if (graph.nodes.isNotEmpty()) {
-                    val totalMatches = map?.graphCount(if (state.mapQuery.isNotEmpty()) "total_matches" else "total_files")
-                    val totalLinks = map?.graphCount("total_relationships")
+                    val totalMatches = map?.graphCount(if (state.mapQuery.isNotEmpty() || state.onPhone) "total_matches" else "total_files")
+                    val totalLinks = map?.graphCount("total_relationships") ?: map?.graphCount("total_links")
                     Text("${graph.nodes.size} loaded sources" + totalMatches?.let { if (state.mapQuery.isNotEmpty()) " · $it matching sources" else " · $it sources in this view" }.orEmpty() + " · ${graph.edges.size} loaded links" + totalLinks?.let { " of $it" }.orEmpty(), style = MaterialTheme.typography.titleSmall)
                     GraphMiniMap(visible.nodes, graph.edges, selectedId = selectedNode?.graphText("id")) { node ->
                         selectedNode = node
                         if (!state.busy && !blocked) onSelect(node)
                     }
                     if (visible.omittedNodes > 0 || visible.externalConnections > 0) Text("${visible.omittedNodes} loaded sources and ${visible.externalConnections} connections extend beyond this diagram. Select a source below to center its neighborhood.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("github_repository_map_external_links"))
+                    map?.graphCount("omitted_links")?.takeIf { it > 0 }?.let { omitted -> Text("$omitted additional links are omitted from this page. Narrow the source search to inspect them.", style = MaterialTheme.typography.bodySmall) }
                     if (visible.omittedNodes > 0) {
                         graph.nodes.forEach { node ->
                             TextButton(onClick = { selectedNode = node }, modifier = Modifier.fillMaxWidth()) { Text(node.graphText("qualified", node.graphText("name"))) }
                         }
                     }
-                    if (visible.edges.isNotEmpty()) Text("Arrows follow indexed source links. Select a source to inspect its connections.", Modifier.testTag("github_repository_map_legend"), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                    if (visible.edges.isNotEmpty()) Text(if (state.onPhone) "Arrows follow source relationships. Dashed arrows are candidates; select a source to inspect the evidence." else "Arrows follow indexed source links. Select a source to inspect its connections.", Modifier.testTag("github_repository_map_legend"), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                     selectedNode?.let { node ->
                         RepositoryGraphSourceDetail(context, node, state, graph)
                         TextButton(onClick = { onNeighborhood(node) }, enabled = !state.busy && !blocked, modifier = Modifier.testTag("github_repository_map_neighborhood")) { Text("Explore this source’s connections") }
@@ -312,7 +353,7 @@ private fun RepositoryGraphProgress(state: RepositoryGraphUiState, processed: In
     val phase = rememberGitHubProgressMotion(progress == null)
     val message = when {
         state.indexingOnGateway -> "Building on your gateway"
-        state.operation == "index" -> "Building the source map"
+        state.operation == "index" -> if (state.onPhone) "Building the source map on this phone" else "Building the source map"
         state.indexOutcomeUnknown -> "Checking the saved index"
         state.operation == "node" -> "Reading source details"
         else -> "Loading source relationships"
@@ -328,7 +369,17 @@ private fun RepositoryGraphProgress(state: RepositoryGraphUiState, processed: In
             }
         }
         RepositoryGraphFileProgress(processed, total)
-        Text(if (state.indexingOnGateway) "You can close this screen. The saved index job continues on your gateway." else "The map stays pinned to the selected revision.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+        Text(
+            if (state.indexingOnGateway) {
+                "You can close this screen. The saved index job continues on your gateway."
+            } else if (state.onPhone && state.operation == "index") {
+                "Keep this screen open while indexing. Pause or close it at any time; saved files and progress can be reused when you return."
+            } else {
+                "The map stays pinned to the selected revision."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.onSurfaceVariant
+        )
     }
 }
 
@@ -355,15 +406,15 @@ private fun RepositoryGraphSourceDetail(context: GitHubConversationContext, node
             (if (allLinks) links else links.take(6)).forEach { edge ->
                 val source = byId[edge.graphText("source")]?.graphText("name") ?: edge.graphText("source")
                 val target = byId[edge.graphText("target")]?.graphText("name") ?: edge.graphText("target")
-                Text("$source → $target · ${edge.graphText("relation", "source link").replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
+                Text("$source → $target · ${edge.graphText("relation", "source link").replace('_', ' ')}" + if (edge.graphCandidate()) " · candidate" else "", style = MaterialTheme.typography.bodySmall)
             }
             if (links.size > 6) TextButton(onClick = { allLinks = !allLinks }) { Text(if (allLinks) "Fewer links" else "All ${links.size} source links") }
             if (detail.graphText("excerpt").isNotBlank()) {
                 TextButton(onClick = { excerpt = !excerpt }) { Text(if (excerpt) "Hide source excerpt" else "Read source excerpt") }
                 if (excerpt) SelectionContainer { Text(detail.graphText("excerpt"), Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)) }
             }
-            if (path.isNotBlank() && path.split('/').none { it == ".." || it.isBlank() }) {
-                TextButton(onClick = { uri.openUri("https://github.com/${context.owner}/${context.repo}/blob/${context.commitSha}/${android.net.Uri.encode(path, "/")}") }) { Text("Open source at this revision") }
+            repositoryGraphSourceUrl(context, detail)?.let { source ->
+                TextButton(onClick = { uri.openUri(source) }) { Text(if (detail.graphText("kind") == "directory") "Open folder at this revision" else "Open source at this revision") }
             }
         }
     }

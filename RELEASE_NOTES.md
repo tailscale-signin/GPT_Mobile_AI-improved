@@ -39,6 +39,14 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 - Keep two contributors for routine tasks only when adaptive Combined participation is already enabled; preserve explicit participants, required diversity, accepted plans and hard budgets.
 - Report elapsed effort and configured API cost per successful benchmark fixture, including unsuccessful attempts and work skipped after dispatch. Preserve unknown timing, price, retry and participant usage instead of displaying partial totals as complete costs. Expose the measurement scope and exportable evidence; these measurements do not establish real-world task quality or physical-device savings.
 
+## Repository map on this phone
+
+- Open a revision-bound file and folder map directly from GitHub without configuring Gateway. Search files and indexed symbols, inspect source links, and explore caller, callee, path and impact candidates in the existing map interface.
+- Build source relationships progressively on the phone using the encrypted source cache and reusable per-blob index. Each foreground session advances through bounded batches, reports coverage, supports Pause and resumes saved progress at the same revision.
+- Distinguish observed tree structure from lexical symbol, import and call candidates. Keep unsupported files, missing sources, truncation and partial coverage visible instead of presenting an incomplete map as compiler-resolved analysis.
+- Make the phone map available to authorized native GitHub model tools without requiring an engineering Gateway or persistent engineering memory. Account, connection, profile, permission and revision checks apply to cached reads and pagination as well as downloads.
+- Retain Gateway as an explicit optional source for its additional analysis and durable background indexing. Source switches discard stale results and cursors, and failures never silently change the selected provider.
+
 ## Execution, GitHub and diagnostic reliability
 
 - GitHub choices retain separate drafts as you page between them. On narrow screens, options and actions wrap, and expanding a choice reveals the full question. Gateway host inspection reports an observed missing firewall rule without requiring properties of an absent rule.
@@ -63,6 +71,7 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 
 ## Qualification and limitations
 
+- Phone repository relationships are bounded lexical candidates, not compiler-resolved references or executed-test evidence. Unscanned, unsupported, generated and dynamic code can leave relationships unknown; current GitHub authorization and connectivity are required, and physical-phone performance remains unqualified.
 - Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.
 - Physical Android performance, selected-provider behavior and the user's Windows/Gateway network require live device/service qualification. Automated fixtures do not establish those conditions.
 - External provider rate limits, account credit balances and unavailable servers require their service or configuration conditions to recover; client changes improve classification, safe continuation and diagnostic evidence.

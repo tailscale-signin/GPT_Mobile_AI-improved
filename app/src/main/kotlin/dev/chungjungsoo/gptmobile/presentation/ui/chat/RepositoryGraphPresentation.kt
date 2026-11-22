@@ -1,10 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import java.net.URLEncoder
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** The architecture endpoint returns file dependencies, while symbol queries return nodes and edges. */
@@ -47,7 +50,7 @@ internal data class RepositoryGraphPresentation(
         val ids = visible.mapTo(mutableSetOf()) { it.graphText("id") }
         val shown = edges.filter { it.graphText("source") in ids && it.graphText("target") in ids }
         val outside = edges.count { (it.graphText("source") in ids) xor (it.graphText("target") in ids) }
-        return RepositoryGraphPresentation(visible, shown, outside, nodes.size - visible.size)
+        return RepositoryGraphPresentation(visible, shown, externalConnections + outside, nodes.size - visible.size)
     }
 
     fun page(index: Int, size: Int = 12): RepositoryGraphPresentation {
@@ -65,7 +68,8 @@ internal fun repositoryGraphPresentation(result: JsonObject?): RepositoryGraphPr
         val edges = result.graphObjects("edges")
             .filter { it.graphText("source") in ids && it.graphText("target") in ids }
             .distinctBy { Triple(it.graphText("source"), it.graphText("target"), it.graphText("relation")) }
-        return RepositoryGraphPresentation(sourceNodes, edges)
+        val external = (result["external_connections"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.coerceAtLeast(0) ?: 0
+        return RepositoryGraphPresentation(sourceNodes, edges, externalConnections = external)
     }
     val files = linkedSetOf<String>()
     val dependencies = mutableSetOf<Pair<String, String>>()
@@ -109,3 +113,21 @@ internal fun repositoryGraphPresentation(result: JsonObject?): RepositoryGraphPr
 
 internal fun JsonObject.graphText(name: String, default: String = ""): String = (get(name) as? JsonPrimitive)?.contentOrNull ?: default
 internal fun JsonObject.graphObjects(name: String): List<JsonObject> = (get(name) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+
+/** Candidate relationships must remain visually distinct from observed structure. */
+internal fun JsonObject.graphCandidate(): Boolean = graphText("relation").contains("candidate", ignoreCase = true) ||
+    graphText("confidence").lowercase() in setOf("candidate", "lexical", "heuristic", "low", "uncertain")
+
+/** Source links use the selected immutable revision, including folders and known symbol ranges. */
+internal fun repositoryGraphSourceUrl(context: GitHubConversationContext, node: JsonObject): String? {
+    val path = node.graphText("path")
+    if (path.isBlank() || path.split('/').any { it in setOf("", ".", "..") } || path.any { it.code < 32 || it.code == 127 || it == '\\' }) return null
+    if (!context.commitSha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) return null
+    fun encode(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
+    val directory = node.graphText("kind") == "directory"
+    val start = (node["line"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 }
+        ?: (node["start_line"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 }
+    val end = (node["end_line"] as? JsonPrimitive)?.intOrNull?.takeIf { start != null && it > start }
+    val anchor = if (directory || start == null) "" else "#L$start" + end?.let { "-L$it" }.orEmpty()
+    return "https://github.com/${encode(context.owner)}/${encode(context.repo)}/${if (directory) "tree" else "blob"}/${context.commitSha}/${path.split('/').joinToString("/", transform = ::encode)}$anchor"
+}

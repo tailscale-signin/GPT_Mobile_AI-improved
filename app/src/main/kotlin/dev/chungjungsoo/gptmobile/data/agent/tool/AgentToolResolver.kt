@@ -106,7 +106,8 @@ class AgentToolResolver @Inject constructor(
     private val repositoryGraphs: dev.chungjungsoo.gptmobile.data.github.GatewayGraphRepository? = null,
     private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
     private val repositoryTransfers: dev.chungjungsoo.gptmobile.data.github.GatewayRepositoryOperations? = null,
-    private val copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null
+    private val copilotGateway: dev.chungjungsoo.gptmobile.data.github.GatewayCopilotOperations? = null,
+    private val repositoryMaps: dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -1444,6 +1445,16 @@ class AgentToolResolver @Inject constructor(
             val sha = ((result?.get("object") as? JsonObject)?.get("sha") as? kotlinx.serialization.json.JsonPrimitive)?.content
             require(sha.equals(context.commitSha, ignoreCase = true)) { "Refresh the selected GitHub revision before sharing graph results." }
         }
+        suspend fun verifyGatewayGraphRead(context: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) {
+            val liveFeatures = settingRepository.getFeatureSettings()
+            val liveProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+            if (!dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.allowed(approvalProfile, features.githubProfileOverrides[profileUid], context, requestedModel) ||
+                !dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.allowed(liveProfile, liveFeatures.githubProfileOverrides[profileUid], context, requestedModel)
+            ) {
+                throw dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException("GRAPH_SOURCE_SHARING_REQUIRED", "Enable repository map sharing for this repository and the selected AI destination in GitHub settings.")
+            }
+            verifyRepositoryRead(context)
+        }
         val workspacePreferences = features.githubProfileOverrides[profileUid]
         val checkConsent = workspacePreferences?.workspaceCheckConsent
         val checkAllowed = !authorizationFailed &&
@@ -1560,16 +1571,15 @@ class AgentToolResolver @Inject constructor(
             credentialAdmissionFailed = authorizationFailed,
             workspaceQuery = workspaceQuery,
             graphQuery = if (!authorizationFailed &&
-                repositoryGraphs != null &&
-                features.githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid != null &&
-                features.githubProfileOverrides[profileUid]?.engineeringMemory != dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.SESSION_ONLY &&
+                repositoryMaps != null &&
+                actualConnection != null &&
                 workspaceContext != null &&
-                dev.chungjungsoo.gptmobile.data.github.GatewayGraphSharing.allowed(approvalProfile, features.githubProfileOverrides[profileUid], workspaceContext, requestedModel) &&
                 userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } == true
             ) {
                 { args ->
-                    verifyRepositoryRead(workspaceContext)
-                    repositoryGraphs.execute(workspaceContext, args).also { verifyRepositoryRead(workspaceContext) }
+                    val gateway = dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository.source(args) == dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository.GATEWAY
+                    if (gateway) verifyGatewayGraphRead(workspaceContext)
+                    repositoryMaps.execute(workspaceContext, args).also { if (gateway) verifyGatewayGraphRead(workspaceContext) }
                 }
             } else {
                 null

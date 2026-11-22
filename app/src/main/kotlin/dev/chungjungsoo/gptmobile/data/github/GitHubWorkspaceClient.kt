@@ -151,6 +151,15 @@ class GitHubWorkspaceClient(
     }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
+
+    /** Native map transport stays outside the agent action catalogue and never submits a repository mutation. */
+    internal suspend fun repositoryMap(owner: String, repo: String, arguments: JsonObject): JsonObject {
+        refreshCredential()
+        require(owner.isNotBlank() && repo.isNotBlank() && '/' !in owner && '/' !in repo) { "Select one GitHub repository." }
+        return withContext(Invocation(GitHubRepositoryStateStore.digest("phone-repository-map|${GitHubExecutionJournal.canonical(arguments)}"))) {
+            repositorySession.repositoryMap(owner, repo, arguments)
+        }
+    }
     internal fun transportRetryAfterMillis(): Long = scheduler.transportRetryAfterMillis()
     internal suspend fun prepareFixtureCreation(arguments: JsonObject) =
         ownedFixtures.prepareCreation("/repos/${segment(arguments.getValue("owner").jsonPrimitive.content)}/${segment(arguments.getValue("repo").jsonPrimitive.content)}", arguments)

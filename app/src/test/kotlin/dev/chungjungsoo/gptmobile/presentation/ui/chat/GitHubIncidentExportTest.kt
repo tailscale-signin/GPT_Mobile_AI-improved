@@ -9,8 +9,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubIncidentExportTest {
@@ -51,7 +49,8 @@ class GitHubIncidentExportTest {
         assertEquals(JsonPrimitive("BLOCKED"), run["acceptanceStatus"])
         assertEquals(JsonPrimitive(false), run["evidenceRetentionComplete"])
         assertEquals(JsonPrimitive(1), report["unreadableOperationRecords"])
-        assertTrue(report.toString().contains("CONTINUE_RUN"))
-        assertFalse(report.toString().contains("RETRY_FAILED_STAGE"))
+        assertEquals(JsonPrimitive(false), run["operationRecordsDecodedCompletely"])
+        // Incomplete evidence does not authorize continuation or another execution attempt.
+        assertEquals(JsonArray(emptyList()), run["recoveryActions"])
     }
 }

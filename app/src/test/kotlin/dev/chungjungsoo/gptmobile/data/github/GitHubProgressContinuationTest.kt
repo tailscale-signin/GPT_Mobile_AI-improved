@@ -59,10 +59,12 @@ class GitHubProgressContinuationTest {
         for (recovery in listOf("WAITING_FOR_APPROVAL", "USER_INPUT_REQUIRED", "RECONCILE_REMOTE_OUTCOME", "RESTORE_AUTHORIZED_CONFIGURATION", "RESUME_VERIFICATION")) {
             assertFalse(recovery, GitHubExecutionContinuation.canResume(report(recovery), receipts, 10, 1000))
         }
-        assertTrue(
-            "A fresh evidence delta may resume only the verification stage",
+        val freshVerification = JsonObject(report("RESUME_VERIFICATION") + mapOf("failure_code" to JsonPrimitive("GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION"), "evidence_retention_complete" to JsonPrimitive(true)))
+        assertTrue(GitHubEffectiveRecovery.resolve(freshVerification).verificationOnly)
+        assertFalse(
+            "A fresh evidence delta cannot turn verifier-only recovery into automatic execution",
             GitHubExecutionContinuation.canResume(
-                JsonObject(report("RESUME_VERIFICATION") + mapOf("failure_code" to JsonPrimitive("GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION"), "evidence_retention_complete" to JsonPrimitive(true))),
+                freshVerification,
                 receipts,
                 10,
                 1000,

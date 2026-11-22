@@ -1,14 +1,20 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.workspace
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
@@ -43,10 +49,15 @@ class GitHubWorkflowRecoveryActionsTest {
         val recoveries = mutableListOf<GitHubRecoveryRequest>()
         compose.setContent {
             val state = GitHubProgrammerState(chatId = 13, runs = listOf(run), eventCountsByRun = mapOf("run" to 0))
-            MaterialTheme { GitHubWorkflowExecutionContent(state, evidence, recoveries::add, {}, onRetryProvider = scheduled::add) }
+            MaterialTheme {
+                // Match the scrollable Task details host before tapping the control.
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    GitHubWorkflowExecutionContent(state, evidence, recoveries::add, {}, onRetryProvider = scheduled::add)
+                }
+            }
         }
         compose.onNodeWithText("Earliest provider retry: 1970-01-01T00:02:00Z").assertExists()
-        compose.onNodeWithText("Retry after the provider deadline").assertIsEnabled().performClick()
+        compose.onNodeWithText("Retry after the provider deadline").assertIsEnabled().performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertEquals(listOf(original), scheduled)
             assertEquals(emptyList<GitHubRecoveryRequest>(), recoveries)

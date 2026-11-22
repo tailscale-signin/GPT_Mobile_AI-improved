@@ -1204,6 +1204,7 @@ class GitHubVerifiedSessionTest {
         val gate = GitHubVerifiedSession(provider, GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), { 1000 }), "status", { 8192 }, { error("Receipt-based status needs no model formatter") }, { publicationChecks++ }, {}, { 1000 }, StandardTestDispatcher(testScheduler))
         val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, listOf(read)).toList()
         val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals("The native report must be delivered once: $published", 1, published.filterIsInstance<ProviderEvent.TextDelta>().size)
         val text = published.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertEquals(0, rounds)
         assertEquals(listOf("status", "checks", "commits").map(::JsonPrimitive), calls.map { it["action"] })
@@ -1214,6 +1215,42 @@ class GitHubVerifiedSessionTest {
         assertTrue(text, text.contains("| Branch main · Workflow result | success |"))
         assertFalse(text.contains("/data/") || text.contains("ev_") || text.contains("clean state"))
         assertEquals("PARTIAL", (published.last() as ProviderEvent.Failed).taskOutcome)
+    }
+
+    @Test fun continuationRefusalPublishesOnlyAnUndeliveredApplicationReport() = runTest {
+        val report = ProviderEvent.TextDelta("Saved repository observations remain partial.", OutputLineage(OutputOrigin.APPLICATION_REPORT))
+        val failure = ProviderEvent.Failed(
+            "The remaining acceptance criterion needs review.",
+            errorCode = "GITHUB_TASK_INCOMPLETE",
+            taskOutcome = "PARTIAL",
+            failureDetails = buildJsonObject { put("logical_continuation_allowed", false) }
+        )
+        for (previous in listOf(null, ProviderEvent.TextDelta("Unverified model draft"), report.copy(text = " "), report)) {
+            var rounds = 0
+            var retainedReports = 0
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    rounds++
+                    previous?.let { emit(it) }
+                    emit(failure)
+                }
+
+                override fun retainedFailureResponse(failure: ProviderEvent.Failed) = flow {
+                    retainedReports++
+                    emit(report)
+                    emit(failure)
+                }
+            }
+            val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, emptyList()).toList()
+            val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            val reports = published.filterIsInstance<ProviderEvent.TextDelta>().filter { it.lineage.origin == OutputOrigin.APPLICATION_REPORT && it.text.isNotBlank() }
+            assertEquals("previous=$previous", listOf(report), reports)
+            assertEquals(if (previous == report) 0 else 1, retainedReports)
+            assertEquals(1, rounds)
+            assertEquals(failure, published.filterIsInstance<ProviderEvent.Failed>().single())
+            assertTrue(published.none { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+            assertTrue(events.none { it is AgentRunEvent.ToolStarted || it is AgentRunEvent.ToolFinished })
+        }
     }
 
     @Test fun exhaustedStatusPublishesItsBudgetAndNextReadWithoutOpeningAModelContinuation() = runTest {
@@ -1571,9 +1608,11 @@ class GitHubVerifiedSessionTest {
         val report = stored.entries.single { it.key.startsWith("verification_current_") }.value
         val receipts = book.snapshot().first
         assertTrue(GitHubExecutionContinuation.progressKeys(receipts).isNotEmpty())
-        assertTrue(GitHubExecutionContinuation.canResume(report, receipts, null, null, allowVerificationResume = true))
+        assertFalse("An uncertain extractor outcome cannot authorize primary execution", GitHubExecutionContinuation.canResume(report, receipts, null, null, allowVerificationResume = true))
+        assertEquals(GitHubEffectiveRecovery.Kind.RECONCILE_REMOTE_OUTCOME, GitHubEffectiveRecovery.resolve(report).kind)
         assertEquals(1, extractions)
         assertEquals(0, corrections)
+        assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
         val failure = events.last() as ProviderEvent.Failed
         assertEquals("uncertain-extraction", failure.invocationId)
         assertEquals(JsonPrimitive(true), failure.failureDetails?.get("requires_reconciliation"))

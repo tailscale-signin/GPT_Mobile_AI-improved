@@ -1001,8 +1001,9 @@ class AgentRunner(
         var finalize = false
         if (round.failureDetails?.get("logical_continuation_allowed") == JsonPrimitive(false)) {
             // Saved-report publication does not start another model round. Keep
-            // its receipt and acceptance delivery even when continuation is forbidden.
-            if (limits.githubTask && round.calls.isEmpty()) {
+            // its receipt and acceptance delivery even when continuation is forbidden,
+            // without publishing an application report already delivered by this round.
+            if (limits.githubTask && round.calls.isEmpty() && !round.applicationReportEmitted) {
                 session.retainedFailureResponse(typedFailure).collect { event ->
                     if (event is ProviderEvent.Completed) checkpoint?.finish()
                     emit(AgentRunEvent.Provider(event))
@@ -1775,7 +1776,8 @@ class AgentRunner(
         val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null,
         val taskOutcome: String? = null,
         val failureDetails: JsonObject? = null,
-        val invocationId: String? = null
+        val invocationId: String? = null,
+        val applicationReportEmitted: Boolean = false
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -1823,6 +1825,7 @@ class AgentRunner(
         var failureInvocationId: String? = null
         var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         var textEmitted = false
+        var applicationReportEmitted = false
         var providerPayloadObserved = false
         val answerCandidate = StringBuilder()
         var toolDefinitionsRejected = false
@@ -2108,6 +2111,9 @@ class AgentRunner(
                         answerCandidate.append(event.text)
                         textEmitted = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(answerCandidate.toString())
                     }
+                    if (event is ProviderEvent.TextDelta && event.text.isNotBlank() && event.lineage.origin == dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT) {
+                        applicationReportEmitted = true
+                    }
                     emit(AgentRunEvent.Provider(event))
                 }
             }
@@ -2119,7 +2125,7 @@ class AgentRunner(
             checkpoint?.markConsumed(deliveredCallIds)
             consumedCallIds += deliveredCallIds
         }
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails, failureInvocationId, applicationReportEmitted)
     }
 
     private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {

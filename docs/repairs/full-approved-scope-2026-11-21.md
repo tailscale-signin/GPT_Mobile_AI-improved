@@ -74,6 +74,8 @@ Recorded focused results before final integration:
 - Exact recovery prerequisite controls: **39 passed**. Full reporting client contract suite: **57 passed**, including five new tests over thirteen byte-report payload variants. These reproduce and repair missing capability negotiation for bare and nested byte-failure codes while preserving approved bytes and the legacy endpoint.
 - Full reporting service: **192 passed**. Full Gateway sweep: **1,625 tests, 30 platform-dependent skips, zero failures**, plus **7 browser checks**. Each Gateway suite ran in an isolated process with the installed real runtime dependencies.
 
+- Full-suite recovery follow-up: the earlier 12,095-test Android run exposed six failures. The serialized-grant fixture was already corrected in the concurrent follow-up. The other five were reproduced with actual sources: **63 runner/verifier/progress tests**, **2 incident-export tests**, and **4 Android 34 Compose recovery-control tests** now pass. The production repair prevents duplicate native report delivery while retaining fallback for absent, blank, or model-only output. Verifier-only and incomplete-evidence expectations remain strict. The deadline test scrolls the control into the same kind of viewport used by the real workspace before asserting its owned callback and fence invalidation.
+
 The task checkpoint records implementation and local validation. The PR and release workflows record exact final-revision Android checks and publication outcomes. Intermediate passes are never substituted for checks on the final source revision.
 
 ## Qualification boundaries

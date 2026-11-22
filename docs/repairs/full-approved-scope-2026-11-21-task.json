@@ -3,7 +3,7 @@
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "base_branch": "main",
   "base_sha": "9a50912fdeb0bde59a83ea32764e0b403b19e620",
-  "source_sha": "60dfcb79cf3096a366cd4bcf9496334fc89f647e",
+  "source_sha": "4e40cd883bf0b6d910a4d9c6ef99d48891f7a8ca",
   "working_branch": "fix/offline-kokoro-release-publication-2026-11-21",
   "parent_pr": 2126,
   "intent": "Complete all 17 approved repairs and 16 conversation/intelligence improvements alongside the concurrent 21-issue patch, preserve shared-branch commits, validate, merge and publish Android 0.9.66.12 (146) and Gateway 18.1.0.",
@@ -40,7 +40,7 @@
       "status": "PENDING"
     }
   ],
-  "integrated_remote_base": "c7d507a32986f75adab38b303bdb3019b0c889a4",
+  "integrated_remote_base": "4e40cd883bf0b6d910a4d9c6ef99d48891f7a8ca",
   "intake_issues": [
     2214,
     2215,
@@ -121,6 +121,23 @@
       "runtime_tests": 1,
       "runtime_failures": 0,
       "scope": "Verification-only zero acquisition/provider dispatch and exact native refusal; ordinary retry search/read preserved."
+    },
+    "full_suite_recovery_followup": {
+      "superseded_ci_run": 44969292584,
+      "superseded_unit_job": 137047403010,
+      "superseded_tests": 12095,
+      "superseded_failures": 6,
+      "superseded_skips": 5,
+      "serialized_budget_fixture": "PRESERVED_CONCURRENT_CORRECTION",
+      "actual_runner_verifier_progress_tests": 63,
+      "actual_incident_export_tests": 2,
+      "actual_android34_compose_tests": 4,
+      "result": "PASS",
+      "production_fix": "Prevent duplicate retained application-report publication while preserving fallback for absent, blank and model-only output.",
+      "fixture_corrections": "Retain verifier-only and incomplete-evidence refusal; match the scrollable deadline-control host and require a displayed click.",
+      "production_stubs": false,
+      "canonical_fast": "PASS_601_TESTS",
+      "changed_kotlin_formatting": "PASS_6_FILES"
     }
   },
   "remaining": [

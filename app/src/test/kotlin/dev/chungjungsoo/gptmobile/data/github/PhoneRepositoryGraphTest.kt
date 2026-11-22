@@ -471,6 +471,40 @@ class PhoneRepositoryGraphTest {
         assertTrue(source.objects("calls").isEmpty())
     }
 
+    @Test fun identicalRelativePythonImportsStayWithinTheirSourcePackage() {
+        val sources = mapOf(
+            "pkg1/main.py" to "from .support import run\ndef first():\n    run()",
+            "pkg1/support.py" to "def run():\n    pass",
+            "pkg2/main.py" to "from .support import run\ndef second():\n    run()",
+            "pkg2/support.py" to "def run():\n    pass"
+        )
+        val result = execute(tree(*sources.keys.toTypedArray()), cached(sources), complete = true)
+        val expected = setOf("pkg1/main.py" to "pkg1/support.py", "pkg2/main.py" to "pkg2/support.py")
+        val imports = result.objects("edges").filter { it.text("relation") == "import_candidate" }
+        assertEquals(expected, imports.map { it.text("source") to it.text("target") }.toSet())
+        val nodes = result.objects("nodes").associateBy { it.text("id") }
+        val calls = result.objects("edges").filter { it.text("relation") == "call_candidate" }
+        assertEquals(expected, calls.map { nodes.getValue(it.text("source")).text("path") to nodes.getValue(it.text("target")).text("path") }.toSet())
+    }
+
+    @Test fun completePathSearchCanStillEstablishAbsenceWithinTheIndex() {
+        val sources = mapOf("A.kt" to "", "B.kt" to "")
+        val result = execute(
+            tree(*sources.keys.toTypedArray()),
+            cached(sources),
+            "path",
+            buildJsonObject {
+                put("source", "A.kt")
+                put("target", "B.kt")
+            },
+            complete = true
+        )
+        assertEquals("NO_PATH_IN_INDEX", result.text("status"))
+        assertEquals("true", result.text("path_search_complete"))
+        assertEquals("false", result["graph"]!!.jsonObject.text("graph_truncated"))
+        assertEquals("true", result["graph"]!!.jsonObject.text("coverage_complete"))
+    }
+
     private fun callChain(last: Int) = (0..last).joinToString("\n") { index -> if (index < last) "fun f$index() { f${index + 1}() }" else "fun f$index() {}" }
 
     private fun fanOutSources(leaves: Int) = mapOf(

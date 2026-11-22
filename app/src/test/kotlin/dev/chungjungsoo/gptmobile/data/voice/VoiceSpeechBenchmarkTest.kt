@@ -120,8 +120,40 @@ class VoiceSpeechBenchmarkTest {
         val report = VoiceSpeechBenchmarkRunner(create = { engine }, nanoTime = { clock.nanos })
             .run(VoiceSpeechBenchmarkReport(1, configuration(listOf(VoiceSpeechBackend.CPU)))) {}
         assertEquals(VoiceSpeechFailureCode.OUTPUT_INVALID, report.results.single().failure)
+        assertEquals("cpu", report.results.single().failureEffectiveProvider)
+        assertEquals(0, report.results.single().failureAcceleratorKernels)
+        assertEquals(20, report.results.single().failureCpuKernels)
         assertTrue(report.results.single().samples.isEmpty())
         assertTrue(engine.closed)
+    }
+
+    @Test fun failedLaterPhraseCannotBorrowThePreviousPhraseKernelEvidence() {
+        val clock = Clock()
+        val engine = Engine(VoiceSpeechBackend.QNN_GPU, clock)
+        var attempts = 0
+        val failing = object : VoicePhraseEngine by engine {
+            override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+                if (++attempts > 1) error("Native generation failed with private driver details")
+                return engine.generate(text, speaker, speed)
+            }
+        }
+        val report = VoiceSpeechBenchmarkRunner(create = { failing }, nanoTime = { clock.nanos })
+            .run(VoiceSpeechBenchmarkReport(1, configuration(listOf(VoiceSpeechBackend.QNN_GPU)))) {}
+        val result = report.results.single()
+        assertEquals(2, attempts)
+        assertEquals(VoiceSpeechBenchmarkBackendState.FAILED, result.state)
+        assertEquals(VoiceSpeechFailureCode.EXECUTION_FAILED, result.failure)
+        assertEquals(1, result.samples.size)
+        assertEquals("qnn-gpu", result.samples.single().effectiveProvider)
+        assertEquals(10, result.samples.single().acceleratorKernels)
+        assertEquals(20, result.samples.single().cpuKernels)
+        assertEquals(10, engine.executionEvidence.acceleratorKernels)
+        assertNull(result.failureEffectiveProvider)
+        assertNull(result.failureAcceleratorKernels)
+        assertNull(result.failureCpuKernels)
+        assertTrue(engine.closed)
+        assertFalse(voiceSpeechBenchmarkExport(report).contains("private driver details"))
+        assertNull(report.recommendation())
     }
 
     @Test fun cancellationRetainsCompletedSampleClosesEngineAndSkipsRemainingBackends() {
@@ -152,6 +184,57 @@ class VoiceSpeechBenchmarkTest {
         assertEquals(VoiceSpeechBenchmarkIssue.THERMAL_LIMIT, report.issue)
         assertEquals(1, report.completedSamples)
         assertNull(report.recommendation())
+    }
+
+    @Test fun nativeCancellationRetainsCompletedBackendWithoutRecommendingAnUnfinishedComparison() {
+        val clock = Clock()
+        val engine = Engine(VoiceSpeechBackend.CPU, clock)
+        val opened = mutableListOf<VoiceSpeechBackend>()
+        val published = mutableListOf<VoiceSpeechBenchmarkReport>()
+        val report = VoiceSpeechBenchmarkRunner(
+            create = { backend ->
+                opened += backend
+                if (backend == VoiceSpeechBackend.CPU) engine else throw java.util.concurrent.CancellationException("Native preparation cancelled")
+            },
+            nanoTime = { clock.nanos }
+        ).run(VoiceSpeechBenchmarkReport(1, configuration()), published::add)
+        assertEquals(listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU), opened)
+        assertEquals(VoiceSpeechBenchmarkRunState.CANCELLED, report.state)
+        assertNull(report.issue)
+        assertEquals(9, report.completedSamples)
+        assertTrue(report.results.first().verified)
+        assertTrue(engine.closed)
+        assertEquals(VoiceSpeechBenchmarkBackendState.CANCELLED, report.results[1].state)
+        assertTrue(report.results[1].samples.isEmpty())
+        assertNull(report.results[1].failure)
+        assertEquals(VoiceSpeechBenchmarkBackendState.NOT_RUN, report.results[2].state)
+        assertEquals(report, published.last())
+        assertNull(report.recommendation())
+    }
+
+    @Test fun interruptedWorkerCannotPublishTheInterruptedSampleOrQualifyACompleteRun() {
+        val clock = Clock()
+        val engine = Engine(VoiceSpeechBackend.CPU, clock)
+        val interrupting = object : VoicePhraseEngine by engine {
+            override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio =
+                engine.generate(text, speaker, speed).also { Thread.currentThread().interrupt() }
+        }
+        assertFalse(Thread.currentThread().isInterrupted)
+        try {
+            val report = VoiceSpeechBenchmarkRunner(create = { interrupting }, nanoTime = { clock.nanos })
+                .run(VoiceSpeechBenchmarkReport(1, configuration())) {}
+            assertTrue(Thread.currentThread().isInterrupted)
+            assertEquals(VoiceSpeechBenchmarkRunState.CANCELLED, report.state)
+            assertNull(report.issue)
+            assertEquals(1, engine.calls.size)
+            assertEquals(0, report.completedSamples)
+            assertEquals(VoiceSpeechBenchmarkBackendState.CANCELLED, report.results.first().state)
+            assertTrue(report.results.drop(1).all { it.state == VoiceSpeechBenchmarkBackendState.NOT_RUN })
+            assertTrue(engine.closed)
+            assertNull(report.recommendation())
+        } finally {
+            Thread.interrupted()
+        }
     }
 
     @Test fun comparisonIncludesPreparationAndRequiresCompletePairedCoverage() {

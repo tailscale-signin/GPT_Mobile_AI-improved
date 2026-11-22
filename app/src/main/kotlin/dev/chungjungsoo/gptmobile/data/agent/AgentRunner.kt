@@ -2415,8 +2415,10 @@ class AgentRunner(
         }
         try {
             dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.requireExecution(tool)
-        } catch (blocked: dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport) {
-            return requireNotNull(ToolFailureMetadata.authorityPrecheck(call.callId, call.name, blocked))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (blocked: Exception) {
+            return ToolFailureMetadata.authorityPrecheck(call.callId, call.name, blocked) ?: throw blocked
         }
         AgentContractValidation.admission(tool.definition, call.callId)?.let { return it }
         if (!tool.managesExecutionBudget) {

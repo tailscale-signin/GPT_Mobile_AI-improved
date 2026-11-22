@@ -10,7 +10,10 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphPrerequisite
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
+import dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
 import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
+import dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy
+import dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
@@ -23,6 +26,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Revision-bound map reads run on the phone by default; Gateway is an explicit optional source. */
@@ -49,11 +54,11 @@ internal class RepositoryGraphTool(
         }
         val mapSource = arguments["map_source"] ?: JsonPrimitive("phone")
         val phone = mapSource == JsonPrimitive("phone")
-        val accounting = if (phone) GitHubDispatchAccounting() else null
+        val phoneAccounting = if (phone) GitHubDispatchAccounting() else null
         val started = System.nanoTime()
         val result = try {
             val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000), "map_source" to mapSource))
-            val observed = if (accounting == null) query(payload) else withContext(accounting) { query(payload) }
+            val observed = if (phoneAccounting != null) withContext(phoneAccounting) { query(payload) } else query(payload)
             // GatewayGraphRepository replaces this object with its typed local observation.
             // Remote graph results cannot author checkpoint join or confirmation evidence.
             val checkpoint = (observed["index_checkpoint"] as? JsonObject)?.takeUnless { phone }
@@ -87,7 +92,7 @@ internal class RepositoryGraphTool(
                 }
             )
         } catch (cancelled: CancellationException) {
-            accounting?.cancelled()
+            phoneAccounting?.cancelled()
             throw cancelled
         } catch (failure: Exception) {
             val elapsedMillis = (System.nanoTime() - started) / 1_000_000
@@ -96,13 +101,24 @@ internal class RepositoryGraphTool(
             val privacyDenied = failure.isLocalPrivacyPolicyRejection()
             val admission = cause as? GatewayGraphAdmissionException
             val prerequisite = cause as? GatewayGraphUnavailableException
+            val phoneRejection = (cause as? GitHubRequestRejected)?.takeIf { phone }
+            val phoneCooldown = if (phone) {
+                cause as? GitHubCooldownActive ?: phoneRejection?.takeIf { it.status == 0 }?.cause as? GitHubCooldownActive
+            } else {
+                null
+            }
+            val phoneCode = phoneCooldown?.errorCode ?: phoneRejection?.let {
+                it.message.orEmpty().substringBefore(" · ").takeIf(GitHubFailurePolicy.codes::contains) ?: GitHubFailurePolicy.classify(it.status)
+            }
+            val phoneRateLimit = phoneRejection?.let { phoneRateLimitEvidence(it, requireNotNull(phoneCode)) }
             val httpStatus = when (cause) {
                 is GatewayGraphHttpFailure -> cause.httpStatus
                 is GatewayGraphUnavailableException -> cause.httpStatus
                 is dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequestRejected -> cause.httpStatus
+                is GitHubRequestRejected -> phoneRejection?.status?.takeIf { it in 100..599 }
                 else -> null
             }
-            val retryAfterMillis = when (cause) {
+            val retryAfterMillis = phoneCooldown?.delayMillis ?: (phoneRateLimit?.get("retry_after_ms") as? JsonPrimitive)?.longOrNull ?: when (cause) {
                 is GatewayGraphHttpFailure -> cause.retryAfterMillis
                 is GatewayGraphUnavailableException -> cause.retryAfterMillis
                 else -> null
@@ -117,7 +133,8 @@ internal class RepositoryGraphTool(
             } else {
                 operation?.repairAction ?: admission?.repairAction ?: prerequisite?.prerequisites?.firstOrNull()?.nextAction
             }
-            val code = if (privacyDenied) UnverifiedServiceTransport.CODE else admission?.code ?: (cause as? dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException)?.code ?: "REPOSITORY_GRAPH_UNAVAILABLE"
+            val code = if (privacyDenied) UnverifiedServiceTransport.CODE else phoneCode ?: admission?.code ?: (cause as? dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException)?.code ?: "REPOSITORY_GRAPH_UNAVAILABLE"
+            val localRejection = admission != null || phoneCooldown != null || phoneRejection?.status == 0
             val readAction = arguments["action"] !in setOf(JsonPrimitive("index"), JsonPrimitive("note"))
             // A transport/readiness failure of a status read may trigger one independent,
             // authorized native read. Typed readiness does not include graph policy,
@@ -164,7 +181,13 @@ internal class RepositoryGraphTool(
                                 "failure_category",
                                 if (unresolved && admission?.code == "GRAPH_INDEX_OUTCOME_UNKNOWN") {
                                     "RECONCILIATION_REQUIRED"
-                                } else if (admission != null || privacyDenied) {
+                                } else if (privacyDenied) {
+                                    "LOCAL_POLICY_OR_CONFIGURATION"
+                                } else if (phoneCooldown != null) {
+                                    "LOCAL_RATE_LIMIT"
+                                } else if (phoneRejection != null) {
+                                    if (phoneRejection.status == 0) "LOCAL_REQUEST_ADMISSION" else "GITHUB_HTTP_REJECTED"
+                                } else if (admission != null) {
                                     "LOCAL_POLICY_OR_CONFIGURATION"
                                 } else if (cause is java.io.IOException && cause !is javax.net.ssl.SSLException) {
                                     "TRANSPORT_UNAVAILABLE"
@@ -177,10 +200,12 @@ internal class RepositoryGraphTool(
                         put("graph_available", false)
                         put(
                             "state",
-                            if (admission != null) {
-                                "PRECHECK_REJECTED"
-                            } else if (privacyDenied) {
+                            if (privacyDenied) {
                                 "POLICY_BLOCKED"
+                            } else if (phoneCooldown != null) {
+                                "WAITING"
+                            } else if (localRejection) {
+                                "PRECHECK_REJECTED"
                             } else if (fallback?.isError == false) {
                                 "DEGRADED"
                             } else {
@@ -193,7 +218,7 @@ internal class RepositoryGraphTool(
                                 "RECONCILE_SAVED_INDEX"
                             } else if (privacyDenied) {
                                 "REVIEW_PRIVACY_MODE"
-                            } else if (rateLimitObservation != null) {
+                            } else if (rateLimitObservation != null || phoneCooldown != null || phoneRateLimit != null) {
                                 "WAIT_FOR_REPORTED_RATE_LIMIT"
                             } else if (admission != null) {
                                 "RESTORE_SELECTED_CONFIGURATION_OR_GRANTS"
@@ -212,6 +237,10 @@ internal class RepositoryGraphTool(
                                 "The earlier index request remains unconfirmed. Wait for the reported retry delay if present, then read status on this same gateway and revision to reconcile its saved checkpoint; do not repeat indexing until the checkpoint is acknowledged."
                             } else if (privacyDenied) {
                                 "Review Privacy Mode for the selected connection, then resume this repository map under the current settings. Completed reads remain recorded."
+                            } else if (phoneCooldown != null) {
+                                "Wait until the recorded GitHub cooldown deadline before another phone map read. This HTTP request was blocked locally; retained dispatch counts describe any earlier reads in this operation. Keep the selected GitHub connection and revision."
+                            } else if (phoneRejection != null) {
+                                GitHubFailurePolicy.recoveryHint(requireNotNull(phoneCode))
                             } else if (rateLimitObservation != null) {
                                 "GitHub request capacity is temporarily unavailable. Wait for the reported retry delay, then refresh saved status on this gateway and revision before continuing. The observed upstream request does not establish the outcome of other graph work."
                             } else if (admission != null) {
@@ -223,6 +252,8 @@ internal class RepositoryGraphTool(
                             }
                         )
                         repairAction?.let { put("repair_action", it) }
+                        phoneCooldown?.failureFields()?.forEach { (key, value) -> put(key, value) }
+                        phoneRateLimit?.forEach { (key, value) -> put(key, value) }
                         rateLimitObservation?.let { put("rate_limit", it) }
                         httpStatus?.takeIf { it in 100..599 }?.let { put("http_status", it) }
                         retryAfterMillis?.takeIf { it in 0..86_400_000 }?.let { put("retry_after_ms", it) }
@@ -253,18 +284,19 @@ internal class RepositoryGraphTool(
                 ),
                 true,
                 errorCode = code,
-                dispatched = admission == null,
+                dispatched = !localRejection,
                 executionReceipt = buildJsonObject {
                     put("schema", RECEIPT_SCHEMA)
                     put("call_id", callId)
                     put("action", requireNotNull(arguments["action"]))
+                    put("map_source", mapSource)
                     put("error_code", code)
                     put("elapsed_ms", elapsedMillis)
                     operation?.targetRevision?.let { put("target_revision", it) }
                     (cause as? GatewayGraphHttpFailure)?.requestId?.let { put("gateway_http_request_id", it) }
                     put(
                         "phase",
-                        if (admission != null) {
+                        if (localRejection) {
                             "PRECHECK_REJECTED"
                         } else if (currentIndexUnknown) {
                             "UNKNOWN_OUTCOME"
@@ -272,19 +304,21 @@ internal class RepositoryGraphTool(
                             "FAILED"
                         }
                     )
-                    put("failed_stage", if (admission != null) "tool_precheck" else "tool_execution")
-                    put("dispatched", admission == null)
+                    put("failed_stage", if (localRejection) "tool_precheck" else "tool_execution")
+                    put("dispatched", !localRejection)
                     put("retryable", false)
                     put("requires_reconciliation", unresolved)
                     put("index_outcome_unknown", unresolved)
                     put("current_index_outcome_unknown", currentIndexUnknown)
                     operation?.indexAttemptHash?.takeIf { it.matches(HASH) }?.let { put("graph_index_attempt_hash", it) }
                     repairAction?.let { put("repair_action", it) }
+                    phoneCooldown?.failureFields()?.forEach { (key, value) -> put(key, value) }
+                    phoneRateLimit?.forEach { (key, value) -> put(key, value) }
                     if (unresolved) put("recovery_action", "RECONCILE_OUTCOME")
                     httpStatus?.takeIf { it in 100..599 }?.let { put("http_status", it) }
                     retryAfterMillis?.takeIf { it in 0..86_400_000 }?.let { put("retry_after_ms", it) }
                     rateLimitObservation?.let { put("graph_rate_limit", it) }
-                    (if (privacyDenied) code else prerequisite?.prerequisites?.firstOrNull()?.name ?: admission?.code ?: operation?.failureCode ?: (cause as? GatewayGraphHttpFailure)?.code)?.let { put("reason_code", it) }
+                    (if (privacyDenied) code else phoneCode ?: prerequisite?.prerequisites?.firstOrNull()?.name ?: admission?.code ?: operation?.failureCode ?: (cause as? GatewayGraphHttpFailure)?.code)?.let { put("reason_code", it) }
                     if (privacyDenied) {
                         put("authority_invalidation_code", code)
                         put("authority_failed_stage", "tool_execution")
@@ -300,12 +334,16 @@ internal class RepositoryGraphTool(
                 }
             )
         }
-        return if (accounting == null) result else phoneResult(accounting, result, arguments)
+        return if (phoneAccounting == null) result else phoneResult(phoneAccounting, result, arguments)
     }
 
     /** The rejected request cannot erase earlier reads or turn local indexing into a remote write. */
     private fun phoneResult(accounting: GitHubDispatchAccounting, result: AgentToolResult, arguments: JsonObject): AgentToolResult {
-        val observed = accounting.finish(result.copy(dispatched = false), mutation = false)
+        val measured = accounting.finish(result.copy(dispatched = false), mutation = false)
+        // A typed HTTP response remains observed even if a custom query adapter
+        // does not participate in native per-request accounting. Do not attach
+        // the unavailable callback counts as zero requests to that response.
+        val observed = if (result.isError && (result.executionReceipt?.get("http_status") as? JsonPrimitive)?.intOrNull in 100..599 && !measured.dispatched) result else measured
         val privacyDenied = result.errorCode == UnverifiedServiceTransport.CODE
         val failedStage = if (observed.dispatched) "tool_execution" else "tool_precheck"
         val content = (result.content as? ToolResultContent.Json)?.value as? JsonObject
@@ -314,6 +352,7 @@ internal class RepositoryGraphTool(
                 ToolResultContent.Json(
                     JsonObject(
                         content + when {
+                            content["state"] == JsonPrimitive("WAITING") -> emptyMap()
                             !observed.dispatched -> mapOf("state" to JsonPrimitive("PRECHECK_REJECTED"))
                             privacyDenied || content["state"] == JsonPrimitive("PRECHECK_REJECTED") -> mapOf("state" to JsonPrimitive("POLICY_BLOCKED"))
                             else -> emptyMap()
@@ -348,6 +387,28 @@ internal class RepositoryGraphTool(
                 if (privacyDenied) put("authority_failed_stage", failedStage)
             }
         )
+    }
+
+    /** Match native GitHub's bounded response evidence; neither prose nor a later quota snapshot supplies wait authority. */
+    private fun phoneRateLimitEvidence(failure: GitHubRequestRejected, code: String): JsonObject? {
+        val evidence = failure.evidence ?: return null
+        if (failure.status !in setOf(403, 429) || !GitHubFailurePolicy.isRateLimited(code) || evidence["code"] != JsonPrimitive(code) || evidence["http_status"] != JsonPrimitive(failure.status)) return null
+        return buildJsonObject {
+            for ((key, allowed) in listOf(
+                "github_cooldown_resource" to GitHubCooldownActive.Resource.entries.map { it.name },
+                "github_cooldown_basis" to GitHubCooldownActive.Basis.entries.map { it.name }
+            )) {
+                (evidence[key] as? JsonPrimitive)?.takeIf { it.isString && it.content in allowed }?.let { put(key, it) }
+            }
+            for (key in listOf("github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_observed_at_ms", "github_cooldown_remaining_requests", "retry_after_ms")) {
+                val limit = when (key) {
+                    "github_cooldown_remaining_requests" -> 16_000_000L
+                    "retry_after_ms" -> 86_400_000L
+                    else -> Long.MAX_VALUE
+                }
+                (evidence[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it in 0..limit }?.let { put(key, it) }
+            }
+        }
     }
 
     private fun JsonObject.hash(key: String): String? = (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.matches(HASH) }

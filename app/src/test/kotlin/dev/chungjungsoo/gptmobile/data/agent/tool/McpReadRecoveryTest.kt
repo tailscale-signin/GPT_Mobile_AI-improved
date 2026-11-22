@@ -2,11 +2,14 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation
 import dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import java.io.EOFException
 import java.io.IOException
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.test.runTest
@@ -20,6 +23,87 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpReadRecoveryTest {
+    @Test fun concurrentDiscoveryScopesDoNotBorrowInterruptedReadEvidence() = runTest {
+        val interrupted = MetadataResponseObservation()
+        val untouched = MetadataResponseObservation()
+        val enteredRetry = CompletableDeferred<Unit>()
+        val resumeRetry = CompletableDeferred<Unit>()
+        var attempts = 0
+        val pending = async {
+            runCatching {
+                withContext(interrupted) {
+                    withMcpReadRecovery("tools/list", pause = {
+                        enteredRetry.complete(Unit)
+                        resumeRetry.await()
+                    }) {
+                        if (++attempts == 1) throw IllegalStateException("SDK wrapper", EOFException("private transport details"))
+                        throw PrivateMetadataDenied()
+                    }
+                }
+            }.exceptionOrNull()
+        }
+        enteredRetry.await()
+        val other = withContext(untouched) {
+            runCatching {
+                withMcpReadRecovery("tools/list", pause = { error("A local denial cannot retry") }) {
+                    throw PrivateMetadataDenied()
+                }
+            }.exceptionOrNull()
+        }
+        assertTrue(other?.isLocalPrivacyPolicyRejection() == true)
+        assertTrue(interrupted.hasInterruptedRead)
+        assertFalse(untouched.hasInterruptedRead)
+        resumeRetry.complete(Unit)
+        assertTrue(pending.await()?.isLocalPrivacyPolicyRejection() == true)
+        assertEquals(2, attempts)
+        assertTrue(interrupted.hasInterruptedRead)
+        assertFalse(untouched.hasInterruptedRead)
+        assertFalse(MetadataResponseObservation().hasInterruptedRead)
+    }
+
+    @Test fun knownPreDispatchFailuresDoNotInventAnUncertainRead() = runTest {
+        for ((first, expectedAttempts) in listOf(
+            UnknownHostException("DNS unavailable") to 2,
+            IllegalStateException("Not connected") to 2,
+            java.net.ConnectException("Connection refused") to 1,
+            javax.net.ssl.SSLException("Untrusted peer", EOFException()) to 1,
+            PrivateMetadataDenied() to 1
+        )) {
+            val evidence = MetadataResponseObservation()
+            var attempts = 0
+            withContext(evidence) {
+                recordMcpInterruptedRead(first)
+                runCatching {
+                    withMcpReadRecovery("tools/list", pause = {}) {
+                        if (++attempts == 1) throw first
+                        throw PrivateMetadataDenied()
+                    }
+                }
+            }
+            assertEquals(first.javaClass.simpleName, expectedAttempts, attempts)
+            assertFalse(first.javaClass.simpleName, evidence.hasInterruptedRead)
+        }
+    }
+
+    @Test fun cancellingAnInterruptedReadRetryRetainsCancellationAndNoSharedHistory() = runTest {
+        val evidence = MetadataResponseObservation()
+        val cancelled = CancellationException("Owner cancelled retry")
+        var attempts = 0
+        val failure = withContext(evidence) {
+            runCatching {
+                withMcpReadRecovery("tools/list", pause = { throw cancelled }) {
+                    attempts++
+                    throw EOFException("private transport details")
+                }
+            }.exceptionOrNull()
+        }
+        assertSame(cancelled, failure)
+        assertTrue(evidence.hasInterruptedRead)
+        assertEquals(1, attempts)
+        assertTrue(cancelled.suppressed.isEmpty())
+        assertFalse(MetadataResponseObservation().hasInterruptedRead)
+    }
+
     @Test fun firstAttemptPolicyDenialDoesNotCreateReadRetryEvidence() = runTest {
         for (denied in listOf(PrivateMetadataDenied(), UnverifiedServiceTransport(), IOException("connection reset", PrivateMetadataDenied()))) {
             val observation = MetadataResponseObservation()

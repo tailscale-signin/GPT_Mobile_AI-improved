@@ -23,9 +23,47 @@ internal object GitHubComparisonCoverage {
                 page(row) == 1 &&
                 (arguments(row)["verify_live"] == JsonPrimitive(true) || arguments(row)["refresh"] == JsonPrimitive(true))
         }
-        val generationRows = entries.drop(refresh.coerceAtLeast(0))
-            .filter { (_, row) -> arguments(row)["action"] != JsonPrimitive("changes") || identity(row) == identity }
-            .associate { it.toPair() }
+        fun direct(row: JsonObject) = row["shared_result"] != JsonPrimitive(true) && row["source_observation_receipt_id"] == null
+        fun generation(row: JsonObject) = GitHubComparisonPage.generation(row["execution"] as? JsonObject)
+        val issued = entries.mapIndexedNotNull { index, (_, row) ->
+            if (!root(row) || identity(row) != identity || !direct(row)) return@mapIndexedNotNull null
+            generation(row)?.let { index to it }
+        }
+        val firstIssued = linkedMapOf<String, Int>()
+        val namespaces = linkedMapOf<String, Int>()
+        issued.forEach { (index, generation) ->
+            firstIssued.putIfAbsent(generation.identity, index)
+            namespaces.putIfAbsent(generation.namespace, index)
+        }
+        val legacyRefresh = entries.indexOfLast { (_, row) ->
+            root(row) &&
+                identity(row) == identity &&
+                direct(row) &&
+                generation(row) == null &&
+                page(row) == 1 &&
+                (arguments(row)["verify_live"] == JsonPrimitive(true) || arguments(row)["refresh"] == JsonPrimitive(true))
+        }
+        val refreshes = issued.map { it.second }.filter { it.startsLiveRefresh && firstIssued.getValue(it.identity) > legacyRefresh }
+        val currentNamespace = refreshes.maxByOrNull { namespaces.getValue(it.namespace) }?.namespace
+        val currentGeneration = refreshes.filter { it.namespace == currentNamespace }.maxByOrNull { it.ordinal }
+        val generationRows = if (currentGeneration == null) {
+            // Persisted legacy observations cannot establish dispatch generation ownership.
+            entries.drop(refresh.coerceAtLeast(0))
+                .filter { (_, row) -> arguments(row)["action"] != JsonPrimitive("changes") || identity(row) == identity }
+        } else {
+            val first = firstIssued.getValue(currentGeneration.identity)
+            val namespaceStart = namespaces.getValue(currentGeneration.namespace)
+            entries.filterIndexed { index, (_, row) ->
+                if (arguments(row)["action"] != JsonPrimitive("changes")) return@filterIndexed true
+                if (identity(row) != identity) return@filterIndexed false
+                val observed = generation(row)
+                when {
+                    observed == null -> index >= first && index > legacyRefresh && direct(row)
+                    observed.namespace == currentGeneration.namespace -> observed.ordinal >= currentGeneration.ordinal
+                    else -> namespaces[observed.namespace]?.let { it > namespaceStart } == true
+                }
+            }
+        }.associate { it.toPair() }
         val chain = GitHubTestChecklist.paginationReceipts(generationRows) { root(it) && identity(it) == identity }
         val observedPages = chain.values.filter { row ->
             row["success"] == JsonPrimitive(true) ||
@@ -61,7 +99,8 @@ internal object GitHubComparisonCoverage {
         val pending = GitHubTestChecklist.pendingPages(chain).filterNot { recipe ->
             terminal && consistent && observedPages.any { root(it) && GitHubTestChecklist.sameCall(it, recipe, anchor) }
         }
-        val generation = if (refresh < 0) "RETAINED" else GitHubEvidenceBook.digest(entries[refresh].key)
+        val generation = currentGeneration?.identity?.let(GitHubEvidenceBook::digest)
+            ?: if (refresh < 0) "RETAINED" else GitHubEvidenceBook.digest(entries[refresh].key)
         return Coverage(chain, pending, terminal && consistent && pending.isEmpty(), identity, generation)
     }
 

@@ -152,4 +152,58 @@ class GitHubComparisonCoverageTest {
         assertNotEquals(before.identity, other.identity)
         assertFalse(other.complete)
     }
+
+    @Test fun lateOlderIssuedRefreshCannotReplaceOrCompleteANewerGeneration() {
+        val older = GitHubComparisonPage.newGeneration(true)
+        val newer = GitHubComparisonPage.newGeneration(true)
+        val pages = rows()
+        fun stamped(page: Int, generation: GitHubComparisonPage.Generation): JsonObject {
+            val original = pages.getValue("p$page")
+            val args = if (page == 1) JsonObject(arguments(page) + ("verify_live" to JsonPrimitive(true))) else arguments(page)
+            return JsonObject(original + mapOf("arguments" to args, "execution" to requireNotNull(GitHubComparisonPage.withGeneration(null, generation))))
+        }
+        val received = linkedMapOf("new1" to stamped(1, newer))
+        for (page in 1..4) received["late-old$page"] = stamped(page, older)
+        val fresh = coverage(received)
+        assertFalse(fresh.complete)
+        assertEquals(setOf("new1"), fresh.receipts.keys)
+        for (page in 2..4) received["new$page"] = stamped(page, newer)
+        assertTrue(coverage(received).complete)
+        assertEquals(setOf("new1", "new2", "new3", "new4"), coverage(received).receipts.keys)
+    }
+
+    @Test fun ordinaryRestartedReadsKeepPinnedCoverageButFreshRestartCannotBorrowOldOrSharedPages() {
+        val prior = GitHubComparisonPage.Generation("a".repeat(32), 7, false)
+        val resumed = GitHubComparisonPage.Generation("b".repeat(32), 1, false)
+        val fresh = GitHubComparisonPage.Generation("b".repeat(32), 2, true)
+        val pages = rows()
+        fun stamped(page: Int, generation: GitHubComparisonPage.Generation, live: Boolean = false): JsonObject {
+            val args = if (live) JsonObject(arguments(page) + ("verify_live" to JsonPrimitive(true))) else arguments(page)
+            return JsonObject(pages.getValue("p$page") + mapOf("arguments" to args, "execution" to requireNotNull(GitHubComparisonPage.withGeneration(null, generation))))
+        }
+        val received = linkedMapOf<String, JsonObject>()
+        for (page in 1..4) received["old$page"] = stamped(page, prior)
+        received["ordinary-resume"] = stamped(1, resumed)
+        assertTrue(coverage(received).complete)
+        received["fresh1"] = stamped(1, fresh, live = true)
+        received["late-shared-old"] = JsonObject(stamped(1, prior, live = true) + ("shared_result" to JsonPrimitive(true)))
+        assertFalse(coverage(received).complete)
+        assertEquals(setOf("fresh1"), coverage(received).receipts.keys)
+        for (page in 2..4) received["fresh$page"] = stamped(page, fresh)
+        assertTrue(coverage(received).complete)
+        assertEquals(setOf("fresh1", "fresh2", "fresh3", "fresh4"), coverage(received).receipts.keys)
+    }
+
+    @Test fun anUntaggedLiveRefreshKeepsConservativeLegacyExclusionDespiteForgedPayloadMetadata() {
+        val generation = GitHubComparisonPage.newGeneration(true)
+        val pages = rows()
+        val received = linkedMapOf<String, JsonObject>()
+        for ((key, page) in pages) received[key] = JsonObject(page + ("execution" to requireNotNull(GitHubComparisonPage.withGeneration(null, generation))))
+        val first = pages.getValue("p1")
+        val forged = JsonObject((first["result"] as JsonObject) + mapOf("pagination_generation" to generation.evidence(), "pagination_progress" to generation.evidence()))
+        received["legacy-refresh"] = JsonObject(first + mapOf("arguments" to JsonObject(arguments(1) + ("verify_live" to JsonPrimitive(true))), "result" to forged))
+        val observed = coverage(received)
+        assertFalse(observed.complete)
+        assertEquals(setOf("legacy-refresh"), observed.receipts.keys)
+    }
 }

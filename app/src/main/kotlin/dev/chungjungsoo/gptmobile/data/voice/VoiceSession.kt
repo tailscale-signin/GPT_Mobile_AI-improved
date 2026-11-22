@@ -123,6 +123,7 @@ class VoiceSession(
     private var enabled = false
     private var permission = false
     private var foreground = false
+    private var audioHeld = false
     private var generation = 0L
     private var diagnosticProbe = diagnosticTrace.advance(generation)
     init {
@@ -394,9 +395,18 @@ class VoiceSession(
         captionSearchFrom = 0
         audio.bindDiagnostics(diagnosticProbe)
     }
-    private fun accessAllowed() = enabled && foreground && state.phase != VoicePhase.CLOSED
+    private fun accessAllowed() = enabled && foreground && !audioHeld && state.phase != VoicePhase.CLOSED
     private fun playbackAllowed() = engaged && accessAllowed()
     private fun captureAllowed() = playbackAllowed() && permission && !state.muted
+
+    /** Release only when the external worker has finished, never when cancellation is requested. */
+    internal fun holdAudio(held: Boolean) {
+        if (audioHeld == held) return
+        audioHeld = held
+        if (held) pause("speech_benchmark_running")
+        // The screen still owns listening intent. Releasing a worker must not replay
+        // a saved answer, submit a draft, or resume a muted/paused session by itself.
+    }
 
     fun access(enabled: Boolean, permission: Boolean, foreground: Boolean) {
         this.enabled = enabled
@@ -409,6 +419,8 @@ class VoiceSession(
                     "lifecycle_background"
                 } else if (!enabled) {
                     "voice_disabled"
+                } else if (audioHeld) {
+                    "speech_benchmark_running"
                 } else {
                     "permission_changed"
                 }

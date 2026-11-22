@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.ReadFileSliceTool
 import dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
 import io.mockk.every
+import io.mockk.mockk
 import io.mockk.mockkObject
 import java.time.Clock
 import java.time.Instant
@@ -15,6 +16,7 @@ import java.time.ZoneOffset
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -24,6 +26,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalToolTransportTest {
+    @Test fun stalePrivateTurnIsANonDispatchedAuthorityFailureForRunnerAndBudget() = runTest(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(101, true)) {
+        var policy = dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = true, revision = 1)
+        val store = mockk<PrivacyModeStore>()
+        every { store.snapshot() } answers { policy }
+        every { store.effectiveSnapshot(any()) } answers { callOriginal() }
+        val turn = dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.capture(store)
+        var invocations = 0
+        val external = object : AgentTool {
+            override val definition = CurrentDateTool().definition
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                invocations++
+                return AgentToolResult(callId, ToolResultContent.Text("External implementation"), false)
+            }
+        }
+        policy = policy.copy(enabled = false, revision = 2, protectionRevision = 2)
+        withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(null, false)) {
+            withContext(turn) {
+                val budgetResult = ToolExecutionBudget(AgentRunLimits()).bind(external).execute("queued-budget", buildJsonObject {})
+                val session = object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                        emit(ProviderEvent.ToolCall("queued-runner", external.definition.name, buildJsonObject {}))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+                val runnerResult = AgentRunner(AgentRunLimits()).run(session, listOf(external)).toList()
+                    .filterIsInstance<AgentRunEvent.ToolFinished>().single().result
+                for (result in listOf(budgetResult, runnerResult)) {
+                    assertEquals("DISPATCH_POLICY_CHANGED", result.errorCode)
+                    assertFalse(result.dispatched)
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive("tool_precheck"), result.executionReceipt?.get("authority_failed_stage"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
+                }
+            }
+        }
+        assertEquals(0, invocations)
+    }
+
     @Test fun ownedLocalToolsKeepWorkingThroughRunnerAndBudgetWithPrivacyOnAndOff() = runTest {
         mockkObject(PrivacyModeStore.Companion) {
             for (privacy in listOf(false, true)) {
@@ -104,8 +143,12 @@ class LocalToolTransportTest {
         }
     }
 
-    @Test fun privacyEnabledDuringAdmissionStillBlocksTheExternalBody() = runTest {
-        var enabled = false
+    @Test fun protectionChangedDuringAdmissionStillBlocksTheExternalBody() = runTest(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(101, true)) {
+        var policy = dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = false, revision = 1)
+        val store = mockk<PrivacyModeStore>()
+        every { store.snapshot() } answers { policy }
+        every { store.effectiveSnapshot(any()) } answers { callOriginal() }
+        val turn = dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.capture(store)
         var invocations = 0
         val external = object : AgentTool {
             override val definition = CurrentDateTool().definition
@@ -114,14 +157,13 @@ class LocalToolTransportTest {
                 return AgentToolResult(callId, ToolResultContent.Text("Unexpected"), false)
             }
         }
-        mockkObject(PrivacyModeStore.Companion) {
-            every { PrivacyModeStore.active() } answers { enabled }
+        withContext(turn + turn.authority(null)) {
             val tool = ToolExecutionBudget(AgentRunLimits()).bind(external) { _, _ ->
-                enabled = true
+                policy = policy.copy(revision = 2, protectionRevision = 2)
                 true
             }
             val result = tool.execute("queued", buildJsonObject {})
-            assertEquals("PRIVACY_SERVICE_UNVERIFIED", result.errorCode)
+            assertEquals("DISPATCH_POLICY_CHANGED", result.errorCode)
             assertFalse(result.dispatched)
             assertEquals(0, invocations)
         }

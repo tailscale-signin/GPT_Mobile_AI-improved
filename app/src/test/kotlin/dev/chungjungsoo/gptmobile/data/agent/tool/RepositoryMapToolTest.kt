@@ -2,9 +2,12 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
+import dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
 import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
+import dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected
 import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,10 +15,133 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RepositoryMapToolTest {
+    @Test fun localPhoneCooldownKeepsWaitEvidenceWithoutDispatchOrSourceFallback() = runTest {
+        for (nested in listOf(false, true)) {
+            val cooldown = cooldown()
+            val failure = if (nested) GitHubRequestRejected(0, "Local admission").apply { initCause(cooldown) } else cooldown
+            var fallbackCalls = 0
+            val tool = RepositoryGraphTool("repository_graph", nativeStatus = {
+                fallbackCalls++
+                error("A phone cooldown cannot dispatch another source")
+            }) { arguments ->
+                assertEquals(JsonPrimitive("phone"), arguments["map_source"])
+                throw wrapped(failure)
+            }
+            val result = tool.execute("phone-cooldown", status())
+            val body = (result.content as ToolResultContent.Json).value as JsonObject
+            assertTrue(result.isError)
+            assertFalse(result.dispatched)
+            assertEquals("GITHUB_COOLDOWN_ACTIVE", result.errorCode)
+            assertEquals(JsonPrimitive("WAITING"), body["state"])
+            assertEquals(JsonPrimitive("WAIT_FOR_REPORTED_RATE_LIMIT"), body["recovery_kind"])
+            assertEquals(JsonPrimitive(60_000), body["retry_after_ms"])
+            assertEquals(JsonPrimitive(120_000), body["github_cooldown_deadline_ms"])
+            assertEquals(JsonPrimitive(0), result.executionReceipt?.get("read_requests"))
+            assertEquals(JsonPrimitive(false), result.executionReceipt?.get("dispatched"))
+            assertEquals(JsonPrimitive("GITHUB_COOLDOWN_ACTIVE"), result.executionReceipt?.get("reason_code"))
+            assertNull(result.executionReceipt?.get("http_status"))
+            assertNull(body["http_status"])
+            assertEquals(0, fallbackCalls)
+        }
+    }
+
+    @Test fun phoneCooldownAfterAnObservedReadRetainsTheEarlierDispatch() = runTest {
+        val tool = RepositoryGraphTool("repository_graph") {
+            val request = GitHubDispatchAccounting.started(false, "/repos/owner/repo")
+            GitHubDispatchAccounting.responded(false, 200, request)
+            throw wrapped(cooldown())
+        }
+        val result = tool.execute("phone-partial-cooldown", status())
+        val body = (result.content as ToolResultContent.Json).value as JsonObject
+        assertTrue(result.dispatched)
+        assertEquals("GITHUB_COOLDOWN_ACTIVE", result.errorCode)
+        assertEquals(JsonPrimitive("WAITING"), body["state"])
+        assertEquals(JsonPrimitive(1), result.executionReceipt?.get("read_requests"))
+        assertEquals(JsonPrimitive(1), result.executionReceipt?.get("read_response_observations"))
+        assertEquals(JsonPrimitive(200), result.executionReceipt?.get("http_status"))
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("dispatched"))
+        assertEquals(JsonPrimitive(60_000), result.executionReceipt?.get("retry_after_ms"))
+        assertNull("The current locally blocked request has no HTTP response", body["http_status"])
+    }
+
+    @Test fun phoneHttpRejectionsRetainCanonicalIdentityAndObservedDispatch() = runTest {
+        for ((httpStatus, code) in listOf(401 to "AUTH_REQUIRED", 403 to "GITHUB_ENDPOINT_PERMISSION_REQUIRED", 404 to "GITHUB_NOT_FOUND_OR_INACCESSIBLE", 429 to "GITHUB_SECONDARY_RATE_LIMITED")) {
+            val tool = RepositoryGraphTool("repository_graph", nativeStatus = { error("A native rejection cannot switch sources") }) {
+                val request = GitHubDispatchAccounting.started(false, "/repos/owner/repo")
+                GitHubDispatchAccounting.responded(false, httpStatus, request)
+                throw wrapped(GitHubRequestRejected(httpStatus, "$code · private upstream response"))
+            }
+            val result = tool.execute("phone-http-$httpStatus", status())
+            val body = (result.content as ToolResultContent.Json).value as JsonObject
+            assertTrue(result.dispatched)
+            assertEquals(code, result.errorCode)
+            assertEquals(JsonPrimitive(httpStatus), body["http_status"])
+            assertEquals(JsonPrimitive(httpStatus), result.executionReceipt?.get("http_status"))
+            assertEquals(JsonPrimitive(1), result.executionReceipt?.get("read_http_failures"))
+            assertFalse(body.toString().contains("private upstream"))
+            assertFalse(body.containsKey("native_fallback"))
+        }
+    }
+
+    @Test fun phoneRateLimitKeepsOnlyBoundedFieldsFromTheSameHttpResponse() = runTest {
+        val code = "GITHUB_PRIMARY_RATE_LIMITED"
+        val evidence = buildJsonObject {
+            put("code", code)
+            put("http_status", 403)
+            put("github_cooldown_resource", "CORE")
+            put("github_cooldown_basis", "RESOURCE_RESET")
+            put("github_cooldown_delay_ms", 60_000)
+            put("github_cooldown_deadline_ms", 120_000)
+            put("github_cooldown_remaining_requests", 0)
+            put("retry_after_ms", 60_000)
+            put("private_source_note", "private account information")
+        }
+        suspend fun rejected(fields: JsonObject): JsonObject {
+            val tool = RepositoryGraphTool("repository_graph") { throw wrapped(GitHubRequestRejected(403, "$code · rejected", fields)) }
+            return (tool.execute("phone-rate", status()).content as ToolResultContent.Json).value as JsonObject
+        }
+        val bounded = rejected(evidence)
+        assertEquals(JsonPrimitive("WAIT_FOR_REPORTED_RATE_LIMIT"), bounded["recovery_kind"])
+        assertEquals(JsonPrimitive(60_000), bounded["retry_after_ms"])
+        assertFalse(bounded.toString().contains("private account"))
+        assertFalse(bounded.containsKey("private_source_note"))
+        val mismatched = rejected(JsonObject(evidence + ("http_status" to JsonPrimitive(429))))
+        assertNull(mismatched["retry_after_ms"])
+        assertNull(mismatched["github_cooldown_deadline_ms"])
+        val invalid = rejected(
+            JsonObject(
+                evidence + mapOf(
+                    "github_cooldown_resource" to JsonPrimitive("private resource"),
+                    "github_cooldown_delay_ms" to JsonPrimitive(-1),
+                    "github_cooldown_remaining_requests" to JsonPrimitive(16_000_001),
+                    "retry_after_ms" to JsonPrimitive(86_400_001)
+                )
+            )
+        )
+        for (key in listOf("github_cooldown_resource", "github_cooldown_delay_ms", "github_cooldown_remaining_requests", "retry_after_ms")) assertNull(key, invalid[key])
+    }
+
+    @Test fun typedPhoneHttpResponseWithoutNativeCallbacksStillProvesDispatch() = runTest {
+        val tool = RepositoryGraphTool("repository_graph") { throw wrapped(GitHubRequestRejected(401, "AUTH_REQUIRED · rejected")) }
+        val result = tool.execute("phone-response", status())
+        assertTrue(result.dispatched)
+        assertEquals("AUTH_REQUIRED", result.errorCode)
+        assertEquals(JsonPrimitive(401), result.executionReceipt?.get("http_status"))
+        assertNull("Unavailable per-request callbacks must not claim zero actual requests", result.executionReceipt?.get("read_requests"))
+    }
+
+    @Test fun phoneCancellationPropagatesWithoutChangingSource() = runTest {
+        val cancelled = CancellationException("cancel phone map")
+        val tool = RepositoryGraphTool("repository_graph", nativeStatus = { error("Cancellation cannot dispatch fallback") }) { throw cancelled }
+        assertSame(cancelled, runCatching { tool.execute("phone-cancelled", status()) }.exceptionOrNull())
+    }
+
     @Test fun defaultToolRouteIsPhoneAndRetainsPartialEvidence() = runTest {
         val evidence = buildJsonObject {
             put("compiler_resolution", false)
@@ -123,6 +249,80 @@ class RepositoryMapToolTest {
         assertEquals(0, fallbackCalls)
     }
 
+    @Test fun phoneLocalSuccessDoesNotInventDispatchOrAdoptGatewayCheckpoints() = runTest {
+        val tool = RepositoryGraphTool("repository_graph") {
+            buildJsonObject {
+                put("map_source", "phone")
+                put(
+                    "index_checkpoint",
+                    buildJsonObject {
+                        put("index_outcome_unknown", true)
+                        put("graph_index_attempt_hash", "a".repeat(64))
+                    }
+                )
+            }
+        }
+        val result = tool.execute("phone-local-index", buildJsonObject { put("action", "index") })
+        val body = (result.content as ToolResultContent.Json).value as JsonObject
+        val receipt = requireNotNull(result.executionReceipt)
+        assertFalse(result.isError)
+        assertFalse(result.dispatched)
+        assertEquals(JsonPrimitive("COMPLETED"), receipt["phase"])
+        assertEquals(JsonPrimitive("phone"), receipt["map_source"])
+        assertEquals(JsonPrimitive(0), receipt["read_requests"])
+        assertEquals(JsonPrimitive(0), receipt["mutation_requests"])
+        for (key in listOf("requires_reconciliation", "index_outcome_unknown", "current_index_outcome_unknown")) assertEquals(key, JsonPrimitive(false), receipt[key])
+        assertNull(receipt["graph_index_attempt_hash"])
+        assertNull(body["repair_action"])
+        assertNull(body["recovery_call"])
+    }
+
+    @Test fun phoneIndexCooldownPreservesEarlierReadsWithoutRemoteMutationUncertainty() = runTest {
+        val tool = RepositoryGraphTool("repository_graph") {
+            val earlier = GitHubDispatchAccounting.started(false, "/repos/owner/repo")
+            GitHubDispatchAccounting.responded(false, 200, earlier)
+            throw GatewayGraphOperationException(cooldown(), "", "On this phone", null, true, currentIndexOutcomeUnknown = true)
+        }
+        val result = tool.execute("phone-index-cooldown", buildJsonObject { put("action", "index") })
+        val body = (result.content as ToolResultContent.Json).value as JsonObject
+        val receipt = requireNotNull(result.executionReceipt)
+        assertTrue(result.isError)
+        assertTrue(result.dispatched)
+        assertEquals("GITHUB_COOLDOWN_ACTIVE", result.errorCode)
+        assertEquals(JsonPrimitive("WAITING"), body["state"])
+        assertEquals(JsonPrimitive("WAIT_FOR_REPORTED_RATE_LIMIT"), body["recovery_kind"])
+        assertEquals(JsonPrimitive("FAILED"), receipt["phase"])
+        assertEquals(JsonPrimitive(1), receipt["read_requests"])
+        assertEquals(JsonPrimitive(0), receipt["mutation_requests"])
+        assertEquals(JsonPrimitive(60_000), receipt["retry_after_ms"])
+        for (key in listOf("requires_reconciliation", "index_outcome_unknown", "current_index_outcome_unknown")) assertEquals(key, JsonPrimitive(false), receipt[key])
+        assertNull(body["repair_action"])
+        assertNull(body["recovery_call"])
+    }
+
+    @Test fun wrappedPrivacyRejectionDoesNotTriggerGatewayNativeFallback() = runTest {
+        var fallbackCalls = 0
+        val tool = RepositoryGraphTool("repository_graph", nativeStatus = {
+            fallbackCalls++
+            error("A local privacy denial cannot use a transport fallback")
+        }) { throw IOException("Transport boundary", UnverifiedServiceTransport()) }
+        val result = tool.execute(
+            "gateway-private-status",
+            buildJsonObject {
+                put("action", "status")
+                put("map_source", "gateway")
+            }
+        )
+        val body = (result.content as ToolResultContent.Json).value as JsonObject
+        assertTrue(result.isError)
+        assertEquals("PRIVACY_SERVICE_UNVERIFIED", result.errorCode)
+        assertEquals(JsonPrimitive("POLICY_BLOCKED"), body["state"])
+        assertEquals(JsonPrimitive("REVIEW_PRIVACY_MODE"), body["recovery_kind"])
+        assertNull(body["native_fallback"])
+        assertNull(body["recheck_after_recovery"])
+        assertEquals(0, fallbackCalls)
+    }
+
     @Test fun modelCannotRedirectMapSourceOrRevisionThroughOptions() = runTest {
         var calls = 0
         val tool = RepositoryGraphTool("repository_graph") {
@@ -142,4 +342,8 @@ class RepositoryMapToolTest {
         }
         assertEquals(0, calls)
     }
+
+    private fun status() = buildJsonObject { put("action", "status") }
+    private fun cooldown() = GitHubCooldownActive(GitHubCooldownActive.Resource.CORE, GitHubCooldownActive.Basis.RESOURCE_RETRY_AFTER, 60_000, 120_000)
+    private fun wrapped(failure: Exception) = GatewayGraphOperationException(failure, "", "On this phone", null, false, targetRevision = "a".repeat(40))
 }

@@ -19,13 +19,10 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,9 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
@@ -65,25 +59,11 @@ internal fun VoiceSpeechBenchmarkSettings(
     speechRate: Float,
     enabled: Boolean,
     beforeStart: () -> Unit = {},
-    onRunningChanged: (Boolean) -> Unit = {},
     viewModel: VoiceSpeechBenchmarkViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var mode by rememberSaveable { mutableStateOf(VoiceSpeechBenchmarkMode.QUICK.name) }
     var selected by rememberSaveable { mutableStateOf(VoiceSpeechBenchmarkConfiguration.LOCAL_BACKENDS.map { it.name }) }
-    val lifecycle = LocalLifecycleOwner.current
-    val runningChanged by rememberUpdatedState(onRunningChanged)
-    DisposableEffect(lifecycle, viewModel) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) viewModel.cancel() }
-        lifecycle.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.lifecycle.removeObserver(observer)
-            viewModel.cancel()
-            // The settings subtree is leaving, so its LaunchedEffect cannot clear parent state later.
-            runningChanged(false)
-        }
-    }
-    LaunchedEffect(state.running) { onRunningChanged(state.running) }
     VoiceSettingsSection("Speech benchmark")
     Text("Compare CPU, GPU and NPU with the same short, medium and long samples. Runs silently on this phone and saves the last five results.", style = MaterialTheme.typography.bodySmall)
     VoiceChoice("Test length", mode, VoiceSpeechBenchmarkMode.entries.map { it.name to "${it.label} · ${it.warmRepeats} warm runs per sample" }, { mode = it }, enabled = enabled && !state.running)

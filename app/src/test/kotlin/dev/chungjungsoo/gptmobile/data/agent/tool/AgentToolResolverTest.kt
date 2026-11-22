@@ -55,6 +55,56 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun capturedPrivateTurnNeverDiscoversServicesAfterProtectionChanges() = runBlocking(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(101, true)) {
+        val profile = PlatformV2(uid = "private-native", name = "Private native", compatibleType = ClientType.LITERT_LM)
+        val dao = io.mockk.spyk(ResolverFakeToolConnectionDao())
+        dao.bind(connection("remote", ToolConnectionType.MCP), binding(profile.uid, "remote", "current_date"))
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        var policy = dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = true, revision = 1)
+        val store = mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore>()
+        io.mockk.every { store.snapshot() } answers { policy }
+        io.mockk.every { store.effectiveSnapshot(any()) } answers { callOriginal() }
+        val turn = dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.capture(store)
+        val subject = resolver(dao = dao, settings = settings)
+        policy = policy.copy(enabled = false, revision = 2, protectionRevision = 2)
+        kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(null, false)) {
+            val failure = runCatching {
+                kotlinx.coroutines.withContext(turn) { subject.resolve(profile.uid) }
+            }.exceptionOrNull()
+            assertTrue(failure.toString(), failure is DispatchPolicyChangedException)
+            assertEquals(listOf("devicePrivacy"), (failure as DispatchPolicyChangedException).fields)
+            val warmFailure = runCatching {
+                kotlinx.coroutines.withContext(turn) { subject.warmSelectedCatalogues(profile.uid) }
+            }.exceptionOrNull()
+            assertTrue(warmFailure.toString(), warmFailure is DispatchPolicyChangedException)
+            coVerify(exactly = 0) { dao.listConnections() }
+            coVerify(exactly = 0) { dao.listBindingsWithConnections(any()) }
+        }
+    }
+
+    @Test fun capturedPrivateAllowlistRetainsLiveProfileAndPluginRevocation() = runBlocking(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(101, true)) {
+        val profile = PlatformV2(uid = "private-native", name = "Private native", compatibleType = ClientType.LITERT_LM)
+        val dao = io.mockk.spyk(ResolverFakeToolConnectionDao())
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val store = mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore>()
+        io.mockk.every { store.snapshot() } returns dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = true, revision = 1)
+        io.mockk.every { store.effectiveSnapshot(any()) } answers { callOriginal() }
+        val turn = dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn.capture(store)
+        kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(null, false)) {
+            kotlinx.coroutines.withContext(turn) {
+                val tools = resolver(dao = dao, settings = settings).resolve(profile.uid)
+                assertEquals(listOf("calculate_expression", "current_date", "read_file_slice"), tools.map { it.modelToolName })
+                assertTrue(tools.all { dev.chungjungsoo.gptmobile.data.agent.LocalToolTransport.isTransportFree(it.tool) })
+                resolver(dao = dao, settings = settings).warmSelectedCatalogues(profile.uid)
+                settings.features = settings.features.copy(toolPluginStates = mapOf(ToolPluginId.CALCULATOR to false))
+                assertFalse(tools.single { it.modelToolName == "calculate_expression" }.executionAdmission(buildJsonObject { put("expression", "6 * 7") }).invoke())
+                assertTrue(resolver(settings = ResolverFakeSettingRepository(listOf(profile.copy(disableLocalTools = true)))).resolve(profile.uid).isEmpty())
+            }
+            coVerify(exactly = 0) { dao.listConnections() }
+            coVerify(exactly = 0) { dao.listBindingsWithConnections(any()) }
+        }
+    }
+
     @Test fun privacyModeResolvesOnlyOwnedLocalImplementationsWithoutDiscoveringServices() = runBlocking {
         val profile = PlatformV2(uid = "private-local", name = "Private local")
         val dao = io.mockk.spyk(ResolverFakeToolConnectionDao())

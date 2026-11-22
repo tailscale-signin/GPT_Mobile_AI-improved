@@ -37,6 +37,85 @@ class VoiceMessageSessionTest {
         override fun close() = Unit
     }
 
+    @Test fun pendingBenchmarkTeardownKeepsCaptureAndReplayHeldAndPreservesTheDraft() {
+        val audio = Audio()
+        val prompts = mutableListOf<String>()
+        val session = VoiceSession(
+            audio,
+            {
+                prompts += it
+                true
+            },
+            {}
+        )
+        session.autoContinue = true
+        session.access(true, true, true)
+        session.resume()
+        val oldCapture = requireNotNull(audio.listener)
+        oldCapture.partial("Keep this captured draft")
+
+        session.holdAudio(true)
+        val stops = audio.stops
+        session.holdAudio(true)
+        assertEquals(stops, audio.stops)
+        // Closing settings or returning to the foreground does not mean that
+        // the worker's cancellation/engine teardown has actually completed.
+        session.access(true, true, true)
+        session.resume()
+        assertFalse(session.beginMessage("automatic"))
+        assertFalse(session.beginMessage("manual", manual = true, includeDetails = true))
+        oldCapture.final("A late result must not submit another turn")
+        assertEquals(1, audio.captures)
+        assertTrue(audio.spoken.isEmpty())
+        assertTrue(prompts.isEmpty())
+        assertEquals(VoicePhase.PAUSED, session.state.phase)
+        assertEquals("Keep this captured draft", session.state.transcript)
+        assertTrue(session.state.hasDraft)
+
+        session.holdAudio(false)
+        session.holdAudio(false)
+        assertEquals(VoicePhase.PAUSED, session.state.phase)
+        assertEquals(1, audio.captures)
+        assertTrue(prompts.isEmpty())
+        session.resume()
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
+        assertEquals(1, audio.captures)
+        session.sendDraft()
+        assertEquals(listOf("Keep this captured draft"), prompts)
+    }
+
+    @Test fun benchmarkHoldFencesPlayingCallbacksAndReleaseNeverReplaysOrUnmutes() {
+        val audio = Audio()
+        val session = VoiceSession(audio, { error("Playback must not submit a prompt") }, {})
+        session.autoContinue = true
+        session.access(true, true, true)
+        assertTrue(session.beginMessage("reply", manual = true))
+        session.reply("reply", "Saved answer.")
+        val oldCompletion = audio.completed.single()
+
+        session.holdAudio(true)
+        session.mute()
+        oldCompletion()
+        session.resume()
+        session.replay()
+        assertFalse(session.beginMessage("another", manual = true))
+        assertEquals(listOf("Saved answer."), audio.spoken)
+        assertEquals(0, audio.captures)
+        assertTrue(session.state.muted)
+        assertEquals(VoicePhase.PAUSED, session.state.phase)
+
+        session.holdAudio(false)
+        session.holdAudio(false)
+        session.resume()
+        assertEquals(listOf("Saved answer."), audio.spoken)
+        assertEquals(0, audio.captures)
+        assertTrue(session.state.muted)
+        session.replay()
+        assertEquals(listOf("Saved answer.", "Saved answer."), audio.spoken)
+        assertEquals(0, audio.captures)
+        assertTrue(session.state.muted)
+    }
+
     @Test fun captionPresentationSurvivesPreviewFirstAudioChunksAndPauseButNotAnExplicitReplay() {
         val audio = Audio(reportsPlaybackStart = true)
         val session = VoiceSession(audio, { error("Typed playback must not send a prompt") }, {})

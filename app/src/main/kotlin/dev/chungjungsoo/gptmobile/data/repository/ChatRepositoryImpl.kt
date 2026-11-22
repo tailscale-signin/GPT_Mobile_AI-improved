@@ -1777,7 +1777,7 @@ class ChatRepositoryImpl(
         runId: String,
         chatToolConfig: ChatMcpToolConfig?,
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
-    ): Flow<ApiState> = flow {
+    ): Flow<ApiState> = dev.chungjungsoo.gptmobile.data.privacy.privateTurnFlow(privacyMode) privateChat@{
         fun preflightError(code: String, message: String, failedStage: String, failure: Throwable, recovery: String, readiness: String? = null): ApiState.Error {
             val capsule = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
             val evidence = capsule.exceptionFields(failure, dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_PREFLIGHT)
@@ -1807,16 +1807,16 @@ class ChatRepositoryImpl(
         if (PrivacyModeStore.active() && privacyMode == null) {
             emit(ApiState.Error("Privacy protection is unavailable. Your private conversation remains saved locally.", errorCode = "CONVERSATION_POLICY_UNAVAILABLE", taskOutcome = "BLOCKED"))
             emit(ApiState.Done)
-            return@flow
+            return@privateChat
         }
-        val privateMode = privacyMode?.takeIf { PrivacyModeStore.active() }
+        val privateMode = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn]
         if (privateMode != null) {
             userMessages.lastOrNull()?.chatId?.takeIf { it > 0 }?.let { agentPersistenceDao.markPrivacyModeUsed(it) }
         }
         if (privateMode != null && (chatToolConfig?.github != null || chatToolConfig?.research?.researchToggle == true || chatToolConfig?.combined != null || stage != null || userMessages.any { it.attachments.isNotEmpty() })) {
             emit(ApiState.Error("This conversation uses an unverified tool, attachment or workflow. Choose a text chat with a verified profile.", errorCode = "PRIVACY_SERVICE_UNVERIFIED", taskOutcome = "BLOCKED"))
             emit(ApiState.Done)
-            return@flow
+            return@privateChat
         }
         retainToolAdmission(runId, platform, userMessages.lastOrNull()?.chatId, dev.chungjungsoo.gptmobile.data.agent.RunToolAdmissionStage.STAGE_NOT_REACHED)
         val auditUser = userMessages.lastOrNull()
@@ -1835,7 +1835,7 @@ class ChatRepositoryImpl(
             }
             emit(ApiState.Success(report))
             emit(ApiState.Done)
-            return@flow
+            return@privateChat
         }
         val boundStage = try {
             bindStageRequest(userMessages, platform, runId, chatToolConfig, stage)
@@ -1857,14 +1857,14 @@ class ChatRepositoryImpl(
                 )
             )
             emit(ApiState.Done)
-            return@flow
+            return@privateChat
         }
         if (boundStage == null && chatToolConfig?.combined == null && userMessages.lastOrNull()?.attachments.isNullOrEmpty()) {
             dev.chungjungsoo.gptmobile.data.agent.DeviceDateAnswer.answer(userMessages.lastOrNull()?.content.orEmpty())?.let { answer ->
                 emit(ApiState.Notice("Answered from the device clock; no provider request was sent.", persistent = false))
                 emit(ApiState.Success(answer))
                 emit(ApiState.Done)
-                return@flow
+                return@privateChat
             }
         }
         if (platform.compatibleType == ClientType.LITERT_LM) {
@@ -1878,9 +1878,11 @@ class ChatRepositoryImpl(
                 AppLogRecorder.record("LocalModel", "LOCAL_PREFLIGHT_TERMINAL · stage=parent_readiness · status=REJECTED · reason=$readiness · backend=${platform.accelerator} · exception=${failure.javaClass.simpleName} · profileUid=${platform.uid} · nativeDispatched=false", "W")
                 emit(preflightError("LOCAL_INITIALIZATION_FAILED", "Local model readiness failed ($readiness). Review the selected model and backend in Local AI before retrying.", "backend_admission", failure, "LOCAL_MODEL", readiness.name))
                 emit(ApiState.Done)
-                return@flow
+                return@privateChat
             }
         }
+        // Local readiness may have suspended while the device privacy policy changed.
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         // Reject known-incompatible answer routes before memory, schemas, attachments or retrieval.
         try {
             preflightAnswerPrivacy(platform)
@@ -1889,11 +1891,11 @@ class ChatRepositoryImpl(
         } catch (failure: dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException) {
             emit(failure.asApiError(runId, platform.uid))
             emit(ApiState.Done)
-            return@flow
+            return@privateChat
         } catch (failure: IllegalStateException) {
             emit(preflightError("PRIVACY_CONFIGURATION", "The selected profile could not verify its privacy configuration. Review the provider and model settings before retrying.", "provider_admission", failure, "RETRY_AFTER_CONFIGURATION_CHANGE"))
             emit(ApiState.Done)
-            return@flow
+            return@privateChat
         }
         val fence = dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence()
         val completeHistory = assistantMessages.map { turn -> turn.map { resolveCombinedMessage(it) } }
@@ -1916,7 +1918,7 @@ class ChatRepositoryImpl(
             try {
                 emitAll(
                     preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, privateTools, fence, boundStage)
-                        .flowOn(dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn + protection)
+                        .flowOn(privateMode + protection)
                         .map { state ->
                             when (state) {
                                 is ApiState.Success -> state.copy(privacyProtection = protection.displayReceipt(state.textChunk))
@@ -2384,6 +2386,7 @@ class ChatRepositoryImpl(
                         dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("${dispatchAuthority.revision}:documents:${documentConsentGeneration.orEmpty()}", dispatchAuthority.authority) {
                             dispatchAuthority.validate()
                             validateDocuments()
+                            dispatchAuthority.validate()
                         }
                     ) preparedDispatch@{
                         val appSearchRequested = !verificationOnlyRequested && !explicitResearch && !synthesisRun && !resumeWriterOnly && taskRecovery?.primaryOnly != true && AppAssistedSearch.requested(effectiveUserMessages)

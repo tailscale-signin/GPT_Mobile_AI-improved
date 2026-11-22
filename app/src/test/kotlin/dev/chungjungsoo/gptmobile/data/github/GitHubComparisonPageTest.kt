@@ -12,6 +12,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubComparisonPageTest {
+    @Test fun generationReceiptsRequireTheExactTypedShapeAndCannotSurviveWithoutLocalAssessment() {
+        val first = GitHubComparisonPage.newGeneration(false)
+        val fresh = GitHubComparisonPage.newGeneration(true)
+        assertEquals(first.namespace, fresh.namespace)
+        assertTrue(fresh.ordinal > first.ordinal)
+        val execution = buildJsonObject {
+            put("read_requests", 1)
+            put("pagination_generation", fresh.evidence())
+        }
+        assertEquals(fresh, GitHubComparisonPage.generation(execution))
+        assertEquals(buildJsonObject { put("read_requests", 1) }, GitHubComparisonPage.withGeneration(execution, null))
+        for (change in listOf(
+            "namespace" to JsonPrimitive("private-source"),
+            "ordinal" to JsonPrimitive(0),
+            "ordinal" to JsonPrimitive("1"),
+            "starts_live_refresh" to JsonPrimitive("true"),
+            "unexpected" to JsonPrimitive("untrusted")
+        )) {
+            val malformed = buildJsonObject { put("pagination_generation", JsonObject(fresh.evidence() + change)) }
+            assertEquals(null, GitHubComparisonPage.generation(malformed))
+        }
+        assertEquals(null, GitHubComparisonPage.generation(buildJsonObject { put("pagination_generation", JsonObject(fresh.evidence() - "starts_live_refresh")) }))
+    }
+
     @Test fun aPageLimitProposalCannotChangeRepositoryOrImmutableRevisionOwnership() {
         val source = buildJsonObject {
             put("owner", "owner")

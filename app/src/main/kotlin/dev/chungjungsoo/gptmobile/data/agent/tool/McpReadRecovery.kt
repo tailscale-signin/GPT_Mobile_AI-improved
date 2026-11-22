@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation
 import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import java.io.EOFException
 import java.io.IOException
+import java.net.ConnectException
 import java.net.UnknownHostException
 import java.util.Collections
 import java.util.IdentityHashMap
@@ -33,9 +34,11 @@ internal suspend fun recordMcpInterruptedRead(failure: Throwable) {
     if (failure.isLocalPrivacyPolicyRejection()) return
     val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
     val causes = generateSequence(failure) { it.cause }.takeWhile(seen::add).take(16).toList()
-    // The SDK's local "Not connected" state and owner cancellation do not prove
-    // an attempted network read. A typed transport cause keeps its uncertainty.
-    if (causes.none { it is CancellationException } && causes.any { it is IOException }) {
+    // Known local, DNS, connection and TLS admission failures do not establish
+    // an uncertain HTTP exchange. Retain only this acquisition's interrupted read.
+    if (causes.none { it is CancellationException || it is UnknownHostException || it is ConnectException || it is javax.net.ssl.SSLException } &&
+        causes.any { it is IOException }
+    ) {
         currentCoroutineContext()[MetadataResponseObservation]?.readInterrupted()
     }
 }

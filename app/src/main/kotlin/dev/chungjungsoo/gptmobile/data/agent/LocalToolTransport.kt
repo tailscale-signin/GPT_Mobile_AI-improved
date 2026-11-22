@@ -4,8 +4,11 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.CalculatorTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.CurrentDateTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.ReadFileSliceTool
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
+import dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn
 import java.lang.ref.ReferenceQueue
 import java.lang.ref.WeakReference
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -36,8 +39,18 @@ internal object LocalToolTransport {
         if (isTransportFree(child)) trustedWrappers.add(Identity(wrapper, collected))
     }
 
-    fun requireExecution(tool: AgentTool) {
-        if (!isTransportFree(tool)) PrivacyModeStore.requireUnprotectedTransport()
+    suspend fun requireExecution(tool: AgentTool) {
+        val context = currentCoroutineContext()
+        context.ensureActive()
+        // Native IPC can retain the captured guard without the private marker.
+        // Recheck here after any queue, event-sink or statistics suspension.
+        context[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
+        val privateTurn = context[PrivateTurn]
+        privateTurn?.validate()
+        if (!isTransportFree(tool)) {
+            if (privateTurn != null) throw dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport()
+            PrivacyModeStore.requireUnprotectedTransport()
+        }
     }
 
     private fun prune() {

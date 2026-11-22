@@ -801,7 +801,7 @@ class ChatRepositoryImplTest {
     }
 
     @Test fun documentOnlyRecallIsRevalidatedAtPhysicalDispatchAfterDeletionOrConsentRevocation() = runBlocking {
-        for (mode in listOf("allowed", "deleted", "revoked", "regranted_during_preparation")) {
+        for (mode in listOf("allowed", "deleted", "revoked", "regranted_during_preparation", "privacy_changed_during_validation")) {
             val storage = object : SecretVault {
                 val values = mutableMapOf<String, ByteArray>()
                 override suspend fun put(secretRef: String, secret: ByteArray) {
@@ -822,6 +822,17 @@ class ChatRepositoryImplTest {
             val packet = dev.chungjungsoo.gptmobile.data.knowledge.DocumentRecallPacket(1, dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope(), evidence, listOf(dev.chungjungsoo.gptmobile.data.knowledge.DocumentRecallSource(document, chunk)))
             val documents = mockk<dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository>(relaxed = true)
             var deleted = false
+            var physicalBoundaryReached = false
+            var privacyValidationChanges = 0
+            var privacyPolicy = dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = false, revision = 1)
+            val privacyStore = if (mode == "privacy_changed_during_validation") {
+                mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore>().also {
+                    every { it.snapshot() } answers { privacyPolicy }
+                    every { it.effectiveSnapshot(any()) } answers { callOriginal() }
+                }
+            } else {
+                null
+            }
             coEvery { documents.scopeForChat(any()) } returns dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope()
             coEvery { documents.recall(any(), any(), any()) } coAnswers {
                 if (mode == "regranted_during_preparation") {
@@ -830,7 +841,16 @@ class ChatRepositoryImplTest {
                 }
                 packet
             }
-            coEvery { documents.validateRecall(any()) } coAnswers { check(!deleted) { "DOCUMENT_RECALL_STALE: document deleted" } }
+            coEvery { documents.validateRecall(any()) } coAnswers {
+                check(!deleted) { "DOCUMENT_RECALL_STALE: document deleted" }
+                if (mode == "privacy_changed_during_validation" && physicalBoundaryReached) {
+                    // The parent guard passed, then document validation suspended at physical dispatch.
+                    kotlinx.coroutines.yield()
+                    privacyPolicy = privacyPolicy.copy(categories = emptySet(), revision = privacyPolicy.revision + 1, protectionRevision = privacyPolicy.protectionRevision + 1)
+                    privacyPolicy = privacyPolicy.copy(categories = dev.chungjungsoo.gptmobile.data.privacy.PrivacyCategory.entries.toSet(), revision = privacyPolicy.revision + 1, protectionRevision = privacyPolicy.protectionRevision + 1)
+                    privacyValidationChanges++
+                }
+            }
             val platform = groqPlatform(false, "model")
             val settings = mockk<SettingRepository>(relaxed = true)
             coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
@@ -841,11 +861,12 @@ class ChatRepositoryImplTest {
                 flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "The saved document contains a private excerpt."), finishReason = "stop")))),
                 enforcePhysicalBoundary = true,
                 beforePhysicalBoundary = {
+                    physicalBoundaryReached = true
                     if (mode == "deleted") deleted = true
                     if (mode == "revoked") facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = false))
                 }
             )
-            val states = createRepository(groqAPI = api, factVault = facts, settingsOverride = settings, persistenceOverride = persistence, knowledgeOverride = documents)
+            val states = createRepository(groqAPI = api, factVault = facts, settingsOverride = settings, persistenceOverride = persistence, knowledgeOverride = documents, privacyModeOverride = privacyStore)
                 .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Recall my saved document", platformType = null)), emptyList(), platform, runId = "document-$mode").toList()
             if (mode == "allowed") {
                 assertEquals(1, api.streamCalls)
@@ -853,6 +874,7 @@ class ChatRepositoryImplTest {
             } else {
                 assertEquals(states.toString(), 0, api.streamCalls)
                 assertTrue(states.any { it is ApiState.Error })
+                if (mode == "privacy_changed_during_validation") assertEquals(1, privacyValidationChanges)
             }
         }
     }
@@ -1618,6 +1640,62 @@ class ChatRepositoryImplTest {
         ).toList()
         assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().startsWith(expectedMemoryPrefix))
         assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().contains("Kotlin"))
+    }
+
+    @Test
+    fun protectionChangesDuringNativePreflightCannotReachToolResolutionOrInference() = runBlocking {
+        for (choices in listOf(listOf(true, false), listOf(true, false, true), listOf(true, true))) {
+            var policy = dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState(enabled = false, revision = 1)
+            val store = mockk<dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore>()
+            every { store.snapshot() } answers { policy }
+            every { store.effectiveSnapshot(any()) } answers { callOriginal() }
+            val persistence = persistenceFixture()
+            coEvery { persistence.getChatRoom(51) } returns ChatRoomV2(id = 51, title = "Private native", privacyModeLocked = true)
+            val runtime = FakeLocalRuntime()
+            var preflights = 0
+            val admission = object : LocalRuntime by runtime {
+                override suspend fun preflightModel(modelPath: String, accelerator: String?) {
+                    preflights++
+                    kotlinx.coroutines.yield()
+                    choices.drop(1).forEach { protectsContacts ->
+                        policy = policy.copy(
+                            categories = if (protectsContacts) policy.categories + dev.chungjungsoo.gptmobile.data.privacy.PrivacyCategory.CONTACTS else policy.categories - dev.chungjungsoo.gptmobile.data.privacy.PrivacyCategory.CONTACTS,
+                            revision = policy.revision + 1,
+                            protectionRevision = policy.protectionRevision + 1
+                        )
+                    }
+                }
+            }
+            val resolver = mockk<AgentToolResolver>(relaxed = true)
+            val cloud = RecordingOpenAIAPI()
+            val repository = createRepository(
+                agentToolResolver = resolver,
+                openAIAPI = cloud,
+                localRuntime = admission,
+                localModelRepository = FakeLocalModelRepository(downloadedPaths = mapOf("gemma3-1b-it" to "/models/gemma.litertlm")),
+                privacyModeOverride = store,
+                persistenceOverride = persistence
+            )
+
+            val failure = runCatching {
+                repository.completeChat(
+                    userMessages = listOf(MessageV2(chatId = 51, content = "Calculate six times seven using this local model.", platformType = null)),
+                    assistantMessages = emptyList(),
+                    platform = localPlatform(),
+                    runId = "private-native-policy-change"
+                ).toList()
+            }.exceptionOrNull()
+
+            assertTrue(failure.toString(), failure is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException)
+            assertEquals(listOf("devicePrivacy"), (failure as dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException).fields)
+            assertEquals(1, preflights)
+            assertTrue(runtime.inspectModelCalls.isEmpty())
+            assertTrue(runtime.loadEngineCalls.isEmpty())
+            assertTrue(runtime.createConversationCalls.isEmpty())
+            assertTrue(runtime.sendMessageCalls.isEmpty())
+            assertEquals(0, cloud.streamChatCompletionCalls)
+            io.mockk.coVerify(exactly = 0) { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) }
+        }
     }
 
     @Test(expected = IllegalStateException::class)

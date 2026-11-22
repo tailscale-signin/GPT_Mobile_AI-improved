@@ -9,7 +9,6 @@ import dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import java.io.IOException
-import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -25,10 +24,6 @@ import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-
-internal object PrivateTurn : AbstractCoroutineContextElement(Key) {
-    object Key : CoroutineContext.Key<PrivateTurn>
-}
 
 internal class PrivateInferenceSession(
     private val verifier: PrivacyProviderVerifier,

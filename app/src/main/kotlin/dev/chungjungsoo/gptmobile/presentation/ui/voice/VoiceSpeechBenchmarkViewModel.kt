@@ -45,6 +45,21 @@ internal data class VoiceSpeechBenchmarkUiState(
     val notice: String? = null
 )
 
+/** One observable owner token prevents a late completion from releasing another worker's audio. */
+internal class VoiceSpeechBenchmarkOwnership {
+    private val mutable = MutableStateFlow<Lease?>(null)
+    val state = mutable.asStateFlow()
+
+    fun acquire(): Lease? {
+        val lease = Lease()
+        return lease.takeIf { mutable.compareAndSet(null, it) }
+    }
+
+    inner class Lease internal constructor() {
+        fun release(): Boolean = mutable.compareAndSet(this, null)
+    }
+}
+
 @HiltViewModel
 internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     @ApplicationContext private val context: Context
@@ -68,7 +83,8 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
 
     fun start(mode: VoiceSpeechBenchmarkMode, backends: List<VoiceSpeechBackend>, voice: KokoroVoice, threads: Int, rate: Float) {
         if (!mutable.value.loaded || mutable.value.running || backends.isEmpty()) return
-        if (!benchmarkLease.compareAndSet(false, true)) {
+        val lease = benchmarkLease.acquire()
+        if (lease == null) {
             mutable.update { it.copy(notice = "Another speech benchmark is finishing. Try again shortly.") }
             return
         }
@@ -88,7 +104,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
                 mutable.update { it.copy(running = false, cancelling = false) }
             }
         }
-        job?.invokeOnCompletion { benchmarkLease.set(false) }
+        job?.invokeOnCompletion { lease.release() }
     }
 
     private fun execute(mode: VoiceSpeechBenchmarkMode, backends: List<VoiceSpeechBackend>, voice: KokoroVoice, threads: Int, rate: Float) {
@@ -181,6 +197,7 @@ internal class VoiceSpeechBenchmarkViewModel @Inject constructor(
     }
 
     companion object {
-        private val benchmarkLease = AtomicBoolean(false)
+        private val benchmarkLease = VoiceSpeechBenchmarkOwnership()
+        val audioOwnership = benchmarkLease.state
     }
 }

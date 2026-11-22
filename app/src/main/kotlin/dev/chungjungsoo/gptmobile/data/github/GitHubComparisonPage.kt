@@ -1,16 +1,52 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** One declared page window for pinned tree comparisons and their continuations. */
 internal object GitHubComparisonPage {
     const val DEFAULT_SIZE = 100
     const val MAX_COVERAGE_PAGES = 512
+    private const val GENERATION_FIELD = "pagination_generation"
+    private val generationNamespace = UUID.randomUUID().toString().replace("-", "")
+    private val generationOrdinal = AtomicLong()
+
+    /** The process namespace separates restored observations from newly issued traversals. */
+    data class Generation(val namespace: String, val ordinal: Long, val startsLiveRefresh: Boolean) {
+        val identity: String get() = "$namespace:$ordinal"
+        fun evidence(): JsonObject = buildJsonObject {
+            put("namespace", namespace)
+            put("ordinal", ordinal)
+            put("starts_live_refresh", startsLiveRefresh)
+        }
+    }
+
+    fun newGeneration(startsLiveRefresh: Boolean): Generation = Generation(generationNamespace, generationOrdinal.incrementAndGet(), startsLiveRefresh)
+
+    /** Read only locally authored execution metadata, never pagination fields from response data. */
+    fun generation(execution: JsonObject?): Generation? {
+        val value = execution?.get(GENERATION_FIELD) as? JsonObject ?: return null
+        if (value.keys != setOf("namespace", "ordinal", "starts_live_refresh")) return null
+        val namespace = (value["namespace"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.matches(Regex("[a-f0-9]{32}")) } ?: return null
+        val ordinal = (value["ordinal"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it > 0 } ?: return null
+        val refresh = (value["starts_live_refresh"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull ?: return null
+        return Generation(namespace, ordinal, refresh)
+    }
+
+    /** An unassessed backend response cannot supply or retain a generation stamp. */
+    fun withGeneration(execution: JsonObject?, generation: Generation?): JsonObject? {
+        val fields = execution.orEmpty() - GENERATION_FIELD
+        val qualified = if (generation == null) fields else fields + (GENERATION_FIELD to generation.evidence())
+        return qualified.takeIf { it.isNotEmpty() }?.let(::JsonObject)
+    }
 
     data class Window(val page: Int, val size: Int, val from: Int, val until: Int, val totalPages: Int) {
         val hasMore: Boolean get() = page < totalPages

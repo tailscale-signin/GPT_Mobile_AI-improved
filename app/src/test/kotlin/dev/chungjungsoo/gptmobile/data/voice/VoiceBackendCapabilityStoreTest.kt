@@ -7,6 +7,7 @@ import dev.melo.kokoro.TimedKokoro
 import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -64,6 +65,34 @@ class VoiceBackendCapabilityStoreTest {
         store.retest(VoiceSpeechBackend.AUTO)
         assertNull(store.read(cpu, now + 2))
         assertNull(store.read(npu, now + 2))
+    }
+
+    @Test fun legacyTwoShapeReceiptsCannotQualifyAgainstTheCurrentWorkload() {
+        val store = VoiceBackendCapabilityStore(context)
+        fun legacyKey(backend: VoiceSpeechBackend) = MessageDigest.getInstance("SHA-256")
+            .digest("${TimedKokoro.RUNTIME_ID}|${KokoroModelPack.MODEL_SHA256}|${store.deviceKey}|${backend.name}|us|2".toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val legacyCpu = legacyKey(VoiceSpeechBackend.CPU)
+        val legacyGpu = legacyKey(VoiceSpeechBackend.QNN_GPU)
+        store.save(VoiceBackendCapability(legacyCpu, VoiceSpeechBackend.CPU, now, listOf(100, 100)))
+        store.save(VoiceBackendCapability(legacyGpu, VoiceSpeechBackend.QNN_GPU, now, listOf(10, 10), true))
+        val cpu = store.key(VoiceSpeechBackend.CPU, "us", 2)
+        val gpu = store.key(VoiceSpeechBackend.QNN_GPU, "us", 2)
+        store.save(VoiceBackendCapability(cpu, VoiceSpeechBackend.CPU, now, listOf(100, 100, 1000)))
+        fun selected() = VoiceMeasuredBackendPolicy.choose(listOfNotNull(store.read(cpu, now), store.read(gpu, now)), now)
+        assertEquals(VoiceSpeechBackend.CPU, selected())
+        assertNotEquals(legacyCpu, cpu)
+        assertNotEquals(legacyGpu, gpu)
+        assertNotNull(store.read(legacyCpu, now))
+        assertNotNull(store.read(legacyGpu, now))
+        store.save(VoiceBackendCapability(gpu, VoiceSpeechBackend.QNN_GPU, now, listOf(50, 50, 50), true))
+        assertEquals(VoiceSpeechBackend.QNN_GPU, selected())
+        store.retest(VoiceSpeechBackend.QNN_GPU)
+        assertNull(store.read(gpu, now))
+        assertNull(store.read(legacyGpu, now))
+        assertNotNull(store.read(cpu, now))
+        assertNotNull(store.read(legacyCpu, now))
+        assertEquals(VoiceSpeechBackend.CPU, selected())
     }
 
     @Test fun receiptsRemainBoundedAndMalformedStorageCannotManufactureSupport() {

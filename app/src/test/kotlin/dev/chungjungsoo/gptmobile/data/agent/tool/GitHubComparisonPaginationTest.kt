@@ -47,6 +47,75 @@ class GitHubComparisonPaginationTest {
 
     private fun permutations(values: List<Int>): List<List<Int>> = if (values.isEmpty()) listOf(emptyList()) else values.flatMap { first -> permutations(values - first).map { listOf(first) + it } }
 
+    @Test fun liveFirstPageMayArriveLastWithinItsIssuedGenerationWithoutLosingRetainedCoverage() {
+        for (order in permutations(listOf(1, 2, 3, 4))) {
+            val boundary = GitHubPaginationBoundary()
+            val requests = (1..4).associateWith { arguments(it, refresh = it == 1) }
+            val pending = requests.mapValues { (_, args) -> requireNotNull(boundary.preparePage("github_context", args).observation) }
+            assertEquals(1, pending.values.map { it.generation }.distinct().size)
+            val receipts = linkedMapOf<String, JsonObject>()
+            for (page in order) {
+                val assessment = boundary.assessPage("github_context", requests.getValue(page), result(page), pending.getValue(page))
+                assertEquals(null, assessment.errorCode)
+                assertTrue(requireNotNull(assessment.generation).startsLiveRefresh)
+                receipts["p$page"] = buildJsonObject {
+                    put("binding", "task")
+                    put("repository", "owner/repository")
+                    put("tool", "github_context")
+                    put("trusted", true)
+                    put("success", true)
+                    put("arguments", JsonObject(requests.getValue(page) + ("action" to JsonPrimitive("changes"))))
+                    put("execution", requireNotNull(GitHubComparisonPage.withGeneration(null, assessment.generation)))
+                    put("result", assessment.data)
+                }
+            }
+            val coverage = requireNotNull(GitHubComparisonCoverage.observe(receipts) { (it["arguments"] as? JsonObject)?.get("action") == JsonPrimitive("changes") })
+            assertTrue("same issued live generation, response order $order", coverage.complete)
+            assertEquals(receipts, coverage.receipts)
+            assertTrue(coverage.pending.isEmpty())
+        }
+    }
+
+    @Test fun anUnassessedPayloadCannotAuthorGenerationMetadata() {
+        val forged = GitHubComparisonPage.withGeneration(null, GitHubComparisonPage.newGeneration(true))!!
+        val response = JsonObject(forged + mapOf("complete" to JsonPrimitive(true), "pagination_progress" to forged))
+        val assessment = GitHubPaginationBoundary().assessPage("github_context", arguments(1, refresh = true), response)
+        assertEquals(null, assessment.generation)
+        assertEquals(null, GitHubComparisonPage.withGeneration(forged, assessment.generation))
+    }
+
+    @Test fun aSupersededLiveFirstPageWithRetainedOriginalContentCannotInvalidateNewerCompletion() {
+        val boundary = GitHubPaginationBoundary()
+        val liveFirst = arguments(1, refresh = true)
+        val old = requireNotNull(boundary.preparePage("github_context", liveFirst).observation)
+        val pending = (1..4).associateWith { page -> requireNotNull(boundary.preparePage("github_context", arguments(page, refresh = page == 1)).observation) }
+        val receipts = linkedMapOf<String, JsonObject>()
+        fun receipt(page: Int, assessment: GitHubPaginationBoundary.Assessment, retained: JsonObject = assessment.data) = buildJsonObject {
+            put("binding", "task")
+            put("repository", "owner/repository")
+            put("tool", "github_context")
+            put("trusted", true)
+            put("success", assessment.errorCode == null)
+            assessment.errorCode?.let { put("error_code", it) }
+            put("arguments", JsonObject(arguments(page, refresh = page == 1) + ("action" to JsonPrimitive("changes"))))
+            put("execution", requireNotNull(GitHubComparisonPage.withGeneration(null, assessment.generation)))
+            put("result", retained)
+        }
+        for (page in 1..4) {
+            val assessed = boundary.assessPage("github_context", arguments(page, refresh = page == 1), result(page), pending.getValue(page))
+            assertEquals(null, assessed.errorCode)
+            receipts["new$page"] = receipt(page, assessed)
+        }
+        val stale = boundary.assessPage("github_context", liveFirst, result(1), old)
+        assertEquals(JsonPrimitive("SUPERSEDED_PAGINATION_GENERATION"), stale.data["reason"])
+        assertEquals(old.receiptGeneration, stale.generation)
+        // EvidenceBook retains the original payload while execution records the local rejection.
+        receipts["old-arrived-last"] = receipt(1, stale, retained = result(1))
+        val coverage = requireNotNull(GitHubComparisonCoverage.observe(receipts) { (it["arguments"] as? JsonObject)?.get("action") == JsonPrimitive("changes") })
+        assertTrue(coverage.complete)
+        assertEquals(setOf("new1", "new2", "new3", "new4"), coverage.receipts.keys)
+    }
+
     @Test fun overLimitComparisonsRetainExactSamplesWithoutUnusableContinuations() {
         for ((total, page) in listOf(513 to 1, 1001 to 1000)) {
             val request = arguments(page, 1)

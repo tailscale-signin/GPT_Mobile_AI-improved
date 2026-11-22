@@ -341,6 +341,56 @@ class McpPrivacyTransportTest {
         }
     }
 
+    @Test fun localRejectionOfAReadRetryCannotEraseTheEarlierUncertainAttempt() = runBlocking(ConversationPrivacyContext(501, false)) {
+        var attempts = 0
+        // Exercise the typed local retry-admission failure through Ktor scopes.
+        // The Options availability switch cannot change a captured conversation.
+        val denyBeforeSend = AtomicBoolean(false)
+        val policyChange = createClientPlugin("TypedPolicyRejectionBeforeTransport") {
+            on(SendingRequest) { _, _ -> if (denyBeforeSend.compareAndSet(true, false)) throw PrivateMetadataDenied() }
+        }
+        val http = HttpClient(
+            MockEngine {
+                attempts++
+                denyBeforeSend.set(true)
+                throw java.io.EOFException("fixture lost response")
+            }
+        ) {
+            install(policyChange)
+            install(PrivateMetadataGate)
+        }
+        val manager = McpClientManager(http, modern = ModernMcpTransport(http))
+        val config = McpConnectionConfig("privacy-uncertain-retry", "https://example.com/mcp", false)
+        try {
+            val failure = runCatching { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }.exceptionOrNull()
+            val presentation = mcpFailurePresentation(requireNotNull(failure), manager.healthSnapshot(config.connectionUid))
+            assertEquals("POLICY_BLOCKED", presentation.outcome)
+            assertEquals("UNKNOWN", presentation.dispatchEvidence)
+            assertEquals(null, presentation.observedAtEpochMs)
+            assertEquals(null, presentation.httpStatus)
+            assertFalse(presentation.toString().contains("fixture lost response"))
+            assertEquals(1, attempts)
+            // A later acquisition must not borrow this earlier operation's uncertainty,
+            // including when it uses the same connection and endpoint.
+            for (uid in listOf(config.connectionUid, "privacy-independent-read")) {
+                denyBeforeSend.set(true)
+                val fresh = McpConnectionConfig(uid, config.endpointUrl, false)
+                val denied = runCatching { manager.listTools(fresh, forceRefresh = true, awaitCompletion = true) }.exceptionOrNull()
+                val local = mcpFailurePresentation(requireNotNull(denied), manager.healthSnapshot(uid))
+                assertEquals("POLICY_BLOCKED", local.outcome)
+                assertEquals("NOT_DISPATCHED", local.dispatchEvidence)
+                assertEquals(null, local.observedAtEpochMs)
+                assertEquals(null, local.httpStatus)
+                assertEquals(0, manager.healthSnapshot(uid).consecutiveFailures)
+                assertEquals(0L, LocalServiceHealth.retryAfterMillis(config.endpointUrl))
+                assertEquals(1, attempts)
+            }
+        } finally {
+            manager.closeAll()
+            http.close()
+        }
+    }
+
     private class FixtureServer(private val legacy: Boolean = false) : AutoCloseable {
         val methods = CopyOnWriteArrayList<String>()
 

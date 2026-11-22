@@ -205,6 +205,7 @@ class LatestFeatureAcceptanceReceiptsTest(unittest.TestCase):
     SOURCES = {
         'privacy-migration-instrumentation.txt': 'data/database/PrivacyModeMigrationInstrumentedTest',
         'agent-persistence-instrumentation.txt': 'data/database/AgentPersistenceDaoInstrumentedTest',
+        'privacy-profile-selection-instrumentation.txt': 'presentation/ui/home/PrivacyProfileSelectionInstrumentedTest',
         'voice-conversation-instrumentation.txt': 'presentation/ui/voice/VoiceConversationInstrumentedTest',
         'voice-message-controls-instrumentation.txt': 'presentation/ui/voice/VoiceMessageControlsInstrumentedTest',
     }

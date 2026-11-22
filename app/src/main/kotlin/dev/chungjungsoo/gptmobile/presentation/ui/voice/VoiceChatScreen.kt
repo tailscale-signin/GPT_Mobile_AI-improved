@@ -218,12 +218,17 @@ private fun VoiceChatSessionScreen(
     destinations: VoiceChatDestinations,
     bottomInteractionContent: (@Composable () -> Unit)?,
     runtimeOwner: VoiceRuntimeViewModel = hiltViewModel(),
-    backendOwner: VoiceBackendViewModel = hiltViewModel()
+    backendOwner: VoiceBackendViewModel = hiltViewModel(),
+    benchmarkOwner: VoiceSpeechBenchmarkViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val lifecycleState by lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     val backend by backendOwner.state.collectAsStateWithLifecycle()
+    // A canceled worker can outlive both its settings subtree and its navigation owner.
+    val benchmarkOwnership = VoiceSpeechBenchmarkViewModel.audioOwnership
+    val benchmarkLease by benchmarkOwnership.collectAsStateWithLifecycle()
+    val benchmarkRunning = benchmarkLease != null
     val loaded by model.isLoaded.collectAsStateWithLifecycle()
     val roomReady by model.voiceRoomReady.collectAsStateWithLifecycle()
     val admission by model.voiceAdmission.collectAsStateWithLifecycle()
@@ -266,6 +271,7 @@ private fun VoiceChatSessionScreen(
     LaunchedEffect(kokoroOutput, backend.factory) { kokoroOutput?.configureEngine(backend.factory) }
     val audio = runtime.audio
     val session = runtime.session
+    SideEffect { session.holdAudio(benchmarkOwnership.value != null) }
     val tuningConfiguration = runtime.tuningConfiguration
     val playback = runtime.playback
     val replyProjection = runtime.replyProjection
@@ -296,7 +302,6 @@ private fun VoiceChatSessionScreen(
     var resumeWhenReady by remember { mutableStateOf(false) }
     var captions by rememberSaveable { mutableStateOf(true) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    var benchmarkRunning by remember { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
     var language by rememberSaveable { mutableStateOf(java.util.Locale.getDefault().toLanguageTag()) }
     val recognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE
@@ -420,8 +425,8 @@ private fun VoiceChatSessionScreen(
         remaining = 0
     }
     LaunchedEffect(state.transcript) { draft = state.transcript }
-    LaunchedEffect(state.awaitingReply, performance, speakWhileGenerating, lifecycleState, settingsOpen, routeOpen) {
-        if (!state.awaitingReply || performance != VoicePerformanceMode.AUTO || !speakWhileGenerating || lifecycleState != Lifecycle.State.RESUMED || settingsOpen || routeOpen) return@LaunchedEffect
+    LaunchedEffect(state.awaitingReply, performance, speakWhileGenerating, lifecycleState, settingsOpen, routeOpen, benchmarkRunning) {
+        if (!state.awaitingReply || performance != VoicePerformanceMode.AUTO || !speakWhileGenerating || lifecycleState != Lifecycle.State.RESUMED || settingsOpen || routeOpen || benchmarkRunning) return@LaunchedEffect
         while (true) {
             delay(100)
             session.flushSpeech()
@@ -429,7 +434,7 @@ private fun VoiceChatSessionScreen(
     }
     LaunchedEffect(preferencesApplied, enabled, voiceReady, spokenReplies, language, kokoroVoice, kokoroThreads, kokoroModel.status, lifecycleState, state.phase, state.awaitingReply, admission?.stage, settingsOpen, benchmarkRunning) {
         if (!preferencesApplied) return@LaunchedEffect
-        if (settingsOpen || benchmarkRunning) return@LaunchedEffect
+        if (settingsOpen || benchmarkOwnership.value != null) return@LaunchedEffect
         if (enabled && loaded && roomReady && LocalVoiceModelStore.supportsLanguage(language) && lifecycleState == Lifecycle.State.RESUMED) {
             // Opening the route only starts recognition. Native warmup begins after decoder release,
             // while an accepted reply is generating; the worker gate also fences preview/retry races.
@@ -438,8 +443,8 @@ private fun VoiceChatSessionScreen(
             kokoroOutput?.releaseWarmModel()
         }
     }
-    LaunchedEffect(settingsOpen, routeOpen, recognitionReady, preferencesApplied, listeningEnabled) {
-        if (!preferencesApplied) return@LaunchedEffect
+    LaunchedEffect(settingsOpen, routeOpen, recognitionReady, preferencesApplied, listeningEnabled, benchmarkRunning) {
+        if (!preferencesApplied || benchmarkOwnership.value != null) return@LaunchedEffect
         applyAudioConfiguration()
         if (voiceReady && recognitionReady && !settingsOpen && !routeOpen && listeningEnabled && started && !state.muted && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED) {
             if (state.phase == VoicePhase.PAUSED) session.resume()
@@ -452,7 +457,8 @@ private fun VoiceChatSessionScreen(
         if (!granted) session.permissionDenied()
     }
     fun listen(manual: Boolean = false) {
-        if (!enabled || !voiceReady || !preferencesApplied || !recognitionReady && !state.hasDraft) return
+        session.holdAudio(benchmarkOwnership.value != null)
+        if (benchmarkOwnership.value != null || !enabled || !voiceReady || !preferencesApplied || !recognitionReady && !state.hasDraft) return
         applyAudioConfiguration()
         permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
@@ -494,6 +500,7 @@ private fun VoiceChatSessionScreen(
         chatView = true
     }
     fun closeSettings() {
+        benchmarkOwner.cancel()
         audio.stop()
         savePreferences()
         settingsOpen = false
@@ -507,15 +514,17 @@ private fun VoiceChatSessionScreen(
             end()
         }
     }
-    DisposableEffect(lifecycle, session) {
+    DisposableEffect(lifecycle, session, benchmarkOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
                     runtimeOwner.resume()
                     permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    session.holdAudio(benchmarkOwnership.value != null)
                     session.access(currentEnabled, permission, true)
                 }
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    if (event == Lifecycle.Event.ON_STOP) benchmarkOwner.cancel()
                     refreshMutedBaseline = true
                     session.access(currentEnabled, permission, false)
                     systemAudio.releaseRecognition()
@@ -527,15 +536,17 @@ private fun VoiceChatSessionScreen(
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            benchmarkOwner.cancel()
             refreshMutedBaseline = true
             session.access(currentEnabled, permission, false)
             systemAudio.releaseRecognition()
             runtimeOwner.pause()
         }
     }
-    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, resumeWhenReady, recognitionReady, recognitionBackend, settingsOpen, listeningEnabled) {
+    LaunchedEffect(enabled, voiceReady, preferencesApplied, lifecycleState, resumeWhenReady, recognitionReady, recognitionBackend, settingsOpen, listeningEnabled, benchmarkRunning) {
+        session.holdAudio(benchmarkOwnership.value != null)
         session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-        if (enabled && voiceReady && preferencesApplied && recognitionReady && listeningEnabled && !settingsOpen && !routeOpen && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || !state.muted && state.phase == VoicePhase.PAUSED)) {
+        if (benchmarkOwnership.value == null && enabled && voiceReady && preferencesApplied && recognitionReady && listeningEnabled && !settingsOpen && !routeOpen && state.recoveryAction == null && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady || !state.muted && state.phase == VoicePhase.PAUSED)) {
             started = true
             resumeWhenReady = false
             listen()
@@ -545,8 +556,8 @@ private fun VoiceChatSessionScreen(
         val accepted = admission ?: return@LaunchedEffect
         session.admission(accepted.stage, accepted.reason, accepted.requestId)
     }
-    LaunchedEffect(loaded, roomReady, messages, runs, enabled, backend.loaded, spokenReplies, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick) {
-        if (!loaded || !roomReady) return@LaunchedEffect
+    LaunchedEffect(loaded, roomReady, messages, runs, enabled, backend.loaded, spokenReplies, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick, benchmarkRunning) {
+        if (!loaded || !roomReady || benchmarkOwnership.value != null) return@LaunchedEffect
         // Restoration publishes messages before loaded=true. Read the current flow snapshot so
         // separate Compose collectors cannot accidentally prime from an empty history.
         val messageSnapshot = model.groupedMessages.value
@@ -604,6 +615,7 @@ private fun VoiceChatSessionScreen(
                 lifecycle.currentState != Lifecycle.State.RESUMED ||
                 settingsOpen ||
                 routeOpen ||
+                benchmarkOwnership.value != null ||
                 manualMessage ||
                 session.states.value.speaker != speakerAtRead ||
                 currentMessage == null ||
@@ -663,6 +675,8 @@ private fun VoiceChatSessionScreen(
         activeMessage = null
     }
     fun toggleMicrophone() {
+        session.holdAudio(benchmarkOwnership.value != null)
+        if (benchmarkOwnership.value != null) return
         if (state.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) {
             stopMessage()
             if (buttonSounds) feedback.stop()
@@ -678,7 +692,8 @@ private fun VoiceChatSessionScreen(
         }
     }
     fun readResponse(identity: VoiceMessageIdentity, text: String, includeDetails: Boolean = false) {
-        if (text.isBlank()) return
+        session.holdAudio(benchmarkOwnership.value != null)
+        if (benchmarkOwnership.value != null || text.isBlank()) return
         pauseCapture()
         session.access(enabled && preferencesApplied && loaded && roomReady && backend.loaded, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         if (session.beginMessage(identity.key, manual = true, diagnosticRunId = identity.runId.ifBlank { identity.key }, includeDetails = includeDetails)) {
@@ -697,7 +712,7 @@ private fun VoiceChatSessionScreen(
     }
     val latestStop = rememberUpdatedState(::stopMessage)
     val latestPauseCapture = rememberUpdatedState(::pauseCapture)
-    val outputAvailable = enabled && preferencesApplied && loaded && roomReady && backend.loaded && kokoroModel.status == LocalVoiceModelStatus.READY
+    val outputAvailable = !benchmarkRunning && enabled && preferencesApplied && loaded && roomReady && backend.loaded && kokoroModel.status == LocalVoiceModelStatus.READY
     // Meter ticks do not replace controls or invalidate every transcript message.
     val messageControls = remember(activeMessage, state.phase, outputAvailable) {
         VoiceMessageControls(
@@ -837,13 +852,13 @@ private fun VoiceChatSessionScreen(
                         voice = kokoroVoice,
                         threads = kokoroThreads,
                         speechRate = rate,
-                        enabled = !state.awaitingReply && kokoroModel.status == LocalVoiceModelStatus.READY && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
+                        enabled = !benchmarkRunning && !state.awaitingReply && kokoroModel.status == LocalVoiceModelStatus.READY && state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING),
                         beforeStart = {
                             session.pause("speech_benchmark_started")
                             localRecognition.releaseWarmModel()
                             kokoroOutput?.releaseWarmModel()
                         },
-                        onRunningChanged = { benchmarkRunning = it }
+                        viewModel = benchmarkOwner
                     )
                     if (!benchmarkRunning) {
                         VoiceTuningSettings(

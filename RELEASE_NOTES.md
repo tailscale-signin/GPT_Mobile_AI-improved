@@ -62,6 +62,7 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Make the phone map available to authorized native GitHub model tools without requiring an engineering Gateway or persistent engineering memory. Account, connection, profile, permission and revision checks apply to cached reads and pagination as well as downloads.
 - Preserve Privacy Mode rejection and recovery guidance in the map. Record whether any GitHub request actually left the phone, retain earlier completed reads, and stop queued tool authority when the policy rejects a request.
 - Retain Gateway as an explicit optional source for its additional analysis and durable background indexing. Source switches discard stale results and cursors, and failures never silently change the selected provider.
+- Preserve GitHub cooldown timing and earlier request evidence when a phone-map operation stops locally. A confirmed HTTP response remains observed, and local indexing never acquires Gateway write-reconciliation claims.
 
 ## Execution, GitHub and diagnostic reliability
 
@@ -120,6 +121,7 @@ The exact release commit must pass the required main workflows, artifact identit
 - Bind provider, local-tool, queued-work and voice requests to the originating conversation. Recheck the captured policy at transport dispatch, prevent unresolved conversation ownership from sending, and keep ordinary conversations independent of concurrent private work.
 - Keep private memories and documents local to their source conversation, including older mixed-source records, edits, deletion and restore. Prevent private source material from entering shared research indexes or external Gateway, GitHub and MCP workflows; preserve trusted local tools and explicit provider masking.
 - Keep enabled calculator, current-date and supplied-text slicing tools available in Privacy Mode through trusted local execution. Each model continuation masks tool arguments and results and retains profile, plugin and personal-data permissions.
+- Keep each turn bound to its saved conversation privacy and captured masking policy through preparation, configuration checks and native callbacks. Changes to masking policy require a fresh turn; Options availability never unlocks a private conversation. Recheck captured authority and cancellation immediately before tool execution.
 - Report privacy-blocked GitHub and MCP requests as local policy decisions with known non-dispatch. Preserve earlier uncertain operations and genuine connection recovery state; a local denial does not create a network cooldown or invalidate a working catalogue.
 - Preserve bounded DNS, TLS, connection, timeout and HTTP evidence in audit results. Record fixed assertion identities, attempted and passed counts, safe expected/observed states and privacy-policy revisions without exporting request bodies, private terms or credentials.
 - Show the original cached failure, observation age and recorded retry eligibility. Repair actions keep the exact saved connection identity, and untested tools, models and device checks retain explicit qualification steps.

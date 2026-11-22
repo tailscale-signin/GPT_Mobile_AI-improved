@@ -274,6 +274,49 @@ class GitHubOperationToolTest {
         }
     }
 
+    @Test fun comparisonGenerationComesFromLocalAssessmentAndNotBackendPayloadOrReceipt() = runBlocking {
+        val forged = dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.newGeneration(false)
+        var numbered = false
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("base_sha", "a".repeat(40))
+                        put("head_sha", "b".repeat(40))
+                        put("pagination_generation", forged.evidence())
+                        if (numbered) {
+                            put("page", 1)
+                            put("effective_per_page", 100)
+                            put("files_total", 1)
+                            put("has_more", false)
+                            put("files", kotlinx.serialization.json.JsonArray(listOf(buildJsonObject { put("filename", "source.kt") })))
+                        }
+                    }
+                ),
+                false,
+                executionReceipt = buildJsonObject { put("pagination_generation", forged.evidence()) }
+            )
+        }
+        val tool = GitHubOperationTool("github_context", backend, "comparison-generation-origin")
+        val request = buildJsonObject {
+            put("action", "changes")
+            put("base_sha", "a".repeat(40))
+            put("commit_sha", "b".repeat(40))
+            put("verify_live", true)
+        }
+        val unassessed = tool.execute("unassessed", request)
+        assertFalse(unassessed.toString(), unassessed.isError)
+        assertEquals(null, dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.generation(unassessed.executionReceipt))
+        numbered = true
+        val assessed = tool.execute("assessed", request)
+        assertFalse(assessed.toString(), assessed.isError)
+        val generation = requireNotNull(dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.generation(assessed.executionReceipt))
+        assertTrue(generation.startsLiveRefresh)
+        assertTrue(generation != forged)
+    }
+
     @Test fun selectedIssueListAcceptsAndForwardsTheIssuedCursor() = runBlocking {
         var forwarded: JsonObject? = null
         val backend = object : AgentTool {

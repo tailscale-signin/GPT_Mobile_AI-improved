@@ -36,6 +36,7 @@ import dev.chungjungsoo.gptmobile.data.repository.FakeModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.channelFlow
@@ -516,6 +517,103 @@ class LiteRtLmAdapterTest {
         assertEquals("new", callbackRevision)
         assertEquals(1, runtime.createConversationCalls.size)
         assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test
+    fun `marker free native callbacks retain private policy through local execution`() = runBlocking {
+        val localName = "app_audit_budget_fixture"
+        val native = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("one"), LocalRuntimeEvent.Done))
+            scriptedToolInvocations = listOf(
+                listOf(ScriptedToolInvocation(localName, "{}", afterEventIndex = 0), ScriptedToolInvocation("lookup", "{}", afterEventIndex = 0))
+            )
+        }
+        var localCalls = 0
+        var externalCalls = 0
+        val local = dev.chungjungsoo.gptmobile.data.agent.appAuditLocalTool(localName, buildJsonObject { put("type", "object") }) { id, _ ->
+            yield()
+            assertTrue(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
+            assertEquals(41, dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext.currentOrNull()?.chatId)
+            assertNull(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn])
+            localCalls++
+            AgentToolResult(id, ToolResultContent.Text("local result"), false)
+        }
+        val external = lookupTool { id, _ ->
+            externalCalls++
+            AgentToolResult(id, ToolResultContent.Text("external result"), false)
+        }
+        val context = dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(41, true)
+        val authority = dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("unchanged-private") {}
+        val events = kotlinx.coroutines.withContext(context + authority) {
+            adapter(markerFreeNativeCallbacks(native), catalog = toolsCatalog())
+                .openSession(turns("Use $localName and lookup"), localPlatform(), listOf(local, external))
+                .streamRound(emptyList(), emptyList()).toList()
+        }
+        assertEquals(1, localCalls)
+        assertEquals(0, externalCalls)
+        assertTrue(events.filterIsInstance<ProviderEvent.ToolResult>().single { it.call.name == "lookup" }.result.isError)
+        assertFalse(events.filterIsInstance<ProviderEvent.ToolResult>().single { it.call.name == localName }.result.isError)
+        assertNull(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext.currentOrNull())
+    }
+
+    @Test
+    fun `reused marker free native callbacks use the next conversations privacy policy`() = runBlocking {
+        val native = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("one"), LocalRuntimeEvent.Done), listOf(LocalRuntimeEvent.Done))
+            scriptedToolInvocations = listOf(emptyList(), listOf(ScriptedToolInvocation("lookup", "{}", afterEventIndex = 0)))
+        }
+        val adapter = adapter(markerFreeNativeCallbacks(native), catalog = toolsCatalog())
+        var callbackChatId: Int? = null
+        var callbackRevision: String? = null
+        val tools = listOf(
+            lookupTool { id, _ ->
+                yield()
+                callbackChatId = dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext.currentOrNull()?.chatId
+                callbackRevision = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision
+                assertFalse(dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
+                AgentToolResult(id, ToolResultContent.Text("current result"), false)
+            }
+        )
+        kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(41, true) + dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("old-private") {}) {
+            adapter.openSession(turns("Use lookup first"), localPlatform(), tools).streamRound(emptyList(), emptyList()).toList()
+        }
+        val events = kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(42, false) + dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("new-ordinary") {}) {
+            adapter.openSession(listOf(completedTurn("Use lookup first", "one"), pendingTurn("Use lookup next")), localPlatform(), tools).streamRound(emptyList(), emptyList()).toList()
+        }
+        assertEquals(42, callbackChatId)
+        assertEquals("new-ordinary", callbackRevision)
+        assertEquals(1, native.createConversationCalls.size)
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertNull(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext.currentOrNull())
+    }
+
+    private fun markerFreeNativeCallbacks(native: FakeLocalRuntime): LocalRuntime = object : LocalRuntime by native {
+        override fun <T> runExclusiveFlow(onContended: suspend () -> Unit, block: suspend LocalRuntime.() -> kotlinx.coroutines.flow.Flow<T>): kotlinx.coroutines.flow.Flow<T> {
+            val self = this
+            return native.runExclusiveFlow(onContended) { block(self) }
+        }
+
+        override suspend fun createConversation(config: dev.chungjungsoo.gptmobile.data.localruntime.LocalConversationConfig) {
+            val executor = config.toolExecutor
+            native.createConversation(
+                config.copy(
+                    toolExecutor = executor?.let {
+                        dev.chungjungsoo.gptmobile.data.localruntime.LocalToolExecutor { name, arguments ->
+                            val callbackContext = kotlinx.coroutines.currentCoroutineContext()
+                                .minusKey(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext)
+                                .minusKey(dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn)
+                                .minusKey(dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard)
+                            kotlinx.coroutines.CoroutineScope(callbackContext).async {
+                                assertNull(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext.currentOrNull())
+                                val result = executor.execute(name, arguments)
+                                assertNull(dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext.currentOrNull())
+                                result
+                            }.await()
+                        }
+                    }
+                )
+            )
+        }
     }
 
     @Test

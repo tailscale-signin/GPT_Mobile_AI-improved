@@ -110,7 +110,9 @@ class AgentToolResolver @Inject constructor(
     private val repositoryMaps: dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
-        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) return
+        val privateTurn = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn]
+        privateTurn?.validate()
+        if (privateTurn != null || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) return
         val features = settingRepository.getFeatureSettings()
         val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } ?: return
         if (!features.remoteMcpConnections || !profile.enabled || profile.disableAllTools || profile.disableRemoteTools) return
@@ -180,6 +182,8 @@ class AgentToolResolver @Inject constructor(
         cachedCataloguesOnly: Boolean = false,
         requestedModel: String? = null
     ): List<ResolvedAgentTool> {
+        val privateTurn = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn]
+        privateTurn?.validate()
         if (chatToolConfig?.github != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.sessionAudit(userMessage?.content.orEmpty())) return emptyList()
         val platforms = settingRepository.fetchPlatformV2s()
         val featureSettings = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
@@ -199,7 +203,8 @@ class AgentToolResolver @Inject constructor(
         val freeProfile = consentPlatform?.let { it.compatibleType == ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null } == true
         val disableRemote = platform?.disableRemoteTools == true
         val disableLocal = platform?.disableLocalTools == true
-        if (dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) {
+        if (privateTurn != null || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()) {
+            privateTurn?.validate()
             if (platform?.enabled != true || disableLocal || chatToolConfig?.allToolsDisabled == true) return emptyList()
             // Do not load bindings, discover services, or instantiate tools with external dependencies.
             return finalizeResolvedTools(

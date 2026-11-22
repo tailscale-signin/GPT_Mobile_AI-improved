@@ -55,6 +55,7 @@ internal class PrivateLocalToolSession(
     }
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+        currentCoroutineContext()[PrivateTurn]?.validate()
         if (store.effectiveSnapshot(privacy.enabled) != policy) {
             emit(rejected("DISPATCH_POLICY_CHANGED", "Privacy settings changed. Resend with the current settings."))
             return@flow
@@ -82,6 +83,7 @@ internal class PrivateLocalToolSession(
         val privateAuthority = RequestAuthorizationGuard("${inherited?.revision.orEmpty()}:private-local-${policy.revision}", inherited?.authority) {
             check(store.effectiveSnapshot(privacy.enabled) == policy) { "DISPATCH_POLICY_CHANGED: Privacy settings changed. Resend with the current settings." }
             inherited?.validate?.invoke()
+            check(store.effectiveSnapshot(privacy.enabled) == policy) { "DISPATCH_POLICY_CHANGED: Privacy settings changed. Resend with the current settings." }
         }
         privateAuthority.validate()
         // Rebuild from the owned definitions: names or metadata never grant local authority.

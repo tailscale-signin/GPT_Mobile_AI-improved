@@ -636,8 +636,10 @@ internal class GitHubOperationTool(
             is ToolResultContent.Text -> runCatching { kotlinx.serialization.json.Json.parseToJsonElement(content.text) as? JsonObject }.getOrNull()
             else -> null
         }
+        result = result.copy(executionReceipt = dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.withGeneration(result.executionReceipt, null))
         if (!result.isError && data != null) {
             val assessment = pagination.assessPage(operation, resolved, data, paginationObservation)
+            result = result.copy(executionReceipt = dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.withGeneration(result.executionReceipt, assessment.generation))
             if (assessment.errorCode != null) {
                 val progress = assessment.data["pagination_progress"] as? JsonObject
                 val gap = progress?.get("first_unobserved_page")

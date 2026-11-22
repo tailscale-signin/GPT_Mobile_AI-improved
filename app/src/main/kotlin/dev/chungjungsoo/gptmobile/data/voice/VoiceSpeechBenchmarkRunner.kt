@@ -38,6 +38,7 @@ internal class VoiceSpeechBenchmarkRunner(
             var result = report.results[index].copy(state = VoiceSpeechBenchmarkBackendState.PREPARING)
             update(index, result)
             var engine: VoicePhraseEngine? = null
+            var attemptEvidence: VoiceSpeechExecutionEvidence? = null
             try {
                 checkActive()
                 var preparedAt = 0L
@@ -55,6 +56,9 @@ internal class VoiceSpeechBenchmarkRunner(
                 update(index, result)
                 for (fixture in VoiceSpeechBenchmarkFixture.entries) {
                     for (iteration in 0..report.configuration.mode.warmRepeats) {
+                        // A throwing native generate can leave the engine's preceding
+                        // receipt intact. Only this returned attempt may explain a failure.
+                        attemptEvidence = null
                         checkActive()
                         val before = thermalStatus()
                         if ((before ?: 0) >= 2) {
@@ -73,6 +77,7 @@ internal class VoiceSpeechBenchmarkRunner(
                             val firstPcmMs = elapsed(started)
                             checkActive()
                             val evidence = ready.executionEvidence
+                            attemptEvidence = evidence
                             check(audio.samples.isNotEmpty() && audio.samples.all { it.isFinite() }) { "OUTPUT_INVALID" }
                             try {
                                 kokoroWordFrames(audio.durations, audio.wordTokens, audio.wordTokens.size / 2, audio.samples.size)
@@ -112,7 +117,7 @@ internal class VoiceSpeechBenchmarkRunner(
                 result = result.copy(state = VoiceSpeechBenchmarkBackendState.CANCELLED)
             } catch (error: Exception) {
                 val failure = speechBenchmarkFailure(error)
-                val observed = engine?.executionEvidence
+                val observed = attemptEvidence
                 result = result.copy(
                     state = failure.state,
                     failure = failure.code,
@@ -134,6 +139,9 @@ internal class VoiceSpeechBenchmarkRunner(
         val finalState = when {
             cancelled.get() -> VoiceSpeechBenchmarkRunState.CANCELLED
             report.issue != null -> VoiceSpeechBenchmarkRunState.INTERRUPTED
+            // Native cancellation and an interrupted worker also stop the run,
+            // even when they did not originate from this runner's cancel button.
+            report.results.any { it.state == VoiceSpeechBenchmarkBackendState.CANCELLED } -> VoiceSpeechBenchmarkRunState.CANCELLED
             else -> VoiceSpeechBenchmarkRunState.COMPLETE
         }
         report = report.copy(

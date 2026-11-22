@@ -15,20 +15,23 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     private data class Pending(val page: Int, val at: Long)
     private data class Traversal(
         val generation: Long,
+        val receiptGeneration: GitHubComparisonPage.Generation,
         val pages: MutableMap<Int, Page> = linkedMapOf(),
         val pending: MutableMap<Long, Pending> = linkedMapOf(),
         var total: Int? = null,
         var changed: Boolean = false,
         var inconsistent: Boolean = false
     )
-    internal data class Observation(val query: String, val generation: Long, val id: Long)
-    internal data class Assessment(val data: JsonObject, val errorCode: String? = null)
+    internal data class Observation(val query: String, val generation: Long, val id: Long, val receiptGeneration: GitHubComparisonPage.Generation)
+    internal data class Assessment(val data: JsonObject, val errorCode: String? = null, val generation: GitHubComparisonPage.Generation? = null)
     internal data class Dispatch(val observation: Observation? = null, val completedPage: Int? = null, val errorCode: String? = null)
     private val ends = linkedMapOf<String, End>()
     private val traversals = linkedMapOf<String, Traversal>()
     private var sequence = 0L
 
-    private fun traversal(key: String): Traversal = traversals.getOrPut(key) { Traversal(++sequence) }
+    private fun traversal(key: String, startsLiveRefresh: Boolean = false): Traversal = traversals.getOrPut(key) {
+        Traversal(++sequence, GitHubComparisonPage.newGeneration(startsLiveRefresh))
+    }
 
     private fun reset(key: String) {
         val previous = traversals[key]
@@ -139,12 +142,12 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     @Synchronized fun beginPage(operation: String, args: JsonObject): Observation? {
         if (!numberedRemotePage(operation, args)) return null
         val key = key(operation, args)
-        val state = traversal(key)
+        val state = traversal(key, liveFirstPage(args))
         val id = ++sequence
         state.pending[id] = Pending(page(args), now())
         while (state.pending.size > GitHubComparisonPage.MAX_COVERAGE_PAGES) state.pending.remove(state.pending.keys.first())
         while (traversals.size > 128) reset(traversals.keys.first())
-        return Observation(key, state.generation, id)
+        return Observation(key, state.generation, id, state.receiptGeneration)
     }
 
     @Synchronized fun cancelPage(observation: Observation?) {
@@ -152,7 +155,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         traversals[observation.query]?.takeIf { it.generation == observation.generation }?.pending?.remove(observation.id)
     }
 
-    private fun superseded(args: JsonObject): Assessment = Assessment(
+    private fun superseded(args: JsonObject, observation: Observation): Assessment = Assessment(
         buildJsonObject {
             put("reason", "SUPERSEDED_PAGINATION_GENERATION")
             put("complete", false)
@@ -169,7 +172,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                 }
             )
         },
-        "GITHUB_PAGINATION_INCOMPLETE"
+        "GITHUB_PAGINATION_INCOMPLETE",
+        observation.receiptGeneration
     )
 
     private fun rows(result: JsonObject): Map<String, JsonArray> {
@@ -269,7 +273,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                 state.generation == token.generation && state.pending[token.id]?.let { now() - it.at in 0..300_000_000_000L } == true
             }
         }
-        if (observation != null && dispatched == null) return superseded(args)
+        if (observation != null && dispatched == null) return superseded(args, observation)
         if (observation != null) dispatched?.pending?.remove(observation.id)
         val collections = rows(result)
         if (collections.isEmpty()) {
@@ -331,13 +335,13 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             // A symbolic first page resolves its immutable key only in the response.
             // An explicit refresh replaces that key; ordinary reads may reuse its coverage.
             val existing = traversals[key]
-            if (existing != null && existing.generation > observation.generation) return superseded(args)
+            if (existing != null && existing.generation > observation.generation) return superseded(args, observation)
             val resolved = if (liveFirstPage(args)) requireNotNull(dispatched) else existing ?: requireNotNull(dispatched)
             if (liveFirstPage(args)) reset(key)
             traversals[key] = resolved
             traversals[observation.query] = resolved
         }
-        val state = traversal(key)
+        val state = traversal(key, liveFirstPage(args))
         val comparisonLimited = operation == "github_context" && args["action"] == JsonPrimitive("changed_since") && GitHubComparisonPage.exceedsCoverageLimit(result)
         if (state.pages.values.any { now() - it.at !in 0..300_000_000_000L }) {
             state.pages.clear()
@@ -453,7 +457,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             if (comparisonLimited) requireNotNull(GitHubComparisonPage.limitResult(args, it)) else it
         }
         return if (error == null) {
-            Assessment(output)
+            Assessment(output, generation = state.receiptGeneration)
         } else {
             Assessment(
                 JsonObject(
@@ -475,7 +479,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                         put("message", if (comparisonLimited) output.getValue("message") else JsonPrimitive("Remote pagination did not establish complete coverage. Retain these observations and deliberately refresh page 1 with verify_live=true; do not count repeated rows as new records or accepted tests."))
                     }
                 ),
-                error
+                error,
+                state.receiptGeneration
             )
         }
     }

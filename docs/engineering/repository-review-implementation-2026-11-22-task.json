@@ -8,7 +8,7 @@
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "integration_branch": "work/review-implementation-2026-11-22",
   "intent": "Implement the actionable repository review improvements and publish verified Android and Gateway releases from the existing shared PR while preserving concurrent changes.",
-  "status": "COMBINED_BINDING_AND_UNIT_REPAIRS_LOCALLY_VERIFIED_PENDING_ANDROID",
+  "status": "C29_SOURCE_UNION_REVIEWED_FOCUSED_TESTS_PASSED_PENDING_FINAL_VALIDATION",
   "requirements": [
     {
       "id": "recovery",
@@ -51,7 +51,7 @@
     "No physical-phone latency, acoustic, battery, or accelerator result may be inferred from source or host tests.",
     "External providers, compatible runtime packages and Windows signing credentials retain their independently observed availability."
   ],
-  "preserved_concurrent_sha": "a0ac4b01d55fb837893e742728c625b257b48dbe",
+  "preserved_concurrent_sha": "ba7752460bb0c1f9de4adc99a6a24943976fca61",
   "integrated_local_changes": [
     "setup_and_runtime_route_clarity",
     "capability_and_backup_guidance",
@@ -84,7 +84,7 @@
     "identityHash": "489fe6ad9e5f86a5af203af446e77dbf",
     "byte_count": 164660,
     "lossless_job_log_match": true,
-    "current_applicability": "Entities, converters and migrations unchanged from artifact source; DAO transaction behavior updated by concurrent privacy repair. Current-head KSP remains required."
+    "current_applicability": "Historical authentic schema53 handoff retained. Incoming permanent-conversation privacy advances to schema54; provenance and exact integrated KSP must be verified."
   },
   "ci_repair_validation": {
     "stale_failure_source": "f225c208e80393f0232ba7849340461fd23901b9",
@@ -150,5 +150,429 @@
     "cursor_admission_tests": 14,
     "mandatory_persistence_receipts": 26,
     "full_android": "PENDING_CURRENT_HEAD_CI"
+  },
+  "phone_map_reconciliation": {
+    "source": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
+    "engine_parser_tests": 32,
+    "incoming_engine_parser_tests_preserved": 30,
+    "tool_dispatch_and_fallback_tests": 29,
+    "new_dispatch_regressions_fail_before": 5,
+    "presentation_context_tests": 14,
+    "receipt_validator_tests": 16,
+    "mandatory_privacy_selection_methods": 1,
+    "privacy_selection_skips_rejected": true,
+    "budgets_relaxed": false,
+    "full_android": "PENDING_CURRENT_HEAD_CI",
+    "private_turn_policy": "IMPLEMENTED_CAPTURED_REVISION_JOB_AND_NATIVE_CALLBACK_GUARD",
+    "same_suite_premerge_ours_failed": 5,
+    "same_suite_incoming_failed": 6,
+    "path_pagination": "INCOMING_BOUNDED_SOURCE_TARGET_OFFSET_CONTRACT_PRESERVED"
+  },
+  "latest_historical_full_suite": {
+    "source": "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2",
+    "run": 45070165494,
+    "job": 137355179755,
+    "artifact": 14773884757,
+    "artifact_sha256": "0d12085fa95ac330bacb59034f3c52c489fa20209327c403a5eca0192a1463e6",
+    "reports": 1734,
+    "counts": {
+      "app": {
+        "tests": 12684,
+        "passed": 12676,
+        "failed": 3,
+        "skipped": 5
+      },
+      "core-domain": {
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "mismatches": [],
+    "failures": [
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.agent.tool.McpPrivacyTransportTest",
+        "test": "localRejectionOfAReadRetryCannotEraseTheEarlierUncertainAttempt",
+        "message": "org.junit.ComparisonFailure: expected:<[UNKNOWN]> but was:<[NOT_DISPATCHED]>"
+      },
+      {
+        "class": "dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAppDiagnosticProjectionTest",
+        "test": "privacyPolicyRemainsSpecificWhileEarlierUnknownOutcomeKeepsItsPriority",
+        "message": "java.lang.AssertionError: expected:<\"manual\"> but was:<\"reconcile\">"
+      },
+      {
+        "class": "dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphPresentationTest",
+        "test": "sourceLinksRejectTraversalAndUnresolvedRevisions",
+        "message": "java.lang.IllegalArgumentException: Failed requirement."
+      }
+    ],
+    "qualifies_current_head": false,
+    "repairs": "Phone context constructor fixture corrected and14 focused tests passed; Gateway unknown-outcome fixture now requires reconciliation; MCP scope-loss repair reproduced and focused-tested. Full current-head execution remains required."
+  },
+  "historical_binding_device_acceptance": {
+    "source": "87204b8667233f1d01334cdae2765d1f152d6545",
+    "run": 45067079348,
+    "conclusion": "success",
+    "api34_job": 137345787199,
+    "api36_job": 137345786900,
+    "mandatory_persistence_methods": 26,
+    "qualifies_current_head": false
+  },
+  "captured_privacy_authority": {
+    "observed_source": "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
+    "actual_source_guard_store_tool_tests": 9,
+    "pre_final_gate_failures_same_nine_tests": 1,
+    "original_transport_failures_in_initial_eight_tests": 2,
+    "document_expression_probe": {
+      "cases": 1,
+      "before_failed": 1,
+      "after_passed": 1,
+      "full_repository_execution": false
+    },
+    "configured_authority_probe": {
+      "cases": 4,
+      "before_failed": 2,
+      "after_passed": 4,
+      "verbatim_production_capture_and_guard": true,
+      "unrelated_boundaries": "DTO/model policy projection and Android initialization"
+    },
+    "independent_review": "PASSED_WITH_FINAL_PHYSICAL_AND_COMPOSED_BOUNDARY_RECHECKS",
+    "full_repository_regressions": "Native preparation, resolver, runner/budget, document boundary and configured-parent cases committed; exact-current full Android CI required.",
+    "full_android": "PENDING_CURRENT_HEAD_CI",
+    "canonical_host_result": "PASSED",
+    "canonical_host_tests": 615,
+    "changed_kotlin_format_files": 19,
+    "scope_and_authentic_room_schema": "PASSED",
+    "generated_inventories": "PASSED",
+    "mandatory_receipts": "Privacy selection added; all existing exact-method receipts retained"
+  },
+  "incoming_concurrent_sha": "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+  "fea_reconciliation": {
+    "source": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+    "canonical_host_tests": 616,
+    "authentication_tests": 206,
+    "changed_kotlin_format_files": 78,
+    "graph_dispatch_and_fallback_tests": 29,
+    "full_android": "PENDING_EXACT_INTEGRATED_HEAD",
+    "scope_paths_at_checkpoint": 575
+  },
+  "comparison_generation_repair": {
+    "source": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+    "baseline_probe_tests": 1,
+    "baseline_probe_failures": 1,
+    "focused_tests": 61,
+    "original_incoming_cases_retained": 54,
+    "additional_live_response_permutations": 24,
+    "corrected_probe_passed": 1,
+    "changed_kotlin_format_files": 8,
+    "independent_review": "PASSED",
+    "facade_integration": "REGRESSION_ADDED_PENDING_ANDROID_CI",
+    "contract": "Locally issued process namespace and monotonic ordinal bind exact execution receipts; late same-generation page1 cannot erase page2, and late superseded/legacy/shared or forged payload metadata cannot supersede the current refresh."
+  },
+  "mcp_uncertainty_repair": {
+    "baseline_cases": 7,
+    "baseline_failures": 1,
+    "corrected_original_cases": 7,
+    "expanded_cases": 13,
+    "changed_kotlin_format_files": 4,
+    "cause": "Coroutine exception stack recovery discarded suppressed prior transport evidence.",
+    "contract": "Same-acquisition typed uncertainty carrier used by modern read recovery and legacy reconnect preserves prior EOF without borrowing another operation or inventing HTTP response evidence.",
+    "full_manager": "REGRESSION_STRENGTHENED_PENDING_ANDROID_CI"
+  },
+  "schema54_handoff": {
+    "source": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "producer": "Real full-app Room KSP kspDebugKotlin; successful local producer log independently inspected",
+    "version": 54,
+    "schema_sha256": "6363d1cf75c4464b7bdb0d58872a7200088d93e8da744a7717f60b1f5067ee36",
+    "identityHash": "2f972404e2d13990fcf36076058a79a4",
+    "byte_count": 164926,
+    "matches_producer_bytes": true,
+    "current_integrated_build": "PENDING_EXACT_HEAD_CI"
+  },
+  "per_conversation_privacy_reconciliation": {
+    "source": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "status": "LOCAL_CONFLICTS_RESOLVED_FOCUSED_CHECKS_PASSED_PENDING_ANDROID",
+    "ui_and_github_independent_review": "NO_CONCRETE_BLOCKER",
+    "existing_persistence_cases_retained": 26,
+    "mandatory_persistence_methods": 29,
+    "mandatory_migration_methods": 2,
+    "mandatory_privacy_selection_methods": 1,
+    "mandatory_voice_methods": 9,
+    "receipt_validation": "Both focused dynamic mandatory-receipt checks pass, including missing/skipped rejection for all listed cases.",
+    "full_android": "PENDING_EXACT_INTEGRATED_HEAD",
+    "effective_guard_cases": 10,
+    "old_helper_failures_same_cases": 2,
+    "mcp_cases_on_per_chat_policy": 13,
+    "format_files": 8,
+    "independent_composition_review": "PASSED; effective protection revision, owner job, inherited guard, durable room binding and native callback capture/reuse/clear reviewed"
+  },
+  "pending_concurrent_repair": {
+    "source": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+    "parent": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "status": "CONFLICTS_RESOLVED_SINGLE_CARRIER_AND_ALL_COMPLEMENTARY_TESTS_RETAINED",
+    "fixture_review": "Stronger Gateway dispatch/recovery/correlation assertions and separate pinned-path/invalid-context cases independently reviewed; retain them.",
+    "mcp_reconciliation": "Consolidate complementary operation-scoped uncertainty carriers and retain all wrapped EOF, actual legacy reconnect, cancellation and isolation regressions."
+  },
+  "native_conversation_callback_repair": {
+    "source": "Merged6e permanent-conversation policy with retained captured-authority fixes",
+    "files": [
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapter.kt",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapterTest.kt"
+    ],
+    "baseline_cases": 6,
+    "baseline_failures": 3,
+    "corrected_cases": 6,
+    "probe": "Compiles the exact production callback expression and capture/clear statements, actual ConversationPrivacyContext and physical LocalToolTransport; unrelated engine dependencies isolated.",
+    "contract": "Refresh captured conversation context beside request authority for each exclusive request, restore both for IPC callbacks and clear both on teardown.",
+    "full_adapter_regressions_added": 2,
+    "full_android": "PENDING_EXACT_INTEGRATED_HEAD",
+    "format_files": 2,
+    "independent_review": "PASSED_BY_VOICE_AND_COMPARISON"
+  },
+  "mcp_uncertainty_reconciliation": {
+    "source": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+    "carrier": "MetadataResponseObservation only; no duplicate McpReadAttemptEvidence remains",
+    "actual_source_probe_cases": 16,
+    "composition": "12 repository recovery methods,1 real Ktor scope/isolation probe,3 exact legacy-session-body probes",
+    "repository_transport_methods": 7,
+    "contract": "Retains incoming cycle-safe traversal and legacy CIO reconnect fixture plus known DNS/connect/TLS/local/cancellation distinction and fresh same/different-acquisition isolation.",
+    "format_files": 5,
+    "full_manager": "PENDING_INTEGRATED_ANDROID"
+  },
+  "combined_dda_verification": {
+    "canonical_host_tests": 616,
+    "changed_kotlin_format_files": 30,
+    "release_scope_exact_paths": 624,
+    "android_regex_literals": 1904,
+    "generated_inventory_files": 2911,
+    "full_android": "PENDING_INTEGRATED_COMPILE_AND_EXACT_HEAD_CI"
+  },
+  "voice_controls_acceptance": {
+    "source": "ecd207312bbbcef04790762217c3d66a75ebb26f",
+    "new_control_methods_required": 2,
+    "all_control_methods_required": 4,
+    "dynamic_receipt_guard_added": true,
+    "baseline_guard_cases": 2,
+    "baseline_guard_failures": 1,
+    "missing_methods": [
+      "fullDetailsActionKeepsTheOriginalMessageAndUsesTheSingleStopControl",
+      "voiceAnswerShowsItsSpeechAndKeepsDetailsCollapsedUntilSelected"
+    ],
+    "after_receipt_validator_cases": 16,
+    "result": "PASS; missing/skipped receipts rejected; existing180s class invocation retained"
+  },
+  "current_selected_acceptance_families": {
+    "persistence": 29,
+    "migration": 2,
+    "voice_conversation": 10,
+    "privacy_selection": 1,
+    "voice_message_controls": 4,
+    "selected_total": 46,
+    "not_total_device_suite": true
+  },
+  "voice_feature_reconciliation": {
+    "source": "ecd207312bbbcef04790762217c3d66a75ebb26f",
+    "status": "REVIEWED_AND_REPAIRED_PENDING_INTEGRATED_ANDROID",
+    "preserved_features": [
+      "Voice policy retained by typed/microphone/queued/retried/frozen Combined turns",
+      "Provider reasoning separated from answer content",
+      "Shared bounded speech/replay/caption projection and contextual pronunciation",
+      "Quick/Full accelerator benchmarks with actual execution evidence, thermal handling and private export"
+    ],
+    "independent_prompt_review": "44 manifest hashes matched incoming114-case evidence; no source or frozen-policy blocker found",
+    "new_limitations": "Preserved all nine previous limitations and added explicit silent-inference/first-PCM/acoustic/battery/hardware qualification limits"
+  },
+  "pending_backup_reconciliation": {
+    "source": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+    "status": "NORMAL_MERGE_SOURCE_PRESERVED",
+    "independent_review": "PASS; retained permanent locks apply only to matching restored IDs, no invented masking history/recreated deleted IDs, settings-only data preserved",
+    "actual_sqlite_cases": 7,
+    "before_failures": 3,
+    "after_passed": 7,
+    "limitation": "Actual SQLite/Robolectric fixture evidence; unrelated run/Combined records bounded by stubs, full archive/Room rollback remains CI coverage"
+  },
+  "voice_benchmark_cancellation_repair": {
+    "base": "ecd207312bbbcef04790762217c3d66a75ebb26f",
+    "same_suite_cases": 17,
+    "before_failures": 2,
+    "after_passed": 17,
+    "contract": "Native cancellation or thread interruption retains completed measurements, marks the overall run cancelled and suppresses backend recommendation.",
+    "format_files": 2,
+    "full_android": "PENDING"
+  },
+  "voice_qualification_identity": {
+    "actual_store_json_selection_probe": 1,
+    "before_failures": 1,
+    "after_passed": 1,
+    "full_store_regression": "ADDED_PENDING_INTEGRATED_ANDROID",
+    "contract": "Protocol revision in every production capability key prevents mixing older2-shape receipts with current3-shape qualification while retaining history and preferences",
+    "independent_review": "PASSED"
+  },
+  "voice_audio_ownership_repair": {
+    "actual_source_cases": 84,
+    "baseline_cases": 82,
+    "baseline_failures": 2,
+    "ownership_cases": 2,
+    "files": 6,
+    "independent_review": "PASSED",
+    "contract": "Shared observable owner-token lease persists across route recreation until actual job completion. Physical session audio hold rejects capture/replay, fences callbacks, and preserves draft and mute without automatic resume; stale token cannot release a later owner.",
+    "full_android": "PENDING_COMPOSE_HILT_AND_FULL_VIEWMODEL"
+  },
+  "voice_benchmark_attempt_evidence": {
+    "actual_source_cases": 18,
+    "before_failures_same_cases": 1,
+    "after_passed": 18,
+    "contract": "Failed native attempt cannot borrow previous phrase provider/kernel evidence; returned-but-invalid output retains its own evidence; prior completed samples unchanged.",
+    "format_files_for_runner_and_workload_repairs": 4,
+    "independent_review": "PASSED"
+  },
+  "combined_4c_verification": {
+    "canonical_host_tests": 616,
+    "changed_kotlin_format_files": 40,
+    "release_scope_exact_paths": 667,
+    "limitations": 10,
+    "android_regex_literals": 1923,
+    "generated_inventory_files": 2920,
+    "full_android": "PENDING_EXACT_INTEGRATED_COMPILE_AND_CI"
+  },
+  "c29_capability_mcp_reconciliation": {
+    "source": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+    "status": "RESOLVED_AND_FOCUSED_TESTED",
+    "benchmark_auto_cases": 20,
+    "mcp_cases": 18,
+    "production_store_json_selection_probe": 1,
+    "mcp_test_methods": 14,
+    "both_sides_union_preserved": true,
+    "contract": "Shared COMPARISON_PROTOCOL and strict3-fixture eligibility replace redundant local protocol constant; historical/mixed-cohort/retest evidence retained. Wrapped local privacy denials cannot retry, and same-acquisition carrier with known-pre-dispatch exclusions/cancellation and transport tests remains intact.",
+    "format_files": 8,
+    "full_android": "PENDING"
+  },
+  "historical_gateway_graph_followup": {
+    "source": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
+    "run": 45070941651,
+    "job": 137357553875,
+    "failed_test": "gatewayRateEvidenceDistinguishesLocalCapacityFromObservedUpstreamHttpWithoutChangingGraphDispatch",
+    "status": "ALREADY_FIXED_BY_PRESERVED_CURRENT_GRAPH_ACCOUNTING",
+    "actual_rate_observations": 4,
+    "baseline": "Exact0885 fails first dispatched assertion",
+    "current": "All four typed rate/dispatch/status/delay/retry/reconciliation/prose-exclusion cases pass",
+    "code_changed_for_this_followup": false,
+    "limits": "Probe isolates actual GraphTool and typed GatewayGraphHttpFailure from unrelated Ktor/final projection; full currentGatewayGraphTest remains CI"
+  },
+  "c29_pagination_voice_reconciliation": {
+    "pagination_cases": 67,
+    "prior_generation_cases_preserved": 61,
+    "voice_session_ownership_cases": 91,
+    "both_parent_method_unions_retained": true,
+    "source_hashes": "Exact final source manifests recorded by focused harnesses",
+    "independent_review": "PASSED; locally authored generation authority, payload sanitization, pinned512page restart, persistent audio ownership and current replay/caption identity retained",
+    "full_android": "PENDING"
+  },
+  "c29_parser_review": {
+    "actual_cases": 55,
+    "original_baseline_failures": 9,
+    "source_manifest_entries": 24,
+    "actual_source_test_files_matched": 18,
+    "isolated_boundaries": 6,
+    "current_source_matches_incoming_and_producer": true,
+    "independent_review": "PASSED; quote/code/escape/nesting and streamed choice isolation; sticky private memory retains quarantine after source pruning",
+    "room_memory_fixture": "PENDING_CURRENT_ANDROID_CI"
+  },
+  "combined_c29_local_validation": {
+    "preserved_remote": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+    "canonical_host_tests": 616,
+    "changed_kotlin_format_files": 39,
+    "release_scope_exact_paths": 670,
+    "release_limitations": 10,
+    "android_regex_literals": 1924,
+    "android_regex_dynamic_skipped": 97,
+    "generated_inventory_files": 2921,
+    "room_version": 54,
+    "resources_xml_files": 36,
+    "full_android": "PENDING_CURRENT_HEAD_CI",
+    "merge_and_publication": "PENDING_EXACT_HEAD_AND_MAIN_GREEN"
+  },
+  "dbc_privacy_followup": {
+    "source": "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
+    "scope": "Protect restored chat/voice captions until durable conversation privacy is known; preserve ordinary memory scope edits while private/unshared restrictions stay permanent.",
+    "integration": "Normal merge retains shared voice benchmark ownership and all earlier private-turn authorization repairs.",
+    "hosted_ci": "PENDING",
+    "independent_review": "Actual16memory and6window inputs match both immutable incoming source and merged working source;10memory and3window tests pass with prior2memory and1window failures reproduced.",
+    "canonical_host_tests": 616,
+    "kotlin_format_files": 44,
+    "release_scope_paths": 671
+  },
+  "historical_6e_full_jvm": {
+    "head_sha": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "run_id": 45074676939,
+    "artifact_id": 14777100058,
+    "archive_sha256": "5c76f47fab2c3b33867614bf41af9e74822be205e364f1b8b1ead9fe379130ba",
+    "report_file_count": 1749,
+    "modules": {
+      "app": {
+        "tests": 12803,
+        "failures": 41,
+        "errors": 0,
+        "skipped": 5,
+        "suites": 1748,
+        "passed": 12757
+      },
+      "core-domain": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "suites": 1,
+        "passed": 4
+      }
+    },
+    "total": {
+      "tests": 12807,
+      "failures": 41,
+      "skipped": 5,
+      "suites": 1749,
+      "errors": 0,
+      "passed": 12761
+    },
+    "mismatches": [],
+    "failure_classes": {
+      "ToolBatchDeliveryProofTest": 2,
+      "AgentToolResolverTest": 1,
+      "AppAuditExportTest": 1,
+      "IssueReportSubmissionTest": 2,
+      "ProviderInterruptionReceiptTest": 1,
+      "ToolReportIncidentProjectionTest": 2,
+      "GatewayConversationRepositoryTest": 1,
+      "GatewayEngineeringSubmissionTest": 17,
+      "GatewayGraphTest": 1,
+      "GitHubAuditEvidenceTest": 1,
+      "GraphIndexContinuationTest": 1,
+      "GraphIndexExecutionEvidenceTest": 6,
+      "GatewayAppDiagnosticProjectionTest": 1,
+      "PrivateLocalToolSessionTest": 1,
+      "ChatRepositoryImplTest": 1,
+      "ToolEventRecorderTest": 1,
+      "RepositoryGraphPresentationTest": 1
+    },
+    "qualification": "Historical source only. Later fixes and remaining failures are being checked against current source; no current-head pass inferred."
+  },
+  "local_android_attempt": {
+    "source": "5c431efc44dee4562f98fca11b0dcda7e4ccbc60",
+    "phase": "KSP",
+    "result": "DAEMON_DISAPPEARED",
+    "qualification": "Not a passing Android build. Hosted exact-head compilation remains mandatory; existing budgets and source gates unchanged."
+  },
+  "pending_external_scopes": [
+    "acceptance-completion-70afcf89: separately active16-finding/30-scenario work; integrate and verify before final readiness.",
+    "github-coding-benchmark-2026-11-22: separately active B01-B16 work; integrate and verify before final readiness."
+  ],
+  "ba_voice_followup": {
+    "source": "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+    "scope": "Preserve final answers around arbitrary-width inline code, numeric inch marks and initial fences; rank validated benchmark totals and apply exact ten-percent improvement threshold without rounded display-score artifacts.",
+    "validation": "Incoming63 parser/12Auto actual-source tests and independent source review; full current-head CI remains pending.",
+    "canonical_host_tests": 616,
+    "kotlin_format_files": 49,
+    "release_scope_paths": 672
   }
 }

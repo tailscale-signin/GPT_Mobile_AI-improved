@@ -55,6 +55,8 @@ timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.p
 picker_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.GatewayProfileCardInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/gateway-profile-card-instrumentation.txt"
 gateway_profile_card_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.PrivacyProfileSelectionInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/privacy-profile-selection-instrumentation.txt"
+privacy_profile_selection_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.BubbleActionMenuInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/bubble-actions-instrumentation.txt"
 bubble_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/glass-instrumentation.txt"
@@ -196,6 +198,7 @@ if [ "$glass_status" -ne 0 ]; then exit "$glass_status"; fi
 if [ "$bubble_status" -ne 0 ]; then exit "$bubble_status"; fi
 if [ "$picker_status" -ne 0 ]; then exit "$picker_status"; fi
 if [ "$gateway_profile_card_status" -ne 0 ]; then exit "$gateway_profile_card_status"; fi
+if [ "$privacy_profile_selection_status" -ne 0 ]; then exit "$privacy_profile_selection_status"; fi
 if [ "$editor_status" -ne 0 ]; then exit "$editor_status"; fi
 if [ "$performance_status" -ne 0 ]; then exit "$performance_status"; fi
 if [ "$memory_status" -ne 0 ]; then exit "$memory_status"; fi
@@ -312,6 +315,8 @@ for test in ('compactLightSelectionAndAccessibleFavorite', 'compactDarkRtlSelect
     check_instrumentation(folder / 'picker-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest', test)
 for test in ('onlineStatusRemainsReadableAndDoesNotChangeSelectionAtLargeText', 'onlineStatusRemainsReadableAndDoesNotChangeSelectionInDarkRtl'):
     check_instrumentation(folder / 'gateway-profile-card-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.GatewayProfileCardInstrumentedTest', test)
+for test in ('privacyOffAndEveryVerificationStatusAllowSelectionAndDeselection',):
+    check_instrumentation(folder / 'privacy-profile-selection-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.PrivacyProfileSelectionInstrumentedTest', test)
 for test in ('dialogBlurSwitchActuallyFiltersTheBackground', 'stackedDialogSamplesItsVisibleParentInsteadOfOnlyTheActivity', 'settingsBackdropAndTypographyChangesKeepNavigationContentComposed', 'openingSettingsWhileHomeBlurStillDrawsDoesNotReplayLiveHomeLayers'):
     check_instrumentation(folder / 'glass-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest', test)
 for test in ('largeFontConversationRetainsSenderLabelsAndAnnouncesTerminalFailureAfterRestoration', 'selectedPdfPageRendersAsABoundedImageForTheVisionComposer', 'previewedImageReturnsToItsOriginalComposer', 'typingFollowUpKeepsStopAndSendIndependent', 'glassComposerKeepsSendStopAndLatestActionsIndependent', 'backgroundRunStartingDoesNotTakeFocusFromADraft'):

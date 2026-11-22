@@ -223,6 +223,20 @@
       "tests": 608,
       "command": "bash scripts/validate-local.sh fast",
       "scope": "Source through 9e4b767 preserved with all voice corrections; inventories, schema metadata, regex, resources, icons, provenance and diff checks passed."
+    },
+    {
+      "suite": "approved incident-report upstream-code round trip",
+      "result": "PASS",
+      "tests": 98,
+      "baseline_new_test_failures": 2,
+      "scope": "Both upstream fields preserve safe string401/429 with observed HTTP200; malformed and private codes remain rejected. Existing schema version and approval bytes are unchanged."
+    },
+    {
+      "suite": "canonical fast after upstream-code mirror repair",
+      "result": "PASS",
+      "tests": 608,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "608 repository tests plus generated inventories, schema metadata, regex, resources, icons, provenance and diff checks passed;98 incident-report contract tests passed separately."
     }
   ],
   "hardware_qualification": "Physical phone GPU/NPU performance and audio route calibration require device execution evidence; host tests and successful compilation alone are not qualification.",
@@ -305,6 +319,7 @@
     "Preserve continuous row velocity and non-overlap across fractional caption scale boundaries using bounded leading and matching viewport extent.",
     "Do not transfer privacy proof across removed thinking blocks or unmapped source-list cleanup.",
     "Keep prepared text and privacy proof together and prevent retained Markdown trees from acquiring a different snapshot\u2019s proof.",
-    "Complete the AgentPersistenceDao test fixture for the new privacy-use method."
+    "Complete the AgentPersistenceDao test fixture for the new privacy-use method.",
+    "Keep the reporting-service closed upstream-code mirror aligned with the safe Android numeric authentication/rate-limit values; reject non-string, unlisted and private values."
   ]
 }

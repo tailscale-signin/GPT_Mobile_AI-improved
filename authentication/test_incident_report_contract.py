@@ -159,6 +159,38 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertNotIn("private_payload", capsule.fields_for("INCIDENT"))
         self.assertNotIn("no_output_kind", capsule.fields_for("TOOL"))
 
+    def test_numeric_stream_denials_survive_approved_report_without_changing_http_status(self):
+        for code, kind, failure in (
+            ("401", "AUTHENTICATION", "AUTHENTICATION_FAILED"),
+            ("429", "RATE_LIMIT", "PROVIDER_RATE_LIMITED"),
+        ):
+            with self.subTest(code=code):
+                values = {
+                    "incident_phase": "response_stream", "causal_failure_code": failure,
+                    "provider_failure_kind": kind, "stream_event_type": "error",
+                    "upstream_error_code": code, "upstream_error_type": code,
+                }
+                if kind == "RATE_LIMIT":
+                    values["provider_semantic_status"] = 429
+                capture = self.capture("INCIDENT", values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = failure
+                report["context"].update(stage="response_stream", httpStatus=200)
+                report["context"]["unavailableFields"] = [
+                    field for field in report["context"]["unavailableFields"] if field not in {"stage", "httpStatus"}
+                ]
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(f"| upstream_error_code | `{code}` |", issue["body"])
+                self.assertIn(f"| upstream_error_type | `{code}` |", issue["body"])
+                self.assertIn("| HTTP status | `200` |", issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        for field in ("upstream_error_code", "upstream_error_type"):
+            for invalid in (401, 429, True, "403", "private provider text"):
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("INCIDENT", {field: invalid}))
+
     def test_conversation_recovery_details_survive_approved_report_submission(self):
         samples = [
             ("PROVIDER", "GITHUB_VERIFICATION_INTERNAL_ERROR", "INSPECT_VERIFICATION_FAILURE", {

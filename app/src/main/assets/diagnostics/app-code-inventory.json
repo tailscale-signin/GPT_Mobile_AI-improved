@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2056f55e39000b8394bc49aa0996a95c7d2a8a39007a9cca0d391acd1244b0fc",
+  "source_digest": "bb4d346da3582fe9c9b65a8c7fa195a64617d3bf544322f4a04ac28c1823f632",
   "file_count": 2887,
   "indexed_line_count": 477074,
   "line_coverage_available": false,
@@ -18358,7 +18358,7 @@
       "path": "authentication/incident_report_contract.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "b7e16f161757a3bb39b067bf4294bc7a798cb10bc760a4586857a81618a3fac3",
+      "sha256": "9189b4917435595220bd0367cdba8500501f1ba4e99a6c542d48692c32951c57",
       "indexed_lines": 904
     },
     {

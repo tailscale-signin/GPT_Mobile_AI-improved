@@ -724,7 +724,7 @@ EXECUTION_COMPLETION_COUNTS = {
     'provider_wait_queued_tool_count', 'provider_wait_unsettled_tool_count', 'provider_wait_settled_tool_count',
 }
 EXECUTION_COMPLETION_UPSTREAM_CODES = {
-    '402', 'insufficient_quota', 'insufficient_credits', 'budget_exceeded', 'credit_limit_exceeded', 'kudosupfront', 'sharedkeyempty',
+    '401', '402', '429', 'insufficient_quota', 'insufficient_credits', 'budget_exceeded', 'credit_limit_exceeded', 'kudosupfront', 'sharedkeyempty',
     '500', '502', '503', '504', 'server_error', 'internal_error', 'internal_server_error', 'service_unavailable', 'overloaded_error', 'api_error', 'processing_error',
     'invalid_api_key', 'authentication_error', 'permission_denied', 'model_access_denied', 'route_forbidden', 'anonforbidden', 'noworkers', 'no_valid_workers',
     'context_window_exceeded', 'context_length_exceeded', 'rate_limit_exceeded', 'tokens_limit_exceeded', 'rate_limit_error', 'content_policy_violation', 'content_filter', 'safety_blocked',

@@ -368,6 +368,26 @@ def dispatch(root, action, args, output):
                 lock.release()
         job = client.engineering_job(args.get('job_id'))
         conversation = {'conversation_id': job['conversation_id'], 'active_job_id': job['id'], 'active_job_kind': 'engineering'}
+        if action.startswith('engineering-workspace'):
+            from desktop import workspace_client
+            if action == 'engineering-workspace':
+                return workspace_client.board(client, job, root)
+            if action == 'engineering-workspace-command':
+                return workspace_client.submit(client, root, job, args['payload'])
+            if action == 'engineering-workspace-receipt':
+                return workspace_client.receipt(client, root, job, args['command_id'])
+            if action == 'engineering-workspace-retry':
+                return workspace_client.retry_original(client, root, job, args['command_id'])
+            if action == 'engineering-workspace-dismiss':
+                return workspace_client.dismiss_absent(client, root, job, args['command_id'])
+            if action in {'engineering-workspace-source', 'engineering-workspace-tree'}:
+                params = {key: args[key] for key in ('head_sha', 'path', 'start_line', 'line_count', 'query', 'offset') if key in args}
+                suffix = 'source' if action.endswith('-source') else 'tree'
+                value = client.request('GET', workspace_client.path(job) + '/' + suffix, params=params)
+                if value.get('job_id') != job['id'] or value.get('head_sha') != args.get('head_sha'):
+                    raise ClientError('The requested source identity changed.')
+                return value
+            raise ValueError('Unknown workspace action.')
         if action == 'engineering-inspect':
             if args.get('section') == 'Checkpoints':
                 reviewed, history = client.engineering_checkpoints(conversation)
@@ -380,7 +400,7 @@ def dispatch(root, action, args, output):
         if action == 'engineering-approve':
             return client.approve_engineering(conversation, args['reviewed'])
         if action == 'engineering-candidate':
-            return client.candidate_details(job, args['check_id'])
+            return client.candidate_details(job, args['check_id'], args.get('offset', 0), args.get('left_check_id'))
         if job['revision'] != args.get('revision'):
             raise ValueError('The reviewed job revision changed. Inspect it again.')
         if action == 'engineering-restore':

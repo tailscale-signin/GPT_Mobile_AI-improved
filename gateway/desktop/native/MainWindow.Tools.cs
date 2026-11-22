@@ -24,6 +24,7 @@ public partial class MainWindow
         switch(Section)
         {
             case "GitHub":BuildGitHub();return;
+            case "Coding agents":BuildCodingAgents();return;
             case "Repositories":case "Tests and release checks":BuildRepositories(Section!="Repositories");return;
             case "Environments":BuildEnvironment();return;
             case "Add-ons / MCP":BuildAddons();return;
@@ -131,7 +132,7 @@ public partial class MainWindow
         void Render(){
             fields.Children.Clear();inputs.Clear();
             foreach(var key in tests?new[]{"post_merge","allowed_checks","commands","acceptance_map","acceptance_templates"}:
-                new[]{"mirror","profile","image_source","image","timeout_seconds","workspace_terminal","commands","parallel_command_groups","allowed_checks","acceptance_map","acceptance_templates","post_merge"}){
+                new[]{"mirror","profile","image_source","image","timeout_seconds","workspace_terminal","workspace_environment","workspace_integrations","commands","parallel_command_groups","allowed_checks","acceptance_map","acceptance_templates","post_merge"}){
                 if(key=="profile" && profiles.Length>0){
                     var selector=Ui.Select(fields,"Validation profile",profiles);selector.SelectedItem=options.Text(key);
                     inputs[key]=()=>JsonValue.Create(selector.SelectedItem?.ToString()??options.Text(key));

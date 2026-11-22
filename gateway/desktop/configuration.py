@@ -271,6 +271,9 @@ def environment(root, cfg, management_token=''):
         policy_path = ''
     if policy_path:
         env[VALIDATION_POLICY_SETTING] = policy_path
+    agent_config = data / 'coding-agents.json'
+    if agent_config.is_file() and not agent_config.is_symlink():
+        env['GATEWAY_AGENT_CONFIG'] = str(agent_config)
     env.update(GATEWAY_HOST=cfg['bind_host'], GATEWAY_PORT=str(cfg['port']), LLAMA_BASE=cfg['backend'],
                GATEWAY_AUTH_MODE='open_network' if cfg['access'] == 'network' else 'loopback',
                GATEWAY_ALLOWED_HOSTS=json.dumps(hosts),

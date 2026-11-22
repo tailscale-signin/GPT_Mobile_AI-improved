@@ -1,0 +1,43 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "github-agent-android-2026-11-22",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "starting_head": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+  "parent_pr": 2254,
+  "working_branch": "work/agent-workspace-android-2026-11-22",
+  "intent": "Extend existing Android coding workspace with bound worker/agent/environment boards, review workspace and durable controls while retaining phone-only workflows.",
+  "state": "READY_FOR_INTEGRATION",
+  "validation": [
+    {
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASS",
+      "details": "616 Python repository policy/regression tests; Android regex and resource preflight; generated architecture/audit inventory checks; diff and secret checks."
+    },
+    {
+      "command": "Kotlin 2.4.20 + real Compose compiler and Android SDK 37 signatures",
+      "result": "PASS",
+      "details": "All changed/new workspace UI, actual ViewModel/models and GitHubCodeDiff compiled; 26 domain and ViewModel tests passed. Existing platform/repository boundaries are mocked; this is not full Gradle/Hilt or device qualification."
+    },
+    {
+      "command": "Kotlin 2.4.20 + Ktor MockEngine workspace regressions",
+      "result": "PASS",
+      "details": "Full actual GatewayEngineeringClient and new command store compiled with actual network exchange/metadata code and mocked platform boundaries; exact repository workspace-method block/config/save compiled. 26 client/repository/store tests passed, including lost responses, identity fences, encrypted retention, credentials changed during checkpoint persistence, strict readback, explicit retry/dismissal, unresolved command acknowledgement without replay, per-ID historical readback, unvalidated imported candidates and pinned file pages."
+    },
+    {
+      "command": "ktlint 1.3.1 changed Kotlin sources",
+      "result": "PASS",
+      "details": "All changed/new Kotlin source and test files pass ktlint 1.3.1."
+    }
+  ],
+  "integration_notes": [
+    "Gateway is optional; existing phone-native GitHub flows remain in their original controller.",
+    "Full Gradle/Hilt, emulator/device and exact integrated-head CI belong to the parent integration and publication gates.",
+    "Agent runtimes, credentials and optional MCP tools are selected only from the Gateway host approved catalog; no arbitrary executable, URL or model switch from phone.",
+    "Command arguments use existing encrypted workspace storage. Plain binding metadata retains only operation identity/status and encrypted argument reference; source-bearing command results are ephemeral readback.",
+    "Requirements bound follows backend admission maximum256; workers8, terminals3 and source/blob paging are bounded.",
+    "Explicit acknowledgement retains UNKNOWN commands and their encrypted argument reference in a bounded durable list. Only advertised maintenance and private review drafts are allowed while the parent waits for input; each original ID remains independently readable and no command is replayed.",
+    "Receipt reasons use fixed codes; large encrypted result references remain visible. Imported candidate rows accept an absent check index and are explicitly labeled unvalidated. Non-runnable products appear only as workflow or connector references."
+  ]
+}

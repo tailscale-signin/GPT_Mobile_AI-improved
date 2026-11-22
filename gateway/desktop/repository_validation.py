@@ -107,7 +107,8 @@ def defaults(root, repository=DEFAULT_REPOSITORY):
               mirrors / repository.split('/')[0] / (repository.split('/')[1] + '.git'))
     return {'repository': repository, 'mirror': str(mirror),
             'image_source': DEFAULT_IMAGE, 'image': '', 'timeout_seconds': 600,
-            'workspace_terminal': False, 'profile': SOURCE_PROFILE, 'commands': copy.deepcopy(SOURCE_COMMANDS),
+            'workspace_terminal': False, 'workspace_integrations': {}, 'workspace_environment': {},
+            'profile': SOURCE_PROFILE, 'commands': copy.deepcopy(SOURCE_COMMANDS),
             'acceptance_map': [], 'parallel_command_groups': [],
             'allowed_checks': ['Required verification', 'Analyze (java-kotlin)'] if repository == DEFAULT_REPOSITORY else [],
             'post_merge': {'artifacts': [], 'installation_checks': [], 'smoke_checks': []},
@@ -247,6 +248,8 @@ def entry_from_options(options, existing=None):
         entry[key] = copy.deepcopy(options.get(key, [] if key not in {'mirror', 'image', 'timeout_seconds'} else ''))
     if options.get('workspace_environment') or 'workspace_environment' in entry:
         entry['workspace_environment'] = copy.deepcopy(options.get('workspace_environment', {}))
+    if options.get('workspace_integrations') or 'workspace_integrations' in entry:
+        entry['workspace_integrations'] = copy.deepcopy(options.get('workspace_integrations', {}))
     if options.get('workspace_hooks') or 'workspace_hooks' in entry:
         entry['workspace_hooks'] = copy.deepcopy(options.get('workspace_hooks', {}))
     if options.get('remote_profile_checks') or 'remote_profile_checks' in entry:

@@ -50,7 +50,7 @@ data class GatewayEngineeringCheckpoints(
 data class GatewayEngineeringCandidate(
     @SerialName("check_id") val checkId: String,
     @SerialName("patch_identity") val patchIdentity: String,
-    @SerialName("check_index") val checkIndex: Int,
+    @SerialName("check_index") val checkIndex: Int? = null,
     val status: String,
     @SerialName("source_sha") val sourceSha: String
 )

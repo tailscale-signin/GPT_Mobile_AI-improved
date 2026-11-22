@@ -298,6 +298,7 @@ public partial class MainWindow
             inspector.Children.Add(Ui.Button("Full debug export",()=>OpenReports(row.Id)));
             if(row.Data["conversation_id"] is JsonValue cv) inspector.Children.Add(Ui.Button("Open conversation",()=>Run(()=>OpenConversation(cv.ToString()))));
             if(row.Allows("approve")) inspector.Children.Add(Ui.Button("Review merge",()=>Run(()=>ReviewEngineering(row)),true));
+            if(row.Kind=="engineering") inspector.Children.Add(Ui.Button("Open agent workspace",()=>Run(()=>AgentWorkspace(row)),true));
         }
         table.SelectionChanged+=(_,e)=>{
             if(syncingSelection)return;

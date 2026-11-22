@@ -47,7 +47,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
     val bindings = state.bindings.filter { it.chatId == chatId }
     val lastPage = (bindings.size - 1).coerceAtLeast(0) / 20
     val visible = bindings.asReversed().drop(page.coerceAtMost(lastPage) * 20).take(20)
-    var details by remember { mutableStateOf<GatewayEngineeringBinding?>(null) }
+    var details by remember(chatId) { mutableStateOf<GatewayEngineeringBinding?>(null) }
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     var wantedRequest by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var wantedOutput by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
@@ -105,7 +105,10 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                             if (LocalChatProgressInHeader.current) Text(job.message, style = MaterialTheme.typography.bodyMedium) else EngineeringJobProgress(job)
                             Text(recovery.nextAction, style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                TextButton(onClick = { details = binding }) {
+                                TextButton(onClick = {
+                                    details = binding
+                                    model.openWorkspace(binding)
+                                }) {
                                     val unread = binding.updates.count { it.revision > binding.seenRevision }
                                     Text(if (unread > 0) "Workspace ($unread new)" else "Workspace")
                                 }
@@ -132,18 +135,20 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
         AlertDialog(
             onDismissRequest = {
                 model.markSeen(current)
+                model.closeWorkspace()
                 details = null
             },
             title = { Text("Coding workspace") },
             text = {
                 Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf("Plan", "Changes", "Tests", "Activity").forEach { section ->
+                        listOf("Plan", "Workers", "Agents", "Review", "Changes", "Tests", "Environment", "Tools", "Activity").forEach { section ->
                             androidx.compose.material3.FilterChip(selected = tab == section, onClick = { tab = section }, label = { Text(section) })
                         }
                     }
                     Text("${current.request.taskScope.replaceFirstChar { it.uppercase() }} · ${current.request.repository} · ${current.job?.headSha?.take(12) ?: "Awaiting revision"}")
                     when (tab) {
+                        "Workers", "Agents", "Review", "Environment", "Tools" -> GatewayAgentWorkspaceSection(current, tab, state, model)
                         "Plan" -> {
                             Text(current.request.objective)
                             current.job?.workspacePlan?.takeIf(String::isNotBlank)?.let { Text(it) }
@@ -218,6 +223,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
             confirmButton = {
                 TextButton(onClick = {
                     model.markSeen(current)
+                    model.closeWorkspace()
                     details = null
                 }) { Text("Close") }
             }
@@ -234,7 +240,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                     Text("${history.state} · ${history.headSha?.take(12).orEmpty()}")
                     history.candidates.forEach { candidate ->
                         TextButton(onClick = { selected = candidate.checkId }) {
-                            Text("${if (selected == candidate.checkId) "Selected · " else ""}Check ${candidate.checkIndex}: ${candidate.status} · ${candidate.patchIdentity.take(12)}")
+                            Text("${if (selected == candidate.checkId) "Selected · " else ""}${candidate.checkIndex?.let { "Check $it" } ?: "Unvalidated candidate"}: ${candidate.status} · ${candidate.patchIdentity.take(12)}")
                         }
                     }
                     TextButton(onClick = { selected?.let { model.inspectCandidate(binding, it) } }, enabled = selected != null && !state.busy) { Text("Inspect patch and test output") }

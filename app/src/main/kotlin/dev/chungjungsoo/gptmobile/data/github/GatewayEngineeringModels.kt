@@ -320,7 +320,9 @@ data class GatewayEngineeringBinding(
     val localRunId: String? = null,
     val gatewayId: String? = null,
     val originalContext: GitHubConversationContext? = null,
-    val budgetSelection: GatewayEngineeringBudgetSelection? = null
+    val budgetSelection: GatewayEngineeringBudgetSelection? = null,
+    val workspaceCommand: GatewayWorkspacePendingCommand? = null,
+    val workspaceUnresolvedCommands: List<GatewayWorkspacePendingCommand> = emptyList()
 ) {
     /** Remote request identity stays immutable when a backup maps local conversation IDs. */
     val chatId: Int get() = localChatId ?: request.chatId

@@ -184,6 +184,9 @@ def dispatch(root, name, args):
         from desktop.workspace_reports import report
         return report(root, name, args)
     action = name.removeprefix('workspace-')
+    if action in {'agent-config-load', 'agent-config-save'}:
+        from desktop.workspace_client import host_configuration
+        return host_configuration(root, action, args)
     if action == 'readiness':
         return workspace_readiness(root)
     if action.startswith('connection-'):

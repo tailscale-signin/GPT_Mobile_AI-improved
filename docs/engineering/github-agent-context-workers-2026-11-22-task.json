@@ -1,0 +1,41 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "github-agent-context-workers-2026-11-22",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "starting_head": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+  "working_branch": "work/agent-context-workers-2026-11-22",
+  "parent_pr": 2254,
+  "intent": "Implement bounded context ranking, role-isolated worker waves, executable requirement task graph, progressive guidance, durable summaries and optional configured development tools under the existing job authority",
+  "state": "READY_FOR_INTEGRATION",
+  "requirements": [
+    "graph ranking with byte budget",
+    "scoped planner/editor/reviewer/retrieval",
+    "dependency worker waves",
+    "acceptance-linked task plan",
+    "task toolsets and instruction manifest",
+    "durable evidence summaries",
+    "local next-edit",
+    "selected context pack",
+    "Context7 and Playwright configured MCP workflows"
+  ],
+  "validation": [
+    {
+      "suite": "Gateway workspace intelligence, lifecycle, guidance, graph context/effectiveness and selected execution budget",
+      "result": "PASSED",
+      "tests": 66
+    },
+    {
+      "suite": "scripts/validate-local.sh fast",
+      "result": "PASSED",
+      "script_tests": 616,
+      "gates": ["CI policy", "generated metadata", "dependency catalog", "secret scan", "Android regex", "resources", "diff whitespace"]
+    }
+  ],
+  "qualification": {
+    "live_optional_runtimes": "NOT_RUN",
+    "per_role_model_override": "REQUIRES_SEPARATELY_ADMITTED_JOB",
+    "publication": "PARENT_TASK_OWNS_COMBINED_HEAD_CI_AND_RELEASE"
+  }
+}

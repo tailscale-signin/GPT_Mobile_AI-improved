@@ -49,6 +49,21 @@ class ManagedValidationTests(unittest.TestCase):
         save_policy_path(self.root, str(external))
         return external
 
+    def test_optional_workspace_tools_roundtrip_exact_host_permissions(self):
+        options = copy.deepcopy(self.options)
+        options['workspace_integrations'] = {'context7': {'enabled': True, 'allow_remote': True,
+            'allow_mutations': False, 'tools': ['mcp_context7_query_docs']}}
+        saved = setup.entry_from_options(options)
+        self.assertEqual(options['workspace_integrations'], saved['workspace_integrations'])
+        loaded = setup.options_for(self.root, options['repository'], {options['repository']: saved})
+        self.assertEqual(saved['workspace_integrations'], loaded['workspace_integrations'])
+        options['workspace_integrations'] = {}
+        self.assertEqual({}, setup.entry_from_options(options, saved)['workspace_integrations'])
+        for invalid in ({'unknown': {}}, {'context7': {'enabled': True, 'endpoint': 'https://unapproved.invalid'}},
+                        {'playwright': {'tools': ['arbitrary tool'], 'allow_remote': True}}):
+            with self.assertRaises(ValueError):
+                setup.entry_from_options(dict(options, workspace_integrations=invalid))
+
     def prepare(self, options=None, revision=None, **kwargs):
         with ExitStack() as stack:
             for name, result in [('executable', '/fixture/tool'), ('check_docker', None),

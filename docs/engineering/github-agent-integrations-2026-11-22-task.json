@@ -1,0 +1,201 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "github-agent-integrations-2026-11-22",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 2254,
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "starting_head": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+  "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "working_branch": "work/github-agent-integrations-2026-11-22",
+  "intent": "Implement every feature from the GitHub agent integration research, preserve concurrent scopes, publish a draft, verify the combined current PR head, merge through active rules, verify exact main and publish signed Android and Gateway releases.",
+  "authorization": "User explicitly authorized implementation, draft integration, merge after green and full publication on 2026-11-22.",
+  "state": "IMPLEMENTED_AWAITING_COMBINED_CI",
+  "requirements": [
+    {
+      "id": "G01",
+      "name": "Fair model and complete agent-system comparisons, independent preservation qualification",
+      "owner": "concurrent github-coding-benchmark task + integration",
+      "state": "AGENT_COMPARISON_IMPLEMENTED_BENCHMARK_INTEGRATION_PENDING"
+    },
+    {
+      "id": "G02",
+      "name": "Capability-aware common agent adapters with actual transports and durable operation identity",
+      "owner": "agent_adapters",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G03",
+      "name": "Task-relevant graph ranking and measured bounded context selection",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G04",
+      "name": "Explicit scoped planner, editor, reviewer and retrieval roles",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G05",
+      "name": "Executable dependency-ready tasks tied to accepted requirements and retained evidence",
+      "owner": "context_workers + concurrent acceptance-completion task",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G06",
+      "name": "Reachable concurrent-worker workspace board with isolated candidates and conflicts",
+      "owner": "workspace_android + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G07",
+      "name": "Background continuation and revision-bound live steering with unknown-outcome recovery",
+      "owner": "agent_adapters + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G08",
+      "name": "Integrated source, candidate diff, tests and draft review workspace",
+      "owner": "workspace_android + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G09",
+      "name": "Task-specific toolsets and progressive scoped instruction loading",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G10",
+      "name": "Environment and runtime qualification before paid agent execution",
+      "owner": "agent_adapters + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G11",
+      "name": "Compact durable summaries preserving immutable evidence references",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G12",
+      "name": "Optional local-only next-edit proposals with isolated validation",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G13",
+      "name": "Selective context export, versioned documentation and browser-workflow tool integrations",
+      "owner": "context_workers",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G14",
+      "name": "Optional SDK/API/ACP backends and explicit product/adapter availability",
+      "owner": "agent_adapters",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    },
+    {
+      "id": "G15",
+      "name": "Phone-only GitHub workflows plus optional Gateway and cloud execution boundaries",
+      "owner": "workspace_android + integration",
+      "state": "IMPLEMENTED_LOCAL_VALIDATION"
+    }
+  ],
+  "concurrent_tasks": [
+    "docs/repairs/acceptance-completion-70afcf89-2026-11-22-task.json",
+    "docs/repairs/github-coding-benchmark-2026-11-22-task.json"
+  ],
+  "guardrails": [
+    "One authoritative job controller; isolated candidates; current source SHA and policy binding",
+    "Preserve concurrent commits with expected-head updates and no force push",
+    "Reconcile uncertain writes and commands before any replay",
+    "Keep local inference and private content local unless explicitly authorized",
+    "Missing optional credentials or runtimes remain setup-needed; no simulated live success",
+    "Current-head applicable checks and active repository rules govern merge",
+    "Verify exact-main release workflows, tags, signed assets and provenance"
+  ],
+  "validation": [
+    {
+      "check": "Canonical host repository validation",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASSED",
+      "tests": 616,
+      "source_parent": "578c89c214",
+      "details": "Generated inventories, repository rules, dependency catalog, secret scan, Android regex and resource preflight pass."
+    },
+    {
+      "check": "Optional runtime adapters",
+      "result": "PASSED",
+      "tests": 50,
+      "source_parent": "26846176d2",
+      "details": "Independent review and repeated focused tests cover durable authorization, source/account/turn identity, local process and cloud deadline/cancellation, source-complete candidates and existing checkpoint compatibility."
+    },
+    {
+      "check": "Windows native workspace build",
+      "result": "PASSED",
+      "source_parent": "26846176d2",
+      "details": "Actual .NET 10 WPF Release target compiled with zero warnings and zero errors; Linux cross-build is not Windows installation qualification."
+    },
+    {
+      "check": "Android workspace source qualification",
+      "result": "PASSED_COMPONENT_SCOPE",
+      "tests": 52,
+      "source_parent": "7525facd41",
+      "details": "26 actual domain/ViewModel tests and 26 transport/repository/encrypted-store tests; actual Kotlin 2.4.20/Compose and SDK37 source compiled in focused harness. Full Gradle/Hilt/device validation belongs to current-head hosted gates."
+    },
+    {
+      "check": "Frozen provider HTTP worker entry",
+      "result": "PASSED",
+      "tests": 2,
+      "source_parent": "760c705a26",
+      "details": "Actual desktop entry and worker main consume pipe input before parser/settings/UI/supervisor, and reject unrelated arguments."
+    },
+    {
+      "check": "Canonical Gateway suite",
+      "result": "PASSED",
+      "command": "PYTHONPATH=gateway python gateway/check_gateway.py",
+      "python_tests": 1739,
+      "python_skipped": 33,
+      "node_tests": 7,
+      "source_parent": "760c705a26",
+      "details": "All 134 isolated Python suites and browser bridge passed before the narrow draft-admission fix; that fix was then requalified in the 113-test workspace suite."
+    },
+    {
+      "check": "Current-head hosted PR gates",
+      "result": "PENDING"
+    },
+    {
+      "check": "Exact-main gates and signed release readback",
+      "result": "PENDING"
+    },
+    {
+      "check": "Final workspace follow-up and integration",
+      "result": "PASSED",
+      "tests": 113,
+      "source_parent": "578c89c214",
+      "details": "Includes all 17 command tests, actual HTTP dispatch, source/candidate views, encrypted desktop recovery and scoped workers. No live optional provider accounts were used."
+    },
+    {
+      "check": "Kotlin formatting",
+      "result": "PASSED",
+      "details": "Complete PR changed Kotlin sources passed against the full main SHA; incoming map/recovery changes were checked against the full adapter-freeze SHA separately."
+    }
+  ],
+  "publication": {
+    "state": "READY_FOR_DRAFT_UPLOAD_AWAITING_COMBINED_GATES",
+    "android_version": "0.9.66.13",
+    "version_code": 147,
+    "gateway_version": "18.1.1",
+    "merge_commit": null,
+    "android_release": null,
+    "gateway_release": null
+  },
+  "review_followup": "Fixed artifact-backed review-draft admission before the SQLite writer lock; exact source-tree identity remains bound at admission. Successful hydration, same-revision replacement and cancellation races pass.",
+  "qualification_limits": [
+    "Optional provider accounts, SDK images and installed runtimes were not live-qualified; protocol fixtures do not certify paid execution, model quality or unsupported remote cancellation.",
+    "Model benchmarking remains a separately owned concurrent workstream; its final integrated commit and current-head hosted validation are pending.",
+    "The repository release remains scoped and does not claim completion of unexecuted physical-device or wider Unified Reliability v2 scenarios."
+  ]
+}

@@ -231,6 +231,8 @@ class EngineeringStore:
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_admission_settings ('
                                'principal TEXT PRIMARY KEY, enabled INTEGER NOT NULL, revision INTEGER NOT NULL)')
                     self.conversations.schema(db)
+                    from v14.workspace_commands import WorkspaceCommands
+                    WorkspaceCommands.schema(db)
                     return operation(db)
             finally:
                 db.close()
@@ -612,8 +614,10 @@ class EngineeringStore:
         return self.tx(lambda db: [self.decode(row) for row in db.execute('SELECT data,state,revision FROM engineering_jobs WHERE principal=? ORDER BY next_at DESC LIMIT 100', (principal,))])
 
     def due(self, *, exclude_branches=()):
-        query = "SELECT id FROM engineering_jobs WHERE lease IS NULL AND next_at<=? AND state NOT IN ('MERGE_READY','NEEDS_INPUT','COMPLETED','CANCELLED','FAILED','CANCELLING')"
-        parameters = [self.now()]
+        from v14.workspace_board import MAINTENANCE_ACTIONS
+        placeholders = ','.join('?' for _ in MAINTENANCE_ACTIONS)
+        query = "SELECT id FROM engineering_jobs WHERE lease IS NULL AND next_at<=? AND (state NOT IN ('MERGE_READY','NEEDS_INPUT','COMPLETED','CANCELLED','FAILED','CANCELLING') OR (state IN ('MERGE_READY','NEEDS_INPUT') AND EXISTS (SELECT 1 FROM engineering_workspace_commands WHERE job_id=engineering_jobs.id AND status IN ('QUEUED','RUNNING') AND action IN (" + placeholders + "))))"
+        parameters = [self.now(), *sorted(MAINTENANCE_ACTIONS)]
         # Filter occupied branches before the bounded window, otherwise their
         # queued jobs can hide independent work while another worker is free.
         for repository, branch in sorted(exclude_branches):
@@ -637,7 +641,9 @@ class EngineeringStore:
         def claim(db):
             row = db.execute('SELECT data,state,revision,next_at FROM engineering_jobs WHERE id=? AND lease IS NULL', (job_id,)).fetchone()
             job = self.decode(row)
-            if not job or job['state'] in PAUSED or job.get('provider_wait') and row[3] > self.now():
+            from v14.workspace_commands import WorkspaceCommands
+            maintenance = bool(job and job['state'] in {'NEEDS_INPUT', 'MERGE_READY'} and WorkspaceCommands.maintenance_pending(db, job_id))
+            if not job or job['state'] in PAUSED and not maintenance or job.get('provider_wait') and row[3] > self.now():
                 return None
             job['started_at'] = job.get('started_at') or self.now()
             self.conversations.consume_instructions(db, job)
@@ -668,6 +674,18 @@ class EngineeringStore:
         checkpoint['data'] = artifacts.checkpoint(job, job['data'], 'checkpoint')
         def save(db):
             nonlocal phase
+            from v14.workspace_commands import WorkspaceCommands
+            if WorkspaceCommands.retain_pending_at_boundary(db, job, phase):
+                phase = job['state'] if job['state'] in {'PLAN', 'READ', 'IMPLEMENT', 'REVIEW'} else 'NEEDS_INPUT'
+                job['message'] = 'A workspace command arrived before publication. Its retained outcome must be reviewed first.'
+                checkpoint['message'] = job['message']
+                job.pop('finished_at', None)
+                checkpoint.pop('finished_at', None)
+                job['data'].pop('final_report', None)
+                checkpoint['data'].pop('final_report', None)
+                batch_transition(job, phase, {'workspace_command_pending': True})
+                if 'integration_batch' in job['data']:
+                    checkpoint['data']['integration_batch'] = deepcopy(job['data']['integration_batch'])
             recovery = db.execute('SELECT child_job_id FROM engineering_recoveries WHERE parent_job_id=?', (job['id'],)).fetchone()
             if recovery is not None:
                 retained = self.get_in_transaction(db, job['id'], job['principal'])
@@ -738,6 +756,7 @@ class EngineeringStore:
                 # without publishing the output that lost to cancellation.
                 self._confirm_cancellation(db, job['id'], job.get('_owner_epoch'))
                 return False  # Cancel/revoke won the race; never resurrect it.
+            WorkspaceCommands.complete_transaction(db, job, self.now())
             self.conversations.engineering_projection(db, job, phase)
             if job.get('recovery_of') and phase != job['state']:
                 db.execute("UPDATE engineering_jobs SET next_at=MIN(next_at,?) WHERE id=? AND principal=? "
@@ -818,6 +837,7 @@ class EngineeringStore:
         return self.tx(lambda db: [json.loads(row[0]) for row in db.execute('SELECT payload FROM engineering_model_attempts WHERE job_id=? AND rowid>COALESCE((SELECT rowid FROM engineering_model_attempts WHERE id=? AND job_id=?),0) ORDER BY rowid LIMIT ?', (job_id, after, job_id, limit))])
 
     def control(self, job_id, principal, action, expected_revision, approval=None):
+        stopped_ids = []
         def update(db):
             row = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?' + ('' if action == 'cancel' else ' AND lease IS NULL'), (job_id, principal)).fetchone()
             job = self.decode(row)
@@ -859,6 +879,7 @@ class EngineeringStore:
             self.event(db, job, state, job['revision'] + 1, self.now())
             self.conversations.engineering_projection(db, job, state)
             if action == 'cancel':
+                stopped_ids.append(job_id)
                 descendants = {job_id}
                 active = db.execute("SELECT data,state,revision,lease FROM engineering_jobs WHERE principal=? AND state NOT IN ('CANCELLED','COMPLETED','FAILED')", (principal,)).fetchall()
                 for _ in range(6):
@@ -868,6 +889,7 @@ class EngineeringStore:
                         if child['id'] in descendants or child.get('recovery_of') not in descendants:
                             continue
                         descendants.add(child['id'])
+                        stopped_ids.append(child['id'])
                         found = True
                         child_state = 'CANCELLING' if child_row[3] else 'CANCELLED'
                         epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (child['id'],)).fetchone()
@@ -889,6 +911,10 @@ class EngineeringStore:
         if action == 'cancel' and updated['data'].get('terminal_session'):
             from v14.workspace_terminal import dispose
             dispose(updated)
+        cleanup = getattr(self, 'stop_agents', None)
+        if callable(cleanup):
+            for identifier in stopped_ids:
+                cleanup(identifier)
         return updated
 
     def _confirm_cancellation(self, db, job_id=None, owner_epoch=None, *, recovering=False):
@@ -1012,6 +1038,43 @@ class EngineeringService:
         backend.before_mutation = self.validate_mutation
         backend.operations = self.operations
         backend.private_artifacts = self.artifacts
+        from v14.workspace_commands import WorkspaceCommands
+        self.workspace_commands = WorkspaceCommands(self)
+        from v14.agent_runs import AgentRuns
+        self.agent_runs = AgentRuns(self)
+        backend.agent_runs = self.agent_runs
+        self.agent_cleanup_pending = set()
+        self.agent_cleanup_lock = threading.Lock()
+        store.stop_agents = self.queue_agent_cleanup
+
+    def queue_agent_cleanup(self, job_id):
+        job = self.store.get(job_id)
+        if job is None or job['state'] not in {'CANCELLING', 'CANCELLED', 'FAILED', 'COMPLETED'}:
+            return
+        with self.agent_cleanup_lock:
+            self.agent_cleanup_pending.add(job_id)
+        self.wake.set()
+
+    def stop_agents(self, job_id):
+        job = self.store.get(job_id)
+        if job is None or job['state'] not in {'CANCELLING', 'CANCELLED', 'FAILED', 'COMPLETED'}:
+            return
+        try:
+            self.agent_runs.stop_parent(job)
+        except Exception as error:
+            # Cancellation must not be reported as a failed user action because
+            # an external runtime needs further observation. Its journal remains.
+            logging.getLogger(__name__).warning('Agent cleanup remains unconfirmed: %s', type(error).__name__)
+
+    def recover_stopped_agents(self):
+        def read(db):
+            self.agent_runs.schema(db)
+            return [row[0] for row in db.execute("SELECT DISTINCT j.id FROM engineering_jobs j "
+                "JOIN engineering_agent_runs a ON a.job_id=j.id AND a.principal=j.principal "
+                "WHERE j.state IN ('CANCELLING','CANCELLED','FAILED','COMPLETED') "
+                "AND COALESCE(json_extract(a.payload,'$.cleanup_state'),'')!='STOPPED' LIMIT 32")]
+        for identifier in self.store.tx(read):
+            self.queue_agent_cleanup(identifier)
 
     def prepare_binding(self, principal, selection, gateway_endpoint=None):
         return self.bindings.prepare(principal, selection, gateway_endpoint)
@@ -1210,6 +1273,7 @@ class EngineeringService:
                 self._tick_claimed(job, lease, recovering)
         finally:
             self.store.confirm_cancellation(job_id, job['_owner_epoch'])
+            self.queue_agent_cleanup(job_id)
 
     @staticmethod
     def retry_checkpoint(job, retry_at, source, attempts):
@@ -1219,6 +1283,13 @@ class EngineeringService:
 
     def _tick_claimed(self, job, lease, recovering):
         phase, output, delay = job['state'], {}, 0
+        if phase in {'NEEDS_INPUT', 'MERGE_READY'}:
+            # An explicit status/readiness/cancel command may inspect a paused
+            # job, but cannot implicitly resume its coding or publication phases.
+            self.artifacts.restore_stage(job)
+            command = self.workspace_commands.process(job, maintenance=True)
+            self.store.complete(job, lease, phase, {'workspace_command': command})
+            return
         previous_wait = job.pop('provider_wait', None) or {}
         try:
             self.artifacts.restore_stage(job)
@@ -1228,8 +1299,20 @@ class EngineeringService:
             if accepted_scope(job['request']) != 'implement' and phase not in {'PLAN', 'READ'}:
                 raise PermissionError('Read and plan tasks cannot dispatch engineering writes')
             if limit:
+                output['agent_stop'] = self.agent_runs.cancel_all(job)
                 job['message'] = limit
                 phase = 'NEEDS_INPUT'
+            elif (workspace_command := self.workspace_commands.process(job)) is not None:
+                output = {'workspace_command': workspace_command}
+                if workspace_command['requires_attention']:
+                    phase = 'NEEDS_INPUT'
+                    job['message'] = 'A workspace operation has an unconfirmed outcome. Inspect its retained command before continuing.'
+                else:
+                    job['message'] = 'Workspace command ' + workspace_command['status'].lower() + '; the accepted task is retained.'
+            elif phase in {'PLAN', 'READ', 'IMPLEMENT', 'REVIEW'} and (agent_progress := self.agent_runs.advance(job))['holding']:
+                output = {'agent_progress': agent_progress}
+                delay = max(1, min(30, agent_progress['next_at'] - self.store.now()))
+                job['message'] = 'The delegated agent is running. Its exact run can be observed or steered from this workspace.'
             elif recovering and phase in MUTATIONS and (job.get('_legacy_dispatch_receipt') or not getattr(self.backend, 'physical_operation_journal', False) or self.operations.dispatched(job)):
                 output = self.backend.reconcile(job, phase)
                 if output is None:
@@ -1592,6 +1675,7 @@ class EngineeringService:
         if not self.store.runtime.GATEWAY_DURABLE_JOBS:
             return
         self.store.recover()
+        self.recover_stopped_agents()
         self.stop.clear()
         self.copilot.start()
         for graph in (self.graph, self.public_graph):
@@ -1619,9 +1703,32 @@ class EngineeringService:
                         # live worker's publication or validation stage.
                         if recovery_pending and not pending:
                             self.store.recover()
+                            self.recover_stopped_agents()
                             recovery_pending = False
                         if not recovery_pending and not getattr(self.store.runtime, 'gateway_draining', False):
                             occupied = {key for _, key in pending.values()}
+                            # Stopped runtimes use this same bounded pool. Neither
+                            # HTTP cancellation nor service startup waits on a
+                            # disconnected provider, and no second scheduler owns it.
+                            with self.agent_cleanup_lock:
+                                cleanup = list(self.agent_cleanup_pending)
+                            for job_id in cleanup:
+                                if len(pending) >= workers or self.stop.is_set():
+                                    break
+                                if job_id in pending:
+                                    continue
+                                job = self.store.get(job_id)
+                                if job is None:
+                                    with self.agent_cleanup_lock:
+                                        self.agent_cleanup_pending.discard(job_id)
+                                    continue
+                                key = (job['request']['repository'].lower(), job['request']['branch'])
+                                if key in occupied:
+                                    continue
+                                with self.agent_cleanup_lock:
+                                    self.agent_cleanup_pending.discard(job_id)
+                                pending[job_id] = (pool.submit(self.stop_agents, job_id), key)
+                                occupied.add(key)
                             for job_id in self.store.due(exclude_branches=occupied):
                                 if len(pending) >= workers or self.stop.is_set():
                                     break

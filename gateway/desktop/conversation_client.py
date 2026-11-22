@@ -293,10 +293,15 @@ class Client:
             raise ClientError('Checkpoint job identity changed.', not_dispatched=True)
         return job, history
 
-    def candidate_details(self, job, check_id):
+    def candidate_details(self, job, check_id, offset=0, left_check_id=None):
         if not isinstance(check_id, str) or not re.fullmatch('[a-f0-9]{64}', check_id):
             raise ClientError('Invalid candidate identity.', not_dispatched=True)
-        value = self.request('GET', '/gateway/engineering/jobs/' + job['id'] + '/checkpoints/' + check_id)
+        if type(offset) is not int or offset < 0 or left_check_id is not None and not re.fullmatch('[a-f0-9]{64}', str(left_check_id)):
+            raise ClientError('Invalid comparison or diff cursor.', not_dispatched=True)
+        params = {'offset': offset}
+        if left_check_id is not None:
+            params['left_check_id'] = left_check_id
+        value = self.request('GET', '/gateway/engineering/jobs/' + job['id'] + '/checkpoints/' + check_id, params=params)
         if value.get('job_id') != job['id'] or value.get('check_id') != check_id:
             raise ClientError('Candidate identity changed.', not_dispatched=True)
         return value

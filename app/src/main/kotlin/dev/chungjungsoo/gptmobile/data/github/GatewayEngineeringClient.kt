@@ -90,7 +90,7 @@ class GatewayEngineeringClient internal constructor(
                     (paired?.requestHeaders(headers) ?: headers).forEach { (key, value) -> header(key, value) }
                     if ((body == null || path in setOf("bindings", "preflight")) && LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     if (approval) header("X-Gateway-User-Action", "approve-and-merge")
-                    if (userAction == "restore-local-candidate") header("X-Gateway-User-Action", userAction)
+                    if (userAction in setOf("restore-local-candidate", "workspace-command")) header("X-Gateway-User-Action", requireNotNull(userAction))
                     if (body != null) {
                         contentType(ContentType.Application.Json)
                         setBody(body)
@@ -531,6 +531,44 @@ class GatewayEngineeringClient internal constructor(
     suspend fun checkpoints(config: ProviderRequestConfig, jobId: String): GatewayEngineeringCheckpoints {
         require(jobId.matches(Regex("eng_[a-f0-9]{32}")))
         return json.decodeFromString(request(config, "jobs/$jobId/checkpoints"))
+    }
+
+    suspend fun workspace(config: ProviderRequestConfig, jobId: String): GatewayAgentWorkspace {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")))
+        return json.decodeFromString<GatewayAgentWorkspace>(request(config, "jobs/$jobId/workspace")).also {
+            check(it.schemaVersion == 1 && it.jobId == jobId) { "The Gateway returned a different workspace." }
+        }
+    }
+
+    suspend fun workspaceCommand(config: ProviderRequestConfig, command: GatewayWorkspacePendingCommand, arguments: JsonObject): GatewayWorkspaceCommandReceipt {
+        require(command.jobId.matches(Regex("eng_[a-f0-9]{32}")) && command.commandId.matches(Regex("[A-Za-z0-9_-]{1,100}")))
+        require(command.headSha.matches(Regex("[a-f0-9]{40}|[a-f0-9]{64}")) && command.revision >= 0 && command.action in GatewayWorkspaceAction.names)
+        requireWorkspaceArguments(arguments)
+        val body = buildJsonObject {
+            put("command_id", command.commandId)
+            put("revision", command.revision)
+            put("head_sha", command.headSha)
+            put("action", command.action)
+            put("arguments", arguments)
+        }
+        return json.decodeFromString<GatewayWorkspaceCommandReceipt>(request(config, "jobs/${command.jobId}/workspace", body.toString(), operationId = command.commandId, userAction = "workspace-command")).also { it.requireCommand(command) }
+    }
+
+    suspend fun workspaceCommandStatus(config: ProviderRequestConfig, command: GatewayWorkspacePendingCommand): GatewayWorkspaceCommandReceipt {
+        require(command.jobId.matches(Regex("eng_[a-f0-9]{32}")) && command.commandId.matches(Regex("[A-Za-z0-9_-]{1,100}")))
+        return json.decodeFromString<GatewayWorkspaceCommandReceipt>(request(config, "jobs/${command.jobId}/workspace/commands/${command.commandId}")).also { it.requireCommand(command) }
+    }
+
+    suspend fun workspaceTree(config: ProviderRequestConfig, jobId: String, headSha: String, query: String, offset: Int): GatewayWorkspaceTree {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && headSha.isWorkspaceSha() && query.length <= 200 && offset >= 0)
+        val path = "jobs/$jobId/workspace/tree?head_sha=$headSha&query=${query.encodeURLParameter()}&offset=$offset"
+        return json.decodeFromString<GatewayWorkspaceTree>(request(config, path)).also { it.requirePage(jobId, headSha, offset) }
+    }
+
+    suspend fun workspaceSource(config: ProviderRequestConfig, jobId: String, headSha: String, file: GatewayWorkspaceSourcePath, startLine: Int): GatewayWorkspaceSource {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && headSha.isWorkspaceSha() && file.path.isWorkspacePath() && file.blobSha.isWorkspaceSha() && startLine > 0)
+        val path = "jobs/$jobId/workspace/source?head_sha=$headSha&path=${file.path.encodeURLParameter()}&start_line=$startLine&line_count=80"
+        return json.decodeFromString<GatewayWorkspaceSource>(request(config, path)).also { it.requirePage(jobId, headSha, file, startLine) }
     }
 
     suspend fun artifactPage(config: ProviderRequestConfig, jobId: String, artifactId: String, offset: Int): JsonObject {

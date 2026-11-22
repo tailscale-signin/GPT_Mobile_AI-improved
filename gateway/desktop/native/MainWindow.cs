@@ -24,7 +24,7 @@ public partial class MainWindow : Window
     {
         ["Jobs"] = ["Tasks", "Schedules", "Approvals"],
         ["Diagnostics"] = ["Overview", "Performance", "Failures", "Events", "Benchmarks", "Reports"],
-        ["Tools"] = ["Capabilities", "GitHub", "Repositories", "Tests and release checks", "Environments", "Add-ons / MCP", "Analysis"],
+        ["Tools"] = ["Capabilities", "GitHub", "Coding agents", "Repositories", "Tests and release checks", "Environments", "Add-ons / MCP", "Analysis"],
         ["Settings"] = ["General", "Connection", "Models", "Execution", "Devices", "Updates", "Appearance", "Advanced"]
     };
     private readonly Dictionary<string, string> lastSection = [];

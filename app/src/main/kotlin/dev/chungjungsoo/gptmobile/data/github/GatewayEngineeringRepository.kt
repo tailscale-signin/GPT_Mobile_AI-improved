@@ -38,7 +38,8 @@ class GatewayEngineeringRepository @Inject constructor(
     private val store: GatewayEngineeringStore,
     private val conversations: GatewayConversationRepository,
     private val history: GatewayJobClient,
-    private val modelPreparation: GatewayModelPreparationRepository
+    private val modelPreparation: GatewayModelPreparationRepository,
+    private val workspaceCommands: GatewayWorkspaceCommandStore? = null
 ) {
     private val synchronization = Mutex()
     private val scheduling = Mutex()
@@ -97,6 +98,125 @@ class GatewayEngineeringRepository @Inject constructor(
         check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed." }
         val job = requireNotNull(binding.job)
         return client.checkpoints(config, job.id).also { check(it.jobId == job.id) }
+    }
+
+    suspend fun workspace(requestId: String): GatewayAgentWorkspace = synchronization.withLock {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val route = workspaceRoute(binding)
+        client.workspace(route, requireNotNull(binding.job).id).also { it.requireBinding(binding) }
+    }
+
+    suspend fun workspaceTree(requestId: String, headSha: String, query: String, offset: Int): GatewayWorkspaceTree = synchronization.withLock {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val job = requireNotNull(binding.job)
+        check(job.headSha == headSha) { "The source changed. Refresh the workspace before browsing files." }
+        client.workspaceTree(workspaceRoute(binding), job.id, headSha, query, offset)
+    }
+
+    suspend fun workspaceSource(requestId: String, tree: GatewayWorkspaceTree, file: GatewayWorkspaceSourcePath, startLine: Int): GatewayWorkspaceSource = synchronization.withLock {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val job = requireNotNull(binding.job)
+        check(job.id == tree.jobId && job.headSha == tree.headSha && file in tree.paths) { "Select a file from the current saved source tree." }
+        client.workspaceSource(workspaceRoute(binding), job.id, tree.headSha, file, startLine)
+    }
+
+    /** Save dispatch identity before POST. A lost response is never a second command. */
+    suspend fun workspaceCommand(requestId: String, expected: GatewayAgentWorkspace, action: String, arguments: JsonObject): GatewayWorkspaceCommandReceipt = synchronization.withLock {
+        requireWorkspaceArguments(arguments)
+        val binding = bindings().single { it.request.requestId == requestId }
+        expected.requireBinding(binding)
+        check(binding.workspaceCommand?.settled != false) { "Check the previous workspace command before starting another operation." }
+        check(expected.canRunWithUnresolvedCommands(binding, action)) { "This action is unavailable while an earlier command remains unresolved." }
+        val route = workspaceRoute(binding)
+        val current = client.workspace(route, requireNotNull(binding.job).id).also { it.requireBinding(binding) }
+        check(current.revision == expected.revision && current.headSha == expected.headSha && current.canRunWithUnresolvedCommands(binding, action)) { "The workspace changed. Refresh it before applying this action." }
+        check(config(binding) == route) { "The selected Gateway credentials changed before dispatch." }
+        val proposed = GatewayWorkspacePendingCommand(UUID.randomUUID().toString(), current.jobId, current.headSha, current.revision, action)
+        val reference = requireNotNull(workspaceCommands).retain(binding, proposed, arguments)
+        val command = proposed.copy(argumentsReference = reference)
+        val pending = binding.copy(workspaceCommand = command)
+        save(pending)
+        check(config(binding) == route) { "The Gateway connection changed while the command was saved. Nothing was dispatched." }
+        val receipt = client.workspaceCommand(route, command, arguments)
+        save(pending.copy(workspaceCommand = command.copy(receipt = receipt.metadataOnly())))
+        receipt
+    }
+
+    /** Explicit user retry uses the original id, envelope and encrypted arguments after absence readback. */
+    suspend fun retryWorkspaceCommand(requestId: String): GatewayWorkspaceCommandReceipt = synchronization.withLock {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val command = requireNotNull(binding.workspaceCommand)
+        check(!command.dismissedAbsent && command.receipt?.status == "NOT_FOUND" && command.receipt.confirmedAbsent) { "Check the saved command before retrying it." }
+        val route = workspaceRoute(binding)
+        val board = client.workspace(route, requireNotNull(binding.job).id).also { it.requireBinding(binding) }
+        check(board.jobId == command.jobId && board.headSha == command.headSha && board.revision == command.revision && board.canRunWithUnresolvedCommands(binding, command.action)) { "The original workspace changed. This saved command cannot be resent." }
+        val arguments = requireNotNull(workspaceCommands).recover(binding, command)
+        // Clear confirmed absence before the network write so a second tap cannot retry it.
+        val pending = command.copy(receipt = null)
+        save(binding.copy(workspaceCommand = pending))
+        check(config(binding) == route) { "The Gateway connection changed before the original command could be retried." }
+        val receipt = client.workspaceCommand(route, pending, arguments)
+        save(binding.copy(workspaceCommand = pending.copy(receipt = receipt.metadataOnly())))
+        receipt
+    }
+
+    suspend fun reconcileWorkspaceCommand(requestId: String, commandId: String? = null): GatewayWorkspaceCommandReceipt? = synchronization.withLock {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val command = if (commandId == null) {
+            binding.workspaceCommand
+        } else {
+            (listOfNotNull(binding.workspaceCommand) + binding.workspaceUnresolvedCommands).singleOrNull { it.commandId == commandId }
+        }
+        if (command == null) return@withLock null
+        check(command.jobId == binding.job?.id) { "The saved workspace command belongs to a different job." }
+        val receipt = client.workspaceCommandStatus(workspaceRoute(binding), command)
+        val observed = command.copy(receipt = receipt.metadataOnly())
+        save(
+            if (binding.workspaceCommand?.commandId == command.commandId) {
+                binding.copy(workspaceCommand = observed)
+            } else {
+                binding.copy(workspaceUnresolvedCommands = binding.workspaceUnresolvedCommands.map { if (it.commandId == command.commandId) observed else it })
+            }
+        )
+        receipt
+    }
+
+    /** Retain an unknown outcome separately so safe maintenance can proceed without replay. */
+    suspend fun acknowledgeUnknownWorkspaceCommand(requestId: String) = synchronization.withLock {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val command = requireNotNull(binding.workspaceCommand)
+        check(command.receipt?.status == "UNKNOWN" && !command.settled) { "Check the original command outcome before acknowledging it." }
+        val route = workspaceRoute(binding)
+        val receipt = client.workspaceCommandStatus(route, command)
+        check(receipt.status == "UNKNOWN") { "The saved command outcome changed. Check its exact receipt again." }
+        val board = client.workspace(route, requireNotNull(binding.job).id).also { it.requireBinding(binding) }
+        check(board.state == "NEEDS_INPUT") { "The job must be paused for review before retaining an unresolved command separately." }
+        val retained = binding.workspaceUnresolvedCommands.filterNot { it.settled }
+        check(retained.size < 32 && retained.none { it.commandId == command.commandId }) { "Check retained unresolved commands before acknowledging more work." }
+        save(binding.copy(workspaceCommand = null, workspaceUnresolvedCommands = retained + command.copy(receipt = receipt.metadataOnly())))
+    }
+
+    /** Closing a stale, proven-absent request is local bookkeeping, never a successful outcome. */
+    suspend fun dismissAbsentWorkspaceCommand(requestId: String) = synchronization.withLock {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val command = requireNotNull(binding.workspaceCommand)
+        check(!command.settled && command.receipt?.status == "NOT_FOUND" && command.receipt.confirmedAbsent)
+        val route = workspaceRoute(binding)
+        val receipt = client.workspaceCommandStatus(route, command)
+        check(receipt.status == "NOT_FOUND" && receipt.confirmedAbsent) { "The command now exists. Check its saved outcome before proceeding." }
+        val board = client.workspace(route, requireNotNull(binding.job).id).also { it.requireBinding(binding) }
+        check(board.jobId == command.jobId && (board.headSha != command.headSha || board.revision != command.revision)) { "The original command is still valid. Keep it pending or explicitly retry it." }
+        save(binding.copy(workspaceCommand = command.copy(receipt = receipt.metadataOnly(), dismissedAbsent = true)))
+    }
+
+    private suspend fun workspaceRoute(binding: GatewayEngineeringBinding): ProviderRequestConfig {
+        val route = config(binding)
+        check(!binding.gatewayId.isNullOrBlank() && !binding.principalId.isNullOrBlank()) { "Reconnect to the original Gateway before opening its workspace." }
+        check(binding.principalId == client.principal(route, requireReady = false)) { "The Gateway account changed." }
+        val identity = history.identity(route)
+        check(identity.gatewayId == binding.gatewayId && identity.principalId == binding.principalId) { "The original Gateway or account changed." }
+        check(config(binding) == route) { "The Gateway connection changed." }
+        return route
     }
 
     suspend fun exportOutput(requestId: String, selected: JsonObject, stream: java.io.OutputStream) {

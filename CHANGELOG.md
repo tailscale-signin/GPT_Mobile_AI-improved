@@ -1,5 +1,7 @@
 # 0.9.66.13 — 2026-11-22
 
+- Add a source-bound Android/Windows agent workspace with actual optional SDK/API/ACP coding runtimes, scoped workers, dependency-ready task evidence, graph-ranked context, private review drafts, local next-edit validation and configured documentation/browser tools. Keep agent comparisons separate from model benchmarks and preserve unknown-command/cancellation evidence.
+
 - Keep automatic phone-map checks within supported native actions, while retaining explicitly selected Gateway analysis and source-bound recovery.
 - Record Gateway map privacy rejection from actual request evidence, clearing only a newly proven unsent index attempt and preserving earlier exchanges and unresolved jobs.
 - Propagate cancellation wrapped by MCP transport failures before reconnect or replay, while retaining earlier observed responses and interrupted reads.

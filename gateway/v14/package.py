@@ -16,6 +16,12 @@ REQUIRED.update({'v14/model_preparation.py', 'v14/model_preparation_routes.py', 
 REQUIRED.update({'v14/voice.py', 'v14/voice_process.py', 'voice_worker.py', 'prepare_voice_pack.py', 'setup_voice_cuda.py', 'requirements-voice.txt'})
 
 REQUIRED.update({'desktop/repository_validation.py', 'desktop/repository_validation_panel.py', 'desktop/engineering_setup.py', 'desktop/engineering_setup_panel.py', 'v14/validation_host.py'})
+REQUIRED.update({'desktop/workspace_client.py', 'desktop/native/MainWindow.AgentWorkspace.cs',
+                 'v14/workspace_board.py', 'v14/workspace_commands.py', 'v14/workspace_discovery.py',
+                 'v14/workspace_checkpoint.py', 'v14/workspace_intelligence.py', 'v14/workspace_context_pack.py',
+                 'v14/workspace_next_edit.py', 'v14/workspace_task_plan.py', 'v14/workspace_tool_integrations.py',
+                 'v14/agent_config.py', 'v14/agent_runs.py', 'v14/agent_cloud.py', 'v14/agent_http_worker.py', 'v14/agent_local.py',
+                 'v14/agent_process.py', 'v14/agent_candidates.py', 'v14/agent_sdk_driver.py', 'v14/agent_cline_driver.mjs'})
 
 
 def validate_package(root):

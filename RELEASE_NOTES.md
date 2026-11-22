@@ -113,8 +113,20 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Keep nested GitHub payload text from becoming the current operation's failure code; require genuine top-level failure provenance and preserve explicit success or unknown observations.
 - Prevent duplicate built-in tool entries, retain existing settings when replacement fails, and restore older backups with equivalent duplicate bindings safely.
 
+## GitHub agent workspace and optional runtimes
+
+- Open the accepted task's workspace on Android or Windows to inspect scoped workers, delegated agents, pinned source, paged candidate diffs, executed checks and private review drafts.
+- Delegate through configured Codex, Copilot cloud/SDK, Jules, Cursor, OpenHands, Cline, Claude SDK, Kiro/Devin ACP or Aider adapters. Explicit user commands and durable run receipts retain the accepted source and account; optional setup remains visible.
+- Use graph-ranked context, role-specific tool discovery, dependency-ready requirement plans, compact evidence summaries, selective context exports and optional local next-edit proposals. Approved checks and final validation remain required before publication.
+- Configure exact Context7, Playwright and complementary GitHub MCP tools in the existing host repository policy. Phone-only GitHub workflows remain available independently.
+- Keep model benchmarks separate from complete agent-system comparisons. Unexecuted agent candidates have no test or model-quality score; candidate comparisons require the same actual executed check contract.
+- Recover interrupted workspace requests by original command identity. Unknown outcomes are retained without replay, safe maintenance can inspect paused tasks, and parent cancellation cleans up isolated runtimes through the existing controller.
+
+See the [workspace guide](docs/engineering/github-agent-workspace.md) and [runtime adapters](docs/engineering/coding-agent-adapters.md) for configuration, supported controls and qualification boundaries.
+
 ## Qualification and limitations
 
+- Optional coding agents require installed pinned runtimes, explicit host configuration and compatible provider accounts. Protocol fixtures and host builds do not qualify paid provider execution, installed SDK compatibility, model quality or remote cancellation when the provider does not support it.
 - Phone repository relationships are bounded lexical candidates, not compiler-resolved references or executed-test evidence. Unscanned, unsupported, generated and dynamic code can leave relationships unknown; current GitHub authorization and connectivity are required, and physical-phone performance remains unqualified.
 - Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.
 - Physical Android performance, selected-provider behavior and the user's Windows/Gateway network require live device/service qualification. Automated fixtures do not establish those conditions.

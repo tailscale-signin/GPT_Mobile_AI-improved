@@ -48,6 +48,13 @@ def installed_before_setup(root, candidate, *, save_recovery=False):
 
 
 def main():
+    if sys.argv[1:] == ['agent-http-worker']:
+        # Trusted bounded provider transport. Frozen Gateway.exe cannot execute
+        # a Python script with -I; no host settings, supervisor or UI is opened.
+        sys.stdin.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding='utf-8')
+        from v14.agent_http_worker import main as agent_http_worker
+        return agent_http_worker()
     parser = argparse.ArgumentParser(description='GPT Mobile Gateway desktop manager')
     parser.add_argument('command', choices=['supervise', 'settings', 'github-settings', 'engineering-setup', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard', 'benchmark-settings', 'native-bridge', 'schedules', 'workspace', 'phone-settings'])
     parser.add_argument('--root', required=True, type=Path)

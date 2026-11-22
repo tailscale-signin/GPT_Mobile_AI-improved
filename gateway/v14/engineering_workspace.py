@@ -35,7 +35,19 @@ def act(backend, job, action):
         raise ValueError('Workspace action must name the current pinned head_sha')
     kind = action.get('action')
     receipt = {'action': kind, 'head_sha': job['data']['head_sha']}
-    if kind == 'revert_preview':
+    from v14.workspace_intelligence import ACTIONS, act as intelligence
+    from v14.workspace_board import AGENT_ACTIONS
+    if kind in ACTIONS:
+        receipt.update(intelligence(backend, job, action))
+    elif kind in AGENT_ACTIONS:
+        receipt.update(backend.agent_runs.act(job, action))
+    elif kind == 'environment_qualify':
+        from v14.workspace_board import qualify_environment
+        receipt.update(qualify_environment(backend, job, action))
+    elif kind == 'candidate_rank':
+        from v14.workspace_board import rank_candidates
+        receipt.update(rank_candidates(backend, job, action))
+    elif kind == 'revert_preview':
         from v14.workspace_timeline import preview
         receipt.update(preview(backend, job, action))
     elif kind == 'worker':
@@ -142,6 +154,10 @@ def view(data):
     return {'head_sha': data['head_sha'], 'progress_notes': data.get('progress_notes'), 'workflow': data.get('workflow'),
             'active_instructions': data.get('active_instructions', []), 'workspace_receipts': windows, 'plan': data['plan'],
             'repair_feedback': repair_feedback(data), 'files': files, 'iteration': data.get('workspace_iterations', 0),
+            'task_plan': data.get('workspace_task_plan'), 'tool_profile': data.get('workspace_tool_profile'),
+            'working_summaries': data.get('workspace_summaries', [])[-2:],
+            'worker_summaries': [{key: value.get(key) for key in ('role', 'state', 'calls', 'budget', 'candidate_check_id', 'depends_on')}
+                                 for value in data.get('workspace_workers', {}).values()],
             'ci': data.get('ci'), 'review': data.get('review')}
 
 

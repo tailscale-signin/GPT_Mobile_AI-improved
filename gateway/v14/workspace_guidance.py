@@ -89,10 +89,11 @@ def start_procedure(data, name):
 def dependencies(data, tools, capabilities):
     admission = data.get('admission') or {}
     available = {'read', 'search', 'paths', 'glob', 'symbols', 'relationships', 'repo_search', 'explore', 'instructions',
-                 'progress', 'skills', 'skill', 'requirements', 'workflow_step', 'workflow_batch', 'workflow_batch_status', 'workflow_batch_step'}
+                 'progress', 'skills', 'skill', 'requirements', 'workflow_step', 'workflow_batch', 'workflow_batch_status', 'workflow_batch_step',
+                 'worker', 'worker_wave', 'worker_status', 'task_plan', 'task_plan_status', 'context_pack', 'context_summary', 'tool_profile', 'integration_status'}
     supported = {'repository'}
     if admission.get('policy_sha256'):
-        available.update(('checks', 'check', 'check_output', 'discover_tests', 'inspect_failure', 'candidates', 'compare_candidates', 'candidate_files'))
+        available.update(('checks', 'check', 'check_output', 'discover_tests', 'inspect_failure', 'candidates', 'compare_candidates', 'candidate_files', 'run_test', 'compile_module', 'lint_changed_files', 'check_patch', 'task_plan_complete'))
         supported.add('validation')
     if admission.get('workspace_terminal_enabled'):
         available.update(('terminal_open', 'terminal_start', 'terminal_poll', 'terminal_cancel'))
@@ -143,6 +144,7 @@ def workflow(backend, job, action):
             raise ValueError('Select a valid skill catalog offset')
         return {'procedures': list(PROCEDURES), 'procedure_requirements': {name: dependencies(data, tools, ['repository']) for name, tools in PROCEDURE_TOOLS.items()},
                 'repository_skills': names[offset:offset + 32],
+                'repository_skill_manifest': [{'path': path, 'blob_sha': data['tree'][path]['sha'], 'instructions_loaded': path in data.get('files', {})} for path in names[offset:offset + 32]],
                 'next_offset': offset + 32 if offset + 32 < len(names) else None}
     if kind == 'skill':
         name = action.get('name')
@@ -229,3 +231,16 @@ def batch_workflow(job, action):
     return dict(steps=state['steps'], items=[info(k) for k in keys[offset:offset+8]], item_count=len(keys),
                 completed_items=sum(len(r['receipts']) == total for r in state['items'].values()),
                 next_offset=offset+8 if offset+8 < len(keys) else None, scope='workflow_progress')
+
+
+def manifest(job):
+    """Discover instruction and skill identities without loading their content."""
+    data = job['data']
+    active = data.get('active_instructions', [])
+    return {'head_sha': data['head_sha'], 'active_instructions': [
+        {'path': path, 'blob_sha': data['tree'][path]['sha'], 'loaded': path in data.get('files', {})}
+        for path in active[:32] if path in data.get('tree', {})],
+        'active_instruction_count': len(active), 'omitted_instruction_count': max(0, len(active) - 32),
+        'skill_count': len(skill_paths(data.get('tree', {}))),
+        'procedures': list(PROCEDURES), 'disclosure': 'CATALOG_THEN_EXACT_SKILL',
+        'precedence': 'USER_THEN_HOST_POLICY_THEN_PATH_SPECIFIC_REPOSITORY_GUIDANCE'}

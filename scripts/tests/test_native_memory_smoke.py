@@ -206,6 +206,7 @@ class LatestFeatureAcceptanceReceiptsTest(unittest.TestCase):
         'privacy-migration-instrumentation.txt': 'data/database/PrivacyModeMigrationInstrumentedTest',
         'agent-persistence-instrumentation.txt': 'data/database/AgentPersistenceDaoInstrumentedTest',
         'voice-conversation-instrumentation.txt': 'presentation/ui/voice/VoiceConversationInstrumentedTest',
+        'voice-message-controls-instrumentation.txt': 'presentation/ui/voice/VoiceMessageControlsInstrumentedTest',
     }
 
     def setUp(self):

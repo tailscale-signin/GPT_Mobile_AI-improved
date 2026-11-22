@@ -17,7 +17,7 @@
     "Preserve concurrent commits; draft PR, current-head verification, main verification and publication"
   ],
   "validation": {
-    "canonical_host": "PASS bash scripts/validate-local.sh fast: 616 tests, CI policy, generated inventories, dependency catalog, secrets scan, regex, XML/icon and QNN provenance checks",
+    "canonical_host": "PASS bash scripts/validate-local.sh fast after full ecd20731 voice/benchmark integration plus restore follow-up: 616 tests, generated inventories, CI policy, secrets, resources, 1922 literal regex patterns and provenance checks",
     "store_writer_context": "PASS 26 production-source host tests",
     "transport": "PASS 5 production-source Ktor3.6/OkHttp5.5 loopback tests",
     "voice": "PASS 4 actual Android/Kokoro/Gateway transport tests in isolated Robolectric harness; production voice sources compiled",
@@ -31,12 +31,19 @@
     "ci": "PENDING exact integrated PR head and exact merged main SHA",
     "publication": "PENDING signed Android0.9.66.13/build147 and coordinated Gateway18.1.1 readback",
     "room_schema_history": "PASS scripts/check_room_schemas.py",
-    "acceptance_receipts": "PASS all newly added migration/persistence methods required by scripts/run_release0950_acceptance.sh; missing/skipped receipt rejection retained"
+    "acceptance_receipts": "PASS host contract requires all four new privacy migration/persistence methods and both new voice-details/control methods. It verifies every method in all four suites and rejects missing/skipped receipts.",
+    "window_protection": "PASS 2 actual ProtectedActivity/DevicePrivacySettings/AndroidAppLock/AppLockChallenge Robolectric tests, with no production source stubs",
+    "hosted_source_generation": "PASS Room schema and annotation generation on 6e788707 in standard diagnostic and GenieX workflows; newer commit requires fresh hosted validation",
+    "mcp": "PASS 6 actual McpPrivacyTransportTest and 9 McpReadRecoveryTest cases pinned to dda6f5c; all 51 harness production sources match current integrated source",
+    "restore": "PASS 7 actual SQLite/Robolectric backup tests. The unchanged tests fail exactly 3 new privacy cases against unpatched 6e788 and pass all 7 against the fixed helper; unrelated run/Combined validators are explicit guarded harness boundaries.",
+    "followup_formatting": "PASS all 3 changed Kotlin files after integration with ecd20731; committed Room schema history unchanged"
   },
   "concurrent_commits_preserved": [
     "06ab96439deea13262fa48130eed367914e914d0",
     "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
-    "fea1a6ac82756817aad485b6267e4294873bfb8b"
+    "fea1a6ac82756817aad485b6267e4294873bfb8b",
+    "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+    "ecd207312bbbcef04790762217c3d66a75ebb26f"
   ],
   "navigation_persistence": {
     "owner": "privacy_navigation",
@@ -90,5 +97,30 @@
       "Required Android acceptance receipt list"
     ],
     "remaining_full_validation": "Exact integrated hosted Android/JVM/device and release checks remain mandatory."
+  },
+  "backup_restore_followup": {
+    "source_base": "ecd207312bbbcef04790762217c3d66a75ebb26f",
+    "intent": "An older ordinary backup cannot revoke the existing permanent policy through raw SQL restore.",
+    "implementation": "Capture current locked IDs before replacement and restore only privacy_mode_locked for matching restored rooms, in both full and selected-conversation restore. Preserve actual incoming masking history and tolerate older fixtures without the column.",
+    "behavior_tests": "PASS 7 actual SQLite/Robolectric tests; 3 new privacy regressions demonstrated against the unpatched helper, with all 4 controls passing before and after the fix",
+    "concurrent_regressions": "Preserved stronger upstream graph-constructor and uncertain-dispatch projection tests, plus interrupted MCP read recovery; discarded only redundant local test edits."
+  },
+  "live_main_rules": {
+    "ruleset_id": 27005122,
+    "enforcement": "active",
+    "required_checks": [
+      "Required verification",
+      "Analyze (java-kotlin)"
+    ],
+    "strict": true,
+    "required_approving_reviews": 0,
+    "bypass_actors": [],
+    "recheck_before_merge": true
+  },
+  "voice_integration": {
+    "source": "ecd207312bbbcef04790762217c3d66a75ebb26f",
+    "requirements": "Top-level voice-response-benchmark checkpoint marks source implemented and host validated; full current-head CI and physical qualifications remain distinct.",
+    "reconciliation": "Preserved all 65 voice/benchmark files. Resolved only generated-inventory/scope conflicts by retaining incoming scope, adding restore scope, and regenerating from combined source.",
+    "privacy_review": "Originating voice scope and private-content screen protection retained; benchmark uses fixed local CPU/GPU/NPU phrases and no conversation text or external provider/Gateway dispatch."
   }
 }

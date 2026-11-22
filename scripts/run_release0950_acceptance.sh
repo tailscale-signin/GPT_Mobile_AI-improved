@@ -263,6 +263,8 @@ for test in (
 ):
     check_instrumentation(folder / 'voice-conversation-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest', test)
 for test in (
+    'fullDetailsActionKeepsTheOriginalMessageAndUsesTheSingleStopControl',
+    'voiceAnswerShowsItsSpeechAndKeepsDetailsCollapsedUntilSelected',
     'everyResponseHasItsOwnThemedReadActionAndOnlyTheActiveReplyStops',
     'autoplayStopBelongsToTheLatestRunAndHistoricalReplayKeepsItsOwnRevision',
 ):

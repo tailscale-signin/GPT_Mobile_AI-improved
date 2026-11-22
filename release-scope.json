@@ -65,7 +65,8 @@
     "Show concise spoken answers with expandable visual detail and explicit full-details playback, preserve original content, and improve contextual number, date, unit and IP pronunciation with source-aligned captions.",
     "Add natural speech defaults and an explicit preset, retain saved choices, prefer complete opening clauses and bound unpunctuated first-phrase latency.",
     "Add runnable Quick and Full CPU, GPU and NPU speech benchmarks with identical fixtures, cold/warm timing, first PCM, real-time factor, median/p95, actual mixed-kernel evidence, thermal stops, cancellation, saved results and private JSON export.",
-    "Include setup cost across three Auto probe shapes and preserve the minimum 10 percent verified accelerator benefit requirement."
+    "Include setup cost across three Auto probe shapes and preserve the minimum 10 percent verified accelerator benefit requirement.",
+    "Restoring an older backup cannot remove an existing conversation's permanent privacy lock. Keep restored masking-history evidence tied to the content actually included in that backup."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -506,6 +507,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginServicesTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditQualificationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/GitHubPrivacyAuditTransportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupDatabaseTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupManagerTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkPricingExportTest.kt",

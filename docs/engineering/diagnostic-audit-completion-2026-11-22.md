@@ -106,3 +106,9 @@ the exact merged main commit and published artifact identities.
 - CI production compilation and APK packaging passed for the integrated production
   source; the packaged chat/voice method-size gate, including Gateway recovery, also
   passed. Final release qualification still requires the final PR and main revisions.
+
+- Diagnostic audit and Marketplace reuse the existing publisher-verified Robolectric
+  cache before their unchanged, unconditional SHA-512 provisioner. This addresses
+  repeated Maven 429 failures observed before compilation, while preserving every
+  pin, deadline, Retry-After rule and downstream test. The cache-order/provisioning
+  regression suite passed all 27 tests; workflow policy also passed.

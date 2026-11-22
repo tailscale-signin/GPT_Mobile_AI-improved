@@ -82,6 +82,11 @@ jobs:
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
         run: bash scripts/install_android_native_dependencies.sh
+      - name: Restore verified Robolectric runtime cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: robolectric-sha512-linux-${{ hashFiles('scripts/provision_robolectric_sdks.py') }}
       - name: Provision verified Robolectric runtimes
         timeout-minutes: 10
         run: python3 scripts/provision_robolectric_sdks.py

@@ -7,19 +7,27 @@
   "source_sha": "5e4ab1ebdcc8c27110a992e982697e4071c3e5ab",
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "intent": "Enforce local privacy masking for the supplied conversation, render verified locally protected words yellow, and persist privacy badges in conversation cards while preserving concurrent work.",
-  "status": "IMPLEMENTED_AWAITING_CANONICAL_ANDROID_SCHEMA_AND_CI",
+  "status": "IMPLEMENTED_HOST_VERIFIED_ANDROID_CI_PENDING",
   "diagnostic_evidence": {
     "app": "0.9.66.12 (146)",
     "single_names": "Conversation introductions not covered by existing identity rules; all-context seeding and bounded reuse required.",
     "wire_limit": "No raw outbound request bodies included; privacy capture flags are not proof of master mode state."
   },
   "validation": {
-    "host": "PASS: 605 repository host tests; 44 actual-source provider/mask/receipt tests; 10 request-context tests; 11 exact-range/Markdown-source projection tests; 5 display-value tests; additive SQLite migration probe; pinned ktlint, resources, icons, regex, CI policy, dependency provenance and whitespace. Host suites use narrow platform boundary fixtures where Android dependencies are unavailable.",
-    "android": "PENDING: canonical Android/KSP, Compose/Room/instrumented tests and complete current-head CI. Room 53 schema must be exported by the real build; generated agent metadata will follow that export.",
+    "host": "PASS: canonical bash scripts/validate-local.sh fast, including all 605 repository host tests; 44 actual-source provider/mask/receipt tests; 10 request-context tests; 11 exact-range/Markdown-source projection tests; 5 display-value tests; pinned ktlint. Host suites use narrow platform boundary fixtures where Android dependencies are unavailable.",
+    "android": "PASS: real Android KSP export of Room 53; additive SQLite migration matches all 56 tables, indices and foreign keys in the authentic export, preserves existing chats and defaults the privacy flag to false. PENDING: complete current-head Android compilation, Compose/Room/instrumented tests and CI. Physical device tests have not run.",
     "device": "NOT_RUN"
   },
   "concurrent_commits_preserved": [
     "3d672c0456abbc09318dffb69f8bb7eed11162e0",
     "5e4ab1ebdcc8c27110a992e982697e4071c3e5ab"
-  ]
+  ],
+  "schema_export": {
+    "source_sha": "2fa6f59fad9084e0e72b7237f4aca0b8f01275af",
+    "workflow_run": 45058161842,
+    "job": 137318034810,
+    "path": "app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/53.json",
+    "sha256": "4d9294e56972dd23bb99841b263e026d9f4d97faa0acf71d4d40da4f9b28afdb",
+    "provenance": "Lossless check_room_schemas.py output immediately after successful canonical :app:kspDebugKotlin; no schema bytes or identity hashes fabricated."
+  }
 }

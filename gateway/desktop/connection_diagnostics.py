@@ -23,6 +23,7 @@ ENUMS = {
 }
 COUNTS = {'listener_count', 'ipv4_default_route_count', 'ipv6_default_route_count', 'tunnel_adapter_count'}
 NETWORK_PROFILES = {'Private', 'Public', 'DomainAuthenticated'}
+FIREWALL_PROFILES = {'Any', 'Domain', 'Private', 'Public', 'NotApplicable'}
 
 
 def _read_object(path, limit=65_536):
@@ -62,9 +63,10 @@ def normalize_probe(raw):
         value = raw.get(key)
         if type(value) is int and 0 <= value <= 65_535:
             result[key] = value
-    for key in ('active_network_profiles', 'firewall_rule_profiles'):
+    for key, choices in (('active_network_profiles', NETWORK_PROFILES), ('firewall_rule_profiles', FIREWALL_PROFILES)):
         values = raw.get(key)
-        if isinstance(values, list) and len(values) <= 3 and all(isinstance(value, str) and value in NETWORK_PROFILES for value in values):
+        if (isinstance(values, list) and len(values) <= 3 and (values or key == 'active_network_profiles')
+                and all(isinstance(value, str) and value in choices for value in values)):
             result[key] = sorted(set(values))
     return result
 
@@ -110,7 +112,8 @@ def collect(root, *, now=None):
                 if not isinstance(raw, dict):
                     raise ValueError('Invalid host observation')
                 result.update(normalize_probe(raw))
-                result['collection_state'] = 'PARTIAL' if any(result[key] == 'UNKNOWN' for key in ENUMS) else 'OBSERVED'
+                unknown_rule_scope = result['firewall_rule_state'] == 'PRESENT' and not result.get('firewall_rule_profiles')
+                result['collection_state'] = 'PARTIAL' if unknown_rule_scope or any(result[key] == 'UNKNOWN' for key in ENUMS) else 'OBSERVED'
         except subprocess.TimeoutExpired:
             result['collection_state'] = 'TIMEOUT'
         except (OSError, ValueError, UnicodeError):
@@ -141,6 +144,10 @@ def summary(observed):
     firewall = observed.get('firewall_rule_state')
     if firewall == 'PRESENT':
         lines.append('The Gateway firewall rule was observed: ' + ', '.join(str(observed.get(key, 'UNKNOWN')).lower().replace('_', ' ') for key in ('firewall_rule_enabled', 'firewall_rule_action', 'firewall_rule_port')) + '.')
+        rule_profiles = observed.get('firewall_rule_profiles')
+        profile_labels = {'Any': 'Any (all profiles)', 'NotApplicable': 'not applicable'}
+        scope = ', '.join(profile_labels.get(profile, profile) for profile in rule_profiles) if rule_profiles else 'unknown'
+        lines.append('Gateway firewall rule profiles: ' + scope + '.')
     elif firewall == 'NOT_OBSERVED':
         lines.append('The Gateway-specific firewall rule was not observed; this does not prove traffic is blocked.')
     else:

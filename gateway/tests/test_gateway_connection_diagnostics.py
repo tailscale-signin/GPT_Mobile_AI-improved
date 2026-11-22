@@ -37,7 +37,7 @@ class HostConnectionDiagnosticsTest(unittest.TestCase):
                    default_route_state='PRESENT', ipv4_default_route_count=1, ipv6_default_route_count=0,
                    tunnel_adapter_signal='PRESENT', tunnel_adapter_count=1,
                    firewall_rule_state='PRESENT', firewall_rule_action='ALLOW', firewall_rule_enabled='ENABLED',
-                   firewall_rule_port='MATCHED', active_network_profiles=['Private'],
+                   firewall_rule_port='MATCHED', active_network_profiles=['Private'], firewall_rule_profiles=['Private'],
                    adapter_name='private-vpn', address='100.70.2.3', command='private-service-command')
         result, run = self.observed(raw)
         self.assertEqual('OBSERVED', result['collection_state'])
@@ -98,6 +98,36 @@ class HostConnectionDiagnosticsTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     connection(self.root, 'connection-diagnostics', args, phone=phone)
 
+    def test_network_and_firewall_profiles_use_separate_closed_values(self):
+        for profiles in (['Domain'], ['Any'], ['Domain', 'Private'], ['NotApplicable']):
+            with self.subTest(profiles=profiles):
+                result = diagnostics.normalize_probe({'active_network_profiles': ['DomainAuthenticated'], 'firewall_rule_profiles': profiles})
+                self.assertEqual(['DomainAuthenticated'], result['active_network_profiles'])
+                self.assertEqual(sorted(profiles), result['firewall_rule_profiles'])
+        for profiles in ([], ['private profile name'], ['Domain', 'private profile name'], ['DomainAuthenticated'], [None], 'Private'):
+            with self.subTest(profiles=profiles):
+                self.assertNotIn('firewall_rule_profiles', diagnostics.normalize_probe({'firewall_rule_profiles': profiles}))
+        self.assertNotIn('active_network_profiles', diagnostics.normalize_probe({'active_network_profiles': ['Domain']}))
+
+    def test_present_rule_scope_is_shown_and_unknown_scope_is_partial(self):
+        raw = dict(listener_state='PRESENT', listener_binding='MATCHED', default_route_state='PRESENT',
+                   tunnel_adapter_signal='NOT_OBSERVED', firewall_rule_state='PRESENT',
+                   firewall_rule_action='ALLOW', firewall_rule_enabled='ENABLED', firewall_rule_port='MATCHED')
+        for profiles, label in ((['Domain'], 'Domain'), (['Any'], 'Any (all profiles)'),
+                                (['Domain', 'Private'], 'Domain, Private'), (['NotApplicable'], 'not applicable')):
+            with self.subTest(profiles=profiles):
+                result, _ = self.observed(dict(raw, firewall_rule_profiles=profiles))
+                self.assertEqual('OBSERVED', result['collection_state'])
+                self.assertIn('Gateway firewall rule profiles: ' + label + '.', result['summary'])
+                self.assertEqual('NOT_ESTABLISHED', result['firewall_connectivity_verdict'])
+        for profiles in (None, [], ['private profile name'], ['Domain', 'private profile name']):
+            with self.subTest(profiles=profiles):
+                result, _ = self.observed(dict(raw, firewall_rule_profiles=profiles))
+                self.assertEqual('PARTIAL', result['collection_state'])
+                self.assertIn('Gateway firewall rule profiles: unknown.', result['summary'])
+                self.assertEqual('NOT_ESTABLISHED', result['firewall_connectivity_verdict'])
+                self.assertNotIn('private profile name', json.dumps(result))
+
     def test_startup_query_uses_read_access_and_never_retains_the_registered_command(self):
         class Key:
             def __enter__(self):
@@ -115,28 +145,34 @@ class HostConnectionDiagnosticsTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which('pwsh') or shutil.which('powershell'), 'PowerShell producer runs on the Windows host check')
     def test_powershell_producer_reads_mocked_host_observations_and_contains_cmdlet_failure(self):
         harness = self.root / 'inspect-contract.ps1'
-        harness.write_text(r'''param([string]$Probe, [switch]$FailReads)
+        harness.write_text(r'''param([string]$Probe, [switch]$FailReads, [string]$RuleProfile='Private')
 $global:FailReads = $FailReads
+$global:RuleProfile = $RuleProfile
 function Get-NetTCPConnection { param($State, $ErrorAction) if ($global:FailReads) { throw 'private access error' }; [pscustomobject]@{ LocalPort=8090; LocalAddress='0.0.0.0'; OwningProcess=717 } }
 function Get-NetRoute { param($ErrorAction) [pscustomobject]@{ DestinationPrefix='0.0.0.0/0'; NextHop='private address' } }
 function Get-NetAdapter { param([switch]$IncludeHidden, $ErrorAction) [pscustomobject]@{ Status='Up'; InterfaceType=6; InterfaceDescription='private Tailscale adapter' } }
 function Get-NetConnectionProfile { param($ErrorAction) [pscustomobject]@{ NetworkCategory='Private'; Name='private network' } }
-function Get-NetFirewallRule { param($PolicyStore, $ErrorAction) if ($global:FailReads) { throw 'private firewall error' }; [pscustomobject]@{ Name=('GPTMobileGateway-' + ('a' * 24)); Action='Allow'; Enabled='True'; Profile='Private' } }
+function Get-NetFirewallRule { param($PolicyStore, $ErrorAction) if ($global:FailReads) { throw 'private firewall error' }; [pscustomobject]@{ Name=('GPTMobileGateway-' + ('a' * 24)); Action='Allow'; Enabled='True'; Profile=$global:RuleProfile } }
 # Parameter makes this an advanced function; PowerShell supplies ErrorAction.
 function Get-NetFirewallPortFilter { param([Parameter(ValueFromPipeline=$true)]$InputObject) process { [pscustomobject]@{Protocol='TCP'; LocalPort='8090'} } }
 & $Probe -Port 8090 -BindAddress '127.0.0.1' -RuleName ('GPTMobileGateway-' + ('a' * 24))
 ''')
         executable = shutil.which('pwsh') or shutil.which('powershell')
         command = [executable, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', str(harness), '-Probe', str(Path(diagnostics.__file__).with_name('Inspect-Connection.ps1'))]
-        for fail in (False, True):
-            response = subprocess.run(command + (['-FailReads'] if fail else []), capture_output=True, check=True, timeout=15)
-            value = json.loads(response.stdout.decode('utf-8-sig'))
-            self.assertEqual('UNKNOWN' if fail else 'PRESENT', value['listener_state'])
-            self.assertEqual('UNKNOWN' if fail else 'PRESENT', value['firewall_rule_state'])
-            if not fail:
-                self.assertEqual('ALLOW', value['firewall_rule_action'])
-                self.assertEqual('ENABLED', value['firewall_rule_enabled'])
-                self.assertEqual('MATCHED', value['firewall_rule_port'])
-                self.assertEqual(['Private'], value['firewall_rule_profiles'])
-            self.assertEqual('PRESENT', value['tunnel_adapter_signal'])
-            self.assertNotIn('private', json.dumps(value))
+        cases = ((False, 'Private', ['Private']), (True, 'Private', None),
+                 (False, 'Domain', ['Domain']), (False, 'Any', ['Any']),
+                 (False, 'Domain, Private', ['Domain', 'Private']), (False, 'NotApplicable', ['NotApplicable']),
+                 (False, '', []), (False, 'private profile name', []), (False, 'Private, private profile name', []))
+        for fail, profile, expected_profiles in cases:
+            with self.subTest(fail_reads=fail, profile=profile):
+                response = subprocess.run(command + ['-RuleProfile', profile] + (['-FailReads'] if fail else []), capture_output=True, check=True, timeout=15)
+                value = json.loads(response.stdout.decode('utf-8-sig'))
+                self.assertEqual('UNKNOWN' if fail else 'PRESENT', value['listener_state'])
+                self.assertEqual('UNKNOWN' if fail else 'PRESENT', value['firewall_rule_state'])
+                self.assertEqual(expected_profiles, value.get('firewall_rule_profiles'))
+                if not fail:
+                    self.assertEqual('ALLOW', value['firewall_rule_action'])
+                    self.assertEqual('ENABLED', value['firewall_rule_enabled'])
+                    self.assertEqual('MATCHED', value['firewall_rule_port'])
+                self.assertEqual('PRESENT', value['tunnel_adapter_signal'])
+                self.assertNotIn('private', json.dumps(value))

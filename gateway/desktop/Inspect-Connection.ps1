@@ -48,7 +48,14 @@ try {
         $result.firewall_rule_action = if ($actions.Count -ne 1) { 'OTHER' } elseif ($actions[0] -eq 'Allow') { 'ALLOW' } elseif ($actions[0] -eq 'Block') { 'BLOCK' } else { 'OTHER' }
         $enabled = @($rules | ForEach-Object { [string]$_.Enabled } | Sort-Object -Unique)
         $result.firewall_rule_enabled = if ($enabled.Count -ne 1) { 'MIXED' } elseif ($enabled[0] -eq 'True') { 'ENABLED' } elseif ($enabled[0] -eq 'False') { 'DISABLED' } else { 'UNKNOWN' }
-        $result.firewall_rule_profiles = @($rules | ForEach-Object { ([string]$_.Profile).Split(',').Trim() } | Where-Object { $_ -in @('Private', 'Public', 'DomainAuthenticated') } | Sort-Object -Unique)
+        # Firewall Profile differs from the network's NetworkCategory enum.
+        # Preserve scope only when every observed value is recognized.
+        $profiles = @($rules | ForEach-Object { ([string]$_.Profile).Split(',').Trim() } | Sort-Object -Unique)
+        $unknownProfiles = @($profiles | Where-Object { $_ -notin @('Any', 'Domain', 'Private', 'Public', 'NotApplicable') })
+        $result.firewall_rule_profiles = @()
+        if ($profiles.Count -gt 0 -and $profiles.Count -le 3 -and !$unknownProfiles.Count) {
+            $result.firewall_rule_profiles = $profiles
+        }
         $ports = @($rules | Get-NetFirewallPortFilter -ErrorAction Stop)
         $matchingPorts = @($ports | Where-Object { ([string]$_.Protocol -in @('TCP', '6')) -and ([string]$_.LocalPort -eq [string]$Port) })
         $result.firewall_rule_port = if ($matchingPorts.Count) { 'MATCHED' } else { 'DIFFERENT_PORT' }

@@ -397,6 +397,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/ConversationProgressPresentationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayProfileAvailabilityTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkMetricFormatTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubGatewayStatusViewModelTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModelTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ResearchEngineHealthPanelTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModelTest.kt",

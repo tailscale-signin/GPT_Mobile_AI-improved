@@ -24,6 +24,7 @@ import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -64,7 +65,7 @@ class GitHubGatewayStatusViewModelTest {
         coEvery { GatewayClientDiagnostics.diagnosticStatusFor(any()) } returns GatewayDiagnosticStatus()
         coEvery { GatewayClientDiagnostics.diagnosticPage(any(), any(), any(), any(), any()) } returns GatewayDiagnosticPage(emptyList(), null, 0)
         every { GatewayClientDiagnostics.refreshDiagnostics(any()) } returns Unit
-        justRun { client.refresh() }
+        justRun { client.refresh(any()) }
         coEvery { client.readiness(any(), any()) } coAnswers {
             requested += "ready" to firstArg<ProviderRequestConfig>()
             assertEquals(inference.model, secondArg<String?>())
@@ -134,7 +135,12 @@ class GitHubGatewayStatusViewModelTest {
             backgroundScope.launch { model.observe(inference.uid) }
             runCurrent()
             assertNotNull(model.state.value.observation)
+            val selectedConfig = requireNotNull(model.state.value.target?.config)
+            assertEquals(gateway.uid, selectedConfig.profileUid)
+            assertEquals(gateway.apiUrl, selectedConfig.apiUrl)
+            assertEquals(gateway.token, selectedConfig.token)
             model.refresh()
+            verify(exactly = 1) { client.refresh(selectedConfig) }
             runCurrent()
             select(other.uid)
             runCurrent()

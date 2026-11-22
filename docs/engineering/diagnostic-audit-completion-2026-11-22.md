@@ -316,3 +316,46 @@ All five DAO fakes inherit the transactional replacement wrapper. The integrated
 follow-up passes 608 canonical host checks, all thirteen changed Kotlin files pass
 ktlint, and the proposed 398-file delta passes the exact-path release scope. These
 local results leave the new Room and backup cases pending full Android execution.
+
+## Full-suite confirmation and concurrent feature wiring
+
+The completed Android unit job `137323925528` from PR validation run
+`45059996467` on `5013113` reports 12,497 tests: 12,490 passed, two failed,
+five skipped and no errors. Exact class/method comparison with the original
+29 failures confirms that all 29 now pass. The downloaded 1,837,555-byte JUnit
+artifact has SHA-256
+`03129117559d3f0755b618fa92b0e0e3a5c554039c276d95f781949481b3294d`.
+This is evidence for that historical revision; the newer storage, hash-projection
+and feature changes still require the complete current-revision gates.
+
+The two remaining failures have narrow corrections. The issued-cursor description
+now explicitly tells callers to copy the exact issued cursor as the only field.
+The actual admission test passes across all fourteen full/projected/inspection
+variants; all typed schemas remain unchanged apart from descriptions, and the
+ordinary/conservative native catalogs remain within their existing 1,600/2,000
+budgets at 1,486/1,914. The Gateway status fixture now stubs the nullable refresh
+argument and verifies that the selected Gateway configuration is passed exactly
+once before checking request cancellation and cleared measurements. An actual
+MockK 1.14.11 check covers both null and non-null arguments; full ViewModel
+execution remains part of Android CI.
+
+Concurrent `f3b9b40` is preserved. Independent reviews cover measured voice-engine
+selection and explicit recheck, corrected recognition ranges and supplementary
+RTL shaping, per-decision draft state and compact choices, Research controls when
+history is unavailable, profile route propagation, benchmark disclosure, and
+observed-absent versus unavailable firewall evidence. No additional concrete
+defect was found in those reviews. Six actual-source caption layout tests and
+all ten collector tests pass; the collector tests include real PowerShell 7.4.6
+execution with no skips. All 453 Gateway package hashes and the generated file
+inventory match. New Compose/ViewModel cases, all thirty required device receipts
+per API, and complete Android execution remain required on the combined revision.
+
+Android 0.9.66.13/build 147, Gateway 18.1.1, Room 53, the eight required main
+workflows, public reporting contracts and hardware qualification limitations
+remain unchanged. Publication is authorized only after current PR checks, normal
+protected merge, exact-main checks and both release verification paths succeed.
+
+The combined correction passes all 608 canonical host checks, all three changed
+Kotlin files pass ktlint 1.3.1, and the complete 405-file proposed release delta
+passes the unchanged exact-path scope validator. Generated architecture,
+diagnostic schema, app inventory and Room-derived metadata checks also pass.

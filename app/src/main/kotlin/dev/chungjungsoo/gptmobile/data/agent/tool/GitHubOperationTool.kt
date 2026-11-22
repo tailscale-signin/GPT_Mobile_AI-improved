@@ -1109,7 +1109,7 @@ internal class GitHubOperationTool(
                     put("type", "string")
                     put(
                         "description",
-                        "Copy issued continuation_call.arguments.view_cursor only; no other fields."
+                        "Copy the exact issued view_cursor as the ONLY field."
                     )
                 }
             )

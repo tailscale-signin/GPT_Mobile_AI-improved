@@ -7,7 +7,7 @@
   "source_sha": "2fb4f4434fa80ef26455d84f09e45fc425c6b629",
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "intent": "Implement the approved voice mode design, GPU/NPU execution repairs and remaining diagnostic gaps on the latest draft PR, preserve concurrent commits, merge only after exact-head required verification and publish exact-main signed Android and Gateway releases.",
-  "status": "IMPLEMENTING",
+  "status": "IMPLEMENTED_PENDING_HOSTED_CI",
   "authorization": "User explicitly authorized implementation, pushing a draft PR, merging after green checks and publishing after green main verification.",
   "workers": [
     {
@@ -50,7 +50,7 @@
     },
     {
       "id": "kokoro-gpu-npu",
-      "status": "IN_PROGRESS",
+      "status": "IMPLEMENTED_PENDING_ANDROID_CI_AND_PHYSICAL_QUALIFICATION",
       "title": "Correct concrete device selection, compatible partitions, PCM/duration qualification, bounded capability caches and selected/effective backend evidence"
     },
     {
@@ -73,7 +73,7 @@
     {
       "suite": "voice synthesis, timing, PCM, speech buffer",
       "result": "PASS",
-      "tests": 43,
+      "tests": 45,
       "runtime": "Kotlin 2.4.20 host/JUnit 4.13.2; production helper sources"
     },
     {
@@ -136,10 +136,41 @@
       "tests": 2
     },
     {
-      "suite": "canonical fast validation after voice integration",
+      "suite": "canonical fast validation before final native integration",
       "result": "PASS",
       "tests": 605,
       "command": "bash scripts/validate-local.sh fast"
+    },
+    {
+      "suite": "native graph partition and provider ownership",
+      "result": "PASS",
+      "tests": 4,
+      "runtime": "Pinned ORT1.28.2 CMake/CTest; includes 3000 randomized DAG cases"
+    },
+    {
+      "suite": "backend policy, failover and preparation provenance",
+      "result": "PASS",
+      "tests": 14,
+      "runtime": "Kotlin2.4.20 actual source; Android framework signature compile"
+    },
+    {
+      "suite": "same-inference QNN graph qualification",
+      "result": "PASS_WITH_HARDWARE_LIMIT",
+      "evidence": "docs/repairs/evidence/kokoro-qnn-graph-2026-11-22/qualification.json",
+      "scope": "Exact shipped model, official host HTP emulator,17/31/83 tokens;39 QNN kernels plus CPU partitions each; finite nonzero PCM and aligned positive durations. No physical GPU/NPU claim."
+    },
+    {
+      "suite": "final integrated canonical fast validation",
+      "result": "PASS",
+      "tests": 605,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Combined voice/native/diagnostic/release scope; regenerated architecture and app audit inventories"
+    },
+    {
+      "suite": "integrated Kokoro output compile",
+      "result": "PASS",
+      "runtime": "Kotlin2.4.20 with Android14 framework and compiled JNI Java API",
+      "scope": "Actual audio/factory/cache/clock/buffer/feedback source; model-store/log/diagnostic boundary shims. Full Android hosted checks required."
     }
   ],
   "hardware_qualification": "Physical phone GPU/NPU performance and audio route calibration require device execution evidence; host tests and successful compilation alone are not qualification.",
@@ -174,5 +205,14 @@
       "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
       "action": "Merged verified Robolectric-cache workflow repair without overwriting it."
     }
+  ],
+  "integration_regressions": [
+    "Wait for the presentation tail before pausing an empty hardware queue.",
+    "Do not consume newly queued captions or ahead-offset words during pause/refill.",
+    "Continue calibrated final caption motion until the visual tail drains.",
+    "Require a validated phrase from the current reply before reporting native fallback success.",
+    "Retain accelerator preparation evidence if subsequent CPU creation or synthesis also fails.",
+    "Do not classify an Auto CPU-baseline failure as CPU-to-CPU fallback.",
+    "Do not show uncollected CPU operator counts as a zero-work profile."
   ]
 }

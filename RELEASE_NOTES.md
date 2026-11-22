@@ -1,8 +1,25 @@
-# Android 0.9.66.13 — reliable execution and compact decisions
+# Android 0.9.66.13 — smoother voice chat and reliable execution
 
 Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains the Gateway 18 contract.
 
-## Changes
+## Voice chat and captions
+
+- Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.
+- Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.
+- Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.
+- Reserve accepted PCM against measured next-phrase synthesis time within a bounded five-second reserve, preserve natural first clauses, and align follow-up phrase targets to Quality 24 words, Balanced 16 and Fast 12 with adaptive Auto pacing.
+- Separate first visible text, publishable phrase, queued speech, prepared PCM and presented audio timings; distinguish warm-at-request from engine reuse and show measured buffering, refill and effective-provider evidence.
+
+## Kokoro GPU, NPU and recovery
+
+- Repair Kokoro QNN partition proposals with a convex, static-interface graph adapter; select the concrete GPU or NPU device and keep dynamic duration/alignment sections on CPU within the same audio-and-timing inference.
+- Qualify backend execution from valid PCM, aligned durations and actual kernel profiles for each prepared token shape; retain bounded device/model/runtime/lexicon/thread-scoped capability receipts and explicit rechecks. Auto retains CPU unless measured accelerator cost, including preparation, is at least 10% lower.
+- Retire a failed accelerator and retry only its current unplayed phrase on CPU; preserve typed source, target, outcome and original failure when CPU or permitted Android system speech recovery occurs, including optional Gateway CUDA failures. Fence duplicate and stale fallback callbacks.
+- Move deferred speech preference reads off the UI path and retain explicit cancellation origins, bounded cleanup and separate synthesis/playback ownership.
+
+Capability receipts are limited to 24 entries. Successful measurements expire after seven days and failed qualifications after six hours; clock rollback invalidates the receipt. **Compare engines on next reply** measures CPU, GPU and NPU with two phrase shapes, including preparation. **Recheck engine on next reply** explicitly retries the selected backend. Per-shape profiles identify actual accelerator and CPU participation; selecting an engine alone does not qualify it.
+
+## Execution, GitHub and diagnostic reliability
 
 - Separate immutable approval, classification and recheck records and preserve typed local persistence conflicts with safe correlation.
 - Correlate provider retry checkpoints and permit one durable bounded repair for reasoning-only or empty completions while preserving unknown-write reconciliation.
@@ -13,20 +30,26 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 - Share local Gateway transport cooldown across aliases, support explicit reconnect, and scope MCP catalogue invalidation with actionable cache-miss evidence.
 - Keep one compact active GitHub decision above the composer, support queued detail, and answer notification choices through durable identity-checked actions.
 - Remove the overlapping red unread badge, add themed Gateway cloud indicators, and improve bounded Markdown/cache rendering with capture allocation evidence.
-
 - Retain explicit provider-wait refusal and scheduler outcomes, non-overlapping work/wait timing, and closed diagnostic evidence across restart and report submission.
-
 - Make immutable evidence writes atomic with explicit stored, duplicate, rejected-owner and conflict results; preserve completed comparison coverage across duplicate reads.
 - Retain exact search frontiers and typed rule failures, match replanning to task intent, and explain missing acceptance contracts without treating zero-of-zero as complete.
 - Isolate transcript row updates, profile per-row layout, index diagnostic paging with Room migration 52, and retain query/hydration/redaction/serialization/write/checkpoint timings.
-- Split saved Gateway job recovery into bounded methods and enforce the packaged ART code-unit limit without weakening recovery ownership checks.
+- Split saved Gateway job recovery and the main run execution coroutine into bounded phases; enforce packaged ART code-unit limits for the coordinator and generated classes while preserving ownership, cancellation and terminal publication.
 - Coalesce exact-service TCP probes per network generation, show actionable offline guidance, and add read-only Gateway host connectivity observations.
 - Unify operation incident aliases within their process/session context and distinguish owned metadata deadlines from expected observer cancellation.
+- Keep nested GitHub payload text from becoming the current operation's failure code; require genuine top-level failure provenance and preserve explicit success or unknown observations.
 
 ## Qualification and limitations
 
 - Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.
 - Physical Android performance, selected-provider behavior and the user's Windows/Gateway network require live device/service qualification. Automated fixtures do not establish those conditions.
 - External provider rate limits, account credit balances and unavailable servers require their service or configuration conditions to recover; client changes improve classification, safe continuation and diagnostic evidence.
+- The recorded QNN graph qualification used the official x86 HTP emulator and observed 39 QNN kernels per tested token shape with remaining graph work on CPU. It did not run on physical Adreno GPU or Hexagon NPU hardware and does not establish on-device acceleration, speedup, thermal behavior or battery use.
+- Kokoro GPU/NPU execution is partial and device/model/runtime dependent. A registered provider or selected hardware label is not proof of accelerator execution; failed qualification or stale measurements retain CPU until a successful device recheck.
+- Physical audio-route latency, caption alignment, interruption recovery, long-reply continuity and frame/memory behavior still require speaker, wired and Bluetooth replay on the target phone. Bounded buffering cannot guarantee uninterrupted speech when synthesis remains slower than playback.
+- Gateway CUDA remains optional and requires a reachable, compatible configured Gateway. Local fixtures do not qualify the selected desktop GPU, account, network or live service.
+- The host QNN probes verify finite nonzero PCM and timing from the same inference, not waveform or perceptual equivalence. The 83-token probe differs from its CPU reference by 50 ms of total predicted duration; the recorded host emulator uses ORT 1.28.0 while native/JNI validation uses the pinned application ORT 1.28.2.
 
-The exact release commit must pass the required main workflows, artifact identity, signer and provenance verification before publication.
+The recorded graph regression covers 17-, 31- and 83-token probes of the exact shipped model, each with 39 QNN kernels plus CPU partitions and valid same-inference PCM/duration alignment. This mixed execution is separate from the recovery path that replaces a failed accelerator with CPU. See the [QNN graph evidence and reproduction](docs/repairs/evidence/kokoro-qnn-graph-2026-11-22/README.md) and [retained diagnostic repair ledger](docs/engineering/voice-update-nonvoice-scope-2026-11-22.md) for the measured scope and remaining device checks.
+
+The exact release commit must pass the required main workflows, artifact identity, signer and provenance verification before publication. The scoped manifest retains the existing release checks; host tests, emulator evidence and source review do not replace exact-head Android, packaging or publication verification.

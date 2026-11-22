@@ -1,5 +1,14 @@
 # 0.9.66.13 — 2026-11-22
 
+- Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.
+- Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.
+- Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.
+- Reserve accepted PCM against measured next-phrase synthesis time within a bounded five-second reserve, preserve natural first clauses, and align follow-up phrase targets to Quality 24 words, Balanced 16 and Fast 12 with adaptive Auto pacing.
+- Separate first visible text, publishable phrase, queued speech, prepared PCM and presented audio timings; distinguish warm-at-request from engine reuse and show measured buffering, refill and effective-provider evidence.
+- Repair Kokoro QNN partition proposals with a convex, static-interface graph adapter; select the concrete GPU or NPU device and keep dynamic duration/alignment sections on CPU within the same audio-and-timing inference.
+- Qualify backend execution from valid PCM, aligned durations and actual kernel profiles for each prepared token shape; retain bounded device/model/runtime/lexicon/thread-scoped capability receipts and explicit rechecks. Auto retains CPU unless measured accelerator cost, including preparation, is at least 10% lower.
+- Retire a failed accelerator and retry only its current unplayed phrase on CPU; preserve typed source, target, outcome and original failure when CPU or permitted Android system speech recovery occurs, including optional Gateway CUDA failures. Fence duplicate and stale fallback callbacks.
+- Move deferred speech preference reads off the UI path and retain explicit cancellation origins, bounded cleanup and separate synthesis/playback ownership.
 - Separate immutable approval, classification and recheck records and preserve typed local persistence conflicts with safe correlation.
 - Correlate provider retry checkpoints and permit one durable bounded repair for reasoning-only or empty completions while preserving unknown-write reconciliation.
 - Issue larger exact source-page alternatives, retain path/query/branch facts through compaction, and move repeated exploration toward implementation milestones.
@@ -10,13 +19,14 @@
 - Keep one compact active GitHub decision above the composer, support queued detail, and answer notification choices through durable identity-checked actions.
 - Remove the overlapping red unread badge, add themed Gateway cloud indicators, and improve bounded Markdown/cache rendering with capture allocation evidence.
 - Retain explicit provider-wait refusal and scheduler outcomes, non-overlapping work/wait timing, and closed diagnostic evidence across restart and report submission.
-
 - Make immutable evidence writes atomic with explicit stored, duplicate, rejected-owner and conflict results; preserve completed comparison coverage across duplicate reads.
 - Retain exact search frontiers and typed rule failures, match replanning to task intent, and explain missing acceptance contracts without treating zero-of-zero as complete.
 - Isolate transcript row updates, profile per-row layout, index diagnostic paging with Room migration 52, and retain query/hydration/redaction/serialization/write/checkpoint timings.
-- Split saved Gateway job recovery into bounded methods and enforce the packaged ART code-unit limit without weakening recovery ownership checks.
+- Split saved Gateway job recovery and the main run execution coroutine into bounded phases; enforce packaged ART code-unit limits for the coordinator and generated classes while preserving ownership, cancellation and terminal publication.
 - Coalesce exact-service TCP probes per network generation, show actionable offline guidance, and add read-only Gateway host connectivity observations.
 - Unify operation incident aliases within their process/session context and distinguish owned metadata deadlines from expected observer cancellation.
+- Keep nested GitHub payload text from becoming the current operation's failure code; require genuine top-level failure provenance and preserve explicit success or unknown observations.
+- Android build 147 and Gateway 18.1.1 retain scoped qualification and all required release checks. Host HTP emulator evidence demonstrates mixed QNN/CPU graph execution; physical Adreno/Hexagon acceleration and audio-route performance remain unqualified. See [release notes and limitations](RELEASE_NOTES.md).
 
 # 0.9.66.7 — Gateway continuity and diagnostic reliability
 

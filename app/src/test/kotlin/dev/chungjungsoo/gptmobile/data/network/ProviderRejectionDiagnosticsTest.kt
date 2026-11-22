@@ -88,6 +88,8 @@ class ProviderRejectionDiagnosticsTest {
     @Test fun httpGoneRecordsStatusCategoryWithoutInventingAModelDeprecation() {
         val result = ProviderRejectionDiagnostics.response(410, """{"message":"private-model has changed","error":{"type":"private-provider-type","message":"private endpoint detail"}}""", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS)
         assertEquals(JsonPrimitive("GONE"), result["provider_rejection_category"])
+        assertEquals(JsonPrimitive(false), result["retryable"])
+        assertEquals(JsonPrimitive("RETRY_AFTER_CONFIGURATION_CHANGE"), result["recovery_action"])
         assertEquals(JsonPrimitive("CHAT_COMPLETIONS"), result["payload_contract"])
         assertTrue((result["provider_error_type_hash"] as JsonPrimitive).content.matches(Regex("[a-f0-9]{64}")))
         assertFalse(result.toString().contains("private-"))

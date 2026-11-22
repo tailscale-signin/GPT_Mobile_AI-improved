@@ -26,6 +26,8 @@ internal class GitHubToolContextBudgetException(
 ) {
     val admissionCapacityTokens: Int? get() = budget?.capacity
 
+    fun admissionMessage(generationDispatched: Boolean) = githubSchemaBudgetMessage(requiredSchemaTokens, availableSchemaTokens, budget, admissionEvidence, generationDispatched)
+
     fun withAdmissionEvidence(evidence: JsonObject): GitHubToolContextBudgetException =
         GitHubToolContextBudgetException(requiredSchemaTokens, availableSchemaTokens, budget, JsonObject(admissionEvidence.orEmpty() + evidence)).also { it.initCause(this) }
 
@@ -75,7 +77,7 @@ internal class GitHubToolContextBudgetException(
 }
 
 /** Explain only the consumed admission snapshot; settings changes cannot rewrite this failure. */
-private fun githubSchemaBudgetMessage(requiredSchemaTokens: Long, availableSchemaTokens: Long, measuredBudget: GitHubSchemaBudget?, evidence: JsonObject?): String = buildString {
+private fun githubSchemaBudgetMessage(requiredSchemaTokens: Long, availableSchemaTokens: Long, measuredBudget: GitHubSchemaBudget?, evidence: JsonObject?, generationDispatched: Boolean = false): String = buildString {
     append("GITHUB_TOOL_CONTEXT_BUDGET: Required GitHub, recovery and discovery schemas need approximately $requiredSchemaTokens tokens, but $availableSchemaTokens remain.")
     val budget = measuredBudget?.takeIf {
         it.capacity in 1..16_000_000 &&
@@ -123,7 +125,11 @@ private fun githubSchemaBudgetMessage(requiredSchemaTokens: Long, availableSchem
     }
     append(" Review this profile's supported context in settings")
     if (reductions.isNotEmpty()) append(", or explicitly reduce ${reductions.joinToString(", ")}")
-    append(", then start a new request. This provider request was not dispatched.")
+    if (generationDispatched) {
+        append(". Earlier generation was dispatched. Preserve its output and check tool outcomes before continuing.")
+    } else {
+        append(", then start a new request. This provider request was not dispatched.")
+    }
 }
 
 internal data class GitHubSchemaBudget(val capacity: Int, val input: Long, val output: Int, val safety: Int, val toolResults: Int? = null, val promptCosts: ContextCostBreakdown? = null) {

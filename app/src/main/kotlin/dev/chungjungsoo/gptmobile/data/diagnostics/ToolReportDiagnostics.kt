@@ -46,7 +46,7 @@ internal object ToolReportDiagnostics {
             (receipt["requestSent"] == JsonPrimitive(true) || receipt["bodyReceived"] == JsonPrimitive(true))
         return when {
             result.errorCode == "CHALLENGE" && result.dispatched && (aggregate || directResponse) -> "UPSTREAM_CHALLENGE"
-            result.errorCode == "SEARCH_PROVIDERS_UNAVAILABLE" && aggregate -> "NO_ENGINE_SUCCEEDED"
+            aggregate && result.errorCode in setOf("SEARCH_PROVIDERS_UNAVAILABLE", "BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED") -> "NO_ENGINE_SUCCEEDED"
             else -> null
         }
     }
@@ -88,6 +88,15 @@ internal object ToolReportDiagnostics {
     /** The public alias describes the retained earlier index; the unsent current result stays unchanged. */
     fun reportCode(event: ToolEvent?, result: AgentToolResult): String? {
         val receipt = result.executionReceipt
+        if (event?.callId == result.callId &&
+            result.isError &&
+            !result.dispatched &&
+            result.errorCode == "DEPENDENCY_DEFERRED" &&
+            receipt?.get("native_dependency_state") == JsonPrimitive("DEFERRED") &&
+            receipt["dependency_admission_reasons"] == JsonArray(listOf(JsonPrimitive("TOOL_UNAVAILABLE")))
+        ) {
+            return "TOOL_UNAVAILABLE"
+        }
         val savedIndexPrecheck = event != null &&
             event.callId == result.callId &&
             event.modelToolName.substringBefore("__") == "repository_graph" &&
@@ -115,7 +124,7 @@ internal object ToolReportDiagnostics {
         }
         return when (searchFailure(event, result)) {
             "UPSTREAM_CHALLENGE" -> "SOURCE_ACCESS_BLOCKED"
-            "NO_ENGINE_SUCCEEDED" -> "SOURCE_UNAVAILABLE"
+            "NO_ENGINE_SUCCEEDED" -> IssueReportCodes.toolResult(result.errorCode) ?: "SOURCE_UNAVAILABLE"
             else -> IssueReportCodes.toolResult(result.errorCode)
         }
     }

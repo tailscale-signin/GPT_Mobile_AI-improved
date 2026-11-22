@@ -33,6 +33,26 @@ class GitHubSavedCursorContinuationTest {
         assertNull(GitHubReplayRecovery.nextSavedRead(listOf(exchange(), restored), listOf(tool())))
     }
 
+    @Test fun rejectedMixedCursorCannotConsumeTheIssuedPageInLiveOrRestoredHistory() {
+        val original = exchange()
+        val issued = requireNotNull(GitHubReplayRecovery.nextSavedRead(listOf(original), listOf(tool())))
+        val invalid = issued.copy(
+            callId = "mixed",
+            arguments = buildJsonObject {
+                put("view_cursor", issued.arguments.getValue("view_cursor"))
+                put("action", "runs")
+            }
+        )
+        val rejected = AgentToolExchange(listOf(invalid), listOf(AgentToolResult("mixed", ToolResultContent.Text("Invalid arguments"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)))
+        val history = listOf(original, rejected)
+        assertEquals(issued, GitHubReplayRecovery.nextSavedRead(history, listOf(tool())))
+        val restored = GitHubReplayRecovery.State(history.flatMap { it.calls })
+        assertEquals(issued, GitHubReplayRecovery.nextSavedRead(history, listOf(tool()), state = restored))
+        assertNull(GitHubReplayRecovery.nextSavedRead(listOf(rejected), listOf(tool()), state = restored))
+        restored.record(listOf(issued))
+        assertNull(GitHubReplayRecovery.nextSavedRead(history, listOf(tool()), state = restored))
+    }
+
     @Test fun nextLocalPageIsConsumedOnceAndOnlyFromTheIssuingTool() {
         val first = requireNotNull(GitHubReplayRecovery.nextSavedRead(listOf(exchange()), listOf(tool())))
         val page = buildJsonObject {

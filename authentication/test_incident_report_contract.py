@@ -2205,6 +2205,8 @@ class IncidentReportContractTest(unittest.TestCase):
             ("INCIDENT", {"combined_requirement_gap": "TOPIC", "combined_issue_count": 84, "combined_failed_check_count": 3,
                           "combined_unverified_check_count": 6, "combined_repair_rounds": 2,
                           "combined_repair_stop": "CORRECTION_CAPACITY_UNAVAILABLE"}),
+            ("INCIDENT", {"combined_requirement_gap": "TOPIC", "combined_repair_rounds": 0,
+                          "combined_repair_stop": "SINGLE_PASS_LOCAL_CHECKS_ONLY"}),
         ):
             with self.subTest(area=area, fields=fields):
                 report = self.report(self.capture(area, fields))

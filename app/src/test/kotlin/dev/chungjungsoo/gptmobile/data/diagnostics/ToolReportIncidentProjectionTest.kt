@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolDependencyDiagnostics
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
@@ -79,6 +80,41 @@ class ToolReportIncidentProjectionTest {
         assertEquals("SOURCE_ACCESS_BLOCKED", ToolReportDiagnostics.reportCode(call, challenge))
         assertNull(ToolReportDiagnostics.reportCode(call.copy(callId = "different"), challenge))
         assertNull(ToolReportDiagnostics.reportCode(call, challenge.copy(dispatched = false)))
+    }
+
+    @Test fun undispatchedSearchBudgetAndUnavailablePrerequisiteKeepTheirActionableReportCodes() {
+        val call = event("""{"query":"private keywords"}""").copy(modelToolName = "web_search")
+        for ((reason, code) in listOf("BUDGET_EXHAUSTED" to "TOOL_BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED" to "COMBINED_BUDGET_EXHAUSTED")) {
+            val receipt = buildJsonObject {
+                put("schema", "gptmobile.search-operation.v1")
+                put("callId", call.callId)
+                put("errorCode", reason)
+                put("phase", "SEARCH_AGGREGATION")
+                put("provider", "selected_search_engines")
+                put("state", "PRECHECK_REJECTED")
+                put("completedProviders", 0)
+                put("attemptCount", 4)
+                put("dispatchedAttemptCount", 0)
+                put("budgetRejectedAttemptCount", 3)
+            }
+            val result = AgentToolResult(call.callId, ToolResultContent.Text("private detail"), true, errorCode = reason, dispatched = false, executionReceipt = receipt)
+            assertEquals(code, ToolReportDiagnostics.reportCode(call, result))
+            val fields = ToolReportDiagnostics.fields(call, result)
+            assertEquals(0, fields["search_dispatched_attempt_count"])
+            assertEquals(3, fields["search_budget_rejected_attempt_count"])
+            assertFalse("search_failure_observation" in ToolReportDiagnostics.fields(call.copy(callId = "other"), result))
+        }
+        val deferred = ToolDependencyDiagnostics.rejection(
+            call.callId,
+            ToolDependencyDiagnostics.State.DEFERRED,
+            setOf("prerequisite"),
+            setOf("prerequisite"),
+            "Deferred",
+            setOf(ToolDependencyDiagnostics.Admission.TOOL_UNAVAILABLE)
+        )
+        assertEquals("TOOL_UNAVAILABLE", ToolReportDiagnostics.reportCode(call, deferred))
+        assertEquals("TOOL_FAILURE", ToolReportDiagnostics.reportCode(call.copy(callId = "other"), deferred))
+        assertEquals("TOOL_FAILURE", ToolReportDiagnostics.reportCode(call, deferred.copy(dispatched = true)))
     }
 
     @Test fun readerRedirectReasonRequiresTheSameObservedRequest() {

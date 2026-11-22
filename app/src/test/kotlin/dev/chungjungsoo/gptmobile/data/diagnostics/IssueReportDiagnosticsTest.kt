@@ -14,6 +14,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IssueReportDiagnosticsTest {
+
+    @Test fun singlePassRepairStopIsPreservedAndNegotiatedOnlyWhenObserved() {
+        fun capture(stop: String) = requireNotNull(
+            IssueReportDiagnostics.fromFields(
+                "CHAT_FAILURE",
+                mapOf("diagnostic_area" to "INCIDENT", "combined_repair_rounds" to 0, "combined_repair_stop" to stop),
+                1_800_000_000_000L
+            )
+        )
+        val singlePass = capture("SINGLE_PASS_LOCAL_CHECKS_ONLY")
+        assertEquals(JsonPrimitive("SINGLE_PASS_LOCAL_CHECKS_ONLY"), singlePass.values["combined_repair_stop"])
+        assertTrue(IssueReportDiagnostics.COMBINED_SINGLE_PASS_FEATURE in singlePass.requiredServiceFeatures())
+        assertFalse(IssueReportDiagnostics.COMBINED_SINGLE_PASS_FEATURE in capture("CORRECTION_CAPACITY_UNAVAILABLE").requiredServiceFeatures())
+    }
+
     @Test fun conversationRecoveryRequiresCapabilityForPresentOmittedAndUnavailableEvidence() {
         val capture = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "INCIDENT", "continuation_cause" to "OPEN_FAILED"), 1_800_000_000_000L))
         val feature = IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE

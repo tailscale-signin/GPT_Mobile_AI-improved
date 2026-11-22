@@ -1414,7 +1414,15 @@ class AgentRunner(
                 if (fields.isEmpty()) name else "$name (requires ${fields.joinToString(", ")})"
             }.ifEmpty { "none" }
             val recovery = when (suggested) {
-                ProgressiveToolCatalog.NAME -> " Use $suggested to look up this capability, then use the name and schema it returns."
+                ProgressiveToolCatalog.NAME -> {
+                    val query = when (call.arguments.keys) {
+                        setOf("url") -> "url"
+                        setOf("evidence_id") -> "evidence"
+                        else -> null
+                    }
+                    val example = query?.let { " Start with " + buildJsonObject { put("query", it) } + "." }.orEmpty()
+                    " Use $suggested to look up this capability.$example Use the exact name and schema it returns."
+                }
                 null -> " If none of these tools provides the capability, use the evidence already collected and explain what is missing."
                 else -> " Use the advertised $suggested schema for this request."
             }

@@ -429,7 +429,7 @@ internal object GitHubEvidencePolicy {
         val eligible = receipts.entries.filter { (_, receipt) ->
             val at = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0
             receipt["success"] == JsonPrimitive(true) && receipt["trusted"] == JsonPrimitive(true) && receipt["verification_eligible"] != JsonPrimitive(false) && at > 0 && at <= now
-        }.sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }
+        }.sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0L }
         val recent = eligible.take(96)
         val recentIds = recent.mapTo(mutableSetOf()) { it.key }
         // Reserve a small slice for earlier relevant observations. Later inventory
@@ -448,7 +448,7 @@ internal object GitHubEvidencePolicy {
                 else -> 1
             }
         }.take(32).toList()
-        val inspected = (recent + earlierRelevant).sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }
+        val inspected = (recent + earlierRelevant).sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0L }
         for ((id, receipt) in inspected) {
             val observed = facts(receipt["result"] ?: JsonNull)
             val family = receipt.string("tool").githubOperationFamily()

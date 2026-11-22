@@ -192,6 +192,7 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in silencedInputFields }) add(SILENCED_INPUT_FEATURE)
         if ((values.keys + omittedFields).any { it in replayBudgetFields }) add("REPLAY_BUDGET_EVIDENCE_V1")
         if ("graph_transport_kind" in values || "graph_transport_kind" in omittedFields) add("GRAPH_TRANSPORT_EVIDENCE_V1")
+        if (values["combined_repair_stop"] == JsonPrimitive("SINGLE_PASS_LOCAL_CHECKS_ONLY")) add(COMBINED_SINGLE_PASS_FEATURE)
         if ((values.keys + omittedFields).any { it in readerRunFields } || values["incident_capture_site"] == JsonPrimitive("AGENT_ROUND_CATCH")) add("READER_AND_RUN_FAILURE_DETAILS_V1")
         if ((values.keys + omittedFields).any { it in searchFailureFields || it in taskTimingFields }) add("TASK_AND_TOOL_FAILURE_DETAILS_V1")
         if (area == "TOOL" && ((values.keys + omittedFields).any { it in actionOnlyFields } || values["tool_action"] == JsonPrimitive("stage"))) add(ACTION_ONLY_FEATURE)
@@ -256,6 +257,7 @@ internal data class IssueReportDiagnostics(
         private val transportFields = setOf("github_transport_read_attempts", "github_transport_unanswered_reads", "github_transport_http_responses")
         private val capacityDetailFields = setOf("admission_tool_schema_tokens", "admission_tool_result_reserve_tokens", "admission_attachment_reserve_tokens")
         private val reconciliationFields = conflictFields + transportFields + capacityDetailFields + "acceptance_pending_remote_continuations"
+        const val COMBINED_SINGLE_PASS_FEATURE = "COMBINED_SINGLE_PASS_EVIDENCE_V1"
         const val SEARCH_READINESS_FEATURE = "APP_SEARCH_READINESS_V1"
         const val SILENCED_INPUT_FEATURE = "VOICE_SILENCED_INPUT_V1"
         private val silencedInputFields = setOf("voice_silenced_system_mic_muted", "voice_silenced_audio_mode")

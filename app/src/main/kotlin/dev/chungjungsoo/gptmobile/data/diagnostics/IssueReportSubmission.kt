@@ -125,6 +125,7 @@ internal class IssueReportSubmission(
         private val EXTENDED_READINESS_FEATURES = setOf(
             ExecutionCompletionDiagnostics.FEATURE,
             ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE,
+            IssueReportDiagnostics.COMBINED_SINGLE_PASS_FEATURE,
             VoiceExecutionDiagnostics.FEATURE,
             IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE,
             RequestByteBudget.FEATURE,

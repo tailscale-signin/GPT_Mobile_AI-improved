@@ -1083,13 +1083,13 @@ class AgentRunnerTest {
     }
 
     @Test fun unknownToolRecoveryUsesOnlyTheCatalogFromThisRound() = runBlocking {
-        for (discover in listOf(true, false)) {
+        for ((discover, field) in listOf(true to "url", true to "evidence_id", false to "url")) {
             val offered = if (discover) ProgressiveToolCatalog.NAME else "lookup"
             var observed = false
             val provider = session { _, exchanges ->
                 flow {
                     if (exchanges.isEmpty()) {
-                        emit(toolCall("unknown", "unregistered_fixture"))
+                        emit(toolCall("unknown", "unregistered_fixture", buildJsonObject { put(field, "private-value") }))
                     } else {
                         val result = exchanges.last().results.single()
                         assertFalse(result.dispatched)
@@ -1098,6 +1098,9 @@ class AgentRunnerTest {
                         observed = true
                         assertTrue(text.contains(offered))
                         assertFalse(text.contains("filtered_fixture"))
+                        assertFalse(text.contains("private-value"))
+                        val query = if (field == "url") "url" else "evidence"
+                        assertEquals(discover, text.contains(buildJsonObject { put("query", query) }.toString()))
                         assertTrue(if (discover) text.contains("look up this capability") else text.contains("explain what is missing"))
                         assertEquals(if (discover) JsonPrimitive(offered) else null, result.executionReceipt?.get("suggested_tool"))
                         emit(ProviderEvent.TextDelta("done"))

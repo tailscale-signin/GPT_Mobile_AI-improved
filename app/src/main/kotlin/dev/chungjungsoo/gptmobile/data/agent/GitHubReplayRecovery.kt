@@ -25,9 +25,7 @@ internal object GitHubReplayRecovery {
             calls.forEach { call ->
                 if (call.callId.startsWith("saved-result-consume-") || call.callId.startsWith("remote-result-consume-")) automaticCalls += call.callId
                 remoteReads += remoteKey(call.name, call.arguments)
-                (call.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { cursor ->
-                    readPages += pageKey(call.name, cursor)
-                }
+                savedPageKey(call)?.let(readPages::add)
             }
         }
 
@@ -37,9 +35,18 @@ internal object GitHubReplayRecovery {
         fun observeDelivered(exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String>, cache: ToolExchangeCompactor.RenderCache? = null) = deliveredReads.observe(exchanges, deliveredResultDigests, cache)
         fun advanceSavedRead(call: ProviderEvent.ToolCall, tool: AgentToolDefinition?) = deliveredReads.advance(call, tool)
 
-        private fun pageKey(name: String, cursor: String) = "$name:${cursor.split(':').take(2).joinToString(":")}"
         private fun remoteKey(name: String, args: JsonObject) = remoteReadKey(name, args)
     }
+
+    // Mixed arguments are rejected before a saved page can be read. They cannot
+    // consume that offset in either the live replay or the restored journal.
+    private fun savedPageKey(call: ProviderEvent.ToolCall): String? {
+        if (call.arguments.keys != setOf("view_cursor")) return null
+        val cursor = (call.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        return pageKey(call.name, cursor)
+    }
+
+    private fun pageKey(name: String, cursor: String) = "$name:${cursor.split(':').take(2).joinToString(":")}"
 
     /** Advance only native-issued reads; exhaustive search is an explicit task policy. */
     fun nextRemoteRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, state: State? = null, allowSearchContinuation: Boolean = false): ProviderEvent.ToolCall? {
@@ -178,10 +185,7 @@ internal object GitHubReplayRecovery {
                     val cursor = (arguments["view_cursor"] as JsonPrimitive).content
                     if (ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty() ||
                         state?.hasRead(name, cursor) == true ||
-                        calls.any {
-                            val prior = (it.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { value -> value.isString }?.content
-                            it.name == name && prior?.split(':')?.take(2) == cursor.split(':').take(2)
-                        }
+                        calls.any { savedPageKey(it) == pageKey(name, cursor) }
                     ) {
                         continue
                     }

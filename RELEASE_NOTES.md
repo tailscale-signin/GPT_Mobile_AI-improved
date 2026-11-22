@@ -4,6 +4,8 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 
 ## Recovery and request consistency
 
+- Fix a verification crash when GitHub evidence contains missing or malformed timestamps. Keep unread saved pages eligible for recovery after an invalid cursor call.
+- Show token shortfalls after generation and offer a valid discovery query for an unavailable URL or evidence tool. Incident reports now distinguish unsent budget and prerequisite refusals and record the single-pass Combined repair stop when observed.
 - Reject altered saved tool-result bytes with the typed recovery-integrity error, without fabricating observed receipt counts or digests.
 - Apply the same evidence requirements to requests beginning with “Please,” preserving their original wording and source references.
 

@@ -1,0 +1,554 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "reviewed_from": "c14e2eb10ff90bf6da0f1f45734e9bc42c25f580",
+  "pull_request": 2254,
+  "task_store_key": "pr2254-open-issue-review-2026-11-22",
+  "intent": "Trace the open PR features, repair remaining defects and account for every open incident before closure.",
+  "reports": [
+    {
+      "issues": [
+        2242,
+        2244
+      ],
+      "action": "Restore accepted task deadlines only with recorded renewal authorization. Report a refused or expired window without starting the operation.",
+      "regression_evidence": [
+        "GitHubDeadlineAdmissionTest"
+      ]
+    },
+    {
+      "issues": [
+        2243,
+        2248
+      ],
+      "action": "Use distinct immutable approval, classification and recheck identities with atomic conflict handling. Preserve the local persistence failure through reporting.",
+      "regression_evidence": [
+        "GitHubVerifiedSessionTest"
+      ]
+    },
+    {
+      "issues": [
+        2245,
+        2258,
+        2259,
+        2261,
+        2276,
+        2302,
+        2318
+      ],
+      "action": "Validate GitHub action and mode arguments against their advertised schemas. Use native path-search qualifiers and split oversized reads into bounded windows.",
+      "regression_evidence": [
+        "GitHubSearchArgumentsTest",
+        "GitHubReadRequestBudgetTest",
+        "GitHubOperationArgumentsTest"
+      ]
+    },
+    {
+      "issues": [
+        2246,
+        2257,
+        2260,
+        2303,
+        2313,
+        2321
+      ],
+      "action": "Preserve the upstream 429 and model/provider scope. Resume from the saved journal only with admissible remaining wait, otherwise expose the original rate limit and refusal. The upstream quota is external.",
+      "regression_evidence": [
+        "ProfileFailureRecordTest",
+        "GitHubProviderJournalRecoveryTest"
+      ]
+    },
+    {
+      "issues": [
+        2247,
+        2262,
+        2263,
+        2264,
+        2297,
+        2298
+      ],
+      "action": "Track actual comparison pages across duplicate and out-of-order deliveries. Carry the exact unfinished page or requested sample forward until coverage is established.",
+      "regression_evidence": [
+        "GitHubComparisonCoverageTest",
+        "GitHubChecklistPaginationTest"
+      ]
+    },
+    {
+      "issues": [
+        2249,
+        2251,
+        2252
+      ],
+      "action": "Interpret error envelopes on HTTP 200, preserve the provider rejection and route billing or configuration failures to the relevant settings.",
+      "regression_evidence": [
+        "ProviderRejectionDiagnosticsTest",
+        "CombinedFeedbackPolicyTest"
+      ]
+    },
+    {
+      "issues": [
+        2250,
+        2265
+      ],
+      "action": "Preserve the output attempt and allow one changed, bounded empty-answer recovery. Record the stop reason if a visible answer cannot be recovered.",
+      "regression_evidence": [
+        "GitHubOutputContinuationSessionTest"
+      ]
+    },
+    {
+      "issues": [
+        2253
+      ],
+      "action": "Track service-specific TCP availability and connection timeouts with actionable reconnect guidance. The reporting device and its Gateway were not available for a live connection test.",
+      "regression_evidence": [
+        "GatewayAvailabilityRepositoryTest"
+      ]
+    },
+    {
+      "issues": [
+        2255,
+        2256
+      ],
+      "action": "Retain uncertain write identity and perform reconciliation before permitting any repeat dispatch.",
+      "regression_evidence": [
+        "ToolReconciliationEvidenceTest",
+        "GitHubHandoffReconciliationEvidenceTest"
+      ]
+    },
+    {
+      "issues": [
+        2266,
+        2267,
+        2268
+      ],
+      "action": "Keep the HTTP 410 Gone receipt, stop unchanged retries and send the affected profile to configuration recovery. Assert the nonretryable configuration action in the provider response regression.",
+      "regression_evidence": [
+        "ProviderRejectionDiagnosticsTest",
+        "ProfileRecoveryControlsTest",
+        "CombinedFeedbackPolicyTest"
+      ]
+    },
+    {
+      "issues": [
+        2269,
+        2271,
+        2272,
+        2273,
+        2277,
+        2278,
+        2279,
+        2280,
+        2281,
+        2282,
+        2283,
+        2284,
+        2285,
+        2286,
+        2287,
+        2288,
+        2289,
+        2290,
+        2320,
+        2322,
+        2326
+      ],
+      "action": "Use only a cursor actually issued by the tool. An invalid mixed-argument call no longer marks its saved page consumed. Apply the same rule during live runs and restoration. Exact replays retain duplicate protection.",
+      "regression_evidence": [
+        "GitHubSavedCursorContinuationTest",
+        "GitHubSavedPageRepairTest"
+      ]
+    },
+    {
+      "issues": [
+        2270
+      ],
+      "action": "Convert an observed search or verification receipt into a pinned source read with an actual path and revision. Receipt IDs alone cannot fulfill source acceptance.",
+      "regression_evidence": [
+        "GitHubSearchReceiptRecoveryTest",
+        "GitHubSourceReadRecoveryTest"
+      ]
+    },
+    {
+      "issues": [
+        2274,
+        2299
+      ],
+      "action": "Correct a recognized legacy merge-status recipe once using the active action schema. Preserve the original rejection if no valid recipe can be derived.",
+      "regression_evidence": [
+        "GitHubChecklistScheduleTest",
+        "GitHubOperationArgumentsTest"
+      ]
+    },
+    {
+      "issues": [
+        2275,
+        2300
+      ],
+      "action": "Honor remote page incompleteness and distinguish a valid empty PR task list from a malformed response. The reports omit the PR action value, so a specific server action cannot be identified.",
+      "regression_evidence": [
+        "GitHubCopilotTasksTest",
+        "GitHubChecklistPaginationTest"
+      ]
+    },
+    {
+      "issues": [
+        2291,
+        2319
+      ],
+      "action": "Recover provider waits from the full durable tool journal, verify projection hashes and deduplicate settled calls independently of compacted history. Reject damaged journal data with typed recovery evidence.",
+      "regression_evidence": [
+        "GitHubProviderJournalRecoveryTest",
+        "GitHubAcceptanceRecoveryCheckpointTest"
+      ]
+    },
+    {
+      "issues": [
+        2292,
+        2293,
+        2294,
+        2295
+      ],
+      "action": "Build run, job and watch selectors from observed CI identifiers. Distinguish a scoped inaccessible resource from an empty response or a green check. The original resource permissions remain external.",
+      "regression_evidence": [
+        "GitHubCiFailureObservationTest",
+        "GitHubOperationArgumentsTest"
+      ]
+    },
+    {
+      "issues": [
+        2296,
+        2301
+      ],
+      "action": "Require observed source, regression and acceptance evidence, advance admissible work, and retain the exact outstanding operation and blocker when completion cannot be certified.",
+      "regression_evidence": [
+        "GitHubAcceptanceContractTest",
+        "GitHubCriterionAcceptanceRegressionTest",
+        "GitHubChecklistScheduleTest"
+      ]
+    },
+    {
+      "issues": [
+        2304,
+        2305
+      ],
+      "action": "Show authorized or minimum schema fit, the observed token shortfall, and the available recovery choices even after a provider generation has already been dispatched.",
+      "regression_evidence": [
+        "LocalToolContextFailureTest",
+        "GitHubSchemaAdmissionEvidenceTest"
+      ]
+    },
+    {
+      "issues": [
+        2306
+      ],
+      "action": "Surface the selected profile’s tools-disabled readiness and the enable-tools action before searching.",
+      "regression_evidence": [
+        "AppAssistedSearchTest"
+      ]
+    },
+    {
+      "issues": [
+        2307,
+        2308,
+        2314
+      ],
+      "action": "Distinguish mixed local budget and readiness refusals from contacted sources. Preserve normal and Combined budget codes, observed dispatch counts and per-engine outcomes in issue reports. A real contacted-source failure remains independently observable.",
+      "regression_evidence": [
+        "MultiEngineSearchToolTest",
+        "ToolReportIncidentProjectionTest",
+        "ToolPrecheckIssueReportTest"
+      ]
+    },
+    {
+      "issues": [
+        2309,
+        2310,
+        2311,
+        2312,
+        2316
+      ],
+      "action": "When offered tool discovery is available and an unknown call has only a URL or evidence ID, provide the canonical discovery query. Keep the supplied URL or evidence ID out of the suggestion and require discovery before dispatch.",
+      "regression_evidence": [
+        "AgentRunnerTest"
+      ]
+    },
+    {
+      "issues": [
+        2315
+      ],
+      "action": "Preserve the observed single-pass repair stop in approved Android reports and negotiate support with the receiving service. This makes the reason for zero repair rounds distinguishable on future reports. The original capture does not prove the stop reason.",
+      "regression_evidence": [
+        "IssueReportDiagnosticsTest",
+        "test_incident_report_contract.py",
+        "test_app.py"
+      ]
+    },
+    {
+      "issues": [
+        2317
+      ],
+      "action": "Expose an unavailable prerequisite for a matching unsent dependency deferral with exactly that admission reason. Keep mismatched or dispatched receipts at their original failure.",
+      "regression_evidence": [
+        "ToolReportIncidentProjectionTest"
+      ]
+    },
+    {
+      "issues": [
+        2323,
+        2324,
+        2327
+      ],
+      "action": "Reproduced the verification crash when JVM sorting compares a Long timestamp against an Integer fallback. Keep absent and malformed timestamps on the Long type in all four ranking and export selectors. Preserve operation priority and descending time.",
+      "regression_evidence": [
+        "GitHubVerificationCatalogTest"
+      ]
+    },
+    {
+      "issues": [
+        2325
+      ],
+      "action": "Keep malformed native tool frames out of execution. Retain the typed parser error and use the existing bounded repair or safe text fallback where permitted.",
+      "regression_evidence": [
+        "LocalNativeToolFrameSessionTest",
+        "ToolArgumentRepairRunnerTest"
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "reviewed_through": "8504366c8edf4e1911284ea6426ccb53e449141c",
+  "scope_note": "Feature numbers refer to the one-based manifest at reviewed_through. Source entry points record implementation coverage. Host and device validation are reported separately.",
+  "feature_wiring": [
+    {
+      "area": "Voice conversation, captions, playback and measurements",
+      "release_scope_items": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        9,
+        30,
+        59,
+        60,
+        61,
+        62,
+        68,
+        69,
+        71,
+        73,
+        74,
+        91,
+        97
+      ],
+      "source_entry_points": [
+        "VoiceChatScreen",
+        "VoiceCaptionMotion",
+        "VoiceCaptionTiming",
+        "KokoroVoiceOutput"
+      ]
+    },
+    {
+      "area": "Kokoro CPU, GPU and NPU selection, runtime packaging and speech benchmark",
+      "release_scope_items": [
+        6,
+        7,
+        8,
+        36,
+        63,
+        64,
+        70
+      ],
+      "source_entry_points": [
+        "VoiceChatScreen",
+        "VoiceSpeechBenchmarkSettings",
+        "VoiceSpeechBenchmarkViewModel",
+        "VoiceSpeechBenchmarkRunner",
+        "VoiceSpeechBenchmarkStore",
+        "VoiceSpeechBenchmarkExport"
+      ]
+    },
+    {
+      "area": "Private-chat creation, durable policy and local memory",
+      "release_scope_items": [
+        31,
+        37,
+        40,
+        42,
+        52,
+        54,
+        55,
+        56,
+        57,
+        66,
+        67,
+        72
+      ],
+      "source_entry_points": [
+        "PrivacySettingsWriter",
+        "PrivacyModeStore",
+        "ConversationPrivacyBadge",
+        "MemoryPrivacyPolicy",
+        "CompleteBackupManager"
+      ]
+    },
+    {
+      "area": "Phone and Gateway repository maps, MCP session recovery and network admission",
+      "release_scope_items": [
+        16,
+        24,
+        38,
+        41,
+        43,
+        50,
+        51,
+        53,
+        58,
+        83,
+        84,
+        94,
+        95,
+        96
+      ],
+      "source_entry_points": [
+        "RepositoryGraphViewModel",
+        "RepositoryGraphTool",
+        "PhoneRepositoryGraphRepository",
+        "GatewayGraphRepository",
+        "McpClientManager",
+        "McpReadRecovery",
+        "GatewayAvailabilityRepository"
+      ]
+    },
+    {
+      "area": "GitHub acceptance, source recovery, comparison pagination and CI observations",
+      "release_scope_items": [
+        12,
+        13,
+        14,
+        20,
+        21,
+        44,
+        45,
+        47,
+        48,
+        49,
+        65,
+        75,
+        76,
+        79,
+        80,
+        81,
+        82,
+        93
+      ],
+      "source_entry_points": [
+        "GitHubVerifiedSession",
+        "GitHubAcceptanceContract",
+        "GitHubChecklistSchedule",
+        "GitHubComparisonCoverage",
+        "GitHubReplayRecovery",
+        "AgentRunner"
+      ]
+    },
+    {
+      "area": "Provider routing, durable execution, output and recovery",
+      "release_scope_items": [
+        10,
+        11,
+        15,
+        19,
+        23,
+        28,
+        32,
+        46,
+        77,
+        78,
+        86,
+        92
+      ],
+      "source_entry_points": [
+        "ChatRepositoryImpl",
+        "ProviderSessionDispatcher",
+        "ProfileFailureRecord",
+        "AgentRunCoordinator",
+        "GitHubOutputContinuationSession"
+      ]
+    },
+    {
+      "area": "Chat interface, decisions, setup and task-efficiency display",
+      "release_scope_items": [
+        17,
+        18,
+        27,
+        29,
+        34
+      ],
+      "source_entry_points": [
+        "ChatViewModel",
+        "GitHubDecisionActionReceiver",
+        "GitHubDecisionActionWorker",
+        "VoiceChatScreen",
+        "BenchmarkResultCard",
+        "BenchmarkTaskEfficiencyDetails",
+        "BenchmarkExport"
+      ]
+    },
+    {
+      "area": "Tool binding persistence, diagnostic recording, paging and submission",
+      "release_scope_items": [
+        22,
+        25,
+        26,
+        33,
+        35,
+        39,
+        85
+      ],
+      "source_entry_points": [
+        "AgentToolBindingDatabase",
+        "CompleteBackupManager",
+        "ToolEventRecorder",
+        "IssueReportDiagnostics",
+        "IssueReportSubmission"
+      ]
+    },
+    {
+      "area": "Source-bound agent workspaces, candidate review, contextual workers and optional coding runtimes",
+      "release_scope_items": [
+        87,
+        88,
+        89,
+        90
+      ],
+      "source_entry_points": [
+        "GatewayAgentBackendPanel",
+        "GatewayEngineeringViewModel",
+        "GatewayEngineeringRepository",
+        "GatewayEngineeringClient",
+        "GatewayWorkspaceCommandStore",
+        "gateway/v14/workspace_commands.py"
+      ]
+    }
+  ],
+  "issue_count": 85,
+  "validation": {
+    "timestamp_regression": "Reproduced the ClassCastException on original production ranking code. Passed after the Long fallback repair. Included absent, malformed, null and populated timestamps and cross-operation priority.",
+    "focused_host_suites": {
+      "saved_pages_source_recovery_and_schemas": 67,
+      "privacy_controls": 26,
+      "phone_repository_map": 32,
+      "provider_journal_and_output_recovery": 112,
+      "ci_observations": 10,
+      "voice_pcm_and_caption_logic": 59,
+      "native_speech_ctest": 4,
+      "authentication_service": 206
+    },
+    "limits": [
+      "Physical Android GPU/NPU execution, microphone, audio presentation and external provider availability require their respective device or service.",
+      "Host Kotlin suites use platform boundaries. The GitHub Actions run is the authority for the integrated Android build."
+    ]
+  },
+  "manifest_correction": "The integrated manifest contained both the superseded five-second speech reserve and the active 5.9-second reserve. Removed the superseded entry to agree with the playback implementation and release notes."
+}

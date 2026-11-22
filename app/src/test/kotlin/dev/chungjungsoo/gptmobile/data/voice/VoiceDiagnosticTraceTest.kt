@@ -295,7 +295,7 @@ class VoiceDiagnosticTraceTest {
         session.streamReply("run", "Here")
         assertTrue(audio.spoken.isEmpty())
         time = 260
-        val reply = "Here are four words "
+        val reply = "Here are four words. "
         session.streamReply("run", reply)
         assertEquals(reply, session.state.reply)
         assertEquals(listOf(reply), audio.spoken)
@@ -356,7 +356,7 @@ class VoiceDiagnosticTraceTest {
         session.resume()
         requireNotNull(audio.listener).final("Please answer briefly")
         time = 100
-        session.streamReply("run", "These first four words ")
+        session.streamReply("run", "These first four words. ")
         val first = requireNotNull(audio.playback)
         first.warmupStarted()
         time = 200
@@ -366,7 +366,7 @@ class VoiceDiagnosticTraceTest {
         time = 350
         first.firstAudio(VoiceDiagnosticTrace.FirstAudio.UTTERANCE_START)
         val initial = trace.incidentFields()
-        val caption = "These first four words continue into a second sentence. "
+        val caption = "These first four words. Continue into a second sentence. "
         time = 400
         session.streamReply("run", caption)
         requireNotNull(audio.complete).invoke()
@@ -382,7 +382,7 @@ class VoiceDiagnosticTraceTest {
         for (field in listOf("voice_warmup_ms", "voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms")) {
             assertEquals(field, initial[field], observed[field])
         }
-        assertEquals(listOf("These first four words ", "continue into a second sentence. "), audio.spoken)
+        assertEquals(listOf("These first four words. ", "Continue into a second sentence. "), audio.spoken)
         assertEquals(caption, session.state.reply)
         session.close()
     }

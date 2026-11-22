@@ -68,7 +68,7 @@
     "publication": "PENDING: expected-head push to draft PR2254, exact-current-head PR checks, rules-compliant merge, green main and signed Android0.9.66.13/Gateway18.1.1 publication. Final hosted gate and publication receipts belong to the PR and release workflows, not this pre-publication source snapshot."
   },
   "concurrency": "Preserved original0885 and diagnostic fea1a6 work; merged permanent conversation privacy6e788 with both scopes and instructions retained. Root compares the remote head before every ref update and merge, uses expected-head leases without force pushes, and never edits another worker checkout. Preserved concurrent MCP/read-recovery and phone-map integration commitdda6f5; voice source hashes and tested behavior remain unchanged.",
-  "integrated_remote_head": "c14e2eb10ff90bf6da0f1f45734e9bc42c25f580",
+  "integrated_remote_head": "2f95744ca528f23ae23bf822ac1e8e022b8f5835",
   "feature_sources_reviewed_at": "52a6749e41e4298f0f4de6ca4a8c4ea6b1bea8d4",
   "final_results_location": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254",
   "post_integration_review": {
@@ -108,5 +108,23 @@
     "validation": "PASS: 27 actual PCM/performance tests including non-full under-target, growing reserve, fresh defaults, idle short reply and lifecycle controls; affected actual Kokoro/Android 37 compilation passed with 384 MB heap. Four-file pinned ktlint and independent source review passed. Root source hashes match the reviewed commit.",
     "canonical": "PASS: 616 canonical host checks on the combined c14e2eb1 plus priming source, five-file pinned Kotlin formatting, regenerated inventories and exact reviewed four-file source comparison. Scoped-release validation recorded after the integration commit.",
     "remaining": "Current-head hosted CI, the active coding benchmark/agent-integration and mapped privacy-receipt follow-ups, exact-main verification and signed publication remain required."
+  },
+  "hosted_startup_fixture_followup": {
+    "historical_run": 45080132750,
+    "historical_head": "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+    "historical_job": 137386234890,
+    "reviewed_source_commit": "369de97f05377538e4429ea01e0080fc962b7215",
+    "checkpoint": "docs/engineering/review-ci-voice-current-2026-11-22-task.json",
+    "diagnosis": "Ten failures in five test classes supplied fragments that no longer reach the completed-clause or eight-word speech startup rule. Streaming fixtures now provide stable completed clauses without marking the response complete.",
+    "preserved_assertions": "Numeric startup timing, original playback ticket, stale callback fencing, cancellation, generation replacement, microphone ownership, streaming versus terminal errors, privacy origin, exception causes and text redaction are unchanged.",
+    "evidence": "The owner reproduced six failures in 24 actual-source lifecycle/buffer tests, then passed all 24. Six extracted streaming/terminal producer-admission cases changed from three failures to all passing. Five-file formatting, source hashes and two independent source reviews passed.",
+    "qualification_limit": "Component harnesses explicitly isolate native and reporting boundaries. They do not replace exact-current-head full Android issue-reporting and acceptance tests. No production behavior change or physical-device result is claimed.",
+    "canonical": "PASS: 616 canonical host checks on the combined 2f95744 integration, scoped-release validation including the two incoming Gateway paths, generated inventories and all five exact reviewed fixture hashes. The unchanged five files retain their passing pinned Kotlin formatting receipt.",
+    "other_failure_ownership": "The 37 historical integration failures have fixes in shared commits. The separate OpenRouter preview-cancellation fixture is owned by the privacy workstream; its deterministic handshake and negative-control evidence were independently reviewed without duplicate edits.",
+    "concurrent_review": "Independent source reviews of 891e77cf typed recovery/polite-request evidence and 2f95744 phone recipes/Gateway dispatch/nested MCP cancellation found no regression. Integration adds the two exact Gateway production paths missing from the incoming release scope; all source changes remain preserved.",
+    "concurrent_commits_preserved": [
+      "891e77cfb0c4fdc6846de9fc9fc4f395cf76049e",
+      "2f95744ca528f23ae23bf822ac1e8e022b8f5835"
+    ]
   }
 }

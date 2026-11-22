@@ -1,0 +1,69 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2254,
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "c14e2eb10ff90bf6da0f1f45734e9bc42c25f580",
+  "branch": "work/review-ci-voice-current-2026-11-22",
+  "intent": "Reproduce ten historical voice failures against current c14 production and repair only current defects or demonstrably stale fixtures, preserving playback, privacy and diagnostics assertions.",
+  "status": "completed_pending_integration",
+  "validation": [
+    {
+      "kind": "actual-source focused host tests",
+      "before": {
+        "tests": 24,
+        "failures": 6
+      },
+      "after": {
+        "tests": 24,
+        "failures": 0
+      },
+      "scope": "Six original target methods plus all eighteen VoiceSpeechBufferTest methods, using actual current VoiceSession, speech projection/buffer, trace, plugin and deferred implementation."
+    },
+    {
+      "kind": "fault-fixture producer admission",
+      "before": {
+        "cases": 6,
+        "failures": 3
+      },
+      "after": {
+        "cases": 6,
+        "failures": 0
+      },
+      "scope": "Three literal inputs extracted from VoicePlaybackFailureReportingTest, streaming and terminal, through actual Session/Plugin/Deferred implementation; producer boundary is a recorder."
+    },
+    {
+      "kind": "ktlint",
+      "files": 5,
+      "result": "passed"
+    },
+    {
+      "kind": "git diff --check",
+      "result": "passed"
+    },
+    {
+      "kind": "independent source review",
+      "reviewer": "repo_architecture",
+      "result": "passed"
+    },
+    {
+      "kind": "new PCM commit compatibility",
+      "result": "All five test files and production admission/session/buffer/trace/plugin are unchanged from c14 to ede; deferred wrapper is unchanged; only downstream PCM priming and a feedback comment changed."
+    }
+  ],
+  "historical_failure_sha": "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+  "compatibility_review_sha": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
+  "diagnosis": "All five affected test files still assumed the superseded four-word opening or supplied an incomplete streamed word. Current production intentionally starts a completed opening clause or eight complete words, with a bounded adaptive arrival fallback. The fixtures did not reach their playback operation.",
+  "changes": "Use completed streamed clauses in playback, timing, supersession and fault-report fixtures. Preserve all numeric timing, stale callback, privacy origin, cancellation, cause, redaction and terminal/streaming assertions. No production changes.",
+  "limits": [
+    "The host harness isolates unrelated diagnostic collection/projection and native/recognizer boundaries; it does not replace the full Robolectric issue-reporting tests.",
+    "No native synthesis, emulator acceptance, broad Gradle or current-head full-CI qualification is claimed. Root owns canonical integration and required CI."
+  ],
+  "evidence_directory": "/workspace/scratch/dfab796cea9c/ci-voice-current-proof",
+  "file_sha256": {
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/DeferredKokoroOutputTest.kt": "5167c1d094c8c76a5229b2ddbabe535b6a44efdcf3d1018974fd441bc240c7e1",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt": "a1eb6212932da4cc1f039e50a8f7c5649f2d522e974f48d5f95aba77130af6cc",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceGenerationSupersessionTest.kt": "47031823588861c63cdacf1616eee3f50a7c63a3a5190b052f651cdb48b937f2",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackFailureReportingTest.kt": "0fd9b2ba54f86467af64448322f7e8bebe81ac72718e4708d7881631ee833d57",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackStartTest.kt": "7badd71f1238388969aa29ac7e5c0afa94f9b041ffec985ace4cbffbde94437d"
+  }
+}

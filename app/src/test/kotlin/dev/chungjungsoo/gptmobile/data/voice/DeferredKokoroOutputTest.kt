@@ -269,10 +269,11 @@ class DeferredKokoroOutputTest {
         assertEquals("Please answer briefly", session.state.transcript)
 
         time = 500
-        val response = "This short reply is ready."
+        // A completed streamed clause must reach playback before its probe can be checked.
+        val response = "This short reply is ready. "
         session.streamReply("synthetic-reply", response, complete = false)
         assertEquals(VoicePhase.SPEAKING, session.state.phase)
-        assertEquals("This short reply is ", spoken.last())
+        assertEquals(response, spoken.last())
         assertEquals(response, session.state.reply)
         assertEquals("synthetic-reply", streamReply)
         val snapshot = trace.incidentFields()

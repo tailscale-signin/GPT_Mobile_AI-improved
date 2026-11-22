@@ -85,6 +85,97 @@ class VoiceCaptionMotionTest {
         }
     }
 
+    @Test fun aFastForwardRetargetStopsAtTheNextLineWithoutReversing() {
+        for (direction in listOf(-1f, 1f)) {
+            for (skippedLines in listOf(8f, 16f)) {
+                val motion = VoiceCaptionMotion(0f)
+                motion.retarget(skippedLines * direction, 0, animate = true)
+                val changedAt = 250_000_000L
+                val before = motion.sample(changedAt)
+                motion.retarget((skippedLines + 1f) * direction, changedAt, animate = true)
+                assertEquals(before, motion.sample(changedAt))
+                assertMonotonicArrival(motion, changedAt, before.position, direction)
+            }
+        }
+    }
+
+    @Test fun forwardRetargetsStayBoundedAcrossCloseTargetsAndLateCallbacks() {
+        for (direction in listOf(-1f, 1f)) {
+            for (skippedLines in listOf(1f, 16f, 200f)) {
+                for (changedAt in listOf(1L, 1_000_000L, 160_000_000L, 319_000_000L, 320_000_000L)) {
+                    for (distance in listOf(.0001f, .25f, 1f)) {
+                        val motion = VoiceCaptionMotion(0f)
+                        motion.retarget(skippedLines * direction, 0, animate = true)
+                        val before = motion.sample(changedAt)
+                        motion.retarget(before.position + distance * direction, changedAt, animate = true)
+                        assertEquals(before, motion.sample(changedAt))
+                        assertMonotonicArrival(motion, changedAt, before.position, direction)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun aSubNanosecondArrivalKeepsMomentumAtRetargetAndSettlesOnTheNextTick() {
+        for (direction in listOf(-1f, 1f)) {
+            val motion = VoiceCaptionMotion(0f)
+            motion.retarget(direction, 0, animate = true)
+            val before = motion.sample(1L)
+            val target = if (direction > 0) Math.nextUp(before.position) else Math.nextDown(before.position)
+            assertTrue(3.0 * abs(target.toDouble() - before.position) / abs(before.velocity.toDouble()) < 1e-9)
+            motion.retarget(target, 1L, animate = true)
+            assertEquals(before, motion.sample(1L))
+            assertTrue(motion.moving(1L))
+            assertEquals(VoiceCaptionMotionSample(target, 0f), motion.sample(2L))
+            assertFalse(motion.moving(2L))
+        }
+    }
+
+    @Test fun aShortenedRetargetCanPauseRetargetWhileHeldAndResumeWithoutAJump() {
+        for (direction in listOf(-1f, 1f)) {
+            val motion = VoiceCaptionMotion(0f)
+            motion.retarget(16f * direction, 0, animate = true)
+            motion.retarget(17f * direction, 250_000_000L, animate = true)
+            motion.playing(false, 270_000_000L)
+            val held = motion.sample(270_000_000L)
+            assertEquals(held, motion.sample(3_000_000_000L))
+            motion.retarget(held.position + .25f * direction, 3_000_000_000L, animate = true)
+            assertEquals(held, motion.sample(4_000_000_000L))
+            assertFalse(motion.moving(4_000_000_000L))
+            motion.playing(true, 4_000_000_000L)
+            assertEquals(held, motion.sample(4_000_000_000L))
+            assertMonotonicArrival(motion, 4_000_000_000L, held.position, direction)
+        }
+    }
+
+    @Test fun aReverseTargetPreservesItsIncomingVelocityBeforeBraking() {
+        for (direction in listOf(-1f, 1f)) {
+            val motion = VoiceCaptionMotion(0f)
+            motion.retarget(8f * direction, 0, animate = true)
+            val changedAt = 160_000_000L
+            val before = motion.sample(changedAt)
+            motion.retarget(-direction, changedAt, animate = true)
+            assertEquals(before, motion.sample(changedAt))
+            assertTrue(motion.sample(changedAt + 1_000L).velocity * direction > 0f)
+            assertEquals(VoiceCaptionMotionSample(-direction, 0f), motion.sample(changedAt + 320_000_000L))
+        }
+    }
+
+    private fun assertMonotonicArrival(motion: VoiceCaptionMotion, changedAt: Long, position: Float, direction: Float) {
+        val samples = (0L..64L) + listOf(100L, 250L, 500L, 1_000L, 10_000L, 100_000L) + (1..420).map { it * 1_000_000L }
+        var previous = position * direction
+        for (elapsed in samples) {
+            val current = motion.sample(changedAt + elapsed)
+            val directedPosition = current.position * direction
+            assertTrue("Retarget to ${motion.target} reversed at $elapsed ns", directedPosition >= previous)
+            assertTrue("Retarget to ${motion.target} overshot at $elapsed ns", directedPosition <= motion.target * direction)
+            assertTrue("Retarget to ${motion.target} has reverse velocity at $elapsed ns", current.velocity * direction >= 0f)
+            previous = directedPosition
+        }
+        assertEquals(VoiceCaptionMotionSample(motion.target, 0f), motion.sample(changedAt + 420_000_000L))
+        assertFalse(motion.moving(changedAt + 420_000_000L))
+    }
+
     @Test fun severalSkippedLinesStillTravelInsteadOfSnapping() {
         val motion = VoiceCaptionMotion(1f)
         motion.retarget(8f, 1_000_000, animate = true)

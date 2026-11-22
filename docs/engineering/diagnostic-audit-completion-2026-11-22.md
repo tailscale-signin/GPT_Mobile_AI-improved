@@ -231,3 +231,48 @@ help callback. `DeepResearchSettingsCard` now names `onEngineEnabled` explicitly
 its enabled guard and selected-engine update are preserved. Both panel call sites
 were inspected, and the corrected file passes ktlint. Full Android compilation
 remains required on the next pushed revision.
+
+## Final concurrent reporting and caption integration
+
+Concurrent commits `9e4b767`, `5013113` and `3e58871` are retained. They add safe
+unknown-provider-code correlation, stronger session/cooldown regressions,
+continuous caption leading, source-bound privacy display preparation, and the
+hosted contract's numeric `401`/`429` parity. The privacy projection retains only
+unchanged source runs after hidden reasoning is removed; source-list transforms
+without an offset map conservatively withhold highlighting. Prepared text and
+protection evidence share one snapshot, and current evidence can revoke it.
+
+Integration review found that an unknown upstream code's safe hash stopped at
+the local failure record. Compact exports and approved reports now retain it
+through the existing `original_error_code_hash` field. A known upstream code
+takes precedence over an inherited hash; otherwise a strictly typed SHA-256
+string is retained, with the canonical application code as the report fallback.
+An upstream error type remains separate from the upstream code, including when
+the type supplies the application classification. No public field set is expanded,
+and arbitrary upstream code text is never added to the approved report.
+
+Further caption stress testing reproduced forward-retarget overshoot: motion
+from line 0 toward line 8, retargeted to line 9 at 250 ms, reached approximately
+9.095 before reversing. The trajectory now retains its sampled position and
+velocity while shortening a forward segment when necessary to remain monotonic.
+Pause/resume, reverse-target braking, manual seeking and reduced-motion behavior
+retain their ownership and timing rules. These focused corrections remain subject
+to the complete current-revision Android and device checks before merge.
+
+The final focused motion suite reproduces four failures before the correction and
+passes all 25 cases afterward, with no skipped tests. It covers skipped lines in
+both directions, ninety close-target/late-callback combinations, subnanosecond
+duration precision, paused retargeting and reverse-target velocity continuity.
+Six committed provider classification tests and three actual-source compact
+projection probes pass. The full authentication/reporting suite passes all 200
+tests, including approved numeric-code reports and unknown-code hash round trips.
+The 39 actual-source Ktor admission/dashboard tests also pass. Stored-message and
+public-capture integration regressions are committed for the full Android suite;
+the focused host checks do not substitute for those results.
+
+The combined follow-up passes the canonical fast validation with 608 host tests,
+all nine changed Kotlin files pass ktlint 1.3.1, and the proposed 387-file release
+delta passes the existing exact-path scope validator. Android 0.9.66.13/build 147,
+Gateway 18.1.1, the eight required main workflows and every disclosed qualification
+limit remain unchanged. Final Android/device checks and publication verification
+are still pending for the pushed revision.

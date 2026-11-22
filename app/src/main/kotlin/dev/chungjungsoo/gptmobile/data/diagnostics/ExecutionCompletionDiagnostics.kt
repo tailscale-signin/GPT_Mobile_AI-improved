@@ -70,7 +70,7 @@ internal object ExecutionCompletionDiagnostics {
     val fields = digestAliases.values.toSet() + correlationHashes + countAliases.values + enums.keys + setOf("provider_semantic_status", "no_output_repair_scheduled", "provider_wait_persisted", "ownership_fence")
     val newFields = fields - setOf("provider_wait_decision_state", "provider_wait_state", "provider_wait_persisted")
     val newWaitStates = setOf("DURABLE_WAIT", "NOT_SCHEDULED", "PERSISTENCE_UNCERTAIN")
-    val compactFields = digestAliases.keys + correlationHashes + countAliases.keys + enums.keys + setOf("provider_semantic_status", "repair_scheduled", "http_status", "provider_wait_persisted", "ownership_fence")
+    val compactFields = digestAliases.keys + correlationHashes + countAliases.keys + enums.keys + setOf("provider_semantic_status", "repair_scheduled", "http_status", "provider_wait_persisted", "ownership_fence", "original_error_code_hash")
     private val hash = Regex("[a-f0-9]{64}")
 
     fun validValue(key: String, value: JsonElement): JsonElement? {
@@ -96,7 +96,14 @@ internal object ExecutionCompletionDiagnostics {
         val waitDecision = details["provider_wait_decision_state"]?.let { validValue("provider_wait_decision_state", it) } != null
         if (persistence) put("failure_origin", "local_persistence")
         if (recovery) put("failure_origin", "local_recovery")
-        if (provider) ProviderStreamFailure.retained(details)?.get("provider_response_id_hash")?.let { put("provider_response_id_hash", it) }
+        if (provider) {
+            ProviderStreamFailure.retained(details)?.get("provider_response_id_hash")?.let { put("provider_response_id_hash", it) }
+            // Use the existing public correlation key, preserving it when this
+            // compact envelope is projected again after a stored-message export.
+            val originalCodeHash = ProviderStreamFailure.upstreamCodeHash(details)
+                ?: (details["original_error_code_hash"] as? JsonPrimitive)?.takeIf { it.isString && hash.matches(it.content) }?.contentOrNull
+            originalCodeHash?.let { put("original_error_code_hash", it) }
+        }
         if (output) {
             val parent = (details["parent_invocation_id"] as? JsonPrimitive)?.contentOrNull
             IssueReportContext.identifierHash("invocation", parent)?.let { put("no_output_parent_invocation_hash", it) }
@@ -142,7 +149,7 @@ internal object ExecutionCompletionDiagnostics {
                 IssueReportContext.identifierHash("execution-completion:$alias", (value as JsonPrimitive).contentOrNull)?.let { alias to JsonPrimitive(it) }
             } else {
                 val publicKey = countAliases[key] ?: if (key == "repair_scheduled") "no_output_repair_scheduled" else key
-                value.takeIf { publicKey in this.fields }?.let { publicKey to it }
+                value.takeIf { publicKey in this.fields || publicKey == "original_error_code_hash" }?.let { publicKey to it }
             }
         }.toMap()
     }

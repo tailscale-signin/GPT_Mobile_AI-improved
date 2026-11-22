@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -190,6 +191,27 @@ class IncidentReportContractTest(unittest.TestCase):
             for invalid in (401, 429, True, "403", "private provider text"):
                 with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
                     validate_diagnostics(self.capture("INCIDENT", {field: invalid}))
+
+    def test_unknown_provider_code_hashes_use_the_existing_approved_report_field(self):
+        observed = set()
+        for upstream in ("private-upstream-a", "private-upstream-b"):
+            digest = hashlib.sha256(f"gptmobile.issue-context.v1:provider-error-code:{upstream}".encode()).hexdigest()
+            values = {"provider_failure_kind": "UNKNOWN", "original_error_code_hash": digest}
+            capture = self.capture("PROVIDER", values)
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+            report = self.report(capture)
+            report["errorCode"] = "PROVIDER_GENERATION_FAILED"
+            approved = json.dumps(report, separators=(",", ":"))
+            _, issue = issue_from_report(report)
+            self.assertIn(f"| original_error_code_hash | `{digest}` |", issue["body"])
+            self.assertNotIn(upstream, approved)
+            self.assertNotIn(upstream, issue["body"])
+            self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+            observed.add(digest)
+        self.assertEqual(2, len(observed))
+        for key, value in (("upstream_error_code_hash", "a" * 64), ("original_error_code_hash", "private-text"), ("original_error_code_hash", int("1" * 64))):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {key: value}))
 
     def test_conversation_recovery_details_survive_approved_report_submission(self):
         samples = [

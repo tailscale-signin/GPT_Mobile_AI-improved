@@ -30,6 +30,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderFailureReportTest {
+    @Test fun publicProviderHashesKeepActualUpstreamIdentityAndCanonicalClassificationSeparate() {
+        val observedHashes = mutableSetOf<String>()
+        for (upstream in listOf("private-upstream-a", "private-upstream-b", "private-upstream-with-type", "401", "503")) {
+            val event = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
+                upstream,
+                "Private provider message",
+                type = "server_error".takeIf { upstream.endsWith("with-type") },
+                details = buildJsonObject { put("upstream_error_code_hash", "a".repeat(64)) },
+                httpStatus = 200
+            )
+            val failure = ProviderEvent.Failed(event.message, errorCode = event.code, failureDetails = event.failureDetails)
+            val fields = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
+            val expected = requireNotNull(IssueReportContext.identifierHash("provider-error-code", upstream))
+            assertEquals(JsonPrimitive(expected), fields["original_error_code_hash"])
+            val diagnostics = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", fields, 1000).diagnostics)
+            assertEquals(JsonPrimitive(expected), diagnostics.values["original_error_code_hash"])
+            assertEquals(JsonPrimitive(event.code), diagnostics.values["provider_failure_code"])
+            assertEquals(JsonPrimitive(200), diagnostics.values["http_status"])
+            assertFalse(diagnostics.values.containsKey("upstream_error_code_hash"))
+            if (upstream.startsWith("private")) {
+                assertFalse(diagnostics.toString().contains(upstream))
+                assertNull(diagnostics.values["upstream_error_code"])
+            } else {
+                assertEquals(JsonPrimitive(upstream), diagnostics.values["upstream_error_code"])
+            }
+            observedHashes += expected
+        }
+        assertEquals(5, observedHashes.size)
+        val withoutUpstream = ProviderEvent.Failed("Typed provider failure", errorCode = "PROVIDER_GENERATION_FAILED")
+        val fallback = ProviderFailureReport.fields("run", withoutUpstream, ProviderFailureReceipt.from(profile, "primary", withoutUpstream))
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("provider-error-code", withoutUpstream.errorCode)), fallback["original_error_code_hash"])
+    }
+
     @Test fun semanticStreamCauseSurvivesReceiptAndPublicProjection() {
         for ((upstream, expected) in listOf("insufficient_quota" to "BILLING_UNAVAILABLE", "server_error" to "PROVIDER_UNAVAILABLE")) {
             val event = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(upstream, "private prompt", httpStatus = 200, streamEventType = "response.failed", providerResponseId = "resp_fixture")

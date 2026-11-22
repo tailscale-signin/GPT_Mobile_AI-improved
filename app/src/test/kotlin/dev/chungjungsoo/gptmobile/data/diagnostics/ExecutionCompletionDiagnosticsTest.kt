@@ -139,6 +139,47 @@ class ExecutionCompletionDiagnosticsTest {
         assertTrue("BILLING_UNAVAILABLE" in IssueReportCodes.allowed)
     }
 
+    @Test fun distinctUnknownProviderCodesSurviveStoredExportAndPublicProjectionAsExistingHashes() {
+        val hashes = mutableSetOf<JsonPrimitive>()
+        for (upstream in listOf("private-upstream-a", "private-upstream-b")) {
+            val event = ProviderStreamFailure.event(upstream, "Private provider message", httpStatus = 200)
+            val code = requireNotNull(event.code)
+            val expected = JsonPrimitive(requireNotNull(IssueReportContext.identifierHash("provider-error-code", upstream)))
+            val details = requireNotNull(event.failureDetails)
+            val compact = ExecutionCompletionDiagnostics.compact(code, details)
+            assertEquals(expected, compact["original_error_code_hash"])
+            assertEquals(compact, ExecutionCompletionDiagnostics.compact(code, compact))
+            val summary = messageSummary(ProfileFailureRecord.fromProvider(event.message, code, details))
+            assertEquals(JsonPrimitive("PROVIDER_GENERATION_FAILED"), summary["failure_code"])
+            assertEquals(expected, summary["original_error_code_hash"])
+            assertEquals(JsonPrimitive("MESSAGE_PROFILE_FAILURE"), summary.getValue("field_sources").jsonObject["original_error_code_hash"])
+            val diagnostics = requireNotNull(capture(code, summary).diagnostics)
+            assertEquals(expected, diagnostics.values["original_error_code_hash"])
+            assertFalse(compact.containsKey("upstream_error_code_hash"))
+            assertFalse(diagnostics.values.containsKey("upstream_error_code_hash"))
+            assertFalse(summary.toString().contains(upstream))
+            assertFalse(diagnostics.toString().contains(upstream))
+            assertNotNull(diagnostics.validated())
+            hashes += expected
+        }
+        assertEquals(2, hashes.size)
+    }
+
+    @Test fun providerHashProjectionRejectsMalformedOrUnrelatedObservations() {
+        for (key in listOf("upstream_error_code_hash", "original_error_code_hash")) {
+            for (invalid in listOf(JsonPrimitive("private-text"), Json.parseToJsonElement("1".repeat(64)))) {
+                val details = buildJsonObject {
+                    put("provider_failure_kind", "UNKNOWN")
+                    put(key, invalid)
+                }
+                assertFalse(ExecutionCompletionDiagnostics.compact("PROVIDER_GENERATION_FAILED", details).containsKey("original_error_code_hash"))
+                assertFalse(ExecutionCompletionDiagnostics.publicFields("PROVIDER_GENERATION_FAILED", details).containsKey("original_error_code_hash"))
+            }
+        }
+        val unrelated = buildJsonObject { put("upstream_error_code_hash", "a".repeat(64)) }
+        assertFalse(ExecutionCompletionDiagnostics.publicFields("CHAT_FAILED", unrelated).containsKey("original_error_code_hash"))
+    }
+
     @Test fun checkpointJournalCorrelationAndExplicitWaitRefusalUseClosedPublicFields() {
         val details = buildJsonObject {
             put("failure_origin", "local_recovery")

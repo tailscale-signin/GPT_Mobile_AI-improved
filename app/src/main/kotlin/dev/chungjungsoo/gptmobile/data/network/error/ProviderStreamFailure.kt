@@ -76,12 +76,17 @@ internal object ProviderStreamFailure {
         safeProviderRequestIdentity(serverRequestId)?.let { fields["server_request_id"] = JsonPrimitive(it) }
         streamEventType?.takeIf { it in EVENT_TYPES }?.let { fields["stream_event_type"] = JsonPrimitive(it) }
         safeProviderRequestIdentity(providerResponseId)?.let { fields["provider_response_id"] = JsonPrimitive(it) }
-        failure.code?.let { fields["upstream_error_code"] = JsonPrimitive(it) }
+        // Classification may use a documented error type when the raw code is
+        // unknown. Keep the two upstream observations separate for correlation.
+        fields.remove("upstream_error_code")
+        code?.lowercase(java.util.Locale.ROOT)?.takeIf { it in ProviderFailure.SAFE_CODES }
+            ?.let { fields["upstream_error_code"] = JsonPrimitive(it) }
         // Unknown codes can contain arbitrary upstream text. Keep correlation
         // through the existing bounded identifier hash, never publish that text.
         code?.takeUnless { it.lowercase(java.util.Locale.ROOT) in ProviderFailure.SAFE_CODES }
             ?.let { dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("provider-error-code", it) }
             ?.let { fields["upstream_error_code_hash"] = JsonPrimitive(it) }
+        fields.remove("upstream_error_type")
         type?.lowercase(java.util.Locale.ROOT)?.takeIf { it in ProviderFailure.SAFE_CODES }?.let { fields["upstream_error_type"] = JsonPrimitive(it) }
         return ResponseErrorEvent(code = category, message = readable, failureDetails = JsonObject(fields))
     }
@@ -98,7 +103,7 @@ internal object ProviderStreamFailure {
             (details[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it in ProviderFailure.SAFE_CODES }
                 ?.let { fields[key] = JsonPrimitive(it) }
         }
-        (details["upstream_error_code_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+        (details["upstream_error_code_hash"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
             ?.let { fields["upstream_error_code_hash"] = JsonPrimitive(it) }
         (details["http_status"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 100..599 }
             ?.let { fields["http_status"] = JsonPrimitive(it) }
@@ -113,5 +118,13 @@ internal object ProviderStreamFailure {
             ?: (details["provider_response_id_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
         responseHash?.let { fields["provider_response_id_hash"] = JsonPrimitive(it) }
         return JsonObject(fields)
+    }
+
+    /** A validated upstream code outranks an inherited hash from an earlier observation. */
+    fun upstreamCodeHash(details: JsonObject?): String? {
+        val retained = retained(details) ?: return null
+        val code = (retained["upstream_error_code"] as? JsonPrimitive)?.contentOrNull
+        return dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("provider-error-code", code)
+            ?: (retained["upstream_error_code_hash"] as? JsonPrimitive)?.contentOrNull
     }
 }

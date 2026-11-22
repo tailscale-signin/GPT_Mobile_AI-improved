@@ -153,7 +153,9 @@ internal object ProviderFailureReport {
         receipt.generationCompleted?.let { put("generation_completed", it) }
         receipt.requestReplayAllowed?.let { put("request_replay_allowed", it) }
         receipt.logicalContinuationAllowed?.let { put("logical_continuation_allowed", it) }
-        IssueReportContext.identifierHash("provider-error-code", failure.errorCode)?.let { put("original_error_code_hash", it) }
+        val originalCodeHash = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.upstreamCodeHash(semanticFailure)
+            ?: IssueReportContext.identifierHash("provider-error-code", failure.errorCode)
+        originalCodeHash?.let { put("original_error_code_hash", it) }
         IssueReportContext.identifierHash("server-request", receipt.serverRequestId ?: metadata?.takeIf { it.transportVerified }?.requestId)?.let { put("server_request_id_hash", it) }
         IssueReportContext.identifierHash("generation", receipt.generationId)?.let { put("generation_id_hash", it) }
         if (receipt.invocationId != null && "causal_id" !in failure.failureDetails.orEmpty()) {

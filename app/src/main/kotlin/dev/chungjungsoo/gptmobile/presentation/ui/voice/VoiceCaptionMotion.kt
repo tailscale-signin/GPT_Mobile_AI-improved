@@ -27,13 +27,13 @@ internal class VoiceCaptionMotion(position: Float) {
     private var from = position
     private var velocity = 0f
     private var startedNanos = 0L
-    private var durationNanos = 0L
+    private var durationNanos = 0.0
     private var pausedNanos: Long? = null
     var target: Float = position
         private set
 
     fun sample(nowNanos: Long): VoiceCaptionMotionSample {
-        if (durationNanos == 0L) return VoiceCaptionMotionSample(target, 0f)
+        if (durationNanos == 0.0) return VoiceCaptionMotionSample(target, 0f)
         val elapsed = ((pausedNanos ?: nowNanos) - startedNanos).coerceAtLeast(0L)
         if (elapsed >= durationNanos) return VoiceCaptionMotionSample(target, 0f)
         val t = elapsed.toDouble() / durationNanos
@@ -57,7 +57,16 @@ internal class VoiceCaptionMotion(position: Float) {
         velocity = current.velocity
         target = position
         startedNanos = pausedNanos ?: nowNanos
-        durationNanos = durationMs.coerceIn(240, 420) * 1_000_000L
+        val requestedNanos = durationMs.coerceIn(240, 420) * 1_000_000.0
+        val distance = position.toDouble() - current.position
+        // With zero arrival velocity, a forward Hermite curve is monotonic when |v| * T <= 3 * |distance|.
+        // Shorten the curve instead of changing its inherited velocity. Fractional nanoseconds avoid
+        // rounding a very close target's duration above that bound while retaining continuity at t = 0.
+        durationNanos = if (distance * current.velocity > 0.0) {
+            minOf(requestedNanos, 3.0 * abs(distance) / abs(current.velocity.toDouble()) * 1_000_000_000.0)
+        } else {
+            requestedNanos
+        }
     }
 
     fun seek(position: Float, nowNanos: Long) {
@@ -65,7 +74,7 @@ internal class VoiceCaptionMotion(position: Float) {
         from = position
         target = position
         velocity = 0f
-        durationNanos = 0
+        durationNanos = 0.0
         startedNanos = pausedNanos ?: nowNanos
     }
 

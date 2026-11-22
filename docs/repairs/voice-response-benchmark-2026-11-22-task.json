@@ -68,7 +68,7 @@
     "publication": "PENDING: expected-head push to draft PR2254, exact-current-head PR checks, rules-compliant merge, green main and signed Android0.9.66.13/Gateway18.1.1 publication. Final hosted gate and publication receipts belong to the PR and release workflows, not this pre-publication source snapshot."
   },
   "concurrency": "Preserved original0885 and diagnostic fea1a6 work; merged permanent conversation privacy6e788 with both scopes and instructions retained. Root compares the remote head before every ref update and merge, uses expected-head leases without force pushes, and never edits another worker checkout. Preserved concurrent MCP/read-recovery and phone-map integration commitdda6f5; voice source hashes and tested behavior remain unchanged.",
-  "integrated_remote_head": "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
+  "integrated_remote_head": "c14e2eb10ff90bf6da0f1f45734e9bc42c25f580",
   "feature_sources_reviewed_at": "52a6749e41e4298f0f4de6ca4a8c4ea6b1bea8d4",
   "final_results_location": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254",
   "post_integration_review": {
@@ -94,5 +94,19 @@
     "validation": "PASS12 actual-source Auto policy tests, with2 baseline failures reproduced; PASS63 actual-source parser/projection/provider tests, with6 baseline failures reproduced. Pinned formatting and independent source review passed. No physical-device execution claimed.",
     "canonical": "PASS after preserving dbc29 private-caption protection and ordinary memory-scope edits:616 canonical host tests in29.670s,6 changed Kotlin files, generated inventories,1923 literal regex patterns,36 XML files, dependency/provenance checks and scoped-release validation. Production/test sources match both independently validated agent commits. Exact-head hosted gates remain pending.",
     "remaining": "Preserve and review the separately announced acceptance-completion-70afcf89 and GitHub/coding benchmark scopes. Exact final-head hosted checks, guarded merge, green-main checks and signed Android/Gateway publication remain mandatory."
+  },
+  "pcm_priming_followup": {
+    "source_base": "f0250cf0c82b0a1939af9721a814c89129be377a",
+    "concurrent_commits_preserved": [
+      "f0250cf0c82b0a1939af9721a814c89129be377a",
+      "35228794d6fb667a56f0ff97c80672852093d74b",
+      "c14e2eb10ff90bf6da0f1f45734e9bc42c25f580"
+    ],
+    "reviewed_local_commit": "873852010d1d62e57e8435d6c493a562230588e2",
+    "behavior": "The actual playback reserve loop releases when all sixty PCM queue slots are occupied. Short phrase tails cannot make it wait for duration that a blocked producer has no capacity to add. The 5,900 ms reserve cap, physical playback fence, cancellation, synthesis completion, idle-producer and deadline checks remain.",
+    "regression": "An actual bounded queue with sixty mixed full/tail slices and a real blocked producer reproduced 4,740 ms of synthetic polling before the guard. After the guard, no polling occurred; queued views were retained and playback consumption unblocked the producer. This is a deterministic scheduling test, not a physical latency result.",
+    "validation": "PASS: 27 actual PCM/performance tests including non-full under-target, growing reserve, fresh defaults, idle short reply and lifecycle controls; affected actual Kokoro/Android 37 compilation passed with 384 MB heap. Four-file pinned ktlint and independent source review passed. Root source hashes match the reviewed commit.",
+    "canonical": "PASS: 616 canonical host checks on the combined c14e2eb1 plus priming source, five-file pinned Kotlin formatting, regenerated inventories and exact reviewed four-file source comparison. Scoped-release validation recorded after the integration commit.",
+    "remaining": "Current-head hosted CI, the active coding benchmark/agent-integration and mapped privacy-receipt follow-ups, exact-main verification and signed publication remain required."
   }
 }

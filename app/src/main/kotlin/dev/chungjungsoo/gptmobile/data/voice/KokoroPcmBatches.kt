@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import java.util.concurrent.BlockingQueue
+
 /** Immutable view into a phrase owned by the queue until its last slice has played. */
 internal data class VoicePcmSlice(val samples: FloatArray, val offset: Int, val size: Int) {
     init {
@@ -12,6 +14,25 @@ internal object KokoroPcmBatches {
     const val DURATION_MS = 100
     const val QUEUE_BATCHES = 60
     const val QUEUE_LIMIT_MS = DURATION_MS * QUEUE_BATCHES
+
+    /** Wait in place: only the playback worker may consume this bounded queue. */
+    fun awaitReserve(
+        queue: BlockingQueue<VoicePcmSlice>,
+        targetFrames: Long,
+        acceptedFrames: () -> Long,
+        canWait: () -> Boolean,
+        producerPending: () -> Boolean,
+        deadlineReached: () -> Boolean,
+        poll: () -> Unit
+    ) {
+        while (canWait()) {
+            // Short phrase tails can fill every slot before the duration target.
+            // Playback must consume a slot before the producer can make progress.
+            if (acceptedFrames() >= targetFrames || queue.remainingCapacity() == 0 || deadlineReached()) return
+            if (!producerPending()) return
+            poll()
+        }
+    }
 
     fun slices(samples: FloatArray, sampleRate: Int, offer: (VoicePcmSlice) -> Boolean): Boolean {
         require(sampleRate in 8_000..48_000)

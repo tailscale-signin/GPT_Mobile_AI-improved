@@ -1038,13 +1038,18 @@ internal class KokoroVoiceOutput(
         measuredSynthesis.update { it.copy(bufferState = if (playback.firstFrame) "refilling" else "preparing") }
         val deadline = SystemClock.elapsedRealtime() + playback.adaptive.primeWaitMs()
         val target = sampleRate.toLong() * playback.adaptive.bufferMs() / 1_000
-        while (active === playback && !playback.synthesisDone) {
-            val accepted = playback.enqueuedFrames.get() - playback.consumedFrames.get()
-            if (accepted >= target || SystemClock.elapsedRealtime() >= deadline) break
-            if (!playback.synthesizing && playback.segments.isEmpty()) break
-            playedFrames(track, playback)
-            Thread.sleep(POLL_MS)
-        }
+        KokoroPcmBatches.awaitReserve(
+            queue = playback.pcm,
+            targetFrames = target,
+            acceptedFrames = { playback.enqueuedFrames.get() - playback.consumedFrames.get() },
+            canWait = { active === playback && !playback.synthesisDone },
+            producerPending = { playback.synthesizing || playback.segments.isNotEmpty() },
+            deadlineReached = { SystemClock.elapsedRealtime() >= deadline },
+            poll = {
+                playedFrames(track, playback)
+                Thread.sleep(POLL_MS)
+            }
+        )
     }
 
     /** Priming keeps views of the existing phrase; it never joins/copies PCM arrays. */

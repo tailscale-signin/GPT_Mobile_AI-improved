@@ -89,7 +89,8 @@
     "Preserve explicit Phone/Gateway source in graph recovery, saved-job status and cursor recipes, and keep their observations and pending work independent.",
     "Retain ambiguous interrupted TLS read evidence through legacy recovery while keeping typed handshake and peer-admission failures separate; preserve all existing certificate and retry policies.",
     "Keep saved-room privacy, reporter feature negotiation, audit metadata and schema-budget integration fixtures aligned with their complete production contracts.",
-    "Validate every present stored journal projection hash against its retained body before recovery, replay and explicit budget retry; preserve legacy absent-hash compatibility and settled-call deduplication."
+    "Validate every present stored journal projection hash against its retained body before recovery, replay and explicit budget retry; preserve legacy absent-hash compatibility and settled-call deduplication.",
+    "Start speech when all bounded PCM queue slots are occupied even when partial phrase tails leave accepted duration below the measured reserve; retain queue and reserve limits, lifecycle fences and deadline behavior."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -379,6 +380,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/GatewayVoicePhraseEngineFactory.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",
@@ -684,6 +686,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoicePrivacyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/GatewayVoiceTransportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroConversationPrivacyTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatchesTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechTextTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStoreTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTimingTest.kt",

@@ -28,6 +28,8 @@ Verification-only recovery now suppresses search, page reads, new memory/delegat
 
 Native status reports are delivered once when execution continuation is forbidden or a final review fails. Saved-report fallback remains available when no application report was delivered, including after unverified model text. An already delivered report retains its original typed failure and pending receipt checkpoint; verifier-only decisions and incomplete retained evidence continue to block execution recovery.
 
+Review APK validation separates cold source generation and production compilation from full native assembly, with bounded fresh processes and retained runtime, privacy, method-size, device-regression and benchmark checks.
+
 Complete design and test coverage: [17-repair / 16-improvement implementation map](docs/repairs/full-approved-scope-2026-11-21.md).
 
 ## Voice performance and speech backends

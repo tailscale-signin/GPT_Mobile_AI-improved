@@ -7,7 +7,7 @@
   "source_sha": "ad26151b2916bf25feb20bcb99c5f233e7de790d",
   "working_branch": "fix/offline-kokoro-release-publication-2026-11-21",
   "intent": "Implement the part-6 conversation/intelligence audit and every current open diagnostic issue. Preserve concurrent work on the existing PR. For unresolved runtime causes, improve targeted incident collection before closing the intake report. Merge only after current-head required verification and GitHub merge policy pass.",
-  "status": "TERMINAL_PUBLICATION_FOLLOWUP_LOCALLY_VERIFIED_CI_PENDING",
+  "status": "REVIEW_APK_PHASE_FOLLOWUP_LOCALLY_VERIFIED_CI_PENDING",
   "intake_issues": [
     2214,
     2215,
@@ -335,5 +335,49 @@
       "combined_paths": 576,
       "limitations_preserved": 87
     }
+  },
+  "review_apk_phase_followup": {
+    "base_head": "381b1eede6a68c7031649871cdb277d091c1bdc3",
+    "observed_head": "4e40cd883bf0b6d910a4d9c6ef99d48891f7a8ca",
+    "observed_run": 44971090566,
+    "observed_job": 137055166480,
+    "failure": "Build review APK reached the 30-minute outer bound during active x86_64 Vulkan shader compilation after production, DEX and arm64 native progress.",
+    "x86_native_remaining_seconds": 42,
+    "implementation": "Separate debug source generation and production compilation into canonical bounded fresh processes before the unchanged full native assembly task.",
+    "outer_minutes": {
+      "ksp": 10,
+      "kapt": 10,
+      "production": 20,
+      "assembly": 30,
+      "job": 90
+    },
+    "child_seconds": {
+      "ksp": 540,
+      "kapt": 540,
+      "production": 1140,
+      "assembly": 1740
+    },
+    "preserved": [
+      "All native backends and ABI outputs",
+      "Existing Gradle heap, worker and packaging limits",
+      "Packaged method-size, runtime and privacy checks",
+      "Device and benchmark regression compilation",
+      "Exact-source APK artifact requirements",
+      "All current-head CI and merge rules"
+    ],
+    "local_validation": {
+      "semantic_preservation": "PASS",
+      "targeted_ci_watchdog_pipeline_tests": 49,
+      "failures": 0,
+      "workflow_hash_verified": true,
+      "canonical_fast": "PASS",
+      "canonical_tests": 601,
+      "release_scope": "PASS",
+      "combined_paths": 577,
+      "limitations_preserved": 87,
+      "app_source_diff": "EMPTY"
+    },
+    "app_source_changed": false,
+    "final_ci": "REQUIRED_ON_RESULTING_PUBLISHED_HEAD"
   }
 }

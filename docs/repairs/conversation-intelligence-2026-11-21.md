@@ -275,6 +275,35 @@ the local integration record. Full Android and every applicable check must still
 pass on the final published revision; final merge and issue-closure receipts are
 recorded on PR #2126.
 
+### Review APK build phase correction
+
+The earlier `4e40cd883bf0b6d910a4d9c6ef99d48891f7a8ca` UI Review APK run
+`44971090566`, job `137055166480`, reached the build step's **30-minute** limit
+while still compiling x86_64 Vulkan shaders. Production Kotlin and Java
+compilation had completed at 01:58:43 UTC. DEX packaging continued until arm64
+native configuration at 02:06:16; x86_64 native work began at 02:10:03/07, leaving
+only **42 seconds** before the outer step terminated the process. The log shows
+ongoing build progress, not a source compiler failure.
+
+The review workflow now runs debug KSP, KAPT and production compilation in
+separate fresh processes, following the existing canonical validation pattern.
+Their outer bounds are **10 / 10 / 20 minutes**, with **540 / 540 / 1,140-second**
+child-process deadlines. Full APK assembly retains its **30-minute** outer bound
+and gains a **1,740-second** child watchdog. The **90-minute** job cap, compiler
+heap limits, worker limit and packaging parallelism remain bounded. Every native
+backend, packaged method-size/runtime/privacy check, device-regression and
+benchmark compilation, and required APK artifact is retained.
+
+Parsed workflow comparison confirms that all existing steps and settings are
+preserved after accounting for the three added phases and the assembly watchdog.
+The **49** targeted CI/watchdog/pipeline tests and the **601-test** canonical fast
+gate pass; those selections overlap. The combined **577-path** release scope
+retains all **87** disclosed limitations, and the app source has no further diff.
+
+This workflow correction does not alter app behavior or turn the timed-out
+historical build into a pass. The final revision must still complete the full
+review build and every other applicable CI workflow before merge.
+
 ## Limits
 
 The archived `Long` to `Integer` failure lacks the source stack required to

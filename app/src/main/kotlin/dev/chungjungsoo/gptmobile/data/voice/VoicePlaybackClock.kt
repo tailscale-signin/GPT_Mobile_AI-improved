@@ -27,6 +27,9 @@ internal class VoicePlaybackClock(private val sampleRate: Int) {
     companion object {
         fun drained(written: Long, consumed: Long, presented: Long): Boolean = consumed >= written && presented >= written
 
+        fun captionsAdvancing(trackPlaying: Boolean, presented: Long, caption: Long, accepted: Long, draining: Boolean): Boolean =
+            trackPlaying && presented > 0 && presented < accepted || draining && caption < accepted
+
         fun captionFrames(presented: Long, sampleRate: Int, offsetMs: Int, drainElapsedMs: Long = 0, acceptedFrames: Long = Long.MAX_VALUE): Long {
             val offset = offsetMs.coerceIn(-500, 500)
             val tail = if (offset > 0) drainElapsedMs.coerceIn(0, offset.toLong()) else 0L

@@ -135,6 +135,20 @@ class VoiceSynthesisPerformanceTest {
         assertEquals(26_400, VoicePlaybackClock.captionFrames(24_000, 24_000, -100))
     }
 
+    @Test fun finalDelayedCaptionKeepsScrollingUntilItsCalibratedClockDrains() {
+        val delayed = VoicePlaybackClock.captionFrames(24_000, 24_000, 100, 50, 24_000)
+        assertTrue(VoicePlaybackClock.captionsAdvancing(false, 24_000, delayed, 24_000, true))
+        val complete = VoicePlaybackClock.captionFrames(24_000, 24_000, 100, 100, 24_000)
+        assertFalse(VoicePlaybackClock.captionsAdvancing(false, 24_000, complete, 24_000, true))
+    }
+
+    @Test fun captionAnimationFreezesDuringPauseRefillAndBeforeFirstPresentation() {
+        assertFalse(VoicePlaybackClock.captionsAdvancing(false, 12_000, 14_400, 24_000, false))
+        assertFalse(VoicePlaybackClock.captionsAdvancing(false, 24_000, 24_000, 48_000, false))
+        assertFalse(VoicePlaybackClock.captionsAdvancing(true, 0, 0, 24_000, false))
+        assertTrue(VoicePlaybackClock.captionsAdvancing(true, 12_000, 14_400, 24_000, false))
+    }
+
     @Test fun pronunciationOverridesRemainBoundedAndKeepSourceWordMapping() {
         assertFalse(VoicePronunciationOverrides.valid("word", "text; other"))
         assertFalse(VoicePronunciationOverrides.valid("two words", "test"))

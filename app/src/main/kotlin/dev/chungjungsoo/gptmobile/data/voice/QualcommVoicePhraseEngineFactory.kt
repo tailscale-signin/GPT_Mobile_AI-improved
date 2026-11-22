@@ -18,6 +18,7 @@ internal class QualcommVoicePhraseEngineFactory(
     private val calibrateAll: Boolean = false
 ) : VoicePhraseEngineFactory {
     override val selectedBackend: VoiceSpeechBackend get() = backend
+    override val preparationTimeoutMs: Long get() = if (backend == VoiceSpeechBackend.AUTO && calibrateAll) 120_000 else 30_000
     private val pending = AtomicReference<TimedKokoro?>(null)
     private val generation = AtomicLong()
     private val calibrated = AtomicBoolean(false)
@@ -65,15 +66,15 @@ internal class QualcommVoicePhraseEngineFactory(
         val cached = receipt(chosen, lexicon, threads, now)
         var selected = chosen
         var failure = cached?.failure
-        var failed = cached?.takeIf { it.failure != null }
-        if (failure != null) {
+        var failed = cached?.takeIf { it.failure != null && it.backend in ACCELERATORS }
+        if (failed != null) {
             selected = VoiceSpeechBackend.CPU
-            notify("${chosen.label}: ${failure.name.lowercase().replace('_', ' ')}. Using CPU; Recheck will try again.")
+            notify("${chosen.label}: ${checkNotNull(failure).name.lowercase().replace('_', ' ')}. Using CPU; Recheck will try again.")
         }
         var engine: TimedKokoro? = null
         try {
             val started = System.nanoTime()
-            engine = open(directory, lexicon, threads, selected)
+            engine = if (selected == VoiceSpeechBackend.CPU) openCpu(directory, lexicon, threads, failed) else open(directory, lexicon, threads, selected)
             checkTicket(ticket)
             if (selected != VoiceSpeechBackend.CPU && cached?.verifiedAccelerator != true) {
                 notify("Checking ${selected.label} and aligned speech output…")
@@ -89,7 +90,7 @@ internal class QualcommVoicePhraseEngineFactory(
             failure = classify(error)
             failed = reject(selected, lexicon, threads, failure, error)
             selected = VoiceSpeechBackend.CPU
-            engine = open(directory, lexicon, threads, selected)
+            engine = openCpu(directory, lexicon, threads, failed, error)
         } catch (error: LinkageError) {
             runCatching { engine?.close() }
             checkTicket(ticket)
@@ -97,7 +98,7 @@ internal class QualcommVoicePhraseEngineFactory(
             failure = VoiceSpeechFailureCode.PROVIDER_LOAD
             failed = reject(selected, lexicon, threads, failure)
             selected = VoiceSpeechBackend.CPU
-            engine = open(directory, lexicon, threads, selected)
+            engine = openCpu(directory, lexicon, threads, failed, error)
         }
         val ready = checkNotNull(engine)
         try {
@@ -141,11 +142,16 @@ internal class QualcommVoicePhraseEngineFactory(
         return VoiceFailoverPhraseEngine(wrap(initial, initialBackend), initialBackend != VoiceSpeechBackend.CPU) { error ->
             failure = reject(initialBackend, lexicon, threads, classify(error), error)
             observed = failureEvidence(checkNotNull(failure))
-            val cpu = VoiceNativeEngineGate.exclusive { open(directory, lexicon, threads, VoiceSpeechBackend.CPU) }
+            val cpu = VoiceNativeEngineGate.exclusive { openCpu(directory, lexicon, threads, failure, error) }
             pending.compareAndSet(cpu, null)
             wrap(cpu, VoiceSpeechBackend.CPU)
         }
     }
+
+    private fun openCpu(directory: File, lexicon: String, threads: Int, failure: VoiceBackendCapability?, original: Throwable? = null): TimedKokoro =
+        preserveVoicePreparationFailure(failure?.let(::failureEvidence), original) {
+            open(directory, lexicon, threads, VoiceSpeechBackend.CPU)
+        }
 
     private fun open(directory: File, lexicon: String, threads: Int, selected: VoiceSpeechBackend): TimedKokoro {
         if (selected != VoiceSpeechBackend.CPU) {
@@ -237,6 +243,7 @@ internal class QualcommVoicePhraseEngineFactory(
     )
 
     companion object {
+        private val ACCELERATORS = setOf(VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP)
         private val LOCAL_BACKENDS = listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP)
         private val PROBES = listOf("hello there.", "speech should stay smooth while the next phrase is prepared.")
         private fun provider(value: VoiceSpeechBackend) = when (value) {

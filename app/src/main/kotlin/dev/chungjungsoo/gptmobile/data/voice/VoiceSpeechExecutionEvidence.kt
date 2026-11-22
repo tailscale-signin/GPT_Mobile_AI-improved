@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import java.util.concurrent.CancellationException
+
 internal enum class VoiceSpeechStage { FRONTEND, PREPARING, SYNTHESIS, VALIDATING, READY, CPU_FALLBACK }
 
 internal enum class VoiceSpeechFailureCode {
@@ -64,6 +66,33 @@ internal data class VoiceSpeechExecutionEvidence(
         failedProvider?.let { put("speech_failed_provider", it) }
         failedTokenCount?.let { put("speech_failed_token_count", it) }
     }
+}
+
+/** CPU preparation failed after a coded accelerator rejection; no phrase or driver log is added. */
+internal class VoiceSpeechPreparationFailure(
+    val executionEvidence: VoiceSpeechExecutionEvidence,
+    cause: Exception,
+    originalAcceleratorFailure: Throwable? = null
+) : IllegalStateException("CPU speech recovery could not be prepared.", cause) {
+    init {
+        if (originalAcceleratorFailure != null && originalAcceleratorFailure !== cause) {
+            addSuppressed(originalAcceleratorFailure)
+        }
+    }
+}
+
+/** Only accelerator-to-CPU recovery acquires this receipt. Cancellation and Error keep their identity. */
+internal inline fun <T> preserveVoicePreparationFailure(
+    executionEvidence: VoiceSpeechExecutionEvidence?,
+    originalAcceleratorFailure: Throwable? = null,
+    prepare: () -> T
+): T = try {
+    prepare()
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (error: Exception) {
+    if (executionEvidence?.failure == null || executionEvidence.failedProvider !in setOf("qnn-gpu", "qnn-htp")) throw error
+    throw VoiceSpeechPreparationFailure(executionEvidence, error, originalAcceleratorFailure)
 }
 
 internal data class VoiceBackendCapability(

@@ -105,6 +105,15 @@ private fun VoiceSynthesisStatus(feedback: StateFlow<VoiceSynthesisFeedback>?) {
     val sample = feedback?.collectAsStateWithLifecycle()?.value ?: return
     if (sample.generatedAudioMs <= 0) return
     Text("${sample.executionProvider} · ${sample.threads} threads · ${if (sample.warm) "warm" else "cold"}", style = MaterialTheme.typography.labelLarge)
+    sample.executionEvidence?.let { evidence ->
+        Text("Selected ${evidence.selectedBackend.label} · ${if (evidence.verifiedAudio) "audio and timing validated" else "validation pending"}", style = MaterialTheme.typography.bodySmall)
+        if (evidence.acceleratorKernels > 0) {
+            Text("${evidence.acceleratorKernels} accelerator / ${evidence.cpuKernels} CPU kernel events", style = MaterialTheme.typography.bodySmall)
+            Text("Preparation ${evidence.prepareMs} ms · profile is the first inference of this phrase shape", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Text("Preparation ${evidence.prepareMs} ms · operator profile not collected", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
     Text("${sample.synthesisMs} ms synthesis / ${sample.generatedAudioMs} ms audio · ${sample.bufferedAudioMs} ms queued · ${sample.underruns} underruns", style = MaterialTheme.typography.bodySmall)
     Text("${sample.bufferMs} ms reserve · ${sample.bufferState}", style = MaterialTheme.typography.bodySmall)
     if (sample.productionRatio?.let { it >= 1.0 } == true) {

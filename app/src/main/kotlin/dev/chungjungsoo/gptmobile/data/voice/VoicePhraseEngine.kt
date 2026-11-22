@@ -16,6 +16,7 @@ internal interface VoicePhraseEngine : AutoCloseable {
 
 internal interface VoicePhraseEngineFactory {
     val selectedBackend: VoiceSpeechBackend get() = VoiceSpeechBackend.CPU
+    val preparationTimeoutMs: Long get() = 30_000
 
     /** Includes model/runtime/configuration revision; changing it invalidates the warm engine. */
     val identity: String

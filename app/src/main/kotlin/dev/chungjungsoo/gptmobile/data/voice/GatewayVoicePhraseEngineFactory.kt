@@ -29,6 +29,7 @@ internal class GatewayVoicePhraseEngineFactory(
     private val credential: String?,
     private val report: (String) -> Unit
 ) : VoicePhraseEngineFactory {
+    override val selectedBackend = VoiceSpeechBackend.GATEWAY_CUDA
     private val pending = AtomicReference<GatewayVoicePhraseEngine?>(null)
     private val generation = AtomicLong()
     override fun cancelPending() {
@@ -36,7 +37,7 @@ internal class GatewayVoicePhraseEngineFactory(
         pending.get()?.cancel()
     }
 
-    override val identity = "gateway-cuda-v1-${UUID.randomUUID()}-" + MessageDigest.getInstance("SHA-256")
+    override val identity = "gateway-cuda-v2-${KokoroModelPack.MODEL_SHA256}-" + MessageDigest.getInstance("SHA-256")
         .digest("$base\n${credential.orEmpty()}".toByteArray()).joinToString("") { "%02x".format(it) }
 
     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
@@ -52,7 +53,7 @@ internal class GatewayVoicePhraseEngineFactory(
             runCatching { engine.close() }
             if (error is CancellationException || error is Error) throw error
             report("Gateway CUDA speech is unavailable. Check CUDA speech setup and the selected PC connection.")
-            throw IllegalStateException("Gateway CUDA speech is unavailable. Select CPU speech or check the selected PC.")
+            throw IllegalStateException("Gateway CUDA speech is unavailable. Select CPU speech or check the selected PC.", error)
         } finally {
             pending.compareAndSet(engine, null)
         }

@@ -20,6 +20,7 @@ internal data class VoiceSynthesisFeedback(
     val productionRatio: Double? = null,
     val predictedNextSynthesisMs: Long? = null,
     val bufferState: String = "idle",
+    val executionEvidence: VoiceSpeechExecutionEvidence? = null,
     val cancellationMs: Long? = null
 )
 

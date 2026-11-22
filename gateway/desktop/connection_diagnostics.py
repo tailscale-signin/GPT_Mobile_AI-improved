@@ -112,8 +112,13 @@ def collect(root, *, now=None):
                 if not isinstance(raw, dict):
                     raise ValueError('Invalid host observation')
                 result.update(normalize_probe(raw))
-                unknown_rule_scope = result['firewall_rule_state'] == 'PRESENT' and not result.get('firewall_rule_profiles')
-                result['collection_state'] = 'PARTIAL' if unknown_rule_scope or any(result[key] == 'UNKNOWN' for key in ENUMS) else 'OBSERVED'
+                # A successful lookup can establish that the rule is absent. Its
+                # action, scope and port only apply to rules that were found.
+                required = {'listener_state', 'listener_binding', 'default_route_state', 'tunnel_adapter_signal', 'firewall_rule_state'}
+                if result['firewall_rule_state'] == 'PRESENT':
+                    required.update(('firewall_rule_action', 'firewall_rule_enabled', 'firewall_rule_port', 'firewall_rule_profiles'))
+                incomplete = any(not result.get(key) or result[key] == 'UNKNOWN' for key in required)
+                result['collection_state'] = 'PARTIAL' if incomplete else 'OBSERVED'
         except subprocess.TimeoutExpired:
             result['collection_state'] = 'TIMEOUT'
         except (OSError, ValueError, UnicodeError):

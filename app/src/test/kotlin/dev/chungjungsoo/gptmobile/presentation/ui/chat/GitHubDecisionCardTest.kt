@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -16,6 +17,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecision
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionOption
 import org.junit.Assert.assertEquals
@@ -51,17 +53,46 @@ class GitHubDecisionCardTest {
         compose.runOnIdle { assertEquals(1, stops) }
     }
 
+    @Test fun switchingQueuedChoicesKeepsEachDraftWithItsOwnQuestion() {
+        val second = question.copy(id = "second", question = "Which colour?")
+        val submitted = mutableListOf<Pair<String, String?>>()
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    GitHubDecisionQueue(listOf(question, second)) { current ->
+                        GitHubDecisionCard(current, true, { _, text -> submitted.add(current.id to text) }, {}, {}, compact = true)
+                    }
+                }
+            }
+        }
+        fun click(label: String) = compose.onNodeWithText(label).performScrollTo().performClick()
+        click("Write my own answer")
+        compose.onNodeWithTag("github_decision_custom").performScrollTo().performTextInput("Keep it compact")
+        compose.onNodeWithTag("github_decision_next").performScrollTo().performClick()
+        compose.onNodeWithTag("github_decision_custom").assertDoesNotExist()
+        click("Write my own answer")
+        compose.onNodeWithTag("github_decision_custom").performScrollTo().performTextInput("Use teal")
+        compose.onNodeWithTag("github_decision_previous").performScrollTo().performClick()
+        click("Use my answer")
+        compose.onNodeWithTag("github_decision_next").performScrollTo().performClick()
+        click("Use my answer")
+        compose.runOnIdle { assertEquals(listOf(question.id to "Keep it compact", second.id to "Use teal"), submitted) }
+    }
+
     @Test fun compactQueueShowsOneChoiceAndKeepsDetailsAndAllChoicesReachableAtLargeFont() {
         val second = question.copy(id = "second", question = "Which colour?")
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, 1.5f)) {
                 MaterialTheme {
-                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Column(Modifier.width(300.dp).verticalScroll(rememberScrollState())) {
                         GitHubDecisionQueue(listOf(question, second)) { decision -> GitHubDecisionCard(decision, true, { _, _ -> }, {}, {}, compact = true) }
                     }
                 }
             }
         }
+        val firstOption = compose.onNodeWithTag("github_decision_option_0").fetchSemanticsNode()
+        val secondOption = compose.onNodeWithTag("github_decision_option_1").fetchSemanticsNode()
+        org.junit.Assert.assertTrue(secondOption.positionInRoot.y >= firstOption.positionInRoot.y + firstOption.size.height)
         compose.onNodeWithText("Choice 1 of 2").assertExists()
         compose.onNodeWithTag("github_decision_test").assertExists()
         compose.onNodeWithTag("github_decision_second").assertDoesNotExist()

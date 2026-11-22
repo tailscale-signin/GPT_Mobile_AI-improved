@@ -4,6 +4,7 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 
 ## Voice chat and captions
 
+- Correct live transcription word ranges when recognition replaces an indented phrase, and retain paragraph shaping for supplementary right-to-left scripts during streaming.
 - Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.
 - Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.
 - Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.
@@ -13,6 +14,7 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 
 ## Kokoro GPU, NPU and recovery
 
+- Choosing a speech engine reuses its saved measurements. Compare and Recheck explicitly refresh the measurement on the next reply.
 - Repair Kokoro QNN partition proposals with a convex, static-interface graph adapter; select the concrete GPU or NPU device and keep dynamic duration/alignment sections on CPU within the same audio-and-timing inference.
 - Qualify backend execution from valid PCM, aligned durations and actual kernel profiles for each prepared token shape; retain bounded device/model/runtime/lexicon/thread-scoped capability receipts and explicit rechecks. Auto retains CPU unless measured accelerator cost, including preparation, is at least 10% lower.
 - Retire a failed accelerator and retry only its current unplayed phrase on CPU; preserve typed source, target, outcome and original failure when CPU or permitted Android system speech recovery occurs, including optional Gateway CUDA failures. Fence duplicate and stale fallback callbacks.
@@ -22,6 +24,7 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 
 ## Setup, model routes and recovery
 
+- Profile details keep the route shown in the picker. Research source switches and citation import stay available if activity history fails to load.
 - Distinguish saved configuration and downloaded weights from a verified complete response; guide the first chat and expose existing response checks from profile settings.
 - Show configured phone inference, recognized cloud APIs, observed Gateway routes and other network services separately. A private address or engineering Gateway binding does not establish where a different inference endpoint runs.
 - Separate requested local processors from native execution receipts. Failed, recovering and released runtimes do not display retained receipts as current readiness.
@@ -29,6 +32,7 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 
 ## Task efficiency and provider consistency
 
+- Expanded benchmark evidence keeps one copy of each summary and reveals the supporting measurements below the disclosure control.
 - Centralize provider session creation across ordinary chat, Research, delegated work and benchmarks while preserving the selected profile, request constraints, authorization and accounting.
 - Allow explicitly Automatic preparation to avoid optional helper setup for narrowly identified greetings and short inline text transformations. Explicit helpers, reviews, Research, plans and local-first ownership retain their accepted work.
 - Keep two contributors for routine tasks only when adaptive Combined participation is already enabled; preserve explicit participants, required diversity, accepted plans and hard budgets.
@@ -36,6 +40,7 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 
 ## Execution, GitHub and diagnostic reliability
 
+- GitHub choices retain separate custom drafts as you page between them and use full-width options on narrow screens with large text. Gateway host inspection reports an observed missing firewall rule without requiring properties of an absent rule.
 - Separate immutable approval, classification and recheck records and preserve typed local persistence conflicts with safe correlation.
 - Correlate provider retry checkpoints and permit one durable bounded repair for reasoning-only or empty completions while preserving unknown-write reconciliation.
 - Issue larger exact source-page alternatives, retain path/query/branch facts through compaction, and move repeated exploration toward implementation milestones.

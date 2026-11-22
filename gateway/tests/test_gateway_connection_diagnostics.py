@@ -55,6 +55,17 @@ class HostConnectionDiagnosticsTest(unittest.TestCase):
         self.assertEqual(diagnostics.PROBE_TIMEOUT, run.call_args.kwargs['timeout'])
         self.assertFalse(run.call_args.kwargs.get('shell', False))
 
+    def test_absent_rule_has_no_action_port_or_profile_to_observe(self):
+        raw = dict(listener_state='NOT_OBSERVED', listener_binding='NOT_OBSERVED',
+                   default_route_state='PRESENT', tunnel_adapter_signal='NOT_OBSERVED',
+                   firewall_rule_state='NOT_OBSERVED', active_network_profiles=[])
+        result, _ = self.observed(raw)
+        self.assertEqual('OBSERVED', result['collection_state'])
+        self.assertEqual('NOT_ESTABLISHED', result['firewall_connectivity_verdict'])
+        self.assertIn('not observed', result['summary'])
+        raw['tunnel_adapter_signal'] = 'UNKNOWN'
+        self.assertEqual('PARTIAL', self.observed(raw)[0]['collection_state'])
+
     def test_unknown_timeout_and_absence_are_different_observations(self):
         empty, _ = self.observed({'listener_state': 'NOT_OBSERVED', 'listener_binding': 'NOT_OBSERVED',
                                  'firewall_rule_state': 'NOT_OBSERVED', 'default_route_state': 'NOT_OBSERVED'})

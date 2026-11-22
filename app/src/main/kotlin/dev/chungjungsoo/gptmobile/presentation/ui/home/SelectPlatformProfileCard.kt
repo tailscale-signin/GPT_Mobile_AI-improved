@@ -56,6 +56,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
+import dev.chungjungsoo.gptmobile.data.readiness.ConfiguredInferenceRoute
 import dev.chungjungsoo.gptmobile.data.readiness.configuredInferenceRoute
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
@@ -67,7 +68,7 @@ internal fun SelectPlatformProfileCard(
     insight: ProfileInsight?,
     onToggle: (String) -> Unit,
     onFavorite: () -> Unit,
-    onInsights: () -> Unit,
+    onInsights: (ConfiguredInferenceRoute) -> Unit,
     gatewayAvailability: GatewayAvailability? = null,
     animateGateway: Boolean = false,
     onFocus: (Boolean) -> Unit = {},
@@ -76,6 +77,13 @@ internal fun SelectPlatformProfileCard(
     val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
     val unavailable = androidx.compose.runtime.remember(profile, health, now) { dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) }
+    val gatewayIdentityObserved = gatewayAvailability != null &&
+        !gatewayAvailability.instanceId.isNullOrBlank() &&
+        !gatewayAvailability.engineeringBinding &&
+        gatewayAvailability.gatewayProfileUid == profile.uid
+    val route = androidx.compose.runtime.remember(profile.compatibleType, profile.apiUrl, gatewayIdentityObserved) {
+        configuredInferenceRoute(profile.compatibleType, profile.apiUrl, gatewayIdentityObserved)
+    }
     val privacyLabel = when (privacyStatus) {
         PrivacyProfileEligibility.Status.AVAILABLE -> "Privacy · Available"
         PrivacyProfileEligibility.Status.CHECKING -> "Privacy · Checking"
@@ -147,11 +155,6 @@ internal fun SelectPlatformProfileCard(
                             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.testTag("privacy_profile_status_${profile.uid}"))
                         }
                         Text(profile.model, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.primary, maxLines = lines, overflow = TextOverflow.Ellipsis)
-                        val route = configuredInferenceRoute(
-                            profile.compatibleType,
-                            profile.apiUrl,
-                            gatewayIdentityObserved = gatewayAvailability?.instanceId != null && !gatewayAvailability.engineeringBinding && gatewayAvailability.gatewayProfileUid == profile.uid
-                        )
                         Text(route.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("profile_route_${profile.uid}"))
                     }
                 }
@@ -172,7 +175,7 @@ internal fun SelectPlatformProfileCard(
                             if (compact.priceState != InsightAvailability.HIDDEN) "$rate · ${stringResource(R.string.picker_rate_legend)}" else null,
                             if (compact.qualified) stringResource(R.string.picker_qualified_rate) else null
                         ).joinToString(". ")
-                        TextButton(onClick = onInsights, modifier = Modifier.widthIn(min = 48.dp, max = metricsWidth).heightIn(min = 48.dp).testTag("profile_insights_${profile.uid}").semantics { contentDescription = description }) {
+                        TextButton(onClick = { onInsights(route) }, modifier = Modifier.widthIn(min = 48.dp, max = metricsWidth).heightIn(min = 48.dp).testTag("profile_insights_${profile.uid}").semantics { contentDescription = description }) {
                             Column(horizontalAlignment = Alignment.End) {
                                 if (compact.scoreState != InsightAvailability.HIDDEN) Text(score, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                 if (compact.priceState != InsightAvailability.HIDDEN) Text(rate, style = MaterialTheme.typography.labelMedium.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.End)

@@ -36,7 +36,8 @@
     "Export bounded numeric voice measurements without conversation text, audio or device identifiers; correct fractional caption edge overlap and clarify shipped voice language and physical measurement limits.",
     "Show yellow text only for digest-bound local masking/restoration evidence; retain per-conversation privacy badges, improve introduced-name masking across request history, and persist the badge with Room migration 53.",
     "Retain typed recovery ownership and upstream provider identity, bound repeated cause traversal and compact GitHub descriptions without relaxing schema budgets; align migration, export and shared-cooldown regressions with current contracts.",
-    "Enforce built-in tool binding uniqueness, preserve atomic configuration replacement, and normalize equivalent legacy bindings during database open and backup restore."
+    "Enforce built-in tool binding uniqueness, preserve atomic configuration replacement, and normalize equivalent legacy bindings during database open and backup restore.",
+    "Keep live caption corrections, engine rechecks, queued-choice drafts, profile route details, Research source controls, benchmark disclosure and local Gateway inspection consistent with the actions shown in the interface."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -246,6 +247,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayProfileStatus.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatProfileInsights.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/NewChatProfileScreen.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SelectPlatformProfileCard.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkMetricFormat.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkResultCard.kt",
@@ -393,8 +395,12 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/PrivacyProtectedTextTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/StagedChatDebugExportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/ConversationProgressPresentationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayProfileAvailabilityTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkMetricFormatTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModelTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ResearchEngineHealthPanelTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceBackendViewModelTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionLayoutCacheTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionMotionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensionsTest.kt",
     "app/src/test/resources/gateway-v18-capabilities-full.json",
@@ -407,6 +413,7 @@
     "docs/architecture/repository-index.json",
     "docs/engineering/diagnostic-audit-completion-2026-11-22.md",
     "docs/engineering/diagnostic-execution-completion-2026-11-22.md",
+    "docs/engineering/pr2254-feature-wiring-task.json",
     "docs/engineering/repository-review-implementation-2026-11-22-task.json",
     "docs/engineering/repository-review-implementation-2026-11-22.md",
     "docs/engineering/review-benchmark-pricing-2026-11-22-task.json",

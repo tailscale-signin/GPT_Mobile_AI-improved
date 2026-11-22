@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -355,10 +358,15 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                         if (tab == 3) {
                             item {
                                 ResearchEngineHealthPanel(
-                                    onOpenSearch = { tab = 0 },
+                                    onOpenSearch = {
+                                        tab = 0
+                                        listState.requestScrollToItem(if (state.error == null) 0 else 1)
+                                    },
                                     onOpenCitationImport = {
                                         showImport = true
                                         tab = 0
+                                        // Search and the import toggle precede the open form.
+                                        listState.requestScrollToItem(if (state.error == null) 2 else 3)
                                     }
                                 )
                             }
@@ -472,9 +480,13 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
 }
 
 @Composable
-private fun ResearchFeatureSwitch(label: String, value: Boolean, enabled: Boolean, update: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+internal fun ResearchFeatureSwitch(label: String, value: Boolean, enabled: Boolean, update: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().toggleable(value = value, enabled = enabled, role = Role.Switch, onValueChange = update)
+            .heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(label, Modifier.weight(1f))
-        Switch(value, update, enabled = enabled)
+        Switch(value, onCheckedChange = null, enabled = enabled)
     }
 }

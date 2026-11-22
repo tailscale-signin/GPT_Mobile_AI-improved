@@ -61,7 +61,10 @@ import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
 import dev.chungjungsoo.gptmobile.data.pricing.decimalRate
+import dev.chungjungsoo.gptmobile.data.pricing.priceContextKey
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
+import dev.chungjungsoo.gptmobile.data.readiness.ConfiguredInferenceRoute
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelChip
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField
@@ -143,6 +146,8 @@ internal fun NewChatProfileScreen(
     var primaryOpen by rememberSaveable { mutableStateOf(false) }
     var researchExpanded by rememberSaveable { mutableStateOf(false) }
     var detailsUid by rememberSaveable { mutableStateOf<String?>(null) }
+    var detailsRoute by rememberSaveable { mutableStateOf<ConfiguredInferenceRoute?>(null) }
+    var detailsContext by rememberSaveable { mutableStateOf<String?>(null) }
     var privacySettingsOpen by rememberSaveable { mutableStateOf(false) }
     var privacyRefresh by remember { mutableIntStateOf(0) }
     val filter = ProfileFilter.entries.firstOrNull { it.name == filterName } ?: ProfileFilter.ALL
@@ -223,7 +228,12 @@ internal fun NewChatProfileScreen(
         else -> "Single"
     }
     val hiddenCount = currentSelection.count { uid -> visible.none { it.uid == uid } }
-    val details = detailsUid?.let { uid -> insights[uid]?.takeIf { it.profile.uid == uid } }
+    val details = remember(detailsUid, detailsContext, profiles, insights) {
+        detailsUid?.let { uid ->
+            val profile = profiles.firstOrNull { it.uid == uid }
+            insights[uid]?.takeIf { profile != null && it.matches(profile) && researchHash(priceContextKey(profile)) == detailsContext }
+        }
+    }
     LaunchedEffect(insightViewModel) { insightViewModel.refreshWhileVisible() }
     LaunchedEffect(labels) {
         if (labelKey != null && labels.none { it.key == labelKey }) labelKey = null
@@ -412,7 +422,11 @@ internal fun NewChatProfileScreen(
                         insight = insights[profile.uid]?.takeIf { it.matches(profile) },
                         onToggle = viewModel::toggleProfile,
                         onFavorite = { viewModel.toggleFavorite(profile.uid) },
-                        onInsights = { detailsUid = profile.uid },
+                        onInsights = { route ->
+                            detailsRoute = route
+                            detailsContext = researchHash(priceContextKey(profile))
+                            detailsUid = profile.uid
+                        },
                         gatewayAvailability = gatewayAvailability[profile.uid],
                         animateGateway = profile.uid in visibleKeys && !optionsOpen && !sortOpen && !primaryOpen && !privacySettingsOpen && detailsUid == null,
                         onFocus = { focused ->
@@ -535,6 +549,8 @@ internal fun NewChatProfileScreen(
         }
     }
     details?.let { insight ->
-        ProfileInsightDetailsDialog(insight, insightViewModel::refreshNow, { viewModel.toggleFavorite(insight.profile.uid) }, { detailsUid = null })
+        detailsRoute?.let { route ->
+            ProfileInsightDetailsDialog(insight, insightViewModel::refreshNow, { viewModel.toggleFavorite(insight.profile.uid) }, { detailsUid = null }, route)
+        }
     }
 }

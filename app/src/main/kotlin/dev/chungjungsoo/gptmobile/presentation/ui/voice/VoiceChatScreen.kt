@@ -811,7 +811,13 @@ private fun VoiceChatSessionScreen(
                     }
                 ),
                 tuningContent = {
-                    VoiceSpeechBackendSettings(backend, backendOwner::selectBackend, backendOwner::selectGateway, state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING))
+                    VoiceSpeechBackendSettings(
+                        value = backend,
+                        selectBackend = backendOwner::selectBackend,
+                        selectGateway = backendOwner::selectGateway,
+                        recheckBackend = backendOwner::recheckBackend,
+                        enabled = state.phase !in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.PREPARING, VoicePhase.SPEAKING)
+                    )
                     VoiceTuningSettings(
                         tuning,
                         {

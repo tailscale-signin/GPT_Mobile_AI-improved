@@ -13,6 +13,7 @@ internal fun VoiceSpeechBackendSettings(
     value: VoiceBackendSettings,
     selectBackend: (VoiceSpeechBackend) -> Unit,
     selectGateway: (String) -> Unit,
+    recheckBackend: () -> Unit,
     enabled: Boolean
 ) {
     VoiceSettingsSection("Speech processing")
@@ -24,16 +25,16 @@ internal fun VoiceSpeechBackendSettings(
         enabled = enabled && value.loaded
     )
     if (value.backend == VoiceSpeechBackend.GATEWAY_CUDA) {
-        VoiceChoice("Speech Gateway", value.gatewayUid.orEmpty(), value.gateways.map { it.uid to it.name }, selectGateway, enabled = enabled && value.loaded)
+        VoiceChoice("Speech Gateway", value.gatewayUid, value.gateways.map { it.uid to it.name }, selectGateway, enabled = enabled && value.loaded)
         Text("Gateway speech sends reply text/tokens to your selected PC.", style = MaterialTheme.typography.bodySmall)
         if (value.gateways.isEmpty()) Text("Add a Gateway connection in Settings to use PC speech.", style = MaterialTheme.typography.bodySmall)
     } else {
         if (value.backend == VoiceSpeechBackend.AUTO) {
-            Text("Auto compares complete speech preparation with CPU. It selects GPU or NPU only after valid audio, matching captions and real accelerator execution are measured.", style = MaterialTheme.typography.bodySmall)
+            Text("Auto uses saved measurements from this phone. Compare engines to time CPU, GPU and NPU before the next reply.", style = MaterialTheme.typography.bodySmall)
         } else if (value.backend != VoiceSpeechBackend.CPU) {
             Text("Supported graph sections run on the selected accelerator; other sections can use CPU. Failed qualification uses CPU for the unplayed phrase.", style = MaterialTheme.typography.bodySmall)
         }
-        TextButton(onClick = { selectBackend(value.backend) }, enabled = enabled && value.loaded) {
+        TextButton(onClick = recheckBackend, enabled = enabled && value.loaded) {
             Text(if (value.backend == VoiceSpeechBackend.AUTO) "Compare engines on next reply" else "Recheck engine on next reply")
         }
     }

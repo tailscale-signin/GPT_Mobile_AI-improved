@@ -100,6 +100,13 @@ internal class VoiceBackendViewModel internal constructor(
         reconcile(force = true)
     }
 
+    fun recheckBackend() {
+        val state = mutable.value
+        if (state.loaded && state.backend != VoiceSpeechBackend.GATEWAY_CUDA) {
+            rebuild(VoiceBackendPreference(state.backend, state.gatewayUid), retest = true)
+        }
+    }
+
     fun selectGateway(uid: String) {
         if (!mutable.value.loaded || mutable.value.gateways.none { it.uid == uid }) return
         preferences.save(VoiceBackendPreference(mutable.value.backend, uid))
@@ -123,7 +130,7 @@ internal class VoiceBackendViewModel internal constructor(
             return
         }
         configuration = next
-        rebuild(preference, force)
+        rebuild(preference, retest = false)
     }
 
     private fun rebuild(preference: VoiceBackendPreference, retest: Boolean) {

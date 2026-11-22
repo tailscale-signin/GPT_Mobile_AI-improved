@@ -27,7 +27,7 @@ internal class VoiceBackendCapabilityStore(context: Context) {
         write(values)
     }
 
-    private fun write(values: List<VoiceBackendCapability>) {
+    private fun write(values: List<VoiceBackendCapability>, revision: Long? = null) {
         val encoded = JSONArray()
         values.forEach {
             encoded.put(
@@ -39,7 +39,11 @@ internal class VoiceBackendCapabilityStore(context: Context) {
         }
         // Cache persistence never interrupts valid speech. A failed write means
         // the next session measures again; it cannot manufacture qualification.
-        runCatching { preferences.edit().putString("receipts", encoded.toString()).commit() }
+        runCatching {
+            val editor = preferences.edit().putString("receipts", encoded.toString())
+            if (revision != null) editor.putLong("revision", revision)
+            editor.commit()
+        }
     }
 
     fun retest(backend: VoiceSpeechBackend) = synchronized(lock) {
@@ -47,8 +51,7 @@ internal class VoiceBackendCapabilityStore(context: Context) {
         // explicit retests, rather than on every navigation/recomposition.
         val next = (preferences.getLong("revision", 0) + 1).coerceAtLeast(1)
         val retained = records().filter { backend != VoiceSpeechBackend.AUTO && it.backend != backend }
-        preferences.edit().remove("receipts").putLong("revision", next).commit()
-        write(retained)
+        write(retained, revision = next)
     }
 
     private fun records(): List<VoiceBackendCapability> = runCatching {

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -31,15 +32,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -75,7 +79,13 @@ internal fun GitHubDecisionQueue(decisions: List<GitHubChatDecision>, content: @
                 }
             }
         }
-        androidx.compose.runtime.key(active.id) { content(active) }
+        // Each queued choice owns its editor until the choice leaves the queue.
+        decisions.forEach { decision ->
+            key(decision.id) {
+                val editor = rememberSaveableStateHolder()
+                if (decision.id == active.id) editor.SaveableStateProvider(decision.id) { content(decision) }
+            }
+        }
     }
 }
 
@@ -136,9 +146,13 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
             if (decision.answer == null) {
                 val select: (Int) -> Unit = { index -> if (decision.options[index].enterValue) custom = true else onAnswer(index, null) }
                 if (compact && !expanded) {
-                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 2) {
-                        decision.options.forEachIndexed { index, option ->
-                            GitHubDecisionOptionButton(index, option, decision.recommended == index, false, { select(index) }, Modifier.weight(1f))
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val optionWidth = 128.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
+                        val columns = if (maxWidth >= optionWidth * 2 + 8.dp) 2 else 1
+                        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = columns) {
+                            decision.options.forEachIndexed { index, option ->
+                                GitHubDecisionOptionButton(index, option, decision.recommended == index, false, { select(index) }, Modifier.weight(1f))
+                            }
                         }
                     }
                 } else {

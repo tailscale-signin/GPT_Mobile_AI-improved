@@ -81,7 +81,8 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                         }
                         1 -> ResearchEngineHealthPanel(
                             disabledEngineIds = value.disabledEngineIds,
-                            onEngineEnabled = { id, selected -> if (enabled) onChange(value.copy(disabledEngineIds = if (selected) value.disabledEngineIds - id else value.disabledEngineIds + id)) }
+                            editingEnabled = enabled,
+                            onEngineEnabled = { id, selected -> onChange(value.copy(disabledEngineIds = if (selected) value.disabledEngineIds - id else value.disabledEngineIds + id)) }
                         )
                         2 -> {
                             ResearchLimit("Follow-up rounds", value.maxRounds, 1..8, enabled) { onChange(value.copy(maxRounds = it)) }

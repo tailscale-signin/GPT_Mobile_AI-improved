@@ -21,6 +21,21 @@ ART_CODE_UNIT_LIMIT = 65535 // 4
 CHAT = 'Ldev/chungjungsoo/gptmobile/presentation/ui/chat/'
 VOICE = 'Ldev/chungjungsoo/gptmobile/presentation/ui/voice/'
 SCREEN = CHAT + 'ChatScreenKt;'
+GATEWAY_COORDINATOR = 'Ldev/chungjungsoo/gptmobile/data/agent/AgentRunCoordinator'
+GATEWAY_RECOVERY_METHODS = (
+    'recoverInterruptedGatewayRuns', 'recoverSavedGatewayRuns', 'recoverSavedGatewayRun',
+    'parkUnavailableGatewayResult', 'inspectSavedGatewayResult', 'savedGatewayRecoveryError',
+    'publishSavedGatewayResult', 'notifyRecoveredGatewayResult', 'retainGatewayRecoveryOutcome',
+)
+
+
+def measured_method(owner, method):
+    if owner.startswith((CHAT, VOICE)):
+        return True
+    return owner.startswith(GATEWAY_COORDINATOR) and any(
+        name in method or ('$' + name + '$') in owner
+        for name in GATEWAY_RECOVERY_METHODS
+    )
 MAX_APK_BYTES = 2 * 1024 * 1024 * 1024
 MAX_DEX_BYTES = 128 * 1024 * 1024
 MAX_TOTAL_DEX_BYTES = 1024 * 1024 * 1024
@@ -105,7 +120,7 @@ def dex_methods(data, dex_name):
     for index in range(word(96)):
         entry = word(100) + index * 32
         owner = type_name(word(entry))
-        if not owner.startswith((CHAT, VOICE)):
+        if not owner.startswith((CHAT, VOICE, GATEWAY_COORDINATOR)):
             continue
         if owner in owners:
             raise ValueError('Duplicate chat/voice class definition')
@@ -145,9 +160,12 @@ def dex_methods(data, dex_name):
                 if units == 0:
                     raise ValueError('Executable DEX definition has an empty code item')
                 region(code_offset + 16, units * 2)
+                method_name = string(word(method + 4))
+                if not measured_method(owner, method_name):
+                    continue
                 rows.append({
                     'dex': dex_name, 'class': owner,
-                    'method': string(word(method + 4)),
+                    'method': method_name,
                     'code_units': units, 'dex_instruction_bytes': units * 2,
                 })
     return rows, owners
@@ -191,7 +209,7 @@ def inspect_apk(apk):
     return rows, dex_names
 
 
-def report_apk(apk, source_commit=None):
+def report_apk(apk, source_commit=None, require_gateway_recovery=False):
     report = {
         'schema_version': 1, 'apk': apk.name, 'status': 'ERROR',
         'source_commit': source_commit,
@@ -199,7 +217,7 @@ def report_apk(apk, source_commit=None):
         'exclusive_max_code_units': ART_CODE_UNIT_LIMIT,
         'art_warning_condition': 'code_item.insns_size >= UINT16_MAX / 4',
         'measurement': '16-bit DEX code units, including variable-width instructions and payloads',
-        'scope': ['chat UI and generated classes', 'voice UI and generated classes'],
+        'scope': ['chat UI and generated classes', 'voice UI and generated classes', 'Gateway recovery methods and coroutine classes'],
         'limitation': 'Static packaged size; not evidence of device ART compilation or frame-time performance',
     }
     try:
@@ -217,6 +235,13 @@ def report_apk(apk, source_commit=None):
         oversized = [row for row in rows if row['code_units'] >= ART_CODE_UNIT_LIMIT]
         errors = [f'Expected one actual {name} definition, found {len(found)}; wrappers are insufficient'
                   for name, found in primary.items() if len(found) != 1]
+        gateway_recovery = [row for row in rows if row['class'].startswith(GATEWAY_COORDINATOR)]
+        if require_gateway_recovery and not any(
+            row['class'] == GATEWAY_COORDINATOR + ';' and row['method'] == 'recoverInterruptedGatewayRuns'
+            for row in gateway_recovery
+        ):
+            errors.append('Missing actual Gateway recovery entry point; wrappers are insufficient')
+        report['gateway_recovery_methods'] = gateway_recovery
         report.update({
             'dex_files': dex_names, 'method_count': len(rows),
             'primary_methods': primary, 'oversized_methods': oversized,
@@ -233,8 +258,9 @@ def main(argv=None):
     arguments.add_argument('apk', type=Path)
     arguments.add_argument('--report', type=Path, required=True)
     arguments.add_argument('--source-commit', default=os.environ.get('GITHUB_SHA'))
+    arguments.add_argument('--require-gateway-recovery', action='store_true')
     args = arguments.parse_args(argv)
-    report = report_apk(args.apk, args.source_commit)
+    report = report_apk(args.apk, args.source_commit, args.require_gateway_recovery)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps({key: report.get(key) for key in (

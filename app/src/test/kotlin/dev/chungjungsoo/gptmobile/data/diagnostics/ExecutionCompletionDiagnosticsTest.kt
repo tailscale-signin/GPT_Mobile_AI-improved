@@ -54,7 +54,7 @@ class ExecutionCompletionDiagnosticsTest {
     }
 
     @Test fun immutableConflictSurvivesStoredMessageAndPublicProjectionWithoutPayloads() {
-        val event = WorkspaceEvidenceConflict("private-record", "a".repeat(64), "b".repeat(64), "IMMUTABLE_PAYLOAD_CHANGED").event()
+        val event = WorkspaceEvidenceConflict("private-record", "a".repeat(64), "b".repeat(64), "IMMUTABLE_PAYLOAD_CHANGED", "synthesis_checkpoint", "TERMINAL_RECONCILIATION", 7L).event()
         val details = requireNotNull(event.failureDetails)
         val stored = ProfileFailureRecord.fromProvider(event.message, event.errorCode, details)
         val summary = messageSummary(stored)
@@ -70,6 +70,9 @@ class ExecutionCompletionDiagnosticsTest {
         assertEquals("REVIEW_APPLICATION_EVIDENCE", report.recoveryAction)
         val diagnostics = requireNotNull(report.diagnostics)
         assertTrue(ExecutionCompletionDiagnostics.FEATURE in diagnostics.requiredServiceFeatures())
+        assertEquals(JsonPrimitive("synthesis_checkpoint"), diagnostics.values["evidence_record_kind"])
+        assertEquals(JsonPrimitive("TERMINAL_RECONCILIATION"), diagnostics.values["evidence_writer_phase"])
+        assertEquals(JsonPrimitive(7), diagnostics.values["ownership_fence"])
         for (key in listOf("evidence_record_hash", "evidence_proposed_payload_hash", "evidence_retained_payload_hash")) assertNotNull(diagnostics.values[key])
         assertFalse(diagnostics.toString().contains("a".repeat(64)))
         assertFalse(diagnostics.toString().contains("b".repeat(64)))
@@ -85,6 +88,14 @@ class ExecutionCompletionDiagnosticsTest {
             put("tool_call_count", 0)
             put("no_output_repairs", 1)
             put("no_output_repair_limit", 1)
+            put("continuation_attempt", 1)
+            put("continuation_limit", 2)
+            put("output_tokens", 2048)
+            put("reasoning_tokens", 2048)
+            put("effective_output_tokens", 4096)
+            put("serialized_output_tokens", 2048)
+            put("no_output_stop_reason", "EMPTY_OUTPUT_REPAIR_LIMIT")
+            put("parent_invocation_id", "private-parent-invocation")
             put("repair_scheduled", false)
             put("draft_sha256", "a".repeat(64))
             put("segment_sha256", "b".repeat(64))
@@ -95,6 +106,7 @@ class ExecutionCompletionDiagnosticsTest {
         val summary = messageSummary(ProfileFailureRecord.fromProvider("private message", "OUTPUT_CONTINUATION_NO_PROGRESS", details))
         assertEquals(JsonPrimitive("REASONING_ONLY"), summary["no_output_kind"])
         assertEquals(JsonPrimitive(19128), summary["reasoning_bytes"])
+        assertEquals(JsonPrimitive(2048), summary["serialized_output_tokens"])
         assertEquals(JsonPrimitive("BLOCKED"), summary["task_outcome"])
         assertEquals(JsonPrimitive(false), summary["repair_scheduled"])
         assertFalse(summary.toString().contains("private"))
@@ -109,7 +121,7 @@ class ExecutionCompletionDiagnosticsTest {
     }
 
     @Test fun acceptedHttpBillingKeepsSemanticFailureAndGenerationOutcomeAfterRestart() {
-        val event = ProviderStreamFailure.event("insufficient_quota", "private provider body", httpStatus = 200)
+        val event = ProviderStreamFailure.event("insufficient_quota", "private provider body", httpStatus = 200, streamEventType = "response.failed", providerResponseId = "resp_private_fixture")
         val summary = messageSummary(ProfileFailureRecord.fromProvider(event.message, event.code, event.failureDetails))
         assertEquals(JsonPrimitive("BILLING_UNAVAILABLE"), summary["failure_code"])
         assertEquals(JsonPrimitive("BUDGET"), summary["provider_failure_kind"])
@@ -117,6 +129,12 @@ class ExecutionCompletionDiagnosticsTest {
         assertEquals(JsonPrimitive(200), summary["http_status"])
         assertEquals(JsonPrimitive(false), summary["generation_completed"])
         assertEquals(JsonPrimitive(false), summary["retryable"])
+        assertEquals(JsonPrimitive("response.failed"), summary["stream_event_type"])
+        assertNotNull(summary["provider_response_id_hash"])
+        val diagnostics = requireNotNull(capture(requireNotNull(event.code), requireNotNull(event.failureDetails)).diagnostics)
+        assertEquals(JsonPrimitive("response.failed"), diagnostics.values["stream_event_type"])
+        assertNotNull(diagnostics.values["provider_response_id_hash"])
+        assertFalse(diagnostics.toString().contains("resp_private_fixture"))
         assertFalse(summary.toString().contains("private"))
         assertTrue("BILLING_UNAVAILABLE" in IssueReportCodes.allowed)
     }
@@ -154,12 +172,16 @@ class ExecutionCompletionDiagnosticsTest {
 
     @Test fun fuzzySearchReasonSurvivesPublicPrecheckWithoutQueryText() {
         val reason = "GITHUB_SEARCH_FUZZY_QUERY_INVALID"
-        val fields = mapOf("diagnostic_area" to "TOOL", "failed_stage" to "tool_precheck", "dispatched" to false, "reason_code" to reason, "tool_reason_code" to reason)
+        val fields = mapOf("diagnostic_area" to "TOOL", "failed_stage" to "tool_precheck", "dispatched" to false, "reason_code" to reason, "tool_reason_code" to reason, "search_argument_field" to "query", "search_argument_rule" to "FUZZY_IDENTIFIER", "search_argument_expected" to "IDENTIFIER_2_80", "search_native_action" to "search_repository", "search_mode" to "literal", "search_query_hash" to "f".repeat(64))
         val context = IssueReportContext.fromFields("TOOL_RESULT", IssueReportIncidentCapsule.fields(ReportFeature.TOOLS, "TOOL_RESULT", "INVALID_ARGUMENTS", fields), 1_800_000_000_000)
         assertEquals(reason, context.reasonCode)
         val diagnostics = requireNotNull(context.diagnostics)
         assertEquals(JsonPrimitive(reason), diagnostics.values["tool_reason_code"])
         assertTrue(ExecutionCompletionDiagnostics.FEATURE in diagnostics.requiredServiceFeatures())
+        assertEquals(JsonPrimitive("FUZZY_IDENTIFIER"), diagnostics.values["search_argument_rule"])
+        assertEquals(JsonPrimitive("IDENTIFIER_2_80"), diagnostics.values["search_argument_expected"])
+        assertTrue(IssueReportIncidentCapsule.GITHUB_SEARCH_ARGUMENT_FEATURE in diagnostics.requiredServiceFeatures())
+        assertNotNull(diagnostics.validated())
     }
 
     private fun capture(code: String, details: JsonObject) = IssueReportContext.fromFields(

@@ -157,6 +157,14 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         text.startsWith("connectivity_recovered") -> DiagnosticClassification("recovery", "info", false, "response_observed_on_current_network")
         tag == "Gateway" && text.startsWith("metadata_read_outcome") && "outcome=completed" in text ->
             DiagnosticClassification("recovery", "info", false, "metadata_read_completed_model_readiness_not_inferred")
+        tag == "Gateway" &&
+            text.startsWith("metadata_deadline_exceeded") &&
+            diagnosticFields(message).diagnosticText("deadline_owner") == "METADATA_READ" ->
+            DiagnosticClassification("metadata_deadline", "warning", true, "correlate_metadata_read_attempts_and_final_outcome")
+        tag == "Gateway" &&
+            text.startsWith("metadata_read_outcome") &&
+            diagnosticFields(message).diagnosticText("outcome") == "RETRY_EXHAUSTED" ->
+            DiagnosticClassification("transport_availability", "warning", true, "correlate_metadata_read_attempts_and_final_outcome")
         tag == "Gateway" && text.startsWith("client_exchange") && Regex("(?:^| · )transport=(?:timeout|transport_failure|connect_timeout|read_timeout|stream_interrupted|stream_idle_timeout|connection_aborted|dns_failed|dns_failure|route_unavailable|connection_refused|connection_reset)(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("transport_availability", "warning", true, "correlate_metadata_read_attempts_and_final_outcome")
         text.startsWith("search_index_ready") ||

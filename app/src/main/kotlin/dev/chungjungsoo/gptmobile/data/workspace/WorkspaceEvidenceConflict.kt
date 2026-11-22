@@ -13,7 +13,10 @@ internal class WorkspaceEvidenceConflict(
     recordId: String,
     private val proposedDigest: String,
     private val retainedDigest: String?,
-    private val reason: String
+    private val reason: String,
+    private val recordKind: String = "github_evidence",
+    private val writerPhase: String = "IMMUTABLE_APPEND",
+    private val ownershipFence: Long? = null
 ) : IllegalStateException("Saved application evidence conflicts with an immutable record") {
     private val recordDigest = MessageDigest.getInstance("SHA-256").digest(recordId.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
@@ -21,6 +24,9 @@ internal class WorkspaceEvidenceConflict(
         require(proposedDigest.matches(Regex("[a-f0-9]{64}")))
         require(retainedDigest == null || retainedDigest.matches(Regex("[a-f0-9]{64}")))
         require(reason in setOf("IMMUTABLE_PAYLOAD_CHANGED", "RETAINED_PAYLOAD_UNAVAILABLE", "CONCURRENT_APPEND_CONFLICT"))
+        require(recordKind in setOf("github_evidence", "github_engineering_memory", "synthesis_checkpoint"))
+        require(writerPhase in setOf("IMMUTABLE_APPEND", "CHECKPOINT_REPLACE", "TERMINAL_RECONCILIATION"))
+        require(ownershipFence == null || ownershipFence >= 0)
     }
 
     fun event(): ProviderEvent.Failed = ProviderEvent.Failed(
@@ -33,6 +39,9 @@ internal class WorkspaceEvidenceConflict(
             put("code", "WORKSPACE_EVIDENCE_CONFLICT")
             put("task_outcome", "BLOCKED")
             put("evidence_conflict_reason", reason)
+            put("evidence_record_kind", recordKind)
+            put("evidence_writer_phase", writerPhase)
+            ownershipFence?.let { put("ownership_fence", it) }
             put("record_identity_sha256", recordDigest)
             put("proposed_payload_sha256", proposedDigest)
             retainedDigest?.let { put("retained_payload_sha256", it) }
@@ -57,6 +66,13 @@ internal class WorkspaceEvidenceConflict(
                     ?.let { put("evidence_conflict_reason", it) }
                 for (key in listOf("record_identity_sha256", "proposed_payload_sha256", "retained_payload_sha256")) {
                     (details[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let { put(key, it) }
+                }
+                (details["evidence_record_kind"] as? JsonPrimitive)?.contentOrNull
+                    ?.takeIf { it in setOf("github_evidence", "github_engineering_memory", "synthesis_checkpoint") }?.let { put("evidence_record_kind", it) }
+                (details["evidence_writer_phase"] as? JsonPrimitive)?.contentOrNull
+                    ?.takeIf { it in setOf("IMMUTABLE_APPEND", "CHECKPOINT_REPLACE", "TERMINAL_RECONCILIATION") }?.let { put("evidence_writer_phase", it) }
+                (details["ownership_fence"] as? JsonPrimitive)?.takeUnless { it.isString }?.let { fence ->
+                    fence.content.toLongOrNull()?.takeIf { it >= 0 }?.let { put("ownership_fence", it) }
                 }
             }
         }

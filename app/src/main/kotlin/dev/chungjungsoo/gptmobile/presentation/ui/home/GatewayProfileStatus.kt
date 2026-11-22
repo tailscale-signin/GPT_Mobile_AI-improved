@@ -88,7 +88,8 @@ internal fun GatewayProfileStatus(availability: GatewayAvailability, modifier: M
             )
         }
         if (!availability.isOnline) {
-            availability.recoveryAction?.let { action ->
+            val recovery = if (availability.status == GatewayAvailabilityStatus.OFFLINE) "check_host_connection" else availability.recoveryAction
+            recovery?.let { action ->
                 Text(gatewayRecoveryLabel(action), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("gateway_recovery_hint"))
             }
         }
@@ -136,6 +137,7 @@ internal fun gatewayNamePulsePreservesContrast(foreground: Color, background: Co
 @Composable
 internal fun gatewayRecoveryLabel(action: String): String = stringResource(
     when (action) {
+        "check_host_connection" -> R.string.gateway_recovery_connection
         "wait_for_model" -> R.string.gateway_recovery_wait_model
         "load_selected_model" -> R.string.gateway_recovery_load_model
         "select_available_model" -> R.string.gateway_recovery_select_model

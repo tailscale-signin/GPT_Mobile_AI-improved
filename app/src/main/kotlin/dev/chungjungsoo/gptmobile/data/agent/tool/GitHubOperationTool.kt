@@ -175,12 +175,64 @@ internal class GitHubOperationTool(
         if (operation in names && ToolArgumentValidator.errors(arguments, definition.inputSchema).isNotEmpty()) {
             return executeNormalized(callId, arguments)
         }
+        if (operation == "github_search" &&
+            backend is GitHubTool &&
+            "view_cursor" !in arguments &&
+            nativeArguments(operation, arguments)?.get("action") == JsonPrimitive("search_repository")
+        ) {
+            dev.chungjungsoo.gptmobile.data.github.GitHubSearchArguments.failure(arguments)?.let { failure ->
+                return searchArgumentRejection(callId, arguments, failure)
+            }
+        }
         val normalized = try {
             if ("view_cursor" in arguments || operation == "github_repository") arguments else (backend as? GitHubTool)?.normalizeOperationRepository(arguments) ?: arguments
         } catch (invalid: IllegalArgumentException) {
             return argumentPrecheck(callId, invalid.message.orEmpty(), "GITHUB_REPOSITORY_INPUT_REJECTED")
         }
         return dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.rebindRepositoryArguments(executeNormalized(callId, normalized), definition.name, normalized, arguments)
+    }
+
+    private suspend fun searchArgumentRejection(callId: String, arguments: JsonObject, failure: dev.chungjungsoo.gptmobile.data.github.GitHubSearchArgumentFailure): AgentToolResult {
+        val errors = listOf(requireNotNull(failure.message))
+        val rejected = currentCoroutineContext()[ToolArgumentRepairScope]?.budget?.rejection(callId, definition, arguments, errors)
+            ?: ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, errors)
+        val correction = arguments.takeIf {
+            failure.rule == dev.chungjungsoo.gptmobile.data.github.GitHubSearchArgumentFailure.Rule.FUZZY_IDENTIFIER &&
+                it.keys.none { key -> key in setOf("view_cursor", "search_id") } &&
+                it["index_cursor"] in setOf(null, JsonPrimitive(0)) &&
+                it["page"] in setOf(null, JsonPrimitive(1))
+        }?.let { JsonObject((it - "fuzzy_threshold") + ("fuzzy_match" to JsonPrimitive(false))) }
+        val result = rejected.copy(
+            content = ToolResultContent.Json(
+                buildJsonObject {
+                    put("schema", "github.argument-rejection.v1")
+                    put("operation", operation)
+                    put("error_code", "INVALID_ARGUMENTS")
+                    put("message", requireNotNull(failure.message))
+                    correction?.let { corrected ->
+                        put(
+                            "correction_call",
+                            buildJsonObject {
+                                put("tool", definition.name)
+                                put("arguments", corrected)
+                            }
+                        )
+                    }
+                }
+            ),
+            executionReceipt = JsonObject(
+                rejected.executionReceipt.orEmpty() + buildJsonObject {
+                    put("reason_code", "TOOL_ARGUMENT_CONSTRAINT_REJECTED")
+                    put("native_action", "search_repository")
+                    put("validation_rule", failure.rule.name)
+                    put("validation_expected", failure.expected.name)
+                    put("invalid_field_count", 1)
+                    put("invalid_fields", JsonArray(listOf(JsonPrimitive(failure.field))))
+                    put("validation_field_names", JsonArray(listOf(JsonPrimitive(failure.field))))
+                }
+            )
+        )
+        return searchValidationOwner?.capture(result, definition.name, arguments, definition.inputSchema) ?: result
     }
 
     private suspend fun executeNormalized(callId: String, arguments: JsonObject): AgentToolResult {
@@ -656,7 +708,14 @@ internal class GitHubOperationTool(
         } else {
             null
         }
-        return retainSavedView(views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance, sourceCorrection = sourceCorrection))
+        val saved = views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance, sourceCorrection = sourceCorrection)
+        val frontier = if (operation == "github_search" && backend is GitHubTool && !saved.isError && body != null) {
+            val source = (saved.content as? ToolResultContent.Json)?.value as? JsonObject
+            dev.chungjungsoo.gptmobile.data.github.GitHubSearchFrontier.capture(definition.name, effectiveArguments, body, dev.chungjungsoo.gptmobile.data.github.GitHubSearchFrontier.recipes(source, saved.executionReceipt))
+        } else {
+            null
+        }
+        return retainSavedView(if (frontier == null) saved else saved.copy(executionReceipt = JsonObject(saved.executionReceipt.orEmpty() + ("search_frontier" to frontier))))
     }
 
     private fun argumentPrecheck(callId: String, message: String, reason: String) = AgentToolResult(

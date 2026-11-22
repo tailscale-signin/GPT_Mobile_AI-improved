@@ -4677,6 +4677,7 @@ class ChatRepositoryImpl(
         sourceMessageId: Int?,
         callLimit: Int,
         executionCallLimit: Int,
+        verificationOnlyRequested: Boolean,
         validateSavedEvidence: suspend () -> Boolean
     ): Pair<String, dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook?> {
         // Recovery controls belong to the current instruction, never the immutable criteria.
@@ -4718,7 +4719,7 @@ class ChatRepositoryImpl(
                     activePointer
                 ) { binding -> workspace?.protectedSynthesisCheckpoint("github-evidence:$binding:task_contract") }
             }
-            check(previous != null || !dev.chungjungsoo.gptmobile.data.github.GitHubNativeContinuation.matches(originalUserRequest)) {
+            check(previous != null || (!dev.chungjungsoo.gptmobile.data.github.GitHubNativeContinuation.matches(originalUserRequest) && dev.chungjungsoo.gptmobile.data.github.GitHubExecutionLimits.renewedDuration(originalUserRequest) == null)) {
                 "GITHUB_TASK_IDENTITY_CHANGED: The original approval task's evidence contract is unavailable. Its saved mutation will not be repeated or given a new budget."
             }
             val previousTask = previous?.acceptedTask.orEmpty()
@@ -4741,6 +4742,8 @@ class ChatRepositoryImpl(
                 )
             }
             check(binding.matches(Regex("[a-f0-9]{64}"))) { "Saved task identity is invalid" }
+            val evidenceFence = agentPersistenceDao.rawRecoveryRun(runId)?.ownershipFence
+            val persistentEvidence = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false
             if (reuse && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(originalUserRequest)) {
                 githubEffectiveTask = if (dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.followUp(originalUserRequest)) {
                     dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.resolved(originalUserRequest, previousTask)
@@ -4759,8 +4762,8 @@ class ChatRepositoryImpl(
                     put("source_message_id", originalSource)
                     put("root_work_id", turnKey)
                 }
-                workspace?.saveProtectedSynthesisCheckpoint(pointerKey, user.chatId, runId, pointer)
-                workspace?.saveProtectedSynthesisCheckpoint(sourcePointerKey, user.chatId, runId, pointer)
+                workspace?.saveProtectedSynthesisCheckpoint(pointerKey, user.chatId, runId, pointer, expectedRunFence = evidenceFence)
+                workspace?.saveProtectedSynthesisCheckpoint(sourcePointerKey, user.chatId, runId, pointer, expectedRunFence = evidenceFence)
             }
             dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook(
                 binding = binding,
@@ -4771,6 +4774,19 @@ class ChatRepositoryImpl(
                 authorizationRevision = dispatchAuthority.revision,
                 sourceRunId = runId,
                 inferenceProfile = platform,
+                requireAcceptedContract = true,
+                authorizeTaskContinuation = {
+                    dispatchAuthority.validate()
+                    val run = agentPersistenceDao.rawRecoveryRun(runId)
+                    val owner = run?.let { agentPersistenceDao.rawRecoveryMessage(it.assistantMessageId) }
+                    validateSavedEvidence() &&
+                        run != null &&
+                        owner != null &&
+                        run.chatId == user.chatId &&
+                        owner.chatId == user.chatId &&
+                        owner.currentRunId == runId &&
+                        owner.ownershipFence == run.ownershipFence
+                },
                 latestDeadlineGrant = {
                     workspace?.dao?.githubTaskEvidence(user.chatId, "github-evidence:$binding:deadline_grant_")
                         ?.maxByOrNull { it.id.substringAfterLast('_').toIntOrNull() ?: 0 }
@@ -4804,7 +4820,8 @@ class ChatRepositoryImpl(
                         .orEmpty().map { it.id.substringAfterLast(':') }
                 },
                 save = { id, value ->
-                    workspace?.saveProtectedSynthesisCheckpoint("github-evidence:$binding:$id", user.chatId, runId, value, appendOnly = !dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.currentSnapshot(id))
+                    val retained = workspace?.saveProtectedSynthesisCheckpoint("github-evidence:$binding:$id", user.chatId, runId, value, appendOnly = !dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.currentSnapshot(id), expectedRunFence = evidenceFence)
+                    if (retained == false && persistentEvidence) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
                     val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
                     try {
                         githubContext?.let { engineeringMemory?.observe(it, user.chatId, value, preferences) }
@@ -4828,15 +4845,15 @@ class ChatRepositoryImpl(
                             put("source_message_id", originalSource)
                             put("root_work_id", turnKey)
                         }
-                        workspace?.saveProtectedSynthesisCheckpoint(destinationKey, user.chatId, runId, pointer)
-                        workspace?.saveProtectedSynthesisCheckpoint(dev.chungjungsoo.gptmobile.data.github.GitHubTaskEvidenceIdentity.sourceKey(destinationKey, originalSource), user.chatId, runId, pointer)
+                        workspace?.saveProtectedSynthesisCheckpoint(destinationKey, user.chatId, runId, pointer, expectedRunFence = evidenceFence)
+                        workspace?.saveProtectedSynthesisCheckpoint(dev.chungjungsoo.gptmobile.data.github.GitHubTaskEvidenceIdentity.sourceKey(destinationKey, originalSource), user.chatId, runId, pointer, expectedRunFence = evidenceFence)
                     }
                 }
             ).also {
                 it.restore()
                 val definitions = evidenceTools.filter { tool -> tool.nativeGitHub }.map { tool -> tool.tool.definition }
                 it.retainTaskContract(if (reuse) previousTask else githubEffectiveTask, sourceMessageId ?: user.id, definitions, callLimit, executionCallLimit)
-                if (reuse) it.authorizeTimeWindow(originalUserRequest, user.id, user.createdAt)
+                if (reuse) it.authorizeTimeWindow(originalUserRequest, user.id, user.createdAt, executionAllowed = !verificationOnlyRequested && providerResumeContext == null)
                 it.retainPolicy(dispatchAuthority.revision, definitions)
             }
         }
@@ -5104,6 +5121,7 @@ class ChatRepositoryImpl(
                 outputContinuation?.restoreToolResults(exchanges)
             },
             remainingTaskMillis = verifiedEvidence?.let { it::remainingTaskMillis },
+            taskAdmissionFailure = verifiedEvidence?.let { it::taskAdmissionFailure },
             diagnosticRunId = dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionHistory.runIdWithoutPriorEvents(runId, agentPersistenceDao::rawMaxToolEventSequence),
             prepareToolSelection = if (catalog != null && verifiedEvidence != null) {
                 {
@@ -5927,7 +5945,7 @@ class ChatRepositoryImpl(
         val (githubEffectiveTask, verifiedEvidence) = prepareGitHubTaskEvidence(
             platform, latestUser, runId, turnKey, chatToolConfig?.github,
             authorizedEvidenceTools, evidenceCatalog, dispatchAuthority, originalUserRequest, acceptanceRequest, requiresNativeAcceptance,
-            toolBudgetSourceMessageId, customRunner.limits.maxToolCalls, dev.chungjungsoo.gptmobile.data.agent.ToolBudgetPolicy.executionLimit(customRunner.limits), validateSavedEvidence
+            toolBudgetSourceMessageId, customRunner.limits.maxToolCalls, dev.chungjungsoo.gptmobile.data.agent.ToolBudgetPolicy.executionLimit(customRunner.limits), verificationOnlyRequested, validateSavedEvidence
         )
         if (verificationOnlyRequested && (verifiedEvidence == null || chatToolConfig?.combined != null)) {
             send(

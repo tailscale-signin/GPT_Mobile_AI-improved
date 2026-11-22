@@ -30,6 +30,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderFailureReportTest {
+    @Test fun semanticStreamCauseSurvivesReceiptAndPublicProjection() {
+        for ((upstream, expected) in listOf("insufficient_quota" to "BILLING_UNAVAILABLE", "server_error" to "PROVIDER_UNAVAILABLE")) {
+            val event = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(upstream, "private prompt", httpStatus = 200, streamEventType = "response.failed", providerResponseId = "resp_fixture")
+            val failure = ProviderEvent.Failed(event.message, errorCode = event.code, failureDetails = event.failureDetails)
+            val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+            assertEquals(expected, receipt.errorCode)
+            assertEquals(FailureDomain.PROVIDER, receipt.failureDomain)
+            val capture = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", ProviderFailureReport.fields("run", failure, receipt), 1000).diagnostics)
+            assertEquals(JsonPrimitive(expected), capture.values["provider_failure_code"])
+            assertEquals(JsonPrimitive("response.failed"), capture.values["stream_event_type"])
+            assertTrue(capture.values["provider_response_id_hash"] != null)
+            assertFalse(capture.toString().contains("resp_fixture"))
+        }
+        val admission = ProviderEvent.Failed(
+            "Task contract unavailable",
+            errorCode = "GITHUB_TASK_IDENTITY_CHANGED",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "admission")
+                put("dispatched", false)
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(profile, "primary", admission)
+        assertEquals("GITHUB_TASK_IDENTITY_CHANGED", receipt.errorCode)
+        assertEquals(ProviderFailureStage.ADMISSION, receipt.stage)
+        assertEquals(FailureDomain.APPLICATION_VERIFICATION, receipt.failureDomain)
+    }
+
     @Test fun internalVerificationFaultKeepsItsCodeDomainAndPhaseThroughProviderReporting() {
         val failure = dev.chungjungsoo.gptmobile.data.github.GitHubVerificationFault.partial(
             ClassCastException("private payload"),

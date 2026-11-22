@@ -119,6 +119,30 @@ class GitHubOutputContinuationSessionTest {
         assertEquals(JsonPrimitive(0), failure.failureDetails?.get("reasoning_bytes"))
     }
 
+    @Test fun emptyOutputFailureRetainsPhysicalAllowanceUsageAndStopPredicateAcrossRestart() = runBlocking {
+        var checkpoint: JsonObject? = null
+        val generated = session(
+            ProviderEvent.RequestConfigured(effectiveOutputTokens = 4096, serializedOutputTokens = 2048),
+            ProviderEvent.ThinkingDelta("Reasoning without visible output"),
+            ProviderEvent.Usage(outputTokens = 2048, reasoningTokens = 2048, finishReason = "length", invocationId = "limited-invocation"),
+            limited
+        )
+        val failure = GitHubOutputContinuationSession(generated, maxContinuations = 2, saveCheckpoint = { checkpoint = it }) { _, _, _ ->
+            error("Exhausted output without novelty cannot silently repeat the request")
+        }.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        val details = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("OUTPUT_ALLOWANCE_WITHOUT_NOVELTY"), details["no_output_stop_reason"])
+        assertEquals(JsonPrimitive(0), details["continuation_attempt"])
+        assertEquals(JsonPrimitive(2), details["continuation_limit"])
+        assertEquals(JsonPrimitive(2048), details["output_tokens"])
+        assertEquals(JsonPrimitive(2048), details["reasoning_tokens"])
+        assertEquals(JsonPrimitive(4096), details["effective_output_tokens"])
+        assertEquals(JsonPrimitive(2048), details["serialized_output_tokens"])
+        val restored = GitHubOutputContinuationSession(session(), readCheckpoint = { checkpoint }) { _, _, _ -> error("The saved stop remains in force") }
+            .streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
+        assertEquals(details, restored.failureDetails)
+    }
+
     @Test fun completedDuplicateAndEmptyOutputLimitHaveDistinctOutcomesWithoutAnotherRepair() = runBlocking {
         val draft = "A sufficiently long retained answer with exact prior findings."
         val duplicate = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta(draft), limited)) { _, _, _ ->

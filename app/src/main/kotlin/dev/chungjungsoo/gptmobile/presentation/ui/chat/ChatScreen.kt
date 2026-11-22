@@ -351,6 +351,7 @@ private fun ChatScreenContent(
     val academicGateways by chatViewModel.academicGateways.collectAsStateWithLifecycle()
     val invocationDiagnostics by chatViewModel.invocationDiagnostics.collectAsStateWithLifecycle()
     val invocationsByRun = remember(invocationDiagnostics) { invocationDiagnostics.groupBy { it.parentRunId } }
+    val runsByTurn = remember(agentRunsById) { agentRunsById.values.groupBy { it.userMessageId } }
     val hasTargetMessage = chatViewModel.targetMessageId > 0
     val hasTargetAssistant = hasTargetAssistantMessage(groupedMessages.assistantMessages, chatViewModel.targetMessageId)
     var revealedArchivedTurns by rememberSaveable(chatRoom.id) { mutableIntStateOf(0) }
@@ -454,6 +455,7 @@ private fun ChatScreenContent(
     val disabledPlatformUids by chatViewModel.disabledPlatformUids.collectAsStateWithLifecycle()
     val nextMessageProfileUid by chatViewModel.nextMessageProfileUid.collectAsStateWithLifecycle()
     val activePlatformUids by chatViewModel.activePlatformUids.collectAsStateWithLifecycle()
+    val activePlatformUidSet = remember(activePlatformUids) { activePlatformUids.toSet() }
     val isChatTitleDialogOpen by chatViewModel.isChatTitleDialogOpen.collectAsStateWithLifecycle()
     val isChatModelDialogOpen by chatViewModel.isChatModelDialogOpen.collectAsStateWithLifecycle()
     val messageEditSession by chatViewModel.messageEditSession.collectAsStateWithLifecycle()
@@ -1031,6 +1033,25 @@ private fun ChatScreenContent(
                     val replyVisible by remember(listState, pairKey) {
                         derivedStateOf { listState.layoutInfo.visibleItemsInfo.any { it.key == pairKey } }
                     }
+                    val rowMessages = remember(pairKey) { ChatValueProjection<List<MessageV2>>() }.retain(groupedMessages.assistantMessages.getOrNull(index).orEmpty())
+                    val turnRuns = runsByTurn[message.id].orEmpty()
+                    val rowRunIds = remember(rowMessages, turnRuns) {
+                        buildSet {
+                            turnRuns.forEach { add(it.runId) }
+                            rowMessages.forEach { reply ->
+                                reply.currentRunId?.let(::add)
+                                reply.effectiveRunId()?.let(::add)
+                                reply.revisions.mapNotNullTo(this) { it.runId }
+                                reply.effectiveCombinedSources().mapNotNullTo(this) { it.attemptId }
+                            }
+                        }
+                    }
+                    val rowRuns = remember(pairKey) { ChatRunProjection<AgentRun>() }.select(rowRunIds, agentRunsById)
+                    val rowWaits = remember(pairKey) { ChatRunProjection<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline>() }.select(rowRunIds, providerWaitDeadlines)
+                    val rowActiveRuns = remember(pairKey) { ChatRunProjection<ActiveAgentRun>() }.select(rowRunIds, activeAgentRuns)
+                    val rowNotices = remember(pairKey) { ChatRunProjection<List<ChatRunNotice>>() }.select(rowRunIds, runNoticesById)
+                    val rowEvents = remember(pairKey) { ChatRunProjection<List<ToolEvent>>() }.select(rowRunIds, toolEventsByRun)
+                    val rowInvocations = remember(pairKey) { ChatRunProjection<List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>>() }.select(rowRunIds, invocationsByRun)
                     GitHubLineScope(renderedLines.takeIf { index == lastMessageIndex }, pairKey) {
                         ChatMessagePair(
                             awaitingGitHubTurn = index == lastMessageIndex && awaitingGitHubTurn,
@@ -1042,25 +1063,25 @@ private fun ChatScreenContent(
                             githubAssistantReferences = githubResponseLinkContext,
                             messageIndex = index,
                             message = message,
-                            assistantMessages = groupedMessages.assistantMessages.getOrNull(index) ?: emptyList(),
-                            agentRunsById = agentRunsById,
-                            providerWaitDeadlines = providerWaitDeadlines,
-                            activeAgentRuns = activeAgentRuns,
-                            runNoticesById = runNoticesById,
-                            toolEventsByRun = toolEventsByRun,
+                            assistantMessages = rowMessages,
+                            agentRunsById = rowRuns,
+                            providerWaitDeadlines = rowWaits,
+                            activeAgentRuns = rowActiveRuns,
+                            runNoticesById = rowNotices,
+                            toolEventsByRun = rowEvents,
                             platformIndexState = indexStates.getOrElse(index) { 0 },
-                            loadingStates = loadingStates,
+                            loadingStates = if (index == lastMessageIndex) loadingStates else emptyList(),
                             enabledPlatformsInChat = chatViewModel.enabledPlatformsInChat,
                             enabledPlatformLookup = enabledPlatformLookup,
                             disabledPlatformUids = disabledPlatformUids,
-                            activePlatformUids = activePlatformUids.toSet(),
+                            activePlatformUids = activePlatformUidSet,
                             canUseChat = canUseChat,
                             isIdle = isIdle,
                             isActiveMessage = index == lastMessageIndex,
                             maximumUserChatBubbleWidth = maximumUserChatBubbleWidth,
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
                             debugMode = debugMode,
-                            invocationsByRun = invocationsByRun,
+                            invocationsByRun = rowInvocations,
                             debugSettings = featureSettings,
                             debugMemorySources = debugMemorySources,
                             showReasoning = featureSettings.showReasoning,
@@ -2092,9 +2113,12 @@ internal fun ChatMessagePair(
             message.content
         }
     }
+    val rowTiming = remember(selectedRunId, assistantMessages.size) {
+        Modifier.diagnosticFrameTiming(CombinedOperationOwner(screen = "Chat", runId = selectedRunId, uiContext = UiOperationContext("ChatTurn", itemCount = assistantMessages.size)))
+    }
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
         Column(
-            modifier = Modifier
+            modifier = Modifier.then(rowTiming)
                 .fillMaxWidth()
                 .onSizeChanged {
                     if (targetAssistantIndex >= 0) onTargetResponseOffset(it.height + responseInsetPx)

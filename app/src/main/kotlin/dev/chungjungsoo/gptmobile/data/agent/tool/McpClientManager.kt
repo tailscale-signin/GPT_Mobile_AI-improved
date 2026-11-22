@@ -844,6 +844,7 @@ class McpClientManager internal constructor(
                 mapOf(
                     "connection" to connectionUid,
                     "operation_id" to observation.operationId,
+                    "incident_id" to observation.operationId,
                     "mcpPhase" to if (stage == "discovery") {
                         "discovery"
                     } else if (stage == "execution") {

@@ -343,7 +343,12 @@ internal class GitHubOutputContinuationSession(
                 (failure?.transportComplete == true || failure == null && completed) &&
                 continuationPermitted
             if (safeBoundary && novel.isBlank() && (limited || failure == null && completed)) {
-                val repair = noOutputProgress.observe(generated.text, draft, generated.reasoningBytes, finishReason, generated.invocationId, evidenceDigest, limited)
+                val repair = noOutputProgress.observe(
+                    generated.text, draft, generated.reasoningBytes, finishReason, generated.invocationId, evidenceDigest, limited,
+                    continuationAttempt = attempts, continuationLimit = maxContinuations,
+                    outputTokens = generated.outputTokens, reasoningTokens = generated.reasoningTokens,
+                    effectiveOutputTokens = generated.effectiveOutputTokens, serializedOutputTokens = generated.serializedOutputTokens
+                )
                 if (repair) {
                     needsContinuation = true
                     claimContinuation = false
@@ -393,7 +398,12 @@ internal class GitHubOutputContinuationSession(
                 return@flow
             }
             if (needsContinuation && calls.isEmpty() && novel.isBlank()) {
-                noOutputProgress.observe(generated.text, draft, generated.reasoningBytes, finishReason, generated.invocationId, evidenceDigest, limited, allowRepair = false)
+                noOutputProgress.observe(
+                    generated.text, draft, generated.reasoningBytes, finishReason, generated.invocationId, evidenceDigest, limited, allowRepair = false,
+                    continuationAttempt = attempts, continuationLimit = maxContinuations,
+                    outputTokens = generated.outputTokens, reasoningTokens = generated.reasoningTokens,
+                    effectiveOutputTokens = generated.effectiveOutputTokens, serializedOutputTokens = generated.serializedOutputTokens
+                )
                 val noProgress = noOutputProgress.failure(draft)
                 save("BLOCKED_NO_PROGRESS", failure = noProgress)
                 emit(noProgress)
@@ -482,6 +492,10 @@ internal class GitHubOutputContinuationSession(
         var failure: ProviderEvent.Failed? = null
         var receivedToolResult = false
         var reasoningBytes = 0L
+        var outputTokens: Int? = null
+        var reasoningTokens: Int? = null
+        var effectiveOutputTokens: Int? = null
+        var serializedOutputTokens: Int? = null
         val invocationIds = linkedSetOf<String>()
         var savedAt = 0
         try {
@@ -509,7 +523,14 @@ internal class GitHubOutputContinuationSession(
                     }
                     is ProviderEvent.Usage -> {
                         finishReason = event.finishReason ?: finishReason
+                        event.outputTokens?.takeIf { it >= 0 }?.let { outputTokens = it }
+                        event.reasoningTokens?.takeIf { it >= 0 }?.let { reasoningTokens = it }
                         event.invocationId?.let(invocationIds::add)
+                        emit(event)
+                    }
+                    is ProviderEvent.RequestConfigured -> {
+                        event.effectiveOutputTokens?.takeIf { it > 0 }?.let { effectiveOutputTokens = it }
+                        event.serializedOutputTokens?.takeIf { it > 0 }?.let { serializedOutputTokens = it }
                         emit(event)
                     }
                     is ProviderEvent.ThinkingDelta -> {
@@ -536,7 +557,7 @@ internal class GitHubOutputContinuationSession(
             }
             throw error
         }
-        return GeneratedSegment(segment.toString(), segmentLineage.lineage, calls, completed, finishReason, failure, receivedToolResult, reasoningBytes, invocationIds.singleOrNull())
+        return GeneratedSegment(segment.toString(), segmentLineage.lineage, calls, completed, finishReason, failure, receivedToolResult, reasoningBytes, invocationIds.singleOrNull(), outputTokens, reasoningTokens, effectiveOutputTokens, serializedOutputTokens)
     }
 
     private suspend fun loadCheckpointForRound(
@@ -782,7 +803,11 @@ internal class GitHubOutputContinuationSession(
         val failure: ProviderEvent.Failed?,
         val receivedToolResult: Boolean,
         val reasoningBytes: Long,
-        val invocationId: String?
+        val invocationId: String?,
+        val outputTokens: Int?,
+        val reasoningTokens: Int?,
+        val effectiveOutputTokens: Int?,
+        val serializedOutputTokens: Int?
     )
 
     private data class ContinuationEvidenceDigests(

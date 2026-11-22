@@ -131,13 +131,15 @@ internal class GitHubVerifiedSession(
             emitAll(deliverRetainedReport())
             return@flow
         }
-        if (evidence.remainingTaskMillis() == 0L) {
+        val admissionFailure = evidence.taskAdmissionFailure()
+        if (admissionFailure != null) {
+            val deadlineReached = admissionFailure.failureDetails?.get("stop_reason") == JsonPrimitive("ACCEPTED_TASK_DEADLINE_REACHED")
             emitAll(
                 publish(
                     null,
-                    GitHubAcceptancePublicationEvidence.Entry.TASK_DEADLINE,
-                    failureCode = "GITHUB_TASK_INCOMPLETE",
-                    originalFailure = observeExpiredDeadline(GitHubExecutionLimits.expiredTaskFailure(GitHubExecutionLimits.DeadlineCheck.VERIFIED_SESSION_ENTRY))
+                    if (deadlineReached) GitHubAcceptancePublicationEvidence.Entry.TASK_DEADLINE else GitHubAcceptancePublicationEvidence.Entry.RETAINED_FAILURE,
+                    failureCode = admissionFailure.errorCode,
+                    originalFailure = if (deadlineReached) observeExpiredDeadline(admissionFailure) else admissionFailure
                 )
             )
             return@flow
@@ -551,8 +553,8 @@ internal class GitHubVerifiedSession(
         if (openExecutionContinuation != null && replannedReader == null && latest != null && readProgress.replan(latest, completedDecisionMillis)) {
             val saved = evidence.snapshot().first
             val prompt = GitHubExecutionContinuation.prompt(task, currentRequest, saved, evidence.diagnostic()) +
-                "\nOverlapping source reads have stopped adding evidence. Use retained excerpts to propose a concrete edit, or identify the specific missing prerequisite."
-            progress("Reusing the saved source and checking what the repair still needs")
+                "\n" + GitHubExecutionContinuation.replanInstruction(task, currentRequest)
+            progress("Reusing the saved findings and checking the remaining evidence")
             replannedReader = openExecutionContinuation.invoke(prompt)
             replanBoundary = latest.calls.first().callId
         }

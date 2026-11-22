@@ -17,6 +17,66 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubRemoteContinuationTest {
+    @Test fun exhaustiveSearchUsesOnlyAnIssuedNativeFrontierAfterCompactionAndNeverRepeatsIt() {
+        val tool = GitHubOperationTool.definition("github_search", "github_search__native")
+        val arguments = buildJsonObject {
+            put("query", "needle")
+            put("owner", "owner")
+            put("repo", "repo")
+        }
+        val data = buildJsonObject {
+            put("search_id", "b".repeat(64))
+            put("commit_sha", "a".repeat(40))
+            put("interval_start", 0)
+            put("interval_end", 4)
+            put("total_candidate_files", 10)
+            put("returned", 0)
+            put("complete", false)
+            put("has_more", true)
+        }
+        val next = JsonObject(arguments + mapOf("index_cursor" to JsonPrimitive(4), "search_id" to data.getValue("search_id"), "commit_sha" to data.getValue("commit_sha")))
+        val recipe = buildJsonObject {
+            put("tool", tool.name)
+            put("arguments", next)
+        }
+        val frontier = requireNotNull(dev.chungjungsoo.gptmobile.data.github.GitHubSearchFrontier.capture(tool.name, arguments, data, listOf(recipe)))
+        val source = buildJsonObject {
+            put("schema", "github.result.v1")
+            put("operation", "github_search")
+            put("data", data)
+            put("continuation_call", recipe)
+        }
+        val call = ProviderEvent.ToolCall("search-first", tool.name, arguments)
+        val result = AgentToolResult(
+            call.callId,
+            requireNotNull(GitHubReplayRecovery.compact(ToolResultContent.Json(source), 4096, consumed = true)),
+            false,
+            executionReceipt = buildJsonObject {
+                put("schema", "github.dispatch.v1")
+                put("resolved_arguments", JsonObject(arguments + ("action" to JsonPrimitive("search_repository"))))
+                put(
+                    "resource_context",
+                    buildJsonObject {
+                        put("owner", "owner")
+                        put("repo", "repo")
+                    }
+                )
+                put("search_frontier", frontier)
+            }
+        )
+        val exchanges = listOf(AgentToolExchange(listOf(call), listOf(result)))
+        assertNull(GitHubReplayRecovery.nextRemoteRead(exchanges, listOf(tool)))
+        val state = GitHubReplayRecovery.State(listOf(call))
+        val continuation = requireNotNull(GitHubReplayRecovery.nextRemoteRead(exchanges, listOf(tool), state, allowSearchContinuation = true))
+        assertEquals(next, continuation.arguments)
+        state.record(listOf(continuation))
+        assertNull(GitHubReplayRecovery.nextRemoteRead(exchanges, listOf(tool), state, allowSearchContinuation = true))
+        val exhausted = GitHubReplayRecovery.State((1..32).map { ProviderEvent.ToolCall("remote-result-consume-$it", tool.name, buildJsonObject { put("index_cursor", it) }) })
+        assertNull(GitHubReplayRecovery.nextRemoteRead(exchanges, listOf(tool), exhausted, allowSearchContinuation = true))
+        val unbound = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) - "resource_context"))
+        assertNull(GitHubReplayRecovery.nextRemoteRead(listOf(AgentToolExchange(listOf(call), listOf(unbound))), listOf(tool), allowSearchContinuation = true))
+    }
+
     @Test fun aSharedPayloadPreservesProvenCurrentPhysicalReads() {
         val shared = AgentToolResult(
             "same",

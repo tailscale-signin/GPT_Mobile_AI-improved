@@ -550,6 +550,13 @@ object ChatDatabaseV2Migrations {
         override fun migrate(db: SupportSQLiteDatabase) = GatewaySchema51.migrate(db)
     }
 
+    /** Preserve timestamp and rowid ordering without sorting every diagnostic page. */
+    val MIGRATION_51_52 = object : Migration(51, 52) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_workspace_records_chatId_updatedAt` ON `workspace_records` (`chatId`, `updatedAt`)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -592,7 +599,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_48_49,
         MIGRATION_49_50,
         MIGRATION_50_51,
-        MIGRATION_49_51
+        MIGRATION_49_51,
+        MIGRATION_51_52
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

@@ -441,11 +441,13 @@ class OpenAIAPIImpl @Inject constructor(
                                     config.freeDiagnostics?.category = category
                                     val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
                                     val uncertainToolWork = dispatchRetryGuard.remoteOutcomeUnknown || decoded.gatewayProgress?.event in setOf("tool_started", "tool_completed", "tool_failed", "remote_tool_handoff")
-                                    val reportedMessage = contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(responseBody, error.message, config.token), error.code)
-                                    val details = structuredProviderFailure(responseBody, response.status.value)
+                                    val structured = structuredProviderFailure(responseBody, response.status.value)
+                                    val semantic = providerPayloadSemanticFailure(error.copy(type = error.type ?: rateLimitErrorType(responseBody)), response.status.value, structured, responseObserver.snapshot().serverRequestId, receivedAssistantPayload || decoded.hasAssistantStreamPayload(), decoded.id)
+                                    val reportedMessage = semantic?.message ?: contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(responseBody, error.message, config.token), error.code)
+                                    val details = semantic?.failureDetails ?: structured
                                     error.copy(
                                         message = if (uncertainToolWork) uncertainGatewayFailureMessage(reportedMessage) else reportedMessage,
-                                        code = if (uncertainToolWork) "GATEWAY_OUTCOME_UNKNOWN" else contract?.code ?: error.code,
+                                        code = if (uncertainToolWork) "GATEWAY_OUTCOME_UNKNOWN" else semantic?.code ?: contract?.code ?: error.code,
                                         type = if (uncertainToolWork) {
                                             "gateway_outcome_unknown"
                                         } else if (contract != null) {
@@ -453,7 +455,7 @@ class OpenAIAPIImpl @Inject constructor(
                                         } else {
                                             category.name.lowercase()
                                         },
-                                        retryable = if (uncertainToolWork || contract != null || hasRetainedGatewayAttempts(details)) false else error.retryable,
+                                        retryable = if (uncertainToolWork || contract != null || hasRetainedGatewayAttempts(details)) false else (semantic?.failureDetails?.get("retryable") as? JsonPrimitive)?.booleanOrNull ?: error.retryable,
                                         failureDetails = if (uncertainToolWork) uncertainGatewayFailureDetails(details, responseObserver.snapshot(), error.code) else details
                                     )
                                 }
@@ -531,10 +533,12 @@ class OpenAIAPIImpl @Inject constructor(
                             }
                             val streamError = decoded.error
                             val streamFailureDetails = streamError?.let { structuredProviderFailure(data, response.status.value) }
+                            val semantic = streamError?.let { providerPayloadSemanticFailure(it.copy(type = it.type ?: rateLimitErrorType(data)), response.status.value, streamFailureDetails, responseObserver.snapshot().serverRequestId, receivedAssistantPayload || decoded.hasAssistantStreamPayload(), decoded.id) }
                             val retainedGatewayAttempts = hasRetainedGatewayAttempts(streamFailureDetails)
                             if (streamError != null &&
                                 !retainedGatewayAttempts &&
-                                (streamError.code == "429" || rateLimitErrorType(data) == "rate_limit_exceeded") &&
+                                semantic?.code == "429" &&
+                                semantic.failureDetails?.get("retryable") != JsonPrimitive(false) &&
                                 currentCoroutineContext()[ProviderWaitContext]?.durableRateLimits == true &&
                                 !dispatchRetryGuard.remoteOutcomeUnknown &&
                                 !receivedGatewayToolActivity &&
@@ -552,7 +556,9 @@ class OpenAIAPIImpl @Inject constructor(
                                     errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
                                     errorType = rateLimitErrorType(data),
                                     limitSource = OpenRouterRateLimitScopes.sourceFromBody(data),
-                                    checkpointContinuationAllowed = true
+                                    checkpointContinuationAllowed = true,
+                                    observedHttpStatus = response.status.value,
+                                    serverRequestId = responseObserver.snapshot().serverRequestId
                                 )
                             }
                             val parsingTiming = responseObserver.parsed(decoded.hasAssistantGeneratedOutput())
@@ -561,7 +567,7 @@ class OpenAIAPIImpl @Inject constructor(
                             if (decoded.gatewayProgress?.event in setOf("tool_started", "tool_completed", "tool_failed", "remote_tool_handoff")) {
                                 receivedGatewayToolActivity = true
                             }
-                            if (!retainedGatewayAttempts && !receivedAssistantPayload && !receivedGatewayToolActivity && !dispatchRetryGuard.remoteOutcomeUnknown) {
+                            if (semantic == null && !retainedGatewayAttempts && !receivedAssistantPayload && !receivedGatewayToolActivity && !dispatchRetryGuard.remoteOutcomeUnknown) {
                                 decoded.error?.let { error ->
                                     if (error.retryable != false && ResilientStreamingClient.isRetryable(IllegalStateException("${error.code.orEmpty()} ${error.message}"))) {
                                         throw java.io.IOException("Gateway/provider transient error: ${error.message}")
@@ -571,14 +577,14 @@ class OpenAIAPIImpl @Inject constructor(
                             val chunk = decoded.error?.let { error ->
                                 val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
                                 config.freeDiagnostics?.category = category
-                                val details = streamFailureDetails
+                                val details = semantic?.failureDetails ?: streamFailureDetails
                                 val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
                                 val uncertainToolWork = receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown
-                                val reportedMessage = contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code)
+                                val reportedMessage = semantic?.message ?: contract?.message ?: "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code)
                                 decoded.copy(
                                     error = error.copy(
                                         message = if (uncertainToolWork) uncertainGatewayFailureMessage(reportedMessage) else reportedMessage,
-                                        code = if (uncertainToolWork) "GATEWAY_OUTCOME_UNKNOWN" else contract?.code ?: error.code,
+                                        code = if (uncertainToolWork) "GATEWAY_OUTCOME_UNKNOWN" else semantic?.code ?: contract?.code ?: error.code,
                                         type = if (uncertainToolWork) {
                                             "gateway_outcome_unknown"
                                         } else if (contract != null) {
@@ -586,7 +592,7 @@ class OpenAIAPIImpl @Inject constructor(
                                         } else {
                                             category.name.lowercase()
                                         },
-                                        retryable = if (uncertainToolWork || contract != null || hasRetainedGatewayAttempts(details)) false else error.retryable,
+                                        retryable = if (uncertainToolWork || contract != null || hasRetainedGatewayAttempts(details)) false else (semantic?.failureDetails?.get("retryable") as? JsonPrimitive)?.booleanOrNull ?: error.retryable,
                                         failureDetails = if (uncertainToolWork) uncertainGatewayFailureDetails(details, responseObserver.snapshot(), error.code) else details
                                     )
                                 )
@@ -1008,6 +1014,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 // Success - read SSE stream
                                 val channel = response.bodyAsChannel()
                                 val events = ProviderEventReader(channel)
+                                var observedResponseId: String? = null
                                 while (!channel.isClosedForRead) {
                                     val line = events.readLine() ?: break
                                     val data = SseUtils.extractSseData(line) ?: continue
@@ -1022,6 +1029,12 @@ class OpenAIAPIImpl @Inject constructor(
                                     } catch (_: kotlinx.serialization.SerializationException) {
                                         continue
                                     }
+                                    when (decoded) {
+                                        is ResponseCreatedEvent -> observedResponseId = decoded.response.id
+                                        is ResponseInProgressEvent -> observedResponseId = decoded.response.id
+                                        is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> observedResponseId = decoded.response.id
+                                        else -> Unit
+                                    }
                                     val errorCode = when (decoded) {
                                         is ResponseErrorEvent -> decoded.code
                                         is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> decoded.response.error?.code
@@ -1034,8 +1047,12 @@ class OpenAIAPIImpl @Inject constructor(
                                         }
                                         else -> null
                                     }
+                                    val structuredFailure = if (decoded is ResponseErrorEvent || decoded is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent) structuredResponsesFailure(data, response.status.value) else null
                                     if (semanticFailure?.kind == dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind.RATE_LIMIT &&
                                         dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.retainedProviderCode(errorCode) == null &&
+                                        dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.retainedProviderCode((structuredFailure?.get("code") as? JsonPrimitive)?.contentOrNull) == null &&
+                                        structuredFailure?.get("requires_reconciliation") != JsonPrimitive(true) &&
+                                        structuredFailure?.get("retryable") != JsonPrimitive(false) &&
                                         ProviderCooldown.durableRateLimits() &&
                                         !dispatchRetryGuard.remoteOutcomeUnknown &&
                                         !effectiveConfig.requireGatewayConversation &&
@@ -1062,10 +1079,12 @@ class OpenAIAPIImpl @Inject constructor(
                                             val classified = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
                                                 decoded.code,
                                                 reportedMessage,
-                                                details = structuredResponsesFailure(data, response.status.value),
+                                                details = structuredFailure,
                                                 httpStatus = response.status.value,
                                                 serverRequestId = responseObserver.snapshot().serverRequestId,
-                                                responsePayloadObserved = receivedResponsePayload
+                                                responsePayloadObserved = receivedResponsePayload,
+                                                streamEventType = "error",
+                                                providerResponseId = observedResponseId
                                             )
                                             if (dispatchRetryGuard.remoteOutcomeUnknown) {
                                                 classified.copy(message = uncertainGatewayFailureMessage(classified.message), code = "GATEWAY_OUTCOME_UNKNOWN", failureDetails = uncertainGatewayFailureDetails(classified.failureDetails, responseObserver.snapshot(), decoded.code))
@@ -1079,11 +1098,13 @@ class OpenAIAPIImpl @Inject constructor(
                                                 reported?.code,
                                                 effectiveConfig.readableProviderError(providerErrorDetails(data, reported?.message ?: "Response failed", effectiveConfig.token), reported?.code),
                                                 reported?.type,
-                                                details = structuredResponsesFailure(data, response.status.value),
+                                                details = structuredFailure,
                                                 httpStatus = response.status.value,
                                                 serverRequestId = responseObserver.snapshot().serverRequestId,
-                                                responsePayloadObserved = receivedResponsePayload
-                                            )
+                                                responsePayloadObserved = receivedResponsePayload,
+                                                streamEventType = "response.failed",
+                                                providerResponseId = decoded.response.id
+                                            ).copy(providerUsage = decoded.response.usage)
                                             if (dispatchRetryGuard.remoteOutcomeUnknown) {
                                                 classified.copy(
                                                     message = uncertainGatewayFailureMessage(classified.message),
@@ -1206,6 +1227,23 @@ class OpenAIAPIImpl @Inject constructor(
             )
         }
     }.flowOn(Dispatchers.IO)
+}
+
+/** Successful HTTP chat payloads share the same semantic boundary as Responses events. */
+private fun providerPayloadSemanticFailure(error: ErrorDetail, status: Int, details: JsonObject?, serverRequestId: String?, receivedPayload: Boolean, responseId: String?): ResponseErrorEvent? {
+    val failure = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.fromValues(status, error.code, error.message, error.type)
+    if (failure.kind == dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind.UNKNOWN) return null
+    val restrictions = if (error.retryable == false) JsonObject(details.orEmpty() + ("retryable" to JsonPrimitive(false))) else details
+    return dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
+        error.code,
+        error.message,
+        error.type,
+        details = restrictions,
+        httpStatus = status,
+        serverRequestId = serverRequestId,
+        responsePayloadObserved = receivedPayload,
+        providerResponseId = responseId
+    )
 }
 
 /** An explicit account allowance denial cannot become a timed HTTP 429 retry. */

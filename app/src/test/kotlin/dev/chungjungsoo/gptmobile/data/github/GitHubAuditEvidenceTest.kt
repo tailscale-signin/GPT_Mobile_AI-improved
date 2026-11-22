@@ -474,6 +474,81 @@ class GitHubAuditEvidenceTest {
         assertEquals(JsonPrimitive(false), consumed.checkpoint["source_review_verified"])
     }
 
+    @Test fun completedFourPageComparisonRemainsCompleteAfterRepeatedFirstPageAndRestart() {
+        val records = comparisonPages()
+        val before = requireNotNull(GitHubReviewComparison.plan("$task\nBaseline: $base", tools, records))
+        records["repeated-first"] = records.getValue("page-1")
+        val restored = requireNotNull(GitHubReviewComparison.plan("$task\nBaseline: $base", tools, records.toMap()))
+        assertEquals(JsonPrimitive("READ_CHANGED_SOURCE"), before.checkpoint["state"])
+        assertEquals(before.checkpoint["comparison_coverage"], restored.checkpoint["comparison_coverage"])
+        assertNull(restored.nextCall)
+        assertEquals(JsonPrimitive(false), restored.checkpoint["source_review_verified"])
+    }
+
+    @Test fun comparisonCoverageRejectsMissingPagesForeignAuthorityAndChangedRevisions() {
+        val original = comparisonPages()
+        for (replacement in listOf(
+            null,
+            JsonObject(original.getValue("page-2") + ("binding" to JsonPrimitive("another-account"))),
+            JsonObject(original.getValue("page-2") + ("tool" to JsonPrimitive("github_context__other"))),
+            JsonObject(original.getValue("page-2") + ("arguments" to JsonObject((original.getValue("page-2")["arguments"] as JsonObject) + ("commit_sha" to JsonPrimitive("c".repeat(40))))))
+        )) {
+            val records = original.toMutableMap().apply {
+                remove("page-2")
+                if (replacement != null) put("page-2", replacement)
+            }
+            val plan = requireNotNull(GitHubReviewComparison.plan("$task\nBaseline: $base", tools, records))
+            assertEquals(JsonPrimitive("COMPARISON_PAGES_PENDING"), plan.checkpoint["state"])
+            assertEquals(JsonPrimitive(false), plan.checkpoint["comparison_verified"])
+        }
+    }
+
+    @Test fun explicitLiveRefreshStartsANewComparisonGenerationWithoutDiscardingOldReceipts() {
+        val records = comparisonPages()
+        val original = requireNotNull(GitHubReviewComparison.plan("$task\nBaseline: $base", tools, records))
+        val first = records.getValue("page-1")
+        records["live-refresh"] = JsonObject(first + ("arguments" to JsonObject((first["arguments"] as JsonObject) + ("verify_live" to JsonPrimitive(true)))))
+        val refresh = requireNotNull(GitHubReviewComparison.plan("$task\nBaseline: $base", tools, records))
+        assertEquals(JsonPrimitive("COMPARISON_PAGES_PENDING"), refresh.checkpoint["state"])
+        assertNotEquals(original.checkpoint["comparison_coverage"]?.jsonObject?.get("generation"), refresh.checkpoint["comparison_coverage"]?.jsonObject?.get("generation"))
+        assertTrue(records.containsKey("page-4"))
+    }
+
+    private fun comparisonPages(): LinkedHashMap<String, JsonObject> {
+        fun arguments(page: Int, explicitDefaults: Boolean) = buildJsonObject {
+            put("action", "changes")
+            put("base_sha", base)
+            put("commit_sha", head)
+            put("page", page)
+            if (explicitDefaults) {
+                put("include_patches", false)
+                put("per_page", 100)
+            }
+        }
+        return linkedMapOf("status" to status()).apply {
+            for (page in 1..4) {
+                val result = buildJsonObject {
+                    put("base_sha", base)
+                    put("head_sha", head)
+                    put("files_total", 327)
+                    put("files", JsonArray((1..if (page == 4) 27 else 100).map { index -> buildJsonObject { put("filename", "File${(page - 1) * 100 + index}.kt") } }))
+                    put("page", page)
+                    put("has_more", page < 4)
+                    if (page < 4) {
+                        put(
+                            "continuation_call",
+                            buildJsonObject {
+                                put("tool", "github_context")
+                                put("arguments", arguments(page + 1, true))
+                            }
+                        )
+                    }
+                }
+                put("page-$page", receipt("page-$page", "github_context", arguments(page, false), result))
+            }
+        }
+    }
+
     @Test fun pendingReviewPagesRejectUnavailableOrInvalidExactDefinitions() {
         for (operation in listOf("github_pr", "github_pr_inspect", "github_context")) {
             val page = pendingReviewPage(operation)

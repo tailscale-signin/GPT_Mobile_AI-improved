@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
 
 /** Versioned user work products. Execution remains owned by agent_runs and pending_prompts. */
-@Entity(tableName = "workspace_records", foreignKeys = [ForeignKey(entity = ChatRoomV2::class, parentColumns = ["chat_id"], childColumns = ["chatId"], onDelete = ForeignKey.CASCADE)], indices = [Index("chatId"), Index("kind"), Index("runId")])
+@Entity(tableName = "workspace_records", foreignKeys = [ForeignKey(entity = ChatRoomV2::class, parentColumns = ["chat_id"], childColumns = ["chatId"], onDelete = ForeignKey.CASCADE)], indices = [Index("chatId"), Index("kind"), Index("runId"), Index(value = ["chatId", "updatedAt"])])
 @kotlinx.serialization.Serializable
 data class WorkspaceRecord(
     @PrimaryKey val id: String,

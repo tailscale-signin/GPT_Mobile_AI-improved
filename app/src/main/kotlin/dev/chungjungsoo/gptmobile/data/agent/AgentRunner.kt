@@ -122,7 +122,8 @@ class AgentRunner(
     private val replayDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val diagnosticRunId: String? = null,
     private val prepareToolSelection: (suspend () -> Unit)? = null,
-    private val verificationOnlyRequested: Boolean = false
+    private val verificationOnlyRequested: Boolean = false,
+    private val taskAdmissionFailure: (suspend () -> ProviderEvent.Failed?)? = null
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
     private val replayCompactionLogGate = ReplayCompactionLogGate()
@@ -173,6 +174,11 @@ class AgentRunner(
                     )
                 )
             )
+            return@flow
+        }
+        taskAdmissionFailure?.invoke()?.let { failure ->
+            // Admission may publish retained evidence, but cannot restore queued calls or finish their checkpoint.
+            session.retainedFailureResponse(failure).collect { emit(AgentRunEvent.Provider(it)) }
             return@flow
         }
         val acceptedAtEntry = remainingTaskMillis?.invoke()
@@ -316,6 +322,7 @@ class AgentRunner(
                 reconcileDiscoveryExchange(exchanges, roundDefinitions)
                 val restoringBatch = restoredCalls.isNotEmpty()
                 val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
+                val exhaustiveSearch = limits.githubTask && dev.chungjungsoo.gptmobile.data.github.GitHubExecutionContinuation.requiresExhaustiveSearch(limits.githubTaskRequest.orEmpty())
                 val remoteRead = if (!session.handlesToolResultRecovery &&
                     !session.handlesToolsInternally &&
                     !retainedUnknownOutcome &&
@@ -324,9 +331,9 @@ class AgentRunner(
                     !finalResponseRequested &&
                     !restoringBatch &&
                     observedToolCalls < observedLimit &&
-                    roundDefinitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" }
+                    roundDefinitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" || exhaustiveSearch && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_search" }
                 ) {
-                    GitHubReplayRecovery.nextRemoteRead(exchanges, roundDefinitions, savedResultRecovery)
+                    GitHubReplayRecovery.nextRemoteRead(exchanges, roundDefinitions, savedResultRecovery, allowSearchContinuation = exhaustiveSearch)
                 } else {
                     null
                 }

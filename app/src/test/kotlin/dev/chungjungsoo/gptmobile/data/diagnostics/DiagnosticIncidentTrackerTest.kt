@@ -6,6 +6,72 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticIncidentTrackerTest {
+    @Test fun networkAndMcpAliasesCountOneIncidentInEitherExportOrder() {
+        val context = "processId=3995 · processSessionId=session-a"
+        val network = "2026-11-22T13:48:14Z I/Network: $context · incident_id=read-a · operation_id=read-a · Connect timeout has expired"
+        val mcp = "2026-11-22T13:48:14Z W/MCP: $context · MCP_FAILURE · operation_id=read-a · errorCode=CONNECT_TIMEOUT"
+        val networkAliasOnly = network.replace(" · operation_id=read-a", "")
+        val mcpWithAlias = mcp.replace("MCP_FAILURE", "MCP_FAILURE · incident_id=read-a")
+        for (rows in listOf(listOf(network, mcp), listOf(mcp, network), listOf(networkAliasOnly, mcpWithAlias), listOf(mcpWithAlias, networkAliasOnly))) {
+            val tracker = DiagnosticIncidentTracker()
+            rows.forEachIndexed { index, line -> tracker.index(line, "event-$index", null) }
+            tracker.index("  at transport.connect()", "frame", "event-0")
+            tracker.finishIndex()
+            val associations = rows.mapIndexed { index, line -> tracker.accept(line, "event-$index", null) }
+            val frame = tracker.accept("  at transport.connect()", "frame", "event-0")
+            assertEquals(1, associations.count { it.first })
+            assertEquals(1, (associations + frame).map { it.id }.distinct().size)
+            assertFalse(frame.first)
+        }
+    }
+
+    @Test fun processSessionsAndAmbiguousExplicitAliasesNeverMergeDifferentOperations() {
+        val rows = listOf(
+            "processId=42 · processSessionId=session-a · incident_id=shared · operation_id=read-a",
+            "processId=42 · processSessionId=session-a · incident_id=shared · operation_id=read-b",
+            "processId=42 · processSessionId=session-b · incident_id=shared · operation_id=read-a",
+            "processId=43 · processSessionId=session-a · incident_id=shared · operation_id=read-a"
+        ).map { "2026-11-22T13:48:14Z W/MCP: $it · connect timeout" }
+        val tracker = DiagnosticIncidentTracker()
+        rows.forEachIndexed { index, line -> tracker.index(line, "event-$index", null) }
+        tracker.finishIndex()
+        val associations = rows.mapIndexed { index, line -> tracker.accept(line, "event-$index", null) }
+        assertEquals(4, associations.map { it.id }.distinct().size)
+        assertTrue(associations.all { it.first })
+    }
+
+    @Test fun scopedAliasRetainsFinalRecoveryForEarlierFailures() {
+        val context = "processId=42 · processSessionId=session-a"
+        val rows = listOf(
+            "2026-11-22T13:48:14Z I/Gateway: $context · CLIENT_EXCHANGE · incident_id=read-a · transport=TIMEOUT",
+            "2026-11-22T13:48:15Z W/MCP: $context · connect timeout · operation_id=read-a",
+            "2026-11-22T13:48:16Z I/Gateway: $context · METADATA_READ_OUTCOME · incident_id=read-a · operation_id=read-a · outcome=COMPLETED"
+        )
+        val tracker = DiagnosticIncidentTracker()
+        rows.forEachIndexed { index, line -> tracker.index(line, "event-$index", null) }
+        tracker.finishIndex()
+        val associations = rows.mapIndexed { index, line -> tracker.accept(line, "event-$index", null) }
+        assertEquals(1, associations.count { it.first })
+        assertEquals(1, associations.map { it.id }.distinct().size)
+        assertTrue(associations.all { it.outcome == "RECOVERED_METADATA_READ" })
+    }
+
+    @Test fun ownedMetadataDeadlineAndExhaustionAreFailuresButCancellationTextDoesNotProveOwnership() {
+        assertEquals(
+            "metadata_deadline",
+            classifyDiagnostic("I", "Gateway", "METADATA_DEADLINE_EXCEEDED · deadline_owner=METADATA_READ · failedStage=capabilities").category
+        )
+        assertTrue(classifyDiagnostic("I", "Gateway", "METADATA_READ_OUTCOME · outcome=RETRY_EXHAUSTED").actionable)
+        for (message in listOf(
+            "kotlinx.coroutines.TimeoutCancellationException: Timed out waiting for 7000 ms",
+            "GatewayObserverCancellation: observer was replaced",
+            "kotlinx.coroutines.JobCancellationException: Parent job is cancelling",
+            "METADATA_DEADLINE_EXCEEDED · deadline_owner=OBSERVER"
+        )) {
+            assertFalse(message, classifyDiagnostic("I", "Gateway", message).actionable)
+        }
+    }
+
     @Test fun incompleteMetadataAttemptsAndSuccessfulHeadersNeverResolveTheBodyFailure() {
         val tracker = DiagnosticIncidentTracker()
         val failure = tracker.accept("2026-11-12T12:00:00Z D/Network: incident_id=read-a · operation_id=read-a · HTTP call failed: unexpected end of stream", "raw", null)

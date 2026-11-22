@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptanceExplanation
 import dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance
 
 /** Flow termination is delivery evidence only. Objective acceptance lives in the task/evidence ledger. */
@@ -42,7 +43,7 @@ internal data class AgentRunTerminalDiagnostics(
                 reason = if (completed) {
                     "RESPONSE_FLOW_COMPLETED"
                 } else {
-                    acceptedReason ?: when (acceptance?.verification) {
+                    acceptedReason ?: acceptance?.stopCode?.takeIf { it == "ACCEPTED_TASK_DEADLINE_REACHED" } ?: GitHubAcceptanceExplanation.terminalReason(acceptance?.explanation)?.takeIf { acceptance?.requiredCriteria == 0 && !unknown && !waitingForApproval && !rejectedApproval } ?: when (acceptance?.verification) {
                         "UNKNOWN_OUTCOME" -> "RECONCILIATION_REQUIRED"
                         "WAITING_FOR_APPROVAL" -> "WAITING_FOR_APPROVAL"
                         "REJECTED" -> "APPROVAL_REJECTED"
@@ -99,6 +100,7 @@ internal data class AgentRunTerminalDiagnostics(
             reason == "GITHUB_EXTRACTION_TIMEOUT" -> "RESUME_UNFINISHED_EXTRACTION_BATCHES"
             reason == "GITHUB_EXTRACTION_UNAVAILABLE" || reason == "GITHUB_EXTRACTION_FAILED" -> "RETRY_CLAIM_EXTRACTION_FROM_SAVED_RECEIPTS"
             reason == "GITHUB_VERIFICATION_INTERNAL_ERROR" -> "INSPECT_VERIFICATION_FAILURE"
+            acceptance?.requiredCriteria == 0 && GitHubAcceptanceExplanation.terminalReason(acceptance.explanation) in setOf("GITHUB_ACCEPTANCE_CONTRACT_MISSING", "GITHUB_ACCEPTANCE_PLAN_MISSING", "GITHUB_ACCEPTANCE_CRITERIA_MISSING") -> "RESTORE_ACCEPTED_TASK_CRITERIA"
             reason == "PROVIDER_WAIT_OUTCOME_UNKNOWN" -> "RECONCILE_TOOL_RECEIPTS"
             reason in ProviderRecoveryFailure.CODES -> "REVIEW_SAVED_RECOVERY"
             reason == "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION" -> "REFRESH_ONLY_THE_STALE_OBSERVATIONS"

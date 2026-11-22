@@ -101,6 +101,11 @@ def phone_connection_settings(store, principal, command=None):
 
 def connection(root, action, args, *, phone=False):
     fields = CONNECTION_FIELDS
+    if action == 'connection-diagnostics':
+        if phone or args:
+            raise ValueError('Inspect the saved connection from this PC.')
+        from desktop.connection_diagnostics import collect
+        return collect(root)
     if action == 'connection-firewall':
         from desktop.firewall import apply
         apply(root, remove=args.get('remove') is True, include_control=True)

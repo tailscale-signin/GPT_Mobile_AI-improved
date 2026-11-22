@@ -15,6 +15,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderStreamFailureTest {
+    @Test fun assemblerKeepsPartialReasoningAcceptanceAndFailedResponseUsage() {
+        val assembler = OpenAIResponsesEventAssembler()
+        assembler.accept(dev.chungjungsoo.gptmobile.data.dto.openai.response.ReasoningSummaryTextDeltaEvent("reasoning", 0, 0, "Retained reasoning"))
+        val usage = dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseUsage(11, 7, 18, outputTokensDetails = JsonObject(mapOf("reasoning_tokens" to JsonPrimitive(7))))
+        val events = assembler.accept(ResponseFailedEvent(ResponseObject("resp_retained", "failed", ResponseError("server_error", "private prompt"), usage)))
+        assertEquals(7, events.filterIsInstance<ProviderEvent.Usage>().single().reasoningTokens)
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        val record = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
+        assertEquals(RemoteRequestAcceptance.YES, record.remoteAcceptance)
+        assertEquals(false, record.requestReplayAllowed)
+        assertEquals(JsonPrimitive("response.failed"), record.providerFailure?.get("stream_event_type"))
+        assertTrue(record.providerFailure?.get("provider_response_id_hash") != null)
+        assertFalse(record.providerFailure.toString().contains("resp_retained"))
+    }
+
     @Test fun acceptedStreamWithExhaustedCreditsRequiresConfigurationInsteadOfRetry() {
         val event = ProviderStreamFailure.event(null, "You have no credits remaining", httpStatus = 200, serverRequestId = "req_billing_123")
         val emitted = OpenAIResponsesEventAssembler().accept(event).single() as ProviderEvent.Failed
@@ -59,6 +74,7 @@ class ProviderStreamFailureTest {
         assertFalse(record.retryAllowed)
         assertEquals(false, record.requestReplayAllowed)
         assertTrue("RECONCILE_REMOTE_OUTCOME" in record.recoveryActions)
+        assertEquals(JsonPrimitive("BUDGET"), record.providerFailure?.get("provider_failure_kind"))
     }
 
     @Test fun structuredTemplateContractOverridesAGenericTransientBackendCode() {

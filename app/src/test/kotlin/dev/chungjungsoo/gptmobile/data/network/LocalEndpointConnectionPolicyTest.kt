@@ -5,8 +5,10 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -14,6 +16,36 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class LocalEndpointConnectionPolicyTest {
+    @Test fun inheritedObserverIdentitySurvivesBothRetryAttemptsAndRestoresTheCallerContext() = runTest {
+        val owner = LocalMetadataReadAttempt(0, "a".repeat(32))
+        val attempts = mutableListOf<LocalMetadataReadAttempt>()
+        val logs = mutableListOf<String>()
+        withContext(owner) {
+            val result = LocalEndpointConnectionPolicy.probe("http://127.0.0.1:29781/ready") {
+                attempts += requireNotNull(currentCoroutineContext()[LocalMetadataReadAttempt])
+                logs += withContext(kotlinx.coroutines.Dispatchers.Default) { LocalMetadataReadAttempt.correlateLog("observed") }
+                if (attempts.size == 1) throw SocketTimeoutException("Connect timed out")
+                "ready"
+            }
+            assertEquals("ready", result)
+            assertTrue(currentCoroutineContext()[LocalMetadataReadAttempt] === owner)
+            assertEquals("incident_id=${owner.readId} · operation_id=${owner.readId} · retry_attempt=0 · caller", LocalMetadataReadAttempt.correlateLog("caller"))
+        }
+        assertEquals(listOf(0, 1), attempts.map { it.ordinal })
+        assertTrue(attempts.all { it.readId == owner.readId })
+        assertEquals(
+            listOf(0, 1).map { "incident_id=${owner.readId} · operation_id=${owner.readId} · retry_attempt=$it · observed" },
+            logs
+        )
+        assertEquals("outside", LocalMetadataReadAttempt.correlateLog("outside"))
+        val siblingId = "b".repeat(32)
+        val sibling = withContext(LocalMetadataReadAttempt(0, siblingId)) {
+            LocalEndpointConnectionPolicy.probe("http://127.0.0.1:29781/ready") { requireNotNull(currentCoroutineContext()[LocalMetadataReadAttempt]).readId }
+        }
+        assertEquals(siblingId, sibling)
+        assertFalse(sibling == owner.readId)
+    }
+
     @Test fun socketAbortAndItsSingleRetryShareOneReadIdentityWhileLaterPollsStayDistinct() = runTest {
         val attempts = mutableListOf<LocalMetadataReadAttempt>()
         val result = LocalEndpointConnectionPolicy.probe("http://127.0.0.1:29780/ready") {

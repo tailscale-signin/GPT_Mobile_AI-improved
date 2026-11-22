@@ -1,6 +1,6 @@
 # Android 0.9.66.13 — reliable execution and compact decisions
 
-Version code: **147**. Compatible with the published Gateway **18.1.0**.
+Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains the Gateway 18 contract.
 
 ## Changes
 
@@ -15,6 +15,13 @@ Version code: **147**. Compatible with the published Gateway **18.1.0**.
 - Remove the overlapping red unread badge, add themed Gateway cloud indicators, and improve bounded Markdown/cache rendering with capture allocation evidence.
 
 - Retain explicit provider-wait refusal and scheduler outcomes, non-overlapping work/wait timing, and closed diagnostic evidence across restart and report submission.
+
+- Make immutable evidence writes atomic with explicit stored, duplicate, rejected-owner and conflict results; preserve completed comparison coverage across duplicate reads.
+- Retain exact search frontiers and typed rule failures, match replanning to task intent, and explain missing acceptance contracts without treating zero-of-zero as complete.
+- Isolate transcript row updates, profile per-row layout, index diagnostic paging with Room migration 52, and retain query/hydration/redaction/serialization/write/checkpoint timings.
+- Split saved Gateway job recovery into bounded methods and enforce the packaged ART code-unit limit without weakening recovery ownership checks.
+- Coalesce exact-service TCP probes per network generation, show actionable offline guidance, and add read-only Gateway host connectivity observations.
+- Unify operation incident aliases within their process/session context and distinguish owned metadata deadlines from expected observer cancellation.
 
 ## Qualification and limitations
 

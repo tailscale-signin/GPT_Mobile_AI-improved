@@ -94,9 +94,10 @@ class DiagnosticStageSink internal constructor(
     private val saveProgress: ((JsonObject) -> Unit)? = null
 ) {
     private val payloadReferences = DiagnosticPayloadReferences()
+    internal val phaseTimings = DiagnosticCaptureTimings()
 
     internal suspend fun redactedRecord(value: JsonElement, maximumCharacters: Int, evidence: Boolean = true) {
-        payloadReferences.writeEncoded(value) { redacted ->
+        payloadReferences.writeEncoded(value, phaseTimings) { redacted ->
             logicalRecord {
                 if (redacted.length <= maximumCharacters / 2) {
                     record(redacted, evidence)
@@ -147,7 +148,7 @@ class DiagnosticStageSink internal constructor(
     }
 
     /** The byte boundary and source cursor are committed together after a complete logical row. */
-    fun checkpoint(cursor: JsonObject) {
+    fun checkpoint(cursor: JsonObject) = phaseTimings.measure(DiagnosticCaptureTimings.Phase.CHECKPOINT) {
         val saved = progress(cursor)
         writer.flush()
         output.fd.sync()
@@ -231,8 +232,10 @@ class DiagnosticStageSink internal constructor(
         val size = utf8Bytes(redactedRecord) + 1
         if (size > options.maxRecordBytes) throw DiagnosticCaptureLimit("RECORD_BYTE_LIMIT")
         if (bytes + size > maxBytes) throw DiagnosticCaptureLimit("STAGE_OR_ARCHIVE_BYTE_LIMIT")
-        writer.write(redactedRecord)
-        writer.write("\n")
+        phaseTimings.measure(DiagnosticCaptureTimings.Phase.WRITE) {
+            writer.write(redactedRecord)
+            writer.write("\n")
+        }
         // The bounded writer drains at checkpoints, rollback and stage finish (also
         // on failure). Avoid a separate file write for every tiny journal event.
         bytes += size
@@ -745,6 +748,7 @@ object StagedDiagnosticCapture {
             put("fileName", stage.fileName)
             put("status", status)
             put("collectionCompleted", failure == null)
+            put("phaseTimings", sink?.phaseTimings?.json() ?: JsonNull)
             put(
                 "availability",
                 if (failure != null || omissions.isNotEmpty()) if (records == 0L) "UNAVAILABLE" else "PARTIAL" else if (sourceReference != null) {

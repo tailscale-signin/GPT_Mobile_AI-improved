@@ -27,6 +27,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSearchValidationPipelineTest {
+    @Test fun nativeModePatternAndLineOrderFailuresReportBoundRulesBeforeAnyNetworkRead() = runBlocking {
+        NativeSearchValidationFixture().use { fixture ->
+            val cases = listOf(
+                Triple(buildJsonObject { put("mode", "unsupported-private-mode") }, "mode", "MODE"),
+                Triple(
+                    buildJsonObject {
+                        put("mode", "patterns")
+                        put("query", "private.*needle")
+                    },
+                    "query",
+                    "PATTERN_SYNTAX"
+                ),
+                Triple(
+                    buildJsonObject {
+                        put("min_lines", 20)
+                        put("max_lines", 10)
+                    },
+                    "max_lines",
+                    "LINE_ORDER"
+                )
+            )
+            cases.forEachIndexed { index, (overrides, field, rule) ->
+                val arguments = JsonObject(mapOf("query" to JsonPrimitive("privateNeedle")) + overrides)
+                val result = fixture.tool.execute("typed-$index", arguments)
+                assertTrue(result.isError && !result.dispatched)
+                assertEquals("INVALID_ARGUMENTS", result.errorCode)
+                val event = searchValidationEvent(result.callId, fixture.name, arguments)
+                val fields = ToolReportDiagnostics.fields(event, result)
+                assertEquals(field, fields["search_argument_field"])
+                assertEquals(rule, fields["search_argument_rule"])
+                assertEquals("search_repository", fields["search_native_action"])
+                assertTrue(fields["search_query_hash"].toString().matches(Regex("[a-f0-9]{64}")))
+                assertFalse(fields.toString().contains("privateNeedle"))
+                assertFalse(fields.toString().contains("private.*needle"))
+                assertFalse("search_argument_rule" in ToolReportDiagnostics.fields(event.copy(arguments = "{}"), result))
+                val repeated = fixture.tool.execute(result.callId, arguments)
+                assertTrue(repeated.sharedResult)
+                assertFalse("search_argument_rule" in ToolReportDiagnostics.fields(event, repeated))
+            }
+            assertEquals(0, fixture.requests)
+        }
+    }
+
     @Test fun runnerCapturesItsEarlyNativeRejectionsWithoutChangingTheRepairLimit() = runBlocking {
         NativeSearchValidationFixture().use { fixture ->
             val arguments = searchValidationArguments()

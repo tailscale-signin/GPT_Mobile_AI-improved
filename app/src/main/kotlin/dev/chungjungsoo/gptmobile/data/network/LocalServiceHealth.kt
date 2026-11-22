@@ -34,25 +34,27 @@ internal object LocalServiceHealth {
     private data class State(val health: ConnectionHealth, val failures: Int, val until: Long)
     private val states = ConcurrentHashMap<String, State>()
     private val epoch = AtomicLong()
+    private val reachability = LocalReachabilityProbes()
     val networkEpoch: Long get() = epoch.get()
     private fun now() = System.nanoTime() / 1_000_000
     private fun endpoint(url: String): URI? = runCatching { URI(url) }.getOrNull()?.takeIf { it.host != null }
     private fun port(uri: URI) = if (uri.port >= 0) {
         uri.port
-    } else if (uri.scheme == "https") {
+    } else if (uri.scheme.equals("https", ignoreCase = true)) {
         443
     } else {
         80
     }
-    private fun key(uri: URI) = "${uri.scheme}://${uri.host.lowercase()}:${port(uri)}${uri.path.orEmpty()}"
-    private fun transportKey(uri: URI) = "tcp:${uri.scheme}://${uri.host.lowercase()}:${port(uri)}"
-    private fun dnsKey(uri: URI) = "dns:${uri.host.lowercase()}"
+    private fun key(uri: URI) = "${uri.scheme.lowercase()}://${uri.host.lowercase().removeSuffix(".")}:${port(uri)}${uri.path.orEmpty()}"
+    private fun transportKey(uri: URI) = "tcp:${uri.scheme.lowercase()}://${uri.host.lowercase().removeSuffix(".")}:${port(uri)}"
+    private fun dnsKey(uri: URI) = "dns:${uri.host.lowercase().removeSuffix(".")}"
     private fun keys(uri: URI) = listOf(key(uri), transportKey(uri), dnsKey(uri))
 
     fun networkChanged() {
+        epoch.incrementAndGet()
+        reachability.invalidate()
         states.clear()
         dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.reset()
-        epoch.incrementAndGet()
     }
 
     fun requireLocalAvailable(url: String) {
@@ -95,6 +97,7 @@ internal object LocalServiceHealth {
     fun checkAgain(url: String) {
         val uri = endpoint(url) ?: return
         keys(uri).forEach(states::remove)
+        reachability.invalidate()
     }
 
     fun recordHandshakeSuccess(url: String) {
@@ -164,7 +167,22 @@ internal object LocalServiceHealth {
         val uri = endpoint(url) ?: return@withContext
         requireAvailable(url)
         try {
-            Socket().use { it.connect(InetSocketAddress(uri.host, port(uri)), 3_000) }
+            val generation = networkEpoch
+            val observed = reachability.probe("$generation|${transportKey(uri)}") {
+                // A queued caller sees the first attempt's cooldown instead of opening another socket.
+                requireAvailable(url)
+                try {
+                    Socket().use { it.connect(InetSocketAddress(uri.host, port(uri)), 3_000) }
+                } catch (failure: IOException) {
+                    if (generation != networkEpoch) throw LocalServiceUnavailableException(ConnectionHealth.UNKNOWN, "${uri.host}:${port(uri)}", 0, cause = failure)
+                    // Publish the rejection before releasing the shared probe lock.
+                    recordFailure(url, failure)
+                    throw LocalServiceUnavailableException(classify(failure), "${uri.host}:${port(uri)}", retryAfterMillis(url), cause = failure)
+                }
+            }
+            if (!observed || generation != networkEpoch) {
+                throw LocalServiceUnavailableException(ConnectionHealth.UNKNOWN, "${uri.host}:${port(uri)}", 0)
+            }
         } catch (failure: IOException) {
             recordFailure(url, failure)
             throw LocalServiceUnavailableException(classify(failure), "${uri.host}:${port(uri)}", retryAfterMillis(url), cause = failure)

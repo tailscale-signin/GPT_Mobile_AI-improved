@@ -130,7 +130,7 @@ FIELDS_BY_AREA = {
     "INCIDENT": COMMON_HASHES | {"original_error_code_hash", "chat_failure_code_state"},
 }
 FIELDS_BY_AREA["PROVIDER"].update(GATEWAY_CAPABILITY_FIELDS)
-ENUMS["provider_failure_code"].update(capsule.CONVERSATION_RECOVERY_CODES | capsule.EXECUTION_COMPLETION_CODES | {"OUTPUT_CONTINUATION_UNAVAILABLE"})
+ENUMS["provider_failure_code"].update(capsule.CONVERSATION_RECOVERY_CODES | capsule.EXECUTION_COMPLETION_CODES | {"OUTPUT_CONTINUATION_UNAVAILABLE", "GITHUB_TASK_IDENTITY_CHANGED"})
 FIELDS_BY_AREA["PROVIDER"].update({"gateway_model_state", "gateway_model_advertised", "gateway_model_loaded"})
 FLAGS.update({"gateway_model_advertised", "gateway_model_loaded"})
 ENUMS["provider_failure_code"].update({"SELECTED_MODEL_LOADING", "SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_NOT_AVAILABLE"})
@@ -326,7 +326,7 @@ ACCEPTANCE_RECOVERY_FIELDS = {
     "status_policy_protection_http_status", "status_policy_rules_http_status",
     "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint", "status_missing_observations",
 }
-ENUMS["task_deadline_check"] = {"BEFORE_TOOL_RESTORE", "BEFORE_MODEL_LOOP", "MODEL_LOOP_TIMEOUT", "VERIFIED_SESSION_ENTRY"}
+ENUMS["task_deadline_check"] = {"ADMISSION", "BEFORE_TOOL_RESTORE", "BEFORE_MODEL_LOOP", "MODEL_LOOP_TIMEOUT", "VERIFIED_SESSION_ENTRY"}
 ENUMS["task_deadline_clock"] = {"WALL_CLOCK"}
 FLAGS.add("task_deadline_renewed")
 ENUMS["task_deadline_observation"] = {"CONTRACT_UNAVAILABLE", "NO_ACCEPTED_DEADLINE", "TIMING_UNAVAILABLE", "WINDOW_OPEN", "WINDOW_EXPIRED"}

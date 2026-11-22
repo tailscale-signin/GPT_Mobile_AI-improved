@@ -328,6 +328,86 @@ class OpenAIRecoveryTransportTest {
         }
     }
 
+    @Test fun successfulHttpChatErrorsRetainSemanticCauseWithoutCreatingARateWaitOrTransportRetry() = runTest {
+        for (streaming in listOf(false, true)) {
+            for ((code, type, expected) in listOf(Triple("429", "insufficient_quota", "BILLING_UNAVAILABLE"), Triple("server_error", "server_error", "UPSTREAM_UNAVAILABLE"))) {
+                var requests = 0
+                val selected = config.copy(apiUrl = "https://semantic-$streaming-$code.$fixtureHost/v1/", profileUid = "semantic-profile")
+                val failureBody = """{"id":"response_semantic_fixture","error":{"code":"$code","type":"$type","message":"An error occurred while processing your request"}}"""
+                val body = if (streaming) "data: $failureBody\n\ndata: [DONE]\n\n" else failureBody
+                withApi(
+                    MockEngine {
+                        requests++
+                        respond(body, headers = headersOf(HttpHeaders.ContentType to listOf(if (streaming) "text/event-stream" else "application/json"), "X-Request-Id" to listOf("req_semantic_fixture")))
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        val failure = requireNotNull(api.streamChatCompletion(request.copy(stream = streaming), 5, selected).toList().last().error)
+                        val record = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.code, failure.failureDetails)
+                        assertEquals(expected, record.category)
+                        assertEquals("response_stream", record.phase)
+                        assertEquals("req_semantic_fixture", record.serverRequestId)
+                        assertEquals(kotlinx.serialization.json.JsonPrimitive(200), record.providerFailure?.get("http_status"))
+                        assertEquals(expected != "BILLING_UNAVAILABLE", record.retryAllowed)
+                        assertNull(failure.providerLimit)
+                        assertNull(record.retryAfterMillis)
+                        assertEquals(1, requests)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun structuredUnknownOutcomeCannotBecomeASemanticRateLimitWait() = runTest {
+        val body = """data: {"type":"response.failed","response":{"id":"resp_unknown","status":"failed","error":{"code":"429","type":"rate_limit_error","message":"Current request rejected","command_outcome_unknown":true,"retryable":true}}}
+
+        """.trimIndent()
+        withApi(MockEngine { respond(body, headers = headersOf(HttpHeaders.ContentType, "text/event-stream")) }) { api ->
+            withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                val error = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, config).toList().filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                assertEquals("GATEWAY_OUTCOME_UNKNOWN", error.code)
+                assertNull(error.providerLimit)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), error.failureDetails?.get("request_replay_allowed"))
+            }
+        }
+    }
+
+    @Test fun responsesFailureRetainsItsResponseIdentityAndUsageAfterPartialText() = runTest {
+        val body = """
+            data: {"type":"response.created","response":{"id":"resp_failed_fixture","status":"in_progress"}}
+
+            data: {"type":"response.output_text.delta","item_id":"text","output_index":0,"content_index":0,"delta":"Saved prefix"}
+
+            data: {"type":"response.failed","response":{"id":"resp_failed_fixture","status":"failed","error":{"code":"server_error","message":"Internal error"},"usage":{"input_tokens":21,"output_tokens":13,"total_tokens":34,"output_tokens_details":{"reasoning_tokens":8}}}}
+
+        """.trimIndent()
+        var requests = 0
+        withApi(
+            MockEngine {
+                requests++
+                respond(body, headers = headersOf(HttpHeaders.ContentType to listOf("text/event-stream"), "X-Request-Id" to listOf("req_failed_fixture")))
+            }
+        ) { api ->
+            val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+            val assembler = dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesEventAssembler()
+            val events = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, config).toList().flatMap(assembler::accept)
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            val record = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
+            assertEquals("Saved prefix", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+            assertEquals(13, events.filterIsInstance<ProviderEvent.Usage>().last().outputTokens)
+            assertEquals(8, events.filterIsInstance<ProviderEvent.Usage>().last().reasoningTokens)
+            assertEquals("UPSTREAM_UNAVAILABLE", record.category)
+            assertEquals("req_failed_fixture", record.serverRequestId)
+            assertEquals(dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.YES, record.remoteAcceptance)
+            assertEquals(false, record.requestReplayAllowed)
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("response.failed"), record.providerFailure?.get("stream_event_type"))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("resp_failed_fixture"), failure.failureDetails?.get("provider_response_id"))
+            assertTrue(record.providerFailure?.get("provider_response_id_hash") != null)
+            assertEquals(1, requests)
+        }
+    }
+
     @Test fun explicitBillingDenialDoesNotCreateADurableRateWaitForEitherApi() = runTest {
         val bodies = listOf(
             """{"error":{"code":"insufficient_quota","message":"The account allowance is exhausted"}}""",

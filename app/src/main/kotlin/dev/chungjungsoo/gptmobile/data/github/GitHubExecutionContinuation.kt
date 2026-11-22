@@ -20,6 +20,7 @@ internal object GitHubExecutionContinuation {
             put("retained_receipt_count", receipts.size)
             put("included_receipt_count", minOf(receipts.size, 64))
             put("implementation_progress", implementationProgress(receipts))
+            put("search_frontiers", searchFrontiers(receipts))
             put(
                 "receipts",
                 JsonArray(
@@ -97,12 +98,75 @@ internal object GitHubExecutionContinuation {
             (if (corrective) "The previous answer stopped before all required work was verified. " else "Resume this accepted task from its retained evidence; superseded plans are omitted. ") +
             (if (readOnlyRefresh) "Perform only the minimal authorized read needed to refresh a listed stale PR/CI observation. " else "Perform the next unfinished authorized operation using the available tools. ") +
             "Use exact returned cursors and identifiers. Reconcile uncertain outcomes before any write; do not repeat completed actions. " +
-            (if (readOnlyRefresh) "" else "For a requested implementation, retained target source should lead to the next authorized branch or patch operation once its prerequisites are met. Name a specific missing prerequisite before restarting discovery. Source capture, staged patches, committed mutations and verified acceptance are separate milestones. ") +
+            (if (readOnlyRefresh || !implementationRequested(continuationRequest(task, current))) "" else "For this requested implementation, retained target source should lead to the next authorized branch or patch operation once its prerequisites are met. Name a specific missing prerequisite before restarting discovery. Source capture, staged patches, committed mutations and verified acceptance are separate milestones. ") +
             "When stale_observation_receipt_ids are present, refresh only those observations at their bound repository and head; preserve every verified claim and completed read. " +
             "Resume only unverified criteria; a passed criterion keeps its existing proof. Fixture teardown is an exact owned-resource absence check, never a request to recreate or delete it again. " +
             "This bounded ledger is a projection, not the full receipt store. Read retained evidence when a required selector or older result is absent; never invent it. " +
             "Do not ask again for already accepted work or claim unobserved success. If execution cannot advance, identify the concrete blocker and remaining requirements. " +
             if (corrective) "This is one bounded corrective attempt for the current progress checkpoint; do not produce another proposed sequence of calls." else "The newest instruction governs the remaining work within the accepted scope and budget."
+    }
+
+    fun requiresExhaustiveSearch(task: String): Boolean {
+        val request = GitHubTaskContinuity.request(task)
+        if (Regex("(?i)\\b(?:sample|spot.check|not exhaustive|non.exhaustive|quick look)\\b").containsMatchIn(request)) return false
+        return Regex("(?i)\\b(?:all|every|entire|whole|complete|exhaustive|comprehensive)\\b").containsMatchIn(request) &&
+            Regex("(?i)\\b(?:search|find|review|examine|audit|check|issues|bugs|files|repository|codebase)\\b").containsMatchIn(request)
+    }
+
+    fun replanInstruction(task: String, current: String): String {
+        val request = continuationRequest(task, current)
+        val next = when {
+            implementationRequested(request) -> "Use the retained source and findings for the next authorized concrete change, or identify its specific missing prerequisite."
+            Regex("(?i)\\b(?:review|audit|examine|issues|bugs|solutions)\\b").containsMatchIn(request) -> "Use the retained source to report supported findings, their impact, and specific proposed solutions."
+            else -> "Use the retained source to answer the requested explanation and identify the specific evidence still missing."
+        }
+        return "Overlapping source reads have stopped adding evidence. $next Preserve established findings and distinguish searched coverage from the unsearched remainder. Resume an incomplete search only through its exact issued continuation when the accepted scope requires more coverage and the remaining budget allows it."
+    }
+
+    private fun continuationRequest(task: String, current: String) = GitHubTaskContinuity.request(if (GitHubTaskContinuity.control(current)) task else current)
+
+    private fun implementationRequested(request: String): Boolean =
+        !Regex("(?i)\\b(?:read.only|review.only|report.only|do not (?:change|modify|edit|implement))\\b").containsMatchIn(request) &&
+            Regex("(?i)(?:^|\\b(?:and|then)\\s+)(?:(?:please|can you|could you|i want you to|help me)\\s+)?(?:implement|apply|fix|repair|patch|commit|publish|merge|modify|edit|create)\\b").containsMatchIn(request)
+
+    internal fun searchFrontiers(receipts: Map<String, JsonObject>): JsonObject {
+        val frontiers = linkedMapOf<String, JsonObject>()
+        for ((id, receipt) in receipts) {
+            if (receipt["trusted"] != JsonPrimitive(true) || receipt["success"] != JsonPrimitive(true)) continue
+            val tool = (receipt["tool"] as? JsonPrimitive)?.content ?: continue
+            if (tool.githubOperationFamily() != "github_search") continue
+            val execution = receipt["execution"] as? JsonObject
+            val arguments = receipt["arguments"] as? JsonObject ?: continue
+            val source = receipt["result"] as? JsonObject ?: continue
+            val data = GitHubSemanticSummary.data(source)
+            val frontier = execution?.get("search_frontier") as? JsonObject ?: GitHubSearchFrontier.capture(
+                tool,
+                arguments,
+                data,
+                GitHubSearchFrontier.recipes(receipt["view"] as? JsonObject ?: source, execution)
+            ) ?: continue
+            if (frontier["schema"] != JsonPrimitive("github.search-frontier.v1")) continue
+            val key = "$tool|${frontier["search_id"]}|${frontier["commit_sha"]}"
+            val previous = frontiers[key]?.get("frontier") as? JsonObject
+            fun end(value: JsonObject?) = (value?.get("interval_end") as? JsonPrimitive)?.content?.toIntOrNull() ?: -1
+            if (end(previous) > end(frontier)) continue
+            frontiers[key] = buildJsonObject {
+                put("receipt_id", id)
+                put("tool", tool)
+                put("frontier", frontier)
+            }
+        }
+        var bytes = 0
+        val included = frontiers.values.toList().asReversed().take(16).filter { frontier ->
+            val size = frontier.toString().length
+            (bytes + size <= 24_000).also { if (it) bytes += size }
+        }
+        return buildJsonObject {
+            put("observed_search_count", frontiers.size)
+            put("included_search_count", included.size)
+            put("omitted_search_count", frontiers.size - included.size)
+            put("searches", JsonArray(included))
+        }
     }
 
     /** These are observed operations, never a substitute for authorization or feature acceptance. */
@@ -230,7 +294,7 @@ internal object GitHubExecutionContinuation {
         }
     }
 
-    private val selectorKeys = setOf("action", "owner", "repo", "branch", "ref", "path", "issue_number", "pull_number", "run_id", "job_id", "workflow_id", "expected_head_sha", "commit_sha", "stage_id", "inventory_cursor", "inventory_version")
+    private val selectorKeys = setOf("action", "owner", "repo", "branch", "ref", "path", "issue_number", "pull_number", "run_id", "job_id", "workflow_id", "expected_head_sha", "commit_sha", "stage_id", "inventory_cursor", "inventory_version", "query", "mode", "search_id", "index_cursor", "path_prefix", "file_extension", "path_suffix", "case_sensitive", "fuzzy_match", "fuzzy_threshold", "min_lines", "max_lines", "context_lines", "batch_size", "max_new_blobs")
 }
 
 /** Count completed source decisions only. A changed query or overlapping interval alone is not new evidence. */

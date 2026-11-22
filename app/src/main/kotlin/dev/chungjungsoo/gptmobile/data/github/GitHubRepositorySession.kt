@@ -240,6 +240,7 @@ internal class GitHubRepositorySession(
     }
 
     suspend fun execute(action: String, owner: String, repo: String, args: JsonObject): JsonElement {
+        if (action == "search_repository") GitHubSearchArguments.validate(args)
         val commitImmediately = args["commit_immediately"]?.let { requireNotNull((it as? JsonPrimitive)?.booleanOrNull) { "commit_immediately must be a boolean." } } == true
         if (commitImmediately) {
             require(action == "stage_patch") { "commit_immediately is supported only for stage_patch." }
@@ -592,8 +593,6 @@ internal class GitHubRepositorySession(
     }
 
     private suspend fun search(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
-        require(args.s("query").isNotBlank() && args.s("query").length <= 200) { "Search requires a non-blank query of at most 200 characters." }
-        require(args.s("mode").ifBlank { "literal" } in setOf("literal", "definitions", "references", "paths", "tests", "patterns"))
         val request = prepareSearch(context, args, tree(context))
         cachedSource(scope, request.cacheKey)?.let { cached ->
             return withSearchRecovery(JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0))), request.recovery)
@@ -612,15 +611,11 @@ internal class GitHubRepositorySession(
 
     private suspend fun prepareSearch(context: GitHubTaskSnapshot, args: JsonObject, data: JsonObject): SearchRequest {
         val query = args.s("query")
-        require(query.isNotBlank() && query.length <= 200) { "Search requires a non-blank query of at most 200 characters." }
         val mode = args.s("mode").ifBlank { "literal" }
-        require(mode in setOf("literal", "definitions", "references", "paths", "tests", "patterns"))
-        require(!Regex("(?:^|\\s)(?:extension|path):[^\\s]+").containsMatchIn(query)) { "Use file_extension and path_prefix arguments instead of extension:/path: query qualifiers. No content scan was dispatched." }
-        val options = GitHubSearchOptions.from(args)
+        val options = GitHubSearchArguments.validate(args)
         val extension = args.s("file_extension").removePrefix(".").lowercase(java.util.Locale.ROOT)
-        require(extension.isEmpty() || extension.matches(Regex("[a-z0-9]+"))) { "file_extension must be a single extension such as kt or .kt." }
-        val batchSize = args.s("batch_size").ifBlank { "1000" }.toInt().also { require(it in 1..1000) }
-        val maxNewBlobs = args.s("max_new_blobs").ifBlank { "4" }.toInt().also { require(it in 1..100) }
+        val batchSize = GitHubSearchArguments.integer(args, "batch_size", 1000)
+        val maxNewBlobs = GitHubSearchArguments.integer(args, "max_new_blobs", 4)
         val pathPrefix = args.s("path_prefix")
         val definition = buildJsonObject {
             put("owner", context.owner.lowercase(java.util.Locale.ROOT))

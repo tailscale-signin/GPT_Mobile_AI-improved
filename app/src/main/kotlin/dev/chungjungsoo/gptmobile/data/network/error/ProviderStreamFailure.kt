@@ -17,7 +17,9 @@ internal object ProviderStreamFailure {
         details: JsonObject? = null,
         httpStatus: Int? = null,
         serverRequestId: String? = null,
-        responsePayloadObserved: Boolean = false
+        responsePayloadObserved: Boolean = false,
+        streamEventType: String? = null,
+        providerResponseId: String? = null
     ): ResponseErrorEvent {
         // Native structured projection can refine a generic backend code into a
         // contract or a prior unknown outcome. Neither may become a new retry.
@@ -72,12 +74,15 @@ internal object ProviderStreamFailure {
         }
         httpStatus?.takeIf { it in 100..599 }?.let { fields["http_status"] = JsonPrimitive(it) }
         safeProviderRequestIdentity(serverRequestId)?.let { fields["server_request_id"] = JsonPrimitive(it) }
+        streamEventType?.takeIf { it in EVENT_TYPES }?.let { fields["stream_event_type"] = JsonPrimitive(it) }
+        safeProviderRequestIdentity(providerResponseId)?.let { fields["provider_response_id"] = JsonPrimitive(it) }
         failure.code?.let { fields["upstream_error_code"] = JsonPrimitive(it) }
         type?.lowercase(java.util.Locale.ROOT)?.takeIf { it in ProviderFailure.SAFE_CODES }?.let { fields["upstream_error_type"] = JsonPrimitive(it) }
         return ResponseErrorEvent(code = category, message = readable, failureDetails = JsonObject(fields))
     }
 
     private val reconciliationCodes = setOf("GATEWAY_OUTCOME_UNKNOWN", "EXECUTION_OPERATION_UNKNOWN_OUTCOME", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
+    internal val EVENT_TYPES = setOf("error", "response.failed")
 
     /** Keep semantic correlation without retaining arbitrary upstream error text. */
     fun retained(details: JsonObject?): JsonObject? {
@@ -92,6 +97,14 @@ internal object ProviderStreamFailure {
             ?.let { fields["http_status"] = JsonPrimitive(it) }
         (details["provider_semantic_status"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it == 429 && kind == "RATE_LIMIT" }
             ?.let { fields["provider_semantic_status"] = JsonPrimitive(it) }
+        (details["stream_event_type"] as? JsonPrimitive)?.contentOrNull?.takeIf { it in EVENT_TYPES }
+            ?.let { fields["stream_event_type"] = JsonPrimitive(it) }
+        // Response identities stay local; durable/public projections use the same
+        // bounded correlation hash as request and invocation identities.
+        val responseId = safeProviderRequestIdentity((details["provider_response_id"] as? JsonPrimitive)?.contentOrNull)
+        val responseHash = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("provider-response", responseId)
+            ?: (details["provider_response_id_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+        responseHash?.let { fields["provider_response_id_hash"] = JsonPrimitive(it) }
         return JsonObject(fields)
     }
 }

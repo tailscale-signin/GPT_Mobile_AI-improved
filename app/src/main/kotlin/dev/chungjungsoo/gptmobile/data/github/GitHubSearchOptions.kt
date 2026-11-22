@@ -1,12 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubSearchArgumentFailure.Expected
+import dev.chungjungsoo.gptmobile.data.github.GitHubSearchArgumentFailure.Rule
 import java.util.Locale
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /** Query options are part of the cursor/cache identity, including presentation limits. */
@@ -64,31 +62,32 @@ internal data class GitHubSearchOptions(
         private val fuzzyQuery = Regex("[A-Za-z_][A-Za-z_0-9]{1,79}")
         fun supportsFuzzyQuery(query: String) = fuzzyQuery.matches(query)
         fun from(args: JsonObject): GitHubSearchOptions {
-            fun number(key: String, fallback: Int) = args[key]?.jsonPrimitive?.intOrNull ?: fallback
+            val mode = GitHubSearchArguments.text(args, "mode", "literal")
+            val query = GitHubSearchArguments.text(args, "query")
             val result = GitHubSearchOptions(
-                args["path_suffix"]?.jsonPrimitive?.content.orEmpty(),
-                args["case_sensitive"]?.jsonPrimitive?.booleanOrNull ?: false,
-                args["fuzzy_match"]?.jsonPrimitive?.booleanOrNull ?: false,
-                args["fuzzy_threshold"]?.jsonPrimitive?.doubleOrNull ?: 0.8,
-                number("min_lines", 0),
-                number("max_lines", 1_000_000),
-                number("context_lines", 2),
-                args["mode"]?.jsonPrimitive?.content == "patterns" || args["mode"]?.jsonPrimitive?.content == "paths" && args["query"]?.jsonPrimitive?.content?.contains('*') == true
+                GitHubSearchArguments.text(args, "path_suffix"),
+                GitHubSearchArguments.boolean(args, "case_sensitive"),
+                GitHubSearchArguments.boolean(args, "fuzzy_match"),
+                GitHubSearchArguments.number(args, "fuzzy_threshold", 0.8),
+                GitHubSearchArguments.integer(args, "min_lines", 0),
+                GitHubSearchArguments.integer(args, "max_lines", 1_000_000),
+                GitHubSearchArguments.integer(args, "context_lines", 2),
+                mode == "patterns" || mode == "paths" && query.contains('*')
             )
-            require(result.threshold.isFinite() && result.threshold in 0.5..1.0) { "fuzzy_threshold must be between 0.5 and 1." }
-            require(result.minLines in 0..1_000_000 && result.maxLines in maxOf(1, result.minLines)..1_000_000)
-            require(result.contextLines in 0..100 && result.suffix.length <= 200)
-            if (args["mode"]?.jsonPrimitive?.content == "patterns") {
-                val query = args["query"]?.jsonPrimitive?.content.orEmpty()
-                require(listOf(".*", ".+", "\\d", "\\w", "(?", "[", "]", "^", "$").none(query::contains)) {
-                    "Regex syntax is unsupported. Pattern mode uses literal segments and * only: use class*Test instead of class.*Test, or code mode for a literal search."
-                }
+            if (!result.threshold.isFinite() || result.threshold !in 0.5..1.0) GitHubSearchArguments.reject("fuzzy_threshold", Rule.RANGE, Expected.NUMBER_0_5_1, "Use a finite number from 0.5 to 1.")
+            if (result.minLines !in 0..1_000_000) GitHubSearchArguments.reject("min_lines", Rule.RANGE, Expected.INTEGER_0_1000000, "Use an integer from 0 to 1000000.")
+            if (result.maxLines !in 1..1_000_000) GitHubSearchArguments.reject("max_lines", Rule.RANGE, Expected.INTEGER_1_1000000, "Use an integer from 1 to 1000000.")
+            if (result.maxLines < result.minLines) GitHubSearchArguments.reject("max_lines", Rule.LINE_ORDER, Expected.MAX_AT_LEAST_MIN, "max_lines must be at least min_lines.")
+            if (result.contextLines !in 0..100) GitHubSearchArguments.reject("context_lines", Rule.RANGE, Expected.INTEGER_0_100, "Use an integer from 0 to 100.")
+            if (result.suffix.length > 200) GitHubSearchArguments.reject("path_suffix", Rule.RANGE, Expected.TEXT_MAX_200, "Use at most 200 characters.")
+            if (mode == "patterns" && listOf(".*", ".+", "\\d", "\\w", "(?", "[", "]", "^", "$").any(query::contains)) {
+                GitHubSearchArguments.reject("query", Rule.PATTERN_SYNTAX, Expected.LITERAL_STAR_PATTERN, "Pattern mode uses literal segments and * only; regular expressions are unsupported.")
             }
-            if (result.pattern) {
-                val query = args["query"]?.jsonPrimitive?.content.orEmpty()
-                require(!result.fuzzy && query.length in 1..200 && query.count { it == '*' } <= 16 && (query.any { it != '*' && !it.isWhitespace() } || args["mode"]?.jsonPrimitive?.content == "paths" && query == "*")) { "Pattern search accepts literal segments separated by at most 16 stars; fuzzy matching cannot be combined with patterns." }
+            if (result.pattern && result.fuzzy) GitHubSearchArguments.reject("fuzzy_match", Rule.PATTERN_FUZZY, Expected.FALSE, "Fuzzy matching cannot be combined with patterns.")
+            if (result.pattern && (query.length !in 1..200 || query.count { it == '*' } > 16 || query.none { it != '*' && !it.isWhitespace() } && !(mode == "paths" && query == "*"))) {
+                GitHubSearchArguments.reject("query", Rule.PATTERN_BOUNDS, Expected.BOUNDED_PATTERN, "Use literal segments separated by at most 16 stars, with at least one literal character (paths mode also permits *).")
             }
-            if (result.fuzzy) require(supportsFuzzyQuery(args["query"]?.jsonPrimitive?.content.orEmpty())) { "Fuzzy search accepts one identifier of 2–80 characters. For a phrase, retain the query and set fuzzy_match=false for a literal search." }
+            if (result.fuzzy && !supportsFuzzyQuery(query)) GitHubSearchArguments.reject("query", Rule.FUZZY_IDENTIFIER, Expected.IDENTIFIER_2_80, "Fuzzy search accepts one identifier of 2–80 characters. Retain a phrase and set fuzzy_match=false for a literal search.")
             return result
         }
 

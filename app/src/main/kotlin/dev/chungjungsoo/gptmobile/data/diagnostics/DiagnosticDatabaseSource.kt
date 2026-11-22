@@ -246,7 +246,8 @@ class DiagnosticDatabaseSource @Inject constructor(
         resumeCursor: JsonObject? = null,
         checkpoint: (JsonObject) -> Unit = {},
         sourceRecord: (DiagnosticSourceRecord?) -> Unit = {},
-        sourcePageSize: Int = 16
+        sourcePageSize: Int = 16,
+        timings: DiagnosticCaptureTimings = DiagnosticCaptureTimings()
     ) = withContext(Dispatchers.IO) {
         require(chatId > 0 && maximumCharacters in 1024..1_048_576 && maximumSourceBytes in maximumCharacters..1_048_576)
         require(sourcePageSize in 1..16)
@@ -274,7 +275,7 @@ class DiagnosticDatabaseSource @Inject constructor(
             val state = tableStates[table.name] as? JsonObject
             if (state?.get("completed") == JsonPrimitive(true)) continue
             try {
-                captureTable(source, table, chatId, maximumSourceBytes, beforeRead, consume, omitted, metadata, state, { save(table.name, it) }, sourceRecord, sourcePageSize)
+                captureTable(source, table, chatId, maximumSourceBytes, beforeRead, consume, omitted, metadata, state, { save(table.name, it) }, sourceRecord, sourcePageSize, timings)
             } catch (_: SQLException) {
                 omitted("DIAGNOSTIC_TABLE_READ_FAILED")
                 consume(
@@ -300,7 +301,8 @@ class DiagnosticDatabaseSource @Inject constructor(
         saved: JsonObject?,
         checkpoint: (JsonObject) -> Unit,
         sourceRecord: (DiagnosticSourceRecord?) -> Unit,
-        sourcePageSize: Int
+        sourcePageSize: Int,
+        timings: DiagnosticCaptureTimings
     ) {
         var omissionCount = saved?.number("omissionCount") ?: 0L
         fun recordOmission(reason: String) {
@@ -309,8 +311,10 @@ class DiagnosticDatabaseSource @Inject constructor(
         }
         val startedAt = saved?.number("startedAtMillis") ?: System.currentTimeMillis()
         beforeRead()
-        val schemaColumns = database.query("PRAGMA table_info(${table.name})").use { cursor ->
-            buildList { while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name"))) }
+        val schemaColumns = timings.measure(DiagnosticCaptureTimings.Phase.QUERY_MATERIALIZATION) {
+            database.query("PRAGMA table_info(${table.name})").use { cursor ->
+                buildList { while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name"))) }
+            }
         }
         val columns = table.columns ?: schemaColumns
         if (columns.isEmpty() || !schemaColumns.containsAll(columns)) {
@@ -328,20 +332,24 @@ class DiagnosticDatabaseSource @Inject constructor(
         }
         val rowLength = columns.joinToString(" + ") { "COALESCE(length(CAST(t.\"$it\" AS BLOB)), 0)" }
         val where = table.where.replace(":chatId", chatId.toString())
-        val highWatermark = saved?.number("highWatermark") ?: database.query("SELECT COALESCE(MAX(t.rowid), 0) FROM ${table.name} t WHERE $where").use { cursor ->
-            check(cursor.moveToFirst())
-            cursor.getLong(0)
+        val highWatermark = saved?.number("highWatermark") ?: timings.measure(DiagnosticCaptureTimings.Phase.QUERY_MATERIALIZATION) {
+            database.query("SELECT COALESCE(MAX(t.rowid), 0) FROM ${table.name} t WHERE $where").use { cursor ->
+                check(cursor.moveToFirst())
+                cursor.getLong(0)
+            }
         }
-        val expectedRows = saved?.number("expectedRows") ?: database.query("SELECT COUNT(*) FROM ${table.name} t WHERE ($where) AND t.rowid <= $highWatermark").use { cursor ->
-            check(cursor.moveToFirst())
-            cursor.getLong(0)
+        val expectedRows = saved?.number("expectedRows") ?: timings.measure(DiagnosticCaptureTimings.Phase.QUERY_MATERIALIZATION) {
+            database.query("SELECT COUNT(*) FROM ${table.name} t WHERE ($where) AND t.rowid <= $highWatermark").use { cursor ->
+                check(cursor.moveToFirst())
+                cursor.getLong(0)
+            }
         }
         var inspectedRows = saved?.number("inspectedRows") ?: 0L
         var emittedRows = saved?.number("emittedRows") ?: 0L
         val previousEmittedRows = emittedRows
         var after = saved?.number("afterRowId") ?: if (table.newestFirst) Long.MAX_VALUE else Long.MIN_VALUE
         var afterSort = saved?.number("afterSort") ?: after
-        val sort = if (table.newestFirst && "updatedAt" in schemaColumns) "COALESCE(t.updatedAt, 0)" else "t.rowid"
+        val sort = if (table.newestFirst && "updatedAt" in schemaColumns) "t.updatedAt" else "t.rowid"
         fun save(completed: Boolean = false) {
             checkpoint(
                 buildJsonObject {
@@ -377,16 +385,18 @@ class DiagnosticDatabaseSource @Inject constructor(
         while (true) {
             currentCoroutineContext().ensureActive()
             beforeRead()
-            val page = database.query(
-                SimpleSQLiteQuery(
-                    if (table.newestFirst) {
-                        "SELECT t.rowid, $rowLength, $sort FROM ${table.name} t WHERE ($where) AND ($sort < ? OR ($sort = ? AND t.rowid < ?)) AND t.rowid <= ? ORDER BY $sort DESC, t.rowid DESC LIMIT $sourcePageSize"
-                    } else {
-                        "SELECT t.rowid, $rowLength, t.rowid FROM ${table.name} t WHERE ($where) AND t.rowid > ? AND t.rowid <= ? ORDER BY t.rowid LIMIT $sourcePageSize"
-                    },
-                    if (table.newestFirst) arrayOf<Any?>(afterSort, afterSort, after, highWatermark) else arrayOf<Any?>(after, highWatermark)
-                )
-            ).use { cursor -> buildList { while (cursor.moveToNext()) add(Triple(cursor.getLong(0), cursor.getLong(1), cursor.getLong(2))) } }
+            val page = timings.measure(DiagnosticCaptureTimings.Phase.QUERY_MATERIALIZATION) {
+                database.query(
+                    SimpleSQLiteQuery(
+                        if (table.newestFirst) {
+                            "SELECT t.rowid, $rowLength, $sort FROM ${table.name} t WHERE ($where) AND ($sort, t.rowid) < (?, ?) AND t.rowid <= ? ORDER BY $sort DESC, t.rowid DESC LIMIT $sourcePageSize"
+                        } else {
+                            "SELECT t.rowid, $rowLength, t.rowid FROM ${table.name} t WHERE ($where) AND t.rowid > ? AND t.rowid <= ? ORDER BY t.rowid LIMIT $sourcePageSize"
+                        },
+                        if (table.newestFirst) arrayOf<Any?>(afterSort, after, highWatermark) else arrayOf<Any?>(after, highWatermark)
+                    )
+                ).use { cursor -> buildList { while (cursor.moveToNext()) add(Triple(cursor.getLong(0), cursor.getLong(1), cursor.getLong(2))) } }
+            }
             if (page.isEmpty()) break
             for ((rowId, sourceBytes, order) in page) {
                 sourceRecord(DiagnosticSourceRecord(table.name, rowId, sourceBytes, maximumCharacters))
@@ -410,19 +420,21 @@ class DiagnosticDatabaseSource @Inject constructor(
                 }
                 // Recheck the bound in this query too: a live generation may update the row.
                 val projector = DiagnosticValueProjector(maximumCharacters, ::recordOmission)
-                val fields = database.query(
-                    SimpleSQLiteQuery("SELECT $selectedColumns FROM ${table.name} t WHERE t.rowid = ? AND ($where) AND ($rowLength) <= ?", arrayOf<Any?>(rowId, maximumCharacters))
-                ).use { cursor ->
-                    if (!cursor.moveToFirst()) {
-                        null
-                    } else {
-                        buildJsonObject {
-                            for (index in 0 until cursor.columnCount) {
-                                val key = cursor.getColumnName(index)
-                                if (table.name == "workspace_records" && key == "payload") {
-                                    put(key, JsonPrimitive(cursor.getString(index)))
-                                } else {
-                                    put(key, cell(cursor, index, projector, ::recordOmission))
+                val fields = timings.measure(DiagnosticCaptureTimings.Phase.QUERY_MATERIALIZATION) {
+                    database.query(
+                        SimpleSQLiteQuery("SELECT $selectedColumns FROM ${table.name} t WHERE t.rowid = ? AND ($where) AND ($rowLength) <= ?", arrayOf<Any?>(rowId, maximumCharacters))
+                    ).use { cursor ->
+                        if (!cursor.moveToFirst()) {
+                            null
+                        } else {
+                            buildJsonObject {
+                                for (index in 0 until cursor.columnCount) {
+                                    val key = cursor.getColumnName(index)
+                                    if (table.name == "workspace_records" && key == "payload") {
+                                        put(key, JsonPrimitive(cursor.getString(index)))
+                                    } else {
+                                        put(key, cell(cursor, index, projector, ::recordOmission))
+                                    }
                                 }
                             }
                         }
@@ -437,16 +449,18 @@ class DiagnosticDatabaseSource @Inject constructor(
                 // Protected receipts are expanded only after the bounded row cursor is closed.
                 val projectedFields = if (table.name == "workspace_records") {
                     val storedPayload = (fields["payload"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                    val protected = workspace.diagnosticPayload(
-                        chatId,
-                        (fields["id"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
-                        (fields["kind"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
-                        storedPayload,
-                        maximumCharacters,
-                        beforeRead,
-                        ::recordOmission,
-                        projector
-                    )
+                    val protected = timings.measureSuspending(DiagnosticCaptureTimings.Phase.PROTECTED_HYDRATION) {
+                        workspace.diagnosticPayload(
+                            chatId,
+                            (fields["id"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
+                            (fields["kind"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
+                            storedPayload,
+                            maximumCharacters,
+                            beforeRead,
+                            ::recordOmission,
+                            projector
+                        )
+                    }
                     val payload = if (!protected.protected) {
                         projector.text(storedPayload)
                     } else if (protected.payload != null) {

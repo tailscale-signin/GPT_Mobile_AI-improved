@@ -157,6 +157,9 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
 
     /** Each encrypted chunk fits the vault limit. Publish metadata only after all chunks exist. */
     suspend fun saveProtectedSynthesisCheckpoint(id: String, chatId: Int, runId: String, payload: kotlinx.serialization.json.JsonObject, appendOnly: Boolean = false, engineeringMemory: Boolean = false, expectedDigest: String? = null, expectedRunFence: Long? = null): Boolean =
+        saveProtectedCheckpointResult(id, chatId, runId, payload, appendOnly, engineeringMemory, expectedDigest, expectedRunFence).requireSaved()
+
+    internal suspend fun saveProtectedCheckpointResult(id: String, chatId: Int, runId: String, payload: kotlinx.serialization.json.JsonObject, appendOnly: Boolean = false, engineeringMemory: Boolean = false, expectedDigest: String? = null, expectedRunFence: Long? = null): ProtectedCheckpointWriteResult =
         writeProtectedSynthesisCheckpoint(id, chatId, runId, payload, appendOnly, engineeringMemory, expectedDigest, expectedRunFence)
 
     /** Terminal reconciliation is a compare-and-set of the exact saved bytes and their current owner. */
@@ -171,7 +174,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
     ): Boolean {
         require(expectedDigest.matches(Regex("[a-f0-9]{64}")))
         require(expectedStatus in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal)
-        return writeProtectedSynthesisCheckpoint(id, chatId, runId, payload, expectedDigest = expectedDigest, expectedFence = fence, expectedStatus = expectedStatus)
+        return writeProtectedSynthesisCheckpoint(id, chatId, runId, payload, expectedDigest = expectedDigest, expectedFence = fence, expectedStatus = expectedStatus).requireSaved()
     }
 
     private suspend fun writeProtectedSynthesisCheckpoint(
@@ -184,22 +187,27 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
         expectedDigest: String? = null,
         expectedFence: Long? = null,
         expectedStatus: String? = null
-    ): Boolean {
-        if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return false
-        if (appendOnly && dao.get(id) != null) {
-            val retained = protectedSynthesisCheckpoint(id)
-            if (engineeringMemory) return retained == payload
-            if (retained != payload) {
-                throw WorkspaceEvidenceConflict(id, digest(payload.toString()), retained?.let { digest(it.toString()) }, if (retained == null) "RETAINED_PAYLOAD_UNAVAILABLE" else "IMMUTABLE_PAYLOAD_CHANGED")
-            }
-            return true
-        }
+    ): ProtectedCheckpointWriteResult {
+        if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return ProtectedCheckpointWriteResult.Rejected
         val bytes = payload.toString().encodeToByteArray()
         require(bytes.size <= 1_500_000) { "Synthesis checkpoint exceeds retention limit" }
         val payloadDigest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
         val references = mutableListOf<String>()
         var committed = false
-        var retainedExisting = false
+        val recordKind = if (engineeringMemory) {
+            "github_engineering_memory"
+        } else if (appendOnly) {
+            "github_evidence"
+        } else {
+            "synthesis_checkpoint"
+        }
+        val writerPhase = if (expectedStatus != null) {
+            "TERMINAL_RECONCILIATION"
+        } else if (appendOnly) {
+            "IMMUTABLE_APPEND"
+        } else {
+            "CHECKPOINT_REPLACE"
+        }
         try {
             for (start in bytes.indices step 60_000) {
                 val reference = "workspace-memory-$chatId-${UUID.randomUUID()}"
@@ -216,14 +224,17 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                 put("digest", kotlinx.serialization.json.JsonPrimitive(payloadDigest))
             }
             var previous: kotlinx.serialization.json.JsonObject? = null
-            committed = database.withTransaction {
-                if (database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return@withTransaction false
+            val outcome = database.withTransaction {
+                if (database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return@withTransaction ProtectedCheckpointWriteResult.Rejected
                 val existing = dao.get(id)
-                previous = existing?.payload?.let { Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }
-                if (expectedDigest != null && (existing?.runId != runId || existing.chatId != chatId || previous?.get("digest") != kotlinx.serialization.json.JsonPrimitive(expectedDigest))) return@withTransaction false
+                previous = existing?.payload?.let { runCatching { Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }.getOrNull() }
+                // Even an identical payload must not cross conversations or bypass a stale fence.
+                if (existing != null && existing.chatId != chatId) return@withTransaction ProtectedCheckpointWriteResult.Rejected
+                if (existing != null && existing.kind !in setOf("github_evidence", "github_engineering_memory", "synthesis_checkpoint")) return@withTransaction ProtectedCheckpointWriteResult.Rejected
+                if (expectedDigest != null && (existing?.runId != runId || existing.chatId != chatId || previous?.get("digest") != kotlinx.serialization.json.JsonPrimitive(expectedDigest))) return@withTransaction ProtectedCheckpointWriteResult.Rejected
                 if (expectedFence != null || expectedStatus != null) {
-                    val run = database.agentPersistenceDao().rawRecoveryRun(runId) ?: return@withTransaction false
-                    val owner = database.agentPersistenceDao().rawRecoveryMessage(run.assistantMessageId) ?: return@withTransaction false
+                    val run = database.agentPersistenceDao().rawRecoveryRun(runId) ?: return@withTransaction ProtectedCheckpointWriteResult.Rejected
+                    val owner = database.agentPersistenceDao().rawRecoveryMessage(run.assistantMessageId) ?: return@withTransaction ProtectedCheckpointWriteResult.Rejected
                     if (run.chatId != chatId ||
                         owner.chatId != chatId ||
                         owner.currentRunId != runId ||
@@ -233,30 +244,31 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                         expectedStatus != null &&
                         run.status != expectedStatus
                     ) {
-                        return@withTransaction false
+                        return@withTransaction ProtectedCheckpointWriteResult.Rejected
                     }
                 }
-                if (appendOnly && existing != null && engineeringMemory) return@withTransaction false
-                if (appendOnly && existing != null) {
-                    val retainedDigest = (previous?.get("digest") as? kotlinx.serialization.json.JsonPrimitive)?.content
-                    if (existing.chatId == chatId && retainedDigest == payloadDigest) {
-                        // Two writers may race to append the same immutable record.
-                        // Retain the first encrypted chunks and discard this duplicate.
-                        retainedExisting = true
-                        return@withTransaction true
-                    }
-                    throw WorkspaceEvidenceConflict(id, payloadDigest, retainedDigest?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }, "CONCURRENT_APPEND_CONFLICT")
+                if (existing != null && (appendOnly || existing.kind == "github_evidence")) {
+                    val retained = protectedSynthesisCheckpoint(id)
+                    val retainedDigest = retained?.let { digest(it.toString()) }
+                    // Compare the actual retained bytes, not just metadata that could outlive its chunks.
+                    if (retained == payload && existing.kind == recordKind) return@withTransaction ProtectedCheckpointWriteResult.AlreadySaved
+                    if (engineeringMemory) return@withTransaction ProtectedCheckpointWriteResult.Rejected
+                    return@withTransaction ProtectedCheckpointWriteResult.Conflict(
+                        WorkspaceEvidenceConflict(
+                            id,
+                            payloadDigest,
+                            retainedDigest,
+                            if (retained == null) "RETAINED_PAYLOAD_UNAVAILABLE" else "IMMUTABLE_PAYLOAD_CHANGED",
+                            recordKind = existing.kind,
+                            writerPhase = writerPhase,
+                            ownershipFence = expectedFence
+                        )
+                    )
                 }
                 dao.save(
                     WorkspaceRecord(
                         id,
-                        if (engineeringMemory) {
-                            "github_engineering_memory"
-                        } else if (appendOnly) {
-                            "github_evidence"
-                        } else {
-                            "synthesis_checkpoint"
-                        },
+                        recordKind,
                         if (engineeringMemory) {
                             "Engineering memory"
                         } else if (appendOnly) {
@@ -269,19 +281,14 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                         runId
                     )
                 )
-                true
+                ProtectedCheckpointWriteResult.Stored
             }
-            if (retainedExisting) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                    references.forEach { reference -> runCatching { vault.delete(reference) } }
-                }
-                return true
-            }
+            committed = outcome == ProtectedCheckpointWriteResult.Stored
             if (!committed) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                     references.forEach { reference -> runCatching { vault.delete(reference) } }
                 }
-                return false
+                return outcome
             }
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                 (previous?.get("protectedChunks") as? kotlinx.serialization.json.JsonArray).orEmpty().forEach {
@@ -290,12 +297,19 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                     }
                 }
             }
-            return true
+            return outcome
         } catch (error: Exception) {
             // Unpublished chunks are safe to remove; a published record must remain readable.
             if (!committed) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                    references.forEach { reference -> runCatching { vault.delete(reference) } }
+                    // Cancellation can arrive after Room committed but before it returned.
+                    // Keep chunks if publication cannot be ruled out from the retained row.
+                    val published = runCatching {
+                        val retained = dao.get(id)?.payload ?: return@runCatching false
+                        val chunks = (Json.parseToJsonElement(retained) as? kotlinx.serialization.json.JsonObject)?.get("protectedChunks") as? kotlinx.serialization.json.JsonArray
+                        chunks?.any { (it as? kotlinx.serialization.json.JsonPrimitive)?.content in references } ?: true
+                    }.getOrDefault(true)
+                    if (!published) references.forEach { reference -> runCatching { vault.delete(reference) } }
                 }
             }
             throw error
@@ -308,7 +322,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
         val record = dao.get(id) ?: return null
         val chatId = record.chatId ?: return null
         if (database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return null
-        val metadata = Json.parseToJsonElement(record.payload) as? kotlinx.serialization.json.JsonObject ?: return null
+        val metadata = runCatching { Json.parseToJsonElement(record.payload) as? kotlinx.serialization.json.JsonObject }.getOrNull() ?: return null
         val references = metadata["protectedChunks"] as? kotlinx.serialization.json.JsonArray ?: return null
         if (references.size !in 1..25) return null
         val output = java.io.ByteArrayOutputStream()
@@ -329,7 +343,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
             if ((metadata["digest"] as? kotlinx.serialization.json.JsonPrimitive)?.content != digest(text)) {
                 null
             } else {
-                Json.parseToJsonElement(text) as? kotlinx.serialization.json.JsonObject
+                runCatching { Json.parseToJsonElement(text) as? kotlinx.serialization.json.JsonObject }.getOrNull()
             }
         } finally {
             bytes.fill(0)

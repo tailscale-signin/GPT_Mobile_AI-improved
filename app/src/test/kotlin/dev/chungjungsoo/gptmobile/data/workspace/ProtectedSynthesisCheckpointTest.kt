@@ -146,6 +146,63 @@ class ProtectedSynthesisCheckpointTest {
         assertEquals(1, secrets.size)
     }
 
+    @Test fun immutableWriteResultsSurviveRestartAndRejectChangedContentWithoutReplacingEvidence() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Immutable results")).toInt()
+        val store = WorkspaceRepository(database, vault)
+        val original = buildJsonObject { put("receipt", "first") }
+        assertEquals(ProtectedCheckpointWriteResult.Stored, store.saveProtectedCheckpointResult("receipt", chat, "run", original, appendOnly = true))
+        val references = secrets.keys.toSet()
+        val reopened = WorkspaceRepository(database, vault)
+        assertEquals(ProtectedCheckpointWriteResult.AlreadySaved, reopened.saveProtectedCheckpointResult("receipt", chat, "later-run", original, appendOnly = true))
+        val conflict = reopened.saveProtectedCheckpointResult("receipt", chat, "later-run", buildJsonObject { put("receipt", "changed") }, appendOnly = true)
+        assertTrue(conflict is ProtectedCheckpointWriteResult.Conflict)
+        assertEquals(original, reopened.protectedSynthesisCheckpoint("receipt"))
+        assertEquals(references, secrets.keys)
+        assertEquals("run", reopened.dao.get("receipt")?.runId)
+    }
+
+    @Test fun identicalAppendCannotBypassChatOrOwnershipChecks() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Owned evidence")).toInt()
+        val otherChat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Other conversation")).toInt()
+        val run = terminalOwner(chat)
+        val store = WorkspaceRepository(database, vault)
+        val payload = buildJsonObject { put("receipt", "retained") }
+        assertEquals(ProtectedCheckpointWriteResult.Stored, store.saveProtectedCheckpointResult("receipt", chat, run.runId, payload, appendOnly = true, expectedRunFence = 7))
+        val references = secrets.keys.toSet()
+        assertEquals(ProtectedCheckpointWriteResult.Rejected, store.saveProtectedCheckpointResult("receipt", otherChat, run.runId, payload, appendOnly = true))
+        assertEquals(ProtectedCheckpointWriteResult.Rejected, store.saveProtectedCheckpointResult("receipt", chat, run.runId, payload, appendOnly = true, expectedRunFence = 6))
+        val owner = requireNotNull(database.agentPersistenceDao().rawRecoveryMessage(2))
+        database.agentPersistenceDao().rawUpdateMessage(owner.copy(currentRunId = "new-run", ownershipFence = 8))
+        assertEquals(ProtectedCheckpointWriteResult.Rejected, store.saveProtectedCheckpointResult("receipt", chat, run.runId, payload, appendOnly = true, expectedRunFence = 7))
+        assertEquals(references, secrets.keys)
+        assertEquals(payload, store.protectedSynthesisCheckpoint("receipt"))
+    }
+
+    @Test fun missingRetainedChunksCannotMasqueradeAsAnIdempotentSave() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Missing evidence")).toInt()
+        val store = WorkspaceRepository(database, vault)
+        val payload = buildJsonObject { put("receipt", "retained") }
+        store.saveProtectedSynthesisCheckpoint("receipt", chat, "run", payload, appendOnly = true)
+        val metadata = store.dao.get("receipt")
+        secrets.clear()
+        val result = store.saveProtectedCheckpointResult("receipt", chat, "run", payload, appendOnly = true) as ProtectedCheckpointWriteResult.Conflict
+        assertEquals(JsonPrimitive("RETAINED_PAYLOAD_UNAVAILABLE"), result.failure.event().failureDetails?.get("evidence_conflict_reason"))
+        assertEquals(metadata, store.dao.get("receipt"))
+        assertTrue(secrets.isEmpty())
+    }
+
+    @Test fun mutableCheckpointWriterCannotReplaceAnImmutableReceipt() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Immutable kind")).toInt()
+        val store = WorkspaceRepository(database, vault)
+        val payload = buildJsonObject { put("receipt", "retained") }
+        store.saveProtectedSynthesisCheckpoint("receipt", chat, "run", payload, appendOnly = true)
+        val result = store.saveProtectedCheckpointResult("receipt", chat, "run", buildJsonObject { put("receipt", "changed") }) as ProtectedCheckpointWriteResult.Conflict
+        assertEquals(JsonPrimitive("CHECKPOINT_REPLACE"), result.failure.event().failureDetails?.get("evidence_writer_phase"))
+        assertEquals(JsonPrimitive("github_evidence"), result.failure.event().failureDetails?.get("evidence_record_kind"))
+        assertEquals(payload, store.protectedSynthesisCheckpoint("receipt"))
+        assertEquals(1, secrets.size)
+    }
+
     @Test fun reopenedReceiptsCountOneContractAcrossMultipleAttempts() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Task progress")).toInt()
         val store = WorkspaceRepository(database, vault)

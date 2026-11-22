@@ -58,9 +58,9 @@ post-merge, Gateway stability, Windows installer and development-environment
 workflows. The existing release publisher verifies version, signer, artifact
 identity, hashes and provenance before converting its draft release to published.
 
-Android publication is requested by the version change. This patch does not change
-the Windows/Gateway server implementation, so it does not request a duplicate publication
-of the existing Gateway 18.1.0 release. The separate hosted report contract advertises
+Android publication is requested by the version change. The supplemental 15-finding
+audit adds read-only Windows host connectivity diagnostics and requests coordinated
+Gateway 18.1.1 publication through the reviewed version pair in release-scope.json. The separate hosted report contract advertises
 `EXECUTION_COMPLETION_EVIDENCE_V1`; native authenticated GitHub reporting remains
 independent, and older hosted services do not receive unsupported approved payloads.
 

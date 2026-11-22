@@ -36,6 +36,8 @@ import kotlinx.serialization.json.intOrNull
 
 class OpenAIResponsesEventAssembler {
     private var reportedModelId: String? = null
+    private var responseId: String? = null
+    private var responsePayloadObserved = false
     private val toolGuard = ToolStreamGuard(ProviderToolBatchPolicy.PREFERRED_MAX_CALLS)
     private data class PendingCall(
         val callId: String,
@@ -54,17 +56,26 @@ class OpenAIResponsesEventAssembler {
 
         is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCreatedEvent -> {
             reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(event.response.model)
+            responseId = event.response.id
             emptyList()
         }
         is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseInProgressEvent -> {
             event.response.model?.let { reportedModelId = dev.chungjungsoo.gptmobile.data.diagnostics.reportedModelIdentifier(it) }
+            responseId = event.response.id
             emptyList()
         }
-        is ReasoningSummaryTextDeltaEvent -> listOf(ProviderEvent.ThinkingDelta(event.delta))
+        is ReasoningSummaryTextDeltaEvent -> {
+            responsePayloadObserved = true
+            listOf(ProviderEvent.ThinkingDelta(event.delta))
+        }
 
-        is OutputTextDeltaEvent -> listOf(ProviderEvent.TextDelta(event.delta, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, reportedModelId = reportedModelId)))
+        is OutputTextDeltaEvent -> {
+            responsePayloadObserved = true
+            listOf(ProviderEvent.TextDelta(event.delta, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, reportedModelId = reportedModelId)))
+        }
 
         is OutputItemAddedEvent -> {
+            responsePayloadObserved = true
             if (event.item.type != "function_call") {
                 emptyList()
             } else {
@@ -89,6 +100,7 @@ class OpenAIResponsesEventAssembler {
         }
 
         is FunctionCallArgumentsDeltaEvent -> {
+            responsePayloadObserved = true
             toolGuard.append(event.delta)
             pending[event.itemId]?.arguments?.append(event.delta)
             emptyList()
@@ -111,15 +123,17 @@ class OpenAIResponsesEventAssembler {
             }
         }
 
-        is ResponseFailedEvent -> {
+        is ResponseFailedEvent -> buildList {
             val error = event.response.error
-            val failure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(error?.code, error?.message ?: "Response failed", error?.type)
-            listOf(ProviderEvent.Failed(failure.message, errorCode = failure.code, failureDetails = failure.failureDetails))
+            val failure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(error?.code, error?.message ?: "Response failed", error?.type, responsePayloadObserved = responsePayloadObserved, streamEventType = "response.failed", providerResponseId = event.response.id)
+            event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens, reasoningTokens = (it.outputTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { count -> count >= 0 })) }
+            add(ProviderEvent.Failed(failure.message, errorCode = failure.code, failureDetails = failure.failureDetails))
         }
 
-        is ResponseErrorEvent -> {
-            val failure = if (event.failureDetails != null || event.providerLimit != null) event else dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(event.code, event.message)
-            listOf(ProviderEvent.Failed(failure.message, errorCode = failure.code, providerLimit = failure.providerLimit, failureDetails = failure.failureDetails))
+        is ResponseErrorEvent -> buildList {
+            val failure = if (event.failureDetails != null || event.providerLimit != null) event else dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(event.code, event.message, responsePayloadObserved = responsePayloadObserved, streamEventType = "error", providerResponseId = responseId)
+            event.providerUsage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens, reasoningTokens = (it.outputTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { count -> count >= 0 })) }
+            add(ProviderEvent.Failed(failure.message, errorCode = failure.code, providerLimit = failure.providerLimit, failureDetails = failure.failureDetails))
         }
 
         is ResponseCompletedEvent -> buildList {

@@ -185,7 +185,11 @@ data class ResponseErrorEvent(
     val failureDetails: JsonObject? = null,
 
     @kotlinx.serialization.Transient
-    val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
+    val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null,
+
+    /** Usage from the original failed response survives semantic normalization. */
+    @kotlinx.serialization.Transient
+    val providerUsage: ResponseUsage? = null
 ) : ResponsesStreamEvent()
 
 /**

@@ -839,6 +839,39 @@ class IssueReportSubmissionTest {
         assertEquals(0, requests)
     }
 
+    @Test fun searchArgumentEvidenceRequiresItsOwnServiceCapabilityBeforePosting() {
+        val context = IssueReportContext.fromFields("TOOL_RESULT", IssueReportIncidentCapsule.fields(ReportFeature.TOOLS, "TOOL_RESULT", "INVALID_ARGUMENTS", mapOf("diagnostic_area" to "TOOL")), 1000L)
+        val diagnostic = requireNotNull(context.diagnostics).let { it.copy(values = it.values + ("search_argument_rule" to JsonPrimitive("FUZZY_IDENTIFIER"))) }
+        val payload = report.copy(context = context.withDiagnostics(diagnostic)).approvedPayload()
+        var compatible = false
+        var posts = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                val features = legacyReadyFeatures + IssueReportIncidentCapsule.GITHUB_SEARCH_VALIDATION_FEATURE + if (compatible) listOf(IssueReportIncidentCapsule.GITHUB_SEARCH_ARGUMENT_FEATURE) else emptyList()
+                response(
+                    request,
+                    200,
+                    buildJsonObject {
+                        put("service", "gpt-mobile-issue-reporter")
+                        put("version", 2)
+                        put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                        put("reportDiagnosticFeatures", JsonArray(features.map(::JsonPrimitive)))
+                    }.toString()
+                )
+            } else {
+                posts++
+                response(request, 200, """{"reportId":"${report.reportId}","number":1303}""")
+            }
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", (submission.send(report.reportId, payload) as IssueReportSubmission.Failure).code)
+        assertEquals(0, posts)
+        compatible = true
+        assertEquals(IssueReportSubmission.Confirmed(1303), submission.send(report.reportId, payload))
+        assertEquals(1, posts)
+    }
+
     @Test fun extendedReadinessIsBoundedAtFourKiBAndOversizeNeverPosts() {
         val payload = publicationReport().approvedPayload()
         for (size in listOf(4096, 4097)) {

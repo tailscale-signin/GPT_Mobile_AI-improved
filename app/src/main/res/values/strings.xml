@@ -1195,6 +1195,7 @@
     <string name="gateway_recovery_authorize">Restore the required connection or authorization, then check again.</string>
     <string name="gateway_recovery_reconcile">Reconnect to the original job to check its result before retrying.</string>
     <string name="gateway_recovery_verify">Review the remaining acceptance evidence before marking the task complete.</string>
+    <string name="gateway_recovery_connection">Check that the PC and Gateway are running, the saved address and port match, and the VPN or LAN route and firewall allow the connection. In the PC’s Gateway settings, open Connection and select Inspect this PC, then reconnect. Model readiness is still unverified.</string>
     <string name="gateway_recovery_inspect">Open the gateway diagnostics to inspect the failed dependency and recovery condition.</string>
     <string name="issue_report_title">Report an issue</string>
     <string name="issue_report_short_title">Short title</string>

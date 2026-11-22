@@ -12,6 +12,58 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubExecutionContinuationFindingTest {
+    @Test fun searchResumePreservesExactCursorsAndSeparatesChangedQueryCoverage() {
+        val records = (1..2).associate { index ->
+            val arguments = buildJsonObject {
+                put("query", "needle-$index")
+                put("mode", "literal")
+            }
+            val result = buildJsonObject {
+                put("search_id", index.toString().repeat(64))
+                put("commit_sha", "a".repeat(40))
+                put("interval_start", 0)
+                put("interval_end", 4)
+                put("total_candidate_files", 12)
+                put("complete", false)
+                put("returned", 0)
+                put("has_more", true)
+            }
+            val continuation = buildJsonObject {
+                put("tool", "github_search")
+                put("arguments", JsonObject(arguments + mapOf("search_id" to result.getValue("search_id"), "commit_sha" to result.getValue("commit_sha"), "index_cursor" to JsonPrimitive(4))))
+            }
+            val frontier = requireNotNull(GitHubSearchFrontier.capture("github_search", arguments, result, listOf(continuation)))
+            "receipt-$index" to buildJsonObject {
+                put("trusted", true)
+                put("success", true)
+                put("tool", "github_search")
+                put("arguments", arguments)
+                put("result", result)
+                put("execution", buildJsonObject { put("search_frontier", frontier) })
+            }
+        }
+        val prompt = GitHubExecutionContinuation.prompt("Examine all bugs and offer solutions", "continue", records, null)
+        assertTrue(prompt.contains("\"included_search_count\":2"))
+        assertTrue(prompt.contains("\"index_cursor\":4"))
+        assertTrue(prompt.contains("\"search_id\":\"${"1".repeat(64)}\""))
+        assertTrue(prompt.contains("needle-1") && prompt.contains("needle-2"))
+        assertTrue(prompt.contains("\"complete\":false"))
+    }
+
+    @Test fun replanFollowsTheAcceptedGoalAndRequiresExplicitExhaustiveScope() {
+        val review = GitHubExecutionContinuation.replanInstruction("Review all bugs and suggest solutions", "continue")
+        assertTrue(review.contains("report supported findings"))
+        assertFalse(review.contains("concrete change") || review.contains("concrete edit"))
+        assertTrue(review.contains("unsearched remainder"))
+        assertTrue(GitHubExecutionContinuation.replanInstruction("Review this commit and propose fixes", "continue").contains("report supported findings"))
+        assertFalse(GitHubExecutionContinuation.prompt("Review this commit and propose fixes", "continue", emptyMap(), null).contains("next authorized branch or patch"))
+        assertTrue(GitHubExecutionContinuation.replanInstruction("Fix the accepted bug", "continue").contains("concrete change"))
+        assertTrue(GitHubExecutionContinuation.replanInstruction("Explain this search algorithm", "continue").contains("requested explanation"))
+        assertTrue(GitHubExecutionContinuation.requiresExhaustiveSearch("Examine all issues and bugs"))
+        assertFalse(GitHubExecutionContinuation.requiresExhaustiveSearch("Find a sample of all matching files"))
+        assertFalse(GitHubExecutionContinuation.requiresExhaustiveSearch("Explain this method"))
+    }
+
     @Test fun capturedSourceAndAStagedPatchAreDistinctFromVerifiedFeatureCompletion() {
         fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
         val source = json("""{"trusted":true,"success":true,"tool":"github_read","result":{"commit_sha":"${"a".repeat(40)}","items":[{"path":"app/Chat.kt","sha":"${"b".repeat(40)}","range_complete":true}]}}""")

@@ -2198,6 +2198,24 @@ class GitHubTool(
                 }
             )
         }
+        if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubSearchArgumentFailure) {
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Text(requireNotNull(throwable.message)),
+                true,
+                errorCode = "INVALID_ARGUMENTS",
+                dispatched = false,
+                executionReceipt = buildJsonObject {
+                    put("reason_code", "TOOL_ARGUMENT_CONSTRAINT_REJECTED")
+                    put("native_action", "search_repository")
+                    put("validation_rule", throwable.rule.name)
+                    put("validation_expected", throwable.expected.name)
+                    put("invalid_field_count", 1)
+                    put("invalid_fields", JsonArray(listOf(JsonPrimitive(throwable.field))))
+                    put("validation_field_names", JsonArray(listOf(JsonPrimitive(throwable.field))))
+                }
+            )
+        }
         if (throwable is IllegalArgumentException) {
             val explanation = detail.takeUnless { it.isBlank() || it == "Failed requirement." }
                 ?: "Invalid or missing arguments for this GitHub operation."

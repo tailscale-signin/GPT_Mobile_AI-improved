@@ -10,10 +10,27 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_search_argument_rule_survives_submission_without_raw_query_or_exception(self):
+        values = {
+            "search_argument_field": "query", "search_argument_rule": "FUZZY_IDENTIFIER",
+            "search_argument_expected": "IDENTIFIER_2_80", "search_native_action": "search_repository",
+            "search_mode": "literal", "search_query_hash": "e" * 64,
+        }
+        capture = self.capture("TOOL", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        self.assertIn("FUZZY_IDENTIFIER", str(issue_from_report(self.report(capture))))
+        for key in values:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {**values, key: "private query or exception"}))
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {key: values[key]}))
+        self.assertNotIn("query", capsule.fields_for("TOOL"))
+
     def test_execution_completion_evidence_crosses_report_contract_without_private_fields(self):
         samples = [
             ("WORKSPACE_EVIDENCE_CONFLICT", "application_persistence", "REVIEW_APPLICATION_EVIDENCE", {
                 "evidence_conflict_reason": "IMMUTABLE_PAYLOAD_CHANGED",
+                "evidence_record_kind": "synthesis_checkpoint", "evidence_writer_phase": "TERMINAL_RECONCILIATION", "ownership_fence": 7,
                 "evidence_record_hash": "a" * 64,
                 "evidence_proposed_payload_hash": "b" * 64,
                 "evidence_retained_payload_hash": "c" * 64,
@@ -22,10 +39,15 @@ class IncidentReportContractTest(unittest.TestCase):
                 "no_output_kind": "REASONING_ONLY", "no_output_visible_bytes": 0,
                 "no_output_reasoning_bytes": 19128, "no_output_tool_call_count": 0,
                 "no_output_repairs": 1, "no_output_repair_limit": 1, "no_output_repair_scheduled": False,
+                "no_output_continuation_attempt": 1, "no_output_continuation_limit": 2,
+                "no_output_generated_tokens": 2048, "no_output_reasoning_tokens": 2048,
+                "no_output_effective_limit": 4096, "no_output_serialized_limit": 2048,
+                "no_output_stop_reason": "EMPTY_OUTPUT_REPAIR_LIMIT", "no_output_parent_invocation_hash": "d" * 64,
                 "no_output_draft_hash": "a" * 64,
             }),
             ("BILLING_UNAVAILABLE", "response_stream", None, {
                 "provider_failure_kind": "BUDGET", "upstream_error_code": "insufficient_quota",
+                "stream_event_type": "response.failed", "provider_response_id_hash": "e" * 64,
             }),
             ("PROVIDER_WAIT_CHECKPOINT_CHANGED", "lifecycle", "REVIEW_SAVED_RECOVERY", {
                 "checkpoint_validation_stage": "TOOL_JOURNAL", "checkpoint_mismatch_reason": "TOOL_JOURNAL_CHANGED_DURING_RESTORE",
@@ -57,6 +79,10 @@ class IncidentReportContractTest(unittest.TestCase):
             ("no_output_reasoning_bytes", "19128"), ("no_output_reasoning_bytes", True),
             ("provider_wait_expected_tool_journal_hash", "raw-private-id"),
             ("provider_wait_no_wait_reason", "private exception"), ("provider_semantic_status", 200),
+            ("stream_event_type", "private event"), ("provider_response_id_hash", "resp_private_id"),
+            ("evidence_record_kind", "private record"), ("evidence_writer_phase", "arbitrary phase"),
+            ("ownership_fence", -1), ("ownership_fence", True), ("ownership_fence", 2 ** 63),
+            ("no_output_generated_tokens", "2048"), ("no_output_stop_reason", "private reasoning"),
         ]:
             self.assertFalse(capsule.valid_value(key, value), (key, value))
         self.assertNotIn("private_payload", capsule.fields_for("INCIDENT"))
@@ -1386,6 +1412,7 @@ class IncidentReportContractTest(unittest.TestCase):
                   "acceptance_acquisition_allowed": False, "acceptance_cleanup_reserve": 0,
                   "acceptance_fixture_start_minimum": 6, "acceptance_prerequisite_blockers": ["OWNED_FIXTURE_REQUIRED"]}
         validate_diagnostics(self.capture("ACCEPTANCE", values))
+        validate_diagnostics(self.capture("ACCEPTANCE", {**values, "task_deadline_check": "ADMISSION"}))
         for field, bad in (("task_deadline_check", "private text"), ("task_deadline_observation", "unknown clock"),
                            ("task_deadline_window_seconds", -1), ("task_deadline_overdue_seconds", 16000001),
                            ("acceptance_acquisition_allowed", "false"), ("acceptance_cleanup_reserve", -1),
@@ -1394,6 +1421,29 @@ class IncidentReportContractTest(unittest.TestCase):
                 validate_diagnostics(self.capture("ACCEPTANCE", {field: bad}))
             with self.subTest(wrong_area=field), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("PROVIDER", {field: values[field]}))
+
+    def test_empty_acceptance_explanation_is_closed_and_cannot_expose_contract_text(self):
+        fields = {
+            "acceptance_applicability": "UNDETERMINED",
+            "acceptance_contract_state": "RETAINED",
+            "acceptance_plan_state": "DEFINED",
+            "acceptance_extraction_state": "FAILED",
+            "acceptance_coverage_state": "RECEIPTS_RETAINED",
+            "acceptance_empty_reason": "PRIMARY_FAILURE",
+            "acceptance_original_failure_present": True,
+        }
+        captured = self.capture("ACCEPTANCE", fields)
+        self.assertEqual(captured, validate_diagnostics(copy.deepcopy(captured)))
+        self.assertIn("PRIMARY_FAILURE", str(issue_from_report(self.report(captured))))
+        for key, value in fields.items():
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {key: "private task instructions"}))
+            with self.subTest(wrong_area=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {key: value}))
+        for bad in (0, 1, "true", None, []):
+            self.assertFalse(capsule.valid_value("acceptance_original_failure_present", bad))
+        self.assertNotIn("requested_actions", capsule.fields_for("ACCEPTANCE"))
+        self.assertNotIn("acceptance_criteria", capsule.fields_for("ACCEPTANCE"))
 
     def test_acceptance_recovery_evidence_preserves_unknown_policy_and_prerequisites(self):
         values = {

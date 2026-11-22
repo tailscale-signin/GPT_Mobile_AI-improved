@@ -38,8 +38,8 @@ internal object GitHubReplayRecovery {
         private fun remoteKey(name: String, args: JsonObject) = remoteReadKey(name, args)
     }
 
-    /** Advance only a native-issued, same-scope workflow page. No write or invented cursor is admitted. */
-    fun nextRemoteRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, state: State? = null): ProviderEvent.ToolCall? {
+    /** Advance only native-issued reads; exhaustive search is an explicit task policy. */
+    fun nextRemoteRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, state: State? = null, allowSearchContinuation: Boolean = false): ProviderEvent.ToolCall? {
         if (state?.exhausted() == true) return null
         val calls = exchanges.flatMap { it.calls }
         if (calls.count { it.callId.startsWith("remote-result-consume-") } >= 32) return null
@@ -57,6 +57,19 @@ internal object GitHubReplayRecovery {
                 if (result.isError) continue
                 val issuer = exchange.calls.firstOrNull { it.callId == result.callId } ?: continue
                 val original = canonical(issuer.name, issuer.arguments)
+                if (allowSearchContinuation && GitHubOperationTool.operationName(issuer.name) == "github_search") {
+                    val recipe = dev.chungjungsoo.gptmobile.data.github.GitHubSearchFrontier.continuation(issuer.name, original, result.executionReceipt) ?: continue
+                    val args = recipe["arguments"] as? JsonObject ?: continue
+                    val tool = tools.firstOrNull { it.name == issuer.name && it.modelVisible } ?: continue
+                    if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty() ||
+                        state?.hasRemoteRead(issuer.name, args) == true ||
+                        calls.any { it.name == issuer.name && remoteReadKey(it.name, it.arguments) == remoteReadKey(issuer.name, args) }
+                    ) {
+                        continue
+                    }
+                    val key = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(remoteReadKey(issuer.name, args)).take(24)
+                    return ProviderEvent.ToolCall("remote-result-consume-$key", issuer.name, args)
+                }
                 if (GitHubOperationTool.operationName(issuer.name) != "github_ci" || original["action"] != JsonPrimitive("workflows")) continue
                 val source = envelope(result.content)
                 val recipes = listOfNotNull(source?.get("continuation_call") as? JsonObject) +

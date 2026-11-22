@@ -691,8 +691,12 @@ class AgentRunCoordinator @Inject constructor(
      * Attempts recovery of interrupted or uncompleted runs that have an associated gateway job.
      */
     suspend fun recoverInterruptedGatewayRuns() = recoveryLock.withLock {
+        recoverSavedGatewayRuns()
+    }
+
+    private suspend fun recoverSavedGatewayRuns() {
         val profiles = settingRepository.fetchPlatformV2s().associateBy { it.uid }
-        val githubConversations = settingRepository.getFeatureSettings().conversationGitHub
+        val githubConversations = settingRepository.getFeatureSettings().conversationGitHub.keys
         val nowSeconds = currentEpochSeconds()
         val nowMillis = System.currentTimeMillis()
         val networkEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.networkEpoch.value
@@ -721,131 +725,176 @@ class AgentRunCoordinator @Inject constructor(
             val profile = profiles[run.profileUid] ?: continue
             if (!profile.enabled || !sameGatewayEndpoint(profile.apiUrl, baseUrl)) continue
 
-            var localStatus = run.status
-            suspend fun parkUnavailableResult() {
-                if (run.status == AgentRunStatus.BLOCKED || !gatewayRecoveryExpired(run, nowSeconds)) return
-                val reason = "${GatewayOutcomeRecovery.PARKED_RESULT_PREFIX}. The saved job could not be reconciled. Its identifier and evidence remain saved; recovery will check that job again when connectivity returns."
-                if (chatRepository.finishInterruptedAgentRun(run.runId, AgentRunStatus.BLOCKED, nowSeconds, reason)) {
-                    localStatus = AgentRunStatus.BLOCKED
-                    gatewayRecoveryFailures.remove(run.runId)
-                    _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, reason, persistent = true))
-                }
-            }
-
-            val lastAttempt = gatewayRecoveryAttemptAtMs[run.runId]
-            val interval = if (run.status == AgentRunStatus.BLOCKED) GATEWAY_PARKED_RECOVERY_MIN_INTERVAL_MS else GATEWAY_RECOVERY_MIN_INTERVAL_MS
-            if (lastAttempt != null && nowMillis - lastAttempt < interval) continue
-            gatewayRecoveryAttemptAtMs[run.runId] = nowMillis
-            AppLogRecorder.record("CombinedRetry", "RECOVERY_INSPECTION · initiator=AUTOMATIC_RECOVERY · runId=${run.runId} · profileUid=${run.profileUid} · jobId=$jobId · action=INSPECT_SAVED_JOB")
-            var outcome = "READ_UNAVAILABLE"
-            var remoteStatus = "unobserved"
-            var resultCommitted = false
-
-            try {
-                val token = dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
-                    .keysForNewRequest(profile.providerConnectionUid ?: profile.uid, profile.token).firstOrNull()
-                val config = ProviderRequestConfig(baseUrl, token, profileUid = profile.uid)
-                // A known saved job can be read even if optional capability discovery is unavailable.
-                val result = gatewayAPI.getJobResult(jobId, config)
-                if (result == null) {
-                    gatewayRecoveryFailures.merge(run.runId, 1, Int::plus)
-                    parkUnavailableResult()
-                    continue
-                }
-                if (result.jobId != jobId) {
-                    outcome = "JOB_IDENTITY_MISMATCH"
-                    parkUnavailableResult()
-                    continue
-                }
-                remoteStatus = result.status.lowercase().takeIf { it in setOf("queued", "pending", "running", "resuming", "waiting_for_client_tool", "completed", "failed", "interrupted", "cancelled", "canceled") } ?: "unknown"
-                val disposition = result.recoveryDisposition
-                if (disposition == GatewayResultDisposition.WAITING) {
-                    outcome = if (remoteStatus == "waiting_for_client_tool") "WAITING_FOR_CLIENT_TOOL" else "WAITING_FOR_SAVED_RESULT"
-                    continue
-                }
-                if (!result.matchesRequestedModel(run.modelSnapshot)) {
-                    outcome = "MODEL_IDENTITY_UNVERIFIED"
-                    parkUnavailableResult()
-                    continue
-                }
-                if (disposition == GatewayResultDisposition.UNAVAILABLE) {
-                    outcome = "RESULT_CONTRACT_UNVERIFIED"
-                    parkUnavailableResult()
-                    continue
-                }
-                // Current settings cannot erase the saved job's GitHub verification boundary.
-                val requiresVerification = run.chatId in githubConversations ||
-                    run.synthesisSnapshot != null ||
-                    result.hasClientOwnedExecutionProof ||
-                    chatRepository.hasSavedGitHubTask(run)
-                val status = recoveredGatewayRunStatus(disposition, requiresVerification)
-                val content = result.recoverableContent
-                val isolatedCompletion = disposition == GatewayResultDisposition.COMPLETE && result.hasClientOwnedExecutionProof
-                val uncertainty = if (GatewayOutcomeRecovery.requiresReconciliation(run.terminalError.orEmpty()) && status != AgentRunStatus.COMPLETED) "${GatewayOutcomeRecovery.ERROR_CODE}: " else ""
-                val error = when {
-                    status == AgentRunStatus.COMPLETED -> null
-                    disposition == GatewayResultDisposition.FAILED ->
-                        "${uncertainty}GATEWAY_SAVED_RESULT_FAILED: " +
-                            (result.savedFailure()?.let { "${it.code}: ${it.message}" } ?: "GATEWAY_JOB_${result.status.uppercase()}")
-                    requiresVerification && isolatedCompletion -> "${GatewayOutcomeRecovery.ISOLATED_RESULT_PREFIX} The saved generation was isolated from server tools. Task acceptance and answer verification remain pending; resume from the retained client operation receipts."
-                    requiresVerification -> "${uncertainty}GATEWAY_RECOVERED_RESULT_UNVERIFIED: Saved gateway output was recovered. Task acceptance and answer verification remain pending; continue from the retained receipts."
-                    disposition == GatewayResultDisposition.PARTIAL -> "${uncertainty}GATEWAY_SAVED_RESULT_PARTIAL: The saved answer is incomplete. Resume only the unfinished work."
-                    else -> "${uncertainty}GATEWAY_SAVED_RESULT_FAILED: GATEWAY_JOB_${result.status.uppercase()}"
-                }
-                if (content == null) {
-                    val finished = chatRepository.finishInterruptedAgentRun(
-                        run.runId,
-                        AgentRunStatus.FAILED,
-                        nowSeconds,
-                        error
-                    )
-                    outcome = if (finished) "TERMINAL_FAILURE_RECONCILED" else "OWNERSHIP_FENCED"
-                    resultCommitted = finished
-                    if (finished) localStatus = AgentRunStatus.FAILED
-                    gatewayRecoveryAttemptAtMs.remove(run.runId)
-                    gatewayRecoveryFailures.remove(run.runId)
-                    continue
-                }
-                val completedAt = result.completedAt ?: nowSeconds
-                if (chatRepository.restoreGatewayAnswer(run.runId, jobId, content, completedAt, status, error)) {
-                    resultCommitted = true
-                    localStatus = status
-                    outcome = if (status == AgentRunStatus.COMPLETED) "ANSWER_PUBLISHED" else "PARTIAL_EVIDENCE_PUBLISHED"
-                    gatewayRecoveryAttemptAtMs.remove(run.runId)
-                    gatewayRecoveryFailures.remove(run.runId)
-                    if (status == AgentRunStatus.COMPLETED) {
-                        completionStore.record(run.runId, run.chatId, run.assistantMessageId, completedAt)
-                    } else {
-                        _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, requireNotNull(error), persistent = true))
-                    }
-                } else {
-                    outcome = "OWNERSHIP_FENCED"
-                }
-            } catch (cancellation: CancellationException) {
-                if (!resultCommitted) outcome = "INSPECTION_CANCELLED"
-                throw cancellation
-            } catch (error: Exception) {
-                if (resultCommitted) {
-                    // The database already published the result. A notification
-                    // failure cannot relabel that transaction as a failed read.
-                    outcome = "ANSWER_PUBLISHED_NOTIFICATION_PENDING"
-                    continue
-                }
-                outcome = "READ_FAILED"
-                val failures = gatewayRecoveryFailures.merge(run.runId, 1, Int::plus) ?: 1
-                AppLogRecorder.record(
-                    "Gateway",
-                    "Recovery failed · run=${run.runId} · job=$jobId · failures=$failures · reason=${error.javaClass.simpleName}",
-                    "W"
-                )
-                parkUnavailableResult()
-                _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, "Gateway recovery is unavailable. The original job and its evidence remain saved; no new request was submitted."))
-            } finally {
-                dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.recovery(run, jobId, remoteStatus)
-                    ?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
-                AppLogRecorder.record("CombinedRetry", "RECOVERY_OUTCOME · initiator=AUTOMATIC_RECOVERY · runId=${run.runId} · profileUid=${run.profileUid} · jobId=$jobId · outcome=$outcome · remoteStatus=$remoteStatus · localStatus=$localStatus · ownershipFence=${run.ownershipFence} · newInferenceDispatched=false")
-            }
+            recoverSavedGatewayRun(run, profile, jobId, baseUrl, nowSeconds, nowMillis, githubConversations)
         }
+    }
+
+    private class GatewayRecoveryAttempt(val run: AgentRun, val jobId: String, val nowSeconds: Long) {
+        var localStatus = run.status
+        var outcome = "READ_UNAVAILABLE"
+        var remoteStatus = "unobserved"
+        var resultCommitted = false
+    }
+
+    private suspend fun parkUnavailableGatewayResult(attempt: GatewayRecoveryAttempt) {
+        val run = attempt.run
+        if (run.status == AgentRunStatus.BLOCKED || !gatewayRecoveryExpired(run, attempt.nowSeconds)) return
+        val reason = "${GatewayOutcomeRecovery.PARKED_RESULT_PREFIX}. The saved job could not be reconciled. Its identifier and evidence remain saved; recovery will check that job again when connectivity returns."
+        if (chatRepository.finishInterruptedAgentRun(run.runId, AgentRunStatus.BLOCKED, attempt.nowSeconds, reason)) {
+            attempt.localStatus = AgentRunStatus.BLOCKED
+            gatewayRecoveryFailures.remove(run.runId)
+            _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, reason, persistent = true))
+        }
+    }
+
+    private suspend fun recoverSavedGatewayRun(
+        run: AgentRun,
+        profile: PlatformV2,
+        jobId: String,
+        baseUrl: String,
+        nowSeconds: Long,
+        nowMillis: Long,
+        githubConversations: Set<Int>
+    ) {
+        val lastAttempt = gatewayRecoveryAttemptAtMs[run.runId]
+        val interval = if (run.status == AgentRunStatus.BLOCKED) GATEWAY_PARKED_RECOVERY_MIN_INTERVAL_MS else GATEWAY_RECOVERY_MIN_INTERVAL_MS
+        if (lastAttempt != null && nowMillis - lastAttempt < interval) return
+        gatewayRecoveryAttemptAtMs[run.runId] = nowMillis
+        AppLogRecorder.record("CombinedRetry", "RECOVERY_INSPECTION · initiator=AUTOMATIC_RECOVERY · runId=${run.runId} · profileUid=${run.profileUid} · jobId=$jobId · action=INSPECT_SAVED_JOB")
+        val attempt = GatewayRecoveryAttempt(run, jobId, nowSeconds)
+        try {
+            inspectSavedGatewayResult(attempt, profile, baseUrl, githubConversations)
+        } catch (cancellation: CancellationException) {
+            if (!attempt.resultCommitted) attempt.outcome = "INSPECTION_CANCELLED"
+            throw cancellation
+        } catch (error: Exception) {
+            if (attempt.resultCommitted) {
+                // Publication is already atomic and durable. Notification failure cannot undo it.
+                attempt.outcome = "ANSWER_PUBLISHED_NOTIFICATION_PENDING"
+            } else {
+                attempt.outcome = "READ_FAILED"
+                val failures = gatewayRecoveryFailures.merge(run.runId, 1, Int::plus) ?: 1
+                AppLogRecorder.record("Gateway", "Recovery failed · run=${run.runId} · job=$jobId · failures=$failures · reason=${error.javaClass.simpleName}", "W")
+                parkUnavailableGatewayResult(attempt)
+                _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, "Gateway recovery is unavailable. The original job and its evidence remain saved; no new request was submitted."))
+            }
+        } finally {
+            retainGatewayRecoveryOutcome(attempt)
+        }
+    }
+
+    private suspend fun inspectSavedGatewayResult(
+        attempt: GatewayRecoveryAttempt,
+        profile: PlatformV2,
+        baseUrl: String,
+        githubConversations: Set<Int>
+    ) {
+        val run = attempt.run
+        val token = dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+            .keysForNewRequest(profile.providerConnectionUid ?: profile.uid, profile.token).firstOrNull()
+        val config = ProviderRequestConfig(baseUrl, token, profileUid = profile.uid)
+        // Read only the saved identity; optional discovery and new inference are unnecessary.
+        val result = gatewayAPI.getJobResult(attempt.jobId, config)
+        if (result == null) {
+            gatewayRecoveryFailures.merge(run.runId, 1, Int::plus)
+            parkUnavailableGatewayResult(attempt)
+            return
+        }
+        if (result.jobId != attempt.jobId) {
+            attempt.outcome = "JOB_IDENTITY_MISMATCH"
+            parkUnavailableGatewayResult(attempt)
+            return
+        }
+        attempt.remoteStatus = result.status.lowercase().takeIf { it in setOf("queued", "pending", "running", "resuming", "waiting_for_client_tool", "completed", "failed", "interrupted", "cancelled", "canceled") } ?: "unknown"
+        val disposition = result.recoveryDisposition
+        if (disposition == GatewayResultDisposition.WAITING) {
+            attempt.outcome = if (attempt.remoteStatus == "waiting_for_client_tool") "WAITING_FOR_CLIENT_TOOL" else "WAITING_FOR_SAVED_RESULT"
+            return
+        }
+        if (!result.matchesRequestedModel(run.modelSnapshot)) {
+            attempt.outcome = "MODEL_IDENTITY_UNVERIFIED"
+            parkUnavailableGatewayResult(attempt)
+            return
+        }
+        if (disposition == GatewayResultDisposition.UNAVAILABLE) {
+            attempt.outcome = "RESULT_CONTRACT_UNVERIFIED"
+            parkUnavailableGatewayResult(attempt)
+            return
+        }
+        // Current settings cannot erase the saved verification boundary.
+        val requiresVerification = run.chatId in githubConversations ||
+            run.synthesisSnapshot != null ||
+            result.hasClientOwnedExecutionProof ||
+            chatRepository.hasSavedGitHubTask(run)
+        val status = recoveredGatewayRunStatus(disposition, requiresVerification)
+        publishSavedGatewayResult(attempt, result, status, savedGatewayRecoveryError(run, result, status, requiresVerification))
+    }
+
+    private fun savedGatewayRecoveryError(
+        run: AgentRun,
+        result: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobResult,
+        status: String,
+        requiresVerification: Boolean
+    ): String? {
+        val disposition = result.recoveryDisposition
+        val isolatedCompletion = disposition == GatewayResultDisposition.COMPLETE && result.hasClientOwnedExecutionProof
+        val uncertainty = if (GatewayOutcomeRecovery.requiresReconciliation(run.terminalError.orEmpty()) && status != AgentRunStatus.COMPLETED) "${GatewayOutcomeRecovery.ERROR_CODE}: " else ""
+        return when {
+            status == AgentRunStatus.COMPLETED -> null
+            disposition == GatewayResultDisposition.FAILED ->
+                "${uncertainty}GATEWAY_SAVED_RESULT_FAILED: " +
+                    (result.savedFailure()?.let { "${it.code}: ${it.message}" } ?: "GATEWAY_JOB_${result.status.uppercase()}")
+            requiresVerification && isolatedCompletion -> "${GatewayOutcomeRecovery.ISOLATED_RESULT_PREFIX} The saved generation was isolated from server tools. Task acceptance and answer verification remain pending; resume from the retained client operation receipts."
+            requiresVerification -> "${uncertainty}GATEWAY_RECOVERED_RESULT_UNVERIFIED: Saved gateway output was recovered. Task acceptance and answer verification remain pending; continue from the retained receipts."
+            disposition == GatewayResultDisposition.PARTIAL -> "${uncertainty}GATEWAY_SAVED_RESULT_PARTIAL: The saved answer is incomplete. Resume only the unfinished work."
+            else -> "${uncertainty}GATEWAY_SAVED_RESULT_FAILED: GATEWAY_JOB_${result.status.uppercase()}"
+        }
+    }
+
+    private suspend fun publishSavedGatewayResult(
+        attempt: GatewayRecoveryAttempt,
+        result: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobResult,
+        status: String,
+        error: String?
+    ) {
+        val run = attempt.run
+        val content = result.recoverableContent
+        if (content == null) {
+            val finished = chatRepository.finishInterruptedAgentRun(run.runId, AgentRunStatus.FAILED, attempt.nowSeconds, error)
+            attempt.outcome = if (finished) "TERMINAL_FAILURE_RECONCILED" else "OWNERSHIP_FENCED"
+            attempt.resultCommitted = finished
+            if (finished) attempt.localStatus = AgentRunStatus.FAILED
+            gatewayRecoveryAttemptAtMs.remove(run.runId)
+            gatewayRecoveryFailures.remove(run.runId)
+            return
+        }
+        val completedAt = result.completedAt ?: attempt.nowSeconds
+        if (!chatRepository.restoreGatewayAnswer(run.runId, attempt.jobId, content, completedAt, status, error)) {
+            attempt.outcome = "OWNERSHIP_FENCED"
+            return
+        }
+        attempt.resultCommitted = true
+        attempt.localStatus = status
+        attempt.outcome = if (status == AgentRunStatus.COMPLETED) "ANSWER_PUBLISHED" else "PARTIAL_EVIDENCE_PUBLISHED"
+        gatewayRecoveryAttemptAtMs.remove(run.runId)
+        gatewayRecoveryFailures.remove(run.runId)
+        notifyRecoveredGatewayResult(attempt, completedAt, error)
+    }
+
+    private suspend fun notifyRecoveredGatewayResult(attempt: GatewayRecoveryAttempt, completedAt: Long, error: String?) {
+        val run = attempt.run
+        if (attempt.localStatus == AgentRunStatus.COMPLETED) {
+            completionStore.record(run.runId, run.chatId, run.assistantMessageId, completedAt)
+        } else {
+            _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, requireNotNull(error), persistent = true))
+        }
+    }
+
+    private fun retainGatewayRecoveryOutcome(attempt: GatewayRecoveryAttempt) {
+        val run = attempt.run
+        dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.recovery(run, attempt.jobId, attempt.remoteStatus)
+            ?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
+        AppLogRecorder.record("CombinedRetry", "RECOVERY_OUTCOME · initiator=AUTOMATIC_RECOVERY · runId=${run.runId} · profileUid=${run.profileUid} · jobId=${attempt.jobId} · outcome=${attempt.outcome} · remoteStatus=${attempt.remoteStatus} · localStatus=${attempt.localStatus} · ownershipFence=${run.ownershipFence} · newInferenceDispatched=false")
     }
     private fun updateGatewayProgress(runId: String, progress: GatewayProgress) {
         _activeRuns.update { runs ->

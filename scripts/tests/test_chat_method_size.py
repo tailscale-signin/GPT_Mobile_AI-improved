@@ -88,6 +88,27 @@ class ChatMethodSizeTest(unittest.TestCase):
     def report(self, *dexes):
         return SIZE.report_apk(self.archive(*dexes), COMMIT)
 
+    def test_gateway_recovery_entry_and_suspended_bodies_are_measured(self):
+        owner = SIZE.GATEWAY_COORDINATOR + ';'
+        continuation = SIZE.GATEWAY_COORDINATOR + '$recoverSavedGatewayRun$1;'
+        definitions = primary_definitions()
+        definitions[owner] = {'recoverInterruptedGatewayRuns': 40, 'execute': 40000}
+        definitions[continuation] = {'invokeSuspend': 16383}
+        report = SIZE.report_apk(self.archive(executable_fixture(definitions)), COMMIT, True)
+        self.assertEqual('FAIL', report['status'])
+        self.assertEqual([continuation], [row['class'] for row in report['oversized_methods']])
+        definitions[continuation]['invokeSuspend'] = 100
+        report = SIZE.report_apk(self.archive(executable_fixture(definitions)), COMMIT, True)
+        self.assertEqual('PASS', report['status'], report)
+        self.assertEqual(2, len(report['gateway_recovery_methods']))
+
+    def test_required_gateway_recovery_cannot_be_replaced_by_a_wrapper(self):
+        definitions = primary_definitions()
+        definitions[SIZE.GATEWAY_COORDINATOR + '$recoverInterruptedGatewayRuns$1;'] = {'invokeSuspend': 10}
+        report = SIZE.report_apk(self.archive(executable_fixture(definitions)), COMMIT, True)
+        self.assertEqual('FAIL', report['status'])
+        self.assertIn('Missing actual Gateway recovery', report['errors'][0])
+
     def test_actual_packaged_code_units_respect_art_boundary(self):
         for units, status in ((16382, 'PASS'), (16383, 'FAIL'), (16384, 'FAIL'), (16385, 'FAIL')):
             with self.subTest(code_units=units):

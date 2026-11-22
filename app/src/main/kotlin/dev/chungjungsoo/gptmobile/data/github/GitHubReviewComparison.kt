@@ -200,8 +200,11 @@ internal object GitHubReviewComparison {
         var base = ""
         var policy = "UNRESOLVED"
         var targetRepository = ""
+        var targetBinding: String? = null
+        var comparisonCoverage: GitHubComparisonCoverage.Coverage? = null
         fun targetReceipt(row: JsonObject) = row["repository_role"] != JsonPrimitive("READ_SOURCE") &&
-            (targetRepository.isBlank() || row.text("repository") == targetRepository)
+            (targetRepository.isBlank() || row.text("repository") == targetRepository) &&
+            (targetBinding == null || row.text("binding") == targetBinding)
         fun call(operation: String, arguments: JsonObject, issuedToolName: String? = null): ProviderEvent.ToolCall? {
             // A retained page belongs to its issued facade and connection, even
             // when another family member accepts the same arguments.
@@ -246,7 +249,7 @@ internal object GitHubReviewComparison {
                 put("source_review_verified", false)
                 put("user_input_required", code == "BASELINE_REQUIRED")
                 if (code in setOf("COMPARISON_PAGES_PENDING", "READ_CHANGED_SOURCE")) {
-                    val changed = eligible.filter { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head }
+                    val changed = (comparisonCoverage?.receipts?.values ?: eligible.filter { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head })
                         .flatMap { (data(it)["files"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it.text("filename").takeIf(String::isNotBlank) }.toSet()
                     val read = eligible.filter { targetReceipt(it) && operation(it) == "github_read" && data(it).text("commit_sha") in setOf(base, head) }
                         .flatMap { (data(it)["items"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it.text("path").takeIf(String::isNotBlank) }.toSet()
@@ -255,6 +258,10 @@ internal object GitHubReviewComparison {
                         "comparison_coverage",
                         buildJsonObject {
                             put("pages_complete", code == "READ_CHANGED_SOURCE")
+                            comparisonCoverage?.let { coverage ->
+                                put("identity_sha256", coverage.identity)
+                                put("generation", coverage.generation)
+                            }
                             put("changed_files_observed", changed.size)
                             put("changed_files_with_source_observation", (changed intersect read).size)
                             put("changed_files_without_source_observation", pending.size)
@@ -332,6 +339,7 @@ internal object GitHubReviewComparison {
         }
         val selected = data(context)
         targetRepository = context.text("repository")
+        targetBinding = context.text("binding").takeIf(String::isNotBlank)
         head = selected.text("commit_sha")
         val branch = selected.text("branch").ifBlank { context.text("workspace_branch").ifBlank { context.text("branch") } }
         val default = selected.text("default_branch").ifBlank { (selected["repository"] as? JsonObject)?.text("default_branch").orEmpty() }
@@ -474,11 +482,11 @@ internal object GitHubReviewComparison {
                 base = data(baseline).text("commit_sha")
             }
         }
-        val comparison = eligible.lastOrNull { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head }
-        if (comparison != null) {
-            val pending = GitHubTestChecklist.pendingPages(GitHubTestChecklist.paginationReceipts(receipts) { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head }).firstOrNull()
+        comparisonCoverage = GitHubComparisonCoverage.observe(receipts) { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head }
+        comparisonCoverage?.let { coverage ->
+            val pending = coverage.pending.firstOrNull()
             if (pending != null) return state("COMPARISON_PAGES_PENDING", "The comparison has unread changed-file pages; retain the exact pair while following its continuation.", (pending["arguments"] as? JsonObject)?.let { call(pending.text("tool").githubOperationFamily(), it, issuedToolName = pending.text("tool")) })
-            if (data(comparison)["has_more"] == JsonPrimitive(true)) return state("COMPARISON_PAGES_PENDING", "The comparison has unread changed-file pages; restore its exact continuation before asserting coverage.")
+            if (!coverage.complete) return state("COMPARISON_PAGES_PENDING", "The comparison has unread or unverified changed-file pages; restore its exact continuation before asserting coverage.")
             return state("READ_CHANGED_SOURCE", "The exact comparison is retained. Inspect its changed files and relevant source at the pinned base/head before reporting correctness findings.")
         }
         return state(

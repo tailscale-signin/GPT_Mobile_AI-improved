@@ -14,17 +14,19 @@ internal class DiagnosticPayloadReferences {
     }
 
     suspend fun write(value: JsonElement, emit: suspend (JsonElement) -> Unit) {
-        prepare(value) { output, _ -> emit(output) }
+        prepare(value, null) { output, _ -> emit(output) }
     }
 
     /** Reuse the payload encoding used by its digest instead of encoding it again in the row. */
-    suspend fun writeEncoded(value: JsonElement, emit: suspend (String) -> Unit) {
-        prepare(value) { output, encodedPayload ->
-            emit(if (encodedPayload == null) output.toString() else encodeRow(output as JsonObject, encodedPayload))
+    suspend fun writeEncoded(value: JsonElement, timings: DiagnosticCaptureTimings? = null, emit: suspend (String) -> Unit) {
+        prepare(value, timings) { output, encodedPayload ->
+            val encode = { if (encodedPayload == null) output.toString() else encodeRow(output as JsonObject, encodedPayload) }
+            val encoded = timings?.measure(DiagnosticCaptureTimings.Phase.SERIALIZATION, encode) ?: encode()
+            emit(encoded)
         }
     }
 
-    private suspend fun prepare(value: JsonElement, emit: suspend (JsonElement, String?) -> Unit) {
+    private suspend fun prepare(value: JsonElement, timings: DiagnosticCaptureTimings?, emit: suspend (JsonElement, String?) -> Unit) {
         val row = value as? JsonObject
         val fields = row?.get("fields") as? JsonObject
         val payload = fields?.get("payload")
@@ -38,7 +40,7 @@ internal class DiagnosticPayloadReferences {
             emit(value, null)
             return
         }
-        val serialized = payload.toString()
+        val serialized = timings?.measure(DiagnosticCaptureTimings.Phase.SERIALIZATION) { payload.toString() } ?: payload.toString()
         if (serialized.length < 2048) {
             emit(value, serialized)
             return

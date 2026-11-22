@@ -86,9 +86,29 @@ internal object GitHubTestChecklist {
         if (receipt.text("tool") != recipe.text("tool")) return false
         if (receipt["arguments"] == arguments || GitHubActionIdentity.matches(recipe.text("tool"), arguments, receipt)) return true
         val actual = receipt["arguments"] as? JsonObject ?: return false
+        if (comparisonPageArguments(recipe.text("tool"), arguments, issuer?.text("repository")) == comparisonPageArguments(receipt.text("tool"), actual, issuer?.text("repository"))) return true
         if (actual["verify_live"] != JsonPrimitive(true) || arguments["verify_live"] == JsonPrimitive(true)) return false
         val live = JsonObject(arguments + ("verify_live" to JsonPrimitive(true)))
-        return actual == live || GitHubActionIdentity.matches(recipe.text("tool"), live, receipt)
+        return actual == live ||
+            GitHubActionIdentity.matches(recipe.text("tool"), live, receipt) ||
+            comparisonPageArguments(receipt.text("tool"), actual, issuer?.text("repository")) == comparisonPageArguments(recipe.text("tool"), live, issuer?.text("repository"))
+    }
+
+    /** changed_since slices the pinned trees in fixed 100-file pages, independent of display defaults. */
+    internal fun comparisonPageArguments(tool: String, arguments: JsonObject, repository: String? = null): JsonObject {
+        if (tool.githubOperationFamily() != "github_context" || arguments["action"] != JsonPrimitive("changes") || "view_cursor" in arguments) return arguments
+        val target = repository?.lowercase(java.util.Locale.ROOT)?.split('/')?.takeIf { it.size == 2 && it.all(String::isNotBlank) }
+        val sameTarget = target != null &&
+            ("owner" !in arguments && "repo" !in arguments || arguments.text("owner").lowercase(java.util.Locale.ROOT) == target[0] && arguments.text("repo").lowercase(java.util.Locale.ROOT) == target[1])
+        val scope = if (sameTarget) mapOf("owner" to JsonPrimitive(requireNotNull(target)[0]), "repo" to JsonPrimitive(target[1])) else emptyMap()
+        return JsonObject(
+            arguments + scope + mapOf(
+                "page" to (arguments["page"] ?: JsonPrimitive(1)),
+                "per_page" to JsonPrimitive(100),
+                "include_patches" to (arguments["include_patches"] ?: JsonPrimitive(false)),
+                "verify_live" to (arguments["verify_live"] ?: JsonPrimitive(false))
+            )
+        )
     }
 
     /** Retain the exact issued page chain even when cursor-only calls omit the root action. */

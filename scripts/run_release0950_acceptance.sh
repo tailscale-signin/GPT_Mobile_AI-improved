@@ -238,6 +238,7 @@ for test in (
     'duplicateChatWithHistory_regeneratesMessageRunAndEventIds',
     'deletePlatform_removesItsToolBindings',
     'builtInToolBinding_rejectsDuplicateProfileAndTool',
+    'builtInToolBinding_replacesAtomicallyDuringConcurrentEnables',
 ):
     check_instrumentation(folder / 'agent-persistence-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.database.AgentPersistenceDaoInstrumentedTest', test)
 for test in (

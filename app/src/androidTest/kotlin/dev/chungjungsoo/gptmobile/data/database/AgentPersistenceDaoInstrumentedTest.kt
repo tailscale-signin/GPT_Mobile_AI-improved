@@ -25,6 +25,11 @@ import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectedRange
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt
 import dev.chungjungsoo.gptmobile.data.privacy.effectivePrivacyProtectedValues
 import java.util.UUID
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -643,6 +648,28 @@ class AgentPersistenceDaoInstrumentedTest {
         assertEquals(setOf("replacement", "other-tool", "remote-binding-2"), dao.listBindingsByProfile("profile-1").map { it.bindingUid }.toSet())
 
         assertLegacyBuiltInBindingsAreNormalizedOnOpen()
+    }
+
+    @Test
+    fun builtInToolBinding_replacesAtomicallyDuringConcurrentEnables() = runBlocking {
+        val dao = database.toolConnectionDao()
+        val original = AgentToolBinding("original", "profile-1", null, "current_date", 1)
+        dao.insertBinding(original)
+        val replacements = (1..8).map { index -> original.copy(bindingUid = "replacement-$index", createdAt = index.toLong()) }
+        val releaseEnables = CompletableDeferred<Unit>()
+        val enables = replacements.map { binding ->
+            async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                releaseEnables.await()
+                dao.insertBinding(binding)
+            }
+        }
+
+        releaseEnables.complete(Unit)
+        enables.awaitAll()
+
+        val retained = dao.listBindingsByProfile("profile-1")
+        assertEquals(1, retained.size)
+        assertTrue(retained.single() in replacements)
     }
 
     private suspend fun assertLegacyBuiltInBindingsAreNormalizedOnOpen() {

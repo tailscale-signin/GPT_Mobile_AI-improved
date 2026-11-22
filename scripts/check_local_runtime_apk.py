@@ -10,6 +10,9 @@ from check_mediapipe_jni import check_bindings
 from check_objectbox_jni import check_bindings as check_objectbox_bindings
 
 
+ANDROID_SYSTEM_LIBRARIES = frozenset({"libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so", "libvulkan.so"})
+
+
 def check_host_alignment(name, binary):
     assert binary[:4] == b"\x7fELF", f"{name}: not an ELF library"
     # Qualcomm skeletons are DSP binaries, not Android host shared libraries.
@@ -92,11 +95,10 @@ def check_gguf_dependencies(apk, manifest, abis):
     names = apk.namelist()
     # Vulkan is a platform library on Android. The GGUF Vulkan backend links to
     # it dynamically and relies on the device driver supplied by the OS.
-    system = {"libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so", "libvulkan.so"}
     for abi in abis:
         path = f"lib/{abi}/libgptmobile_gguf.so"
         assert path in names, f"Missing GGUF runtime for {abi}"
-        unexpected = elf_needed(apk.read(path)) - system
+        unexpected = elf_needed(apk.read(path)) - ANDROID_SYSTEM_LIBRARIES
         assert not unexpected, f"GGUF runtime has non-system dependencies: {sorted(unexpected)}"
     # GenieX owns its separately pinned llama/ggml implementation. It must never
     # become a dynamic dependency of the normal app's independent GGUF library.
@@ -107,6 +109,26 @@ def check_gguf_dependencies(apk, manifest, abis):
         assert manifest.get("geniexVersion") and expected and expected.get("source") == f"com.qualcomm.qti:geniex-android:{manifest['geniexVersion']}", f"Unowned dynamic GGUF library: {name}"
         binary = apk.read(name)
         assert len(binary) == expected["bytes"] and hashlib.sha256(binary).hexdigest() == expected["sha256"], f"{name}: GenieX owner/hash mismatch"
+
+
+def check_kokoro_dependencies(apk, abis):
+    """The timing runtime and its QNN adapter must ship together for each ABI."""
+    names = set(apk.namelist())
+    for abi in sorted(abis):
+        for library in ("libtimed_kokoro.so", "libkokoro_qnn_adapter.so"):
+            path = f"lib/{abi}/{library}"
+            assert path in names, f"Missing Kokoro runtime {abi}/{library}"
+            binary = apk.read(path)
+            assert len(binary) >= 64 and binary[:6] == b"\x7fELF\x02\x01", f"{path}: expected little-endian ELF64"
+            machine = struct.unpack_from("<H", binary, 18)[0]
+            assert machine == {"arm64-v8a": 183, "x86_64": 62}[abi], f"{path}: ELF machine does not match packaged ABI"
+        adapter = f"lib/{abi}/libkokoro_qnn_adapter.so"
+        missing = {
+            library for library in elf_needed(apk.read(adapter))
+            if library not in ANDROID_SYSTEM_LIBRARIES and
+            (Path(library).name != library or f"lib/{abi}/{library}" not in names)
+        }
+        assert not missing, f"Kokoro QNN adapter for {abi} has missing dependencies: {sorted(missing)}"
 
 
 def check_apk(apk_path, manifest):
@@ -125,6 +147,7 @@ def check_apk(apk_path, manifest):
         assert gguf["revision"] == "620d2225cc436ab0b001e3200e590e3b286ef9ab"
         assert gguf["backends"] in (["cpu"], ["cpu", "gpu"], ["cpu", "opencl"], ["cpu", "gpu", "opencl"]), "Unsupported GGUF backend inventory"
         check_gguf_dependencies(apk, manifest, abis)
+        check_kokoro_dependencies(apk, abis)
         checked = 0
         for name, expected in manifest["libraries"].items():
             if name.split("/")[1] not in abis:
@@ -146,6 +169,7 @@ def check_apk(apk_path, manifest):
             assert not any(Path(name).name in forbidden for name in names), "Unexpected second QNN integration/compiler payload"
         check_bindings(apk, apk_path.name)
         check_objectbox_bindings(apk, apk_path.name)
+        print(f"{apk_path.name}: Kokoro timing/adapter libraries, ABI and adapter dependencies verified for {', '.join(sorted(abis))}")
         print(f"{apk_path.name}: {checked} pinned runtime libraries verified; {aligned} Android host libraries passed 16KB LOAD alignment")
 
 

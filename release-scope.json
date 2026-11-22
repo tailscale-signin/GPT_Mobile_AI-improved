@@ -37,7 +37,8 @@
     "Show yellow text only for digest-bound local masking/restoration evidence; retain per-conversation privacy badges, improve introduced-name masking across request history, and persist the badge with Room migration 53.",
     "Retain typed recovery ownership and upstream provider identity, bound repeated cause traversal and compact GitHub descriptions without relaxing schema budgets; align migration, export and shared-cooldown regressions with current contracts.",
     "Enforce built-in tool binding uniqueness, preserve atomic configuration replacement, and normalize equivalent legacy bindings during database open and backup restore.",
-    "Keep live caption corrections, engine rechecks, queued-choice drafts, profile route details, Research source controls, benchmark disclosure and local Gateway inspection consistent with the actions shown in the interface."
+    "Keep live caption corrections, engine rechecks, queued-choice drafts, profile route details, Research source controls, benchmark disclosure and local Gateway inspection consistent with the actions shown in the interface.",
+    "Verify both Kokoro timing and QNN adapter shared libraries for every packaged Android ABI, including ELF machine identity and same-ABI adapter dependencies, while retaining the pinned runtime inventory and alignment checks."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -458,9 +459,11 @@
     "release-scope.json",
     "scripts/check_chat_method_size.py",
     "scripts/check_issue_reporting_configuration.py",
+    "scripts/check_local_runtime_apk.py",
     "scripts/run_release0950_acceptance.sh",
     "scripts/tests/test_chat_method_size.py",
     "scripts/tests/test_issue_reporting_configuration.py",
+    "scripts/tests/test_kokoro_apk_inventory.py",
     "scripts/tests/test_native_memory_smoke.py",
     "scripts/tests/test_prepare_emulator_ui.py",
     "scripts/tests/test_release_scope.py",

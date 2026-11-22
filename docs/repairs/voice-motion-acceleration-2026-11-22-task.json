@@ -237,6 +237,36 @@
       "tests": 608,
       "command": "bash scripts/validate-local.sh fast",
       "scope": "608 repository tests plus generated inventories, schema metadata, regex, resources, icons, provenance and diff checks passed;98 incident-report contract tests passed separately."
+    },
+    {
+      "suite": "packaged Kokoro ABI and dependency inventory",
+      "result": "PASS",
+      "tests": 17,
+      "scope": "Seven new Kokoro regressions plus six GGUF and four pinned-QNN inventory regressions; actual final APK byte verification remains a hosted packaging gate."
+    },
+    {
+      "suite": "selected Gateway refresh ViewModel regression",
+      "result": "PASS",
+      "tests": 3,
+      "scope": "Actual production ViewModel, monitor and client with pinned Kotlin, Lifecycle and Ktor; existing Android boundary shims. Exact selected UID, URL, credential and null-selection assertions retained; full Android execution remains required."
+    },
+    {
+      "suite": "concurrent built-in enable Room regression",
+      "result": "PENDING_HOSTED_ANDROID",
+      "scope": "Eight simultaneous enables must leave exactly one complete replacement. Added as a mandatory receipt on both Android acceptance APIs; original uniqueness and archive regressions retained."
+    },
+    {
+      "suite": "reconciled exact-issued cursor schema guidance",
+      "result": "PASS",
+      "tests": 5,
+      "scope": "Actual production schema extraction at the preserved shorter 3f047b wording; the original missing exact-issued wording reproduced the failing admission assertion."
+    },
+    {
+      "suite": "final packaging and concurrent binding canonical fast validation",
+      "result": "PASS",
+      "tests": 615,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Combined source through 3f047b plus seven APK regressions, strict Gateway fixture and mandatory concurrent Room receipt; all 407 changed paths are in the exact release scope. Generated inventory, schema metadata, regex, resources, icons, provenance and whitespace checks passed. Hosted Android and signed publication remain pending."
     }
   ],
   "hardware_qualification": "Physical phone GPU/NPU performance and audio route calibration require device execution evidence; host tests and successful compilation alone are not qualification.",
@@ -306,6 +336,30 @@
       "head": "9e4b767818c5a258751c22cd3eab4a91d79ebeef",
       "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
       "action": "Expected-head check stopped branch mutation. Preserved safe numeric provider codes, bounded unknown-code correlation and stronger full-suite regressions; regenerated the combined inventory."
+    },
+    {
+      "event": "concurrent provider correlation and monotonic retargeting preserved",
+      "head": "7afcd240aeba55d597d0387d6d7a1afea8e30dbd",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved validated upstream-code correlation and bounded Hermite retarget duration; reviewed position/velocity continuity and close-target overshoot prevention."
+    },
+    {
+      "event": "concurrent built-in binding compatibility repair preserved",
+      "head": "85389f14ab1159d7d9d1c2c5b8ff6dfb84102e31",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved transactional replacement, raw-SQL uniqueness guards and deterministic equivalent legacy binding normalization. Independently reviewed the five-field entity, lack of inbound binding foreign keys, resolver membership semantics and extracted backup staging; the original archive is unchanged."
+    },
+    {
+      "event": "concurrent voice and Research wiring preserved",
+      "head": "f3b9b408c41d078d140062da38270bf0e75fdf84",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved explicit backend recheck, measured Auto reuse, recognition correction, supplementary RTL shaping, queued-choice state, Research controls, route details, benchmark disclosure and observed-absent firewall evidence."
+    },
+    {
+      "event": "concurrent final cursor and Gateway fixture correction preserved",
+      "head": "3f047bce0b95443d5aefd2d4ba453fe12d3baad1",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Kept the compact exact-issued cursor wording and all concurrent evidence. Retained exact selected-config refresh stubbing and explicit null-selection verification in the combined fixture."
     }
   ],
   "integration_regressions": [
@@ -320,6 +374,10 @@
     "Do not transfer privacy proof across removed thinking blocks or unmapped source-list cleanup.",
     "Keep prepared text and privacy proof together and prevent retained Markdown trees from acquiring a different snapshot\u2019s proof.",
     "Complete the AgentPersistenceDao test fixture for the new privacy-use method.",
-    "Keep the reporting-service closed upstream-code mirror aligned with the safe Android numeric authentication/rate-limit values; reject non-string, unlisted and private values."
-  ]
+    "Keep the reporting-service closed upstream-code mirror aligned with the safe Android numeric authentication/rate-limit values; reject non-string, unlisted and private values.",
+    "Verify the Kokoro timing and QNN adapter ELF libraries and same-ABI dependencies in every final APK without weakening pinned runtime or alignment checks.",
+    "Require the current selected Gateway refresh configuration and retain explicit null-selection coverage.",
+    "Require one surviving complete built-in binding after simultaneous transactional enables; preserve legacy normalization and archive safety."
+  ],
+  "last_reconciled_remote_head": "3f047bce0b95443d5aefd2d4ba453fe12d3baad1"
 }

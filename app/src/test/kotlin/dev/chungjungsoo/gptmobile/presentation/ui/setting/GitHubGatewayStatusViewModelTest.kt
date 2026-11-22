@@ -65,7 +65,7 @@ class GitHubGatewayStatusViewModelTest {
         coEvery { GatewayClientDiagnostics.diagnosticStatusFor(any()) } returns GatewayDiagnosticStatus()
         coEvery { GatewayClientDiagnostics.diagnosticPage(any(), any(), any(), any(), any()) } returns GatewayDiagnosticPage(emptyList(), null, 0)
         every { GatewayClientDiagnostics.refreshDiagnostics(any()) } returns Unit
-        justRun { client.refresh(any()) }
+        justRun { client.refresh() }
         coEvery { client.readiness(any(), any()) } coAnswers {
             requested += "ready" to firstArg<ProviderRequestConfig>()
             assertEquals(inference.model, secondArg<String?>())
@@ -91,6 +91,7 @@ class GitHubGatewayStatusViewModelTest {
             assertEquals(GatewayDashboardPhase.UNAVAILABLE, model.state.value.phase)
             assertTrue(model.state.value.message.orEmpty().contains("Select an engineering gateway"))
             model.refresh()
+            verify(exactly = 1) { client.refresh(null) }
             advanceTimeBy(900_001)
             runCurrent()
             assertTrue(requested.isEmpty())
@@ -139,8 +140,10 @@ class GitHubGatewayStatusViewModelTest {
             assertEquals(gateway.uid, selectedConfig.profileUid)
             assertEquals(gateway.apiUrl, selectedConfig.apiUrl)
             assertEquals(gateway.token, selectedConfig.token)
+            justRun { client.refresh(selectedConfig) }
             model.refresh()
             verify(exactly = 1) { client.refresh(selectedConfig) }
+            verify(exactly = 0) { client.refresh(null) }
             runCurrent()
             select(other.uid)
             runCurrent()

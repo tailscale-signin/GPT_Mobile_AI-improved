@@ -31,6 +31,20 @@ class VoiceCaptionTest {
         assertNull(caption.highlightRange(state.spokenRange))
     }
 
+    @Test fun preaudioPreviewBeginsAtTheFirstWordAndPauseKeepsItsLastSpokenPosition() {
+        val reply = "First line.\nSecond line.\nLast line."
+        val preview = requireNotNull(VoiceCaption.from(VoiceState(phase = VoicePhase.PREPARING, reply = reply)))
+        assertEquals(0, preview.focusOffset(null, -1, speaking = false))
+        assertEquals(0, preview.focusOffset(null, -1, speaking = true))
+        assertEquals(12, preview.focusOffset(12..17, -1, speaking = true))
+        assertEquals(12, preview.focusOffset(null, 12, speaking = false))
+        val reading = VoiceCaptionReader().scroll(1.5f, 10)
+        assertEquals(1.5f, reading.position(0, 10))
+        assertEquals(1.5f, reading.position(5, 10))
+        val listening = requireNotNull(VoiceCaption.from(VoiceState(phase = VoicePhase.LISTENING, transcript = reply)))
+        assertEquals(reply.length, listening.focusOffset(null, -1, speaking = false))
+    }
+
     @Test fun captionsMatchTheAnswerProjectionAndOnlyIncludeDetailsWhenSelected() {
         val source = "<think>Private planning</think>Read [the guide](https://example.test/private). <details>Additional facts.</details>"
         val answer = VoiceCaption.from(VoiceState(phase = VoicePhase.PAUSED, reply = source))

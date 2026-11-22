@@ -244,6 +244,7 @@ class McpPrivacyTransportTest {
             val manager = McpClientManager(http, modern = ModernMcpTransport(http))
             val config = McpConnectionConfig("privacy-uncertain-retry", "https://example.com/mcp", false)
             try {
+                val originalHealth = manager.healthSnapshot(config.connectionUid)
                 val failure = requireNotNull(runCatching { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }.exceptionOrNull())
                 val presentation = mcpFailurePresentation(failure, manager.healthSnapshot(config.connectionUid))
                 assertEquals("POLICY_BLOCKED", presentation.outcome)
@@ -252,6 +253,8 @@ class McpPrivacyTransportTest {
                 assertEquals(null, presentation.httpStatus)
                 assertEquals(1, attempts)
                 assertEquals(0, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
+                assertEquals(originalHealth, manager.healthSnapshot(config.connectionUid))
+                assertEquals(0L, LocalServiceHealth.retryAfterMillis(config.endpointUrl))
             } finally {
                 manager.closeAll()
                 http.close()
@@ -277,6 +280,8 @@ class McpPrivacyTransportTest {
             val config = McpConnectionConfig("privacy-legacy-retry", server.url, true)
             try {
                 assertEquals(listOf("echo"), manager.listTools(config, awaitCompletion = true).map { it.name })
+                val originalHealth = manager.healthSnapshot(config.connectionUid)
+                val originalCatalogue = manager.peekTools(config)
                 server.interruptToolsList = { denyReconnect.set(true) }
                 val failure = requireNotNull(runCatching { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }.exceptionOrNull())
                 val presentation = mcpFailurePresentation(failure, manager.healthSnapshot(config.connectionUid))
@@ -286,6 +291,49 @@ class McpPrivacyTransportTest {
                 assertEquals(null, presentation.httpStatus)
                 assertEquals(1, server.methods.count { it == "initialize" })
                 assertEquals(2, server.methods.count { it == "tools/list" })
+                assertEquals(originalHealth, manager.healthSnapshot(config.connectionUid))
+                assertEquals(originalCatalogue, manager.peekTools(config))
+                assertEquals(0L, LocalServiceHealth.retryAfterMillis(config.endpointUrl))
+            } finally {
+                manager.closeAll()
+                http.close()
+            }
+        }
+    }
+
+    @Test fun localRejectionAfterInterruptedReadRetainsEarlierDiscoveryResponse() = runBlocking(ConversationPrivacyContext(701, false)) {
+        FixtureServer().use { server ->
+            // Availability never mutates this conversation's policy. A separate
+            // admission gate denies the retry after one confirmed response and
+            // one read whose response was interrupted.
+            val denied = AtomicBoolean(false)
+            server.interruptToolsList = { denied.set(true) }
+            val gate = createClientPlugin("RejectReadAfterConfirmedDiscovery") {
+                on(SendingRequest) { _, _ -> if (denied.get()) throw PrivateMetadataDenied() }
+            }
+            val http = HttpClient(CIO) {
+                install(gate)
+                install(PrivateMetadataGate)
+                install(HttpTimeout) { requestTimeoutMillis = 5_000 }
+            }
+            val manager = McpClientManager(http, modern = ModernMcpTransport(http))
+            val config = McpConnectionConfig("privacy-confirmed-discovery", server.url, true)
+            try {
+                val started = System.currentTimeMillis()
+                val failure = runCatching { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }.exceptionOrNull()
+                val presentation = mcpFailurePresentation(requireNotNull(failure), manager.healthSnapshot(config.connectionUid))
+                assertEquals("PRIVACY_SERVICE_UNVERIFIED", presentation.errorCode)
+                assertEquals("POLICY_BLOCKED", presentation.outcome)
+                assertEquals("CONFIRMED", presentation.dispatchEvidence)
+                assertTrue(requireNotNull(presentation.observedAtEpochMs) >= started)
+                assertEquals(null, presentation.httpStatus)
+                assertEquals(listOf("server/discover", "tools/list"), server.methods.toList())
+                assertEquals(0, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
+                assertEquals(0L, LocalServiceHealth.retryAfterMillis(config.endpointUrl))
+                denied.set(false)
+                server.interruptToolsList = null
+                assertEquals(listOf("echo"), manager.listTools(config, forceRefresh = true, awaitCompletion = true).map { it.name })
+                assertEquals(4, server.methods.size)
             } finally {
                 manager.closeAll()
                 http.close()

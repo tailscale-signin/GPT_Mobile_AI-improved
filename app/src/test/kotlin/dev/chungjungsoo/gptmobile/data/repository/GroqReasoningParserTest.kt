@@ -175,4 +175,62 @@ class GroqReasoningParserTest {
         assertEquals("Here is <think>literal</think>.", states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
         assertEquals("private", states.filterIsInstance<ApiState.Thinking>().joinToString("") { it.thinkingChunk })
     }
+
+    @Test
+    fun `literal reasoning tags stay hidden at every split boundary`() {
+        val thoughts = listOf(
+            "Example is \"</think>\" but PRIVATE_SECRET remains.",
+            "Study the literal '<think>' token; PRIVATE_SECRET remains.",
+            "Example is 'it isn't </think> but PRIVATE_SECRET remains' before finishing.",
+            "Example is ‘it isn’t </think> but PRIVATE_SECRET remains’ before finishing.",
+            "The tokens “</think>” and ‘<think>’ are PRIVATE_SECRET.",
+            "Do not output `</think>` or ``<think>``; PRIVATE_SECRET remains.",
+            "Escaped \\</think> and \\<think> are PRIVATE_SECRET.",
+            "\n```xml\n</think>\n<think>\n```\nPRIVATE_SECRET remains.",
+            "\n~~~xml\n</think>\n<think>\n~~~\nPRIVATE_SECRET remains.",
+            "\n    </think>\n    <think>\nPRIVATE_SECRET remains.",
+            "\n    1.. </think> PRIVATE_SECRET\nReasoning continues.",
+            "\n    ####### </think> PRIVATE_SECRET\nReasoning continues.",
+            "It isn't public; users' PRIVATE_SECRET remains.",
+            "\n    - It isn't public; PRIVATE_SECRET remains.",
+            "Nested <think>PRIVATE_SECRET</think> remains hidden."
+        )
+        for (thought in thoughts) {
+            val input = "<think>$thought</think>Answer."
+            for (split in 0..input.length) {
+                val parser = GroqReasoningParser()
+                val states = parser.append(input.take(split)) + parser.append(input.drop(split)) + parser.flush()
+                assertEquals("split=$split input=$input", "Answer.", states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+                assertEquals("split=$split input=$input", thought.trim(), states.filterIsInstance<ApiState.Thinking>().joinToString("") { it.thinkingChunk })
+            }
+            val parser = GroqReasoningParser()
+            val states = input.map { it.toString() }.flatMap { parser.append(it) } + parser.flush()
+            assertEquals(input, "Answer.", states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+            assertEquals(input, thought.trim(), states.filterIsInstance<ApiState.Thinking>().joinToString("") { it.thinkingChunk })
+        }
+    }
+
+    @Test
+    fun `literal state survives character chunks and bounded reasoning delivery`() {
+        val thought = "\"" + "x".repeat(9000) + "</think> PRIVATE_SECRET\" then `</think>` and nested <think>private</think>."
+        val parser = GroqReasoningParser()
+        val states = ("<think>$thought</think>Answer.").map { it.toString() }.flatMap { parser.append(it) } + parser.flush()
+        assertEquals("Answer.", states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+        assertEquals(thought, states.filterIsInstance<ApiState.Thinking>().joinToString("") { it.thinkingChunk })
+        assertTrue(states.filterIsInstance<ApiState.Thinking>().size > 1)
+    }
+
+    @Test
+    fun `unfinished quoted and code reasoning stays reasoning at every boundary`() {
+        for (literal in listOf("\"", "'", "“", "‘", "`", "``", "```xml\n", "~~~xml\n")) {
+            val thought = "${literal}literal </think> PRIVATE_SECRET"
+            val input = "<think>$thought"
+            for (split in 0..input.length) {
+                val parser = GroqReasoningParser()
+                val states = parser.append(input.take(split)) + parser.append(input.drop(split)) + parser.flush()
+                assertTrue("split=$split input=$input", states.none { it is ApiState.Success })
+                assertEquals(thought, states.filterIsInstance<ApiState.Thinking>().joinToString("") { it.thinkingChunk })
+            }
+        }
+    }
 }

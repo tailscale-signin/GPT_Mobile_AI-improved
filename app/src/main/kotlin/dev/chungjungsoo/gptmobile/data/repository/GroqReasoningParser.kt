@@ -3,9 +3,9 @@ package dev.chungjungsoo.gptmobile.data.repository
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import dev.chungjungsoo.gptmobile.data.voice.ReasoningTagScanner
 
 private const val GROQ_THINK_OPEN = "<think>"
-private const val GROQ_THINK_CLOSE = "</think>"
 private const val SUBJECT_PREFIX = "<!-- chat_subject:"
 
 /**
@@ -18,6 +18,7 @@ internal class GroqReasoningParser {
     private val pendingContent = StringBuilder()
     private val pendingThought = StringBuilder()
     private var phase = Phase.LEADING
+    private var reasoningTags: ReasoningTagScanner? = null
     private var trimLeadingWhitespaceOnNextContent = false
 
     fun append(contentChunk: String? = null, reasoningChunk: String? = null): List<ApiState> = buildList {
@@ -57,6 +58,7 @@ internal class GroqReasoningParser {
                     }
                     if (text.startsWith(GROQ_THINK_OPEN, ignoreCase = true)) {
                         pendingContent.delete(0, leading.length - text.length + GROQ_THINK_OPEN.length)
+                        reasoningTags = ReasoningTagScanner("think", exactTags = true)
                         phase = Phase.THINKING
                         continue
                     }
@@ -77,17 +79,19 @@ internal class GroqReasoningParser {
                 }
                 Phase.THINKING -> {
                     val text = pendingContent.toString()
-                    val closingIndex = text.indexOf(GROQ_THINK_CLOSE, ignoreCase = true)
-                    if (closingIndex >= 0) {
+                    val scan = requireNotNull(reasoningTags).scan(text, final = finalFlush)
+                    val closingIndex = scan.closingStart
+                    if (closingIndex != null) {
                         pendingThought.append(text.substring(0, closingIndex))
-                        pendingContent.delete(0, closingIndex + GROQ_THINK_CLOSE.length)
+                        pendingContent.delete(0, scan.consumed)
                         pendingThought.toString().trim().takeIf(String::isNotEmpty)?.let { add(ApiState.Thinking(it)) }
                         pendingThought.clear()
+                        reasoningTags = null
                         phase = Phase.LEADING
                         trimLeadingWhitespaceOnNextContent = true
                         continue
                     }
-                    val safeLength = if (finalFlush) text.length else text.length - partialSuffixLength(text, GROQ_THINK_CLOSE)
+                    val safeLength = scan.consumed
                     if (safeLength > 0) {
                         pendingThought.append(text.substring(0, safeLength))
                         pendingContent.delete(0, safeLength)
@@ -97,7 +101,10 @@ internal class GroqReasoningParser {
                         pendingThought.toString().takeIf(String::isNotBlank)?.let { add(ApiState.Thinking(it)) }
                         pendingThought.clear()
                     }
-                    if (finalFlush) phase = Phase.LEADING
+                    if (finalFlush) {
+                        phase = Phase.LEADING
+                        reasoningTags = null
+                    }
                     break
                 }
             }
@@ -112,12 +119,5 @@ internal class GroqReasoningParser {
             text
         }
         return if (visibleText.isEmpty()) emptyList() else listOf(ApiState.Success(visibleText, OutputLineage(OutputOrigin.MODEL_TEXT)))
-    }
-
-    private fun partialSuffixLength(buffer: String, token: String): Int {
-        for (length in minOf(buffer.length, token.length - 1) downTo 1) {
-            if (buffer.endsWith(token.take(length), ignoreCase = true)) return length
-        }
-        return 0
     }
 }

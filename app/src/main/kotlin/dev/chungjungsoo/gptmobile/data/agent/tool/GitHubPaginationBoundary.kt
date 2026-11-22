@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -141,7 +142,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val state = traversal(key)
         val id = ++sequence
         state.pending[id] = Pending(page(args), now())
-        while (state.pending.size > 512) state.pending.remove(state.pending.keys.first())
+        while (state.pending.size > GitHubComparisonPage.MAX_COVERAGE_PAGES) state.pending.remove(state.pending.keys.first())
         while (traversals.size > 128) reset(traversals.keys.first())
         return Observation(key, state.generation, id)
     }
@@ -337,6 +338,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             traversals[observation.query] = resolved
         }
         val state = traversal(key)
+        val comparisonLimited = operation == "github_context" && args["action"] == JsonPrimitive("changed_since") && GitHubComparisonPage.exceedsCoverageLimit(result)
         if (state.pages.values.any { now() - it.at !in 0..300_000_000_000L }) {
             state.pages.clear()
             state.total = null
@@ -350,16 +352,20 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val earlier = state.pages.filterKeys { it < number }.values.flatMapTo(mutableSetOf()) { it.identities }
         val previous = state.pages[number]
         if (previous != null && previous.identities != identities) state.changed = true
+        if ((result["pagination_progress"] as? JsonObject)?.get("upstream_changed_during_traversal") == JsonPrimitive(true)) state.changed = true
         val total = reportedTotal(operation, args, result)
         if (state.total != null && total != null && state.total != total) state.changed = true
         if (state.total == null) state.total = total
         state.inconsistent = state.inconsistent || result["pagination_inconsistent"] == JsonPrimitive(true) || result["tree_complete"] == JsonPrimitive(false)
-        state.pages[number] = Page(identities, now(), result["has_more"] == JsonPrimitive(false))
+        val upstreamMore = if (comparisonLimited) result["upstream_has_more"] ?: result["has_more"] else result["has_more"]
+        state.pages[number] = Page(identities, now(), upstreamMore == JsonPrimitive(false))
         while (traversals.size > 128) reset(traversals.keys.first())
         // Keep memory bounded without silently claiming complete coverage of a truncated traversal.
-        if (state.pages.size > 512) {
+        if (state.pages.size > GitHubComparisonPage.MAX_COVERAGE_PAGES) {
             state.pages.remove(state.pages.keys.min())
-            state.changed = true
+            // An explicit comparison cap already disqualifies coverage. Evicting
+            // bounded observations is not evidence that its immutable source moved.
+            if (!comparisonLimited) state.changed = true
         }
         val all = state.pages.values.flatMapTo(mutableSetOf()) { it.identities }
         val overlap = identities.count { it in earlier }
@@ -377,24 +383,26 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val contiguous = boundary in 1..1000 && missing.isEmpty()
         if (terminal != null && state.pages.any { (page, value) -> page > terminal && value.identities.isNotEmpty() }) state.changed = true
         val consistent = !state.changed && !state.inconsistent && (state.total == null || all.size == state.total)
-        val collecting = terminal != null &&
+        val collecting = !comparisonLimited &&
+            terminal != null &&
             missing.isNotEmpty() &&
             !state.changed &&
             !state.inconsistent &&
             !stalled &&
             missing.all { page -> state.pending.values.any { it.page == page } }
-        val complete = terminal != null && contiguous && consistent && !stalled
+        val complete = !comparisonLimited && terminal != null && contiguous && consistent && !stalled
         val error = when {
             stalled -> "GITHUB_PAGINATION_STALLED"
+            comparisonLimited -> "GITHUB_PAGINATION_INCOMPLETE"
             terminal != null && !complete && !collecting -> "GITHUB_PAGINATION_INCOMPLETE"
             else -> null
         }
-        val firstMissing = if (terminal != null && !contiguous && !stalled && !state.changed && !state.inconsistent) {
+        val firstMissing = if (!comparisonLimited && terminal != null && !contiguous && !stalled && !state.changed && !state.inconsistent) {
             missing.firstOrNull()
         } else {
             null
         }
-        if (terminal != null || stalled) ends[key] = End(terminal ?: number, now(), error ?: if (complete) null else "GITHUB_PAGINATION_INCOMPLETE")
+        if (!comparisonLimited && (terminal != null || stalled)) ends[key] = End(terminal ?: number, now(), error ?: if (complete) null else "GITHUB_PAGINATION_INCOMPLETE")
         while (ends.size > 128) ends.remove(ends.keys.first())
         val progress = buildJsonObject {
             put("schema", "github.pagination-progress.v1")
@@ -413,12 +421,16 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             put("complete", complete)
             put("acceptance_status", "NOT_MEASURED")
         }
-        val deduplicated = result.mapValues { (name, value) ->
-            if (name !in COLLECTIONS || value !is JsonArray || "upstream_record_ids" in collections) {
-                value
-            } else {
-                val seen = earlier.toMutableSet()
-                JsonArray(value.filter { seen.add(identity(name, it, branchList)) })
+        val deduplicated = if (comparisonLimited) {
+            result
+        } else {
+            result.mapValues { (name, value) ->
+                if (name !in COLLECTIONS || value !is JsonArray || "upstream_record_ids" in collections) {
+                    value
+                } else {
+                    val seen = earlier.toMutableSet()
+                    JsonArray(value.filter { seen.add(identity(name, it, branchList)) })
+                }
             }
         }
         val visibleCount = collections.keys.singleOrNull()?.takeIf { it != "upstream_record_ids" }?.let { (deduplicated[it] as? JsonArray)?.size }
@@ -437,7 +449,9 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         } else {
             deduplicated
         }
-        val output = JsonObject(settled + ("pagination_progress" to progress) + if (visibleCount != null && "returned" in result) mapOf("returned" to JsonPrimitive(visibleCount)) else emptyMap())
+        val output = JsonObject(settled + ("pagination_progress" to progress) + if (visibleCount != null && "returned" in result) mapOf("returned" to JsonPrimitive(visibleCount)) else emptyMap()).let {
+            if (comparisonLimited) requireNotNull(GitHubComparisonPage.limitResult(args, it)) else it
+        }
         return if (error == null) {
             Assessment(output)
         } else {
@@ -457,8 +471,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                         put("complete", false)
                         put("has_more", false)
                         put("traversal_state", if (stalled) "STALLED" else "INCOMPLETE")
-                        put("upstream_has_more", result["has_more"] ?: JsonPrimitive(false))
-                        put("message", "Remote pagination did not establish complete coverage. Retain these observations and deliberately refresh page 1 with verify_live=true; do not count repeated rows as new records or accepted tests.")
+                        put("upstream_has_more", if (comparisonLimited) output.getValue("upstream_has_more") else result["has_more"] ?: JsonPrimitive(false))
+                        put("message", if (comparisonLimited) output.getValue("message") else JsonPrimitive("Remote pagination did not establish complete coverage. Retain these observations and deliberately refresh page 1 with verify_live=true; do not count repeated rows as new records or accepted tests."))
                     }
                 ),
                 error

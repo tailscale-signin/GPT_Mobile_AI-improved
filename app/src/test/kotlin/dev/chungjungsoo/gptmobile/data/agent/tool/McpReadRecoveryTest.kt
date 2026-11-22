@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation
 import dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied
+import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import java.io.EOFException
 import java.io.IOException
 import java.net.UnknownHostException
@@ -19,6 +20,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpReadRecoveryTest {
+    @Test fun firstAttemptPolicyDenialDoesNotCreateReadRetryEvidence() = runTest {
+        for (denied in listOf(PrivateMetadataDenied(), UnverifiedServiceTransport(), IOException("connection reset", PrivateMetadataDenied()))) {
+            val observation = MetadataResponseObservation()
+            var attempts = 0
+            val observed = withContext(observation) {
+                runCatching {
+                    withMcpReadRecovery("server/discover", pause = { error("A policy denial must not pause for retry") }) {
+                        attempts++
+                        throw denied
+                    }
+                }.exceptionOrNull()
+            }
+            assertTrue(observed === denied)
+            assertEquals(1, attempts)
+            assertFalse(observation.hasInterruptedRead)
+            assertNull(observation.observedAtEpochMs)
+        }
+    }
+
+    @Test fun cancellationOfAReadRetryRemainsCancellation() = runTest {
+        val cancelled = CancellationException("cancelled while retrying")
+        var attempts = 0
+        val observed = runCatching {
+            withMcpReadRecovery("server/discover", pause = {}) {
+                attempts++
+                throw if (attempts == 1) EOFException("first response was interrupted") else cancelled
+            }
+        }.exceptionOrNull()
+        assertTrue(observed === cancelled)
+        assertEquals(2, attempts)
+    }
+
     @Test fun wrappedReadFailureRemainsObservedWhenItsRetryIsBlockedLocally() = runTest {
         val observation = MetadataResponseObservation()
         val first = IllegalStateException("SDK wrapper", EOFException("response interrupted"))

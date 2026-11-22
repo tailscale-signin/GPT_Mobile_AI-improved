@@ -70,5 +70,13 @@
   "concurrency": "Preserved original0885 and diagnostic fea1a6 work; merged permanent conversation privacy6e788 with both scopes and instructions retained. Root compares the remote head before every ref update and merge, uses expected-head leases without force pushes, and never edits another worker checkout. Preserved concurrent MCP/read-recovery and phone-map integration commitdda6f5; voice source hashes and tested behavior remain unchanged.",
   "integrated_remote_head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
   "feature_sources_reviewed_at": "52a6749e41e4298f0f4de6ca4a8c4ea6b1bea8d4",
-  "final_results_location": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254"
+  "final_results_location": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254",
+  "post_integration_review": {
+    "reviewed_head": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+    "findings": "Corrected readable-preview fade/reader reset and conflated replay ownership, quoted/code reasoning boundary and cross-choice cleanup leaks, and incompatible legacy/current Auto receipt comparison. Preserved all incoming features and privacy ownership.",
+    "validation": "PASS87 final integrated Session/caption/buffer/signals tests,55 actual parser/projection/provider tests and21 benchmark/policy/cache tests; real Android/Compose renderer and new visual-test signature compilation passes. Final canonical and exact-head hosted checks remain mandatory.",
+    "regression_evidence": "Nine parser regressions fail against ecd207; three protocol identity/ranking regressions fail before repair. New caption visual case is mandatory on both Android acceptance API levels. No local device execution or physical accelerator speed is claimed.",
+    "remaining": "The separately announced acceptance-completion-70afcf89 scope must be retained and reviewed. Merge remains gated by the actual final head, then exact-main checks and signed Android/Gateway publication readback.",
+    "canonical": "PASS616 canonical tests in26.714s;35 changed Kotlin files pass pinned formatting, generated inventories and Room schema history match, and all664 changed paths remain within the unchanged version/release scope. This is host validation, not hosted Android/device qualification."
+  }
 }

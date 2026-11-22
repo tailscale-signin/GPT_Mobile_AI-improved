@@ -26,7 +26,7 @@ internal class QualcommVoicePhraseEngineFactory(
     private val libraryDirectory = context.applicationInfo.nativeLibraryDir
     private val profileDirectory = File(context.cacheDir, "voice-provider-profiles")
     private val deviceKey = store?.deviceKey ?: "unavailable"
-    override val identity = "kokoro-${backend.name}-${TimedKokoro.RUNTIME_ID}-${KokoroModelPack.MODEL_SHA256}-$deviceKey-${store?.revision() ?: 0}"
+    override val identity = "kokoro-${backend.name}-${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}-${TimedKokoro.RUNTIME_ID}-${KokoroModelPack.MODEL_SHA256}-$deviceKey-${store?.revision() ?: 0}"
 
     override fun cancelPending() {
         generation.incrementAndGet()

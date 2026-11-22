@@ -1663,6 +1663,8 @@ internal class GitHubRepositorySession(
             emptyMap()
         }
         return buildJsonObject {
+            put("owner", context.owner)
+            put("repo", context.repo)
             put("base_sha", base.commitSha)
             put("head_sha", context.commitSha)
             put("files_total", changes.size)
@@ -1715,7 +1717,7 @@ internal class GitHubRepositorySession(
                     }
                 )
             }
-        }
+        }.let { GitHubComparisonPage.limitResult(args, it) ?: it }
     }
 
     companion object {

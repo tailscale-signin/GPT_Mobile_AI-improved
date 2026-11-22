@@ -107,11 +107,11 @@ internal data class VoiceBackendCapability(
     val tokenCount: Int? = null
 ) {
     val scoreMs: Long?
-        get() = sampleMs.takeIf { it.size >= 2 && it.all { value -> value in 1..300_000 } }
+        get() = sampleMs.takeIf { it.size == VoiceMeasuredBackendPolicy.FIXTURE_COUNT && it.all { value -> value in 1..300_000 } }
             ?.let { samples ->
-                // Three-shape comparisons include all preparation in their cost, rather than
-                // dropping the expensive first shape as a median outlier. Keep legacy pairs conservative.
-                if (samples.size >= 3) (samples.sum() + samples.size - 1) / samples.size else samples.max()
+                // Every current phrase shape contributes, including preparation in the first sample.
+                // Legacy pairs measure a different workload and cannot rank against these receipts.
+                (samples.sum() + samples.size - 1) / samples.size
             }
 
     fun current(now: Long): Boolean {
@@ -121,6 +121,10 @@ internal data class VoiceBackendCapability(
 }
 
 internal object VoiceMeasuredBackendPolicy {
+    // Bump whenever the fixed fixtures or their cost aggregation changes.
+    const val COMPARISON_PROTOCOL = "fixed-three-phrases-v1-mean-complete-cost-v1"
+    const val FIXTURE_COUNT = 3
+
     /** Hardware names are not a ranking. Require measured CPU and real accelerator execution. */
     fun choose(records: List<VoiceBackendCapability>, now: Long): VoiceSpeechBackend {
         val eligible = records.filter { it.current(now) && it.failure == null && it.scoreMs != null }

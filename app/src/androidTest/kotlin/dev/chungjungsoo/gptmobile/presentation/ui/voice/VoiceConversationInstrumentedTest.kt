@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
@@ -38,9 +39,13 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionCursor
+import dev.chungjungsoo.gptmobile.data.voice.VoiceCaptionTiming
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import java.io.File
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -64,15 +69,78 @@ class VoiceConversationInstrumentedTest {
         }
         val microphone = compose.onNodeWithTag("voice_microphone_toggle").assertIsDisplayed()
         val initialBounds = microphone.fetchSemanticsNode().boundsInRoot
-        compose.onNodeWithTag("voice_caption_text").assertDoesNotExist()
+        compose.onNodeWithTag("voice_caption_text").assertTextEquals("Preparing a short reply.")
         compose.runOnIdle { session.value = session.value.copy(phase = VoicePhase.SPEAKING, reply = fullReply) }
-        compose.onNodeWithTag("voice_caption_text").assertTextEquals(fullReply)
+        compose.onNodeWithTag("voice_caption_text").assertTextEquals(VoiceSpeechText.project(fullReply))
         compose.onNodeWithTag("voice_live_captions").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("voice_caption_text").assertIsDisplayed()
         microphone.assertIsDisplayed()
         assertEquals(initialBounds, microphone.fetchSemanticsNode().boundsInRoot)
         microphone.performClick()
         compose.runOnIdle { assertEquals(1, stops) }
+    }
+
+    @Test fun readablePreviewKeepsItsOpacityAndReaderWhenTimingArrivesAndSameTextReplayStartsFresh() {
+        val reply = (1..40).joinToString("\n") { "Caption line $it" }
+        val session = mutableStateOf(VoiceState(phase = VoicePhase.PREPARING, reply = reply, captionPresentationId = 1))
+        val cursor = MutableStateFlow(VoiceCaptionCursor(presentationId = 1))
+        compose.setContent {
+            MaterialTheme(colorScheme = lightColorScheme(primary = Color.Magenta, onSurface = Color.Black)) {
+                Box(Modifier.background(Color.White)) {
+                    VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp), cursor)
+                }
+            }
+        }
+        val caption = compose.onNodeWithTag("voice_caption_text")
+        fun range() = caption.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+        fun visibleInk(): Int {
+            val bitmap = compose.onNodeWithTag("voice_live_captions").captureToImage().asAndroidBitmap()
+            var count = 0
+            for (y in 0 until bitmap.height) {
+                for (x in 0 until bitmap.width) {
+                    val pixel = bitmap.getPixel(x, y)
+                    if (android.graphics.Color.alpha(pixel) > 128 && android.graphics.Color.red(pixel) < 160 && android.graphics.Color.green(pixel) < 160 && android.graphics.Color.blue(pixel) < 160) count++
+                }
+            }
+            return count
+        }
+        compose.waitForIdle()
+        assertEquals("The preaudio answer starts at its first line", 0f, range().value(), 1f)
+        caption.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 400f) }
+        compose.waitForIdle()
+        val readingPosition = range().value()
+        assertTrue(readingPosition > 0f)
+        compose.onNodeWithTag("voice_caption_return_to_live").assertIsDisplayed()
+        val previewInk = visibleInk()
+        assertTrue(previewInk > 0)
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle {
+            session.value = session.value.copy(phase = VoicePhase.SPEAKING)
+            cursor.value = VoiceCaptionCursor(
+                0..6,
+                timing = VoiceCaptionTiming("first-audio", 0, 2400, 480, 24000, System.nanoTime(), true, bufferedEndFrame = 4800),
+                presentationId = 1
+            )
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        assertEquals("The first timing ID must not replace the manual reader", readingPosition, range().value(), 1f)
+        assertTrue("An already readable preview must not fade back to zero", visibleInk() >= previewInk / 2)
+        compose.mainClock.autoAdvance = true
+        compose.runOnIdle { session.value = session.value.copy(phase = VoicePhase.PAUSED) }
+        compose.waitForIdle()
+        assertEquals(readingPosition, range().value(), 1f)
+
+        // Deliver only the replacement snapshot: a collector need not see an empty intermediate.
+        compose.runOnIdle {
+            session.value = session.value.copy(phase = VoicePhase.PREPARING, captionPresentationId = 2)
+            cursor.value = cursor.value.copy(projectedText = "A stale caption from the preceding playback")
+        }
+        compose.waitForIdle()
+        caption.assertTextEquals(reply)
+        assertEquals("A same-text replay starts a new reader at the first line", 0f, range().value(), 1f)
+        compose.onNodeWithTag("voice_caption_return_to_live").assertDoesNotExist()
     }
 
     @Test fun captionsWaitForRestoredPreferencesAndExposeCheckedState() {

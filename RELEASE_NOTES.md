@@ -5,12 +5,13 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 ## Voice chat and captions
 
 - Give microphone and typed voice messages a dedicated conversational response policy: answer first in short natural sentences, ask one useful clarification when needed, and retain the selected profile's facts, permissions and privacy rules across queues, retries and recovered turns.
-- Keep provider reasoning and explicit reasoning blocks outside the spoken answer, including split streaming tags and incomplete reasoning. Preserve quoted and code examples as user-facing content.
+- Keep provider reasoning and explicit reasoning blocks outside the spoken answer, including split streaming tags, literal delimiters inside reasoning and incomplete reasoning. Preserve quoted and code examples in the answer, and keep each streamed choice's parser independent.
 - Show the same spoken-answer projection used by playback and captions, with expandable visual details and an explicit **Read full details** action. Ordinary replay stays concise, and selecting a different message cancels the previous output.
 - Improve pronunciation of dates, clock times, signed amounts, measurements, rates and IP addresses while retaining exact caption source ranges. Remove raw URLs and table structure from ordinary speech, preserve descriptive link labels, and retain the full original answer for inspection.
 - Add a **Natural Speech** preset with a 1.1× rate, natural pauses and adaptive phrase pacing. Keep saved choices and the faster preset; prefer complete opening clauses with bounded fallback while speech is generated.
 - Correct live transcription word ranges when recognition replaces an indented phrase, and retain paragraph shaping for supplementary right-to-left scripts during streaming.
 - Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.
+- Keep readable answer previews visible and retain the reader's position when audio begins. Start each new reply or explicit replay with its own caption presentation, rejecting stale playback cursors even when the same text is replayed.
 - Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.
 - Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.
 - Reserve accepted PCM against measured next-phrase synthesis time within a bounded five-second reserve, preserve natural first clauses, and align follow-up phrase targets to Quality 24 words, Balanced 16 and Fast 12 with adaptive Auto pacing.
@@ -25,7 +26,7 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 - Retire a failed accelerator and retry only its current unplayed phrase on CPU; preserve typed source, target, outcome and original failure when CPU or permitted Android system speech recovery occurs, including optional Gateway CUDA failures. Fence duplicate and stale fallback callbacks.
 - Move deferred speech preference reads off the UI path and retain explicit cancellation origins, bounded cleanup and separate synthesis/playback ownership.
 
-Capability receipts are limited to 24 entries. Successful measurements expire after seven days and failed qualifications after six hours; clock rollback invalidates the receipt. **Compare engines on next reply** measures CPU, GPU and NPU with three phrase shapes, including preparation. **Recheck engine on next reply** explicitly retries the selected backend. Per-shape profiles identify actual accelerator and CPU participation; selecting an engine alone does not qualify it.
+Capability receipts are limited to 24 entries. Successful measurements expire after seven days and failed qualifications after six hours; clock rollback invalidates the receipt. **Compare engines on next reply** measures CPU, GPU and NPU with three phrase shapes, including preparation. Saved comparisons are bound to that workload and scoring protocol; older two-phrase measurements cannot influence the current Auto ranking. **Recheck engine on next reply** explicitly retries the selected backend. Per-shape profiles identify actual accelerator and CPU participation; selecting an engine alone does not qualify it.
 
 ## CPU, GPU and NPU speech benchmark
 
@@ -65,6 +66,7 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 ## Execution, GitHub and diagnostic reliability
 
 - Complete comparison coverage when GitHub pages arrive out of order; retain the original failed page receipts and exact remaining fragment obligations, and honor the requested bounded comparison page size.
+- Retain the requested comparison sample when its page size would require more than 512 pages. Report incomplete coverage and offer an explicit restart of the same pinned comparison with a sufficient page size when possible; never issue an unusable continuation or silently change the request.
 - Distinguish full tool-result delivery from compacted evidence summaries. Use exact delivered-content proof to resume saved pages across restarts without skipping unread fragments or changing an explicit reread.
 - Plan stage-aware output capacity with a visible-output target and allow one materially changed empty-output repair. Preserve explicit reasoning choices, accepted context limits, durable provider waits and unknown-operation reconciliation; effort-only provider APIs cannot guarantee a fixed visible-token reserve.
 - Split oversized finite source reads into exact windows of at most 2,000 lines within the eight-range contract, preserving the requested tail and original invocation. Invalid actions and unsupported search fields receive schema-specific correction guidance.
@@ -107,6 +109,8 @@ The recorded graph regression covers 17-, 31- and 83-token probes of the exact s
 The exact release commit must pass the required main workflows, artifact identity, signer and provenance verification before publication. The scoped manifest retains the existing release checks; host tests, emulator evidence and source review do not replace exact-head Android, packaging or publication verification.
 
 ## Privacy visibility and local protection
+
+- Keep mixed private memories unavailable to other conversations when one source is forgotten. Removing source records cannot broaden recall, and forgetting the final source still removes the memory.
 
 - Separate **Enable private chats** in Options from the **Private chat** choice in New Chat. Options controls availability for new chats; each selected profile receives its own permanent conversation policy. Changing Options does not change saved conversations or another open chat.
 - Preserve a private conversation across reopening, restart, retries, branches, copies and backup restore. Room 54 adds the permanent policy separately from masking history and conservatively locks conversations with saved privacy history. Private drafts and conversations retain screen protection independently of the Options switch.

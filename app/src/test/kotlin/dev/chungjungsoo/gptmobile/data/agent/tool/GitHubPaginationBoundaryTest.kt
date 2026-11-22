@@ -305,6 +305,74 @@ class GitHubPaginationBoundaryTest {
         assertEquals(3, seen.size)
     }
 
+    @Test fun comparisonPageLimitKeepsItsScopedExplicitRestartThroughCompaction() = runBlocking {
+        val seen = mutableListOf<JsonObject>()
+        val base = "a".repeat(40)
+        val head = "b".repeat(40)
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                seen += arguments
+                val window = dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.window(arguments, 1001)
+                val data = buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repository")
+                    put("base_sha", base)
+                    put("head_sha", head)
+                    put("files_total", 1001)
+                    put("effective_per_page", window.size)
+                    put("total_pages", window.totalPages)
+                    put("tree_complete", true)
+                    put("has_more", window.hasMore)
+                    put(
+                        "files",
+                        JsonArray(
+                            (window.from until window.until).map {
+                                buildJsonObject {
+                                    put("filename", "File$it.kt")
+                                    put("patch", "+line\n".repeat(5000))
+                                }
+                            }
+                        )
+                    )
+                    if (window.hasMore) put("continuation", JsonObject(arguments + ("page" to JsonPrimitive(window.page + 1))))
+                }
+                return AgentToolResult(callId, ToolResultContent.Json(data), false)
+            }
+        }
+        val tool = GitHubOperationTool("github_context", backend, "bounded-comparison", "github_context__selected")
+        val request = buildJsonObject {
+            put("action", "changes")
+            put("owner", "owner")
+            put("repo", "repository")
+            put("base_sha", base)
+            put("commit_sha", head)
+            put("per_page", 1)
+            put("page", 1000)
+            put("include_patches", true)
+        }
+        val failed = tool.execute("sample", request)
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", failed.errorCode)
+        assertEquals(1, seen.size)
+        assertEquals(JsonPrimitive(1), seen.single()["per_page"])
+        val body = (failed.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive(false), body["has_more"])
+        assertFalse("continuation" in body)
+        val correction = body.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive("github_context__selected"), correction["tool"])
+        val corrected = correction.getValue("arguments").jsonObject
+        assertEquals(JsonObject(request + mapOf("page" to JsonPrimitive(1), "per_page" to JsonPrimitive(2))), corrected)
+        val compact = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubReplayRecovery.compact(failed.content, 2048)) as ToolResultContent.Json
+        assertEquals(correction, compact.value.jsonObject["correction_call"])
+        assertEquals(JsonPrimitive(1), compact.value.jsonObject.getValue("metadata").jsonObject["effective_per_page"])
+        assertEquals(JsonPrimitive(2), compact.value.jsonObject.getValue("metadata").jsonObject["minimum_per_page"])
+        val retained = ToolObservationRetention.content(failed.content, 8192) as ToolResultContent.Json
+        assertEquals(correction, retained.value.jsonObject.getValue("excerpt").jsonObject["correction_call"])
+        assertFalse(tool.execute("explicit-restart", corrected).isError)
+        assertEquals(2, seen.size)
+        assertEquals(JsonPrimitive(2), seen.last()["per_page"])
+    }
+
     @Test fun repositoryRecoveryUsesTheSameAuthorizedConnectionAlias() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))

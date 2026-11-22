@@ -147,6 +147,60 @@ class VoiceSpeechTextTest {
         assertEquals("Let me think about the answer. The user can choose.", VoiceSpeechText.project("Let me think about the answer. The user can choose."))
     }
 
+    @Test fun literalTagsInsideReasoningCannotExposePrivateTextOrHideTheAnswer() {
+        for (tag in listOf("think", "thinking", "analysis", "reasoning")) {
+            val bodies = listOf(
+                "Example is \"</$tag>\" but PRIVATE_SECRET remains.",
+                "Study the literal '<$tag>' token; PRIVATE_SECRET remains.",
+                "Example is 'it isn't </$tag> but PRIVATE_SECRET remains' before finishing.",
+                "Example is ‘it isn’t </$tag> but PRIVATE_SECRET remains’ before finishing.",
+                "The tokens “</$tag>” and ‘<$tag>’ are PRIVATE_SECRET.",
+                "Do not output `</$tag>` or ``<$tag>``; PRIVATE_SECRET remains.",
+                "Escaped \\</$tag> and \\<$tag> are PRIVATE_SECRET.",
+                "\n```xml\n</$tag>\n<$tag>\n```\nPRIVATE_SECRET remains.",
+                "\n~~~xml\n</$tag>\n<$tag>\n~~~\nPRIVATE_SECRET remains.",
+                "\n    </$tag>\n    <$tag>\nPRIVATE_SECRET remains.",
+                "\n    1.. </$tag> PRIVATE_SECRET\nReasoning continues.",
+                "\n    ####### </$tag> PRIVATE_SECRET\nReasoning continues.",
+                "It isn't public; users' PRIVATE_SECRET remains.",
+                "\n    - It isn't public; PRIVATE_SECRET remains."
+            )
+            for (body in bodies) {
+                val input = "Before. <$tag>$body</$tag>Answer."
+                assertEquals(input, "Before. Answer.", VoiceSpeechText.project(input))
+                assertEquals(input, "Before. Answer.", VoiceSpeechText.project(input, includeDetails = true))
+                assertEquals(input, "Before. Answer.", VoiceSpeechText.withoutReasoning(input))
+                assertEquals(input, "Before. Answer.", VoiceSpeechText.richDetails(input))
+                assertFalse(VoiceSpeechText.hasDetails(input))
+                assertAllSnapshots(input)
+                assertProjectionPrefixes(input, includeDetails = true)
+                for (end in 1..input.length) {
+                    assertTrue("rich prefix=$end input=$input", "Before. Answer.".startsWith(VoiceSpeechText.richDetails(input.take(end), final = false)))
+                }
+            }
+        }
+    }
+
+    @Test fun unfinishedQuotedOrCodeReasoningNeverBecomesAnAnswerOnCompletion() {
+        for (literal in listOf("\"", "'", "“", "‘", "`", "``", "```xml\n", "~~~xml\n")) {
+            val input = "Before. <think>${literal}literal </think> PRIVATE_SECRET"
+            assertEquals("Before. ", VoiceSpeechText.project(input))
+            assertEquals("Before. ", VoiceSpeechText.project(input, includeDetails = true))
+            assertEquals("Before. ", VoiceSpeechText.withoutReasoning(input))
+            assertEquals("Before. ", VoiceSpeechText.richDetails(input))
+            assertAllSnapshots(input)
+        }
+    }
+
+    @Test fun literalDetailClosingTagsCannotMoveDetailTextIntoBriefSpeech() {
+        val input = "Before. <details>Use the token '</details>' in this example. More details.</details>Answer."
+        assertEquals("Before. Answer.", VoiceSpeechText.project(input))
+        assertTrue(VoiceSpeechText.project(input, includeDetails = true).contains("More details."))
+        assertTrue(VoiceSpeechText.richDetails(input).contains("'</details>'"))
+        assertAllSnapshots(input)
+        assertProjectionPrefixes(input, includeDetails = true)
+    }
+
     @Test fun detailsAndTablesStayVisibleButSpeechRequiresExplicitFullDetails() {
         val input = "The faster result is ready.\n<details><summary>Measurements</summary>\n| Backend | Time |\n| --- | ---: |\n| CPU | 120 ms |\n| GPU | 90 ms |\n</details>\nYou can continue."
         val brief = "The faster result is ready. You can continue."
@@ -196,6 +250,7 @@ class VoiceSpeechTextTest {
         val examples = listOf(
             "The literal \"<think>example</think>\" is quoted.",
             "The literal '<analysis>example</analysis>' is quoted.",
+            "The literal 'it isn't <think>example</think>' is quoted.",
             "The literal “<think>example</think>” and ‘<analysis>example</analysis>’ are quoted.",
             "~~~xml\n<analysis>literal example</analysis>\n~~~",
             "    <think>indented example</think>\nReady.",
@@ -209,6 +264,7 @@ class VoiceSpeechTextTest {
         assertEquals("\"<think>literal</think>\"  Ready.", VoiceSpeechText.richDetails("\"<think>literal</think>\" <analysis>private</analysis> Ready."))
         assertEquals("The token 'opening think tag' starts a block.", VoiceSpeechText.project("The token '<think>' starts a block."))
         assertAllSnapshots("The token '<think>' starts a block.")
+        assertAllSnapshots("The literal 'it isn't <think>example</think>' is quoted.")
     }
 
     @Test fun inequalitiesKeepEqualityAndUncertainWordsAreNotGuessedAway() {

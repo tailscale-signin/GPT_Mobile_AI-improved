@@ -34,5 +34,11 @@
   "review": {
     "source_range_splitting": "No additional concrete correctness or authorization finding in read-only review.",
     "empty_ci_and_presentation": "No additional concrete finding in read-only review; parent execution_audit agent independently reports10 CI-report/heading host tests passed."
+  },
+  "post_integration_review": {
+    "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+    "finding": "The initial host boundary substituted an inaccurate unknownOutcomeCodes set and therefore masked two test fixtures using unsupported GITHUB_OUTCOME_UNKNOWN.",
+    "correction": "The fixtures now use the existing supported GATEWAY_OUTCOME_UNKNOWN code. Production delivery-proof and failure classification were not weakened or broadened.",
+    "validation": "The same41 tests with the exact eight production unknown-outcome codes reproduced two failures before the fixture change and passed41/41 afterward. Actual checkpoint, compactor, proof, replay and source-recovery code is compiled; Android AtomicFile and unrelated services remain narrow host boundaries. Full exact-head Android integration remains mandatory."
   }
 }

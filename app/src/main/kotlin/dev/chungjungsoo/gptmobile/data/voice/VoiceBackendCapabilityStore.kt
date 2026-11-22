@@ -15,7 +15,7 @@ internal class VoiceBackendCapabilityStore(context: Context) {
     fun revision(): Long = synchronized(lock) { runCatching { preferences.getLong("revision", 0) }.getOrDefault(0) }
 
     fun key(backend: VoiceSpeechBackend, lexicon: String, threads: Int): String =
-        digest("${TimedKokoro.RUNTIME_ID}|${KokoroModelPack.MODEL_SHA256}|$deviceKey|${backend.name}|$lexicon|$threads")
+        digest("${VoiceMeasuredBackendPolicy.COMPARISON_PROTOCOL}|${TimedKokoro.RUNTIME_ID}|${KokoroModelPack.MODEL_SHA256}|$deviceKey|${backend.name}|$lexicon|$threads")
 
     fun read(key: String, now: Long): VoiceBackendCapability? = synchronized(lock) {
         records().firstOrNull { it.key == key && it.current(now) }

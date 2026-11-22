@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.voice
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import dev.melo.kokoro.TimedKokoro
+import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -41,7 +43,7 @@ class VoiceBackendCapabilityStoreTest {
         val cpu = store.key(VoiceSpeechBackend.CPU, "us", 2)
         val gpu = store.key(VoiceSpeechBackend.QNN_GPU, "us", 2)
         val npu = store.key(VoiceSpeechBackend.QNN_HTP, "us", 2)
-        store.save(VoiceBackendCapability(cpu, VoiceSpeechBackend.CPU, now, listOf(30, 40)))
+        store.save(VoiceBackendCapability(cpu, VoiceSpeechBackend.CPU, now, listOf(30, 40, 50)))
         store.save(
             VoiceBackendCapability(
                 gpu,
@@ -53,7 +55,7 @@ class VoiceBackendCapabilityStoreTest {
                 tokenCount = 17
             )
         )
-        store.save(VoiceBackendCapability(npu, VoiceSpeechBackend.QNN_HTP, now + 2, listOf(20, 30), true))
+        store.save(VoiceBackendCapability(npu, VoiceSpeechBackend.QNN_HTP, now + 2, listOf(20, 30, 40), true))
         assertEquals(11, store.read(gpu, now + 2)?.nativeCode)
         assertEquals(17, store.read(gpu, now + 2)?.tokenCount)
         store.retest(VoiceSpeechBackend.QNN_GPU)
@@ -67,10 +69,34 @@ class VoiceBackendCapabilityStoreTest {
     @Test fun receiptsRemainBoundedAndMalformedStorageCannotManufactureSupport() {
         val store = VoiceBackendCapabilityStore(context)
         val keys = (0 until 30).map { store.key(VoiceSpeechBackend.QNN_GPU, "lexicon-$it", 2) }
-        keys.forEachIndexed { index, key -> store.save(VoiceBackendCapability(key, VoiceSpeechBackend.QNN_GPU, now + index, listOf(20, 30), true)) }
+        keys.forEachIndexed { index, key -> store.save(VoiceBackendCapability(key, VoiceSpeechBackend.QNN_GPU, now + index, listOf(20, 30, 40), true)) }
         assertEquals(24, keys.count { store.read(it, now + 30) != null })
         assertNull(store.read(keys.last(), now - 1))
         context.getSharedPreferences("voice_backend_capabilities_v1", Context.MODE_PRIVATE).edit().putString("receipts", "[malformed").commit()
         assertNull(store.read(keys.last(), now + 30))
+    }
+
+    @Test fun comparisonProtocolSeparatesLegacyCacheAndPreservesCurrentPairedMeasurements() {
+        val store = VoiceBackendCapabilityStore(context)
+        val backends = listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU)
+        for (backend in backends) {
+            val legacyIdentity = "${TimedKokoro.RUNTIME_ID}|${KokoroModelPack.MODEL_SHA256}|${store.deviceKey}|${backend.name}|us|2"
+            val legacyKey = MessageDigest.getInstance("SHA-256").digest(legacyIdentity.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+            val currentKey = store.key(backend, "us", 2)
+            store.save(VoiceBackendCapability(legacyKey, backend, now, listOf(10, 10), backend != VoiceSpeechBackend.CPU))
+            assertNotEquals(legacyKey, currentKey)
+            assertNull(store.read(currentKey, now))
+        }
+        for (backend in backends) {
+            val samples = if (backend == VoiceSpeechBackend.CPU) listOf(100L, 100L, 100L) else listOf(80L, 80L, 80L)
+            val record = VoiceBackendCapability(store.key(backend, "us", 2), backend, now, samples, backend != VoiceSpeechBackend.CPU)
+            store.save(record)
+            assertEquals(record, store.read(record.key, now))
+        }
+        assertEquals(
+            VoiceSpeechBackend.QNN_GPU,
+            VoiceMeasuredBackendPolicy.choose(backends.mapNotNull { store.read(store.key(it, "us", 2), now) }, now)
+        )
     }
 }

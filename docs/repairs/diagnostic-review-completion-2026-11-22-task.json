@@ -121,5 +121,14 @@
     "Fresh PR head/base and required check observations before merge",
     "Exact-main workflow checks and existing signed publication workflow",
     "Published Android and Gateway release state, tag/commit, assets and provenance readback"
-  ]
+  ],
+  "post_integration_review": {
+    "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+    "delivery_proof": "Independent rerun replaced the initial inaccurate host unknown-outcome set with the exact production eight-code set. Two unsupported-code fixtures failed before correction; all41 tests pass with the existing GATEWAY_OUTCOME_UNKNOWN value. Production classification is unchanged.",
+    "completion": "Independent76-case completion/handoff/replay/reasoning/stage-budget suite passed with the same exact production constant and actual current sources.",
+    "pagination": "The existing512-page retained-coverage bound now preserves the exact requested sample, declares incompleteness without false upstream-change evidence, suppresses unusable continuation and offers only an explicit same-repository/base/head page1 restart at a sufficient supported page size.60 pagination/coverage tests, one actual cap-envelope/replay-compactor/8KB-retention test and20 source-read/schema tests pass. The full facade dispatch/compaction/restart regression is added for hosted execution, not claimed as locally executed.",
+    "reporting": "Independent9 receipt/report/acceptance/correlation cases,10 CI observation/presentation cases and186 selected authentication/incident/configuration tests passed. The selected Python rerun is distinct from the original full206-test suite.",
+    "android_followup": "Predecessor b8ac full Android unit run executed12,684 cases with3 failures and5 skips. Actual-source25-case baseline/current checks reproduced and corrected two stale Gateway/graph test expectations; the MCP earlier-attempt loss is a separate production correction. Current-head full hosted gates remain required.",
+    "mcp": "Final reconciliation preserves concurrent dda6 invocation-owned interruption evidence across modern and legacy SDK retries, replacing the earlier unpublished exception-only alternative.18 actual combined manager/transport/privacy/context/health/recovery/presentation tests pass with coroutine recoveryON/OFF. Strong first-denial, cancellation, retained health/catalogue/no-cooldown and confirmed-response precedence assertions remain;46 source hashes, pinned formatting and independent review pass. Full Android remains mandatory."
+  }
 }

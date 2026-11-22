@@ -26,6 +26,8 @@ internal object MemoryPrivacyPolicy {
     fun sourceChats(messageKeys: Set<String>): Set<Int> = messageKeys.mapNotNull { it.substringBefore(':').toIntOrNull()?.takeIf { id -> id > 0 } }.toSet()
 
     fun protectedScope(scope: String, sources: Set<Int>, privateChats: Set<Int>): String {
+        // Removing source references cannot give mixed private content a new conversation owner.
+        if (scope == "private:unshared") return scope
         val owners = sources.intersect(privateChats) + listOfNotNull(owner(scope))
         if (owners.isEmpty() && !isPrivate(scope)) return scope
         // Mixed private provenance cannot become visible in either conversation.

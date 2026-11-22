@@ -85,7 +85,9 @@ data class VoiceState(
     val submittedDraftRequestId: String? = null,
     val playbackCaption: String? = null,
     val readingDetails: Boolean = false,
-    val replyComplete: Boolean = false
+    val replyComplete: Boolean = false,
+    /** Stable through preview, playback and pause; a new reply or explicit replay gets a new owner. */
+    val captionPresentationId: Long = 0
 )
 
 /** A state callback may run before Compose delivers the dispatcher's latest admission event. */
@@ -104,6 +106,7 @@ class VoiceSession(
 ) {
     companion object {
         const val API_VERSION = 2
+        private val captionPresentationSequence = java.util.concurrent.atomic.AtomicLong()
     }
     private val mutableState = kotlinx.coroutines.flow.MutableStateFlow(VoiceState())
     val states: kotlinx.coroutines.flow.StateFlow<VoiceState> = mutableState
@@ -219,7 +222,7 @@ class VoiceSession(
         audio.bindDiagnostics(diagnosticProbe)
         waiting = true
         draftPending = awaitsAdmission
-        update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, reply = "", level = 0f, readingDetails = false, replyComplete = false))
+        update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, reply = "", level = 0f, readingDetails = false, replyComplete = false, captionPresentationId = captionPresentationSequence.incrementAndGet()))
         if (submit(prompt)) {
             if (awaitsAdmission) {
                 // The dispatcher publishes its request identity synchronously before returning.
@@ -300,7 +303,7 @@ class VoiceSession(
             review -> VoicePhase.REVIEWING
             else -> VoicePhase.PAUSED
         }
-        update(state.copy(transcript = transcript, reply = reply, phase = phase))
+        update(state.copy(transcript = transcript, reply = reply, phase = phase, captionPresentationId = captionPresentationSequence.incrementAndGet()))
     }
     fun replay() {
         val text = state.reply
@@ -337,7 +340,7 @@ class VoiceSession(
         streamDiagnosticId = diagnosticRunId
         streamAudio = playbackAllowed() && (state.speaker || manualPlayback) && (readAloud || manualPlayback)
         audio.bindReply(diagnosticRunId)
-        update(state.copy(phase = VoicePhase.THINKING, reply = "", notice = null, spokenRange = null, level = 0f, readingDetails = includeSpeechDetails, replyComplete = false))
+        update(state.copy(phase = VoicePhase.THINKING, reply = "", notice = null, spokenRange = null, level = 0f, readingDetails = includeSpeechDetails, replyComplete = false, captionPresentationId = captionPresentationSequence.incrementAndGet()))
         return true
     }
     private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED", error: Throwable? = null, reportFailure: Boolean = true, failureFields: Map<String, Any?> = emptyMap()) {
@@ -358,7 +361,7 @@ class VoiceSession(
         val visible = state.presentationState()
         inputLevel.value = VoiceInputLevel(state.level, state.hasAudioLevel)
         if (state.phase != VoicePhase.SPEAKING) captionTiming = null
-        captionCursor.value = VoiceCaptionCursor(state.spokenRange, state.playbackCaption, captionTiming)
+        captionCursor.value = VoiceCaptionCursor(state.spokenRange, state.playbackCaption, captionTiming, state.captionPresentationId)
         mutableState.value = state
         if (presentation.value != visible) {
             diagnosticProbe.phase(state.phase)
@@ -464,7 +467,7 @@ class VoiceSession(
         diagnosticProbe.access(permission, foreground, state.muted)
         audio.bindDiagnostics(diagnosticProbe)
         replaceDraft()
-        update(state.copy(phase = VoicePhase.STARTING, transcript = "", level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0, recoveryAction = null))
+        update(state.copy(phase = VoicePhase.STARTING, transcript = "", level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0, recoveryAction = null, captionPresentationId = captionPresentationSequence.incrementAndGet()))
         fun valid() = ticket == generation && captureAllowed() && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)
         fun recognitionFailed(
             message: String,
@@ -691,7 +694,7 @@ class VoiceSession(
                 if (mapped == state.spokenRange && playbackCaption == state.playbackCaption) {
                     // Only the light presentation stream sees clock refreshes. No transcript
                     // projection, durable draft write or diagnostic event runs per refresh.
-                    captionCursor.value = VoiceCaptionCursor(mapped, playbackCaption, captionTiming)
+                    captionCursor.value = VoiceCaptionCursor(mapped, playbackCaption, captionTiming, state.captionPresentationId)
                 } else {
                     diagnosticProbe.captionAlignment(if (mapped == null) "TEXT_UNMAPPED" else "EXACT_RANGE")
                     update(state.copy(spokenRange = mapped, playbackCaption = playbackCaption))

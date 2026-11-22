@@ -48,7 +48,7 @@ internal suspend fun <T> withMcpReadRecovery(method: String, pause: suspend (Lon
 } catch (failure: Exception) {
     val causes = generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
     val retryable = failure.isMcpInterruptedRead() || causes.any { it is UnknownHostException }
-    if (method !in MCP_REPLAYABLE_READS || !retryable || causes.any { it is javax.net.ssl.SSLException || it is ModernMcpError || it is io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError }) throw failure
+    if (failure.isLocalPrivacyPolicyRejection() || method !in MCP_REPLAYABLE_READS || !retryable || causes.any { it is javax.net.ssl.SSLException || it is ModernMcpError || it is io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError }) throw failure
     currentCoroutineContext().ensureActive()
     recordMcpInterruptedRead(failure)
     val category = if (causes.any { it is UnknownHostException }) "DNS_FAILED" else "CONNECTION_ABORTED"

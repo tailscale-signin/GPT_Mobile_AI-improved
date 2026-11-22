@@ -8,13 +8,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceMessageSessionTest {
-    private class Audio : VoiceAudio {
+    private class Audio(override val reportsPlaybackStart: Boolean = false) : VoiceAudio {
         val spoken = mutableListOf<String>()
         val completed = mutableListOf<() -> Unit>()
         var captures = 0
         var stops = 0
         var listener: VoiceAudio.Listener? = null
         var spokenRange: ((Int, String, IntRange) -> Unit)? = null
+        var playbackStarted: (() -> Unit)? = null
+        override fun bindPlaybackStarted(started: (() -> Unit)?) {
+            playbackStarted = started
+        }
         override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
             spokenRange = spoken
         }
@@ -31,6 +35,39 @@ class VoiceMessageSessionTest {
             stops++
         }
         override fun close() = Unit
+    }
+
+    @Test fun captionPresentationSurvivesPreviewFirstAudioChunksAndPauseButNotAnExplicitReplay() {
+        val audio = Audio(reportsPlaybackStart = true)
+        val session = VoiceSession(audio, { error("Typed playback must not send a prompt") }, {})
+        session.access(true, false, true)
+        session.beginMessage("reply")
+        val owner = session.presentationStates.value.captionPresentationId
+        assertTrue(owner > 0)
+        val opening = "The first complete sentence. "
+        session.streamReply("reply", opening)
+        assertEquals(VoicePhase.PREPARING, session.state.phase)
+        assertEquals(owner, session.presentationStates.value.captionPresentationId)
+        requireNotNull(audio.playbackStarted).invoke()
+        requireNotNull(audio.spokenRange).invoke(0, opening, 10..17)
+        assertEquals(owner, session.presentationStates.value.captionPresentationId)
+        session.reply("reply", opening + "The ending.")
+        audio.completed.first().invoke()
+        requireNotNull(audio.playbackStarted).invoke()
+        assertEquals(owner, session.presentationStates.value.captionPresentationId)
+        session.pause()
+        assertEquals(owner, session.presentationStates.value.captionPresentationId)
+
+        // Observe only the final snapshot, as a StateFlow/Compose collector may do.
+        session.beginMessage("reply", manual = true)
+        session.reply("reply", opening + "The ending.")
+        val replay = session.presentationStates.value
+        assertEquals(VoicePhase.PREPARING, replay.phase)
+        assertTrue("An identical replay still needs a new reader owner", replay.captionPresentationId != owner)
+        val replayOwner = replay.captionPresentationId
+        session.beginMessage("next")
+        session.streamReply("next", opening)
+        assertTrue("Batched replacement cannot retain the previous reader", session.presentationStates.value.captionPresentationId != replayOwner)
     }
 
     @Test fun completedOneWordReplyRemainsVisibleWhileItsAudioIsStillDraining() {

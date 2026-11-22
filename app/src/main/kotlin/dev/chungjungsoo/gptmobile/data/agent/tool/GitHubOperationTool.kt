@@ -680,7 +680,12 @@ internal class GitHubOperationTool(
                         }
                     )
                 }
-                return withPaginationState(result, recovery).copy(
+                val boundedRecovery = if (operation == "github_context" && progress?.get("coverage_limit_reached") == JsonPrimitive(true)) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.failureEnvelope(effectiveArguments, recovery, definition.name)
+                } else {
+                    recovery
+                }
+                return withPaginationState(result, boundedRecovery).copy(
                     executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("traversal_state" to assessment.data.getValue("traversal_state"), "has_more" to JsonPrimitive(false), "pagination_progress" to assessment.data.getValue("pagination_progress"))),
                     isError = true,
                     errorCode = assessment.errorCode

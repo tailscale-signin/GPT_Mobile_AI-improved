@@ -309,6 +309,202 @@
       "command": "bash scripts/validate-local.sh fast",
       "duration_seconds": 40.704,
       "scope": "Preserved every concurrent commit through9173e214 with graph completeness, retired-response, explicit Gateway fallback and closed audit-stage export corrections. All530 changed paths pass the exact scope;12 changed Kotlin files pass pinned formatting. Generated inventories, schema metadata, regex,36 XML resources, icons, native provenance and whitespace pass. Current-head full Android/device/security/package checks and signed publication remain mandatory."
+    },
+    {
+      "suite": "concurrent phone map privacy and bounded ordered-path follow-up",
+      "result": "PASS",
+      "tests": 98,
+      "source_head": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
+      "scope": "30 actual graph/parser cases,21 actual privacy/provider/tool cases and47 map UI/presentation cases; actual map Compose compilation passed. Platform, DTO and unrelated service boundaries remain isolated; whole Android and device qualification are separate."
+    },
+    {
+      "suite": "saved-read proof against exact production unknown-outcome codes",
+      "result": "PASS",
+      "tests": 41,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "baseline_failures": 2,
+      "scope": "The previous focused harness supplied an inaccurate unknown-outcome set and masked two invalid GITHUB_OUTCOME_UNKNOWN fixtures. The same 41 actual checkpoint, compactor, proof, replay and source-recovery tests failed twice with the exact eight production codes, then passed after using the supported GATEWAY_OUTCOME_UNKNOWN code. Production classification was not broadened; Android AtomicFile and unrelated services remain harness boundaries."
+    },
+    {
+      "suite": "independent combined completion and recovery review",
+      "result": "PASS",
+      "tests": 76,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "scope": "Actual current completion, handoff, replay, reasoning and stage-budget source with the exact production unknown-outcome constant. Existing platform/service boundaries retained; full AgentRunner/Android integration remains hosted."
+    },
+    {
+      "suite": "independent current diagnostic and CI observation review",
+      "result": "PASS",
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "scope": "9 actual receipt/report/acceptance/correlation cases and10 actual CI observation/presentation cases passed.186 selected authentication, incident and reporting-configuration tests passed; this selected rerun is not a new full206-test authentication run."
+    },
+    {
+      "suite": "canonical fast after concurrent diagnostic completion",
+      "result": "PASS",
+      "tests": 616,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "duration_seconds": 27.634,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Canonical validation before the final retained-page and transport corrections; generated inventories, policy, resources, regex and provenance passed. Changed source requires a fresh combined run."
+    },
+    {
+      "suite": "full Android predecessor unit run",
+      "result": "FAILURES_TRIAGED_CURRENT_FIXES_REQUIRED",
+      "source_head": "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2",
+      "workflow_run": 45070165494,
+      "job": 137355179755,
+      "tests": 12684,
+      "failures": 3,
+      "skipped": 5,
+      "scope": "Production and unit compilation passed. The actual full suite exposed MCP earlier-attempt evidence loss, a stale manual-versus-reconcile Gateway expectation and a graph fixture that attempted to construct an unresolved production context. Preserve all three regression contracts; exact-current-head hosted validation is still required."
+    },
+    {
+      "suite": "packaged Kokoro libraries on predecessor UI APKs",
+      "result": "PASS_ON_PREDECESSOR",
+      "source_head": "06ab96439deea13262fa48130eed367914e914d0",
+      "workflow_run": 45068650087,
+      "job": 137350486144,
+      "scope": "Actual arm64, x86_64 and universal APKs passed the timing/QNN adapter ELF ABI and dependency guards, alongside existing pinned-runtime and alignment checks. This is packaged predecessor evidence, not current-head or physical-accelerator qualification."
+    },
+    {
+      "suite": "mandatory Android acceptance receipts on predecessor",
+      "result": "PASS_ON_PREDECESSOR",
+      "source_head": "9173e21455fecd3ef331e9a4aba13709928bfa39",
+      "workflow_run": 45069702500,
+      "scope": "Both API34 and API36 passed all36 mandatory receipts:26 persistence,1 privacy migration and9 voice conversation. Includes the eight-way concurrent built-in binding replacement. Current-head acceptance must run again."
+    },
+    {
+      "suite": "full-suite Gateway and graph fixture contract corrections",
+      "result": "PASS",
+      "tests": 25,
+      "baseline_failures": 2,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "scope": "Actual production context constructor/defaults/repository normalization and Gateway projection/closed normalization reproduce both predecessor failures, then pass after correcting only the fixtures. Uncertain dispatch still requires reconciliation; unresolved context construction still fails; all six traversal cases remain. Android process/clock, entity types, BuildConfig and unrelated vault boundaries are isolated."
+    },
+    {
+      "suite": "MCP uncertain-read evidence across coroutine recovery",
+      "result": "PASS",
+      "tests": 13,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "baseline_failures_with_recovery": 1,
+      "scope": "Complete actual McpClientManager, ModernMcpTransport, Ktor privacy gate, health, retry and presentation sources reproduce UNKNOWN becoming NOT_DISPATCHED with coroutine stack recovery enabled. The initial10 cases pass with recovery disabled. All13 final cases pass with recovery both enabled and disabled after retaining the original incomplete attempt in a typed retry-policy exception. Real MockEngine/CIO exchanges retain the original assertion plus health, no-cooldown, first-denial and cancellation checks. Android preference storage and unused app-service/UI/task/persistence boundaries remain isolated;42 compiled source hashes were recorded. Independent source review and pinned formatting passed.",
+      "superseded_implementation": "These passing local-candidate results preceded concurrent dda6. Final integration preserves its broader invocation-owned interruption observation instead of the unpublished exception-only mechanism; a fresh combined transport result is required."
+    },
+    {
+      "suite": "comparison coverage bound and explicit pinned restart",
+      "result": "PASS",
+      "tests": 60,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "scope": "Actual pagination/coverage helper suite covers513 and1001 rows at per_page1, valid explicit page1/per_page2 completion,51201-row refusal without a fabricated recipe, repository/base/head ownership, cap eviction versus genuine source changes and incomplete-tree preservation. One additional actual cap-envelope/replay-compactor/observation-retention test preserves the scoped recipe through compaction and8KB retention;20 source-read/schema cases pass. The added full GitHubOperationTool dispatch/compaction/restart test is hosted-only and was not executed in this host suite. Pinned formatting and final seven-file source hashes were recorded."
+    },
+    {
+      "suite": "final comparison and MCP correction canonical validation",
+      "result": "PASS",
+      "tests": 616,
+      "duration_seconds": 24.524,
+      "source_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Combined frozen comparison cap/restart, typed MCP history and three fixture corrections; generated inventories, policy, dependency/secret checks,1904 literal regex patterns,36 XML resources,icons,QNN provenance and whitespace pass. All573 current changed paths are scoped. A concurrent permanent per-conversation privacy commit arrived before push and must be preserved/reviewed with a fresh combined validation."
+    },
+    {
+      "suite": "Room54 authenticated schema and migration integration",
+      "result": "PASS",
+      "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "workflow_run": 45074636925,
+      "job": 137369101292,
+      "artifact_id": 14774134766,
+      "artifact_sha256": "4f13a3c36a8a53ed8400014d7db7195e46e5e59a5e75cdd52d56bebb063926eb",
+      "schema_sha256": "6363d1cf75c4464b7bdb0d58872a7200088d93e8da744a7717f60b1f5067ee36",
+      "room_identity": "2f972404e2d13990fcf36076058a79a4",
+      "scope": "Hosted audit KSP export matches all committed54 bytes. Exact53→54 SQLite migration preserves all56 entities except the intended permanent privacy column, locks previously marked rooms, matches schema table metadata and has no foreign-key violations. This qualifies schema provenance/migration, not the remaining whole-app/device checks. Both acceptance APIs now require40 receipts."
+    },
+    {
+      "suite": "integrated conversation policy and MCP retry history",
+      "result": "PASS",
+      "tests": 15,
+      "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "scope": "Actual combined manager/Modern transport/privacy gate/ConversationPrivacyContext/HTTP capture and retry/presentation sources pass with coroutine recoveryON andOFF. All four incoming immutable-conversation tests are preserved. A separate local admission fixture retains UNKNOWN and CONFIRMED exchange regressions without treating availability as conversation authority.46 compiled source hashes, pinned formatting and independent review pass; Android preference storage and unrelated services remain isolated.",
+      "superseded_implementation": "These passing local-candidate results preceded concurrent dda6. Final integration preserves its broader invocation-owned interruption observation instead of the unpublished exception-only mechanism; a fresh combined transport result is required."
+    },
+    {
+      "suite": "independent shared-client conversation dispatch",
+      "result": "PASS",
+      "tests": 5,
+      "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "scope": "Actual NetworkClient, Ktor3.6 and OkHttp5.5 transport, conversation capture, privacy gate and authorization source pass concurrent private/ordinary requests, forged owner rejection, masked dispatch revalidation, copied native tags and cancellation. Loopback servers are real; Android storage, telemetry/readiness and unrelated model/service boundaries are fixtures. Source hashes retained."
+    },
+    {
+      "suite": "mixed private memory remains restricted after source deletion",
+      "result": "PASS",
+      "tests": 7,
+      "baseline_failures": 2,
+      "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "scope": "Actual policy/scope source reproduces mixed private facts and topics widening to the surviving chat after pruning. The two-line sticky private:unshared guard passes all seven committed policy tests without altering pruning or final-source removal. Added WorkspaceIntegration Room regression covers deletion/reopen/blocked recall/final removal and is hosted-only; it was not executed in the host harness. Pinned formatting and source hashes pass."
+    },
+    {
+      "suite": "combined Room54 privacy and corrective integration canonical validation",
+      "result": "PASS",
+      "tests": 616,
+      "duration_seconds": 27.594,
+      "source_head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "All concurrent source through6e788707 is preserved with comparison cap/restart, typed MCP history, proof/Gateway/graph fixtures and sticky mixed-private-memory correction. All620 changed paths pass exact release scope; generated inventories, schema metadata,policy,dependencies,secrets,1904 literal regex patterns,36XML resources,icons,native provenance and whitespace pass. Full facade/Room regressions remain hosted-only;40 acceptance receipts perAPI, all current-head workflows and separate active voice-response/benchmark integration remain mandatory before merge/publication."
+    },
+    {
+      "suite": "stronger concurrent Gateway and graph fixture contracts",
+      "result": "PASS",
+      "tests": 26,
+      "source_head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+      "scope": "Complete incoming fixtures retain strict unresolved-context constructor rejection and all six traversal checks, while adding dispatch/recovery-action/condition and original incident/operation identity assertions. Actual context/normalization and Gateway projection/closed sanitizer execute; existing Android/entity/vault boundaries remain isolated. The stronger incoming files are preserved byte-for-byte after pinned formatting; prior equivalent local fixtures are superseded."
+    },
+    {
+      "suite": "reconciled invocation-owned MCP interruption evidence",
+      "result": "PASS",
+      "tests": 18,
+      "source_head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+      "scope": "Preserved incoming invocation-owned interruption observations for modern and legacy SDK retries, superseding the unpublished exception-only alternative. All18 actual manager/transport/privacy/context/health/recovery/presentation cases pass with coroutine recoveryON/OFF. Added strict first-denial exclusion even under misleading wrapped transport text, cancellation, complete retained health/catalogue/no-cooldown assertions and actualCIO response→interruption→denial CONFIRMED precedence.46 compiled source hashes, pinned formatting and independent review pass; existing Android/service boundaries remain fixtures."
+    },
+    {
+      "suite": "canonical validation after concurrent equivalent MCP reconciliation",
+      "result": "PASS",
+      "tests": 616,
+      "duration_seconds": 25.479,
+      "source_head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Combined comparison,proof,memory and stronger concurrent MCP/fixture source passes canonical inventories,policy,dependency/secret,regex,resources,icons,provenance and whitespace. All concurrent history throughdda is retained. Subsequent voice-response/benchmark feature commit must be integrated before final current-head CI/publication."
+    },
+    {
+      "suite": "final integrated caption presentation, session, speech buffer and signals",
+      "result": "PASS",
+      "tests": 87,
+      "scope": "Actual production source including the corrected shared reasoning scanner; only diagnostic transport/failure-classification boundaries are fixtures. New Android screenshot/scroll regression is added and required but not locally device-executed."
+    },
+    {
+      "suite": "reasoning literal boundaries and independent streamed choices",
+      "result": "PASS",
+      "tests": 55,
+      "baseline_new_test_failures": 9,
+      "scope": "Actual VoiceSpeechText23, Groq parser15, stream reasoning7, stream incidents7 and SendAttemptTrace3. Covers every split/prefix, nested and incomplete literals, embedded apostrophes, more than8KiB of retained reasoning and choice-specific tool cleanup. Final unchanged regressions fail9 cases against ecd207 and pass55 after repair."
+    },
+    {
+      "suite": "current-protocol Auto ranking and bounded capability cache",
+      "result": "PASS",
+      "tests": 21,
+      "baseline_new_test_failures": 3,
+      "scope": "17 actual benchmark/policy tests plus4 actual-store tests with Android preference/device/container boundaries. Both legacy/current workload orderings and persistent identity fail before repair; current paired ranking, retest and bounds remain covered."
+    },
+    {
+      "suite": "caption renderer and new instrumentation signature compile",
+      "result": "PASS_COMPILE_ONLY",
+      "runtime": "Android37, Compose1.12.1, Kotlin/Compose compiler2.4.20",
+      "scope": "Actual renderer, glyph/layout cache, wave and exact new instrumented method with production session/caption helpers; unrelated diagnostic frame-pressure is the only additional signature fixture. Hosted device execution remains mandatory."
+    },
+    {
+      "suite": "final integrated voice and Room54 canonical validation",
+      "result": "PASS",
+      "tests": 616,
+      "seconds": 26.714,
+      "scope": "4c48 restore/acceptance plus all retained corrections and final caption/reasoning/Auto fixes.1923 literal regex patterns,97 dynamic patterns skipped,36 XML files, provenance/policy/inventories pass.35 changed Kotlin files pass pinned ktlint1.3.1; all664 changed paths are explicitly scoped. Full exact-head hosted verification remains mandatory."
     }
   ],
   "hardware_qualification": "Physical phone GPU/NPU performance and audio route calibration require device execution evidence; host tests and successful compilation alone are not qualification.",
@@ -462,6 +658,42 @@
       "head": "9173e21455fecd3ef331e9a4aba13709928bfa39",
       "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
       "action": "Preserved complete phone-map preparation on Dispatchers.Default, retained authority/cancellation context and the actual caller-dispatch regression. Independently reviewed all local returns and nested cache/parse boundaries."
+    },
+    {
+      "event": "concurrent phone map privacy and long-path pagination preserved",
+      "head": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved typed policy rejection with actual dispatch accounting, retained selected-map guidance and bounded ordered-path pagination. Independently reviewed source and 98 focused follow-up tests with actual Compose compilation."
+    },
+    {
+      "event": "concurrent diagnostic review completion preserved",
+      "head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved order-independent comparison coverage, exact delivered-body proof, saved-view recovery, bounded visible-output repair and stage budgets, source-window splitting, original uncertain-operation identity, CI observation selection and additive reporting capability negotiation. Independently reviewed all groups; found and corrected a host fixture assumption against the production unknown-outcome code set and identified the retained-page boundary gap."
+    },
+    {
+      "event": "concurrent permanent conversation privacy preserved",
+      "head": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Stopped the guarded push before mutation, preserved the complete per-conversation privacy/Room54 commit, reviewed core transport, masking, voice, creation/UI, durable execution, migration, memory and research paths, and reconciled MCP fixtures without weakening either incoming policy tests or typed retry evidence. Corrected a reproduced mixed-private-memory source-pruning widening defect."
+    },
+    {
+      "event": "concurrent equivalent MCP and full-suite corrections preserved",
+      "head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Stopped branch mutation when another worker published the same MCP and fixture repairs. Preserved the broader invocation-owned interrupted-read observation across modern and legacy SDK retries and the stronger incoming Gateway/graph assertions. The unpublished exception-only alternative is superseded; additional first-denial, cancellation, health and confirmed-response coverage is retained."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "ecd207312bbbcef04790762217c3d66a75ebb26f",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved conversational voice policy, durable presentation, answer/details routing, pronunciation, streaming changes and CPU/GPU/NPU benchmark. Independently reviewed policy, privacy and native ownership; corrected reproduced caption, reasoning and Auto protocol regressions with actual-source tests."
+    },
+    {
+      "event": "concurrent feature and verification changes preserved",
+      "head": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Preserved permanent privacy during full and selected-conversation SQL restore, older-column compatibility, actual SQLite/Robolectric regressions and mandatory voice-control acceptance receipts. Reconciled only release scope, ledgers and generated inventories; retained all unpublished root corrections."
     }
   ],
   "integration_regressions": [
@@ -474,7 +706,7 @@
     "Do not show uncollected CPU operator counts as a zero-work profile.",
     "Preserve continuous row velocity and non-overlap across fractional caption scale boundaries using bounded leading and matching viewport extent.",
     "Do not transfer privacy proof across removed thinking blocks or unmapped source-list cleanup.",
-    "Keep prepared text and privacy proof together and prevent retained Markdown trees from acquiring a different snapshot\u2019s proof.",
+    "Keep prepared text and privacy proof together and prevent retained Markdown trees from acquiring a different snapshot’s proof.",
     "Complete the AgentPersistenceDao test fixture for the new privacy-use method.",
     "Keep the reporting-service closed upstream-code mirror aligned with the safe Android numeric authentication/rate-limit values; reject non-string, unlisted and private values.",
     "Verify the Kokoro timing and QNN adapter ELF libraries and same-ABI dependencies in every final APK without weakening pinned runtime or alignment checks.",
@@ -486,7 +718,27 @@
     "Recheck the current map generation after a suspended architecture refresh before publishing indexing-paused state.",
     "Exercise Gateway fallback revocation with an explicit Gateway source while keeping native status arguments and phone no-fallback behavior unchanged.",
     "Assert provider HTTP status at its authoritative IssueReportContext field while preserving hash-only classification and the closed nested diagnostic schema.",
-    "Retain the six closed GitHub transport stage values in audit exports; unknown or private stage strings remain excluded."
+    "Retain the six closed GitHub transport stage values in audit exports; unknown or private stage strings remain excluded.",
+    "Retain requested comparison samples without unusable page continuations or false upstream-change claims when the512-page completeness bound is exceeded; offer only an explicit same-revision restart within the100-row page-size contract.",
+    "Use the exact production unknown-outcome code set in delivery-proof regressions; unsupported test-only codes must not masquerade as classified unknown outcomes.",
+    "Retain the earlier incomplete MCP read through coroutine exception recovery when a subsequent privacy denial blocks its sole retry; preserve first-denial non-dispatch, prior confirmed responses, cancellation, catalogue health and retry limits.",
+    "Keep Gateway unknown dispatch on reconciliation recovery and reject unresolved repository contexts at construction while retaining traversal checks.",
+    "Keep mixed private facts and topics unshared after source pruning, room deletion and reload; deleting provenance cannot grant another conversation access, and final-source forgetting still removes the memory.",
+    "Keep readable preview opacity and manual reader position through first audio timing; reset same-text replies and replays by explicit presentation identity even if no empty frame is collected.",
+    "Keep quoted/code/escaped/nested reasoning delimiters and embedded apostrophes within their channel across arbitrary streaming chunks and saved projections; one truncated choice cannot clear another choice’s reasoning or tools.",
+    "Exclude legacy two-phrase cache receipts from current three-fixture Auto ranking and include the workload/scoring protocol in persistent and resident identities."
   ],
-  "last_reconciled_remote_head": "9173e21455fecd3ef331e9a4aba13709928bfa39"
+  "last_reconciled_remote_head": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+  "pending_concurrent_scope": [
+    "The shared PR advertises acceptance-completion-70afcf89 diagnostic implementation. Preserve and review that worker’s incoming scope before final readiness, exact-head gates, guarded merge and publication."
+  ],
+  "integration_review_followup": {
+    "source_head": "ecd207312bbbcef04790762217c3d66a75ebb26f",
+    "status": "FIXED_FOCUSED_VALIDATION_PASSED",
+    "caption": "Added stable presentation ownership through preview, first timing, chunks and pause; new captures, restores, replies and explicit replay receive new identities. Readable previews retain opacity and manual position; stale independently collected cursors are rejected; preaudio focus starts at the first line. The actual Android visual regression is mandatory in acceptance.",
+    "reasoning": "Shared bounded literal state protects quoted, escaped, inline/fenced/indented-code and nested reasoning across arbitrary chunks; embedded apostrophes cannot close single-quoted literals prematurely. Stored brief/full/rich projections stay prefix-safe. Terminal discard is choice-scoped while global cleanup still closes all pending state.",
+    "auto": "Current three-fixture workload and complete-cost scoring protocol now participate in capability cache and resident engine identity; Auto requires exactly three valid samples. Explicit qualification and the standalone benchmark remain independent.",
+    "prior_corrections": "Preserved comparison cap and pinned restart, actual closed outcome fixtures, invocation-owned MCP interrupted-read observation and extra denial/cancellation/confirmed-response coverage, incoming stronger Gateway/graph tests, and sticky unshared private memory.",
+    "gates": "Final616 canonical host tests,35-file pinned Kotlin formatting, generated metadata/inventories, committed Room schema history and664-path exact release scope pass. Exact integrated hosted Android/unit/security/native/device checks, guarded merge, exact-main validation and signed Android/Gateway publication remain required."
+  }
 }

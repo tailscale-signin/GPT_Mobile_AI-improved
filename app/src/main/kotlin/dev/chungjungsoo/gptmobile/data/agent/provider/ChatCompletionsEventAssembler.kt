@@ -102,7 +102,7 @@ class ChatCompletionsEventAssembler {
         when (finishReason) {
             "tool_calls", "function_call", "stop" -> events += finish(choiceIndex)
             null -> Unit
-            else -> events += discardIncomplete()
+            else -> events += discardIncomplete(choiceIndex)
         }
         return events
     }
@@ -137,10 +137,11 @@ class ChatCompletionsEventAssembler {
         return text + events
     }
 
-    fun discardIncomplete(): List<ProviderEvent> {
-        val text = flushContent()
-        if (pending.isEmpty()) return text
-        pending.clear()
+    fun discardIncomplete(choiceIndex: Int? = null): List<ProviderEvent> {
+        val text = flushContent(choiceIndex)
+        val discarded = pending.keys.filter { choiceIndex == null || it.first == choiceIndex }
+        if (discarded.isEmpty()) return text
+        discarded.forEach(pending::remove)
         return text + invalidToolFrame("Provider stopped before completing the tool call. No incomplete tool was run.", "UNFINISHED_STREAM")
     }
 }

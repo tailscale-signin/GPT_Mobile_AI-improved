@@ -66,7 +66,12 @@
     "Add natural speech defaults and an explicit preset, retain saved choices, prefer complete opening clauses and bound unpunctuated first-phrase latency.",
     "Add runnable Quick and Full CPU, GPU and NPU speech benchmarks with identical fixtures, cold/warm timing, first PCM, real-time factor, median/p95, actual mixed-kernel evidence, thermal stops, cancellation, saved results and private JSON export.",
     "Include setup cost across three Auto probe shapes and preserve the minimum 10 percent verified accelerator benefit requirement.",
-    "Restoring an older backup cannot remove an existing conversation's permanent privacy lock. Keep restored masking-history evidence tied to the content actually included in that backup."
+    "Retain requested comparison samples when complete coverage would exceed 512 pages; report the local coverage bound without false upstream-change evidence and offer only an explicit same-revision restart with a sufficient supported page size. Preserve earlier uncertain MCP exchange evidence when privacy blocks a read retry.",
+    "Keep mixed private facts and topics permanently unshared as their source references are pruned; preserve final-source removal and prevent a deleted source from granting another conversation recall.",
+    "Restoring an older backup cannot remove an existing conversation's permanent privacy lock. Keep restored masking-history evidence tied to the content actually included in that backup.",
+    "Keep readable preview opacity and manual caption position through the first playback timing, assign explicit new-presentation ownership to replies and replays, and reject stale cursors without requiring an observed empty frame.",
+    "Keep quoted, escaped and code reasoning delimiters inside the hidden reasoning channel across saved projections and arbitrary stream splits; preserve independent parser and incomplete-tool cleanup for each choice.",
+    "Bind Auto capability cache and resident engine identities to the current three-fixture workload and complete-cost scoring protocol; reject legacy pairs from current ranking while preserving explicit backend qualification."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -340,6 +345,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/QualcommVoicePhraseEngineFactory.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/ReasoningTagScanner.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceBackendCapabilityStore.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptionTiming.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt",
@@ -487,6 +493,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubComparisonPaginationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphStatusFallbackTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationToolTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundaryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSourcePageRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/LocalDelegationCoordinatorTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpClientManagerTest.kt",
@@ -624,6 +631,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePerformanceExportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackStartTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudioTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePresentationSignalsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceResponsePresentationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSessionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBenchmarkStoreTest.kt",

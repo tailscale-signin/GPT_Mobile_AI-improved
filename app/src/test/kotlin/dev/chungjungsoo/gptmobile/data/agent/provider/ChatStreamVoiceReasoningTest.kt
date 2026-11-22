@@ -38,6 +38,38 @@ class ChatStreamVoiceReasoningTest {
         assertEquals("plan", states.filterIsInstance<ProviderEvent.ThinkingDelta>().single().text)
     }
 
+    @Test fun truncatingOneChoiceCannotPromoteAnotherChoicesReasoningToSpeech() {
+        for (finish in listOf("length", "content_filter", "unknown_terminal")) {
+            val assembler = ChatCompletionsEventAssembler()
+            val states = assembler.accept("<think>private second", null, null, null, choiceIndex = 1) +
+                assembler.accept("First answer.", null, null, finish, choiceIndex = 0) +
+                assembler.accept(" reasoning</think>Second answer.", null, null, "stop", choiceIndex = 1)
+            assertEquals("First answer.Second answer.", states.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+            assertEquals("private second reasoning", states.filterIsInstance<ProviderEvent.ThinkingDelta>().joinToString("") { it.text })
+        }
+    }
+
+    @Test fun choiceDiscardPreservesOtherToolsAndGlobalDiscardStillCleansAllChoices() {
+        val assembler = ChatCompletionsEventAssembler()
+        val partial = listOf(ChatToolCallDelta(0, "kept", function = ChatFunctionDelta("read", "{\"path\":")))
+        assertTrue(assembler.accept("<think>private second", null, partial, null, choiceIndex = 1).isEmpty())
+        val discarded = assembler.accept(null, null, listOf(ChatToolCallDelta(0, "discarded", function = ChatFunctionDelta("write", "{"))), "length", choiceIndex = 0)
+        assertEquals(1, discarded.filterIsInstance<ProviderEvent.Failed>().size)
+        val completed = assembler.accept("</think>Answer.", null, listOf(ChatToolCallDelta(0, function = ChatFunctionDelta(arguments = "\"file\"}"))), "tool_calls", choiceIndex = 1)
+        assertEquals("kept", completed.filterIsInstance<ProviderEvent.ToolCall>().single().callId)
+        assertEquals("{\"path\":\"file\"}", completed.filterIsInstance<ProviderEvent.ToolCall>().single().arguments.toString())
+        assertEquals("Answer.", completed.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        for (choice in 2..3) {
+            assembler.accept("<think>private $choice", null, listOf(ChatToolCallDelta(0, "pending-$choice", function = ChatFunctionDelta("read", "{"))), null, choiceIndex = choice)
+        }
+        val global = assembler.discardIncomplete()
+        assertTrue(global.none { it is ProviderEvent.TextDelta || it is ProviderEvent.ToolCall })
+        assertEquals(listOf("private 2", "private 3"), global.filterIsInstance<ProviderEvent.ThinkingDelta>().map { it.text })
+        assertEquals(1, global.filterIsInstance<ProviderEvent.Failed>().size)
+        assertTrue(assembler.discardIncomplete().isEmpty())
+        assertTrue(assembler.finish().isEmpty())
+    }
+
     @Test fun toolArgumentsAndLiteralCodeKeepTheirExactContent() {
         val assembler = ChatCompletionsEventAssembler()
         val code = "```xml\n<think>literal</think>\n```"

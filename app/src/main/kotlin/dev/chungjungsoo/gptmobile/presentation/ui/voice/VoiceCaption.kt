@@ -7,7 +7,14 @@ import java.text.BreakIterator
 import java.util.Locale
 
 /** Retains the complete phrase; a highlight requires an observed range in this exact text. */
-internal data class VoiceCaption(val text: String, val speaker: String, val live: Boolean) {
+internal data class VoiceCaption(val text: String, val speaker: String, val live: Boolean, val preview: Boolean = false) {
+    /** Preview begins where speech will start; pauses keep the last observed word. */
+    fun focusOffset(active: IntRange?, lastSpoken: Int, speaking: Boolean): Int = active?.first ?: when {
+        speaker == "AI reply" && lastSpoken >= 0 -> lastSpoken
+        speaking || preview -> 0
+        else -> text.length
+    }
+
     /** Speech engines may report a phrase. Never illuminate more than one spoken word. */
     fun highlightRange(observed: IntRange?, words: List<IntRange> = wordRanges()): IntRange? {
         val range = observed?.takeIf {
@@ -62,7 +69,7 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
             } else {
                 state.phase in setOf(VoicePhase.LISTENING, VoicePhase.FINALIZING)
             }
-            return VoiceCaption(text, if (response) "AI reply" else "You", live)
+            return VoiceCaption(text, if (response) "AI reply" else "You", live, response && state.phase in setOf(VoicePhase.THINKING, VoicePhase.PREPARING))
         }
     }
 }

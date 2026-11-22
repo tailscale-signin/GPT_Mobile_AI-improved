@@ -66,7 +66,7 @@ internal object VoiceSpeechText {
                 continue
             }
             if (isQuoteStart(input, index)) {
-                val end = quotedEnd(input, index).let { if (it < 0) input.length else it + 1 }
+                val end = quotedEnd(input, index, final).let { if (it < 0) input.length else it + 1 }
                 result.append(input, index, end)
                 index = end
                 continue
@@ -102,7 +102,7 @@ internal object VoiceSpeechText {
         return result.toString()
     }
 
-    private fun quotedEnd(text: String, start: Int): Int {
+    private fun quotedEnd(text: String, start: Int, final: Boolean): Int {
         val close = when (text[start]) {
             '“' -> '”'
             '‘' -> '’'
@@ -114,7 +114,9 @@ internal object VoiceSpeechText {
                 escaped = false
             } else if (text[index] == '\\') {
                 escaped = true
-            } else if (text[index] == close) {
+            } else if (text[index] == close &&
+                !(close in "'’" && text[index - 1].isLetterOrDigit() && (text.getOrNull(index + 1)?.isLetterOrDigit() == true || index == text.lastIndex && !final))
+            ) {
                 return index
             }
         }
@@ -199,7 +201,7 @@ internal object VoiceSpeechText {
             val character = text[index]
             when {
                 !literalTags && isQuoteStart(text, index) -> {
-                    val close = quotedEnd(text, index)
+                    val close = quotedEnd(text, index, final && completed)
                     val end = close.takeIf { it >= 0 } ?: text.length
                     spoken.append(character)
                     spoken.append(project(text.substring(index + 1, end), close >= 0 || final && completed, depth + 1, notices, completed, includeDetails, literalTags = true))
@@ -475,27 +477,8 @@ internal object VoiceSpeechText {
         return text.length
     }
 
-    private fun pairedTagEnd(text: String, start: Int, name: String): Int {
-        var nesting = 1
-        var index = start
-        while (index < text.length) {
-            val open = text.indexOf('<', index)
-            if (open < 0) return -1
-            val close = tagEnd(text, open)
-            if (close < 0) return -1
-            val tag = text.substring(open + 1, close)
-            if (htmlTagName.find(tag)?.groupValues?.get(1)?.equals(name, ignoreCase = true) == true) {
-                if (tag.startsWith('/')) {
-                    nesting--
-                } else if (!tag.trimEnd().endsWith('/')) {
-                    nesting++
-                }
-                if (nesting == 0) return close + 1
-            }
-            index = close + 1
-        }
-        return -1
-    }
+    private fun pairedTagEnd(text: String, start: Int, name: String): Int =
+        ReasoningTagScanner(name).scan(text, start, final = true).let { if (it.closingStart == null) -1 else it.consumed }
 
     private fun closing(text: String, start: Int, open: Char, close: Char): Int {
         var nesting = 0

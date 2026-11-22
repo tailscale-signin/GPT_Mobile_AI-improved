@@ -119,7 +119,7 @@ class ToolBatchDeliveryProofTest {
     @Test fun failedUnknownAndMismatchedPayloadsNeverAcquireDeliveryProof() = runBlocking {
         for (failed in listOf(
             result().copy(isError = true),
-            result().copy(errorCode = "GITHUB_OUTCOME_UNKNOWN"),
+            result().copy(errorCode = "GATEWAY_OUTCOME_UNKNOWN"),
             result().copy(executionReceipt = buildJsonObject { put("requires_reconciliation", true) })
         )) {
             val file = File.createTempFile("delivery-proof", ".json").apply { delete() }
@@ -180,7 +180,7 @@ class ToolBatchDeliveryProofTest {
             val result = entry.getValue("result").jsonObject
             for (changed in listOf(
                 "error" to JsonPrimitive(true),
-                "code" to JsonPrimitive("GITHUB_OUTCOME_UNKNOWN"),
+                "code" to JsonPrimitive("GATEWAY_OUTCOME_UNKNOWN"),
                 "execution" to buildJsonObject { put("requires_reconciliation", true) }
             )) {
                 val altered = JsonObject(entry + ("result" to JsonObject(result + changed)))

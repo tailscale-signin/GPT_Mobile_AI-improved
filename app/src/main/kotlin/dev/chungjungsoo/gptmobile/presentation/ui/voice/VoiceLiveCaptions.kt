@@ -61,7 +61,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Modifier = Modifier, cursor: StateFlow<VoiceCaptionCursor>? = null) {
-    val liveCursor = cursor?.collectAsStateWithLifecycle()?.value
+    val liveCursor = cursor?.collectAsStateWithLifecycle()?.value?.takeIf { it.belongsTo(state.captionPresentationId) }
     val observed = if (liveCursor == null) state else state.copy(spokenRange = liveCursor.range, playbackCaption = liveCursor.projectedText)
     val caption = remember(observed.phase, observed.transcript, observed.reply, observed.playbackCaption, observed.hasDraft, observed.awaitingReply, observed.readingDetails, observed.replyComplete) {
         VoiceCaption.from(observed)
@@ -69,14 +69,17 @@ internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Mo
     if (caption == null) return
     val speaking = state.phase == VoicePhase.SPEAKING
     val motion = voiceMotionEnabled()
-    val opacity = remember(speaking, motion) { Animatable(if (speaking && motion) 0f else 1f) }
-    LaunchedEffect(opacity) {
-        if (opacity.value < 1f) opacity.animateTo(1f, tween(2000))
+    val opacity = remember(caption.speaker, state.captionPresentationId) { Animatable(if (speaking && motion) 0f else 1f) }
+    LaunchedEffect(opacity, motion) {
+        if (!motion) {
+            opacity.snapTo(1f)
+        } else if (opacity.value < 1f) {
+            opacity.animateTo(1f, tween(2000))
+        }
     }
-    var retainedPlaybackId by remember(caption.speaker) { mutableStateOf<String?>(null) }
-    val playbackId = liveCursor?.timing?.playbackId ?: retainedPlaybackId
-    if (playbackId != retainedPlaybackId) SideEffect { retainedPlaybackId = playbackId }
-    key(caption.speaker, playbackId) {
+    // Transport timing may arrive after a readable preview. Only a new presentation
+    // replaces the reader, so the first playback ID cannot jump or erase that preview.
+    key(caption.speaker, state.captionPresentationId) {
         VoiceCaptionText(
             caption,
             observed.spokenRange,
@@ -122,11 +125,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
             }
         }
         val lastLine = lines.lastIndex.coerceAtLeast(0)
-        val offset = active?.first ?: when {
-            caption.speaker == "AI reply" && lastSpoken >= 0 -> lastSpoken
-            speaking -> 0
-            else -> caption.text.length
-        }
+        val offset = caption.focusOffset(active, lastSpoken, speaking)
         val liveLine = lines.lineForOffset(offset.coerceIn(0, caption.text.length))
         val lineHeight = with(density) { base.lineHeight.toPx() }
         val ribbonHeight = lineHeight * (2f * captionLineDisplacement(2f) + captionLineScale(2f))

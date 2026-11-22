@@ -114,6 +114,57 @@ class WorkspaceIntegrationTest {
         assertTrue(reopened.visibleFacts(ordinaryChat, isLocal = false, includeLocalOnly = true).isEmpty())
     }
 
+    @Test fun mixedPrivateMemoryRemainsUnsharedAfterForgettingOneSource() = runBlocking {
+        val firstRoom = ChatRoomV2(title = "First private", privacyModeLocked = true)
+        val firstChat = database.chatRoomDao().addChatRoom(firstRoom).toInt()
+        val secondChat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Second private", privacyModeLocked = true)).toInt()
+        val sources = setOf("$firstChat:1", "$secondChat:2")
+        val old = dev.chungjungsoo.gptmobile.data.rag.VaultFact(
+            "legacy-mixed-private",
+            dev.chungjungsoo.gptmobile.data.rag.MemoryLearning.observation("Retained mixed private source"),
+            sourceChatId = firstChat,
+            sourceMessageId = 1,
+            source = "manual",
+            evidenceSources = sources,
+            lastSourceKey = "$secondChat:2"
+        )
+        val snapshot = dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot(
+            enabled = true,
+            facts = listOf(old),
+            topics = listOf(dev.chungjungsoo.gptmobile.data.rag.MemoryTopicEvidence("Mixed private topic", "personal", sources, 1))
+        )
+        val storage = PrivateMemoryVault()
+        storage.put(dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository.VAULT_REFERENCE, kotlinx.serialization.json.Json.encodeToString(dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot.serializer(), snapshot).encodeToByteArray())
+        val scopes = MemoryScopeResolver(database)
+        val repository = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(storage, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine(), scopes = scopes)
+        repository.load()
+        assertEquals("private:unshared", repository.state.value.facts.single().scope)
+        assertEquals("private:unshared", repository.state.value.topics.single().scope)
+
+        repository.forgetChat(firstChat, preventFutureCapture = true)
+        val pruned = repository.state.value.facts.single()
+        assertEquals(old.id, pruned.id)
+        assertEquals(old.fact, pruned.fact)
+        assertEquals(secondChat, pruned.sourceChatId)
+        assertEquals(setOf("$secondChat:2"), pruned.evidenceSources)
+        assertEquals("private:unshared", pruned.scope)
+        assertTrue(pruned.localOnly)
+        assertEquals(setOf("$secondChat:2"), repository.state.value.topics.single().messageKeys)
+        assertEquals("private:unshared", repository.state.value.topics.single().scope)
+        assertTrue(firstChat in repository.state.value.suppressedChats)
+        database.chatRoomDao().deleteChatRooms(firstRoom.copy(id = firstChat))
+
+        val reopened = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(storage, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine(), scopes = scopes)
+        reopened.load()
+        assertEquals("private:unshared", reopened.state.value.facts.single().scope)
+        assertTrue(reopened.visibleFacts(secondChat, isLocal = true, includeLocalOnly = true).isEmpty())
+        assertTrue(reopened.visibleFacts(secondChat, isLocal = false, includeLocalOnly = true).isEmpty())
+        reopened.forgetChat(secondChat, preventFutureCapture = true)
+        assertTrue(reopened.state.value.facts.isEmpty())
+        assertTrue(reopened.state.value.topics.isEmpty())
+        assertTrue(reopened.state.value.suppressedChats.containsAll(listOf(firstChat, secondChat)))
+    }
+
     private class PrivateMemoryVault : dev.chungjungsoo.gptmobile.data.security.SecretVault {
         private val values = mutableMapOf<String, ByteArray>()
         override suspend fun put(secretRef: String, secret: ByteArray) {

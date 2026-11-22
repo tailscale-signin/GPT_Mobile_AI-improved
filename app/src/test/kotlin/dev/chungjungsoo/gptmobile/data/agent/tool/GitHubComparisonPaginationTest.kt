@@ -31,6 +31,8 @@ class GitHubComparisonPaginationTest {
     private fun result(page: Int, size: Int = 100, total: Int = 327): JsonObject {
         val window = GitHubComparisonPage.window(arguments(page, size), total)
         return buildJsonObject {
+            put("owner", "owner")
+            put("repo", "repository")
             put("base_sha", base)
             put("head_sha", head)
             put("page", page)
@@ -44,6 +46,115 @@ class GitHubComparisonPaginationTest {
     }
 
     private fun permutations(values: List<Int>): List<List<Int>> = if (values.isEmpty()) listOf(emptyList()) else values.flatMap { first -> permutations(values - first).map { listOf(first) + it } }
+
+    @Test fun overLimitComparisonsRetainExactSamplesWithoutUnusableContinuations() {
+        for ((total, page) in listOf(513 to 1, 1001 to 1000)) {
+            val request = arguments(page, 1)
+            val upstream = JsonObject(result(page, 1, total) + ("continuation" to arguments(page + 1, 1)))
+            val native = requireNotNull(GitHubComparisonPage.limitResult(request, upstream))
+            val boundary = GitHubPaginationBoundary()
+            val observed = boundary.assessPage("github_context", request, native, boundary.preparePage("github_context", request).observation)
+            assertEquals("GITHUB_PAGINATION_INCOMPLETE", observed.errorCode)
+            assertEquals(upstream["files"], observed.data["files"])
+            assertEquals(JsonPrimitive(1), observed.data["effective_per_page"])
+            assertEquals(JsonPrimitive(false), observed.data["has_more"])
+            assertEquals(JsonPrimitive(true), observed.data["upstream_has_more"])
+            assertTrue(setOf("continuation", "continuation_call", "remote_continuations", "next_page").none { it in observed.data })
+            val progress = observed.data.getValue("pagination_progress").jsonObject
+            assertEquals(JsonPrimitive(false), progress["complete"])
+            assertEquals(JsonPrimitive(true), progress["coverage_limit_reached"])
+            assertEquals(JsonPrimitive(512), progress["coverage_page_limit"])
+            assertEquals(JsonPrimitive(2), progress["minimum_per_page"])
+            assertEquals(JsonPrimitive(false), progress["upstream_changed_during_traversal"])
+            assertFalse("first_unobserved_page" in progress)
+            val publicRequest = JsonObject(request + ("action" to JsonPrimitive("changes")))
+            val envelope = GitHubComparisonPage.failureEnvelope(publicRequest, observed.data, "github_context__selected")
+            val proposal = envelope.getValue("correction_call").jsonObject
+            assertEquals(JsonPrimitive("github_context__selected"), proposal["tool"])
+            assertEquals(JsonObject(publicRequest + mapOf("page" to JsonPrimitive(1), "per_page" to JsonPrimitive(2))), proposal["arguments"])
+        }
+    }
+
+    @Test fun anExplicitLargerPageRestartCompletesTheSamePinnedComparison() {
+        for (total in listOf(513, 1001)) {
+            val boundary = GitHubPaginationBoundary()
+            val first = arguments(1, 1)
+            val rejected = boundary.assessPage("github_context", first, result(1, 1, total), boundary.preparePage("github_context", first).observation)
+            val proposal = requireNotNull(GitHubComparisonPage.restartArguments(first, rejected.data))
+            assertEquals(JsonPrimitive(base), proposal["base_sha"])
+            assertEquals(JsonPrimitive(head), proposal["commit_sha"])
+            var rows = 0
+            var last: GitHubPaginationBoundary.Assessment? = null
+            for (page in 1..((total + 1) / 2)) {
+                val request = arguments(page, 2)
+                last = boundary.assessPage("github_context", request, result(page, 2, total), boundary.preparePage("github_context", request).observation)
+                assertEquals(null, last.errorCode)
+                rows += (last.data.getValue("files") as JsonArray).size
+            }
+            assertEquals(total, rows)
+            val progress = requireNotNull(last).data.getValue("pagination_progress").jsonObject
+            assertEquals(JsonPrimitive(true), progress["complete"])
+            assertEquals(JsonPrimitive(total), progress["unique_records_observed"])
+            assertEquals(JsonPrimitive(false), progress["upstream_changed_during_traversal"])
+        }
+    }
+
+    @Test fun comparisonsBeyondTheMaximumPageSizeOfferNoFabricatedRestart() {
+        val request = arguments(1, 100)
+        val source = result(1, 100, 51201)
+        val boundary = GitHubPaginationBoundary()
+        val observed = boundary.assessPage("github_context", request, source, boundary.preparePage("github_context", request).observation)
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", observed.errorCode)
+        assertEquals(source["files"], observed.data["files"])
+        assertEquals(JsonPrimitive(false), observed.data["has_more"])
+        assertFalse("minimum_per_page" in observed.data.getValue("pagination_progress").jsonObject)
+        assertEquals(null, GitHubComparisonPage.restartArguments(request, observed.data))
+        val envelope = GitHubComparisonPage.failureEnvelope(request, observed.data, "github_context__selected")
+        assertFalse("correction_call" in envelope)
+        assertTrue(setOf("continuation", "continuation_call", "remote_continuations", "next_page").none { it in envelope })
+    }
+
+    @Test fun aUsablePageSizeDoesNotQualifyAnIncompleteOrChangedTree() {
+        for (changed in listOf(false, true)) {
+            val boundary = GitHubPaginationBoundary()
+            var last: GitHubPaginationBoundary.Assessment? = null
+            for (page in 1..257) {
+                val request = arguments(page, 2)
+                val source = JsonObject(
+                    result(page, 2, 513) + if (page != 1) {
+                        emptyMap()
+                    } else if (changed) {
+                        mapOf("pagination_progress" to buildJsonObject { put("upstream_changed_during_traversal", true) })
+                    } else {
+                        mapOf("tree_complete" to JsonPrimitive(false))
+                    }
+                )
+                last = boundary.assessPage("github_context", request, source, boundary.preparePage("github_context", request).observation)
+            }
+            assertEquals("GITHUB_PAGINATION_INCOMPLETE", requireNotNull(last).errorCode)
+            assertEquals(JsonPrimitive(false), last.data.getValue("pagination_progress").jsonObject["complete"])
+            assertEquals(JsonPrimitive(changed), last.data.getValue("pagination_progress").jsonObject["upstream_changed_during_traversal"])
+        }
+    }
+
+    @Test fun capEvictionDoesNotClaimTheImmutableSourceChanged() {
+        val boundary = GitHubPaginationBoundary()
+        var last: GitHubPaginationBoundary.Assessment? = null
+        for (page in 1..513) {
+            val request = arguments(page, 1)
+            last = boundary.assessPage("github_context", request, result(page, 1, 513), boundary.preparePage("github_context", request).observation)
+            assertEquals("GITHUB_PAGINATION_INCOMPLETE", last.errorCode)
+        }
+        val progress = requireNotNull(last).data.getValue("pagination_progress").jsonObject
+        assertEquals(512, (progress.getValue("remote_pages_observed") as JsonArray).size)
+        assertEquals(JsonPrimitive(false), progress["upstream_changed_during_traversal"])
+        assertEquals(JsonPrimitive(false), progress["complete"])
+        val changed = JsonObject(result(513, 1, 513) + ("files" to JsonArray(listOf(buildJsonObject { put("filename", "changed.kt") }))))
+        val request = arguments(513, 1)
+        val observed = boundary.assessPage("github_context", request, changed, boundary.preparePage("github_context", request).observation)
+        assertEquals(JsonPrimitive(true), observed.data.getValue("pagination_progress").jsonObject["upstream_changed_during_traversal"])
+        assertEquals(JsonPrimitive(false), observed.data["complete"])
+    }
 
     @Test fun allResponseOrdersCompleteWithoutTransientFailuresOrTerminalRereads() {
         for (order in permutations(listOf(1, 2, 3, 4))) {

@@ -5,6 +5,8 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -15,12 +17,15 @@ class VoiceFailoverPhraseEngineTest {
         var closes = 0
         var cancellations = 0
         override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+            check(closes == 0) { "Kokoro is closed" }
             phrases += text
             if (cancel) throw CancellationException("Cancelled")
             if (fail) error("Graph rejected")
             return VoicePhraseAudio(floatArrayOf(0.5f), longArrayOf(1), intArrayOf(0, 1))
         }
-        override fun resetCancellation() = Unit
+        override fun resetCancellation() {
+            check(closes == 0) { "Kokoro is closed" }
+        }
         override fun cancel() {
             cancellations++
         }
@@ -43,9 +48,37 @@ class VoiceFailoverPhraseEngineTest {
         assertEquals(listOf("first"), gpu.phrases)
         assertEquals(listOf("first", "second"), cpu.phrases)
         assertEquals(1, loads)
+        assertTrue(engine.canReuse)
         engine.close()
         engine.close()
         assertEquals(1, cpu.closes)
+    }
+
+    @Test fun failedCpuPreparationRetiresTheCachedAccelerator() {
+        val gpu = Engine(fail = true)
+        val preparationFailure = IllegalStateException("CPU preparation failed")
+        val engine = VoiceFailoverPhraseEngine(gpu, true) { throw preparationFailure }
+        try {
+            engine.generate("first", 0, 1f)
+            fail("Expected CPU preparation failure")
+        } catch (actual: IllegalStateException) {
+            assertSame(preparationFailure, actual)
+        }
+        assertEquals(1, gpu.closes)
+        assertFalse(engine.canReuse)
+    }
+
+    @Test fun ordinaryCancellationKeepsAHealthyResidentEngineReusable() {
+        val cpu = Engine()
+        val engine = VoiceFailoverPhraseEngine(cpu, false) { error("Unexpected fallback") }
+        engine.cancel()
+        assertTrue(engine.canReuse)
+        engine.resetCancellation()
+        engine.generate("next utterance", 0, 1f)
+        assertEquals(listOf("next utterance"), cpu.phrases)
+        assertEquals(0, cpu.closes)
+        engine.close()
+        assertFalse(engine.canReuse)
     }
 
     @Test fun cpuFailureDoesNotStartASecondRetry() {
@@ -109,6 +142,7 @@ class VoiceFailoverPhraseEngineTest {
             assertTrue(cpu.phrases.isEmpty())
             assertEquals(1, cpu.closes)
             assertEquals(1, cpu.cancellations)
+            assertFalse(engine.canReuse)
         } finally {
             resume.countDown()
             engine.close()

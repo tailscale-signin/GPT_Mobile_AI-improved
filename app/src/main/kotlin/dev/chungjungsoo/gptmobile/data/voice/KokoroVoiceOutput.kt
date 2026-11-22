@@ -639,7 +639,7 @@ internal class KokoroVoiceOutput(
         }
         playback = Playback(replyId, voice, ModelKey(voice.lexicon, effectiveThreads(voice.lexicon), speechFactory), focus, watchdog, complete, error, diagnosticProbe, playbackStarted, spokenRange, timedSpokenRange, pause, performance, speed)
         active = playback
-        playback.warmAtRequest = loaded?.key == playback.key
+        playback.warmAtRequest = reusableModel(playback.key) != null
         measuredSynthesis.value = VoiceSynthesisFeedback(threads = playback.key.threads, warmAtRequest = playback.warmAtRequest, bufferState = "preparing")
         playback.diagnostics?.engine(VoiceDiagnosticTrace.Engine.KOKORO)
         playback.diagnostics?.selectedSpeechBackend(playback.key.factory.selectedBackend.name)
@@ -703,7 +703,7 @@ internal class KokoroVoiceOutput(
         if (active !== playback) return
         val queueWait = SystemClock.elapsedRealtime() - playback.startedAt
         try {
-            val wasWarm = loaded?.key == playback.key
+            val wasWarm = reusableModel(playback.key) != null
             playback.diagnostics?.warmupStarted()
             val gateStarted = SystemClock.elapsedRealtime()
             val model = VoiceNativeEngineGate.exclusive {
@@ -1059,9 +1059,13 @@ internal class KokoroVoiceOutput(
 
     private fun loadModel(key: ModelKey): LoadedModel = VoiceNativeEngineGate.exclusive { loadModelExclusive(key) }
 
+    private fun reusableModel(key: ModelKey): LoadedModel? = loaded?.takeIf {
+        it.key == key && (it.engine as? VoiceFailoverPhraseEngine)?.canReuse != false
+    }
+
     private fun loadModelExclusive(key: ModelKey): LoadedModel {
         check(!closed)
-        loaded?.takeIf { it.key == key }?.let { return it }
+        reusableModel(key)?.let { return it }
         releaseModel()
         check(models.acquireUse())
         val engineId = java.util.UUID.randomUUID().toString()

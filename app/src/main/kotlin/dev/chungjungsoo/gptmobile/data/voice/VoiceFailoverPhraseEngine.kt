@@ -15,6 +15,12 @@ internal class VoiceFailoverPhraseEngine(
     @Volatile private var cancelled = false
 
     @Volatile private var closed = false
+
+    @Volatile private var retired = false
+
+    /** A failed or cancelled replacement must be rebuilt by the next playback owner. */
+    val canReuse: Boolean get() = !closed && !retired
+
     private var canFallback = allowFallback
     override val executionProvider: String get() = active.executionProvider
     override val executionEvidence: VoiceSpeechExecutionEvidence? get() = active.executionEvidence
@@ -28,6 +34,7 @@ internal class VoiceFailoverPhraseEngine(
             checkActive()
             if (!canFallback) throw error
             canFallback = false
+            retired = true
             active.close()
             val replacement = fallback(error)
             val accepted = synchronized(lifetime) {
@@ -35,6 +42,7 @@ internal class VoiceFailoverPhraseEngine(
                     false
                 } else {
                     active = replacement
+                    retired = false
                     true
                 }
             }

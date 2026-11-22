@@ -112,3 +112,34 @@ the exact merged main commit and published artifact identities.
   repeated Maven 429 failures observed before compilation, while preserving every
   pin, deadline, Retry-After rule and downstream test. The cache-order/provisioning
   regression suite passed all 27 tests; workflow policy also passed.
+
+## Concurrent voice integration
+
+The shared branch advanced through `8b8a5ed` and `2dfb904` while PR validation was
+running. Their caption, audio-clock, measured-backend, QNN graph and execution-phase
+changes are retained. The independently pushed diagnostic formatting correction
+was byte-identical to the local correction; the worker's commit was preserved by
+fast-forwarding instead of publishing a duplicate. The original fifteen repairs,
+Room 52 schema, release versions and all required checks remain intact.
+
+Integration review found two additional recovery defects. Voice-only backend and
+fallback reports now request extended readiness before requiring
+`VOICE_EXECUTION_EVIDENCE_V1`. A failed or cancelled accelerator-to-CPU replacement
+also marks its retired resident engine unavailable for cache reuse, so the next
+playback owner rebuilds it; healthy cancelled engines retain their normal reuse
+path. Warm-at-request and engine-reuse observations use the same availability
+decision. Neither repair authorizes replay of already presented audio.
+
+The combined source passed the 605-test host validation and 198 authentication
+tests. Forty-four focused actual-source Kotlin checks include the newly retained
+top-level diagnostic failure provenance. Ten focused failover/preparation JUnit
+tests passed against the actual engine/evidence/backend sources and extracted
+interface declarations. Two additional Robolectric regressions exercise the real
+output cache and subsequent utterance after failed or cancelled replacement;
+their compilation and execution remain part of Android CI. Three native partition/profile/ABI tests
+passed with AddressSanitizer and UndefinedBehaviorSanitizer, including 3,000
+randomized DAG trials. LeakSanitizer could not run under the workspace tracing
+environment, and no leak-test pass is claimed. These component results do not
+replace current-head Android tests, instrumented rendering, packaged DEX checks
+or exact-main publication verification. Physical GPU/NPU and target-phone
+audio/frame/memory performance remain unqualified as disclosed in the release.

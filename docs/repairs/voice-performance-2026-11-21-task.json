@@ -191,10 +191,12 @@
     "combined_integration": "Focused progress behavior:38 actual-source JVM tests passed with0 failures/skips, including two regressions that failed before the fix. Hosted report readiness:12 tests passed, including missing-capability rejection, future-capability compatibility and native-only operation without a network call. CI on incoming386997d found Collection<String> vs List<String> at GitHubVerifiedSession1171; the internal-fault empty result is now a List. A local full Android compile process exited unexpectedly during KSP without a compiler diagnostic; full combined-head Actions remain required. Combined canonical fast validation passed592 tests plus resource, inventory, policy, regex and provenance checks.",
     "supplemental_reporting": "PASS: 59 actual current-c7 reporting/recovery/request-byte source tests, including independent publication-only legacy compatibility, new conversation capability rejection before POST, and unchanged approved UTF-8 request bytes across all 18 publication value/omission variants. Canonical fast:601 passed. No full Android result is inferred from this focused suite.",
     "supplemental_diagnostic_timing": "PASS:19 actual-source attribution tests (13 existing plus6 regressions), ktlint1.3.1 and canonical fast601. Deterministic4096-event incomplete histories dropped from16789504 to32768 event reads. Indexed joins preserve input-order first events, ownership, timestamp ties, latest eligible evidence, fingerprint and overflow semantics. Desktop synthetic measurements are not phone or voice hot-path results. Two independent concrete-diff reviews approved.",
-    "c7_schema_budget": "PASS:54 actual-source catalog/resolver/focus tests. Context415+read588+search663+discovery326=1992 tokens, below the unchanged2000 bound; schema fields, constraints and authorization unchanged."
+    "c7_schema_budget": "PASS:54 actual-source catalog/resolver/focus tests. Context415+read588+search663+discovery326=1992 tokens, below the unchanged2000 bound; schema fields, constraints and authorization unchanged.",
+    "verification_budget_fixture": "PASS: reproduced the exact c7 CI failure against actual1e production (12 tests,1 stale expectation); corrected only the serialized-grant test to permit CONTINUE_RUN, RETRY_FAILED_STAGE and CONTINUE_PRIMARY_ONLY. RETRY_WRITING and RESUME_VERIFICATION remain unable to renew tools. All12 tests pass with real current sources and serialization plugin; formatting and diff checks pass. No production restriction was changed.",
+    "final_integration": "The reporting regression, indexed diagnostic attribution and verification-budget fixture are integrated above1e9822f5. The incoming issue grammar and preparation fence passed independent pinned-source reviews; the incoming owner reports36 issue tests and an actual Android34 repository regression with zero verification-only acquisition and positive ordinary retry behavior. Final combined-tree canonical validation and exact-head Android/CI remain separate required gates; no earlier green revision is accepted as final approval."
   },
   "publication": {
-    "status": "DRAFT_AWAITING_COMBINED_HEAD_VALIDATION_AND_CONCURRENT_SCOPE"
+    "status": "AWAITING_FINAL_PR_AND_MAIN_CHECKS"
   },
   "concurrent_commits_preserved": [
     "6a905e21188c659d50f6bcbb8bbbcf9999eda12f",
@@ -204,12 +206,15 @@
     "34f3e83fb2fa27ca9648a270840d8d0f610e7465",
     "af50b4b2f62eeaa3e2dd2884ef0b48453b4c5d1e",
     "e66e9665402b388a673dd42dc3ddc70fe3e3ea29",
-    "c7d507a32986f75adab38b303bdb3019b0c889a4"
+    "c7d507a32986f75adab38b303bdb3019b0c889a4",
+    "60dfcb79cf3096a366cd4bcf9496334fc89f647e",
+    "1e9822f54a2ac4932a0739004d35a8623d706349"
   ],
-  "concurrent_repair": "Preserved the complete conversation and diagnostic design and its integration repairs through c7, including verifier fences, issue obligations, journal/privacy lifecycle corrections and independent reporting capability negotiation. Supplemental coverage and bounded diagnostic attribution are locally integrated. The announced narrow recovery-preparation/issue-grammar follow-up and final exact-head CI remain pending; no publication is claimed.",
-  "latest_integrated_source_sha": "c7d507a32986f75adab38b303bdb3019b0c889a4",
+  "concurrent_repair": "Preserved the complete conversation and diagnostic design and the final integration through1e9822f5, including verifier preparation/execution fences, conditional issue obligations, journal/privacy lifecycle corrections and independent reporting capability negotiation. Supplemental capability coverage, bounded diagnostic attribution and the stale verification-budget fixture correction are integrated. All applicable final-head checks and exact-main publication verification remain required.",
+  "latest_integrated_source_sha": "1e9822f54a2ac4932a0739004d35a8623d706349",
   "supplemental_reviewed_commits": [
     "8a7a6269a7089104f0c594346b61e17e976a9f5b",
-    "c5cf101b229f139006d578e48e84fcb8d19c47ec"
+    "c5cf101b229f139006d578e48e84fcb8d19c47ec",
+    "63f8d14a1ff3bcb22863c8cc10f3560a6a673061"
   ]
 }

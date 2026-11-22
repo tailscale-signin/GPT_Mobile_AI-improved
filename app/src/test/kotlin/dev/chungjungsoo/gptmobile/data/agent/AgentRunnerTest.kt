@@ -23,6 +23,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun sourceCallCorrectedByTheSessionKeepsItsProviderEnvelopeAtTheRunnerBoundary() = runBlocking {
+        val original = ProviderEvent.ToolCall(
+            "source-read",
+            "github_read",
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"evidence_id":"ev_aaaaaaaaaaaaaaaaaaaaaaaa","ranges":[{"path":"src/Main.kt","start_line":1,"max_lines":20}]}""") as JsonObject
+        )
+        val correctedArguments = JsonObject(
+            original.arguments - "evidence_id" + buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("commit_sha", "b".repeat(40))
+            }
+        )
+        // GitHubVerifiedSession resolves the protected search receipt before the
+        // runner sees this call, retaining the provider's uncorrected envelope.
+        val corrected = original.captureProviderInvocation().copy(arguments = correctedArguments)
+        var executions = 0
+        var replayed: ProviderEvent.ToolCall? = null
+        val reader = tool(original.name) { id, arguments ->
+            assertEquals(correctedArguments, arguments)
+            executions++
+            AgentToolResult(id, ToolResultContent.Text("Pinned source was read."), false)
+        }
+        val provider = session { _, exchanges ->
+            flow {
+                if (exchanges.isEmpty()) {
+                    emit(corrected)
+                } else {
+                    replayed = exchanges.single().calls.single()
+                    emit(ProviderEvent.TextDelta("Finished from the pinned source."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxRounds = 2, maxToolCalls = 2)).run(provider, listOf(reader)).toList()
+        assertEquals(1, executions)
+        assertEquals(original.providerInvocation(), requireNotNull(replayed).providerInvocation())
+        assertEquals(ToolHandoffReceipt.fingerprint(original), ToolHandoffReceipt.fingerprint(requireNotNull(replayed)))
+        assertEquals(correctedArguments, requireNotNull(replayed).arguments)
+        assertFalse(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.Failed })
+    }
+
     @Test fun repeatedContextCompactionKeepsAuthorizedToolsUntilTaskCompletion() = runBlocking {
         var requests = 0
         var executions = 0

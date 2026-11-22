@@ -11,6 +11,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSearchArgumentsTest {
+    @Test fun filenameQualifierFailsBeforeScanningAndOffersOnlyASinglePathPattern() {
+        val arguments = buildJsonObject {
+            put("query", "filename:*INSTructions* OR filename:*instructions*")
+            put("owner", "owner")
+            put("repo", "repo")
+            put("commit_sha", "a".repeat(40))
+            put("path_prefix", ".github/")
+        }
+        assertEquals(GitHubSearchArgumentFailure.Rule.QUERY_QUALIFIER, GitHubSearchArguments.failure(arguments)?.rule)
+        val corrected = requireNotNull(GitHubSearchArguments.pathQualifierCorrection(arguments))
+        assertEquals(JsonObject(arguments - "query" + mapOf("mode" to JsonPrimitive("paths"), "query" to JsonPrimitive("*INSTructions*"))), corrected)
+        assertEquals(1.0, GitHubSearchArguments.validate(corrected).score(".github/instructions/engineering.md", "*INSTructions*"), 0.0)
+        for (changed in listOf(
+            arguments + ("case_sensitive" to JsonPrimitive(true)),
+            arguments + ("query" to JsonPrimitive("filename:AGENTS.md OR filename:CLAUDE.md")),
+            arguments + ("query" to JsonPrimitive("filename:AGENTS.md owner:example")),
+            arguments + ("index_cursor" to JsonPrimitive(4)),
+            arguments + ("search_id" to JsonPrimitive("issued"))
+        )) {
+            assertNull(GitHubSearchArguments.pathQualifierCorrection(JsonObject(changed)))
+        }
+    }
+
+    @Test fun explicitLiteralModePreservesQualifierAndBooleanTextWithoutReinterpretation() {
+        for (query in listOf("filename:AGENTS.md OR filename:CLAUDE.md", "path:src extension:kt", "left OR right")) {
+            val arguments = buildJsonObject {
+                put("query", query)
+                put("mode", "literal")
+            }
+            val options = GitHubSearchArguments.validate(arguments)
+            assertEquals(1.0, options.score("literal text $query", query), 0.0)
+            assertEquals(0.0, options.score(query.substringBefore(" OR ").substringAfter(':'), query), 0.0)
+            assertNull(GitHubSearchArguments.pathQualifierCorrection(arguments))
+        }
+    }
+
     @Test fun rejectedModesPatternsRangesAndTypesIdentifyTheirExactRuleWithoutEchoingValues() {
         val cases = listOf(
             Triple(buildJsonObject { put("mode", "private-unsupported-mode") }, "mode", GitHubSearchArgumentFailure.Rule.MODE),

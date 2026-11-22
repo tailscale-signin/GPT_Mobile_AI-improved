@@ -14,7 +14,7 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 - Keep readable answer previews visible and retain the reader's position when audio begins. Start each new reply or explicit replay with its own caption presentation, rejecting stale playback cursors even when the same text is replayed.
 - Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.
 - Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.
-- Reserve accepted PCM against measured next-phrase synthesis time within a bounded five-second reserve, preserve natural first clauses, and align follow-up phrase targets to Quality 24 words, Balanced 16 and Fast 12 with adaptive Auto pacing.
+- Reserve accepted PCM against measured next-phrase synthesis time within a bounded 5.9-second reserve inside the existing six-second PCM queue, preserve natural first clauses, and align follow-up phrase targets to Quality 24 words, Balanced 16 and Fast 12 with adaptive Auto pacing.
 - Separate first visible text, publishable phrase, queued speech, prepared PCM and presented audio timings; distinguish warm-at-request from engine reuse and show measured buffering, refill and effective-provider evidence.
 - Save a frozen voice measurement report through the document picker with bounded timing series and selected/effective backend evidence, excluding conversation text, audio and device identifiers. Correct outer-caption row spacing during fractional transitions and explain the shipped English voice and measurement boundaries.
 
@@ -65,6 +65,16 @@ The speech benchmark measures silent inference. First PCM is the completed phras
 - Preserve GitHub cooldown timing and earlier request evidence when a phone-map operation stops locally. A confirmed HTTP response remains observed, and local indexing never acquires Gateway write-reconciliation claims.
 
 ## Execution, GitHub and diagnostic reliability
+
+- Compile compound engineering requests into stable source-linked acceptance criteria with explicit dependencies and evidence producers; preserve original scope and budgets when refining saved contracts.
+- Require actual pinned source content, complete instruction coverage, a changed regression at the tested revision, complete diff coverage and the matching live draft pull request before their individual obligations can pass.
+- Bind provider cooldown recovery to the complete atomic durable tool journal independently of compacted provider replay; retain local projection identity, original failure provenance, settled-write replay and unknown-write reconciliation.
+- Keep task acceptance, delivered responses and output attempts independent; reconcile same-task recovery refusals and require observed scheduler ownership instead of inferring a live executor from saved state.
+- Execute every currently admissible GitHub checklist lane, discover exact missing schemas within the accepted budget, retain candidate admission reasons and correct a proven legacy invalid status recipe once.
+- Route instruction discovery through native path search, replay exact saved continuation selectors, convert search receipts to pinned source reads and derive CI run/job selectors from observed identities.
+- Request one bounded replan after three unproductive source rounds or sixty seconds of unproductive work while preserving exact incomplete search frontiers and useful source progress; continue eligible work beyond three correction rounds within the original finite budget.
+- Accept an observed empty Copilot task collection without confusing it with malformed or incomplete responses, and preserve exact comparison, CI, reserve and optional-service evidence through full paged diagnostic export.
+
 
 - Complete comparison coverage when GitHub pages arrive out of order; retain the original failed page receipts and exact remaining fragment obligations, and honor the requested bounded comparison page size.
 - Retain the requested comparison sample when its page size would require more than 512 pages. Report incomplete coverage and offer an explicit restart of the same pinned comparison with a sufficient page size when possible; never issue an unusable continuation or silently change the request.

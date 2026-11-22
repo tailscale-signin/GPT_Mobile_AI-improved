@@ -26,7 +26,8 @@ internal class GitHubSearchArgumentFailure(val field: String, val rule: Rule, va
 
 internal object GitHubSearchArguments {
     val modes = setOf("literal", "definitions", "references", "paths", "tests", "patterns")
-    private val qualifiers = Regex("(?:^|\\s)(?:extension|path):[^\\s]+")
+    private val qualifiers = Regex("(?:^|\\s)(?:filename|extension|path):[^\\s]+", RegexOption.IGNORE_CASE)
+    private val filenameClause = Regex("filename:([^\\s:]+)", RegexOption.IGNORE_CASE)
 
     fun reject(field: String, rule: GitHubSearchArgumentFailure.Rule, expected: GitHubSearchArgumentFailure.Expected, explanation: String): Nothing =
         throw GitHubSearchArgumentFailure(field, rule, expected, explanation)
@@ -59,7 +60,9 @@ internal object GitHubSearchArguments {
         val query = text(args, "query")
         if (query.isBlank() || query.length > 200) reject("query", GitHubSearchArgumentFailure.Rule.QUERY_LENGTH, GitHubSearchArgumentFailure.Expected.QUERY_1_200, "Use a non-blank query of at most 200 characters.")
         if (text(args, "mode", "literal") !in modes) reject("mode", GitHubSearchArgumentFailure.Rule.MODE, GitHubSearchArgumentFailure.Expected.SEARCH_MODE, "Use literal, definitions, references, paths, tests, or patterns.")
-        if (qualifiers.containsMatchIn(query)) reject("query", GitHubSearchArgumentFailure.Rule.QUERY_QUALIFIER, GitHubSearchArgumentFailure.Expected.EXPLICIT_FILTERS, "Use file_extension and path_prefix instead of extension:/path: query qualifiers.")
+        if (args["mode"] != JsonPrimitive("literal") && qualifiers.containsMatchIn(query)) {
+            reject("query", GitHubSearchArgumentFailure.Rule.QUERY_QUALIFIER, GitHubSearchArgumentFailure.Expected.EXPLICIT_FILTERS, "GitHub filename:/extension:/path: qualifiers are not query syntax here. Use mode=paths with a filename or star pattern, and file_extension/path_prefix filters. For source containing these exact characters, explicitly select mode=literal. OR is literal text, not a Boolean operator.")
+        }
         val extension = text(args, "file_extension").removePrefix(".")
         if (extension.isNotEmpty() && !extension.matches(Regex("[A-Za-z0-9]+"))) reject("file_extension", GitHubSearchArgumentFailure.Rule.EXTENSION, GitHubSearchArgumentFailure.Expected.FILE_EXTENSION, "Use a single extension such as kt or .kt.")
         text(args, "path_prefix")
@@ -73,5 +76,24 @@ internal object GitHubSearchArguments {
         null
     } catch (failure: GitHubSearchArgumentFailure) {
         failure
+    }
+
+    /** Propose only one unambiguous filename pattern; never discard a distinct OR term. */
+    fun pathQualifierCorrection(args: JsonObject): JsonObject? {
+        if (args["mode"] == JsonPrimitive("literal") ||
+            args.keys.any { it in setOf("view_cursor", "search_id") } ||
+            args["index_cursor"] !in setOf(null, JsonPrimitive(0)) ||
+            args["page"] !in setOf(null, JsonPrimitive(1))
+        ) {
+            return null
+        }
+        val query = (args["query"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        val clauses = query.trim().split(Regex("\\s+OR\\s+", RegexOption.IGNORE_CASE))
+        val patterns = clauses.map { filenameClause.matchEntire(it)?.groupValues?.get(1) ?: return null }
+        val pattern = patterns.firstOrNull() ?: return null
+        val sensitive = args["case_sensitive"] == JsonPrimitive(true)
+        if (patterns.any { !it.equals(pattern, ignoreCase = !sensitive) }) return null
+        val corrected = JsonObject(args + mapOf("mode" to JsonPrimitive("paths"), "query" to JsonPrimitive(pattern)))
+        return corrected.takeIf { failure(it) == null }
     }
 }

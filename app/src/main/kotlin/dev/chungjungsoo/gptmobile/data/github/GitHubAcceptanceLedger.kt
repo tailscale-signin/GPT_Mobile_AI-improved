@@ -28,14 +28,15 @@ internal object GitHubAcceptanceLedger {
             buildJsonObject {
                 put("id", row.text("id"))
                 put("kind", kind)
+                for (key in listOf("criterion_contract", "pending_dependencies")) row[key]?.let { put(key, it) }
                 row["acceptance_role"]?.let { put("acceptance_role", it) }
                 for (key in listOf("issue_group", "issue_number", "issue_revisions", "issue_test_revision_scope", "issue_phases")) row[key]?.let { put(key, it) }
                 put("criterion", row.text(if (kind == "REQUIREMENT") "requirement" else "scope"))
                 if (kind == "REQUIREMENT") put("category", GitHubAcceptanceDiagnostics.category(row.text("requirement")))
                 put("required", !excluded)
                 put("state", state(row.text("acceptance_state").ifBlank { row.text("status") }).name)
-                row.text("acceptance_evaluator_branch").takeIf { it in setOf("STATUS_OBSERVATION", "STATUS_UNCERTAINTY_REPORT", "INFORMATIONAL_CLAIMS", "OPERATION_ACCEPTANCE", "REVISION_TEST_ACCEPTANCE", "ACCEPTANCE_MAPPING_REQUIRED") }?.let { put("acceptance_evaluator_branch", it) }
-                row.text("acceptance_mismatch").takeIf { it in setOf("MATCHING_OBSERVATION_INCOMPLETE", "UNSUPPORTED_CRITERION", "UNRESOLVED_USER_DECISION", "COMPARISON_REQUIRED", "NO_MATCHING_CLAIMS", "LINKED_RECEIPT_INELIGIBLE", "UNSUPPORTED_CLAIMS", "ACCEPTANCE_EVIDENCE_MISSING", "ACCEPTANCE_MAPPING_REQUIRED", "NO_EXECUTION_PROOF") }?.let { put("acceptance_mismatch", it) }
+                row.text("acceptance_evaluator_branch").takeIf { it in setOf("STATUS_OBSERVATION", "STATUS_UNCERTAINTY_REPORT", "INFORMATIONAL_CLAIMS", "OPERATION_ACCEPTANCE", "REVISION_TEST_ACCEPTANCE", "ACCEPTANCE_MAPPING_REQUIRED", "CRITERION_SPECIFIC_ACCEPTANCE") }?.let { put("acceptance_evaluator_branch", it) }
+                row.text("acceptance_mismatch").takeIf { it in setOf("MATCHING_OBSERVATION_INCOMPLETE", "UNSUPPORTED_CRITERION", "UNRESOLVED_USER_DECISION", "COMPARISON_REQUIRED", "NO_MATCHING_CLAIMS", "LINKED_RECEIPT_INELIGIBLE", "UNSUPPORTED_CLAIMS", "ACCEPTANCE_EVIDENCE_MISSING", "ACCEPTANCE_MAPPING_REQUIRED", "NO_EXECUTION_PROOF", "DEPENDENCIES_INCOMPLETE") }?.let { put("acceptance_mismatch", it) }
                 for (key in listOf("eligible_receipt_count", "excluded_receipt_count")) {
                     (row[key] as? JsonPrimitive)?.takeUnless { it.isString }?.content?.toIntOrNull()?.takeIf { it in 0..16_000_000 }?.let { put(key, it) }
                 }

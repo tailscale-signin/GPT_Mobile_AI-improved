@@ -71,6 +71,83 @@ class GitHubCiInvestigationRecoveryTest {
         put("conclusion", conclusion)
     }
 
+    @Test fun failedUnobservedLogSelectorStartsPinnedDiscoveryWithoutReusingTheFailedIds() {
+        val plan = GitHubCiInvestigationRecovery("Diagnose CI failures")
+        observe(
+            plan,
+            ProviderEvent.ToolCall(
+                "unobserved-log",
+                ci,
+                buildJsonObject {
+                    put("action", "logs")
+                    put("run_id", 111)
+                    put("job_id", 222)
+                    put("commit_sha", head)
+                }
+            ),
+            buildJsonObject { put("error", "not found") },
+            error = true
+        )
+        assertTrue(plan.activate(tools))
+        val status = requireNotNull(plan.nextCall(tools))
+        assertEquals(context, status.name)
+        assertEquals(JsonPrimitive(head), status.arguments["ref"])
+        observe(plan, status, buildJsonObject { put("commit_sha", head) })
+        val runs = requireNotNull(plan.nextCall(tools))
+        assertEquals(JsonPrimitive("runs"), runs.arguments["action"])
+        assertEquals(JsonPrimitive(head), runs.arguments["commit_sha"])
+        assertFalse("run_id" in runs.arguments || "job_id" in runs.arguments)
+        observe(plan, runs, buildJsonObject { put("workflow_runs", JsonArray(listOf(run(id = 333)))) })
+        val jobs = requireNotNull(plan.nextCall(tools))
+        assertEquals(JsonPrimitive("jobs"), jobs.arguments["action"])
+        assertEquals(JsonPrimitive(333L), jobs.arguments["run_id"])
+        assertEquals(JsonPrimitive(2), jobs.arguments["run_attempt"])
+        assertEquals(JsonPrimitive(head), jobs.arguments["expected_head_sha"])
+    }
+
+    @Test fun pinnedRunsAlreadyObservedCanStartInvestigationWithoutListingWorkflowsAgain() {
+        val plan = GitHubCiInvestigationRecovery("Diagnose CI failures")
+        observe(
+            plan,
+            ProviderEvent.ToolCall(
+                "observed-runs",
+                ci,
+                buildJsonObject {
+                    put("action", "runs")
+                    put("commit_sha", head)
+                    put("page", 1)
+                    put("per_page", 100)
+                }
+            ),
+            buildJsonObject { put("workflow_runs", JsonArray(listOf(run()))) }
+        )
+        assertTrue(plan.activate(tools))
+        val status = requireNotNull(plan.nextCall(tools))
+        observe(plan, status, buildJsonObject { put("commit_sha", head) })
+        assertEquals(JsonPrimitive("jobs"), requireNotNull(plan.nextCall(tools)).arguments["action"])
+    }
+
+    @Test fun failedSelectorWithConflictingRepositoryObservationCannotSeedRecovery() {
+        val plan = GitHubCiInvestigationRecovery("Diagnose CI failures")
+        observe(
+            plan,
+            ProviderEvent.ToolCall(
+                "foreign-log",
+                ci,
+                buildJsonObject {
+                    put("action", "logs")
+                    put("owner", "owner")
+                    put("repo", "another-repo")
+                    put("job_id", 222)
+                }
+            ),
+            buildJsonObject {},
+            error = true
+        )
+        assertFalse(plan.activate(tools))
+        assertNull(plan.nextCall(tools))
+    }
+
     @Test fun workflowSeedUsesOnlyAdmittedContextFacadesFromTheNativeCatalog() {
         val catalog = GitHubTool(modelToolName = "github__selected", persistentState = false).operations().map { it.definition }
         val contexts = catalog.filter { it.name in setOf(context, compactContext) }

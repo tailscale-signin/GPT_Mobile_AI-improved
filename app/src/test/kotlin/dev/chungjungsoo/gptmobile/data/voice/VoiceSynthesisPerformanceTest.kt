@@ -52,7 +52,7 @@ class VoiceSynthesisPerformanceTest {
 
     @Test fun explicitPhraseModesKeepTheirLimitsButAllModesProtectMeasuredContinuity() {
         val fixed = VoiceAdaptivePlayback(VoicePerformanceMode.FAST)
-        fixed.observe(5_000, 100)
+        fixed.observe(6_000, 100)
         fixed.underrun()
         assertEquals(VoiceAdaptivePlayback.MAX_RESERVE_MS, fixed.bufferMs())
         assertEquals(12, fixed.phraseWords(2_000))
@@ -75,6 +75,27 @@ class VoiceSynthesisPerformanceTest {
         policy.observe(30_000, 1_000)
         assertTrue(policy.primeWaitMs() < KokoroPcmBatches.QUEUE_LIMIT_MS)
         assertTrue(policy.bufferMs() < KokoroPcmBatches.QUEUE_LIMIT_MS)
+    }
+
+    @Test fun capturedFastSynthesisTailAndSevenUnderrunsUseAvailableQueueHeadroom() {
+        val policy = VoiceAdaptivePlayback(VoicePerformanceMode.FAST)
+        // The capture measured 4,482 ms synthesis and a separate 5,443 ms
+        // refill gap. Six seconds of retained PCM is this synthetic queue fixture.
+        policy.observe(4_482, KokoroPcmBatches.QUEUE_LIMIT_MS.toLong())
+        repeat(7) { policy.underrun() }
+        assertEquals(4_482L, policy.predictedSynthesisMs())
+        assertTrue("Do not clip the measured tail and learned refill margin at five seconds", policy.bufferMs() > 5_443)
+        assertTrue(policy.bufferMs() <= KokoroPcmBatches.QUEUE_LIMIT_MS - KokoroPcmBatches.DURATION_MS)
+        var acceptedFrames = 0
+        var primedAtMs: Long? = null
+        KokoroPcmBatches.slices(FloatArray(24_000 * KokoroPcmBatches.QUEUE_LIMIT_MS / 1_000), 24_000) { slice ->
+            acceptedFrames += slice.size
+            val acceptedMs = acceptedFrames.toLong() * 1_000 / 24_000
+            if (primedAtMs == null && acceptedMs >= policy.bufferMs()) primedAtMs = acceptedMs
+            true
+        }
+        assertTrue(requireNotNull(primedAtMs) > 5_443)
+        assertTrue(requireNotNull(primedAtMs) < KokoroPcmBatches.QUEUE_LIMIT_MS)
     }
 
     @Test fun qualityActuallyGeneratesTwentyFourShortWordsInOneTimedPhrase() {

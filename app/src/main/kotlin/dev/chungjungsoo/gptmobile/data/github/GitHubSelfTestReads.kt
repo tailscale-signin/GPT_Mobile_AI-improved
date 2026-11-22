@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -80,7 +81,7 @@ internal object GitHubSelfTestReads {
             ) {
                 return@forEachIndexed
             }
-            val tool = tools.firstOrNull { it.modelVisible && it.name == name && ToolArgumentValidator.errors(args, it.inputSchema).isEmpty() } ?: return@forEachIndexed
+            val tool = tools.firstOrNull { it.modelVisible && it.name == name && valid(it, args) } ?: return@forEachIndexed
             ready += ProviderEvent.ToolCall(id, tool.name, args)
         }
         fun roots(tool: String, action: String? = null) = observations.filter {
@@ -199,7 +200,7 @@ internal object GitHubSelfTestReads {
                 val expected = head?.takeIf { it.content.matches(Regex("[a-fA-F0-9]{40}")) }
                 val supportsHead = tools.any { it.name.githubOperationFamily() == "github_pr" && (it.inputSchema["properties"] as? JsonObject)?.containsKey("expected_head_sha") == true }
                 listOf("headers", "context", "comments", "reviews", "threads", "agent_merge_status").forEach { action ->
-                    recipe("github_pr", action, "pull_number" to id, "expected_head_sha" to expected.takeIf { supportsHead })
+                    recipe("github_pr", action, "pull_number" to id, "expected_head_sha" to expected.takeIf { supportsHead && action != "agent_merge_status" })
                 }
             }
             recipe("github_pr", "copilot_tasks")
@@ -210,7 +211,7 @@ internal object GitHubSelfTestReads {
             issue?.get("number")?.let { id -> listOf("headers", "context", "comments", "history").forEach { recipe("github_issue", it, "issue_number" to id) } }
         }
         for ((name, recipe) in recipes) {
-            val tool = githubFamilyTools(tools, name).firstOrNull { ToolArgumentValidator.errors(recipe, it.inputSchema).isEmpty() } ?: continue
+            val tool = githubFamilyTools(tools, name).firstOrNull { valid(it, recipe) } ?: continue
             // A live-required capability should make its first admissible read
             // live. Re-reading every cached inventory page wastes the fixture
             // and verification budget without increasing capability coverage.
@@ -220,16 +221,38 @@ internal object GitHubSelfTestReads {
                 recipe
             }
             val prior = observations.filter { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }
+            val legacyEmptyTasks = name == "github_pr" &&
+                args.text("action") == "copilot_tasks" &&
+                prior.singleOrNull()?.let { failed ->
+                    val result = GitHubInventoryObservation.planningRoot(failed)
+                    failed.text("error_code") == "GITHUB_PAGINATION_INCOMPLETE" &&
+                        failed["success"] != JsonPrimitive(true) &&
+                        result?.get("schema") == JsonPrimitive("github.copilot-task.v1") &&
+                        result["tasks"] == JsonArray(emptyList()) &&
+                        result["reason"] == JsonPrimitive("MISSING_REMOTE_RECORD_COLLECTION") &&
+                        result["upstream_has_more"] == JsonPrimitive(false) &&
+                        result["has_more"] == JsonPrimitive(false) &&
+                        (failed["arguments"] == args || GitHubActionIdentity.matches(tool.name, args, failed))
+                } == true
             if (prior.isNotEmpty()) {
                 val additionalJobs = name == "github_ci" &&
                     args.text("action") == "jobs" &&
                     needsJobDependency &&
                     workflowJobs.nextRun?.get("id") == args["run_id"] &&
                     prior.all { it["success"] == JsonPrimitive(true) }
-                if (prior.any { !additionalJobs && it["success"] == JsonPrimitive(true) || it["arguments"] == args || GitHubActionIdentity.matches(tool.name, args, it) }) continue
+                if (!legacyEmptyTasks && prior.any { !additionalJobs && it["success"] == JsonPrimitive(true) || it["arguments"] == args || GitHubActionIdentity.matches(tool.name, args, it) }) continue
                 // Correct legacy planner arguments once. Authorization failures never
                 // unlock another attempt, and absent logs get only one alternate job.
                 val correctable = when (name to args.text("action")) {
+                    "github_pr" to "copilot_tasks" -> legacyEmptyTasks
+                    "github_pr" to "agent_merge_status" -> prior.singleOrNull()?.let { failed ->
+                        val previous = failed["arguments"] as? JsonObject ?: return@let false
+                        val corrected = JsonObject(previous - "expected_head_sha")
+                        failed.text("error_code") == "INVALID_ARGUMENTS" &&
+                            failed["dispatched"] == JsonPrimitive(false) &&
+                            "expected_head_sha" in previous &&
+                            (corrected == args || GitHubActionIdentity.matches(tool.name, args, JsonObject(failed + ("arguments" to corrected))))
+                    } == true
                     "github_release" to "status", "github_ci" to "definitions" -> prior.all { it.text("error_code") == "INVALID_ARGUMENTS" }
                     "github_release" to "detail" -> prior.singleOrNull()?.let { failed ->
                         val previous = failed["arguments"] as? JsonObject
@@ -245,11 +268,16 @@ internal object GitHubSelfTestReads {
                 }
                 if (!correctable) continue
             }
-            if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty()) continue
-            ready += ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("${tool.name}:$args").take(24), tool.name, args)
+            if (!valid(tool, args)) continue
+            val prefix = if (legacyEmptyTasks) "copilot-empty-list-recheck-" else "checklist-"
+            ready += ProviderEvent.ToolCall(prefix + GitHubEvidenceBook.digest("${tool.name}:$args").take(24), tool.name, args)
         }
-        return ready.sortedBy(::priority)
+        return ready.filter { call -> tools.any { it.name == call.name && valid(it, call.arguments) } }.sortedBy(::priority)
     }
+
+    /** Family schemas contain fields shared by several actions; dispatch also enforces the chosen action. */
+    internal fun valid(tool: AgentToolDefinition, args: JsonObject): Boolean = ToolArgumentValidator.errors(args, tool.inputSchema).isEmpty() &&
+        (args.keys == setOf("view_cursor") || GitHubOperationArguments.errors(tool.name.githubOperationFamily(), args).isEmpty())
 
     fun isDependency(call: ProviderEvent.ToolCall): Boolean = priority(call) <= 1
 

@@ -28,6 +28,11 @@ internal object GitHubIntegrationReport {
         val graphInputs = unmet.count { it.text("id").startsWith("repository_graph:") && it.text("blocker_code") in GitHubSelfTestPrerequisites.graphInputBlockerCodes }
         val unindexedGraphInputs = unmet.count { it.text("repository_graph_observation") == "NOT_INDEXED" }
         val otherRepositoryInputs = unmet.count { !it.text("id").startsWith("repository_graph:") && it.text("blocker_code") == "REPOSITORY_INPUT_REQUIRED" }
+        val schedule = GitHubChecklistSchedule.current(checklist["execution_plan"] as? JsonObject, receipts)
+        val admissions = schedule?.array("candidates").orEmpty()
+        val admitted = admissions.count { it.text("admission") == "READY" }
+        val discoverySelected = admissions.any { it["discovery_selected"] == JsonPrimitive(true) }
+        val admissionReasons = admissions.filter { it.text("admission") != "READY" }.groupingBy { it.text("admission") }.eachCount()
         val reason = when {
             integration && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
@@ -37,6 +42,8 @@ internal object GitHubIntegrationReport {
             remaining != null && remaining <= GitHubChecklistBudget.VERIFICATION_RESERVE -> "VERIFICATION_RESERVE_REACHED" to "The remaining $remaining calls are reserved for verification and cleanup; acquisition stopped before the hard ceiling."
             cleanupStoppedBeforeDispatch -> "FIXTURE_CLEANUP_UNVERIFIED" to "GitHub cleanup stopped during preflight. The fixture still needs a guarded cleanup and a fresh absence check."
             openFixtures.isNotEmpty() -> "FIXTURE_CLEANUP_UNVERIFIED" to "An owned fixture has unverified final state or cleanup. Reconcile its retained mutation receipt before further writes."
+            admitted > 0 || discoverySelected -> "ADMISSIBLE_WORK_REMAINING" to "The retained plan has $admitted admitted candidate calls${if (discoverySelected) " and an exact schema-discovery call" else ""} within the current authorization and budget. Continue independent work before treating earlier operation failures as a stopping condition."
+            admissions.isNotEmpty() -> "CANDIDATE_ADMISSION_BLOCKED" to "${admissions.size} planned calls remain unexecuted with explicit admission reasons: ${admissionReasons.entries.joinToString { "${it.key} (${it.value})" }}. Their exact recipes and discovery receipts remain retained."
             catalogRequested && GitHubAuthorizedCatalog.required(tools, receipts) && catalog["complete"] != JsonPrimitive(true) -> "AUTHORIZED_CATALOG_INCOMPLETE" to "Authorized discovery is ${catalog.text("status").lowercase()}; ${catalog.text("blocker").ifBlank { "the retained version-bound continuation must complete before the denominator is final" }}."
             capabilities.any { it.text("status") in setOf("FAILED", "PREFLIGHT_REJECTED") } -> "RECORDED_OPERATION_BLOCKERS" to "Unresolved operation errors remain. The exact error codes, resources and receipt IDs identify the recovery prerequisites."
             pending.isNotEmpty() && exhaustiveInventory -> "INVENTORY_CONTINUATION_BLOCKED" to "Requested inventory traversal has ${pending.size} unfinished exact recipes; no executable authorized continuation was selected."
@@ -59,7 +66,7 @@ internal object GitHubIntegrationReport {
             val readyReads = preparation?.takeIf {
                 it.text("schema") == "github.integration-preparation.v1" && it.text("status") == "BOUNDED_READS_PREPARED" && it.array("ready_reads").isNotEmpty()
             }?.number("ready_read_count") ?: 0
-            val actionable = reason.first == "RECORDED_OPERATION_BLOCKERS" && readyReads > 0 && remaining != null && remaining > GitHubChecklistBudget.VERIFICATION_RESERVE
+            val actionable = schedule == null && reason.first == "RECORDED_OPERATION_BLOCKERS" && readyReads > 0 && remaining != null && remaining > GitHubChecklistBudget.VERIFICATION_RESERVE
             put("detail", if (actionable) "${reason.second} The retained preparation lists $readyReads candidate reads. Resume from its issued read recipes after rechecking current permissions and remaining allowance." else reason.second)
             if (reason.first == "AUTHORIZED_CATALOG_INCOMPLETE") {
                 put("blocker", catalog["blocker"] ?: JsonPrimitive("CATALOG_INCOMPLETE"))
@@ -68,6 +75,8 @@ internal object GitHubIntegrationReport {
             put(
                 "recovery_action",
                 when (reason.first) {
+                    "ADMISSIBLE_WORK_REMAINING" -> "EXECUTE_ADMITTED_INDEPENDENT_LANES"
+                    "CANDIDATE_ADMISSION_BLOCKED" -> "RESTORE_CANDIDATE_TOOL_ADMISSION"
                     "AUTHORIZED_CATALOG_INCOMPLETE" -> if (catalog.text("blocker") == "CATALOG_CONTRACT_CHANGED") {
                         "RECONCILE_CATALOG_CONTRACTS"
                     } else if (catalog["continuation_call"] is JsonObject) {
@@ -93,6 +102,11 @@ internal object GitHubIntegrationReport {
             put("required_capability_blocker_counts", buildJsonObject { blockers.forEach { (code, count) -> put(code, count) } })
             if (graphInputs > 0) put("graph_input_blocked_count", graphInputs)
             put("receipt_count", receipts.size)
+            if (schedule != null) {
+                put("candidate_admissions", JsonArray(admissions))
+                put("admitted_candidate_count", admitted)
+                put("blocked_candidate_count", admissions.size - admitted)
+            }
         }
     }
 

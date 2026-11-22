@@ -39,6 +39,7 @@ internal class GitHubOutputContinuationSession(
     private val awaitConnectivity: suspend (Long) -> Boolean = { true },
     private val reconciledCallIds: suspend () -> Set<String> = { emptySet() },
     private val durableToolReceipts: suspend (Set<String>) -> List<ToolHandoffReceipt> = { emptyList() },
+    private val durableProviderJournal: suspend () -> List<ToolHandoffReceipt>? = { null },
     private val publishProgress: suspend (String, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage) -> Unit = { _, _ -> },
     private val readCheckpoint: suspend () -> JsonObject? = { null },
     private val saveCheckpoint: suspend (JsonObject) -> Unit = {},
@@ -661,7 +662,14 @@ internal class GitHubOutputContinuationSession(
                 val source = (receipt["source_result_sha256"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
                 actual.receiptSource == "TOOL_BATCH_CHECKPOINT" &&
                     receipt["invocation_fingerprint"] == JsonPrimitive(actual.invocationFingerprint) &&
-                    (if (source != null) source == actual.sourceResultSha256 else sameReplay && receipt["projection_sha256"] == JsonPrimitive(actual.projectionSha256)) &&
+                    (
+                        if (source != null) {
+                            source == actual.sourceResultSha256
+                        } else {
+                            (sameReplay || receipt["projection_hash_scope"] == JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8")) &&
+                                receipt["projection_sha256"] == JsonPrimitive(actual.projectionSha256)
+                        }
+                        ) &&
                     receipt["dispatched"] == JsonPrimitive(actual.dispatched) &&
                     receipt["error_code"] == actual.errorCode?.let(::JsonPrimitive)
             }
@@ -672,7 +680,13 @@ internal class GitHubOutputContinuationSession(
             val actual = byCall[receipt.callId] ?: return@all sameReplay && receipt.callId in savedIds
             actual.receiptSource == "TOOL_BATCH_CHECKPOINT" &&
                 receipt.invocationFingerprint == actual.invocationFingerprint &&
-                (if (receipt.sourceResultSha256 != null) receipt.sourceResultSha256 == actual.sourceResultSha256 else sameReplay && receipt.projectionSha256 == actual.projectionSha256) &&
+                (
+                    if (receipt.sourceResultSha256 != null) {
+                        receipt.sourceResultSha256 == actual.sourceResultSha256
+                    } else {
+                        receipt.journalProjectionSha256 == actual.projectionSha256 || sameReplay && receipt.projectionSha256 == actual.projectionSha256
+                    }
+                    ) &&
                 receipt.dispatched == actual.dispatched &&
                 receipt.errorCode == actual.errorCode &&
                 receipt.requiresReconciliation == actual.requiresReconciliation
@@ -713,6 +727,21 @@ internal class GitHubOutputContinuationSession(
         needsContinuation: Boolean,
         noOutputProgress: JsonObject
     ): JsonObject {
+        val waitReceipts = if (state == "WAITING_PROVIDER_LIMIT") {
+            try {
+                bindWaitReceipts(receiptBoundary)
+            } catch (error: ProviderRecoveryFailure) {
+                val interruption = failure?.errorCode?.let { code ->
+                    buildJsonObject {
+                        put("code", code)
+                        failure.failureDetails?.let { put("details", it) }
+                    }
+                }
+                throw ProviderRecoveryFailure(error.code, error.original ?: interruption, error.correlation)
+            }
+        } else {
+            null
+        }
         val checkpoint = buildJsonObject {
             put("schema", "github.output-checkpoint.v1")
             put("evidence_digest", evidenceDigest)
@@ -725,7 +754,12 @@ internal class GitHubOutputContinuationSession(
             put("interruption_attempts", interruptionAttempts)
             noOutputProgress.forEach { (key, value) -> put(key, value) }
             put("context", checkpointContext)
-            put("completed_results", if (state == "WAITING_PROVIDER_LIMIT") bindWaitReceipts(receiptBoundary) else receiptBoundary)
+            put("completed_results", waitReceipts?.completed ?: receiptBoundary)
+            waitReceipts?.journalDigest?.let {
+                put("tool_journal_complete", true)
+                put("tool_journal_receipt_count", waitReceipts.completed.size)
+                put("tool_journal_digest", it)
+            }
             put("reconciled_call_ids", JsonArray(settledCallIds.sorted().map(::JsonPrimitive)))
             put(
                 "resume_kind",
@@ -770,13 +804,43 @@ internal class GitHubOutputContinuationSession(
         return checkpoint
     }
 
-    /** Capture missing source identities from this turn’s journal before saving the wait. */
-    private suspend fun bindWaitReceipts(boundary: JsonArray): JsonArray {
+    /** The wait binds the complete journal; provider replay may have omitted automatic pages. */
+    private suspend fun bindWaitReceipts(boundary: JsonArray): WaitReceiptBoundary {
+        durableProviderJournal()?.let { durable ->
+            val digest = GitHubProviderReplayEvidence.journalDigest(durable)
+            val byCall = durable.associateBy { it.callId }
+            val matches = digest != null &&
+                durable.all { it.receiptSource == "TOOL_BATCH_CHECKPOINT" } &&
+                boundary.all { element ->
+                    val saved = element as? JsonObject ?: return@all false
+                    val actual = byCall[(saved["call_id"] as? JsonPrimitive)?.contentOrNull] ?: return@all false
+                    saved["invocation_fingerprint"] == JsonPrimitive(actual.invocationFingerprint) &&
+                        saved["dispatched"] == JsonPrimitive(actual.dispatched) &&
+                        saved["error_code"] == actual.errorCode?.let(::JsonPrimitive) &&
+                        saved["requires_reconciliation"] == JsonPrimitive(false) &&
+                        (saved["source_result_sha256"] == null || saved["source_result_sha256"] == actual.sourceResultSha256?.let(::JsonPrimitive))
+                }
+            ProviderRecoveryFailure.require(
+                matches,
+                "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+                buildJsonObject {
+                    put("checkpoint_validation_stage", "TOOL_JOURNAL")
+                    put("checkpoint_mismatch_reason", "TOOL_RECEIPTS_CHANGED")
+                    put("settled_tool_count", durable.size)
+                }
+            )
+            val completed = JsonArray(
+                durable.map { receipt ->
+                    JsonObject(receipt.json() + ("projection_hash_scope" to JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8")))
+                }
+            )
+            return WaitReceiptBoundary(completed, requireNotNull(digest))
+        }
         val missing = boundary.filterIsInstance<JsonObject>().filter { it["source_result_sha256"] == null }
-        if (missing.isEmpty()) return boundary
+        if (missing.isEmpty()) return WaitReceiptBoundary(boundary)
         val fingerprints = missing.mapNotNullTo(mutableSetOf()) { (it["invocation_fingerprint"] as? JsonPrimitive)?.contentOrNull }
         val journal = durableToolReceipts(fingerprints).associateBy { it.callId }
-        return JsonArray(
+        val completed = JsonArray(
             boundary.map { row ->
                 val saved = row as? JsonObject ?: return@map row
                 if (saved["source_result_sha256"] != null) return@map row
@@ -796,7 +860,10 @@ internal class GitHubOutputContinuationSession(
                 JsonObject(saved + mapOf("source_hash_available" to JsonPrimitive(true), "source_result_sha256" to JsonPrimitive(source)))
             }
         )
+        return WaitReceiptBoundary(completed)
     }
+
+    private data class WaitReceiptBoundary(val completed: JsonArray, val journalDigest: String? = null)
 
     /** Hashing raw retained evidence is CPU work and must not run on the UI collector. */
     private suspend fun continuationEvidenceDigests(exchanges: List<AgentToolExchange>): ContinuationEvidenceDigests = withContext(Dispatchers.Default) {

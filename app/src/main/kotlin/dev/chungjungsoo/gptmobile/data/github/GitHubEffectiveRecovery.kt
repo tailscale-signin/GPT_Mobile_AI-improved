@@ -32,7 +32,12 @@ internal object GitHubEffectiveRecovery {
         val ledger = report["execution_ledger"] as? JsonObject
         val original = report["original_failure"] as? JsonObject
         val failure = report["verification_failure"] as? JsonObject
-        val layers = listOfNotNull(report, ledger, original, failure)
+        val recoveryAttempt = (report["latest_recovery_failure"] as? JsonObject)
+            ?: failure?.takeIf { it["failure_origin"] == JsonPrimitive("local_recovery") }
+            ?: original?.takeIf { it["failure_origin"] == JsonPrimitive("local_recovery") }
+        val currentRecoveryCode = report.text("current_failure_code").ifBlank { recoveryAttempt.text("recovery_code").ifBlank { recoveryAttempt.text("code") } }.ifBlank { report.text("failure_code") }
+            .takeIf { it in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES }
+        val layers = listOfNotNull(report, ledger, original, failure, recoveryAttempt)
         val code = original.text("code").ifBlank { report.text("original_failure_code") }.ifBlank { report.text("failure_code") }.ifBlank { failure.text("code") }
         val stop = report["stop_reason"] as? JsonObject
         val action = sequenceOf(
@@ -67,6 +72,8 @@ internal object GitHubEffectiveRecovery {
                 action in setOf("RESTORE_AUTHORIZED_CONFIGURATION", "REFRESH_CHANGED_AUTHORITY") ->
                 Decision(Kind.REFRESH_AUTHORITY, "RESTORE_AUTHORIZED_CONFIGURATION", "Review changed authority")
             pendingApproval -> Decision(Kind.REVIEW_APPROVAL, "WAITING_FOR_APPROVAL", "Review approval")
+            currentRecoveryCode != null ->
+                if (currentRecoveryCode == "PROVIDER_WAIT_OUTCOME_UNKNOWN") Decision(Kind.RECONCILE_REMOTE_OUTCOME, "RECONCILE_REMOTE_OUTCOME", "Review uncertain write") else inspection(recoveryAttempt.text("next_action").ifBlank { "REVIEW_SAVED_RECOVERY" })
             // Durable completion supersedes a retained provider cooldown. Current
             // authority, approval and uncertain-outcome blockers above still win.
             verifiedCompletion -> Decision(Kind.NONE, "NONE", "Completed")
@@ -90,7 +97,66 @@ internal object GitHubEffectiveRecovery {
         }
     }
 
-    fun attach(report: JsonObject): JsonObject = JsonObject(report + ("effective_recovery" to resolve(report).json()))
+    /** Read the current child only from the same protected task store; its completion cannot finish acceptance. */
+    fun withOutputCheckpoint(report: JsonObject, output: JsonObject?, binding: String): JsonObject {
+        if (report["binding"] != JsonPrimitive(binding) || (output?.get("context") as? JsonObject)?.get("task_binding") != JsonPrimitive(binding)) return attach(report)
+        val current = requireNotNull(output)
+        val code = current.text("current_failure_code").takeIf { it in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES }
+        val attempt = current["latest_recovery_failure"] as? JsonObject
+        val projection = buildJsonObject {
+            current["state"]?.let { put("state", it) }
+            current["resume_allowed"]?.let { put("resume_allowed", it) }
+            put("task_binding", binding)
+        }
+        val refusal = if (current["state"] == JsonPrimitive("BLOCKED_RECOVERY") &&
+            code != null &&
+            (attempt?.get("checkpoint_binding") == null || attempt["checkpoint_binding"] == JsonPrimitive(binding))
+        ) {
+            buildJsonObject {
+                put("current_failure_code", code)
+                attempt?.let { put("latest_recovery_failure", it) }
+                put("task_outcome", "BLOCKED")
+                put("completion_verified", false)
+                put("resume_allowed", false)
+            }
+        } else {
+            JsonObject(emptyMap())
+        }
+        return attach(JsonObject(report + refusal + ("output_checkpoint" to projection)))
+    }
+
+    fun attach(report: JsonObject): JsonObject {
+        val decision = resolve(report)
+        val pending = (report["remaining_requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { it["id"] }
+        val output = report["output_checkpoint"] as? JsonObject
+        val scheduler = report.text("provider_wait_scheduler_state")
+        val checkpoint = buildJsonObject {
+            put("schema", "github.task-recovery-checkpoint.v1")
+            put("decision_scope", "TASK")
+            report["binding"]?.let { put("binding", it) }
+            report["request_digest"]?.let { put("request_digest", it) }
+            report["observed_at_ms"]?.let { put("observed_at_ms", it) }
+            put("task_complete", decision.kind == Kind.NONE && report["completion_verified"] == JsonPrimitive(true))
+            put("response_delivered", report["response_delivered"] == JsonPrimitive(true))
+            output?.get("state")?.let { put("output_attempt_state", it) }
+            put("pending_requirement_ids", JsonArray(pending))
+            put("effective_recovery", decision.json())
+            put(
+                "wake_owner",
+                when {
+                    decision.kind == Kind.NONE -> "NONE"
+                    decision.kind == Kind.WAIT_FOR_PROVIDER && report["provider_wait_persisted"] == JsonPrimitive(true) && scheduler == "ENQUEUED" -> "PROVIDER_WAIT_SCHEDULER"
+                    decision.kind == Kind.WAIT_FOR_PROVIDER && report["provider_wait_persisted"] == JsonPrimitive(true) -> "PROVIDER_WAIT_REATTACHMENT"
+                    decision.continueWork || decision.kind == Kind.WAIT_FOR_PROVIDER -> "UNCONFIRMED"
+                    else -> "USER_ACTION"
+                }
+            )
+            put("request_replay_allowed", false)
+        }
+        // This projection is saved inside the same verdict as pending work. A child
+        // output checkpoint cannot retire acceptance or invent a registered wake.
+        return JsonObject(report + mapOf("effective_recovery" to decision.json(), "task_recovery_checkpoint" to checkpoint))
+    }
 
     private fun inspection(action: String): Decision = Decision(
         Kind.INSPECT_FAILURE,

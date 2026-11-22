@@ -4900,7 +4900,14 @@ class ChatRepositoryImpl(
                     val current = workspace?.dao?.githubTaskEvidence(user.chatId, "github-evidence:$binding:verification_current_")?.lastOrNull()
                     val saved = current ?: workspace?.dao?.githubTaskEvidence(user.chatId, "github-evidence:$binding:verification_")
                         ?.lastOrNull { !it.id.substringAfterLast(':').startsWith("verification_event_") }
-                    saved?.let { workspace?.protectedSynthesisCheckpoint(it.id) }
+                    val verdict = saved?.let { workspace?.protectedSynthesisCheckpoint(it.id) }
+                    verdict?.let {
+                        dev.chungjungsoo.gptmobile.data.github.GitHubEffectiveRecovery.withOutputCheckpoint(
+                            it,
+                            workspace?.protectedSynthesisCheckpoint("github-output:$binding"),
+                            binding
+                        )
+                    }
                 },
                 retainedIds = {
                     workspace?.dao?.githubTaskEvidence(user.chatId, "github-evidence:$binding:ev_")
@@ -6216,6 +6223,20 @@ class ChatRepositoryImpl(
                             toolCheckpointBinding,
                             persistent = agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false
                         ).handoffReceipts(fingerprints)
+                    },
+                    durableProviderJournal = {
+                        dispatchAuthority.validate()
+                        check(validateSavedEvidence())
+                        if (agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false) {
+                            dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(
+                                context.filesDir,
+                                latestUser.chatId,
+                                toolCheckpointBinding,
+                                persistent = true
+                            ).providerWaitReceipts()
+                        } else {
+                            null
+                        }
                     },
                     publishProgress = { text, lineage ->
                         send(ApiState.ActivitySummary(text, modelAuthored = true, invocationId = lineage.invocationId))

@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Stable provider replay identity shared by live checkpoints and legacy journal recovery. */
@@ -36,25 +37,40 @@ internal object GitHubProviderReplayEvidence {
     /** The replay may omit completed calls. Its digest is not the full durable journal boundary. */
     fun protectedJournalDigest(checkpoint: JsonObject): String? {
         val saved = checkpoint["completed_results"] as? JsonArray ?: return null
-        if (saved.isEmpty() || saved.size > 1024) return null
+        val completeJournal = checkpoint["tool_journal_complete"] == JsonPrimitive(true)
+        if (saved.isEmpty() && !completeJournal || saved.size > 1024) return null
         val receipts = saved.map { element ->
             val receipt = element as? JsonObject ?: return null
             fun text(key: String) = (receipt[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
             fun flag(key: String) = (receipt[key] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
             if (receipt["source_hash_scope"] != JsonPrimitive("ORIGINAL_TOOL_RESULT_PAYLOAD_UTF8")) return null
-            val source = text("source_result_sha256") ?: return null
+            val source = if ("source_result_sha256" in receipt) text("source_result_sha256") ?: return null else null
+            val projection = text("projection_sha256") ?: return null
+            val storedProjection = receipt["receipt_source"] == JsonPrimitive("TOOL_BATCH_CHECKPOINT") &&
+                receipt["projection_hash_scope"] == JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8")
+            if (source == null && !storedProjection) return null
             val error = if ("error_code" in receipt) text("error_code") ?: return null else null
             ToolHandoffReceipt(
                 callId = text("call_id") ?: return null,
                 invocationFingerprint = text("invocation_fingerprint") ?: return null,
                 sourceResultSha256 = source,
-                projectionSha256 = source,
+                projectionSha256 = projection,
                 dispatched = flag("dispatched") ?: return null,
                 errorCode = error,
-                requiresReconciliation = flag("requires_reconciliation") ?: return null
+                requiresReconciliation = flag("requires_reconciliation") ?: return null,
+                receiptSource = if (storedProjection) "TOOL_BATCH_CHECKPOINT" else "REPLAY_PROJECTION"
             )
         }
-        return journalDigest(receipts)
+        val digest = journalDigest(receipts) ?: return null
+        if (completeJournal &&
+            (
+                (checkpoint["tool_journal_receipt_count"] as? JsonPrimitive)?.intOrNull != saved.size ||
+                    checkpoint["tool_journal_digest"] != JsonPrimitive(digest)
+                )
+        ) {
+            return null
+        }
+        return digest
     }
 
     fun settledHandoffDigest(checkpoint: JsonObject, receipts: List<ToolHandoffReceipt>): String? {
@@ -76,7 +92,16 @@ internal object GitHubProviderReplayEvidence {
         if (receipts.size > 1024 ||
             receipts.map { it.callId }.distinct().size != receipts.size ||
             receipts.map { it.invocationFingerprint }.distinct().size != receipts.size ||
-            receipts.any { it.callId.isBlank() || !it.invocationFingerprint.matches(sha256) || it.sourceResultSha256?.matches(sha256) != true || it.requiresReconciliation }
+            receipts.any {
+                it.callId.isBlank() ||
+                    !it.invocationFingerprint.matches(sha256) ||
+                    it.requiresReconciliation ||
+                    if (it.sourceResultSha256 != null) {
+                        !it.sourceResultSha256.matches(sha256)
+                    } else {
+                        it.receiptSource != "TOOL_BATCH_CHECKPOINT" || !it.projectionSha256.matches(sha256)
+                    }
+            }
         ) {
             return null
         }
@@ -86,7 +111,11 @@ internal object GitHubProviderReplayEvidence {
                     buildJsonObject {
                         put("call_id", receipt.callId)
                         put("invocation", receipt.invocationFingerprint)
-                        put("result", receipt.sourceResultSha256)
+                        put("result", receipt.sourceResultSha256 ?: receipt.projectionSha256)
+                        // A durable local rejection/reused result may not retain its
+                        // original source. Bind its stored bytes without claiming
+                        // that an evictable replay is original-source evidence.
+                        if (receipt.sourceResultSha256 == null) put("result_scope", "PERSISTED_JOURNAL_PROJECTION_UTF8")
                         put("dispatched", receipt.dispatched)
                         put("requires_reconciliation", receipt.requiresReconciliation)
                         receipt.errorCode?.let { put("error", it) }

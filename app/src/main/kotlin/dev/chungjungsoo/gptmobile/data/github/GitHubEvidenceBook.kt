@@ -643,6 +643,24 @@ internal class GitHubEvidenceBook(
         return augmented to currentEpoch
     }
 
+    /** Resolve a typed search receipt before the runner's ordinary read admission and authorization. */
+    suspend fun repairSourceRead(call: ProviderEvent.ToolCall): ProviderEvent.ToolCall = mutex.withLock {
+        if (call.name !in trustedTools || call.name.githubOperationFamily() != "github_read") return@withLock call
+        val id = (call.arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return@withLock call
+        if (!id.matches(Regex("ev_[a-f0-9]{24}"))) return@withLock call
+        val saved = load(id) ?: records[id] ?: return@withLock call
+        if (saved["binding"] != JsonPrimitive(binding) || saved["receipt_id"] != JsonPrimitive(id)) return@withLock call
+        val original = restoredOriginal(id, saved) ?: return@withLock call
+        val corrected = GitHubSearchSourceRead.repair(call, revalidate(original), binding) ?: return@withLock call
+        val contract = currentToolContracts[call.name] ?: return@withLock call
+        if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(corrected.arguments, contract).isNotEmpty() ||
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors("github_read", corrected.arguments).isNotEmpty()
+        ) {
+            return@withLock call
+        }
+        corrected
+    }
+
     suspend fun complete(): Boolean = mutex.withLock { !overflow }
 
     /** Page persistence can recover independently without invalidating an accepted mutation. */
@@ -709,7 +727,9 @@ internal class GitHubEvidenceBook(
             check(previous["binding"] == JsonPrimitive(binding) && previous["repository"] == JsonPrimitive(repository) && previous["source_message_id"] == JsonPrimitive(sourceMessageId)) {
                 "GITHUB_TASK_IDENTITY_CHANGED: The retained task belongs to a different accepted request. No operation was dispatched."
             }
-            taskContract = previous
+            val refined = GitHubAcceptanceContract.refineRetained(previous)
+            if (refined != previous) save(key, refined)
+            taskContract = refined
             deadlineGrant = latestDeadlineGrant()?.takeIf { validDeadlineGrant(it, previous) } ?: deadlineGrant?.takeIf { validDeadlineGrant(it, previous) }
             return@withLock
         }
@@ -723,7 +743,9 @@ internal class GitHubEvidenceBook(
             put("accepted_branch", branch)
             put("request_digest", digest(task))
             put("requested_actions", task)
-            put("acceptance_criteria", JsonArray(GitHubRequestCompletion.requirements(task).map(::JsonPrimitive)))
+            val criteria = GitHubRequestCompletion.requirements(task)
+            put("acceptance_criteria", JsonArray(criteria.map(::JsonPrimitive)))
+            put("acceptance_contract", GitHubAcceptanceContract.json(task, criteria))
             put("required_tool_names", JsonArray(tools.filter { it.modelVisible }.map { JsonPrimitive(it.name) }.distinct()))
             put("accepted_at_ms", acceptedAt)
             put("tool_call_limit", callLimit.coerceAtLeast(0))
@@ -855,7 +877,7 @@ internal class GitHubEvidenceBook(
     suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
 
     suspend fun acceptedPromptContract(): JsonObject? = (taskContract ?: load("task_contract"))?.let { contract ->
-        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "request_digest", "acceptance_criteria", "tool_call_limit", "effective_tool_call_limit", "tool_call_limit_source") })
+        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "request_digest", "acceptance_criteria", "acceptance_contract", "tool_call_limit", "effective_tool_call_limit", "tool_call_limit_source") })
     }
 
     /** Report the same accepted ceiling and execution counter across process restart. */
@@ -1031,6 +1053,7 @@ internal class GitHubEvidenceBook(
             )
         }
         val publishedProgressDigest = publishedChecklistDigest(previous)
+        val criterionContracts = GitHubAcceptanceContract.criteria(task, GitHubRequestCompletion.requirements(task, issueWork)).associateBy { it.id }
         val requirements = if (GitHubTestChecklist.integration(task)) {
             GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight)
         } else {
@@ -1045,6 +1068,7 @@ internal class GitHubEvidenceBook(
                     buildJsonObject {
                         put("id", GitHubRequestCompletion.id(requirement))
                         put("requirement", requirement)
+                        criterionContracts[GitHubRequestCompletion.id(requirement)]?.let { put("criterion_contract", it.json()) }
                         put("status", if (failureCode == null) "UNTESTED" else "BLOCKED")
                         put("acceptance_state", if (failureCode == null) "NOT_TESTED" else "BLOCKED")
                         put("acceptance", if (failureCode == null) "Acceptance verification remains pending; completed API calls do not establish this requirement" else "Workflow interrupted by $failureCode before acceptance verification")

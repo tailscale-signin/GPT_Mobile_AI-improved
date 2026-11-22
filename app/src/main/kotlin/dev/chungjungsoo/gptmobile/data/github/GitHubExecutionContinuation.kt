@@ -120,7 +120,7 @@ internal object GitHubExecutionContinuation {
             Regex("(?i)\\b(?:review|audit|examine|issues|bugs|solutions)\\b").containsMatchIn(request) -> "Use the retained source to report supported findings, their impact, and specific proposed solutions."
             else -> "Use the retained source to answer the requested explanation and identify the specific evidence still missing."
         }
-        return "Overlapping source reads have stopped adding evidence. $next Preserve established findings and distinguish searched coverage from the unsearched remainder. Resume an incomplete search only through its exact issued continuation when the accepted scope requires more coverage and the remaining budget allows it."
+        return "Recent source reads and searches have stopped adding actionable evidence. $next Preserve established findings and distinguish searched coverage from the unsearched remainder. Resume an incomplete search only through its exact issued continuation when the accepted scope requires more coverage and the remaining budget allows it."
     }
 
     private fun continuationRequest(task: String, current: String) = GitHubTaskContinuity.request(if (GitHubTaskContinuity.control(current)) task else current)
@@ -252,6 +252,10 @@ internal object GitHubExecutionContinuation {
         return null
     }
 
+    /** Continue useful work within its original finite allowance, without an arbitrary round cap. */
+    fun hasAcquisitionBudget(remainingCalls: Int?, remainingMillis: Long?): Boolean =
+        remainingCalls != null && remainingCalls > 1 && (remainingMillis == null || remainingMillis > 0)
+
     fun canResume(
         report: JsonObject,
         receipts: Map<String, JsonObject>,
@@ -265,7 +269,7 @@ internal object GitHubExecutionContinuation {
         // turn an explicit verifier-only decision into automatic execution.
         if (!effective.continueWork) return false
         // Keep one tool call unspent for exact-revision final verification.
-        if (report["completion_verified"] == JsonPrimitive(true) || remainingCalls?.let { it <= 1 } == true || remainingMillis == 0L) return false
+        if (report["completion_verified"] == JsonPrimitive(true) || !hasAcquisitionBudget(remainingCalls, remainingMillis)) return false
         val resumable = ledger["recovery"] == JsonPrimitive("RESUME_UNFINISHED_WORK") ||
             allowVerificationResume &&
             ledger["recovery"] == JsonPrimitive("RESUME_VERIFICATION")
@@ -297,16 +301,17 @@ internal object GitHubExecutionContinuation {
     private val selectorKeys = setOf("action", "owner", "repo", "branch", "ref", "path", "issue_number", "pull_number", "run_id", "job_id", "workflow_id", "expected_head_sha", "commit_sha", "stage_id", "inventory_cursor", "inventory_version", "query", "mode", "search_id", "index_cursor", "path_prefix", "file_extension", "path_suffix", "case_sensitive", "fuzzy_match", "fuzzy_threshold", "min_lines", "max_lines", "context_lines", "batch_size", "max_new_blobs")
 }
 
-/** Count completed source decisions only. A changed query or overlapping interval alone is not new evidence. */
+/** Request one bounded replan when completed reads stop producing actionable source evidence. */
 internal class GitHubReadRoundProgress {
     private val sources = mutableSetOf<String>()
     private val lastRanges = mutableMapOf<String, MutableList<IntRange>>()
-    private val searchFrontiers = mutableMapOf<String, Int>()
     private var lastCall: String? = null
     private var unchanged = 0
     private var workMillis = 0L
+    private var requested = false
 
     fun replan(exchange: dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange, elapsedMillis: Long): Boolean {
+        if (requested) return false
         val call = exchange.calls.lastOrNull() ?: return false
         if (lastCall == call.callId) return false
         lastCall = call.callId
@@ -339,17 +344,9 @@ internal class GitHubReadRoundProgress {
             }
             val revision = data["commit_sha"] ?: continue
             if (issuer.name.githubOperationFamily() == "github_context" && sources.add("${issuer.name}|${issuer.arguments}|$revision")) advanced = true
-            val search = (data["search_id"] as? JsonPrimitive)?.content
-            val startIndex = (data["interval_start"] as? JsonPrimitive)?.content?.toIntOrNull()
-            val endIndex = (data["interval_end"] as? JsonPrimitive)?.content?.toIntOrNull()
-            if (search != null && startIndex != null && endIndex != null && startIndex >= 0 && endIndex > startIndex) {
-                // Progress through the same pinned search includes pages with zero hits. A changed
-                // query alone does not establish another discovery.
-                val key = "$revision|$search"
-                val previous = searchFrontiers[key]
-                if (previous != null && startIndex == previous && endIndex > previous) advanced = true
-                searchFrontiers[key] = maxOf(previous ?: 0, endIndex)
-            }
+            // Cursor movement certifies traversal, not useful source acquisition. The
+            // continuation prompt retains the exact search frontier separately, so a
+            // replan can continue required pagination without restarting the scan.
             for (row in (data["items"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()) {
                 val path = row["path"] ?: continue
                 val key = "$revision|$path|${row["sha"]}"
@@ -379,7 +376,7 @@ internal class GitHubReadRoundProgress {
             }
         }
         unchanged = if (advanced) 0 else unchanged + 1
-        workMillis = if (advanced) 0 else workMillis + elapsedMillis.coerceAtLeast(0)
-        return unchanged >= 3 || workMillis >= 60_000
+        workMillis = if (advanced) 0 else workMillis + elapsedMillis.coerceIn(0, 60_000)
+        return (unchanged >= 3 || workMillis >= 60_000).also { if (it) requested = true }
     }
 }

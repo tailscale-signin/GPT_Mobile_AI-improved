@@ -19,6 +19,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPaginationBoundaryTest {
+    @Test fun emptyCopilotTaskListCompletesWithoutCreatingOrInventingATask() {
+        val args = json("""{"action":"copilot_tasks","page":1,"per_page":30}""")
+        val result = GitHubPaginationBoundary().assessPage("github_pr", args, json("""{"tasks":[],"has_more":false}"""))
+        assertEquals(null, result.errorCode)
+        assertEquals(JsonArray(emptyList()), result.data["tasks"])
+        assertEquals(JsonPrimitive(true), result.data["complete"])
+        assertEquals(JsonPrimitive(0), result.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+    }
+
+    @Test fun copilotTaskCoverageRejectsMissingMalformedAndUnrelatedCollections() {
+        val args = json("""{"action":"copilot_tasks","page":1,"per_page":30}""")
+        for (value in listOf(
+            """{"has_more":false}""",
+            """{"tasks":{},"has_more":false,"total_count":0}""",
+            """{"items":[],"has_more":false,"total_count":0}""",
+            """{"tasks":[null],"has_more":false}""",
+            """{"tasks":[{}],"has_more":false}""",
+            """{"tasks":[{"id":12}],"has_more":false}"""
+        )) {
+            val result = GitHubPaginationBoundary().assessPage("github_pr", args, json(value))
+            assertEquals(value, "GITHUB_PAGINATION_INCOMPLETE", result.errorCode)
+            assertEquals(JsonPrimitive(false), result.data["complete"])
+        }
+        val unrelated = GitHubPaginationBoundary().assessPage("github_pr", json("""{"action":"list_pull_requests"}"""), json("""{"tasks":[],"has_more":false}"""))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", unrelated.errorCode)
+    }
+
+    @Test fun copilotTaskPagesRetainUniqueIdsAndRequireAllPages() {
+        val boundary = GitHubPaginationBoundary()
+        fun args(page: Int) = json("""{"action":"copilot_tasks","page":$page,"per_page":1}""")
+        boundary.assessPage("github_pr", args(1), json("""{"tasks":[{"id":"task-1"}],"has_more":true}"""))
+        val duplicate = boundary.assessPage("github_pr", args(2), json("""{"tasks":[{"id":"task-1"}],"has_more":false}"""))
+        assertEquals("GITHUB_PAGINATION_STALLED", duplicate.errorCode)
+        assertEquals(JsonArray(emptyList()), duplicate.data["tasks"])
+        val complete = GitHubPaginationBoundary()
+        complete.assessPage("github_pr", args(1), json("""{"tasks":[{"id":"task-1"}],"has_more":true}"""))
+        val emptyTerminal = complete.assessPage("github_pr", args(2), json("""{"tasks":[],"has_more":false}"""))
+        assertEquals(null, emptyTerminal.errorCode)
+        assertEquals(JsonPrimitive(true), emptyTerminal.data["complete"])
+        assertEquals(JsonPrimitive(1), emptyTerminal.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+    }
+
     @Test fun sparseBranchInventoryIdentifiesTheFirstMissingPage() {
         val boundary = GitHubPaginationBoundary()
         fun read(page: Int, more: Boolean): GitHubPaginationBoundary.Assessment {

@@ -25,6 +25,7 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
             put("failure_origin", "local_recovery")
             put("recovery_code", code)
             put("attempt_dispatch_state", "PRECHECK_REJECTED")
+            put("dispatch_evidence_scope", "RECOVERY_ATTEMPT")
             put("dispatched", false)
             put("dispatch_state", "PRECHECK_REJECTED")
             put("remote_acceptance", "NO")
@@ -92,7 +93,7 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
             val code = (details["recovery_code"] as? JsonPrimitive)?.contentOrNull ?: return null
             if (code !in CODES) return null
             return buildJsonObject {
-                details.filterKeys { it in CORRELATION_KEYS || it in setOf("recovery_code", "failure_origin", "next_action", "attempt_dispatch_state") }
+                details.filterKeys { it in CORRELATION_KEYS || it in setOf("recovery_code", "failure_origin", "next_action", "attempt_dispatch_state", "dispatch_evidence_scope") }
                     .filterValues { it is JsonPrimitive && it.content.length <= 160 }.forEach { (key, value) -> put(key, value) }
                 retainedInterruption(details["original_interruption"] as? JsonObject)?.let { put("original_interruption", it) }
             }

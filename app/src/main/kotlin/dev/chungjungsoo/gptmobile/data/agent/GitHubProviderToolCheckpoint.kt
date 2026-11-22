@@ -37,12 +37,16 @@ internal object GitHubProviderToolCheckpoint {
             val reason = if (context?.get("task_binding") != JsonPrimitive(expected.binding)) "TASK_BINDING_CHANGED" else "EVIDENCE_DIGEST_INVALID"
             throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(saved), ProviderRecoveryFailure.checkpointCorrelation(expected, saved, reason))
         }
+        val journalDigest = GitHubProviderReplayEvidence.protectedJournalDigest(saved)
+        if ("tool_journal_complete" in saved && (saved["tool_journal_complete"] != JsonPrimitive(true) || journalDigest == null)) {
+            throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(saved), ProviderRecoveryFailure.checkpointCorrelation(expected, saved, "EVIDENCE_DIGEST_INVALID"))
+        }
         val legacy = if (persistent && context["tool_checkpoint_binding"] == null) {
             ToolBatchCheckpoint.legacyProviderBinding(directory, chatId, scope, expected, saved)
         } else {
             null
         }
-        return Resolved(legacy ?: retained, digest, GitHubProviderReplayEvidence.protectedJournalDigest(saved))
+        return Resolved(legacy ?: retained, digest, journalDigest)
     }
 
     fun binding(scope: String, authorityRevision: String, expected: GitHubProviderCheckpoint?, checkpoint: JsonObject?): String {

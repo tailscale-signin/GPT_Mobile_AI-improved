@@ -35,6 +35,71 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun selectorlessWatchOffersScopedPinnedRunDiscoveryWithoutSubscribing() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("An unselected watch must not dispatch")
+        }
+        val tool = GitHubOperationTool("github_watch_checks", backend, "watch-discovery", "github_watch_checks__selected")
+        val arguments = buildJsonObject {
+            put("owner", "owner")
+            put("repo", "repo")
+            put("commit_sha", "a".repeat(40))
+            put("wait_timeout_seconds", 10)
+        }
+        val result = tool.execute("watch", arguments)
+        assertTrue(result.isError)
+        assertFalse(result.dispatched)
+        val recipe = (result.content as ToolResultContent.Json).value.jsonObject.getValue("recovery_call").jsonObject
+        assertEquals(JsonPrimitive("github_ci__selected"), recipe["tool"])
+        val discovery = recipe.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive("runs"), discovery["action"])
+        assertEquals(arguments["commit_sha"], discovery["commit_sha"])
+        assertEquals(arguments["owner"], discovery["owner"])
+        assertEquals(arguments["repo"], discovery["repo"])
+        assertEquals(JsonPrimitive(100), discovery["per_page"])
+        assertTrue(ToolArgumentValidator.errors(discovery, GitHubOperationTool.definition("github_ci").inputSchema).isEmpty())
+        assertFalse("run_id" in discovery || "job_id" in discovery || "wait_timeout_seconds" in discovery)
+        val ambiguous = tool.execute("ambiguous-watch", JsonObject(arguments + ("run_id" to JsonPrimitive(-1))))
+        assertFalse((ambiguous.content as ToolResultContent.Json).value.jsonObject.containsKey("recovery_call"))
+    }
+
+    @Test fun successfulPathSearchOffersTheObservedFilesAtTheSameCommitAndConnection() = runBlocking {
+        val head = "a".repeat(40)
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("commit_sha", head)
+                        put(
+                            "items",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("path", "AGENTS.md")
+                                        put("sha", "b".repeat(40))
+                                    }
+                                )
+                            )
+                        )
+                    }
+                ),
+                false
+            )
+        }
+        val tool = GitHubOperationTool("github_search", backend, "source-progression", "github_search__selected")
+        val result = tool.execute("paths", args("""{"owner":"owner","repo":"repo","mode":"paths","query":"*.md"}"""))
+        val body = dev.chungjungsoo.gptmobile.data.github.GitHubSemanticSummary.data((result.content as ToolResultContent.Json).value.jsonObject)
+        val recipe = body.getValue("source_read_call").jsonObject
+        assertEquals(JsonPrimitive("github_read__selected"), recipe["tool"])
+        val read = recipe.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive(head), read["commit_sha"])
+        assertEquals(JsonPrimitive("AGENTS.md"), read.getValue("ranges").jsonArray.single().jsonObject["path"])
+        assertTrue(ToolArgumentValidator.errors(read, GitHubOperationTool.definition("github_read").inputSchema).isEmpty())
+    }
+
     @Test fun fuzzyPhraseRejectionOffersAnExactLiteralCorrectionWithoutRewritingTheQuery() = runBlocking {
         val observed = mutableListOf<JsonObject>()
         val backend = object : AgentTool {

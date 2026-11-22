@@ -72,7 +72,9 @@ internal class VoiceAdaptivePlayback(private val mode: VoicePerformanceMode) {
     }
 
     companion object {
-        const val MAX_RESERVE_MS = 5_000
+        // Use existing queue headroom for measured slow phrases and refill margin.
+        // Leave one slice below capacity so priming never requires a full producer queue.
+        const val MAX_RESERVE_MS = KokoroPcmBatches.QUEUE_LIMIT_MS - KokoroPcmBatches.DURATION_MS
     }
 }
 

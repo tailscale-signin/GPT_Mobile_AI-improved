@@ -173,7 +173,7 @@ internal class GitHubOperationTool(
         // Repository normalization is for dispatch and must not rewrite the public
         // correction proposal or the call-bound diagnostic observation.
         if (operation in names && ToolArgumentValidator.errors(arguments, definition.inputSchema).isNotEmpty()) {
-            return executeNormalized(callId, arguments)
+            return watchSelectorRecovery(executeNormalized(callId, arguments), arguments)
         }
         if (operation == "github_search" &&
             backend is GitHubTool &&
@@ -196,12 +196,14 @@ internal class GitHubOperationTool(
         val errors = listOf(requireNotNull(failure.message))
         val rejected = currentCoroutineContext()[ToolArgumentRepairScope]?.budget?.rejection(callId, definition, arguments, errors)
             ?: ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, errors)
-        val correction = arguments.takeIf {
-            failure.rule == dev.chungjungsoo.gptmobile.data.github.GitHubSearchArgumentFailure.Rule.FUZZY_IDENTIFIER &&
-                it.keys.none { key -> key in setOf("view_cursor", "search_id") } &&
-                it["index_cursor"] in setOf(null, JsonPrimitive(0)) &&
-                it["page"] in setOf(null, JsonPrimitive(1))
-        }?.let { JsonObject((it - "fuzzy_threshold") + ("fuzzy_match" to JsonPrimitive(false))) }
+        val correction = dev.chungjungsoo.gptmobile.data.github.GitHubSearchArguments.pathQualifierCorrection(arguments)
+            .takeIf { failure.rule == dev.chungjungsoo.gptmobile.data.github.GitHubSearchArgumentFailure.Rule.QUERY_QUALIFIER }
+            ?: arguments.takeIf {
+                failure.rule == dev.chungjungsoo.gptmobile.data.github.GitHubSearchArgumentFailure.Rule.FUZZY_IDENTIFIER &&
+                    it.keys.none { key -> key in setOf("view_cursor", "search_id") } &&
+                    it["index_cursor"] in setOf(null, JsonPrimitive(0)) &&
+                    it["page"] in setOf(null, JsonPrimitive(1))
+            }?.let { JsonObject((it - "fuzzy_threshold") + ("fuzzy_match" to JsonPrimitive(false))) }
         val result = rejected.copy(
             content = ToolResultContent.Json(
                 buildJsonObject {
@@ -233,6 +235,42 @@ internal class GitHubOperationTool(
             )
         )
         return searchValidationOwner?.capture(result, definition.name, arguments, definition.inputSchema) ?: result
+    }
+
+    private fun watchSelectorRecovery(rejected: AgentToolResult, arguments: JsonObject): AgentToolResult {
+        if (operation != "github_watch_checks" ||
+            !rejected.isError ||
+            arguments.keys.any { it !in setOf("owner", "repo", "commit_sha", "wait_timeout_seconds", "follow_pr") } ||
+            ("owner" in arguments) != ("repo" in arguments) ||
+            (arguments["commit_sha"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.matches(Regex("[a-fA-F0-9]{40}")) != true
+        ) {
+            return rejected
+        }
+        val ciName = relatedToolName("github_ci")
+        val discovery = buildJsonObject {
+            arguments.filterKeys { it in setOf("owner", "repo", "commit_sha") }.forEach { (key, value) -> put(key, value) }
+            put("action", "runs")
+            put("page", 1)
+            put("per_page", 100)
+        }
+        if (ToolArgumentValidator.errors(discovery, definition("github_ci", ciName).inputSchema).isNotEmpty()) return rejected
+        val body = (rejected.content as? ToolResultContent.Json)?.value as? JsonObject ?: return rejected
+        return rejected.copy(
+            content = ToolResultContent.Json(
+                JsonObject(
+                    body + buildJsonObject {
+                        put("message", "A watch needs an observed pr_number or run_id. Read the exact commit's runs with recovery_call, then select an observed run_id for the original watch request. No subscription was created.")
+                        put(
+                            "recovery_call",
+                            buildJsonObject {
+                                put("tool", ciName)
+                                put("arguments", discovery)
+                            }
+                        )
+                    }
+                )
+            )
+        )
     }
 
     private suspend fun executeNormalized(callId: String, arguments: JsonObject): AgentToolResult {
@@ -637,6 +675,13 @@ internal class GitHubOperationTool(
             else -> null
         }
         result = result.copy(executionReceipt = dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.withGeneration(result.executionReceipt, null))
+        if (operation == "github_search" && !result.isError && data != null) {
+            val recipe = dev.chungjungsoo.gptmobile.data.github.GitHubSearchSourceRead.recipe(relatedToolName("github_read"), resolved, data)
+            if (recipe != null) {
+                data = JsonObject(data + ("source_read_call" to recipe))
+                result = result.copy(content = ToolResultContent.Json(data))
+            }
+        }
         if (!result.isError && data != null) {
             val assessment = pagination.assessPage(operation, resolved, data, paginationObservation)
             result = result.copy(executionReceipt = dev.chungjungsoo.gptmobile.data.github.GitHubComparisonPage.withGeneration(result.executionReceipt, assessment.generation))
@@ -725,7 +770,15 @@ internal class GitHubOperationTool(
         } else {
             null
         }
-        val saved = views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance, sourceCorrection = sourceCorrection)
+        val savedPage = views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance, sourceCorrection = sourceCorrection)
+        val pageBody = (savedPage.content as? ToolResultContent.Json)?.value as? JsonObject
+        val sourceRead = body?.get("source_read_call") as? JsonObject
+        val pageWithRead = if (!savedPage.isError && pageBody != null && sourceRead != null) JsonObject(pageBody + ("source_read_call" to sourceRead)) else null
+        val saved = if (pageWithRead != null && pageWithRead.toString().encodeToByteArray().size <= outputAllowance) {
+            savedPage.copy(content = ToolResultContent.Json(pageWithRead))
+        } else {
+            savedPage
+        }
         val frontier = if (operation == "github_search" && backend is GitHubTool && !saved.isError && body != null) {
             val source = (saved.content as? ToolResultContent.Json)?.value as? JsonObject
             dev.chungjungsoo.gptmobile.data.github.GitHubSearchFrontier.capture(definition.name, effectiveArguments, body, dev.chungjungsoo.gptmobile.data.github.GitHubSearchFrontier.recipes(source, saved.executionReceipt))
@@ -1547,7 +1600,7 @@ internal class GitHubOperationTool(
             val description = when (operation) {
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
-                "github_search" -> "Search pinned repository. Omit action or use search. Follow exact continuation_call. mode=paths finds filenames; reuse retained paths."
+                "github_search" -> "Search pinned repository. mode=paths matches filenames/* patterns. Read source_read_call next; follow exact continuation_call."
                 "github_read" -> "Read bounded ranges: end_line or max_lines. Use source_coverage.next_action."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."

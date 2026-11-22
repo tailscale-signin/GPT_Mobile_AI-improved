@@ -17,7 +17,8 @@ internal data class ToolHandoffReceipt(
     val dispatched: Boolean,
     val errorCode: String?,
     val requiresReconciliation: Boolean,
-    val receiptSource: String = "OBSERVED_TOOL_RESULT"
+    val receiptSource: String = "OBSERVED_TOOL_RESULT",
+    val journalProjectionSha256: String? = null
 ) {
     fun settled(reconciled: Set<String>): Boolean = !requiresReconciliation || callId in reconciled
 
@@ -27,6 +28,7 @@ internal data class ToolHandoffReceipt(
         put("receipt_reference", "tool-batch/$callId")
         put("receipt_source", receiptSource)
         sourceResultSha256?.let { put("source_result_sha256", it) }
+        journalProjectionSha256?.let { put("journal_projection_sha256", it) }
         put("projection_sha256", projectionSha256)
         put("hash_scope", "TOOL_RESULT_PAYLOAD_UTF8")
         put("source_hash_scope", "ORIGINAL_TOOL_RESULT_PAYLOAD_UTF8")
@@ -82,7 +84,9 @@ internal data class ToolHandoffReceipt(
                 result.errorCode in ToolResultEnvelope.unknownOutcomeCodes ||
                     result.executionReceipt?.get("requires_reconciliation") == JsonPrimitive(true) ||
                     GatewayOutcomeRecovery.requiresReconciliation("", result.errorCode),
-                if (originalAvailable) "OBSERVED_TOOL_RESULT" else "REPLAY_PROJECTION"
+                if (originalAvailable) "OBSERVED_TOOL_RESULT" else "REPLAY_PROJECTION",
+                result.executionReceipt?.takeIf { it["journal_projection_scope"] == JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8") }
+                    ?.get("journal_projection_sha256")?.let { it as? JsonPrimitive }?.takeIf { it.isString && it.content.matches(Regex("[a-f0-9]{64}")) }?.content
             )
         }
     }

@@ -352,29 +352,17 @@ internal class GitHubVerifiedSession(
             }
             val planningRemaining = remainingToolCalls()
             val planningBudget = evidence.stageBudget(receipts, planningRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
-            val (checkpoint, planned, missing) = withContext(computationDispatcher) {
-                Triple(
-                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, planningRemaining, fixturePreflight, planningBudget),
-                    GitHubTestChecklist.nextCall(task, tools, receipts, planningRemaining, fixturePreflight),
-                    authorizedTools.filter { definition ->
-                        (definition.name.startsWith("github_") || definition.name.isGatewayRepositoryTool()) &&
-                            tools.none { it.name == definition.name } &&
-                            receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) }
-                    }.take(12)
-                )
+            val (checkpoint, schedule) = withContext(computationDispatcher) {
+                val schedule = GitHubTestChecklist.schedule(task, authorizedTools, tools, receipts, planningRemaining, fixturePreflight)
+                JsonObject(
+                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, planningRemaining, fixturePreflight, planningBudget) +
+                        ("execution_plan" to schedule.snapshot)
+                ) to schedule
             }
             val discovery = tools.firstOrNull { it.name == GitHubAuthorizedCatalog.TOOL && it.modelVisible }
             val catalogNext = GitHubAuthorizedCatalog.next(tools, receipts, authorizedTools)
             val catalogComplete = GitHubAuthorizedCatalog.snapshot(receipts, authorizedTools)["complete"] == kotlinx.serialization.json.JsonPrimitive(true)
-            val discoveryArgs = buildJsonObject { put("names", JsonArray(missing.map { kotlinx.serialization.json.JsonPrimitive(it.name) })) }
-            val discoveryAlreadyTried = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") && it["arguments"] == discoveryArgs }
-            val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remainingToolCalls())
-            val next = when {
-                planned != null && planned.name.substringBefore("__") == "github_commit" && planned.arguments["action"] in setOf(kotlinx.serialization.json.JsonPrimitive("delete_branch"), kotlinx.serialization.json.JsonPrimitive("delete_fixture_branch")) -> planned
-                acquisitionAllowed && catalogNext != null -> catalogNext
-                acquisitionAllowed && catalogComplete && discovery != null && missing.isNotEmpty() && !discoveryAlreadyTried -> ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(discoveryArgs.toString()).take(20), discovery.name, discoveryArgs)
-                else -> planned
-            }
+            val next = schedule.next
             if (checkpoint != lastChecklist) {
                 if (receipts.isNotEmpty()) withContext(computationDispatcher) { evidence.retainChecklist(checkpoint) }
                 lastChecklist = checkpoint
@@ -754,7 +742,7 @@ internal class GitHubVerifiedSession(
                 }
                 is ProviderEvent.ToolCall -> {
                     calls = true
-                    emit(event)
+                    emit(evidence.repairSourceRead(event))
                 }
                 is ProviderEvent.ToolResult -> {
                     evidence.observe(event.call, event.result)
@@ -933,7 +921,7 @@ internal class GitHubVerifiedSession(
                 val reportingRemaining = remainingToolCalls()
                 val reportingBudget = evidence.stageBudget(receipts, reportingRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
                 withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, reportingRemaining, reportingBudget, evidence.acceptedPromptContract(), fixturePreflight)
+                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, reportingRemaining, reportingBudget, evidence.acceptedPromptContract(), fixturePreflight, lastChecklist?.get("execution_plan") as? JsonObject)
                 }
             } else {
                 null
@@ -983,7 +971,10 @@ internal class GitHubVerifiedSession(
                 rendered
             }
             val (checklist, progressDigest) = withContext(computationDispatcher) {
-                val checklist = report["test_checklist"] as? JsonObject
+                val checklist = (report["test_checklist"] as? JsonObject)?.let { recorded ->
+                    val plan = GitHubChecklistSchedule.current(lastChecklist?.get("execution_plan") as? JsonObject, publicationReceipts)
+                    if (plan == null) recorded else JsonObject(recorded + ("execution_plan" to plan))
+                }
                 checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, publicationReceipts, authorizedTools, fixturePreflight) }
             }
             val previous = evidence.diagnostic()
@@ -1274,7 +1265,7 @@ internal class GitHubVerifiedSession(
             publication.extractionFailure == null &&
             openExecutionContinuation != null &&
             continuationTools.isNotEmpty() &&
-            progressCorrections < 3 &&
+            GitHubExecutionContinuation.hasAcquisitionBudget(remainingToolCalls(), evidence.remainingTaskMillis()) &&
             (newEvidenceProgress || requestedCorrection) &&
             staleReceiptIds.isEmpty() &&
             (GitHubRequestCompletion.requiresRepositoryEvidence(task) || currentSessionReview) &&
@@ -1598,6 +1589,7 @@ internal class GitHubVerifiedSession(
         // that exceeds the bounded batch plan remains incomplete until it is split or
         // a larger, explicitly supported plan is introduced.
         if (groups.size > GitHubClaimBatches.MAX_BATCHES) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_BATCH_LIMIT, groups.size)
+        val criterionContracts = GitHubAcceptanceContract.criteria(task, GitHubRequestCompletion.requirements(task, issueWork)).associateBy { it.id }
         val catalog by lazy { JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()) }
         val requests = groups.mapIndexed { index, requirements ->
             // Never replay a history-sized saved report into the extractor. Completed
@@ -1616,6 +1608,7 @@ internal class GitHubVerifiedSession(
                             buildJsonObject {
                                 put("id", id)
                                 put("text", text)
+                                criterionContracts[id]?.let { put("criterion_contract", it.json()) }
                             }
                         }
                     )

@@ -176,7 +176,18 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         observation.receiptGeneration
     )
 
-    private fun rows(result: JsonObject): Map<String, JsonArray> {
+    private fun rows(operation: String, args: JsonObject, result: JsonObject): Map<String, JsonArray> {
+        if (operation == "github_pr" && args["action"] == JsonPrimitive("copilot_tasks")) {
+            // An empty task list is a valid discovery result. Missing or malformed
+            // task data must not borrow coverage from an unrelated collection.
+            val tasks = result["tasks"] as? JsonArray ?: return emptyMap()
+            val malformed = tasks.any { row ->
+                val id = ((row as? JsonObject)?.get("id") as? JsonPrimitive)?.takeIf { it.isString }?.content
+                id.isNullOrBlank() || id.length > 256 || id.any(Char::isISOControl)
+            }
+            if (malformed) return emptyMap()
+            return mapOf("tasks" to tasks)
+        }
         val upstream = result["upstream_record_ids"] as? JsonArray
         if (!upstream.isNullOrEmpty()) return mapOf("upstream_record_ids" to upstream)
         val direct = result.filter { (name, value) -> name in COLLECTIONS && value is JsonArray }.mapValues { it.value as JsonArray }
@@ -275,7 +286,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         }
         if (observation != null && dispatched == null) return superseded(args, observation)
         if (observation != null) dispatched?.pending?.remove(observation.id)
-        val collections = rows(result)
+        val collections = rows(operation, args, result)
         if (collections.isEmpty()) {
             // A successful envelope with no record collection cannot establish
             // coverage when the provider advertises records or another page.
@@ -283,7 +294,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             val reportedTotal = reportedTotal(operation, args, result)
             // A zero-result first page is a complete empty collection. A
             // later zero-result page cannot erase previously observed records.
-            if (reportedTotal == 0 &&
+            if (!(operation == "github_pr" && args["action"] == JsonPrimitive("copilot_tasks")) &&
+                reportedTotal == 0 &&
                 result["has_more"] == JsonPrimitive(false) &&
                 page(args) == 1 &&
                 traversals[key(operation, args)]?.pages?.isEmpty() != false
@@ -429,7 +441,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             result
         } else {
             result.mapValues { (name, value) ->
-                if (name !in COLLECTIONS || value !is JsonArray || "upstream_record_ids" in collections) {
+                if (name !in collections || value !is JsonArray || "upstream_record_ids" in collections) {
                     value
                 } else {
                     val seen = earlier.toMutableSet()

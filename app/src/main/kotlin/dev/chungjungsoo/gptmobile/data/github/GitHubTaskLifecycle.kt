@@ -126,6 +126,10 @@ internal object GitHubTaskLifecycle {
         val outcome = buildJsonObject {
             put("schema", "github.failure-outcome.v1")
             put("failure_code", failure.errorCode ?: classification.category)
+            if (failure.errorCode in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES) {
+                put("current_failure_code", failure.errorCode)
+                dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.retainedDetails(failure.failureDetails)?.let { put("latest_recovery_failure", it) }
+            }
             put("failure_domain", if (classification.isTaskVerification) "TASK_VERIFICATION" else "EXECUTION")
             put("failure_scope", "CURRENT_STAGE")
             if (classification.isTaskVerification) put("continuation_required", true)

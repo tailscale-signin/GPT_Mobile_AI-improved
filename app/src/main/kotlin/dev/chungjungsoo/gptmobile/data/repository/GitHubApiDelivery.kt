@@ -80,6 +80,9 @@ internal fun Flow<ApiState>.withGitHubApiDelivery(enabled: Boolean, runId: Strin
 
 internal fun githubFailureDeliveryText(error: ApiState.Error?): String {
     val details = error?.failureDetails
+    if (details?.get("failure_origin") == kotlinx.serialization.json.JsonPrimitive("local_recovery")) {
+        return requireNotNull(error).message + "\n\nThe saved task could not resume. This recovery attempt was blocked before dispatch; earlier tool results remain retained. Review the recorded recovery condition before continuing."
+    }
     val unsent = details?.get("dispatched") == kotlinx.serialization.json.JsonPrimitive(false) &&
         details["remote_acceptance"] == kotlinx.serialization.json.JsonPrimitive("NO")
     if (unsent) {

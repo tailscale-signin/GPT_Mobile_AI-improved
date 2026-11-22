@@ -1,5 +1,14 @@
 # 0.9.66.13 — 2026-11-22
 
+- Compile compound engineering requests into stable source-linked acceptance criteria with explicit dependencies and evidence producers; preserve original scope and budgets when refining saved contracts.
+- Require actual pinned source content, complete instruction coverage, a changed regression at the tested revision, complete diff coverage and the matching live draft pull request before their individual obligations can pass.
+- Bind provider cooldown recovery to the complete atomic durable tool journal independently of compacted provider replay; retain local projection identity, original failure provenance, settled-write replay and unknown-write reconciliation.
+- Keep task acceptance, delivered responses and output attempts independent; reconcile same-task recovery refusals and require observed scheduler ownership instead of inferring a live executor from saved state.
+- Execute every currently admissible GitHub checklist lane, discover exact missing schemas within the accepted budget, retain candidate admission reasons and correct a proven legacy invalid status recipe once.
+- Route instruction discovery through native path search, replay exact saved continuation selectors, convert search receipts to pinned source reads and derive CI run/job selectors from observed identities.
+- Request one bounded replan after three unproductive source rounds or sixty seconds of unproductive work while preserving exact incomplete search frontiers and useful source progress; continue eligible work beyond three correction rounds within the original finite budget.
+- Accept an observed empty Copilot task collection without confusing it with malformed or incomplete responses, and preserve exact comparison, CI, reserve and optional-service evidence through full paged diagnostic export.
+
 - Add a durable conversational voice system prompt for microphone and typed turns, concise spoken-answer display, optional visual details and explicit full-details replay; keep reasoning outside answer audio across streamed and restored responses.
 - Improve contextual pronunciation and caption mapping for dates, times, signed quantities, units and IP addresses; add natural speech defaults and a preset without overwriting saved choices.
 - Add Quick/Full CPU, GPU and NPU speech benchmarks with identical fixtures, cold/warm timing, first PCM, real-time factor, median/p95, thermal and actual mixed-kernel evidence, cancellation, saved reports and private JSON export.
@@ -27,7 +36,7 @@
 - Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.
 - Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.
 - Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.
-- Reserve accepted PCM against measured next-phrase synthesis time within a bounded five-second reserve, preserve natural first clauses, and align follow-up phrase targets to Quality 24 words, Balanced 16 and Fast 12 with adaptive Auto pacing.
+- Reserve accepted PCM against measured next-phrase synthesis time within a bounded 5.9-second reserve inside the existing six-second PCM queue, preserve natural first clauses, and align follow-up phrase targets to Quality 24 words, Balanced 16 and Fast 12 with adaptive Auto pacing.
 - Separate first visible text, publishable phrase, queued speech, prepared PCM and presented audio timings; distinguish warm-at-request from engine reuse and show measured buffering, refill and effective-provider evidence.
 - Repair Kokoro QNN partition proposals with a convex, static-interface graph adapter; select the concrete GPU or NPU device and keep dynamic duration/alignment sections on CPU within the same audio-and-timing inference.
 - Qualify backend execution from valid PCM, aligned durations and actual kernel profiles for each prepared token shape; retain bounded device/model/runtime/lexicon/thread-scoped capability receipts and explicit rechecks. Auto retains CPU unless measured accelerator cost, including preparation, is at least 10% lower.

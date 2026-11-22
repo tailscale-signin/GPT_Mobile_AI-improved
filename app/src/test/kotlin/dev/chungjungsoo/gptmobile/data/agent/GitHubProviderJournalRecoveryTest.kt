@@ -44,6 +44,59 @@ class GitHubProviderJournalRecoveryTest {
     private val tool = AgentToolDefinition("github_write", "Write an owned test fixture", JsonObject(emptyMap()))
     private val call = ProviderEvent.ToolCall("already-written", tool.name, buildJsonObject { put("branch", "codex-self-test/owned") })
 
+    @Test fun recapturedCorrectedSourceCallKeepsItsOriginalIdentityThroughDiskRecovery() = runBlocking {
+        val directory = Files.createTempDirectory("github-corrected-source-journal").toFile()
+        try {
+            val original = ProviderEvent.ToolCall(
+                "source-read",
+                "github_read",
+                Json.parseToJsonElement("""{"evidence_id":"ev_aaaaaaaaaaaaaaaaaaaaaaaa","ranges":[{"path":"src/Main.kt","start_line":1,"max_lines":20}]}""") as JsonObject
+            )
+            val pinned = original.captureProviderInvocation().copy(
+                arguments = JsonObject(
+                    original.arguments - "evidence_id" + buildJsonObject {
+                        put("owner", "owner")
+                        put("repo", "repo")
+                        put("commit_sha", "b".repeat(40))
+                    }
+                )
+            )
+            val admitted = pinned.captureProviderInvocation()
+            var executions = 0
+            val journal = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+            journal.enqueue(listOf(admitted))
+            journal.execute(admitted) {
+                executions++
+                AgentToolResult(admitted.callId, ToolResultContent.Text("Pinned source read."), false)
+            }
+            val receipts = journal.providerWaitReceipts()
+            assertEquals(ToolHandoffReceipt.fingerprint(original), receipts.single().invocationFingerprint)
+            val restored = ToolBatchCheckpoint.forTurn(
+                directory,
+                2,
+                originalBinding,
+                persistent = true,
+                expectedProviderJournalDigest = requireNotNull(GitHubProviderReplayEvidence.journalDigest(receipts))
+            )
+            val retained = restored.recoverySnapshot().completedExchanges.single().calls.single()
+            assertEquals(original.providerInvocation(), retained.providerInvocation())
+            assertEquals(pinned.arguments, retained.arguments)
+            assertTrue(restored.execute(retained) { error("A recovered source operation must not be repeated") }.sharedResult)
+            assertEquals(1, executions)
+            for (invalid in listOf(
+                pinned.copy(callId = "substituted-call"),
+                pinned.copy(originalInvocation = ProviderToolInvocation("github_write", original.arguments)),
+                pinned.copy(originalInvocation = ProviderToolInvocation(original.name, pinned.arguments)),
+                pinned.copy(originalInvocationFingerprint = null),
+                pinned.copy(originalInvocation = null)
+            )) {
+                assertTrue(runCatching { invalid.captureProviderInvocation() }.isFailure)
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun ordinaryRecoveryRestoresOnlyACompletePreviouslyConfirmedJournalForTheSameTask() = runBlocking {
         val directory = Files.createTempDirectory("github-settled-handoff").toFile()
         try {
@@ -308,6 +361,154 @@ class GitHubProviderJournalRecoveryTest {
             } finally {
                 directory.deleteRecursively()
             }
+        }
+    }
+
+    @Test fun rateLimitCapturesAll103SettledCallsIncluding21AutomaticReadsAndRestartsWithoutRepeatingAWrite() = runBlocking {
+        val directory = Files.createTempDirectory("github-103-call-provider-wait").toFile()
+        try {
+            val journal = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+            var writes = 0
+            val primaryCalls = (0 until 82).map { index ->
+                if (index == 0) call else ProviderEvent.ToolCall("primary-$index", "github_read", buildJsonObject { put("path", "source-$index.kt") })
+            }
+            val automaticReads = (0 until 21).map { index ->
+                ProviderEvent.ToolCall("remote-result-consume-$index", "github_search", buildJsonObject { put("index_cursor", index * 4) })
+            }
+            for ((index, next) in (primaryCalls + automaticReads).withIndex()) {
+                journal.enqueue(listOf(next))
+                journal.execute(next) {
+                    if (next == call) writes++
+                    val rejected = index in 76..81
+                    AgentToolResult(
+                        next.callId,
+                        ToolResultContent.Text(if (rejected) "Local validation rejection. ".repeat(300) else "Recorded result $index"),
+                        isError = rejected,
+                        dispatched = !rejected,
+                        errorCode = if (rejected) "INVALID_ARGUMENTS" else null,
+                        sharedResult = rejected
+                    )
+                }
+            }
+            val complete = journal.recoverySnapshot().completedExchanges
+            val primaryReplay = complete.filter { it.calls.single() in primaryCalls }
+            assertEquals(103, complete.size)
+            assertEquals(82, primaryReplay.size)
+            val outputFile = File(directory, "output.json")
+            fun saved() = Json.parseToJsonElement(outputFile.readText()) as JsonObject
+            val context = buildJsonObject {
+                put("task_binding", taskBinding)
+                put("tool_checkpoint_binding", originalBinding)
+            }
+            val rateLimit = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    emit(ProviderEvent.Failed("Provider cooldown", errorCode = "429", providerLimit = ProviderLimitDecision("OPENROUTER", "profile", "model", 30_000, "provider-scope", "PROVIDER_RATE_LIMITED", true)))
+                }
+            }
+            val initial = GitHubOutputContinuationSession(
+                rateLimit,
+                checkpointContext = context,
+                toolCheckpointBinding = originalBinding,
+                durableToolReceipts = journal::handoffReceipts,
+                durableProviderJournal = journal::providerWaitReceipts,
+                saveCheckpoint = { outputFile.writeText(it.toString()) }
+            ) { _, _, _ -> error("The durable provider wait owns resumption") }
+                .streamRound(listOf(tool), primaryReplay).toList()
+            val expectedCheckpoint = requireNotNull(initial.filterIsInstance<ProviderEvent.Failed>().single().providerLimit?.gitHubCheckpoint)
+            val retained = saved()
+            assertTrue(expectedCheckpoint.matches(retained))
+            assertEquals(JsonPrimitive(103), retained["tool_journal_receipt_count"])
+            assertEquals(JsonPrimitive(true), retained["tool_journal_complete"])
+            assertEquals(103, (retained["completed_results"] as JsonArray).size)
+            assertEquals(JsonPrimitive(GitHubProviderReplayEvidence.digest(GitHubProviderReplayEvidence.receipts(primaryReplay))), retained["provider_evidence_digest"])
+
+            // A new journal and session model process restart. Replay is compacted
+            // independently, retaining six local results without original sources.
+            val resolved = GitHubProviderToolCheckpoint.resolve(directory, 2, scope, "new-parent", expectedCheckpoint, retained, persistent = true)
+            assertEquals(retained["tool_journal_digest"], JsonPrimitive(requireNotNull(resolved.journalDigest)))
+            val restored = ToolBatchCheckpoint.forTurn(directory, 2, resolved.binding, persistent = true, expectedProviderEvidenceDigest = resolved.evidenceDigest, expectedProviderJournalDigest = resolved.journalDigest)
+            val recovered = restored.recoverySnapshot()
+            assertEquals(103, recovered.completedExchanges.size)
+            val replay = ToolExchangeCompactor.compact(recovered.completedExchanges.filter { it.calls.single().callId in primaryCalls.takeLast(7).map { next -> next.callId } }, maxReplayTokens = 2048, maxResultTokens = 64)
+            assertTrue(GitHubProviderReplayEvidence.receipts(replay).any { it.sourceResultSha256 == null && it.journalProjectionSha256 != null })
+            var resumedRounds = 0
+            val resumed = GitHubOutputContinuationSession(
+                delegate = object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("A restart must use its saved task")
+                },
+                expectedProviderCheckpoint = expectedCheckpoint,
+                checkpointContext = context,
+                toolCheckpointBinding = resolved.binding,
+                toolCheckpointEvidenceDigest = resolved.evidenceDigest,
+                toolCheckpointJournalDigest = resolved.journalDigest,
+                durableToolReceipts = restored::handoffReceipts,
+                durableProviderJournal = restored::providerWaitReceipts,
+                readCheckpoint = { saved() },
+                saveCheckpoint = { outputFile.writeText(it.toString()) }
+            ) { _, retainedReplay, definitions ->
+                assertEquals(replay, retainedReplay)
+                assertEquals(listOf(tool), definitions)
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                        resumedRounds++
+                        emit(ProviderEvent.TextDelta("Continued from the retained task and complete journal."))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+            }.streamRound(listOf(tool), replay).toList()
+            assertEquals(ProviderEvent.Completed, resumed.last())
+            assertEquals(1, resumedRounds)
+            assertEquals(JsonPrimitive("COMPLETED"), saved()["state"])
+            assertTrue(
+                restored.execute(call) {
+                    writes++
+                    error("Never repeat a settled mutation")
+                }.sharedResult
+            )
+            assertEquals(1, writes)
+
+            // Missing old proof cannot authorize ignoring automatic or unknown work.
+            val legacy = JsonObject(retained - setOf("tool_journal_complete", "tool_journal_digest", "tool_journal_receipt_count") + ("completed_results" to JsonArray(GitHubProviderReplayEvidence.receipts(primaryReplay).map { it.json() })))
+            val legacyResolved = GitHubProviderToolCheckpoint.resolve(directory, 2, scope, "new-parent", expected(legacy), legacy, persistent = true)
+            val legacyJournal = ToolBatchCheckpoint.forTurn(directory, 2, legacyResolved.binding, persistent = true, expectedProviderEvidenceDigest = legacyResolved.evidenceDigest, expectedProviderJournalDigest = legacyResolved.journalDigest)
+            assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", runCatching { legacyJournal.recoverySnapshot() }.exceptionOrNull()?.message)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun completeWaitJournalRejectsChangedMetadataAndUnknownWritesBeforeRestoration() = runBlocking {
+        val directory = Files.createTempDirectory("github-provider-complete-boundary").toFile()
+        try {
+            val journal = ToolBatchCheckpoint.forTurn(directory, 2, originalBinding, persistent = true)
+            journal.enqueue(listOf(call))
+            journal.execute(call) { AgentToolResult(call.callId, ToolResultContent.Text("Confirmed receipt"), false) }
+            val receipts = journal.providerWaitReceipts()
+            val saved = JsonObject(
+                currentCheckpoint(journal.recoverySnapshot().completedExchanges) + buildJsonObject {
+                    put("completed_results", JsonArray(receipts.map { it.json() }))
+                    put("tool_journal_complete", true)
+                    put("tool_journal_receipt_count", 1)
+                    put("tool_journal_digest", requireNotNull(GitHubProviderReplayEvidence.journalDigest(receipts)))
+                }
+            )
+            for (changed in listOf(
+                JsonObject(saved + ("tool_journal_complete" to JsonPrimitive(false))),
+                JsonObject(saved + ("tool_journal_receipt_count" to JsonPrimitive(2))),
+                JsonObject(saved + ("tool_journal_digest" to JsonPrimitive("f".repeat(64))))
+            )) {
+                assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", runCatching { GitHubProviderToolCheckpoint.resolve(directory, 2, scope, "new-parent", expected(changed), changed, persistent = true) }.exceptionOrNull()?.message)
+            }
+            val resolved = GitHubProviderToolCheckpoint.resolve(directory, 2, scope, "new-parent", expected(saved), saved, persistent = true)
+            val unknown = call.copy(callId = "unknown-write")
+            journal.enqueue(listOf(unknown))
+            assertTrue(runCatching { journal.execute(unknown) { throw java.io.IOException("Lost response after dispatch") } }.exceptionOrNull() is java.io.IOException)
+            assertEquals("PROVIDER_WAIT_OUTCOME_UNKNOWN", runCatching { journal.providerWaitReceipts() }.exceptionOrNull()?.message)
+            val restored = ToolBatchCheckpoint.forTurn(directory, 2, resolved.binding, persistent = true, expectedProviderEvidenceDigest = resolved.evidenceDigest, expectedProviderJournalDigest = resolved.journalDigest)
+            assertEquals("PROVIDER_WAIT_OUTCOME_UNKNOWN", runCatching { restored.recoverySnapshot() }.exceptionOrNull()?.message)
+            assertEquals("PROVIDER_WAIT_OUTCOME_UNKNOWN", runCatching { restored.execute(unknown) { error("An uncertain write must not replay") } }.exceptionOrNull()?.message)
+        } finally {
+            directory.deleteRecursively()
         }
     }
 

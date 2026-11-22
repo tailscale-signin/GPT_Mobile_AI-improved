@@ -81,7 +81,13 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             val identity = sourceResultSha256?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let { source ->
                 JsonObject(execution.orEmpty() + mapOf("source_result_sha256" to JsonPrimitive(source), "source_hash_scope" to JsonPrimitive("ORIGINAL_TOOL_RESULT_PAYLOAD_UTF8")))
             } ?: execution
-            return AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit, executionReceipt = identity))
+            val journalIdentity = JsonObject(
+                identity.orEmpty() + mapOf(
+                    "journal_projection_sha256" to JsonPrimitive(projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(body)),
+                    "journal_projection_scope" to JsonPrimitive("PERSISTED_JOURNAL_PROJECTION_UTF8")
+                )
+            )
+            return AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit, executionReceipt = journalIdentity))
         }
     }
 
@@ -134,7 +140,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 }
         ) { "Tool recovery ledger has invalid delivered-result proof." }
         if (!providerRecoveryValidated && (expectedProviderEvidenceDigest != null || expectedProviderJournalDigest != null)) {
-            val receipts = GitHubProviderReplayEvidence.receipts(saved.settledExchanges())
+            val receipts = saved.journalReceipts()
             ProviderRecoveryFailure.require(
                 saved.entries.values.none { it.started && it.result == null } && receipts.none { it.requiresReconciliation },
                 "PROVIDER_WAIT_OUTCOME_UNKNOWN",
@@ -245,30 +251,49 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
 
     /** Resolve exact handoff identities without parsing or replaying retained payload bodies. */
     internal suspend fun handoffReceipts(fingerprints: Set<String>): List<ToolHandoffReceipt> = locked {
-        read().entries.values.mapNotNull { entry ->
-            val fingerprint = ToolHandoffReceipt.fingerprint(entry.call.event())
-            if (fingerprint !in fingerprints) return@mapNotNull null
-            val result = entry.result ?: return@mapNotNull null
-            ToolHandoffReceipt(
-                entry.call.id,
-                fingerprint,
-                result.sourceResultSha256,
-                result.projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body),
-                result.dispatched,
-                result.code,
-                result.code in ToolResultEnvelope.unknownOutcomeCodes ||
-                    result.execution?.get("requires_reconciliation") == JsonPrimitive(true) ||
-                    GatewayOutcomeRecovery.requiresReconciliation("", result.code),
-                "TOOL_BATCH_CHECKPOINT"
-            )
-        }
+        read().journalReceipts().filter { it.invocationFingerprint in fingerprints }
+    }
+
+    /** Capture every settled call, including automatic reads omitted from provider replay. */
+    internal suspend fun providerWaitReceipts(): List<ToolHandoffReceipt> = locked {
+        val state = read()
+        val receipts = state.journalReceipts()
+        ProviderRecoveryFailure.require(
+            state.entries.values.none { it.started && it.result == null } && receipts.none { it.requiresReconciliation },
+            "PROVIDER_WAIT_OUTCOME_UNKNOWN",
+            providerRecoveryCorrelation(state, receipts, "TOOL_OUTCOME_UNKNOWN")
+        )
+        ProviderRecoveryFailure.require(
+            state.entries.values.all { it.result != null } && GitHubProviderReplayEvidence.journalDigest(receipts) != null,
+            "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+            providerRecoveryCorrelation(state, receipts, "TOOL_RESULTS_PENDING")
+        )
+        receipts
+    }
+
+    private fun State.journalReceipts(): List<ToolHandoffReceipt> = entries.values.mapNotNull { entry ->
+        val fingerprint = ToolHandoffReceipt.fingerprint(entry.call.event())
+        val result = entry.result ?: return@mapNotNull null
+        ToolHandoffReceipt(
+            entry.call.id,
+            fingerprint,
+            result.sourceResultSha256,
+            result.projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body),
+            result.dispatched,
+            result.code,
+            result.code in ToolResultEnvelope.unknownOutcomeCodes ||
+                result.execution?.get("requires_reconciliation") == JsonPrimitive(true) ||
+                GatewayOutcomeRecovery.requiresReconciliation("", result.code),
+            "TOOL_BATCH_CHECKPOINT",
+            result.projectionSha256 ?: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(result.body)
+        )
     }
 
     /** Only a complete journal matching the protected handoff may follow a turn to its new guard. */
     internal suspend fun settledHandoffDigest(checkpoint: JsonObject): String? = locked {
         val state = read()
         if (state.entries.isEmpty() || state.entries.values.any { it.result == null }) return@locked null
-        val receipts = GitHubProviderReplayEvidence.receipts(state.settledExchanges())
+        val receipts = state.journalReceipts()
         GitHubProviderReplayEvidence.settledHandoffDigest(checkpoint, receipts)
     }
 
@@ -372,7 +397,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                     ProviderRecoveryFailure.require(
                         observed.entries == state.entries && observed.pending == state.pending && observed.batches == state.batches,
                         "PROVIDER_WAIT_CHECKPOINT_CHANGED",
-                        providerRecoveryCorrelation(observed, GitHubProviderReplayEvidence.receipts(observed.settledExchanges()), "TOOL_JOURNAL_CHANGED_DURING_RESTORE")
+                        providerRecoveryCorrelation(observed, observed.journalReceipts(), "TOOL_JOURNAL_CHANGED_DURING_RESTORE")
                     )
                 }
                 observed
@@ -541,7 +566,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                     return@withContext null
                 }
                 if (settled.entries.values.any { it.result == null }) continue
-                val receipts = GitHubProviderReplayEvidence.receipts(candidate.run { settled.settledExchanges() })
+                val receipts = candidate.run { settled.journalReceipts() }
                 if (receipts.isEmpty() || receipts.any { it.requiresReconciliation }) continue
                 val matches = if (journalDigest != null) {
                     GitHubProviderReplayEvidence.journalDigest(receipts) == journalDigest

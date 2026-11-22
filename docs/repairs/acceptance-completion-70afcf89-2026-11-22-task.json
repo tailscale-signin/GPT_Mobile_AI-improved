@@ -1,0 +1,659 @@
+{
+  "schema": "gptmobile.engineering-task.v1",
+  "task_id": "acceptance-completion-70afcf89-2026-11-22",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 2254,
+  "base_commit": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "starting_head": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+  "remote_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "working_branch": "work/acceptance-completion-70afcf89",
+  "intent": "Implement all 16 diagnostic review findings, preserve other workers changes, validate the current PR head, merge after required checks pass, validate the exact main commit and publish the scoped release.",
+  "authorization": "User explicitly authorized implementation, draft PR push, merge after green, and publication after green on 2026-11-22.",
+  "state": "LOCAL_VALIDATION_COMPLETE_DRAFT_PUSH_PENDING",
+  "guardrails": [
+    "Preserve concurrent commits; never force push",
+    "Never substitute earlier-head checks for current-head evidence",
+    "Reconcile unknown mutations before replay",
+    "Do not claim physical phone or accelerator qualification from host tests"
+  ],
+  "findings": [
+    {
+      "id": "R01",
+      "title": "Decompose implementation requests into verifiable deliverables",
+      "acceptance_tests": [
+        "T01",
+        "T02"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "GitHubAcceptanceContractTest",
+        "GitHubCriterionAcceptanceRegressionTest",
+        "GitHubRequestCompletion and criterion-specific native receipt proof"
+      ]
+    },
+    {
+      "id": "R02",
+      "title": "Reconcile durable journal evidence after provider cooldown",
+      "acceptance_tests": [
+        "T03",
+        "T04",
+        "T05"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "AgentToolJournalStoreTest",
+        "OutputLimitRecoverySessionTest",
+        "GitHubProviderJournalRecoveryTest",
+        "Captured 103-call / 82-provider-view mismatch behavior regression",
+        "ProviderToolReplayTest actual OpenAI/Anthropic/Gemini replay envelopes",
+        "AgentRunnerTest corrected source original-envelope regression (hosted Android execution pending)"
+      ]
+    },
+    {
+      "id": "R03",
+      "title": "Separate task completion, response delivery and recovery-attempt state",
+      "acceptance_tests": [
+        "T06",
+        "T07",
+        "T08"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "GitHubEffectiveRecoveryTest",
+        "GitHubRecoveryCheckpointProjectionTest",
+        "GitHubProgressContinuationTest (full orchestration: hosted Android execution pending)"
+      ]
+    },
+    {
+      "id": "R04",
+      "title": "Execute every admissible dependency lane before pausing",
+      "acceptance_tests": [
+        "T09",
+        "T10",
+        "T11"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "GitHubChecklistScheduleTest",
+        "GitHubIntegrationReport receipt-bound execution plan"
+      ]
+    },
+    {
+      "id": "R05",
+      "title": "Fix internally generated agent_merge_status arguments and old-run recovery",
+      "acceptance_tests": [
+        "T12",
+        "T13"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "GitHubSelfTestReadsTest legacy status repair cases",
+        "GitHubSelfTestReads action-specific contract tests"
+      ]
+    },
+    {
+      "id": "R06",
+      "title": "Route instruction discovery to path search and measure useful progress",
+      "acceptance_tests": [
+        "T14",
+        "T15"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "GitHubSearchArgumentsTest",
+        "GitHubReadRoundProgressTest:33 contiguous empty pages and retained exact frontier"
+      ]
+    },
+    {
+      "id": "R07",
+      "title": "Use exact saved-page recipes without model reconstruction",
+      "acceptance_tests": [
+        "T16",
+        "T17"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "GitHubExecutionContinuation selector tests",
+        "GitHubOperationTool saved-call tests (hosted Android execution pending)"
+      ]
+    },
+    {
+      "id": "R08",
+      "title": "Distinguish search receipts from source-content handles",
+      "acceptance_tests": [
+        "T18"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "GitHubSearchSourceReadTest",
+        "GitHubEvidenceBook persisted source repair integration (hosted Android execution pending)"
+      ]
+    },
+    {
+      "id": "R09",
+      "title": "Ground CI selectors and continue authorized diagnosis automatically",
+      "acceptance_tests": [
+        "T19",
+        "T20"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "GitHubCiInvestigationRecoveryTest selector cases",
+        "GitHubCiInvestigationRecoveryTest"
+      ]
+    },
+    {
+      "id": "R10",
+      "title": "Verify exact comparison coverage under out-of-order pages",
+      "acceptance_tests": [
+        "T21",
+        "T22"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "70 focused comparison/pagination regressions after c818 generation integration"
+      ]
+    },
+    {
+      "id": "R11",
+      "title": "Distinguish empty Copilot inventory from unrecognized response shape",
+      "acceptance_tests": [
+        "T23"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "GitHubPaginationBoundary Copilot empty/malformed/duplicate collection regressions"
+      ]
+    },
+    {
+      "id": "R12",
+      "title": "Report reserve accounting and CI observations independently",
+      "acceptance_tests": [
+        "T24",
+        "T25"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "10 current-source CI report regressions",
+        "Independent remaining-budget and reserve observations retained"
+      ]
+    },
+    {
+      "id": "R13",
+      "title": "Keep optional Gateway and MCP connectivity failures isolated",
+      "acceptance_tests": [
+        "T26"
+      ],
+      "state": "IMPLEMENTED_FOCUSED_SOFTWARE_VALIDATION_PASSED",
+      "evidence": [
+        "35 actual-source MCP, local-service health and reachability probe regressions"
+      ]
+    },
+    {
+      "id": "R14",
+      "title": "Qualify actual Kokoro backend and eliminate measured audio starvation",
+      "acceptance_tests": [
+        "T27",
+        "T28"
+      ],
+      "state": "SOFTWARE_IMPLEMENTED_PHYSICAL_QUALIFICATION_PENDING",
+      "evidence": [
+        "81 voice/controller/backend/benchmark tests",
+        "4 fallback/cancellation tests",
+        "Captured-tail reserve regression fails at prior5s cap and passes within6s queue"
+      ]
+    },
+    {
+      "id": "R15",
+      "title": "Measure and reduce long UI stalls",
+      "acceptance_tests": [
+        "T29"
+      ],
+      "state": "SOFTWARE_IMPLEMENTED_PHYSICAL_QUALIFICATION_PENDING",
+      "evidence": [
+        "27 diagnostic projection/paging/frame/timing tests (shared R16 suite)",
+        "Physical phone p95/p99/worst-frame fixture remains unexecuted"
+      ]
+    },
+    {
+      "id": "R16",
+      "title": "Reduce export cost and preserve truthful diagnostic coverage",
+      "acceptance_tests": [
+        "T30"
+      ],
+      "state": "SOFTWARE_IMPLEMENTED_PHYSICAL_QUALIFICATION_PENDING",
+      "evidence": [
+        "27 diagnostic projection/paging/frame/timing tests (shared R15 suite)",
+        "Original archive hashes and117-row page coverage verified",
+        "Protected full execution plan and candidate reasons survive bounded workspace export"
+      ]
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "id": "T01",
+      "finding_id": "R01",
+      "title": "Atomic request contract",
+      "scenario": "Replay the exact one-paragraph engineering prompt.",
+      "pass_condition": "Each requested deliverable receives a stable criterion, source span, dependency and evidence producer; original scope/budget remain intact.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubAcceptanceContractTest",
+        "GitHubCriterionAcceptanceRegressionTest",
+        "GitHubRequestCompletion and criterion-specific native receipt proof"
+      ]
+    },
+    {
+      "id": "T02",
+      "finding_id": "R01",
+      "title": "No partial implementation success",
+      "scenario": "Provide a correct patch but omit regression execution or draft PR.",
+      "pass_condition": "Task cannot reach VERIFIED_COMPLETE; completed stages remain retained and the next missing criterion is scheduled.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubAcceptanceContractTest",
+        "GitHubCriterionAcceptanceRegressionTest",
+        "GitHubRequestCompletion and criterion-specific native receipt proof"
+      ]
+    },
+    {
+      "id": "T03",
+      "finding_id": "R02",
+      "title": "429 plus compacted journal recovery",
+      "scenario": "Execute103 settled reads, compact provider replay, receive429, persist cooldown and recreate process.",
+      "pass_condition": "The same task resumes after the recorded deadline when journal equivalence is proven; no duplicate operations or silent model switch.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "AgentToolJournalStoreTest",
+        "OutputLimitRecoverySessionTest",
+        "GitHubProviderJournalRecoveryTest",
+        "Captured 103-call / 82-provider-view mismatch behavior regression",
+        "Provider capture remains idempotent after trusted source correction;110 recovery/provider tests passed"
+      ]
+    },
+    {
+      "id": "T04",
+      "finding_id": "R02",
+      "title": "Integrity mismatch remains blocked",
+      "scenario": "Change one original receipt payload, account/policy binding or task revision after checkpoint.",
+      "pass_condition": "Recovery rejects the changed scope with a precise cause; no integrity bypass.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "AgentToolJournalStoreTest",
+        "OutputLimitRecoverySessionTest",
+        "GitHubProviderJournalRecoveryTest",
+        "Captured 103-call / 82-provider-view mismatch behavior regression",
+        "Provider capture remains idempotent after trusted source correction;110 recovery/provider tests passed"
+      ]
+    },
+    {
+      "id": "T05",
+      "finding_id": "R02",
+      "title": "Unknown mutation reconciliation",
+      "scenario": "Lose the response after a dispatched write.",
+      "pass_condition": "Read back the exact operation identity before any retry; never duplicate the mutation or call it failed solely because response delivery failed.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "AgentToolJournalStoreTest",
+        "OutputLimitRecoverySessionTest",
+        "GitHubProviderJournalRecoveryTest",
+        "Captured 103-call / 82-provider-view mismatch behavior regression",
+        "Provider capture remains idempotent after trusted source correction;110 recovery/provider tests passed"
+      ]
+    },
+    {
+      "id": "T06",
+      "finding_id": "R03",
+      "title": "Resume failure after prior work",
+      "scenario": "Reject a resume precheck after103 retained operations.",
+      "pass_condition": "UI names the resume failure and retained work; never says the entire task was blocked before execution.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubEffectiveRecoveryTest",
+        "GitHubRecoveryCheckpointProjectionTest",
+        "GitHubProgressContinuationTest (full orchestration: hosted Android execution pending)"
+      ]
+    },
+    {
+      "id": "T07",
+      "finding_id": "R03",
+      "title": "Partial answer is not task completion",
+      "scenario": "Deliver a complete text response while required criteria remain unmet and runnable.",
+      "pass_condition": "Response status may be delivered; task retains continuation ownership and resumes its next eligible step.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubEffectiveRecoveryTest",
+        "GitHubRecoveryCheckpointProjectionTest",
+        "GitHubProgressContinuationTest (full orchestration: hosted Android execution pending)"
+      ]
+    },
+    {
+      "id": "T08",
+      "finding_id": "R03",
+      "title": "Cancellation and hard limits",
+      "scenario": "Cancel during wait, then trigger reconnect; separately exhaust an accepted hard time/call budget.",
+      "pass_condition": "Cancel prevents future wakes; budgets remain binding. Neither case is mislabeled successful.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubEffectiveRecoveryTest",
+        "GitHubRecoveryCheckpointProjectionTest",
+        "GitHubProgressContinuationTest (full orchestration: hosted Android execution pending)"
+      ]
+    },
+    {
+      "id": "T09",
+      "finding_id": "R04",
+      "title": "Ready reads with one blocked lane",
+      "scenario": "Integration has six valid read recipes,220 calls left and approval-blocked fixture writes.",
+      "pass_condition": "Independent eligible reads execute automatically; fixture writes remain blocked without changing approval.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubChecklistScheduleTest",
+        "GitHubIntegrationReport receipt-bound execution plan"
+      ]
+    },
+    {
+      "id": "T10",
+      "finding_id": "R04",
+      "title": "Authorized versus exposed catalog",
+      "scenario": "Required operations exist in authorized catalog but are absent or differently bounded in the exposed schema.",
+      "pass_condition": "The executor discovers/exposes the exact valid operation or records a concrete per-candidate blocker; no unexplained final partial report.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubChecklistScheduleTest",
+        "GitHubIntegrationReport receipt-bound execution plan"
+      ]
+    },
+    {
+      "id": "T11",
+      "finding_id": "R04",
+      "title": "Bounded sample versus history",
+      "scenario": "User requests representative action plus next page and complete authorized catalog.",
+      "pass_condition": "Sample scope and catalog complete independently; extra historical pages remain explicit without silently enlarging the task.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubChecklistScheduleTest",
+        "GitHubIntegrationReport receipt-bound execution plan"
+      ]
+    },
+    {
+      "id": "T12",
+      "finding_id": "R05",
+      "title": "Generated recipe contract",
+      "scenario": "Generate every native read recipe and run it through real action-specific normalization/validation.",
+      "pass_condition": "Every intended recipe is admitted; agent_merge_status omits unsupported expected_head_sha, while deliberately invalid calls still reject.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubSelfTestReadsTest legacy status repair cases",
+        "GitHubSelfTestReads action-specific contract tests"
+      ]
+    },
+    {
+      "id": "T13",
+      "finding_id": "R05",
+      "title": "Resume legacy invalid status call",
+      "scenario": "Restore a task containing the old INVALID_ARGUMENTS agent_merge_status receipt.",
+      "pass_condition": "One materially corrected authorized retry runs; no permanent same-action suppression and no unbounded retries.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubSelfTestReadsTest legacy status repair cases",
+        "GitHubSelfTestReads action-specific contract tests"
+      ]
+    },
+    {
+      "id": "T14",
+      "finding_id": "R06",
+      "title": "Instruction path acquisition",
+      "scenario": "Use a repository fixture with AGENTS.md and .github/instructions files and the captured filename-style query.",
+      "pass_condition": "Known paths are located and read at pinned SHA with bounded operations; path matching requires no content-blob scanning. Unsupported grammar receives explicit correction.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubSearchArgumentsTest",
+        "GitHubReadRoundProgressTest:33 contiguous empty pages and retained exact frontier"
+      ]
+    },
+    {
+      "id": "T15",
+      "finding_id": "R06",
+      "title": "Useful-progress watchdog",
+      "scenario": "Repeated discovery pages yield no new usable source, criterion evidence or dependency resolution.",
+      "pass_condition": "Replan within a configured bounded window; do not label transport/page movement as substantive task completion.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubSearchArgumentsTest",
+        "GitHubReadRoundProgressTest:33 contiguous empty pages and retained exact frontier"
+      ]
+    },
+    {
+      "id": "T16",
+      "finding_id": "R07",
+      "title": "Saved cursor replay",
+      "scenario": "Replay all18 captured malformed saved-view shapes and an authentic issued correction.",
+      "pass_condition": "Invalid calls dispatch nothing; the exact same-scope correction advances the correct saved view without repeated model reconstruction.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubExecutionContinuation selector tests",
+        "GitHubOperationTool saved-call tests (hosted Android execution pending)"
+      ]
+    },
+    {
+      "id": "T17",
+      "finding_id": "R07",
+      "title": "Foreign or stale cursor",
+      "scenario": "Present a cursor for a different account/repository/operation/revision or an unissued cursor.",
+      "pass_condition": "Reject safely and retain exact recovery action; no scope expansion or guessed cursor.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubExecutionContinuation selector tests",
+        "GitHubOperationTool saved-call tests (hosted Android execution pending)"
+      ]
+    },
+    {
+      "id": "T18",
+      "finding_id": "R08",
+      "title": "Search receipt to source",
+      "scenario": "Give a real path-search receipt with observed paths and blob hashes, plus an unrelated receipt control.",
+      "pass_condition": "A scoped pinned-source recipe reads the correct file; unrelated evidence cannot authorize it; wrong handle kind is distinguished from absent source.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubSearchSourceReadTest",
+        "GitHubEvidenceBook persisted source repair integration (hosted Android execution pending)",
+        "Provider capture remains idempotent after trusted source correction;110 recovery/provider tests passed"
+      ]
+    },
+    {
+      "id": "T19",
+      "finding_id": "R09",
+      "title": "CI identity and404",
+      "scenario": "Select a current revision with multiple workflow attempts; one stale run/job lookup returns404.",
+      "pass_condition": "Use observed repository/head/run/attempt/job identities, refresh relevant parent inventory once, and retain precise uncertainty.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubCiInvestigationRecoveryTest selector cases",
+        "GitHubCiInvestigationRecoveryTest"
+      ]
+    },
+    {
+      "id": "T20",
+      "finding_id": "R09",
+      "title": "Already-authorized CI recovery",
+      "scenario": "Provide correctable watch arguments and24 call units left.",
+      "pass_condition": "Corrected supported read or inventory discovery executes automatically; no redundant request for permission to inspect already-authorized data.",
+      "execution_status": "FOCUSED_SELECTOR_RECOVERY_PASSED_FULL_ORCHESTRATION_CI_PENDING",
+      "evidence": [
+        "GitHubCiInvestigationRecoveryTest selector cases",
+        "GitHubCiInvestigationRecoveryTest"
+      ]
+    },
+    {
+      "id": "T21",
+      "finding_id": "R10",
+      "title": "Comparison page ordering",
+      "scenario": "Deliver required pages including terminal page before one interior page and local fragments.",
+      "pass_condition": "Coverage becomes complete only after all required pages/fragments at the exact pair and page size are delivered; no repeated page1 loop.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "70 focused comparison/pagination regressions after c818 generation integration"
+      ]
+    },
+    {
+      "id": "T22",
+      "finding_id": "R10",
+      "title": "Concurrent head change",
+      "scenario": "Another worker changes PR head after tests or comparison evidence are collected.",
+      "pass_condition": "Preserve existing commits and old evidence as historical; invalidate affected current acceptance/merge proof and verify the new head.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "70 focused comparison/pagination regressions after c818 generation integration"
+      ]
+    },
+    {
+      "id": "T23",
+      "finding_id": "R11",
+      "title": "Empty versus malformed Copilot response",
+      "scenario": "Test recognized empty tasks array, absent collection, wrong type and unavailable product capability.",
+      "pass_condition": "Valid empty inventory completes; other cases remain explicitly unverified with safe response-shape diagnostics and no unrelated-lane stop.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "GitHubPaginationBoundary Copilot empty/malformed/duplicate collection regressions"
+      ]
+    },
+    {
+      "id": "T24",
+      "finding_id": "R12",
+      "title": "Independent reserve facts",
+      "scenario": "Use remaining220/reserve2 with zero exact-SHA test execution receipts, then unknown budget.",
+      "pass_condition": "Reserve fact is true or explicitly unknown as appropriate; missing execution stays unverified independently.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "10 current-source CI report regressions",
+        "Independent remaining-budget and reserve observations retained"
+      ]
+    },
+    {
+      "id": "T25",
+      "finding_id": "R12",
+      "title": "Current CI proof",
+      "scenario": "Mix historical failed run, current skipped run, current successful executed test and rerun attempt.",
+      "pass_condition": "Only valid latest matching required execution proves current CI; historical/skipped/missing/stale checks do not.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "10 current-source CI report regressions",
+        "Independent remaining-budget and reserve observations retained"
+      ]
+    },
+    {
+      "id": "T26",
+      "finding_id": "R13",
+      "title": "Offline optional service",
+      "scenario": "Make Gateway/MCP unreachable while native GitHub remains available, then reconnect.",
+      "pass_condition": "Native task remains functional; bounded probes distinguish connect errors; only dependent tasks resume on verified recovery.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "35 actual-source MCP, local-service health and reachability probe regressions"
+      ]
+    },
+    {
+      "id": "T27",
+      "finding_id": "R14",
+      "title": "Backend truth and qualification",
+      "scenario": "Select unavailable GPU; separately run compatible GPU/NPU fixtures on the actual phone.",
+      "pass_condition": "Fallback reports effective CPU and reason. Accelerator qualification requires actual provider participation plus valid audio and durations, not host emulation or selected preference.",
+      "execution_status": "FOCUSED_SOFTWARE_REGRESSIONS_PASSED_HOSTED_VALIDATION_PENDING",
+      "evidence": [
+        "81 voice/controller/backend/benchmark tests",
+        "4 fallback/cancellation tests",
+        "Captured-tail reserve regression fails at prior5s cap and passes within6s queue"
+      ]
+    },
+    {
+      "id": "T28",
+      "finding_id": "R14",
+      "title": "Speech starvation and stop",
+      "scenario": "Run a fixed sustained speech fixture at intended playback speed, then explicitly stop.",
+      "pass_condition": "Under qualified settings the fixture meets its declared underrun/latency targets; manual stop is immediate and labeled user-origin, with no false failure.",
+      "execution_status": "BUFFER_AND_CANCELLATION_REGRESSIONS_PASSED_PHYSICAL_AUDIO_TARGET_PENDING",
+      "evidence": [
+        "81 voice/controller/backend/benchmark tests",
+        "4 fallback/cancellation tests",
+        "Captured-tail reserve regression fails at prior5s cap and passes within6s queue"
+      ]
+    },
+    {
+      "id": "T29",
+      "finding_id": "R15",
+      "title": "Phone frame latency",
+      "scenario": "Repeat long repository review/recovery with the same phone, refresh rate and release-like build.",
+      "pass_condition": "Report p95/p99/worst app-owned stalls with causal traces; meet declared thresholds. Do not infer real-device improvement from helper tests.",
+      "execution_status": "OBSERVABILITY_REGRESSIONS_PASSED_PHYSICAL_PHONE_FIXTURE_PENDING",
+      "evidence": [
+        "27 diagnostic projection/paging/frame/timing tests (shared R16 suite)",
+        "Physical phone p95/p99/worst-frame fixture remains unexecuted"
+      ]
+    },
+    {
+      "id": "T30",
+      "finding_id": "R16",
+      "title": "Complete bounded diagnostic export",
+      "scenario": "Export a large retained workspace with117 acceptance rows split across pages.",
+      "pass_condition": "Every chunk/hash/cursor validates; all117 rows recover with no omitted critical evidence; export latency is measured and coverage semantics remain explicit.",
+      "execution_status": "ARCHIVE_PAGE_COVERAGE_VERIFIED_EXPORT_SOFTWARE_TESTS_PASSED_DEVICE_TIMING_PENDING",
+      "evidence": [
+        "27 diagnostic projection/paging/frame/timing tests (shared R15 suite)",
+        "Original archive hashes and117-row page coverage verified",
+        "Protected full execution plan and candidate reasons survive bounded workspace export"
+      ]
+    }
+  ],
+  "validation": [
+    {
+      "gate": "focused_source_behavior",
+      "state": "PASSED",
+      "qualification": "Focused production-source behavior suites with recorded platform boundaries; full wrappers and orchestration require hosted Android CI."
+    },
+    {
+      "gate": "canonical_fast",
+      "state": "PASSED",
+      "tests": 616,
+      "command": "bash scripts/validate-local.sh fast",
+      "qualification": "Canonical host validation on integrated c818 source; full Android and device checks remain separate."
+    },
+    {
+      "gate": "required_current_pr_head",
+      "state": "PENDING_PUSH_AND_HOSTED_CI"
+    },
+    {
+      "gate": "exact_main",
+      "state": "PENDING_MERGE"
+    },
+    {
+      "gate": "signed_publication_readback",
+      "state": "PENDING_MAIN_GATES"
+    },
+    {
+      "gate": "changed_kotlin_format",
+      "state": "PASSED",
+      "files": 54,
+      "tool": "ktlint1.3.1",
+      "qualification": "All54 changed Kotlin files formatted and checked."
+    }
+  ],
+  "publication": {
+    "state": "NOT_STARTED",
+    "merged_commit": null,
+    "release": null,
+    "status_receipt": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254"
+  },
+  "integrated_remote_head": "c818b9161978e03a6a8e848d1a1066159f7c2718",
+  "preserved_concurrent_commits": [
+    "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+    "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
+    "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+    "c818b9161978e03a6a8e848d1a1066159f7c2718"
+  ],
+  "qualification_limits": [
+    "Do not mark all30 scenarios passed: physical audio, frame latency and device export timing remain unmeasured.",
+    "Full Android/Hilt/Room/Compose, orchestration, instrumentation, security and packaging require current-head hosted gates.",
+    "The release remains explicitly scoped and does not claim completion of Unified Reliability v2."
+  ]
+}

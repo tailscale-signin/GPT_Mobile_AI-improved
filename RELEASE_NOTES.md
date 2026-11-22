@@ -53,6 +53,7 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 - Coalesce exact-service TCP probes per network generation, show actionable offline guidance, and add read-only Gateway host connectivity observations.
 - Unify operation incident aliases within their process/session context and distinguish owned metadata deadlines from expected observer cancellation.
 - Keep nested GitHub payload text from becoming the current operation's failure code; require genuine top-level failure provenance and preserve explicit success or unknown observations.
+- Prevent duplicate built-in tool entries, retain existing settings when replacement fails, and restore older backups with equivalent duplicate bindings safely.
 
 ## Qualification and limitations
 

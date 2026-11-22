@@ -542,7 +542,7 @@ private class FakeToolConnectionDao(
         .filter { it.profileUid == profileUid }
         .sortedWith(compareBy<AgentToolBinding> { it.toolName }.thenBy { it.connectionUid ?: "" }.thenBy { it.bindingUid })
 
-    override suspend fun insertBinding(binding: AgentToolBinding) {
+    override suspend fun insertBindingRow(binding: AgentToolBinding) {
         bindings[binding.bindingUid] = binding
     }
 

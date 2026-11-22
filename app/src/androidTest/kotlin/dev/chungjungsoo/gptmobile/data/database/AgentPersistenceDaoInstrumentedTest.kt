@@ -2,11 +2,13 @@ package dev.chungjungsoo.gptmobile.data.database
 
 import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
@@ -15,12 +17,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectedRange
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt
 import dev.chungjungsoo.gptmobile.data.privacy.effectivePrivacyProtectedValues
+import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -39,7 +43,7 @@ class AgentPersistenceDaoInstrumentedTest {
         database = Room.inMemoryDatabaseBuilder(
             InstrumentationRegistry.getInstrumentation().targetContext,
             ChatDatabaseV2::class.java
-        ).build()
+        ).addCallback(AgentToolBindingDatabase.callback).build()
     }
 
     @After
@@ -598,24 +602,92 @@ class AgentPersistenceDaoInstrumentedTest {
     }
 
     @Test
-    fun builtInToolBinding_rejectsDuplicateProfileAndTool() {
-        database.openHelper.writableDatabase.execSQL(
-            "INSERT INTO agent_tool_bindings (binding_uid, profile_uid, connection_uid, tool_name, created_at) " +
-                "VALUES ('binding-1', 'profile-1', NULL, 'read_url', 1)"
-        )
+    fun builtInToolBinding_rejectsDuplicateProfileAndTool() = runBlocking {
+        val sql = database.openHelper.writableDatabase
+        val dao = database.toolConnectionDao()
+        dao.upsertConnection(toolConnection("remote-1"))
+        dao.upsertConnection(toolConnection("remote-2"))
+        insertRawBinding(sql, "binding-1")
+        insertRawBinding(sql, "other-profile", profile = "profile-2")
+        insertRawBinding(sql, "other-tool", tool = "current_date")
+        insertRawBinding(sql, "remote-binding-1", connection = "remote-1")
+        insertRawBinding(sql, "remote-binding-2", connection = "remote-2")
 
-        var error: Throwable? = null
+        assertSqlConstraint { insertRawBinding(sql, "binding-2") }
+        assertSqlConstraint { sql.execSQL("UPDATE agent_tool_bindings SET profile_uid = 'profile-1' WHERE binding_uid = 'other-profile'") }
+        assertSqlConstraint { sql.execSQL("UPDATE agent_tool_bindings SET tool_name = 'read_url' WHERE binding_uid = 'other-tool'") }
+        assertSqlConstraint { sql.execSQL("UPDATE agent_tool_bindings SET connection_uid = NULL WHERE binding_uid = 'remote-binding-1'") }
+        assertSqlConstraint { insertRawBinding(sql, "remote-duplicate", connection = "remote-1") }
+        assertSqlConstraint { insertRawBinding(sql, "unknown-connection", connection = "missing") }
+
+        // Updating a row's identity and replacing that same identity are legitimate.
+        sql.execSQL("UPDATE agent_tool_bindings SET binding_uid = 'renamed', profile_uid = 'profile-1' WHERE binding_uid = 'binding-1'")
+        sql.execSQL("INSERT OR REPLACE INTO agent_tool_bindings(binding_uid,profile_uid,connection_uid,tool_name,created_at) VALUES('renamed','profile-1',NULL,'read_url',3)")
+        assertEquals("renamed", dao.listBindingsByProfile("profile-1").single { it.connectionUid == null && it.toolName == "read_url" }.bindingUid)
+
+        // Normal configuration and backup imports keep their atomic replacement contract.
+        dao.insertBinding(AgentToolBinding("replacement", "profile-1", null, "read_url", 4))
+        dao.insertBinding(AgentToolBinding("remote-replacement", "profile-1", "remote-1", "read_url", 4))
+        val bindings = dao.listBindingsByProfile("profile-1")
+        assertEquals(setOf("replacement", "other-tool", "remote-replacement", "remote-binding-2"), bindings.map { it.bindingUid }.toSet())
+        assertEquals(listOf("other-profile"), dao.listBindingsByProfile("profile-2").map { it.bindingUid })
+        sql.execSQL("CREATE TRIGGER test_reject_builtin_replacement BEFORE INSERT ON agent_tool_bindings WHEN NEW.binding_uid = 'failed-replacement' BEGIN SELECT RAISE(ABORT, 'test replacement failure'); END")
         try {
-            database.openHelper.writableDatabase.execSQL(
-                "INSERT INTO agent_tool_bindings (binding_uid, profile_uid, connection_uid, tool_name, created_at) " +
-                    "VALUES ('binding-2', 'profile-1', NULL, 'read_url', 2)"
-            )
-        } catch (thrown: Throwable) {
-            error = thrown
+            val failedReplacement = runCatching { dao.insertBinding(AgentToolBinding("failed-replacement", "profile-1", null, "read_url", 5)) }.exceptionOrNull()
+            assertTrue(failedReplacement is SQLiteConstraintException)
+            assertEquals(bindings, dao.listBindingsByProfile("profile-1"))
+        } finally {
+            sql.execSQL("DROP TRIGGER test_reject_builtin_replacement")
         }
+        dao.deleteConnectionByUid("remote-1")
+        assertEquals(setOf("replacement", "other-tool", "remote-binding-2"), dao.listBindingsByProfile("profile-1").map { it.bindingUid }.toSet())
 
-        assertTrue(error is SQLiteConstraintException)
+        assertLegacyBuiltInBindingsAreNormalizedOnOpen()
     }
+
+    private suspend fun assertLegacyBuiltInBindingsAreNormalizedOnOpen() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val name = "legacy-tool-bindings-${UUID.randomUUID()}.db"
+        try {
+            val legacy = Room.databaseBuilder(context, ChatDatabaseV2::class.java, name).build()
+            try {
+                val sql = legacy.openHelper.writableDatabase
+                legacy.toolConnectionDao().upsertConnection(toolConnection("remote-legacy"))
+                insertRawBinding(sql, "old", createdAt = 1)
+                insertRawBinding(sql, "newer-a", createdAt = 2)
+                insertRawBinding(sql, "newer-z", createdAt = 2)
+                insertRawBinding(sql, "other-profile", profile = "profile-2")
+                insertRawBinding(sql, "other-tool", tool = "current_date")
+                insertRawBinding(sql, "remote", connection = "remote-legacy")
+                assertEquals(3, legacy.toolConnectionDao().listBindingsByProfile("profile-1").count { it.connectionUid == null && it.toolName == "read_url" })
+            } finally {
+                legacy.close()
+            }
+            repeat(2) {
+                val reopened = Room.databaseBuilder(context, ChatDatabaseV2::class.java, name).addCallback(AgentToolBindingDatabase.callback).build()
+                try {
+                    assertEquals(setOf("newer-z", "other-tool", "remote"), reopened.toolConnectionDao().listBindingsByProfile("profile-1").map { it.bindingUid }.toSet())
+                    assertEquals(listOf("other-profile"), reopened.toolConnectionDao().listBindingsByProfile("profile-2").map { it.bindingUid })
+                    assertSqlConstraint { insertRawBinding(reopened.openHelper.writableDatabase, "duplicate-after-reopen") }
+                } finally {
+                    reopened.close()
+                }
+            }
+        } finally {
+            context.deleteDatabase(name)
+        }
+    }
+
+    private fun insertRawBinding(sql: SupportSQLiteDatabase, uid: String, profile: String = "profile-1", connection: String? = null, tool: String = "read_url", createdAt: Long = 1) {
+        sql.execSQL("INSERT INTO agent_tool_bindings(binding_uid,profile_uid,connection_uid,tool_name,created_at) VALUES(?,?,?,?,?)", arrayOf(uid, profile, connection, tool, createdAt))
+    }
+
+    private fun assertSqlConstraint(block: () -> Unit) {
+        val error = runCatching(block).exceptionOrNull()
+        assertTrue("Expected a SQLite constraint failure; received ${error?.javaClass?.name ?: "no error"}", error is SQLiteConstraintException)
+    }
+
+    private fun toolConnection(uid: String) = ToolConnection(uid, uid, uid, "MCP", "https://example.com", "NONE", null, null)
 
     private suspend fun persistTurn(
         chatRoom: ChatRoomV2,

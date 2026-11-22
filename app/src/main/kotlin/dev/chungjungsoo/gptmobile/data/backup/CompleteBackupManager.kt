@@ -927,6 +927,7 @@ class CompleteBackupManager @Inject constructor(
                         migration.migrate(source)
                         source.version = migration.endVersion
                     }
+                    dev.chungjungsoo.gptmobile.data.database.AgentToolBindingDatabase.enforceBuiltInUniqueness(source)
                     CompleteBackupDatabase.validate(source, target)
                     target.beginTransaction()
                     try {
@@ -953,6 +954,7 @@ class CompleteBackupManager @Inject constructor(
     private fun openSnapshot(file: File): ChatDatabaseV2 = Room.databaseBuilder(context, ChatDatabaseV2::class.java, file.absolutePath)
         .addMigrations(*ChatDatabaseV2Migrations.ALL_MIGRATIONS)
         .addCallback(dev.chungjungsoo.gptmobile.data.database.RunPolicySnapshotDatabase.callback)
+        .addCallback(dev.chungjungsoo.gptmobile.data.database.AgentToolBindingDatabase.callback)
         .setJournalMode(androidx.room.RoomDatabase.JournalMode.TRUNCATE)
         .build()
 

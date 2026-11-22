@@ -42,8 +42,15 @@ interface ToolConnectionDao {
     @Query("SELECT * FROM agent_tool_bindings WHERE profile_uid = :profileUid ORDER BY tool_name, connection_uid, binding_uid")
     suspend fun listBindingsByProfile(profileUid: String): List<AgentToolBinding>
 
+    @Transaction
+    suspend fun insertBinding(binding: AgentToolBinding) {
+        // Match REPLACE's existing connected-key behavior for the nullable built-in key.
+        if (binding.connectionUid == null) deleteBuiltInToolBinding(binding.profileUid, binding.toolName)
+        insertBindingRow(binding)
+    }
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertBinding(binding: AgentToolBinding)
+    suspend fun insertBindingRow(binding: AgentToolBinding)
 
     @Query(
         """

@@ -36,6 +36,7 @@ object DatabaseModule {
         .openHelperFactory(dev.chungjungsoo.gptmobile.data.security.EncryptedChatDatabase(context))
         .addMigrations(*ChatDatabaseV2Migrations.ALL_MIGRATIONS)
         .addCallback(dev.chungjungsoo.gptmobile.data.database.RunPolicySnapshotDatabase.callback)
+        .addCallback(dev.chungjungsoo.gptmobile.data.database.AgentToolBindingDatabase.callback)
         .build()
 
     @Provides

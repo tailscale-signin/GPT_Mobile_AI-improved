@@ -276,3 +276,43 @@ delta passes the existing exact-path scope validator. Android 0.9.66.13/build 14
 Gateway 18.1.1, the eight required main workflows and every disclosed qualification
 limit remain unchanged. Final Android/device checks and publication verification
 are still pending for the pushed revision.
+
+## Device-discovered built-in binding constraint
+
+Acceptance run `45059368354` on `6e03f1e` executed the newly required persistence
+class on both API 34 and API 36. Both found the same failure in
+`builtInToolBinding_rejectsDuplicateProfileAndTool`; the other nineteen persistence
+methods and the privacy migration passed. The three-column unique index does not
+prevent duplicates when the connection key is NULL, which is how built-in tools
+are represented. This is a storage defect, not an allowed test skip.
+
+The repair installs INSERT/UPDATE guards at database open and normalizes only
+equivalent legacy built-in bindings, keeping the greatest `(created_at,
+binding_uid)` deterministically. Cleanup and guard installation are atomic. The
+DAO preserves its replacement behavior by replacing a built-in profile/tool key
+inside the existing transaction before its raw insert. Connected tools retain
+their existing uniqueness and foreign-key semantics; tables, indices and the
+Room 53 export remain unchanged.
+
+The normal database and temporary backup databases use the same callback. A
+legacy backup's staged source is normalized after migration and before validation
+and restore, within its caller-owned transaction. The original archive is
+preserved. This prevents the new target guards from rejecting an otherwise valid
+older archive containing redundant built-in rows.
+
+Independent execution of the actual helper SQL against the exported Room 53
+table/index definitions passes seventeen behavioral checks: insert/update guards,
+same-primary-key replacement, self-renaming, deterministic legacy cleanup,
+separate remote connections, failed-replacement rollback, caller-transaction
+rollback, and unchanged column/index/foreign-key metadata. Real Room callback,
+backup restore and emulator execution remain required on the repaired revision.
+The strict twenty-method persistence receipt gate is retained.
+
+The repaired Room method also asserts that a deliberately rejected replacement
+rolls back to the complete previous binding list. The backup regression restores
+a real archive containing legacy duplicates and verifies unchanged archive bytes,
+retained remote connections, the deterministic survivor and the live constraint.
+All five DAO fakes inherit the transactional replacement wrapper. The integrated
+follow-up passes 608 canonical host checks, all thirteen changed Kotlin files pass
+ktlint, and the proposed 398-file delta passes the exact-path release scope. These
+local results leave the new Room and backup cases pending full Android execution.

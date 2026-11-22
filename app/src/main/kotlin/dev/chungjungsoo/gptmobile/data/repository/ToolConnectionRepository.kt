@@ -131,9 +131,10 @@ class ToolConnectionRepository internal constructor(
                 BuiltInAgentTool.CURRENT_DATE
             )
         ) { "Unknown built-in tool: $toolName" }
-        toolConnectionDao.deleteBuiltInToolBinding(profileUid, toolName)
         if (enabled) {
             toolConnectionDao.insertBinding(newBinding(profileUid, null, toolName))
+        } else {
+            toolConnectionDao.deleteBuiltInToolBinding(profileUid, toolName)
         }
     }
 

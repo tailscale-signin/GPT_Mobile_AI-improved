@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSample
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry
+import dev.chungjungsoo.gptmobile.data.database.AgentToolBindingDatabase
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
@@ -24,6 +25,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.OpenRouterBatchCacheEntity
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
@@ -73,7 +75,7 @@ class CompleteBackupManagerTest {
     @Before
     fun setup() {
         context = RuntimeEnvironment.getApplication()
-        database = Room.databaseBuilder(context, ChatDatabaseV2::class.java, "test-${UUID.randomUUID()}.db").build()
+        database = Room.databaseBuilder(context, ChatDatabaseV2::class.java, "test-${UUID.randomUUID()}.db").addCallback(AgentToolBindingDatabase.callback).build()
         preferences = PreferenceDataStoreFactory.create(scope = scope) { File(context.cacheDir, "${UUID.randomUUID()}.preferences_pb") }
         coEvery { legacy.getBackupStatus() } returns BackupStatus()
         benchmarkStore = BenchmarkStore(context)
@@ -321,6 +323,61 @@ class CompleteBackupManagerTest {
             database.openHelper.writableDatabase.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
         }
         verify { settings.invalidatePlatformCache() }
+    }
+
+    @Test
+    fun legacyDuplicateBuiltInBindingsRestoreWithoutChangingTheArchiveOrRemoteBindings() = runBlocking {
+        val dao = database.toolConnectionDao()
+        database.platformDao().addPlatform(PlatformV2(uid = "profile-1", name = "First profile"))
+        database.platformDao().addPlatform(PlatformV2(uid = "profile-2", name = "Second profile"))
+        for (uid in listOf("remote-1", "remote-2")) {
+            dao.upsertConnection(ToolConnection(uid, uid, uid, "MCP", "https://example.com", "NONE", null, null))
+        }
+        for (binding in listOf(
+            AgentToolBinding("old", "profile-1", null, "read_url", 1),
+            AgentToolBinding("other-profile", "profile-2", null, "read_url", 1),
+            AgentToolBinding("other-tool", "profile-1", null, "current_date", 1),
+            AgentToolBinding("remote-binding-1", "profile-1", "remote-1", "read_url", 1),
+            AgentToolBinding("remote-binding-2", "profile-1", "remote-2", "read_url", 1)
+        )) {
+            dao.insertBinding(binding)
+        }
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.TOOLS))
+        val archive = File(context.cacheDir, "legacy-tool-bindings.gptbackup")
+        val backedUp = backupFixture(archive, selection)
+        assertTrue(backedUp.message, backedUp.success)
+        val stage = File(context.cacheDir, "legacy-tools-${UUID.randomUUID()}").apply { mkdirs() }
+        try {
+            val manifest = CompleteBackupArchive.read(archive, stage, Long.MAX_VALUE)
+            android.database.sqlite.SQLiteDatabase.openDatabase(File(stage, "database.sqlite").absolutePath, null, 0).use { old ->
+                old.execSQL("DROP TRIGGER IF EXISTS agent_tool_binding_builtin_insert_unique")
+                old.execSQL("DROP TRIGGER IF EXISTS agent_tool_binding_builtin_update_unique")
+                old.execSQL("INSERT INTO agent_tool_bindings(binding_uid,profile_uid,connection_uid,tool_name,created_at) VALUES('newer-a','profile-1',NULL,'read_url',2),('newer-z','profile-1',NULL,'read_url',2)")
+                old.rawQuery("SELECT COUNT(*) FROM agent_tool_bindings WHERE profile_uid='profile-1' AND connection_uid IS NULL AND tool_name='read_url'", null).use { rows ->
+                    assertTrue(rows.moveToFirst())
+                    assertEquals(3, rows.getInt(0))
+                }
+            }
+            val sources = manifest.files.mapValues { (path, _) -> File(stage, path) }
+            CompleteBackupArchive.write(archive, manifest.copy(files = sources.mapValues { it.value.length() }), sources)
+            val originalBytes = archive.readBytes()
+
+            val restored = manager.restore(Uri.fromFile(archive), selection = selection)
+
+            assertTrue(restored.message, restored.success)
+            assertTrue("Restoring must only normalize the staged database", originalBytes.contentEquals(archive.readBytes()))
+            assertEquals(setOf("newer-z", "other-tool", "remote-binding-1", "remote-binding-2"), dao.listBindingsByProfile("profile-1").map { it.bindingUid }.toSet())
+            assertEquals(listOf("other-profile"), dao.listBindingsByProfile("profile-2").map { it.bindingUid })
+            assertEquals(setOf("remote-1", "remote-2"), dao.getAllConnections().map { it.connectionUid }.toSet())
+            val rejected = runCatching {
+                withContext(Dispatchers.IO) {
+                    database.openHelper.writableDatabase.execSQL("INSERT INTO agent_tool_bindings(binding_uid,profile_uid,connection_uid,tool_name,created_at) VALUES('duplicate-after-restore','profile-1',NULL,'read_url',3)")
+                }
+            }.exceptionOrNull()
+            assertTrue("The live restored database must retain the built-in constraint", rejected is android.database.sqlite.SQLiteConstraintException)
+        } finally {
+            stage.deleteRecursively()
+        }
     }
 
     @Test

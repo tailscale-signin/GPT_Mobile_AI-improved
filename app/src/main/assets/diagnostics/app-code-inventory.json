@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b007790ee05a0cb892b6481c9930dd387a3af79781d66840684e01f42d952508",
-  "file_count": 2887,
-  "indexed_line_count": 477105,
+  "source_digest": "3efa3e760ed5b1c96347c234042a99933d4878bb4b4158c0950be01b05e52a63",
+  "file_count": 2888,
+  "indexed_line_count": 477188,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -35,7 +35,7 @@
       "id": "android_shell",
       "label": "Android application and lifecycle",
       "file_count": 75,
-      "indexed_line_count": 8732
+      "indexed_line_count": 8733
     },
     {
       "id": "chat_ui",
@@ -124,8 +124,8 @@
     {
       "id": "persistence",
       "label": "Databases, backup and storage",
-      "file_count": 110,
-      "indexed_line_count": 14943
+      "file_count": 111,
+      "indexed_line_count": 15025
     },
     {
       "id": "diagnostics_and_export",
@@ -3847,8 +3847,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupManager.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "8a565a5931c6340cc43ccf47c67e977ea4336fad38165353059fe0a2e68d3ab7",
-      "indexed_lines": 1301
+      "sha256": "0a7fac0f2fab9d2531b135184d2952755e833843cbe8722e948fb6d4ebd6db91",
+      "indexed_lines": 1303
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/backup/CompleteBackupOptions.kt",
@@ -4887,6 +4887,13 @@
       "indexed_lines": 313
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/AgentToolBindingDatabase.kt",
+      "area_id": "persistence",
+      "kind": "source",
+      "sha256": "8fbb25cb82c49527e9384fd7020d260e720046294fa462fa07c40707747483b6",
+      "indexed_lines": 72
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabase.kt",
       "area_id": "persistence",
       "kind": "source",
@@ -5058,8 +5065,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolConnectionDao.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "fe36372a5feb16d261c76335cc5ae520b5d1137d1c91af07d932cb4885de7ecc",
-      "indexed_lines": 146
+      "sha256": "9fe885e05c7286ed529acc1f3e2d5289a40ff9e0a0d7ef129c9fb1bcbd08f932",
+      "indexed_lines": 153
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/AgentRun.kt",
@@ -11463,8 +11470,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolConnectionRepository.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "8f5bee2164dae4bf51fee17760a68dd905235ad27ad8baca1c2aa7598ef066ad",
-      "indexed_lines": 245
+      "sha256": "ae314ff361ba3f5ee6397a8244308ddffbeb69d20e7e57386397292caba320e4",
+      "indexed_lines": 246
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
@@ -12870,8 +12877,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/di/DatabaseModule.kt",
       "area_id": "android_shell",
       "kind": "source",
-      "sha256": "96ec0d92edbd1c9e8baa92078662e4e4df0265a267613f35f6af2aafecb6e0a8",
-      "indexed_lines": 71
+      "sha256": "945706046b04e8b3f36b7992a92357705f9f8a60f720551bca8b95fa1e0a8c52",
+      "indexed_lines": 72
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/di/DeviceRamGb.kt",

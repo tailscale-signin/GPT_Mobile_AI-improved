@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "b007790ee05a0cb892b6481c9930dd387a3af79781d66840684e01f42d952508"
-    val fileCount: Int = 2887
-    val lineCount: Int = 477105
+    val sourceDigest: String = "3efa3e760ed5b1c96347c234042a99933d4878bb4b4158c0950be01b05e52a63"
+    val fileCount: Int = 2888
+    val lineCount: Int = 477188
     val lineCoverageAvailable: Boolean = false
     internal val sourceRootPrefixes: List<String> = listOf(
         "app/src/main/",
@@ -24,7 +24,7 @@ object AppAuditSourceInventory {
         "mcp/"
     )
     val areas: List<AppAuditSourceArea> = listOf(
-        AppAuditSourceArea("android_shell", "Android application and lifecycle", 75, 8732),
+        AppAuditSourceArea("android_shell", "Android application and lifecycle", 75, 8733),
         AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 592, 103943),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 200, 9297),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 242, 42404),
@@ -39,7 +39,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("github", "GitHub and engineering workspace", 262, 46787),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 14038),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 44, 4939),
-        AppAuditSourceArea("persistence", "Databases, backup and storage", 110, 14943),
+        AppAuditSourceArea("persistence", "Databases, backup and storage", 111, 15025),
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 101, 15933),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 122, 18739),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 35, 4613),

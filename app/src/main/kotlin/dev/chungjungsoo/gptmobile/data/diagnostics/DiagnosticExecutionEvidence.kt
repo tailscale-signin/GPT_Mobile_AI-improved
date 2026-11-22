@@ -61,7 +61,8 @@ internal fun diagnosticExecutionEvidence(fields: JsonObject, eventName: String, 
 private fun legacyGitHubFailureCode(fields: JsonObject, eventName: String, message: String): String? {
     if (listOf("errorCode", "error_code", "failureCode").any(fields::containsKey)) return null
     val failed = eventName in setOf("Request failed", "FAILED", "INVOCATION_FAILED") ||
-        fields["error"] == JsonPrimitive(true) || fields.diagnosticText("status") == "FAILED"
+        fields["error"] == JsonPrimitive(true) ||
+        fields.diagnosticText("status") == "FAILED"
     if (!failed) return null
     val candidates = githubFailureCode.findAll(message).associateBy { requireNotNull(it.groups[1]).range.first }
     if (candidates.isEmpty()) return null

@@ -14,6 +14,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -140,6 +143,15 @@ class GitHubChatProgressTest {
         assertEquals("I have lines 8–12 of src/Compile.kt.", summary.text)
         assertFalse(summary.modelAuthored)
         assertFalse(progress.summarySnapshot().toString().contains("PRIVATE SOURCE"))
+        assertFalse(summary.text.contains("PRIVATE SOURCE"))
+        val excerpt = facts.getValue("source_excerpts").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("PRIVATE SOURCE"), excerpt["excerpt"])
+        assertEquals(JsonPrimitive("src/Compile.kt"), excerpt["path"])
+        assertEquals(JsonPrimitive(8), excerpt["start_line"])
+        assertEquals(JsonPrimitive(12), excerpt["end_line"])
+        assertEquals(JsonPrimitive("/items/0/content"), excerpt["pointer"])
+        assertEquals(JsonPrimitive("a".repeat(40)), facts["commit_sha"])
+        assertTrue(facts.toString().length <= 2400)
     }
 
     @Test fun repeatedHistoryRetrievalDoesNotFloodThePreview() {

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "8fece1e5b22a51da7c8786729f22e243f3c36dd9e37a30268afe861cd559d308",
+  "source_digest": "4940956083abd3934ad204ac994ec6c62ce673e7339024967720491368ab2e3f",
   "file_count": 2823,
-  "indexed_line_count": 467326,
+  "indexed_line_count": 467410,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -107,7 +107,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 246,
-      "indexed_line_count": 44213
+      "indexed_line_count": 44297
     },
     {
       "id": "research",
@@ -7025,8 +7025,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "c91ce9f162d20710e07968fd32c74b0cc4b02a2f3d76557fc542861124cd228f",
-      "indexed_lines": 318
+      "sha256": "0644bbf385aa412c941e28dc04f8517512b6943cf410d338a9e365c49b0581c2",
+      "indexed_lines": 351
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDownloadCredential.kt",
@@ -7858,8 +7858,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationFault.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "44e623e8bfc4c591b46027c862d397d278b22c8246c4eb4fb5a1cbef9105f9bd",
-      "indexed_lines": 158
+      "sha256": "6f3cfdfc7347f9a972d513305588b22a374df314f01832a87c03efb381e81a71",
+      "indexed_lines": 198
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationRecovery.kt",
@@ -7879,8 +7879,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "4bb8e27574739fdcb19d973ba22919a814c4fec2d86c681f31dfc0acf9e3d7b8",
-      "indexed_lines": 1578
+      "sha256": "2ee2b6971e94655df12684c2220bf79734bcdf9064c6b09ab29bc21dc5b4ced3",
+      "indexed_lines": 1589
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchBackoff.kt",

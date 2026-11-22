@@ -47,7 +47,9 @@ original call from the same tool and connection. A missing issue `after` value
 can be recovered only from one exact successful issued recipe. Conflicting,
 altered, ambiguous and cross-tool cursors remain rejected. Reports distinguish
 the six issue-continuation rejection states and retain field names and schema
-identity without exporting private argument values.
+identity without exporting private argument values. The native dispatch-accounting
+wrapper preserves the complete typed rejection shape without allowing diagnostic
+fields to replace measured dispatch, HTTP or mutation accounting.
 
 The late catalog reports are handled at discovery admission: explicit known
 single-tool names can be canonicalized without guessing, optional null selectors
@@ -74,7 +76,10 @@ captured successful source observations and their receipt/revision pointers,
 preserves an existing primary failure, and never claims task completion.
 Evidence-epoch publication checks still prevent stale findings from being
 delivered as current. A rejected fault-fallback publication cannot restart the
-normal failing renderer.
+normal failing renderer. If publication access cannot be revalidated, the app
+returns one sanitized blocked failure before reading fallback receipts or
+publishing saved content. Cancellation, ownership refusal and the existing
+configuration-invalidated lifecycle keep their established behavior.
 
 Output continuation distinguishes no saved task, capacity rejection, observed
 HTTP rejection, transport failure and another opening failure. It records the
@@ -145,16 +150,29 @@ rate-limit evidence, catalog discovery, admission observations and reporter
 compatibility. The integrated Android source compilation and test gate exercise
 the actual implementation; isolated host probes alone are insufficient.
 
-The local repository fast gate passed 589 tests and the reporting service passed
-190 tests. A focused compilation of 13 actual current production files and five
-test classes passed all 100 contract/recovery tests against existing baseline
-app dependencies, without handwritten stubs. Production/test Kotlin formatting,
-source inventory, release scope
-and diff checks passed. KSP code generation passed, but the local KAPT worker
-repeatedly exited without a source diagnostic. Those attempts do not establish
-an Android compile or test pass. The unchanged GitHub CI gate supplies the full
-Android compilation and execution evidence; its final receipts are linked from
-PR #2126 and the issue resolutions.
+The local repository fast gate passed 592 tests after the concurrent readiness
+and progress fixes; the reporting service passed 190 tests. Focused current-source
+compilation and execution passed 100 catalog/contract/recovery tests, 56 native
+GitHub/dispatch-accounting tests and 158 conversation/verifier tests. These are
+separate selections with some shared dependencies, not a claimed unique total.
+The harnesses use actual current sources and existing app dependencies without
+handwritten stubs. A separate focused compile passed for the main chat repository,
+continuation plan and conversation UI.
+
+The diagnostic selection passed 214 of 217 executed tests; the remaining three
+need Android's native clock implementation and cannot run in the plain JVM
+harness. Its Robolectric incident suite was compiled but left for the Android CI
+runtime. No behavioral assertion failure remains in those focused diagnostics.
+These results do not replace full Android compilation or execution.
+
+Production/test Kotlin formatting, source inventory, release scope and diff
+checks passed. KSP code generation passed, but the local KAPT worker repeatedly
+exited without a source diagnostic. Those attempts do not establish an Android
+compile or test pass. The first CI compilation identified a List/Collection
+mismatch in the verifier; the integrated correction preserves List typing.
+The unchanged GitHub CI gate supplies the full combined-head Android compilation
+and execution evidence; its final receipts are linked from PR #2126 and the
+issue resolutions.
 
 The merge gate requires successful checks for the final PR revision, an
 up-to-date base and GitHub's current merge policy. A passed check from the starting

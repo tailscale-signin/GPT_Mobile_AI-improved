@@ -16,6 +16,46 @@ internal object GitHubVerificationFault {
 
     data class Partial(val text: String, val report: JsonObject, val failure: ProviderEvent.Failed)
 
+    /** A refused publication guard permits exception diagnostics, never saved evidence access. */
+    fun publicationDenied(error: Exception, original: ProviderEvent.Failed?): ProviderEvent.Failed {
+        val fault = buildJsonObject {
+            IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.GITHUB_VERIFICATION_CATCH).forEach { (key, value) -> put(key, value) }
+            put("code", CODE)
+            put("failed_stage", "verification")
+            put("failure_origin", "APPLICATION")
+            put("diagnostic_area", "PROVIDER")
+            put("provider_failure_code", CODE)
+            put("provider_failure_stage", "CLAIM_VERIFICATION")
+            put("provider_failure_domain", "APPLICATION_VERIFICATION")
+            put("verification_phase", Phase.AUTHORITY.name)
+            put("response_delivered", false)
+            put("completion_verified", false)
+            put("retryable", false)
+            put("request_replay_allowed", false)
+            put("logical_continuation_allowed", false)
+            put("resume_allowed", false)
+            put("recovery_action", "REVIEW_SAVED_RECOVERY")
+        }
+        val details = if (original == null) {
+            fault
+        } else {
+            buildJsonObject {
+                fault.filterKeys { it !in setOf("code", "provider_failure_code", "provider_failure_stage", "provider_failure_domain") }.forEach { (key, value) -> put(key, value) }
+                original.errorCode?.let { put("code", it) }
+                if (original.failureDetails?.get("requires_reconciliation") == JsonPrimitive(true)) put("requires_reconciliation", true)
+                put("verification_failure", fault)
+            }
+        }
+        return ProviderEvent.Failed(
+            "Repository answer publication is blocked because access could not be revalidated. Review access and saved recovery before resuming.",
+            errorCode = original?.errorCode ?: CODE,
+            transportComplete = original?.transportComplete ?: false,
+            taskOutcome = "BLOCKED",
+            failureDetails = details,
+            invocationId = original?.invocationId
+        )
+    }
+
     fun partial(error: Exception, phase: Phase, receipts: Map<String, JsonObject>, original: ProviderEvent.Failed?): Partial {
         val fault = buildJsonObject {
             IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.GITHUB_VERIFICATION_CATCH).forEach { (key, value) -> put(key, value) }

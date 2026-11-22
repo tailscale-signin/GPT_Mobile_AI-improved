@@ -1131,7 +1131,18 @@ internal class GitHubVerifiedSession(
             }
             // Revalidate access before reading/publishing even the minimal saved
             // evidence report. Do not call the failed renderer a second time.
-            validatePublication()
+            try {
+                validatePublication()
+            } catch (refused: Exception) {
+                failureCauses(refused).firstOrNull {
+                    it is CancellationException ||
+                        it is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException ||
+                        it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
+                        it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied
+                }?.let { throw it }
+                emit(GitHubVerificationFault.publicationDenied(refused, originalFailure))
+                return@flow
+            }
             val (saved, epoch) = evidence.snapshot()
             val fallback = GitHubVerificationFault.partial(failure, verificationPhase, saved, originalFailure)
             Publication(fallback.text, true, fallback.report, epoch, saved.keys, fallback.failure)

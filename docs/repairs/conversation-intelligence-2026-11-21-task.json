@@ -84,11 +84,11 @@
     }
   ],
   "validation": {
-    "snapshot": "Recorded before publication of the repair commit. Exact final CI, issue closure and merge receipts are maintained on PR #2126.",
+    "snapshot": "Recorded before the final correction commit on top of af904cbda526f7e89d273fec51a440ccf8fa7b77. Exact final combined-head CI, issue closure and merge receipts are maintained on PR #2126.",
     "local": {
       "repository_fast": {
         "status": "PASS",
-        "tests": 589
+        "tests": 592
       },
       "authentication": {
         "status": "PASS",
@@ -96,11 +96,11 @@
       },
       "production_kotlin_formatting": {
         "status": "PASS",
-        "changed_files": 53
+        "changed_files": 54
       },
       "test_kotlin_formatting": {
         "status": "PASS",
-        "changed_files": 32
+        "changed_files": 33
       },
       "source_inventory_release_scope_and_diff": "PASS",
       "ksp_debug": "PASS",
@@ -121,6 +121,36 @@
         "production_sources": 13,
         "compiler": "Kotlin 2.4.20 / JDK 21",
         "scope": "Actual current sources against existing baseline app dependencies; no handwritten stubs. This is not full Android/Gradle/KAPT validation."
+      },
+      "focused_native_dispatch_execution": {
+        "status": "PASS",
+        "tests": 56,
+        "test_classes": 4,
+        "scope": "Actual native GitHub and dispatch accounting sources against unchanged baseline app dependencies; no handwritten stubs. Not full Android validation."
+      },
+      "focused_conversation_execution": {
+        "status": "PASS",
+        "tests": 158,
+        "test_classes": 9,
+        "production_sources": 21,
+        "scope": "Actual current conversation/verifier sources; two unchanged authority regressions, three publication-guard regressions and two concurrent saved/fresh progress regressions included. Not full Android validation."
+      },
+      "focused_diagnostic_execution": {
+        "status": "PARTIAL_ENVIRONMENT",
+        "tests": 217,
+        "passed": 214,
+        "android_native_clock_unavailable": 3,
+        "behavioral_assertion_failures": 0,
+        "robolectric_incident_suite": "COMPILED_NOT_EXECUTED_IN_PLAIN_JVM"
+      },
+      "focused_integration_compilation": {
+        "status": "PASS",
+        "sources": [
+          "ChatRepositoryImpl.kt",
+          "ResponseContinuationPlan.kt",
+          "AgentRunStatusBlock.kt"
+        ],
+        "scope": "Actual sources compiled with current component overlays and unchanged app dependencies; not full Android validation."
       }
     },
     "github": {
@@ -137,7 +167,14 @@
   },
   "concurrency": {
     "public_branch_policy": "One existing PR branch; root alone commits/pushes/merges; no forced ref updates.",
-    "starting_head": "ad26151b2916bf25feb20bcb99c5f233e7de790d"
+    "starting_head": "ad26151b2916bf25feb20bcb99c5f233e7de790d",
+    "preserved_incoming_commits": [
+      "44b1c7adc",
+      "a9534feed",
+      "ec829b5f0",
+      "af904cbda526f7e89d273fec51a440ccf8fa7b77"
+    ],
+    "additional_scope": "Concurrent approved design work remains on the same PR; its latest head and final checks must be integrated before merge."
   },
   "disposition_policy": "Close each current intake only after its code repair or targeted diagnostic improvement is verified. Unknown historic causes and missing physical-device proof remain explicitly disclosed in the issue resolution."
 }

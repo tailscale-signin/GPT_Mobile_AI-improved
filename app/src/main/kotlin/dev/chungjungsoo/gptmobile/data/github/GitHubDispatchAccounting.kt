@@ -8,6 +8,9 @@ import java.util.UUID
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -301,6 +304,7 @@ internal class GitHubDispatchAccounting(
                         result.executionReceipt?.get(key)?.let { put(key, it) }
                     }
                 }
+                issueContinuationFields(result, phase)?.forEach { (key, value) -> put(key, value) }
                 result.executionReceipt?.get("retry_not_before_ms")?.let { put("retry_not_before_ms", it) }
                 for (key in listOf(
                     "github_transport_kind", "github_transport_wait_ms", "cause_types", "exception_fingerprint",
@@ -311,6 +315,35 @@ internal class GitHubDispatchAccounting(
                 }
             }
         )
+    }
+
+    private fun issueContinuationFields(result: AgentToolResult, phase: String): JsonObject? {
+        if (phase != "PREFLIGHT_REJECTED" || result.dispatched || result.errorCode != "INVALID_ARGUMENTS") return null
+        val receipt = result.executionReceipt ?: return null
+        val stateName = (receipt["issue_continuation_state"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        val state = GitHubInspection.InvalidIssueContinuation.State.entries.firstOrNull { it.name == stateName } ?: return null
+        val missing = state == GitHubInspection.InvalidIssueContinuation.State.MISSING_AFTER
+        val fields = when (state) {
+            GitHubInspection.InvalidIssueContinuation.State.FILTER_MISMATCH -> listOf("after", "owner", "repo", "state", "per_page", "sort", "direction")
+            GitHubInspection.InvalidIssueContinuation.State.PAGE_MISMATCH, GitHubInspection.InvalidIssueContinuation.State.INITIAL_PAGE_WITH_AFTER -> listOf("after", "page")
+            else -> listOf("after")
+        }
+        // Copy only the complete typed rejection shape. Its diagnostic fields
+        // cannot replace measured dispatch, HTTP, mutation or reconciliation facts.
+        val expected = buildJsonObject {
+            put("issue_continuation_rejected", true)
+            put("issue_continuation_state", state.name)
+            put("reason_code", "TOOL_ARGUMENT_CONSTRAINT_REJECTED")
+            put("missing_field_count", if (missing) 1 else 0)
+            put("invalid_field_count", if (missing) 0 else 1)
+            put(if (missing) "missing_fields" else "invalid_fields", JsonArray(listOf(JsonPrimitive("after"))))
+            put("invalid_field_classes", JsonArray(listOf(JsonPrimitive(if (missing) "MISSING_REQUIRED" else "COMPOSITE_CONSTRAINT"))))
+            put("validation_field_names", JsonArray(fields.map(::JsonPrimitive)))
+        }
+        return expected.takeIf {
+            expected.all { (key, value) -> receipt[key] == value } &&
+                receipt[if (missing) "invalid_fields" else "missing_fields"] == null
+        }
     }
 }
 

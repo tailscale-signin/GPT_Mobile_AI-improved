@@ -1651,7 +1651,8 @@ internal class GitHubRepositorySession(
         val before = oldTree["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.associateBy { it.s("path") }
         val after = newTree["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.associateBy { it.s("path") }
         val changes = (before.keys + after.keys).sorted().filter { before[it]?.s("sha") != after[it]?.s("sha") || before[it]?.s("mode") != after[it]?.s("mode") }
-        val page = (args["page"]?.jsonPrimitive?.intOrNull ?: 1).also { require(it in 1..1000) }
+        val window = GitHubComparisonPage.window(args, changes.size)
+        val page = window.page
         val includePatches = args["include_patches"]?.jsonPrimitive?.booleanOrNull == true
         // GitHub compare exposes patches for at most 300 files. Missing/binary patches
         // remain explicitly unavailable; tree comparison still covers every file.
@@ -1665,10 +1666,12 @@ internal class GitHubRepositorySession(
             put("base_sha", base.commitSha)
             put("head_sha", context.commitSha)
             put("files_total", changes.size)
+            put("effective_per_page", window.size)
+            put("total_pages", window.totalPages)
             put(
                 "files",
                 JsonArray(
-                    changes.drop((page - 1) * 100).take(100).map { path ->
+                    changes.subList(window.from, window.until).map { path ->
                         buildJsonObject {
                             put("filename", path)
                             put(
@@ -1696,10 +1699,10 @@ internal class GitHubRepositorySession(
                 )
             )
             put("page", page)
-            put("has_more", page * 100 < changes.size)
-            put("files_truncated", page * 100 < changes.size)
+            put("has_more", window.hasMore)
+            put("files_truncated", window.hasMore)
             put("tree_complete", oldTree["truncated"]?.jsonPrimitive?.booleanOrNull != true && newTree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
-            if (page * 100 < changes.size) {
+            if (window.hasMore) {
                 put(
                     "continuation",
                     buildJsonObject {
@@ -1707,6 +1710,7 @@ internal class GitHubRepositorySession(
                         put("base", base.commitSha)
                         put("commit_sha", context.commitSha)
                         put("page", page + 1)
+                        put("per_page", window.size)
                         put("include_patches", includePatches)
                     }
                 )

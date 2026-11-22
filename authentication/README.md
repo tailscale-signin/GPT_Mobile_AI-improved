@@ -221,6 +221,25 @@ feature when either code appears as the report error, a retained original failur
 or an exact code token in a bounded event, including reports without context.
 Older reporters stay blocked before POST with the same service-update requirement.
 
+`VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1` is an additive extended-readiness capability
+for `BOUNDED_VISIBLE_OUTPUT_REPAIR` and
+`VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED` diagnostic stop reasons and the
+`INSPECT_SAVED_PROVIDER_ATTEMPT` recovery action. Protocol 2 and
+`EXECUTION_COMPLETION_EVIDENCE_V1` alone do not establish support for these values.
+The app requires the new capability only when a report carries one of them; an
+older service is blocked before dispatch without rewriting approved bytes or
+automatically retrying. Previous stop reasons and omission-only declarations keep
+their existing compatibility requirements. Internal repair roles and request-claim
+checkpoint fields are not public report fields.
+
+Before a signed release configured with `ISSUE_REPORT_ORIGIN`, deploy this reporter
+revision to that existing origin using its deployment process, then run
+`python3 scripts/check_issue_reporting_configuration.py --probe-service` with the
+release configuration. The check requires both completion capabilities from
+`/health/ready?capabilities=extended`; it does not deploy the service. This repository
+does not define a hosted-service deployment workflow. Native GitHub reporting with
+no configured service remains valid and does not probe or require a hosted origin.
+
 `DISPATCH_POLICY_DIAGNOSTICS_V1` declares support for the closed policy-section,
 failure-stage and resume observations. `CHANGED_POLICY_FIELDS_V1` separately
 declares support for the bounded changed-setting names and their observed,

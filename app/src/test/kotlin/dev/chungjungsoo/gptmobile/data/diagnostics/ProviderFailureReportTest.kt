@@ -25,11 +25,54 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderFailureReportTest {
+    @Test fun incompleteComparisonIsAnApplicationGuardAndCannotBorrowModelUsage() {
+        val failure = dev.chungjungsoo.gptmobile.data.github.GitHubReviewComparison.blockedFailure(
+            dev.chungjungsoo.gptmobile.data.github.GitHubReviewComparison.Plan(
+                buildJsonObject { put("detail", "Comparison pages remain pending") },
+                null
+            )
+        )
+        val receipt = ProviderFailureReceipt.from(profile, "github-review", failure.copy(invocationId = "delivery-owner"), ProviderEvent.Usage(outputTokens = 18_634, invocationId = "delivery-owner"))
+        assertEquals("GITHUB_REVIEW_COMPARISON_REQUIRED", receipt.errorCode)
+        assertEquals(FailureDomain.APPLICATION_VERIFICATION, receipt.failureDomain)
+        assertEquals(ProviderFailureStage.ENGINEERING_GUARD, receipt.stage)
+        assertEquals(ProviderResponseFormat.TEXT, receipt.responseFormat)
+        assertEquals(false, receipt.dispatched)
+        assertNull(receipt.outputTokens)
+        assertNull(receipt.usageInvocationId)
+        assertTrue(receipt.valid())
+        val report = ProviderFailureReport.fields("run", failure, receipt)
+        val diagnostics = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", report, 1000).diagnostics)
+        assertEquals(JsonPrimitive("GITHUB_REVIEW_COMPARISON_REQUIRED"), diagnostics.values["provider_failure_code"])
+        assertEquals(JsonPrimitive("APPLICATION_VERIFICATION"), diagnostics.values["provider_failure_domain"])
+        assertNotNull(diagnostics.validated())
+    }
+
+    @Test fun failedComparisonPrerequisiteRetainsToolFailureRatherThanBlamingAProvider() {
+        val failure = ProviderEvent.Failed(
+            "Read rejected",
+            errorCode = "HTTP_ERROR",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "review_comparison")
+                put("inference_dispatched", false)
+                put("dispatched", true)
+                put("http_status", 403)
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(profile, "github-review", failure)
+        assertEquals("HTTP_ERROR", receipt.errorCode)
+        assertEquals(FailureDomain.TOOL_EXECUTION, receipt.failureDomain)
+        assertEquals(ProviderFailureStage.ENGINEERING_GUARD, receipt.stage)
+        assertEquals(true, receipt.dispatched)
+        assertEquals(403, receipt.httpStatus)
+    }
+
     @Test fun publicProviderHashesKeepActualUpstreamIdentityAndCanonicalClassificationSeparate() {
         val observedHashes = mutableSetOf<String>()
         for (upstream in listOf("private-upstream-a", "private-upstream-b", "private-upstream-with-type", "401", "503")) {
@@ -44,11 +87,12 @@ class ProviderFailureReportTest {
             val fields = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
             val expected = requireNotNull(IssueReportContext.identifierHash("provider-error-code", upstream))
             assertEquals(JsonPrimitive(expected), fields["original_error_code_hash"])
+            assertEquals(JsonPrimitive(200), fields["http_status"])
             val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1000)
+            assertEquals(200, context.httpStatus)
             val diagnostics = requireNotNull(context.diagnostics)
             assertEquals(JsonPrimitive(expected), diagnostics.values["original_error_code_hash"])
             assertEquals(JsonPrimitive(event.code), diagnostics.values["provider_failure_code"])
-            assertEquals(200, context.httpStatus)
             assertFalse(diagnostics.values.containsKey("http_status"))
             assertFalse(diagnostics.values.containsKey("upstream_error_code_hash"))
             if (upstream.startsWith("private")) {

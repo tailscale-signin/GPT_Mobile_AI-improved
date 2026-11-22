@@ -124,6 +124,7 @@ internal class IssueReportSubmission(
         private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
             ExecutionCompletionDiagnostics.FEATURE,
+            ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE,
             VoiceExecutionDiagnostics.FEATURE,
             IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE,
             RequestByteBudget.FEATURE,
@@ -184,6 +185,9 @@ internal class IssueReportSubmission(
                     code(context?.get("stage")) == "application_persistence"
                 ) {
                     add(ExecutionCompletionDiagnostics.FEATURE)
+                }
+                if (code(context?.get("recoveryAction")) == ExecutionCompletionDiagnostics.INSPECT_SAVED_PROVIDER_ATTEMPT) {
+                    add(ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE)
                 }
                 if (RequestByteBudget.CODE in codes) add(RequestByteBudget.FEATURE)
                 if ("GITHUB_VERIFICATION_INTERNAL_ERROR" in codes ||

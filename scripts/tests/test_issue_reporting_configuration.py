@@ -32,6 +32,16 @@ class IssueReportingConfigurationTest(unittest.TestCase):
                      "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES | {"CONVERSATION_RECOVERY_DIAGNOSTICS_V1", "FUTURE_OPTIONAL_DIAGNOSTICS_V1"})}
         check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
 
+    def test_hosted_visible_output_recovery_requires_additive_contract_capability(self):
+        self.assertTrue({"EXECUTION_COMPLETION_EVIDENCE_V1", "VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1"} <= REQUIRED_DIAGNOSTIC_FEATURES)
+        readiness = {"service": "gpt-mobile-issue-reporter", "version": 2,
+                     "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                     "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {"VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1"})}
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+        readiness["reportDiagnosticFeatures"].append("VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1")
+        check_readiness("https://reports.project.org", lambda _: json.dumps(readiness, separators=(",", ":")).encode())
+
     def test_disabling_both_routes_fails(self):
         with self.assertRaises(ValueError):
             validate("", "false")

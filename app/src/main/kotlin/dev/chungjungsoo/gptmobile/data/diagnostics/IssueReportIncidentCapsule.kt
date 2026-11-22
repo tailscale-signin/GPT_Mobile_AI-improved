@@ -341,7 +341,7 @@ internal object IssueReportIncidentCapsule {
     }
 
     fun fieldsFor(area: String): Set<String> = common + (if (area in setOf("INCIDENT", "PROVIDER")) ExecutionCompletionDiagnostics.fields else emptySet()) + when (area) {
-        "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields + repeatHistoryFields + LAST_UNSENT_CODE + inventoryPaginationFields
+        "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields + repeatHistoryFields + LAST_UNSENT_CODE + inventoryPaginationFields + dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.fields
         "INCIDENT" -> setOf("github_prerequisite_observation", "app_search_readiness") + combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure", "provider_error_code_state", "provider_error_origin")
         "ACCEPTANCE" -> setOf("github_prerequisite_observation") + acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + policyResponseFields + GitHubAcceptancePublicationEvidence.fields + GitHubAcceptanceExplanation.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
         "GATEWAY" -> gatewayFields

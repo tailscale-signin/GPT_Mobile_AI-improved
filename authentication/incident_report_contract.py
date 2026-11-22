@@ -708,9 +708,10 @@ ENUMS.update({
 
 # Same-failure, closed evidence for durable recovery and semantic stream failures.
 EXECUTION_COMPLETION_FEATURE = 'EXECUTION_COMPLETION_EVIDENCE_V1'
-EXECUTION_COMPLETION_CODES = {'WORKSPACE_EVIDENCE_CONFLICT', 'BILLING_UNAVAILABLE', 'PROVIDER_CONTENT_POLICY', 'PROVIDER_GENERATION_FAILED', 'PROVIDER_UNAVAILABLE', 'AUTHENTICATION_FAILED', 'ACCESS_FORBIDDEN'}
+EXECUTION_COMPLETION_CODES = {'WORKSPACE_EVIDENCE_CONFLICT', 'GITHUB_REVIEW_COMPARISON_REQUIRED', 'RECONCILIATION_REQUIRED', 'BILLING_UNAVAILABLE', 'PROVIDER_CONTENT_POLICY', 'PROVIDER_GENERATION_FAILED', 'PROVIDER_UNAVAILABLE', 'AUTHENTICATION_FAILED', 'ACCESS_FORBIDDEN'}
 EXECUTION_COMPLETION_HASHES = {
     'provider_response_id_hash', 'no_output_parent_invocation_hash',
+    'reconciliation_original_call_hash', 'reconciliation_original_tool_hash', 'reconciliation_original_arguments_hash',
     'no_output_draft_hash', 'no_output_segment_hash', 'no_output_evidence_hash',
     'evidence_record_hash', 'evidence_proposed_payload_hash', 'evidence_retained_payload_hash',
     'provider_wait_expected_tool_journal_hash', 'provider_wait_observed_tool_journal_hash',
@@ -730,8 +731,10 @@ EXECUTION_COMPLETION_UPSTREAM_CODES = {
     'context_window_exceeded', 'context_length_exceeded', 'rate_limit_exceeded', 'tokens_limit_exceeded', 'rate_limit_error', 'content_policy_violation', 'content_filter', 'safety_blocked',
 }
 EXECUTION_COMPLETION_ENUMS = {
+    'reconciliation_identity_state': {'IDENTIFIED', 'MULTIPLE', 'NOT_RECORDED'},
+    'reconciliation_original_code': {'TIMEOUT_OUTCOME_UNKNOWN', 'DISPATCH_OUTCOME_UNKNOWN', 'TOOL_OUTCOME_UNKNOWN', 'TOOL_RESULT_ID_MISMATCH', 'RECONCILIATION_REQUIRED', 'GATEWAY_OUTCOME_UNKNOWN', 'GATEWAY_TOOL_OUTCOME_UNKNOWN', 'REMOTE_OUTCOME_UNKNOWN'},
     'no_output_kind': {'REASONING_ONLY', 'EMPTY_VISIBLE_COMPLETION', 'DUPLICATE_DRAFT', 'OUTPUT_LIMIT_WITHOUT_NOVELTY'},
-    'no_output_stop_reason': {'BOUNDED_EMPTY_OUTPUT_REPAIR', 'DUPLICATE_DRAFT', 'OUTPUT_ALLOWANCE_WITHOUT_NOVELTY', 'NO_PROGRESS_AFTER_CONTINUATION', 'EMPTY_OUTPUT_REPAIR_LIMIT'},
+    'no_output_stop_reason': {'BOUNDED_EMPTY_OUTPUT_REPAIR', 'BOUNDED_VISIBLE_OUTPUT_REPAIR', 'VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED', 'DUPLICATE_DRAFT', 'OUTPUT_ALLOWANCE_WITHOUT_NOVELTY', 'NO_PROGRESS_AFTER_CONTINUATION', 'EMPTY_OUTPUT_REPAIR_LIMIT'},
     'evidence_conflict_reason': {'IMMUTABLE_PAYLOAD_CHANGED', 'RETAINED_PAYLOAD_UNAVAILABLE', 'CONCURRENT_APPEND_CONFLICT'},
     'evidence_record_kind': {'github_evidence', 'github_engineering_memory', 'synthesis_checkpoint'},
     'evidence_writer_phase': {'IMMUTABLE_APPEND', 'CHECKPOINT_REPLACE', 'TERMINAL_RECONCILIATION'},
@@ -752,9 +755,11 @@ EXECUTION_COMPLETION_ENUMS = {
         'WAIT_STORE_UNAVAILABLE', 'MESSAGE_CHECKPOINT_FAILED', 'WAIT_PREPARATION_FAILED',
     },
 }
-EXECUTION_COMPLETION_FIELDS = EXECUTION_COMPLETION_HASHES | EXECUTION_COMPLETION_COUNTS | set(EXECUTION_COMPLETION_ENUMS) | {'provider_semantic_status', 'no_output_repair_scheduled', 'provider_wait_state', 'provider_wait_persisted', 'ownership_fence'}
+RECONCILIATION_IDENTITY_FIELDS = {'reconciliation_identity_state', 'reconciliation_tracked_operation_count', 'reconciliation_original_call_hash', 'reconciliation_original_tool_hash', 'reconciliation_original_arguments_hash', 'reconciliation_original_code', 'reconciliation_original_dispatched'}
+EXECUTION_COMPLETION_FIELDS = EXECUTION_COMPLETION_HASHES | EXECUTION_COMPLETION_COUNTS | set(EXECUTION_COMPLETION_ENUMS) | RECONCILIATION_IDENTITY_FIELDS | {'provider_semantic_status', 'no_output_repair_scheduled', 'provider_wait_state', 'provider_wait_persisted', 'ownership_fence'}
 HASHES.update(EXECUTION_COMPLETION_HASHES)
 FLAGS.add('no_output_repair_scheduled')
+FLAGS.add('reconciliation_original_dispatched')
 FLAGS.add('acceptance_original_failure_present')
 ENUMS.update(EXECUTION_COMPLETION_ENUMS)
 ENUMS['checkpoint_mismatch_reason'].update({
@@ -765,7 +770,7 @@ ENUMS['observed_checkpoint_state'].update({'GENERATING', 'WRITING', 'NO_OUTPUT_R
 
 
 def fields_for(area):
-    return COMMON | (EXECUTION_COMPLETION_FIELDS if area in {'INCIDENT', 'PROVIDER'} else set()) | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | {LAST_UNSENT_CODE} | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS, 'INCIDENT': {'github_prerequisite_observation', 'app_search_readiness'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | ACCEPTANCE_EXPLANATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | (EXECUTION_COMPLETION_FIELDS if area in {'INCIDENT', 'PROVIDER'} else set()) | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | {LAST_UNSENT_CODE} | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS | RECONCILIATION_IDENTITY_FIELDS, 'INCIDENT': {'github_prerequisite_observation', 'app_search_readiness'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | ACCEPTANCE_EXPLANATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
@@ -814,6 +819,8 @@ def valid_value(key, value):
         return False
     if key in EXECUTION_COMPLETION_COUNTS:
         return 0 <= value <= 2_147_483_647
+    if key == 'reconciliation_tracked_operation_count':
+        return 0 <= value <= 1024
     if key == 'ownership_fence':
         return 0 <= value <= 9_223_372_036_854_775_807
     if key == 'provider_semantic_status':

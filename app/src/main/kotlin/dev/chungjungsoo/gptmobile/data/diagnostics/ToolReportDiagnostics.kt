@@ -127,6 +127,7 @@ internal object ToolReportDiagnostics {
         put("run_id_hash", IssueReportContext.identifierHash("run", event.runId))
         put("call_id_hash", IssueReportContext.identifierHash("call", event.callId))
         put("tool_name_hash", IssueReportContext.identifierHash("tool-name", event.modelToolName))
+        putAll(dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.retained(result.errorCode, result.executionReceipt).orEmpty())
         putAll(ToolInventoryPaginationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
         putAll(dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
         readerRefusal(event, result)?.let { put("url_reader_refusal", it) }

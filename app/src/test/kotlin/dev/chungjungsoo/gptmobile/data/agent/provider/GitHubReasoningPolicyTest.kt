@@ -10,6 +10,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReasoningPolicyTest {
+    @Test fun visibleOutputRecoveryKeepsExplicitHighEffortAndTheAcceptedOutputLimit() {
+        val role = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE
+        for (mode in ReasoningMode.entries) {
+            val original = RequestConstraints(maxOutputTokens = 6144, reasoningModeOverride = mode, maximizeReasoning = true, lockSelectedRoute = true, permissionRevision = "accepted")
+            val repair = original.forRole(role)
+            assertEquals(mode, repair.reasoningModeOverride)
+            assertTrue(repair.maximizeReasoning)
+            assertTrue(repair.allowReasoning)
+            assertEquals(6144, repair.outputLimit(16384))
+            assertEquals(6144, repair.maxOutputTokens)
+            assertEquals("accepted", repair.permissionRevision)
+            assertTrue(repair.lockSelectedRoute)
+        }
+        val off = RequestConstraints(maxOutputTokens = 6144, allowReasoning = false, reasoningModeOverride = ReasoningMode.OFF).forRole(role)
+        assertFalse(off.allowReasoning)
+        assertFalse(off.maximizeReasoning)
+        assertEquals(ReasoningMode.OFF, off.reasoningModeOverride)
+    }
+
+    @Test fun manualThinkingRecoveryLeavesVisibleRoomWithoutIncreasingTotalOutput() {
+        val role = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE
+        for (output in listOf(2048, 4096, 6144, 8192, 16384)) {
+            val reserve = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.visibleOutputReserve(output, role)
+            val reasoning = GitHubReasoningPolicy.manualThinkingBudget(output, role)
+            assertTrue(reasoning >= 1024)
+            assertTrue(reasoning + reserve <= output)
+        }
+        assertEquals(3072, GitHubReasoningPolicy.manualThinkingBudget(6144, role))
+        assertEquals(4096, GitHubReasoningPolicy.manualThinkingBudget(8192, role))
+        assertEquals(6144, GitHubReasoningPolicy.manualThinkingBudget(8192))
+    }
+
     @Test fun reviewCompatibilityPreflightHasABoundedVisibleOutputAllowance() {
         val primary = RequestConstraints(maxOutputTokens = 8192, allowReasoning = true, maximizeReasoning = true)
         val preflight = primary.forRole("github-review-preflight")

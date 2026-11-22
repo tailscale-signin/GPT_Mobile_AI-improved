@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "06ab96439deea13262fa48130eed367914e914d0",
+  "parent_pr": 2254,
+  "working_branch": "work/review-completion-2026-11-22",
+  "intent": "Repair false prior-delivery metadata during evidence compaction and permit one durable materially-changed visible-output recovery within accepted model/output/retry budgets while preserving explicit High reasoning and provider-wait behavior.",
+  "status": "IMPLEMENTED_READY_FOR_INTEGRATION",
+  "evidence": {
+    "diagnostic_capture": "9c636515-74f8-4fda-a390-92dd9ffbfdaa",
+    "runtime_source_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "compactor_reproduction_sha": "459261b5b537b8eee2479927488e81e455a4c39c",
+    "qualification": "Reproduced unread semantic result marked previously_delivered; separately observed output-limited reasoning-only continuation. No physical-device qualification implied."
+  },
+  "validation": {
+    "focused": {
+      "result": "PASS",
+      "tests": 76,
+      "scope": [
+        "GitHubOutputContinuationSessionTest including existing cooldown and handoff regressions",
+        "ToolExchangeCompactorTest",
+        "GitHubReasoningPolicyTest",
+        "Five GitHubStageBudget tests using production RequestAdmission"
+      ],
+      "method": "Kotlin 2.4.20 host compile of production implementation and exact pure supporting slices; unrelated Android persistence and transport ports isolated",
+      "limitations": "Full ChatRepositoryImpl and ProviderAdapters Android integration compile remains a combined-head CI gate"
+    },
+    "formatting": "PASS: ktlint 1.3.1 on all 11 changed Kotlin files; git diff --check",
+    "canonical": "CI policy, architecture index, agent metadata and diagnostic schema checks passed. validate-local.sh fast stopped at stale app-audit source inventory; integration owner regenerates inventory.",
+    "android": "NOT_RUN: combined-head CI owned by integrator",
+    "device": "NOT_RUN"
+  },
+  "behavior": {
+    "delivery_provenance": "Compaction uses checkpointed consumption; unread and legacy unconfirmed summaries remain previously_delivered=false; full-result versus summary delivery stays explicit.",
+    "changed_recovery": "At most one changed visible-output repair; before-stream durable request claim prevents replay after a hard process stop. Only typed known-not-accepted provider rejection releases that request claim for the existing cooldown path.",
+    "accepted_constraints": "Explicit High/On reasoning, selected route, permissions and accepted output caps preserved. Stage output remains at most one-quarter context.",
+    "provider_reserve": "Visible-output reserve is a prompt/budget target for effort-only APIs, and a manual-thinking budget split where the provider supports one above its minimum thinking allowance."
+  }
+}

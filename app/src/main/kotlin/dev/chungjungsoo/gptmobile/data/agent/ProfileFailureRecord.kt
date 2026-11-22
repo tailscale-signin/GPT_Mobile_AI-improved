@@ -49,7 +49,9 @@ data class ProfileFailureRecord(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val persistenceFailure: JsonObject? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val outputProgress: JsonObject? = null
+    val outputProgress: JsonObject? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val toolReconciliation: JsonObject? = null
 ) {
     val isUserInputRequired: Boolean get() = category == "REVIEW_INPUT_REQUIRED" && phase == "review_comparison" && dispatched == false && "SELECT_REVIEW_BASELINE" in recoveryActions
 
@@ -119,7 +121,7 @@ data class ProfileFailureRecord(
             val generationCompleted = (details?.get("generation_completed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
             val causeTypes = (details?.get("cause_types") as? JsonArray).orEmpty().take(16).mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.length <= 160 && value.matches(Regex("[A-Za-z0-9_.$]+")) } }
             val recoveryActions = (listOfNotNull(details?.get("recovery_action") ?: details?.get("next_action")) + ((details?.get("recovery_actions") ?: details?.get("allowed_recovery_actions")) as? JsonArray).orEmpty()).mapNotNull { item ->
-                (item as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT)?.takeIf { it in GatewayEngineeringPrerequisites.recoveryActions || it in setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RETRY_AFTER_CONFIGURATION_CHANGE", "RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE", "RESUME_VERIFICATION", "RESTORE_AUTHORIZED_CONFIGURATION", "WAIT_PROVIDER_DEADLINE", "INSPECT_VERIFICATION_FAILURE", "INSPECT_CONTINUATION_FAILURE", "REPLAN_REQUEST_BUDGET", "SEND_ORIGINAL_REQUEST", "REVIEW_SAVED_RECOVERY", "RECONCILE_TOOL_RECEIPTS", "REVIEW_APPLICATION_EVIDENCE", "RESTORE_ACCEPTED_TASK_CONTRACT", "RESTORE_ACCEPTED_TASK_CRITERIA", "AUTHORIZE_NEW_TIME_WINDOW", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST") }
+                (item as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT)?.takeIf { it in GatewayEngineeringPrerequisites.recoveryActions || it in setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RETRY_AFTER_CONFIGURATION_CHANGE", "RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE", "RESUME_VERIFICATION", "RESTORE_AUTHORIZED_CONFIGURATION", "WAIT_PROVIDER_DEADLINE", "INSPECT_VERIFICATION_FAILURE", "INSPECT_CONTINUATION_FAILURE", "REPLAN_REQUEST_BUDGET", "SEND_ORIGINAL_REQUEST", "REVIEW_SAVED_RECOVERY", "RECONCILE_TOOL_RECEIPTS", "REVIEW_APPLICATION_EVIDENCE", "RESTORE_ACCEPTED_TASK_CONTRACT", "RESTORE_ACCEPTED_TASK_CRITERIA", "AUTHORIZE_NEW_TIME_WINDOW", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", "INSPECT_SAVED_PROVIDER_ATTEMPT") }
             }.distinct()
             // A local rejection must not replace an already ambiguous remote operation.
             if (observed.category in setOf(GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")) {
@@ -137,7 +139,8 @@ data class ProfileFailureRecord(
                     causeTypes = causeTypes,
                     recoveryActions = recoveryActions,
                     recoveryDetails = ProviderRecoveryFailure.retainedDetails(details),
-                    providerFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(details)
+                    providerFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(details),
+                    toolReconciliation = ToolReconciliationEvidence.retained(code, details)
                 )
             }
             val authoritative = code?.let {
@@ -227,7 +230,8 @@ data class ProfileFailureRecord(
                 engineeringRejection = if (errorCode.equals("ENGINEERING_STATE_OR_INPUT_CHANGED", ignoreCase = true)) GatewayInputRejectionDetails.retained(details) else null,
                 providerFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(details),
                 persistenceFailure = dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict.retainedDetails(details),
-                outputProgress = GitHubNoOutputProgress.retainedDetails(details)
+                outputProgress = GitHubNoOutputProgress.retainedDetails(details),
+                toolReconciliation = ToolReconciliationEvidence.retained(code, details)
             )
         }
 

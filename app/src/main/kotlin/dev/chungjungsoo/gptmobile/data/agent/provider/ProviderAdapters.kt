@@ -1545,7 +1545,17 @@ class AnthropicMessagesAdapter @Inject constructor(
                     temperature = if (allowSampling) platform.temperature else null,
                     topP = if (allowSampling) platform.topP else null,
                     thinking = thinkingPolicy.config?.let { config ->
-                        if (config.budgetTokens != null) config.copy(budgetTokens = minOf(if (constraints.maximizeReasoning) GitHubReasoningPolicy.manualThinkingBudget(effectiveOutputTokens) else config.budgetTokens, effectiveOutputTokens - 1)) else config
+                        if (config.budgetTokens != null) {
+                            val reservedBudget = GitHubReasoningPolicy.manualThinkingBudget(effectiveOutputTokens, constraints.requestRole)
+                            val thinkingBudget = when {
+                                constraints.maximizeReasoning -> reservedBudget
+                                dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.visibleOutputReserve(effectiveOutputTokens, constraints.requestRole) > 0 -> minOf(config.budgetTokens, reservedBudget)
+                                else -> config.budgetTokens
+                            }
+                            config.copy(budgetTokens = minOf(thinkingBudget, effectiveOutputTokens - 1))
+                        } else {
+                            config
+                        }
                     },
                     tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                         AnthropicTool(definition.name, definition.description, definition.inputSchema)

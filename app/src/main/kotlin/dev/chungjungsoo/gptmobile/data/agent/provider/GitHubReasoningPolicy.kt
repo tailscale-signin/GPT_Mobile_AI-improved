@@ -72,5 +72,11 @@ internal object GitHubReasoningPolicy {
     fun outputBudget(contextTokens: Int, configured: Int, profile: Int?): Int =
         if (configured > 0) configured else minOf(16_384, (contextTokens / 3).coerceAtLeast(1), profile?.takeIf { it > 0 } ?: Int.MAX_VALUE)
 
-    fun manualThinkingBudget(outputTokens: Int): Int = (outputTokens - minOf(2048, outputTokens / 2)).coerceAtLeast(1024)
+    fun manualThinkingBudget(outputTokens: Int, role: String? = null): Int {
+        val visibleReserve = maxOf(
+            minOf(2048, outputTokens / 2),
+            dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.visibleOutputReserve(outputTokens, role)
+        )
+        return (outputTokens - visibleReserve).coerceAtLeast(1024)
+    }
 }

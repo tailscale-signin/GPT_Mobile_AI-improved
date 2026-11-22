@@ -125,12 +125,14 @@ data class ProviderFailureReceipt(
             val code = failure.errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf { it in ERROR_CODES } ?: if (status != null && status >= 400) "HTTP_ERROR" else "UNCLASSIFIED_PROVIDER_FAILURE"
             val failedStage = (failure.failureDetails?.get("failed_stage") as? JsonPrimitive)?.content
             val reviewStage = (failure.failureDetails?.get("review_stage") as? JsonPrimitive)?.content
+            val applicationGuard = code in setOf("WORKSPACE_EVIDENCE_CONFLICT", "GITHUB_REVIEW_COMPARISON_REQUIRED")
+            val comparisonPrerequisite = failedStage == "review_comparison"
             val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             val invocationId = failure.invocationId ?: classified.invocationId
-            val matchingUsage = usage?.takeUnless { failure.localBudgetRefusal }?.takeIf {
+            val matchingUsage = usage?.takeUnless { failure.localBudgetRefusal || applicationGuard || comparisonPrerequisite }?.takeIf {
                 if (invocationId != null || it.invocationId != null) invocationId != null && invocationId == it.invocationId else role != "github-delivery"
             }
-            val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)
+            val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)?.takeUnless { applicationGuard || comparisonPrerequisite }
             // A finish-only stream frame cannot hide usage already attached to
             // this failure. Never fill it from another invocation's last frame.
             val correlatedUsage = matchingUsage?.copy(
@@ -156,6 +158,7 @@ data class ProviderFailureReceipt(
                 classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
             val privacyAdmissionRejected = code == PrivacyFailureEvidence.CODE && failedStage == "provider_admission"
             val stage = when {
+                applicationGuard || comparisonPrerequisite -> ProviderFailureStage.ENGINEERING_GUARD
                 // The failed preparation stage does not establish whether prior
                 // work in this run was dispatched or has an uncertain outcome.
                 profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected || privacyAdmissionRejected || failure.localBudgetRefusal -> ProviderFailureStage.ADMISSION
@@ -204,13 +207,15 @@ data class ProviderFailureReceipt(
                 generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
                 causeTypes = classified.causeTypes,
                 failureDomain = when {
+                    applicationGuard -> FailureDomain.APPLICATION_VERIFICATION
+                    comparisonPrerequisite -> if (code == "REVIEW_INPUT_REQUIRED") FailureDomain.APPLICATION_VERIFICATION else FailureDomain.TOOL_EXECUTION
                     profileSelectionRejected || githubCooldownActive || code == PrivacyFailureEvidence.CODE || failure.localBudgetRefusal -> FailureDomain.APPLICATION_VERIFICATION
                     githubRateResponse -> FailureDomain.TOOL_EXECUTION
                     classified.isUserInputRequired || classified.isEngineeringSetup || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
                     code in setOf("WORKSPACE_EVIDENCE_CONFLICT", "GITHUB_TASK_INCOMPLETE", "GITHUB_TASK_IDENTITY_CHANGED", "GITHUB_VERIFICATION_INTERNAL_ERROR") || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION
                     code in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES -> FailureDomain.APPLICATION_VERIFICATION
-                    code in setOf("TOOL_OUTCOME_UNKNOWN", "INVALID_ARGUMENTS", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "GITHUB_OPERATION_BLOCKED") -> FailureDomain.TOOL_EXECUTION
+                    code in setOf("RECONCILIATION_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "INVALID_ARGUMENTS", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "GITHUB_OPERATION_BLOCKED") -> FailureDomain.TOOL_EXECUTION
                     invocationId != null || status != null || code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES || code in setOf("TRANSPORT_ERROR", "OUTPUT_LIMIT", "INCOMPLETE_PROVIDER_STREAM", "PROVIDER_INVOCATION_FAILED") -> FailureDomain.PROVIDER
                     else -> FailureDomain.UNKNOWN
                 },

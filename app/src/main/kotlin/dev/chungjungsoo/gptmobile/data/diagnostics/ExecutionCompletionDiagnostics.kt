@@ -18,8 +18,11 @@ import kotlinx.serialization.json.put
 /** Closed same-failure observations. Public hashes are domain separated from private checkpoint digests. */
 internal object ExecutionCompletionDiagnostics {
     const val FEATURE = "EXECUTION_COMPLETION_EVIDENCE_V1"
-    val codes = setOf("WORKSPACE_EVIDENCE_CONFLICT", "BILLING_UNAVAILABLE", "PROVIDER_CONTENT_POLICY", "PROVIDER_GENERATION_FAILED", "PROVIDER_UNAVAILABLE", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN")
-    val actions = setOf("REVIEW_APPLICATION_EVIDENCE", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", "AUTHORIZE_NEW_TIME_WINDOW")
+    const val VISIBLE_OUTPUT_RECOVERY_FEATURE = "VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1"
+    const val INSPECT_SAVED_PROVIDER_ATTEMPT = "INSPECT_SAVED_PROVIDER_ATTEMPT"
+    val visibleOutputStopReasons = setOf("BOUNDED_VISIBLE_OUTPUT_REPAIR", "VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED")
+    val codes = setOf("WORKSPACE_EVIDENCE_CONFLICT", "GITHUB_REVIEW_COMPARISON_REQUIRED", "RECONCILIATION_REQUIRED", "BILLING_UNAVAILABLE", "PROVIDER_CONTENT_POLICY", "PROVIDER_GENERATION_FAILED", "PROVIDER_UNAVAILABLE", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN")
+    val actions = setOf("REVIEW_APPLICATION_EVIDENCE", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", INSPECT_SAVED_PROVIDER_ATTEMPT, "AUTHORIZE_NEW_TIME_WINDOW")
     val deadlineFields = setOf("task_deadline_clock", "task_deadline_renewed", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds")
     private val digestAliases = mapOf(
         "draft_sha256" to "no_output_draft_hash",
@@ -67,13 +70,14 @@ internal object ExecutionCompletionDiagnostics {
         "provider_wait_state" to setOf("WAITING_PROVIDER_LIMIT", "CHECKPOINT_UNAVAILABLE", "AUTHORITY_CHANGED", "PERSIST_FAILED", "NOT_SCHEDULED", "RESUMED")
     )
     private val correlationHashes = setOf("provider_response_id_hash", "no_output_parent_invocation_hash")
-    val fields = digestAliases.values.toSet() + correlationHashes + countAliases.values + enums.keys + setOf("provider_semantic_status", "no_output_repair_scheduled", "provider_wait_persisted", "ownership_fence")
+    val fields = digestAliases.values.toSet() + correlationHashes + countAliases.values + enums.keys + dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.fields + setOf("provider_semantic_status", "no_output_repair_scheduled", "provider_wait_persisted", "ownership_fence")
     val newFields = fields - setOf("provider_wait_decision_state", "provider_wait_state", "provider_wait_persisted")
     val newWaitStates = setOf("DURABLE_WAIT", "NOT_SCHEDULED", "PERSISTENCE_UNCERTAIN")
-    val compactFields = digestAliases.keys + correlationHashes + countAliases.keys + enums.keys + setOf("provider_semantic_status", "repair_scheduled", "http_status", "provider_wait_persisted", "ownership_fence", "original_error_code_hash")
+    val compactFields = digestAliases.keys + correlationHashes + countAliases.keys + enums.keys + dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.fields + setOf("provider_semantic_status", "repair_scheduled", "http_status", "provider_wait_persisted", "ownership_fence", "original_error_code_hash")
     private val hash = Regex("[a-f0-9]{64}")
 
     fun validValue(key: String, value: JsonElement): JsonElement? {
+        if (key in dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.fields) return dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.validValue(key, value)
         val primitive = value as? JsonPrimitive ?: return null
         if (key in digestAliases.values || key in correlationHashes) return primitive.takeIf { it.isString && hash.matches(it.content) }
         enums[key]?.let { choices -> return primitive.takeIf { it.isString && it.content in choices } }
@@ -89,6 +93,7 @@ internal object ExecutionCompletionDiagnostics {
 
     /** Only the current typed failure supplies a family; arbitrary adjacent records cannot lend evidence. */
     fun compact(code: String, details: JsonObject): JsonObject = buildJsonObject {
+        dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.retained(code, details)?.forEach { (key, value) -> put(key, value) }
         val output = code == "OUTPUT_CONTINUATION_NO_PROGRESS" && details["no_output_kind"]?.let { validValue("no_output_kind", it) } != null
         val persistence = code == "WORKSPACE_EVIDENCE_CONFLICT" && details["failure_origin"] == JsonPrimitive("local_persistence")
         val recovery = code in ProviderRecoveryFailure.CODES && details["failure_origin"] == JsonPrimitive("local_recovery")

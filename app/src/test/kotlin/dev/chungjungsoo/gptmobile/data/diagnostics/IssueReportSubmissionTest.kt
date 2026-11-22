@@ -153,6 +153,67 @@ class IssueReportSubmissionTest {
         assertEquals(listOf(payload), posted)
     }
 
+    @Test fun visibleOutputRecoveryRequiresNewCapabilityIncludingActionOnlyReports() {
+        val actionOnly = IssueReportContext.fromFields(
+            "CHAT_FAILURE",
+            mapOf("failed_stage" to "final_synthesis", "next_action" to "INSPECT_SAVED_PROVIDER_ATTEMPT", "retryable" to false, "resume_allowed" to false),
+            1_000L
+        )
+        assertEquals("INSPECT_SAVED_PROVIDER_ATTEMPT", actionOnly.recoveryAction)
+        assertEquals(4, actionOnly.schemaVersion)
+        assertEquals(null, actionOnly.diagnostics)
+        val contexts = listOf(actionOnly) + ExecutionCompletionDiagnostics.visibleOutputStopReasons.map { reason ->
+            IssueReportContext.fromFields(
+                "CHAT_FAILURE",
+                mapOf("diagnostic_area" to "INCIDENT", "no_output_stop_reason" to reason),
+                1_000L
+            ).also { assertEquals(JsonPrimitive(reason), it.diagnostics?.values?.get("no_output_stop_reason")) }
+        }
+        for (context in contexts) {
+            val approved = report.copy(errorCode = "OUTPUT_CONTINUATION_NO_PROGRESS", context = context)
+            val payload = approved.approvedPayload()
+            val needed = context.diagnostics?.requiredServiceFeatures().orEmpty() + setOf(
+                ExecutionCompletionDiagnostics.FEATURE,
+                ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE,
+                "PROVIDER_TERMINAL_CAUSES_V1"
+            )
+            var compatible = false
+            var dispatched = 0
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                    val readiness = buildJsonObject {
+                        put("service", "gpt-mobile-issue-reporter")
+                        put("version", 2)
+                        put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                        put("reportDiagnosticFeatures", JsonArray(needed.filter { compatible || it != ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE }.map(::JsonPrimitive)))
+                    }
+                    response(request, 200, readiness.toString())
+                } else {
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${report.reportId}","number":2243}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+            assertFalse(blocked.automaticRetry)
+            assertEquals(listOf("GET"), methods)
+            assertEquals(0, dispatched)
+            assertTrue(posted.isEmpty())
+            compatible = true
+            assertEquals(IssueReportSubmission.Confirmed(2243), submission.send(report.reportId, payload) { dispatched++ })
+            assertEquals(listOf("GET", "GET", "POST"), methods)
+            assertEquals(1, dispatched)
+            assertEquals(listOf(payload), posted)
+            assertEquals(payload, approved.approvedPayload())
+        }
+    }
+
     @Test fun privacyEligibilityEvidenceAndCodesWaitForTheirOwnCapabilityBeforePostingApprovedBytes() {
         val code = PrivacyFailureEvidence.CODE
         val feature = PrivacyFailureEvidence.FEATURE

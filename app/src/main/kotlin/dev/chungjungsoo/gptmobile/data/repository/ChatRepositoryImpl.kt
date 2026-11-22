@@ -5464,7 +5464,7 @@ class ChatRepositoryImpl(
                 override val hasPreparedSearchEvidence: Boolean = preparedSearch
                 override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> =
                     raw.streamRound(tools, exchanges).map { event ->
-                        if (chatToolConfig?.github != null && kind in setOf("primary", "github-output-continuation", "github-task-resume", "github-execution-continuation")) {
+                        if (chatToolConfig?.github != null && kind in setOf("primary", "github-output-continuation", "github-visible-output-continuation", "github-task-resume", "github-execution-continuation")) {
                             val observed = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.receipts?.lastOrNull()?.contextTokens
                             dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.observedContext(observed, event as? ProviderEvent.Failed)?.let { capacity ->
                                 observedRequestContext.updateAndGet { previous -> minOf(previous ?: Int.MAX_VALUE, capacity) }
@@ -6094,9 +6094,43 @@ class ChatRepositoryImpl(
                 dispatchAuthority.validate()
                 check(validateSavedEvidence())
                 val toolCheckpointBinding = resolvedToolCheckpoint.binding
+                suspend fun reopenGitHubContinuation(draft: String, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, visibleOutputRepair: Boolean): AgentProviderSession {
+                    val selected = catalog?.selected(tools) ?: tools
+                    val retainedReceipts = verifiedEvidence.snapshot().first
+                    val workingBrief = withContext(Dispatchers.Default) {
+                        dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryPolicy.workingBrief(
+                            verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask,
+                            chatToolConfig?.github,
+                            retainedReceipts
+                        )
+                    }
+                    val capacity = minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768)
+                    val role = if (visibleOutputRepair) dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE else dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.CONTINUATION_ROLE
+                    val allowance = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.resolve(capacity, resolvedOutputCap, role)
+                    require(allowance.output > 0) { "CONTINUATION_CONTEXT_CAPACITY: No output allowance remains." }
+                    val instruction = if (visibleOutputRepair) {
+                        "Visible-output recovery: the previous attempt ended without a usable answer or tool action. This is the one bounded repair from the accepted task and retained receipts. Choose one next deliverable: a concise verified finding with receipt references, one indispensable authorized tool call, or a precise blocker with the useful partial result. Begin that deliverable directly and keep any remaining work explicit. Keep ${allowance.visibleOutput} tokens of the existing output allowance available for visible work; a shorter useful response is sufficient. Focus reasoning on selecting this next deliverable. Do not restart broad investigation, repeat completed operations, or claim unverified completion. Retain the accepted reasoning policy, output cap, permissions and repository identity."
+                    } else {
+                        "Finish the next outstanding GitHub requirement using the accepted task and retained receipts. Return the next concrete tool action, a usable answer, or a precise blocker; reasoning alone does not advance this task. If the visible draft is empty, begin the substantive response now. Reserve room for a short conclusion with receipt references within the ${allowance.output}-token output allowance. If a tool is still required, request that tool directly. Never repeat completed operations or claim unverified completion."
+                    }
+                    val continuation = dev.chungjungsoo.gptmobile.data.agent.planResponseContinuation(
+                        contextPlan.turns,
+                        requestPlatform.systemPrompt.orEmpty(),
+                        limits.copy(contextTokens = capacity, outputTokens = allowance.output),
+                        draft,
+                        instruction,
+                        exchanges,
+                        advertisedTools = selected,
+                        fitProviderBudget = true,
+                        retainedTaskContext = workingBrief
+                    )
+                    val reopened = openPrimarySession(continuation.turns, role, textOnly = selected.isEmpty(), passOutputTokens = continuation.outputTokens, continuationPrefixDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(draft))
+                    return catalog?.let { reopened.withToolCatalog(it) } ?: reopened
+                }
                 dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession(
                     adaptiveSession,
                     maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 }?.coerceAtMost(1_048_576) ?: 1_048_576,
+                    reopenForVisibleOutput = { draft, exchanges, tools -> reopenGitHubContinuation(draft, exchanges, tools, visibleOutputRepair = true) },
                     continuationRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${limits.contextTokens}:$resolvedOutputCap"),
                     recoveryRevision = runId,
                     expectedProviderCheckpoint = expectedCheckpoint,
@@ -6164,31 +6198,7 @@ class ChatRepositoryImpl(
                         store.saveProtectedSynthesisCheckpoint(checkpointKey, latestUser.chatId, runId, value, expectedDigest = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(expected.toString()), expectedRunFence = owner.ownershipFence)
                     }
                 ) { draft, exchanges, tools ->
-                    val selected = catalog?.selected(tools) ?: tools
-                    val retainedReceipts = verifiedEvidence.snapshot().first
-                    val workingBrief = withContext(Dispatchers.Default) {
-                        dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryPolicy.workingBrief(
-                            verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask,
-                            chatToolConfig?.github,
-                            retainedReceipts
-                        )
-                    }
-                    val capacity = minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768)
-                    val allowance = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.resolve(capacity, resolvedOutputCap, "github-output-continuation")
-                    require(allowance.output > 0) { "CONTINUATION_CONTEXT_CAPACITY: No output allowance remains." }
-                    val continuation = dev.chungjungsoo.gptmobile.data.agent.planResponseContinuation(
-                        contextPlan.turns,
-                        requestPlatform.systemPrompt.orEmpty(),
-                        limits.copy(contextTokens = capacity, outputTokens = allowance.output),
-                        draft,
-                        "Finish the next outstanding GitHub requirement using the accepted task and retained receipts. Return the next concrete tool action, a usable answer, or a precise blocker; reasoning alone does not advance this task. If the visible draft is empty, begin the substantive response now. Prefer a short conclusion with receipt references. If a tool is still required, request that tool directly. Never repeat completed operations or claim unverified completion.",
-                        exchanges,
-                        advertisedTools = selected,
-                        fitProviderBudget = true,
-                        retainedTaskContext = workingBrief
-                    )
-                    val reopened = openPrimarySession(continuation.turns, "github-output-continuation", textOnly = selected.isEmpty(), passOutputTokens = continuation.outputTokens, continuationPrefixDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(draft))
-                    catalog?.let { reopened.withToolCatalog(it) } ?: reopened
+                    reopenGitHubContinuation(draft, exchanges, tools, visibleOutputRepair = false)
                 }
             } else {
                 adaptiveSession

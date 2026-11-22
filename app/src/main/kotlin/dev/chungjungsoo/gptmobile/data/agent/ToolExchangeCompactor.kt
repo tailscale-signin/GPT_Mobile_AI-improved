@@ -19,7 +19,7 @@ import kotlinx.serialization.json.intOrNull
 internal object ToolExchangeCompactor {
     private const val MIN_RESULT_TOKENS = 64
     private const val CHARS_PER_TOKEN = 3
-    private const val OMITTED_RESULT = "[Earlier consumed tool result omitted from primary replay.]"
+    private const val OMITTED_RESULT = "[Tool result omitted from primary replay to fit its budget.]"
     private const val CONSUMED_RESULT = "[Earlier tool result already consumed by the model; durable evidence retained.]"
     private const val DUPLICATE_RESULT = "[Earlier duplicate tool result omitted; newest identical result retained.]"
 
@@ -155,9 +155,11 @@ internal object ToolExchangeCompactor {
                 val duplicate = lastOccurrence[fingerprints[index]] != index
                 val maxChars = resultBudgets[index] * CHARS_PER_TOKEN
                 val raw by lazy(LazyThreadSafetyMode.NONE) { renderCache?.render(result.content) ?: render(result.content) }
-                val semantic by lazy(LazyThreadSafetyMode.NONE) { semanticContent(result) }
+                val semantic by lazy(LazyThreadSafetyMode.NONE) { semanticContent(result, result.callId in consumedCallIds) }
+                val summaryProjection = ((result.content as? ToolResultContent.Json)?.value as? JsonObject)?.get("schema") == JsonPrimitive("github.evidence-summary.v1")
                 when {
                     duplicate -> result.copy(content = ToolResultContent.Text(DUPLICATE_RESULT))
+                    summaryProjection && semantic != null -> result.copy(content = requireNotNull(semantic))
                     consumedPayloads[index] -> result.copy(content = semantic ?: ToolResultContent.Text(CONSUMED_RESULT))
                     resultBudgets[index] == 0 -> result.copy(content = semantic ?: ToolResultContent.Text(OMITTED_RESULT))
                     result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true) && raw.length > maxChars && semantic != null && render(requireNotNull(semantic)).length <= maxChars ->
@@ -179,20 +181,31 @@ internal object ToolExchangeCompactor {
         // call/result pairs newest-first and evict older pairs. The latest real handoff
         // remains exact; an irreducible pending batch must fail replay admission instead
         // of changing its arguments or losing a terminal result.
-        return if (estimateTokens(compacted, renderCache) <= hardBudget) compacted else hardBound(compacted, hardBudget, renderCache)
+        return if (estimateTokens(compacted, renderCache) <= hardBudget) compacted else hardBound(compacted, hardBudget, consumedCallIds, renderCache)
     }
 
     /** Small immutable facts survive projection; the hard bound below still governs replay size. */
-    private fun semanticContent(result: AgentToolResult): ToolResultContent? {
+    private fun semanticContent(result: AgentToolResult, consumed: Boolean): ToolResultContent? {
         val source = GitHubReplayRecovery.envelope(result.content) ?: (result.content as? ToolResultContent.Json)?.value as? JsonObject
         val summary = (result.executionReceipt?.get("semantic_summary") ?: source?.get("semantic_summary")) as? JsonObject ?: return null
+        // Retaining a source or rendering its summary is not proof of model delivery.
+        // The runner checkpoints consumption only after a successful provider round
+        // received the exact body. A delivered summary must not become a full-source
+        // delivery claim on a later projection or after process restoration.
+        val deliveryScope = when {
+            !consumed -> "UNCONFIRMED"
+            source?.get("schema") != JsonPrimitive("github.evidence-summary.v1") -> "FULL_RESULT"
+            source["prior_delivery_scope"] == JsonPrimitive("FULL_RESULT") -> "FULL_RESULT"
+            else -> "SEMANTIC_SUMMARY"
+        }
         return ToolResultContent.Json(
             buildJsonObject {
                 put("schema", JsonPrimitive("github.evidence-summary.v1"))
                 put("semantic_summary", GitHubSemanticSummary.bounded(summary))
                 put("receipt_reference", JsonPrimitive("tool-batch/${result.callId}"))
-                put("previously_delivered", JsonPrimitive(true))
-                result.executionReceipt?.get("retained_original_complete")?.let { put("retained_original_complete", it) }
+                put("previously_delivered", JsonPrimitive(consumed))
+                put("prior_delivery_scope", JsonPrimitive(deliveryScope))
+                (result.executionReceipt?.get("retained_original_complete") ?: source?.get("retained_original_complete"))?.let { put("retained_original_complete", it) }
             }
         )
     }
@@ -224,13 +237,13 @@ internal object ToolExchangeCompactor {
         }
     }
 
-    private fun hardBound(exchanges: List<AgentToolExchange>, hardBudget: Int, renderCache: RenderCache?): List<AgentToolExchange> {
+    private fun hardBound(exchanges: List<AgentToolExchange>, hardBudget: Int, consumedCallIds: Set<String>, renderCache: RenderCache?): List<AgentToolExchange> {
         // Automatic saved-view reads may follow a still-pending provider batch.
         // Preserve that whole batch before spending space on local or older history.
         val pendingIndex = exchanges.indexOfLast { !SavedViewRecoveryBatch.isComplete(it) }.takeIf { it >= 0 } ?: exchanges.lastIndex
         var pending = exchanges[pendingIndex]
         if (estimateTokens(listOf(pending), renderCache) > hardBudget) {
-            pending = pending.copy(results = pending.results.map { result -> result.copy(content = semanticContent(result) ?: ToolResultContent.Text(OMITTED_RESULT)) })
+            pending = pending.copy(results = pending.results.map { result -> result.copy(content = semanticContent(result, result.callId in consumedCallIds) ?: ToolResultContent.Text(OMITTED_RESULT)) })
         }
         if (estimateTokens(listOf(pending), renderCache) > hardBudget) {
             pending = pending.copy(results = pending.results.map { it.copy(content = ToolResultContent.Text(OMITTED_RESULT)) })
@@ -251,7 +264,7 @@ internal object ToolExchangeCompactor {
                 if (cost > remaining) {
                     // A fingerprint field does not replace the original wire arguments.
                     // Shrink result bodies or evict whole historical pairs instead.
-                    keptResult = result.copy(content = semanticContent(result) ?: ToolResultContent.Text(OMITTED_RESULT))
+                    keptResult = result.copy(content = semanticContent(result, result.callId in consumedCallIds) ?: ToolResultContent.Text(OMITTED_RESULT))
                     cost = estimateTokens(listOf(AgentToolExchange(listOf(call), listOf(keptResult))), renderCache)
                     if (cost > remaining) {
                         keptResult = result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
@@ -281,7 +294,7 @@ internal object ToolExchangeCompactor {
 
     private fun compactText(value: String, maxChars: Int): String {
         if (value.length <= maxChars) return value
-        val marker = "\n\n[Earlier tool result compacted after consumption.]\n\n"
+        val marker = "\n\n[Tool result shortened to fit the replay budget.]\n\n"
         val available = (maxChars - marker.length).coerceAtLeast(64)
         val head = available * 2 / 3
         val tail = available - head

@@ -42,6 +42,7 @@ internal object GitHubAcceptanceLedger {
                 row.text("receipt_count_scope").takeIf { it == "LINKED_CRITERION_EVIDENCE" }?.let { put("receipt_count_scope", it) }
                 (row["receipt_exclusion_reasons"] as? JsonArray)?.takeIf { values -> values.size <= 3 && values.all { it in listOf("MISSING_IDENTITY", "UNVERIFIED", "NOT_SUCCESSFUL").map(::JsonPrimitive) } }?.let { put("receipt_exclusion_reasons", it) }
                 GitHubCriterionBlocker.from(row.text("blocker_code"))?.let { put("blocker_code", it.name) }
+                row.text("verification_reserve_state").takeIf { it in setOf("PRESERVED", "EXHAUSTED", "UNKNOWN") }?.let { put("verification_reserve_state", it) }
                 (row["attempted"] as? JsonPrimitive)?.content?.toIntOrNull()?.let { put("attempted", it > 0) }
                 put("reason", row.text("acceptance").ifBlank { row.text("blocker").ifBlank { row.text("reason").ifBlank { row.text("next_action") } } })
                 put(

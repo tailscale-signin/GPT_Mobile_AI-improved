@@ -10,11 +10,33 @@ import kotlinx.serialization.json.put
 /** Remote traversal identity and coverage are separate from retained local fragment cursors. */
 internal class GitHubPaginationBoundary(private val now: () -> Long = System::nanoTime) {
     private data class End(val page: Int, val at: Long, val errorCode: String? = null)
-    private data class Page(val identities: Set<String>, val at: Long)
-    private data class Traversal(val pages: MutableMap<Int, Page> = linkedMapOf(), var total: Int? = null, var changed: Boolean = false)
+    private data class Page(val identities: Set<String>, val at: Long, val terminal: Boolean)
+    private data class Pending(val page: Int, val at: Long)
+    private data class Traversal(
+        val generation: Long,
+        val pages: MutableMap<Int, Page> = linkedMapOf(),
+        val pending: MutableMap<Long, Pending> = linkedMapOf(),
+        var total: Int? = null,
+        var changed: Boolean = false,
+        var inconsistent: Boolean = false
+    )
+    internal data class Observation(val query: String, val generation: Long, val id: Long)
     internal data class Assessment(val data: JsonObject, val errorCode: String? = null)
+    internal data class Dispatch(val observation: Observation? = null, val completedPage: Int? = null, val errorCode: String? = null)
     private val ends = linkedMapOf<String, End>()
     private val traversals = linkedMapOf<String, Traversal>()
+    private var sequence = 0L
+
+    private fun traversal(key: String): Traversal = traversals.getOrPut(key) { Traversal(++sequence) }
+
+    private fun reset(key: String) {
+        val previous = traversals[key]
+        val aliases = traversals.filterValues { it === previous }.keys + key
+        aliases.forEach {
+            traversals.remove(it)
+            ends.remove(it)
+        }
+    }
 
     private fun key(operation: String, args: JsonObject, result: JsonObject? = null): String {
         if (operation == "github_context" && args["action"] == JsonPrimitive("changed_since")) {
@@ -38,6 +60,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                     put("base_sha", base)
                     put("head_sha", head)
                     put("include_patches", args["include_patches"] == JsonPrimitive(true))
+                    put("per_page", result?.get("effective_per_page") ?: args["per_page"] ?: JsonPrimitive(100))
                 }
                 return "$operation:$pinned"
             }
@@ -45,6 +68,14 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         return operation + dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(operation, args, result?.get("commit_sha"))
     }
     private fun page(args: JsonObject) = (args["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
+    private fun pinnedComparison(operation: String, args: JsonObject) = operation == "github_context" &&
+        args["action"] == JsonPrimitive("changed_since") &&
+        listOf(args["base"] ?: args["base_sha"], args["commit_sha"]).all {
+            (it as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) == true
+        }
+
+    private fun liveFirstPage(args: JsonObject) = page(args) == 1 &&
+        (args["verify_live"] == JsonPrimitive(true) || args["refresh"] == JsonPrimitive(true))
 
     // The failure digest bounds a search for one failed job. Its continuation
     // advances that search without publishing a page of workflow jobs.
@@ -69,11 +100,10 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         numberedRemotePage(operation, args)
 
     private fun fillingFirstPage(key: String, args: JsonObject): Boolean {
-        val end = ends[key] ?: return false
         val stored = traversals[key] ?: return false
         return args["verify_live"] != JsonPrimitive(true) &&
-            end.errorCode == "GITHUB_PAGINATION_INCOMPLETE" &&
-            now() - end.at in 0..30_000_000_000L &&
+            args["refresh"] != JsonPrimitive(true) &&
+            stored.pages.values.all { now() - it.at in 0..30_000_000_000L } &&
             !stored.changed &&
             stored.pages.isNotEmpty() &&
             1 !in stored.pages
@@ -86,19 +116,60 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         // A first-page request starts a fresh observation epoch. A live
         // continuation on page 2+ belongs to that same epoch; clearing it
         // would make a complete remote traversal appear to contain one page.
-        if (page(args) == 1 && !fillingFirstPage(key, args)) {
-            ends.remove(key)
-            traversals.remove(key)
+        if (page(args) == 1 && !fillingFirstPage(key, args) && (liveFirstPage(args) || !pinnedComparison(operation, args))) {
+            reset(key)
             return null
         }
         if (end == null) return null
         if (now() - end.at !in 0..30_000_000_000L) {
-            ends.remove(key)
-            traversals.remove(key)
+            reset(key)
             return null
         }
         return end.page.takeIf { page(args) > it }
     }
+
+    /** The completion guard and generation ownership must be one atomic dispatch decision. */
+    @Synchronized fun preparePage(operation: String, args: JsonObject): Dispatch {
+        val completed = completedPage(operation, args)
+        return if (completed != null) Dispatch(completedPage = completed, errorCode = completionError(operation, args)) else Dispatch(observation = beginPage(operation, args))
+    }
+
+    /** Observe dispatch ownership so a delayed response cannot join a newer live traversal. */
+    @Synchronized fun beginPage(operation: String, args: JsonObject): Observation? {
+        if (!numberedRemotePage(operation, args)) return null
+        val key = key(operation, args)
+        val state = traversal(key)
+        val id = ++sequence
+        state.pending[id] = Pending(page(args), now())
+        while (state.pending.size > 512) state.pending.remove(state.pending.keys.first())
+        while (traversals.size > 128) reset(traversals.keys.first())
+        return Observation(key, state.generation, id)
+    }
+
+    @Synchronized fun cancelPage(observation: Observation?) {
+        if (observation == null) return
+        traversals[observation.query]?.takeIf { it.generation == observation.generation }?.pending?.remove(observation.id)
+    }
+
+    private fun superseded(args: JsonObject): Assessment = Assessment(
+        buildJsonObject {
+            put("reason", "SUPERSEDED_PAGINATION_GENERATION")
+            put("complete", false)
+            put("has_more", false)
+            put("traversal_state", "SUPERSEDED")
+            put("message", "A newer live traversal replaced this response. Continue from its retained pages; this older response cannot establish coverage.")
+            put(
+                "pagination_progress",
+                buildJsonObject {
+                    put("schema", "github.pagination-progress.v1")
+                    put("remote_page", page(args))
+                    put("complete", false)
+                    put("acceptance_status", "NOT_MEASURED")
+                }
+            )
+        },
+        "GITHUB_PAGINATION_INCOMPLETE"
+    )
 
     private fun rows(result: JsonObject): Map<String, JsonArray> {
         val upstream = result["upstream_record_ids"] as? JsonArray
@@ -184,11 +255,21 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     }
 
     /** Compare stable record identifiers, including earlier nonadjacent pages and reordered rows. */
-    @Synchronized fun assessPage(operation: String, args: JsonObject, result: JsonObject): Assessment {
+    @Synchronized fun assessPage(operation: String, args: JsonObject, result: JsonObject, observation: Observation? = null): Assessment {
         if (operation == "github_pr" && args["action"] == JsonPrimitive("pr_context")) {
             return assessPrContextFilePage(args, result)
         }
-        if (!numberedRemotePage(operation, args) || "has_more" !in result) return Assessment(result)
+        if (!numberedRemotePage(operation, args) || "has_more" !in result) {
+            cancelPage(observation)
+            return Assessment(result)
+        }
+        val dispatched = observation?.let { token ->
+            traversals[token.query]?.takeIf { state ->
+                state.generation == token.generation && state.pending[token.id]?.let { now() - it.at in 0..300_000_000_000L } == true
+            }
+        }
+        if (observation != null && dispatched == null) return superseded(args)
+        if (observation != null) dispatched?.pending?.remove(observation.id)
         val collections = rows(result)
         if (collections.isEmpty()) {
             // A successful envelope with no record collection cannot establish
@@ -234,18 +315,35 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             return Assessment(JsonObject(withoutContinuations + failureBody), "GITHUB_PAGINATION_INCOMPLETE")
         }
         val key = key(operation, args, result)
-        if (page(args) == 1 && !fillingFirstPage(key, args) && operation == "github_context" && args["action"] in setOf(JsonPrimitive("changed_since"), JsonPrimitive("list_commits"))) {
+        if (observation == null &&
+            page(args) == 1 &&
+            !fillingFirstPage(key, args) &&
+            operation == "github_context" &&
+            args["action"] in setOf(JsonPrimitive("changed_since"), JsonPrimitive("list_commits")) &&
+            (liveFirstPage(args) || !pinnedComparison(operation, args))
+        ) {
             // Page one can resolve a symbolic ref. Restart the traversal under
             // its observed immutable key, which was unavailable before dispatch.
-            ends.remove(key)
-            traversals.remove(key)
+            reset(key)
         }
-        val state = traversals.getOrPut(key) { Traversal() }
+        if (observation != null && observation.query != key) {
+            // A symbolic first page resolves its immutable key only in the response.
+            // An explicit refresh replaces that key; ordinary reads may reuse its coverage.
+            val existing = traversals[key]
+            if (existing != null && existing.generation > observation.generation) return superseded(args)
+            val resolved = if (liveFirstPage(args)) requireNotNull(dispatched) else existing ?: requireNotNull(dispatched)
+            if (liveFirstPage(args)) reset(key)
+            traversals[key] = resolved
+            traversals[observation.query] = resolved
+        }
+        val state = traversal(key)
         if (state.pages.values.any { now() - it.at !in 0..300_000_000_000L }) {
             state.pages.clear()
             state.total = null
             state.changed = false
+            state.inconsistent = false
         }
+        state.pending.entries.removeAll { now() - it.value.at !in 0..300_000_000_000L }
         val number = page(args)
         val branchList = operation == "github_context" && args["action"] == JsonPrimitive("list_branches")
         val identities = collections.flatMap { (collection, values) -> values.map { identity(collection, it, branchList) } }.toSet()
@@ -255,8 +353,9 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val total = reportedTotal(operation, args, result)
         if (state.total != null && total != null && state.total != total) state.changed = true
         if (state.total == null) state.total = total
-        state.pages[number] = Page(identities, now())
-        while (traversals.size > 128) traversals.remove(traversals.keys.first())
+        state.inconsistent = state.inconsistent || result["pagination_inconsistent"] == JsonPrimitive(true) || result["tree_complete"] == JsonPrimitive(false)
+        state.pages[number] = Page(identities, now(), result["has_more"] == JsonPrimitive(false))
+        while (traversals.size > 128) reset(traversals.keys.first())
         // Keep memory bounded without silently claiming complete coverage of a truncated traversal.
         if (state.pages.size > 512) {
             state.pages.remove(state.pages.keys.min())
@@ -272,28 +371,35 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val repeated = identities.isNotEmpty() && overlap == identities.size
         val emptyRemotePage = identities.isEmpty() && result["has_more"] == JsonPrimitive(true) && ((result["upstream_returned"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0) == 0
         val stalled = repeated || emptyRemotePage
-        val contiguous = number > 0 && state.pages.size == number && state.pages.keys.minOrNull() == 1 && state.pages.keys.maxOrNull() == number
-        val terminal = result["has_more"] == JsonPrimitive(false)
-        val consistent = !state.changed &&
-            result["pagination_inconsistent"] != JsonPrimitive(true) &&
-            result["tree_complete"] != JsonPrimitive(false) &&
-            (state.total == null || all.size == state.total)
+        val terminal = state.pages.filterValues { it.terminal }.keys.minOrNull()
+        val boundary = terminal ?: state.pages.keys.maxOrNull() ?: number
+        val missing = if (boundary in 1..1000) (1..boundary).filter { it !in state.pages } else emptyList()
+        val contiguous = boundary in 1..1000 && missing.isEmpty()
+        if (terminal != null && state.pages.any { (page, value) -> page > terminal && value.identities.isNotEmpty() }) state.changed = true
+        val consistent = !state.changed && !state.inconsistent && (state.total == null || all.size == state.total)
+        val collecting = terminal != null &&
+            missing.isNotEmpty() &&
+            !state.changed &&
+            !state.inconsistent &&
+            !stalled &&
+            missing.all { page -> state.pending.values.any { it.page == page } }
+        val complete = terminal != null && contiguous && consistent && !stalled
         val error = when {
             stalled -> "GITHUB_PAGINATION_STALLED"
-            terminal && (!contiguous || !consistent) -> "GITHUB_PAGINATION_INCOMPLETE"
+            terminal != null && !complete && !collecting -> "GITHUB_PAGINATION_INCOMPLETE"
             else -> null
         }
-        val firstMissing = if (terminal && !contiguous && !stalled && !state.changed && result["pagination_inconsistent"] != JsonPrimitive(true)) {
-            // At most 512 observed pages, even if a remote page number is very large.
-            state.pages.keys.sorted().fold(1) { missing, observed -> if (observed == missing) missing + 1 else missing }
+        val firstMissing = if (terminal != null && !contiguous && !stalled && !state.changed && !state.inconsistent) {
+            missing.firstOrNull()
         } else {
             null
         }
-        if (terminal || stalled) ends[key] = End(number, now(), error)
+        if (terminal != null || stalled) ends[key] = End(terminal ?: number, now(), error ?: if (complete) null else "GITHUB_PAGINATION_INCOMPLETE")
         while (ends.size > 128) ends.remove(ends.keys.first())
         val progress = buildJsonObject {
             put("schema", "github.pagination-progress.v1")
             put("remote_page", number)
+            terminal?.let { put("terminal_page", it) }
             put("remote_pages_observed", JsonArray(state.pages.keys.sorted().map(::JsonPrimitive)))
             put("upstream_rows_returned", collections.values.sumOf { it.size })
             put("unique_records_observed", all.size)
@@ -303,7 +409,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             put("contiguous_from_first_page", contiguous)
             firstMissing?.let { put("first_unobserved_page", it) }
             put("upstream_changed_during_traversal", state.changed)
-            put("complete", terminal && contiguous && consistent && !stalled)
+            if (collecting) put("pending_remote_pages", JsonArray(missing.map(::JsonPrimitive)))
+            put("complete", complete)
             put("acceptance_status", "NOT_MEASURED")
         }
         val deduplicated = result.mapValues { (name, value) ->
@@ -315,7 +422,22 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             }
         }
         val visibleCount = collections.keys.singleOrNull()?.takeIf { it != "upstream_record_ids" }?.let { (deduplicated[it] as? JsonArray)?.size }
-        val output = JsonObject(deduplicated + ("pagination_progress" to progress) + if (visibleCount != null && "returned" in result) mapOf("returned" to JsonPrimitive(visibleCount)) else emptyMap())
+        val settled = if (complete) {
+            deduplicated.filterKeys { it !in setOf("continuation", "continuation_call", "remote_continuations", "next_page") } + buildJsonObject {
+                put("has_more", false)
+                put("upstream_has_more", result.getValue("has_more"))
+                put("complete", true)
+                put("traversal_state", "COMPLETE")
+            }
+        } else if (collecting) {
+            deduplicated + buildJsonObject {
+                put("complete", false)
+                put("traversal_state", "COLLECTING")
+            }
+        } else {
+            deduplicated
+        }
+        val output = JsonObject(settled + ("pagination_progress" to progress) + if (visibleCount != null && "returned" in result) mapOf("returned" to JsonPrimitive(visibleCount)) else emptyMap())
         return if (error == null) {
             Assessment(output)
         } else {

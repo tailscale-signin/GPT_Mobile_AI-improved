@@ -108,6 +108,10 @@ class GitHubToolBudgetTest {
         val retry = tool.execute("second", args)
         assertEquals("RECONCILIATION_REQUIRED", retry.errorCode)
         assertFalse(retry.dispatched)
+        assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("call", "first")), retry.executionReceipt?.get("reconciliation_original_call_hash"))
+        assertEquals(JsonPrimitive("TOOL_RESULT_ID_MISMATCH"), retry.executionReceipt?.get("reconciliation_original_code"))
+        assertEquals(JsonPrimitive(true), retry.executionReceipt?.get("reconciliation_original_dispatched"))
+        assertEquals(JsonPrimitive(false), retry.executionReceipt?.get("request_replay_allowed"))
         assertEquals(JsonPrimitive("unknown"), Json.parseToJsonElement(ToolResultEnvelope.encode("github_write", retry)).jsonObject["execution"]!!.jsonObject["outcome"])
         assertEquals(1, dispatched)
     }

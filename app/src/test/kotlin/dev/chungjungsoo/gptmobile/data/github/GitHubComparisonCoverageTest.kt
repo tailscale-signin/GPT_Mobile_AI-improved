@@ -113,6 +113,33 @@ class GitHubComparisonCoverageTest {
         assertTrue(coverage(mapOf("root" to first, "last" to last)).complete)
     }
 
+    @Test fun legacyRequestedSizeKeepsActualHundredRowIdentityButEffectiveSizesStaySeparate() {
+        val receipts = rows()
+        val legacy = coverage(receipts)
+        val first = receipts.getValue("p1")
+        val requested = JsonObject(arguments(1) + ("per_page" to JsonPrimitive(50)))
+        receipts["legacy-repeat"] = JsonObject(first + ("arguments" to requested))
+        assertTrue(coverage(receipts).complete)
+        assertEquals(legacy.identity, coverage(receipts).identity)
+        val sizedResult = JsonObject((first["result"] as JsonObject) + ("effective_per_page" to JsonPrimitive(50)))
+        receipts["sized"] = JsonObject(first + mapOf("arguments" to requested, "result" to sizedResult))
+        val current = coverage(receipts)
+        assertFalse(current.complete)
+        assertNotEquals(legacy.identity, current.identity)
+        assertEquals(setOf("sized"), current.receipts.keys)
+    }
+
+    @Test fun invalidEffectivePageSizeCannotQualifyAContinuation() {
+        val receipts = rows()
+        val first = receipts.getValue("p1")
+        val result = first["result"] as JsonObject
+        for (invalid in listOf(JsonPrimitive(0), JsonPrimitive(101), JsonPrimitive("50"))) {
+            val broken = JsonObject(first + ("result" to JsonObject(result + ("effective_per_page" to invalid))))
+            assertFalse(coverage(receipts + ("invalid" to broken)).complete)
+            assertFalse(GitHubTestChecklist.sameCall(broken, call(arguments(1)), first))
+        }
+    }
+
     @Test fun immutableRevisionAndReportedInconsistencyRemainSeparateCoverage() {
         val rows = rows()
         val before = coverage(rows)

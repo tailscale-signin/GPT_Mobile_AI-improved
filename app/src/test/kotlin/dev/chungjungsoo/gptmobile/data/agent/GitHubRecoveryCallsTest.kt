@@ -11,6 +11,70 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubRecoveryCallsTest {
+    @Test fun fourOversizedReadsBecomeEightExactWindowsWithoutLosingSourceOrIdentity() {
+        val name = "github_read__selected"
+        val ranges = (1..4).map { index ->
+            buildJsonObject {
+                put("path", "src/File$index.kt")
+                put("start_line", 51)
+                put("max_lines", 2500)
+            }
+        }
+        val original = ProviderEvent.ToolCall(
+            "read-all",
+            name,
+            buildJsonObject {
+                put("action", "ranges")
+                put("commit_sha", "a".repeat(40))
+                put("ranges", kotlinx.serialization.json.JsonArray(ranges))
+            }
+        ).captureProviderInvocation()
+        val corrected = GitHubRecoveryCalls.repairSourceRead(original, tool(name))
+        val expected = ranges.flatMap { range ->
+            listOf(51 to 2050, 2051 to 2550).map { (first, last) ->
+                buildJsonObject {
+                    put("path", range.getValue("path"))
+                    put("start_line", first)
+                    put("end_line", last)
+                }
+            }
+        }
+        assertEquals(kotlinx.serialization.json.JsonArray(expected), corrected.arguments["ranges"])
+        assertEquals(original.arguments["commit_sha"], corrected.arguments["commit_sha"])
+        assertEquals(original.providerInvocation(), corrected.providerInvocation())
+        assertEquals(original.callId, corrected.callId)
+        assertEquals(emptyList<String>(), ToolArgumentValidator.errors(corrected.arguments, tool(name).definition.inputSchema))
+        assertEquals(corrected, GitHubRecoveryCalls.repairSourceRead(corrected, tool(name)))
+    }
+
+    @Test fun oversizedReadRepairNeverTruncatesOverflowsOrChangesAmbiguousWindows() {
+        for (raw in listOf(
+            """{"ranges":[{"path":"a.kt","max_lines":16001}]}""",
+            """{"ranges":[{"path":"a.kt","start_line":2147483640,"max_lines":2500}]}""",
+            """{"ranges":[{"path":"a.kt","end_line":5000,"max_lines":2500}]}""",
+            """{"ranges":[{"path":"a.kt","start_offset":2,"max_lines":2500}]}""",
+            """{"ranges":[{"path":"a.kt","max_lines":"2500"}]}"""
+        )) {
+            val call = ProviderEvent.ToolCall("reject", "github_read", Json.parseToJsonElement(raw).jsonObject)
+            assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool(call.name)))
+        }
+        val tooMany = buildJsonObject {
+            put(
+                "ranges",
+                kotlinx.serialization.json.JsonArray(
+                    (1..5).map { index ->
+                        buildJsonObject {
+                            put("path", "$index.kt")
+                            put("max_lines", 2500)
+                        }
+                    }
+                )
+            )
+        }
+        val call = ProviderEvent.ToolCall("reject", "github_read", tooMany)
+        assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool(call.name)))
+    }
+
     @Test fun inventorySavedPagesRemoveOnlyMatchingContextFromAnExactlyIssuedCursor() {
         val cursor = "inventory:20:1536"
         for ((name, sourceArguments) in listOf(

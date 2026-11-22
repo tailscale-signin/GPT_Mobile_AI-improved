@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "06ab96439deea13262fa48130eed367914e914d0",
+  "parent_pr": 2254,
+  "working_branch": "work/review-diagnostics-2026-11-22",
+  "intent": "Resolve review-confirmed diagnostic truthfulness gaps: distinguish catalog exhaustion from unverified representative reads, preserve unknown reserve observations, classify comparison and application guards outside provider failures, and retain bounded original-operation reconciliation identity. Verify existing Gateway cooldown, MCP configuration failure, diagnostic export and rendering repairs without claiming device qualification.",
+  "status": "IMPLEMENTED_PENDING_COMBINED_HEAD_CI",
+  "validation": {
+    "focused": "PASS: 9 Kotlin/JUnit behavior tests of actual acceptance, receipt/report and reconciliation helper sources, with documented Android/application boundary stand-ins. Actual ProfileFailureRecord serialized round trip through compact/public projection additionally passed.",
+    "runtime": "PASS: 33 Kotlin/JUnit existing tests for LocalServiceHealth, LocalReachabilityProbes, MCP initialization/recovery/configuration revision, ChatRunProjection and LiteralMarkdownParagraph. Platform annotations/logging/SDK exception types isolated; no physical device or Android integration claim.",
+    "reporting_service": "PASS: python -m unittest authentication.test_incident_report_contract authentication.test_app -q; 170 tests.",
+    "formatting": "PASS: ktlint 1.3.1 on changed Kotlin files and git diff --check.",
+    "fast": "BLOCKED: bash scripts/validate-local.sh fast passed CI policy, architecture index, agent metadata and diagnostic schema checks, then stopped at stale app-audit inventory. Coordinator owns regeneration on the combined head; gate was not bypassed.",
+    "android": "NOT_RUN: full Gradle, Room, AgentRunner and ToolExecutionBudget behavior suites require final combined-head validation. Regression assertions were added to the existing suites. No physical performance, Gateway/MCP server or accelerator qualification claimed."
+  },
+  "latest_remote_compared_sha": "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2",
+  "changes": [
+    "Catalog acceptance emits distinct typed blockers for absent discovery, actual continuation, invalid catalog evidence and complete inventory with missing representative reads. A generic unverified catalog criterion no longer invents a continuation cursor.",
+    "Verification reserve is PRESERVED, EXHAUSTED or UNKNOWN. Missing, malformed or untrusted budgets cannot become an observed exhausted reserve; explicit breaches remain failures even when another observation is unknown.",
+    "Comparison guards retain GITHUB_REVIEW_COMPARISON_REQUIRED and APPLICATION_VERIFICATION/ENGINEERING_GUARD. Failed comparison prerequisite reads retain TOOL_EXECUTION. Local persistence guards cannot inherit prior model usage.",
+    "Unknown tool outcomes retain domain-separated original call, tool and arguments hashes through tool budget, runner, stored profile failure, compact export and mirrored public report contracts. Multiple or unidentified tracked operations are explicit. Existing non-replay and current non-dispatch guards remain enforced.",
+    "Correct the pre-existing HTTP status test to assert the retained core context field and initial public fields, while rejecting a duplicate diagnostics value. Concurrent remote work includes the same core-field correction."
+  ],
+  "existing_runtime_repairs": {
+    "gateway": "LocalServiceHealth shares DNS/TCP cooldowns at their correct scopes, ignores cancellation/wrapped cooldown observations, and LocalReachabilityProbes shares in-flight probes. Existing behavior tests passed; no new source-confirmed repair required.",
+    "mcp": "McpClientManager quarantines protocol/configuration failures to the saved configuration identity, suppresses repeated discovery and permits explicit reconnect or changed configuration. ModernMcpTransport continues rejecting mismatched JSON-RPC IDs. Configuration revision, bounded read recovery and initialization rejection tests passed; no endpoint substitution or identity relaxation.",
+    "performance": "ChatRunProjection/ChatValueProjection preserve unchanged row identities; literal paragraph fast path preserves rich markup and Unicode paging. Existing focused tests passed. EncryptedChatDatabase defers native/key loading until open; AndroidSecretVault resolves file work on IO and GPTMobileApp startup scope uses IO. No causal proof of a remaining main-thread database open or physical frame improvement is claimed.",
+    "export": "DiagnosticDatabaseSource uses bounded workspace keyset paging and the chatId/updatedAt index. Existing Room behavior tests cover tied timestamps, stable high watermark, cancellation/resume and newest-first evidence. Those Android/Room tests were inspected, not executed by this host subtask."
+  },
+  "concurrent_overlap": "Remote LocalToolTransport AgentRunner and ToolExecutionBudget guards, MCP policy classification, reporting privacy enum additions and transport-envelope changes are outside these hunks and must be preserved. ProviderFailureReportTest HTTP core-field correction overlaps semantically; retain both exact status assertions and the new application-guard tests."
+}

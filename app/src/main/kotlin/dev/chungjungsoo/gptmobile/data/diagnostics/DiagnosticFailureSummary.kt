@@ -46,7 +46,7 @@ internal fun diagnosticMessageFailureEvidence(messageId: Long, timeline: JsonEle
             }
         }
         val typedDetails = buildJsonObject {
-            listOf("outputProgress", "persistenceFailure", "providerFailure", "recoveryDetails").forEach { key ->
+            listOf("outputProgress", "persistenceFailure", "providerFailure", "recoveryDetails", "toolReconciliation").forEach { key ->
                 (failure[key] as? JsonObject)?.forEach { (field, value) -> put(field, value) }
             }
         }

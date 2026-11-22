@@ -15,6 +15,7 @@ internal object GitHubReplayRecovery {
         private val automaticCalls = mutableSetOf<String>()
         private val readPages = mutableSetOf<String>()
         private val remoteReads = mutableSetOf<String>()
+        private val deliveredReads = GitHubSavedReadProgress()
 
         init {
             record(calls)
@@ -33,6 +34,8 @@ internal object GitHubReplayRecovery {
         fun exhausted() = automaticCalls.size >= 32
         fun hasRead(name: String, cursor: String) = pageKey(name, cursor) in readPages
         fun hasRemoteRead(name: String, args: JsonObject) = remoteKey(name, args) in remoteReads
+        fun observeDelivered(exchanges: List<AgentToolExchange>, deliveredResultDigests: Map<String, String>, cache: ToolExchangeCompactor.RenderCache? = null) = deliveredReads.observe(exchanges, deliveredResultDigests, cache)
+        fun advanceSavedRead(call: ProviderEvent.ToolCall, tool: AgentToolDefinition?) = deliveredReads.advance(call, tool)
 
         private fun pageKey(name: String, cursor: String) = "$name:${cursor.split(':').take(2).joinToString(":")}"
         private fun remoteKey(name: String, args: JsonObject) = remoteReadKey(name, args)
@@ -166,10 +169,13 @@ internal object GitHubReplayRecovery {
                 }.sortedByDescending { recipe -> ((recipe["arguments"] as JsonObject)["view_cursor"] as JsonPrimitive).content.substringAfterLast(':').toInt() }
                 for (recipe in recipes) {
                     val name = (recipe["tool"] as? JsonPrimitive)?.content ?: continue
-                    val arguments = recipe["arguments"] as? JsonObject ?: continue
-                    val cursor = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
-                    if (arguments.keys != setOf("view_cursor") || ':' !in cursor || name != issuer.name || GitHubOperationTool.operationName(name) == null) continue
+                    val issuedArguments = recipe["arguments"] as? JsonObject ?: continue
+                    val issuedCursor = (issuedArguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
+                    if (issuedArguments.keys != setOf("view_cursor") || ':' !in issuedCursor || name != issuer.name || GitHubOperationTool.operationName(name) == null) continue
                     val tool = tools.firstOrNull { it.name == name && it.modelVisible } ?: continue
+                    val proposed = ProviderEvent.ToolCall("saved-result-consume-planning", name, issuedArguments)
+                    val arguments = state?.advanceSavedRead(proposed, tool)?.arguments ?: issuedArguments
+                    val cursor = (arguments["view_cursor"] as JsonPrimitive).content
                     if (ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty() ||
                         state?.hasRead(name, cursor) == true ||
                         calls.any {

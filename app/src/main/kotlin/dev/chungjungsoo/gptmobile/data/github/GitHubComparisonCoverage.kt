@@ -27,29 +27,46 @@ internal object GitHubComparisonCoverage {
             .filter { (_, row) -> arguments(row)["action"] != JsonPrimitive("changes") || identity(row) == identity }
             .associate { it.toPair() }
         val chain = GitHubTestChecklist.paginationReceipts(generationRows) { root(it) && identity(it) == identity }
-        val pending = GitHubTestChecklist.pendingPages(chain)
-        val completed = chain.values.filter { it["success"] == JsonPrimitive(true) }
-        val numbered = completed.filter(root).map(::page).toSet()
-        val maximum = numbered.maxOrNull() ?: 0
-        val contiguous = maximum in 1..1000 && numbered.size == maximum && numbered.minOrNull() == 1
-        val consistent = completed.none {
-            val result = data(it)
-            (result["pagination_progress"] as? JsonObject)?.get("upstream_changed_during_traversal") == JsonPrimitive(true) || result["pagination_inconsistent"] == JsonPrimitive(true) || result["tree_complete"] == JsonPrimitive(false)
+        val observedPages = chain.values.filter { row ->
+            row["success"] == JsonPrimitive(true) ||
+                row["error_code"] == JsonPrimitive("GITHUB_PAGINATION_INCOMPLETE") &&
+                data(row)["reason"] == JsonPrimitive("INCOMPLETE_REMOTE_COVERAGE") &&
+                (data(row)["files"] as? kotlinx.serialization.json.JsonArray) != null
         }
-        val terminal = completed.any {
+        val completed = observedPages.filter { it["success"] == JsonPrimitive(true) }
+        val numbered = observedPages.filter(root).map(::page).toSet()
+        val consistent = observedPages.none {
             val result = data(it)
+            (result["pagination_progress"] as? JsonObject)?.get("upstream_changed_during_traversal") == JsonPrimitive(true) ||
+                result["pagination_inconsistent"] == JsonPrimitive(true) ||
+                result["tree_complete"] == JsonPrimitive(false) ||
+                root(it) &&
+                GitHubComparisonPage.observedSize(result) == null
+        }
+        val terminal = completed.any { row ->
+            val result = data(row)
             val progress = result["pagination_progress"] as? JsonObject
+            val lastPage = (progress?.get("terminal_page") as? JsonPrimitive)?.intOrNull ?: page(row)
             result["has_more"] == JsonPrimitive(false) &&
                 result["complete"] != JsonPrimitive(false) &&
                 progress?.get("complete") != JsonPrimitive(false) &&
-                progress?.get("upstream_changed_during_traversal") != JsonPrimitive(true)
+                progress?.get("upstream_changed_during_traversal") != JsonPrimitive(true) &&
+                lastPage in 1..1000 &&
+                (1..lastPage).all { it in numbered }
+        }
+        // A late interior page can establish aggregate completion after a terminal
+        // page reported a missing gap. Its retained rows satisfy that exact remote
+        // page only after the same generation proves complete, consistent coverage.
+        // Local fragments and the original failed receipt remain unchanged.
+        val pending = GitHubTestChecklist.pendingPages(chain).filterNot { recipe ->
+            terminal && consistent && observedPages.any { root(it) && GitHubTestChecklist.sameCall(it, recipe, anchor) }
         }
         val generation = if (refresh < 0) "RETAINED" else GitHubEvidenceBook.digest(entries[refresh].key)
-        return Coverage(chain, pending, contiguous && terminal && consistent && pending.isEmpty(), identity, generation)
+        return Coverage(chain, pending, terminal && consistent && pending.isEmpty(), identity, generation)
     }
 
     private fun identity(row: JsonObject): String {
-        val query = GitHubTestChecklist.comparisonPageArguments(row.text("tool"), arguments(row), row.text("repository"))
+        val query = GitHubTestChecklist.comparisonPageArguments(row.text("tool"), arguments(row), row.text("repository"), GitHubComparisonPage.observedSize(data(row)) ?: -1)
             .filterKeys { it !in setOf("page", "verify_live", "refresh", "response_detail") }
         return GitHubEvidenceBook.digest(
             buildJsonObject {

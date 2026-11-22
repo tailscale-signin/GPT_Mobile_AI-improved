@@ -84,6 +84,186 @@ class GitHubOutputContinuationSessionTest {
         assertEquals(JsonPrimitive("REASONING_ONLY"), (checkpoint?.get("no_output_observation") as JsonObject)["no_output_kind"])
     }
 
+    @Test fun exhaustedReasoningCanUseOneChangedVisibleOutputPlanWithinTheAcceptedCap() = runBlocking {
+        val call = ProviderEvent.ToolCall("retained-read", tool.name, buildJsonObject { put("path", "source.kt") })
+        val evidence = listOf(AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("Verified source finding"), false))))
+        var checkpoint: JsonObject? = null
+        var repairs = 0
+        val output = GitHubOutputContinuationSession(
+            session(
+                ProviderEvent.RequestConfigured(effectiveOutputTokens = 6144, serializedOutputTokens = 6144),
+                ProviderEvent.ThinkingDelta("Reasoning consumed the complete allowance"),
+                ProviderEvent.Usage(outputTokens = 6144, reasoningTokens = 6144, finishReason = "length", invocationId = "reasoning-only"),
+                limited
+            ),
+            reopenForVisibleOutput = { draft, retained, definitions ->
+                repairs++
+                assertEquals("", draft)
+                assertEquals(evidence, retained)
+                assertEquals(listOf(tool), definitions)
+                assertEquals(JsonPrimitive(1), checkpoint?.get("no_output_repairs"))
+                assertEquals(JsonPrimitive(true), checkpoint?.get("visible_output_repair_pending"))
+                assertEquals(JsonPrimitive("NO_OUTPUT_REPAIR"), checkpoint?.get("state"))
+                val role = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.VISIBLE_OUTPUT_REPAIR_ROLE
+                val allowance = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.resolve(32768, 6144, role)
+                val constraints = dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints(
+                    maxOutputTokens = allowance.output,
+                    reasoningModeOverride = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON,
+                    maximizeReasoning = true
+                ).forRole(role)
+                assertEquals(6144, constraints.maxOutputTokens)
+                assertEquals(3072, allowance.visibleOutput)
+                assertTrue(constraints.maximizeReasoning)
+                assertEquals(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON, constraints.reasoningModeOverride)
+                session(ProviderEvent.TextDelta("Verified source finding; the remaining check is still pending."), ProviderEvent.Completed)
+            },
+            saveCheckpoint = { checkpoint = it }
+        ) { _, _, _ -> error("The unchanged continuation is not the empty-output recovery plan") }
+            .streamRound(listOf(tool), evidence).toList()
+        assertEquals(1, repairs)
+        assertTrue(output.none { it is ProviderEvent.Failed || it is ProviderEvent.ToolCall })
+        assertEquals("Verified source finding; the remaining check is still pending.", output.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals(JsonPrimitive("COMPLETED"), checkpoint?.get("state"))
+        assertEquals(JsonPrimitive(false), checkpoint?.get("visible_output_repair_pending"))
+        assertEquals(JsonPrimitive(0), checkpoint?.get("continuations"))
+    }
+
+    @Test fun failedChangedOutputRepairStopsAndCannotReplenishAfterRestart() = runBlocking {
+        var checkpoint: JsonObject? = null
+        var repairs = 0
+        fun exhausted() = session(
+            ProviderEvent.RequestConfigured(effectiveOutputTokens = 6144, serializedOutputTokens = 6144),
+            ProviderEvent.Usage(outputTokens = 6144, reasoningTokens = 6144, finishReason = "length"),
+            limited
+        )
+        val failed = GitHubOutputContinuationSession(
+            exhausted(),
+            maxNoOutputRepairs = 2,
+            reopenForVisibleOutput = { _, _, _ ->
+                repairs++
+                exhausted()
+            },
+            saveCheckpoint = { checkpoint = it }
+        ) { _, _, _ -> error("No identical request replay") }.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertEquals(1, repairs)
+        assertEquals("OUTPUT_CONTINUATION_NO_PROGRESS", failed.errorCode)
+        assertEquals(JsonPrimitive(1), failed.failureDetails?.get("no_output_repairs"))
+        assertEquals(JsonPrimitive(6144), failed.failureDetails?.get("reasoning_tokens"))
+        assertEquals(JsonPrimitive(false), checkpoint?.get("visible_output_repair_pending"))
+        val resumed = GitHubOutputContinuationSession(
+            session(),
+            reopenForVisibleOutput = { _, _, _ -> error("A restart cannot replenish the one changed repair") },
+            readCheckpoint = { checkpoint }
+        ) { _, _, _ -> error("The no-progress stop is durable") }.streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
+        assertEquals(failed.failureDetails, resumed.failureDetails)
+    }
+
+    @Test fun changedOutputRepairKeepsItsPlanAndClaimAcrossInterruption() = runBlocking {
+        var checkpoint: JsonObject? = null
+        try {
+            GitHubOutputContinuationSession(
+                session(ProviderEvent.Usage(finishReason = "length"), limited),
+                reopenForVisibleOutput = { _, _, _ -> throw CancellationException("Stopped before dispatch") },
+                saveCheckpoint = { checkpoint = it }
+            ) { _, _, _ -> error("No ordinary continuation") }.streamRound(emptyList(), emptyList()).toList()
+            error("Cancellation expected")
+        } catch (_: CancellationException) {
+            assertEquals(JsonPrimitive(true), checkpoint?.get("visible_output_repair_pending"))
+            assertEquals(JsonPrimitive(1), checkpoint?.get("no_output_repairs"))
+        }
+        var repairs = 0
+        val resumed = GitHubOutputContinuationSession(
+            session(),
+            reopenForVisibleOutput = { _, _, _ ->
+                repairs++
+                session(ProviderEvent.Usage(finishReason = "length"), limited)
+            },
+            readCheckpoint = { checkpoint },
+            saveCheckpoint = { checkpoint = it }
+        ) { _, _, _ -> error("Restoration must use the already claimed changed plan") }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, repairs)
+        assertEquals(JsonPrimitive(1), checkpoint?.get("no_output_repairs"))
+        assertEquals("OUTPUT_CONTINUATION_NO_PROGRESS", resumed.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+    }
+
+    @Test fun changedOutputRepairPreservesProviderCooldownInsteadOfSpendingAnotherRepair() = runBlocking {
+        val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OPENROUTER", "profile", "model", 30_000, "scope", "PROVIDER_RATE_LIMITED", true)
+        var checkpoint: JsonObject? = null
+        val context = buildJsonObject { put("task_binding", "a".repeat(64)) }
+        val first = GitHubOutputContinuationSession(
+            session(ProviderEvent.Usage(finishReason = "length"), limited),
+            checkpointContext = context,
+            reopenForVisibleOutput = { _, _, _ -> session(ProviderEvent.Failed("Provider limit", errorCode = "429", providerLimit = limit)) },
+            saveCheckpoint = { checkpoint = it }
+        ) { _, _, _ -> error("No ordinary continuation") }.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertTrue(first.providerLimit?.gitHubCheckpoint != null)
+        assertEquals(JsonPrimitive("WAITING_PROVIDER_LIMIT"), checkpoint?.get("state"))
+        assertEquals(JsonPrimitive(true), checkpoint?.get("visible_output_repair_pending"))
+        assertEquals(JsonPrimitive(false), checkpoint?.get("visible_output_repair_request_claimed"))
+        assertEquals(JsonPrimitive(1), checkpoint?.get("no_output_repairs"))
+        val resumed = GitHubOutputContinuationSession(
+            session(),
+            checkpointContext = context,
+            reopenForVisibleOutput = { _, _, _ -> session(ProviderEvent.TextDelta("The retained finding is ready."), ProviderEvent.Completed) },
+            readCheckpoint = { checkpoint },
+            saveCheckpoint = { checkpoint = it }
+        ) { _, _, _ -> error("The cooldown must retain its changed repair plan") }.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(resumed.none { it is ProviderEvent.Failed })
+        assertEquals(JsonPrimitive(1), checkpoint?.get("no_output_repairs"))
+        assertEquals(JsonPrimitive(false), checkpoint?.get("visible_output_repair_pending"))
+        assertEquals(JsonPrimitive(true), checkpoint?.get("visible_output_repair_request_claimed"))
+    }
+
+    @Test fun aProcessStopDuringTheChangedRepairCannotReplayItsProviderRequest() = runBlocking {
+        var checkpoint: JsonObject? = null
+        var atDispatch: JsonObject? = null
+        var requests = 0
+        val interrupted = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                requests++
+                atDispatch = checkpoint
+                assertEquals(JsonPrimitive(true), checkpoint?.get("visible_output_repair_request_claimed"))
+                throw CancellationException("Stopped with provider acceptance unknown")
+            }
+        }
+        try {
+            GitHubOutputContinuationSession(
+                session(ProviderEvent.Usage(finishReason = "length"), limited),
+                reopenForVisibleOutput = { _, _, _ -> interrupted },
+                saveCheckpoint = { checkpoint = it }
+            ) { _, _, _ -> error("No ordinary retry") }.streamRound(emptyList(), emptyList()).toList()
+            error("Cancellation expected")
+        } catch (_: CancellationException) {
+            assertEquals(1, requests)
+        }
+        // The first snapshot also covers a hard process death where no catch/finally runs.
+        for (saved in listOf(requireNotNull(atDispatch), requireNotNull(checkpoint))) {
+            val resumed = GitHubOutputContinuationSession(
+                session(),
+                reopenForVisibleOutput = { _, _, _ -> error("The provider request was already claimed") },
+                readCheckpoint = { saved }
+            ) { _, _, _ -> error("No restart may dispatch the original request") }.streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
+            assertEquals("BLOCKED", resumed.taskOutcome)
+            assertEquals(JsonPrimitive("VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED"), resumed.failureDetails?.get("no_output_stop_reason"))
+        }
+        assertEquals(1, requests)
+    }
+
+    @Test fun changedPlanNeverReplaysDuplicateTextOrExplicitlyBlockedOutput() = runBlocking {
+        val draft = "A sufficiently long retained answer with exact prior findings."
+        val duplicate = GitHubOutputContinuationSession(
+            session(ProviderEvent.TextDelta(draft), limited),
+            reopenForVisibleOutput = { _, _, _ -> error("Repeated visible text is not an empty-output repair") }
+        ) { _, _, _ -> session(ProviderEvent.TextDelta(draft), limited) }.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertEquals(JsonPrimitive(0), duplicate.failureDetails?.get("no_output_repairs"))
+        val blocked = limited.copy(failureDetails = buildJsonObject { put("resume_allowed", false) })
+        val output = GitHubOutputContinuationSession(
+            session(ProviderEvent.Usage(finishReason = "length"), blocked),
+            reopenForVisibleOutput = { _, _, _ -> error("An explicit stop remains authoritative") }
+        ) { _, _, _ -> error("An explicit stop remains authoritative") }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(blocked, output.last())
+    }
+
     @Test fun exhaustedReasoningOnlyRepairKeepsItsRealCauseAcrossRestart() = runBlocking {
         var checkpoint: JsonObject? = null
         var requests = 0

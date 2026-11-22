@@ -50,6 +50,12 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 
 ## Execution, GitHub and diagnostic reliability
 
+- Complete comparison coverage when GitHub pages arrive out of order; retain the original failed page receipts and exact remaining fragment obligations, and honor the requested bounded comparison page size.
+- Distinguish full tool-result delivery from compacted evidence summaries. Use exact delivered-content proof to resume saved pages across restarts without skipping unread fragments or changing an explicit reread.
+- Plan stage-aware output capacity with a visible-output target and allow one materially changed empty-output repair. Preserve explicit reasoning choices, accepted context limits, durable provider waits and unknown-operation reconciliation; effort-only provider APIs cannot guarantee a fixed visible-token reserve.
+- Split oversized finite source reads into exact windows of at most 2,000 lines within the eight-range contract, preserving the requested tail and original invocation. Invalid actions and unsupported search fields receive schema-specific correction guidance.
+- Separate complete authorized catalogues from missing representative live reads, keep unobserved verification reserves unknown, classify application guards separately from provider failures, and preserve hash-only identity for original uncertain operations.
+- Report a complete empty failure query for the selected commit as zero observed failed workflow runs. Keep historical failure observations distinct from the latest workflow and do not infer passing required checks or newly executed tests.
 - GitHub choices retain separate drafts as you page between them. On narrow screens, options and actions wrap, and expanding a choice reveals the full question. Gateway host inspection reports an observed missing firewall rule without requiring properties of an absent rule.
 - Separate immutable approval, classification and recheck records and preserve typed local persistence conflicts with safe correlation.
 - Correlate provider retry checkpoints and permit one durable bounded repair for reasoning-only or empty completions while preserving unknown-write reconciliation.

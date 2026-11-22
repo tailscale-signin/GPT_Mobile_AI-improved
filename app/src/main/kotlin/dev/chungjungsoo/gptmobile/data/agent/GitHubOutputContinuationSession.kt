@@ -29,6 +29,8 @@ internal class GitHubOutputContinuationSession(
     private val continuationRevision: String = "",
     private val recoveryRevision: String = "",
     private val maxNoOutputRepairs: Int = 1,
+    /** A different stage/prompt/output allocation, never an identical request retry. */
+    private val reopenForVisibleOutput: (suspend (String, List<AgentToolExchange>, List<AgentToolDefinition>) -> AgentProviderSession)? = null,
     private val expectedProviderCheckpoint: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint? = null,
     private val checkpointContext: JsonObject = JsonObject(emptyMap()),
     val toolCheckpointBinding: String? = null,
@@ -214,6 +216,18 @@ internal class GitHubOutputContinuationSession(
 
         while (true) {
             if (needsContinuation) {
+                if (noOutputProgress.visibleOutputRepairPending && reopenForVisibleOutput == null) {
+                    val failure = noOutputProgress.failure(draft)
+                    save("BLOCKED_NO_PROGRESS", failure = failure)
+                    emit(failure)
+                    return@flow
+                }
+                if (noOutputProgress.visibleOutputRepairPending && noOutputProgress.visibleOutputRepairRequestClaimed) {
+                    val failure = noOutputProgress.claimedVisibleOutputFailure(draft)
+                    save("BLOCKED_NO_PROGRESS", failure = failure)
+                    emit(failure)
+                    return@flow
+                }
                 if (interruptedContinuation && interruptionAttempts >= GitHubTaskRecovery.MAX_CONNECTION_RECOVERIES) {
                     save("WAITING_FOR_CONNECTION", resumable = true)
                     emit(
@@ -255,7 +269,7 @@ internal class GitHubOutputContinuationSession(
                 if (claimContinuation) attempts++
                 if (interruptedContinuation) interruptionAttempts++
                 // Claim before dispatch so process death cannot replenish the allowance.
-                val repairingNoOutput = currentCheckpoint?.get("state") == JsonPrimitive("NO_OUTPUT_REPAIR")
+                val repairingNoOutput = noOutputProgress.visibleOutputRepairPending || currentCheckpoint?.get("state") == JsonPrimitive("NO_OUTPUT_REPAIR")
                 save(
                     if (claimContinuation) {
                         "OUTPUT_LIMIT"
@@ -277,7 +291,11 @@ internal class GitHubOutputContinuationSession(
                     )
                 )
                 active = try {
-                    reopen(draft, exchanges, tools)
+                    if (noOutputProgress.visibleOutputRepairPending) {
+                        requireNotNull(reopenForVisibleOutput)(draft, exchanges, tools)
+                    } else {
+                        reopen(draft, exchanges, tools)
+                    }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
@@ -319,6 +337,12 @@ internal class GitHubOutputContinuationSession(
                 // empty visible draft before the provider can emit reasoning or lose the process.
                 save("GENERATING", resumable = true)
             }
+            if (noOutputProgress.visibleOutputRepairPending) {
+                check(noOutputProgress.claimVisibleOutputRequest())
+                // Claim the physical request before streamRound can dispatch. A hard
+                // process stop must not turn the same logical repair into a new POST.
+                save("NO_OUTPUT_REPAIR", resumable = true)
+            }
             val generated = collectSegment(active, tools, if (needsContinuation) emptyList() else exchanges, draft) { state, text, resumable ->
                 save(state, text, resumable)
             }
@@ -330,6 +354,7 @@ internal class GitHubOutputContinuationSession(
             val novel = if (needsContinuation) continuationSuffix(draft, generated.text) else generated.text
             if (novel.isNotEmpty()) draftLineage.append(generated.lineage)
             draft += novel
+            if (novel.isNotBlank() || calls.isNotEmpty()) noOutputProgress.completeVisibleOutputRepair()
             val limited = finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") || failure?.let { isProviderOutputLimitFailure(it.message) } == true
             val continuationPermitted = failure?.errorCode?.uppercase(java.util.Locale.ROOT) !in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes &&
                 failure?.failureDetails?.get("retryable") != JsonPrimitive(false) &&
@@ -345,6 +370,7 @@ internal class GitHubOutputContinuationSession(
             if (safeBoundary && novel.isBlank() && (limited || failure == null && completed)) {
                 val repair = noOutputProgress.observe(
                     generated.text, draft, generated.reasoningBytes, finishReason, generated.invocationId, evidenceDigest, limited,
+                    changedOutputRepairAvailable = reopenForVisibleOutput != null,
                     continuationAttempt = attempts, continuationLimit = maxContinuations,
                     outputTokens = generated.outputTokens, reasoningTokens = generated.reasoningTokens,
                     effectiveOutputTokens = generated.effectiveOutputTokens, serializedOutputTokens = generated.serializedOutputTokens
@@ -386,6 +412,7 @@ internal class GitHubOutputContinuationSession(
                 ) {
                     if (interruptedContinuation) interruptionAttempts--
                     if (claimContinuation && limit.knownNotAccepted) attempts--
+                    if (limit.knownNotAccepted) noOutputProgress.releaseRejectedVisibleOutputRequest()
                     val saved = save("WAITING_PROVIDER_LIMIT", resumable = true, failure = failure)
                     val checkpoint = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint(binding, GitHubEvidenceBook.digest(saved.toString()))
                     emit(requireNotNull(failure).copy(providerLimit = limit.copy(gitHubCheckpoint = checkpoint)))

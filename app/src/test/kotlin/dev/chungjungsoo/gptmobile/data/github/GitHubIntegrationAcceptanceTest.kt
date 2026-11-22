@@ -258,6 +258,52 @@ class GitHubIntegrationAcceptanceTest {
         assertNull(GitHubAuthorizedCatalog.next(tools, records))
     }
 
+    @Test fun completeSeventeenToolCatalogNamesMissingRepresentativeReadWithoutInventingACursor() {
+        val authorized = tools + (1..14).map { tool("utility_$it", "read") }
+        val records = linkedMapOf("catalog-0" to catalog(0, 17, authorized))
+        val request = "Discover the authorized tool catalog and observe representative reads before pagination"
+        val rows = GitHubIntegrationAcceptance.requirements(request, records, authorized, runtime)
+        val requirement = rows.single().jsonObject
+        assertEquals(JsonPrimitive("NOT_TESTED"), requirement["acceptance_state"])
+        assertEquals(JsonPrimitive("REPRESENTATIVE_READ_NOT_OBSERVED"), requirement["blocker_code"])
+        val diagnostic = GitHubAcceptanceDiagnostics.snapshot(GitHubAcceptanceLedger.snapshot(requirements = rows), records)
+        val projected = diagnostic.getValue("criteria").let { it as JsonArray }.single().jsonObject
+        assertEquals(JsonPrimitive("REPRESENTATIVE_READ_NOT_OBSERVED"), projected["blocker"])
+        assertEquals(JsonPrimitive("OBSERVE_REPRESENTATIVE_LIVE_READ_BEFORE_PAGINATION"), projected["next_action"])
+        assertTrue(GitHubAcceptanceDiagnostics.valid(diagnostic))
+        assertNull(GitHubAuthorizedCatalog.next(authorized, records))
+        records["source"] = receipts().getValue("source")
+        assertEquals(JsonPrimitive("PASS"), GitHubIntegrationAcceptance.requirements(request, records, authorized, runtime).single().jsonObject["acceptance_state"])
+    }
+
+    @Test fun catalogContinuationBlockerRequiresAnObservedVersionBoundCursor() {
+        val request = "Discover the authorized tool catalog"
+        assertEquals(JsonPrimitive("CATALOG_NOT_OBSERVED"), acceptance(emptyMap(), request).single()["blocker_code"])
+        assertEquals(JsonPrimitive("CATALOG_NOT_EXHAUSTED"), acceptance(mapOf("catalog-0" to catalog(0, 2)), request).single()["blocker_code"])
+        val complete = catalog(0, 3)
+        val corrupted = JsonObject(complete + ("result" to JsonObject(complete.getValue("result").jsonObject + ("returned" to JsonPrimitive(17)))))
+        assertEquals(JsonPrimitive("CATALOG_EVIDENCE_INVALID"), acceptance(mapOf("catalog-0" to corrupted), request).single()["blocker_code"])
+    }
+
+    @Test fun missingDiscoveryBudgetIsUnknownAndAnObservedBreachRemainsExhausted() {
+        val request = "Preserve exact-sha continuation reserve"
+        fun record(budget: JsonObject?) = JsonObject(catalog(0, 3) + listOfNotNull(budget?.let { "tool_budget" to it }).toMap())
+        for (budget in listOf(null, json("""{"used":"1","limit":256}"""), json("""{"used":257,"limit":256}"""))) {
+            val row = acceptance(mapOf("discovery" to record(budget)), request).single()
+            assertEquals(JsonPrimitive("UNKNOWN"), row["verification_reserve_state"])
+            assertEquals(JsonPrimitive("VERIFICATION_RESERVE_NOT_OBSERVED"), row["blocker_code"])
+            assertFalse(row.getValue("acceptance").toString().contains("false"))
+        }
+        val preserved = record(json("""{"used":1,"limit":256}"""))
+        val exhausted = record(json("""{"used":255,"limit":256}"""))
+        assertEquals(GitHubIntegrationAcceptance.VerificationReserveState.PRESERVED, GitHubIntegrationAcceptance.verificationReserve(listOf(preserved)))
+        assertEquals(GitHubIntegrationAcceptance.VerificationReserveState.UNKNOWN, GitHubIntegrationAcceptance.verificationReserve(listOf(preserved, record(null))))
+        assertEquals(GitHubIntegrationAcceptance.VerificationReserveState.EXHAUSTED, GitHubIntegrationAcceptance.verificationReserve(listOf(exhausted, record(null))))
+        val row = acceptance(mapOf("discovery" to exhausted), request).single()
+        assertEquals(JsonPrimitive("VERIFICATION_RESERVE_EXHAUSTED"), row["blocker_code"])
+        assertEquals(JsonPrimitive("NOT_TESTED"), row["acceptance_state"])
+    }
+
     @Test fun catalogPagesFromAnotherAccountOrRepositoryCannotFinalizeTheDenominator() {
         for (field in listOf("binding", "repository")) {
             val records = linkedMapOf("catalog-0" to catalog(0, 2), "catalog-2" to JsonObject(catalog(2, 1) + (field to JsonPrimitive("another-scope"))))

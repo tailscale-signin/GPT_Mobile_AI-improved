@@ -11,6 +11,74 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_visible_output_recovery_survives_approved_report_without_private_checkpoint_fields(self):
+        for reason, action in (
+            ("BOUNDED_VISIBLE_OUTPUT_REPAIR", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST"),
+            ("VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED", "INSPECT_SAVED_PROVIDER_ATTEMPT"),
+        ):
+            with self.subTest(reason=reason):
+                capture = self.capture("INCIDENT", {
+                    "incident_phase": "final_synthesis", "causal_failure_code": "OUTPUT_CONTINUATION_NO_PROGRESS",
+                    "no_output_kind": "OUTPUT_LIMIT_WITHOUT_NOVELTY", "no_output_stop_reason": reason,
+                    "no_output_repairs": 1, "no_output_repair_limit": 1, "no_output_repair_scheduled": False,
+                })
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report.update(feature="chat", errorCode="OUTPUT_CONTINUATION_NO_PROGRESS")
+                report["context"].update(source="CHAT_FAILURE", stage="final_synthesis", recoveryAction=action, retryable=False, resumeAllowed=False)
+                report["context"]["unavailableFields"] = [field for field in report["context"]["unavailableFields"] if field not in report["context"]]
+                approved = json.dumps(report, separators=(",", ":"))
+                restored = json.loads(approved)
+                _, issue = issue_from_report(restored)
+                self.assertIn(reason, issue["body"])
+                self.assertIn(action, issue["body"])
+                self.assertEqual(approved, json.dumps(restored, separators=(",", ":")))
+        for reason in ("private attempt text", True, 1, None):
+            with self.subTest(reason=reason), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {"no_output_stop_reason": reason}))
+        for field in ("repair_request_role", "visible_output_repair_pending", "visible_output_repair_request_claimed"):
+            self.assertNotIn(field, capsule.fields_for("INCIDENT"))
+            with self.subTest(field=field), self.assertRaises(ReportError):
+                issue_from_report(self.report(self.capture("INCIDENT", {field: "private-canary"})))
+
+    def test_original_operation_identity_survives_reporting_without_raw_values(self):
+        values = {
+            "reconciliation_identity_state": "IDENTIFIED", "reconciliation_tracked_operation_count": 1,
+            "reconciliation_original_call_hash": "a" * 64,
+            "reconciliation_original_tool_hash": "b" * 64,
+            "reconciliation_original_arguments_hash": "c" * 64,
+            "reconciliation_original_code": "DISPATCH_OUTCOME_UNKNOWN",
+            "reconciliation_original_dispatched": True,
+        }
+        for area in ("TOOL", "INCIDENT", "PROVIDER"):
+            with self.subTest(area=area):
+                capture = self.capture(area, values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = "RECONCILIATION_REQUIRED"
+                self.assertIn("reconciliation_original_call_hash", str(issue_from_report(report)))
+        for key, invalid in (
+            ("reconciliation_original_call_hash", "private-call-id"),
+            ("reconciliation_original_arguments_hash", {"path": "private source"}),
+            ("reconciliation_original_code", "private exception"),
+            ("reconciliation_original_dispatched", "true"),
+            ("reconciliation_tracked_operation_count", 1025),
+            ("reconciliation_tracked_operation_count", True),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {**values, key: invalid}))
+
+    def test_comparison_guard_and_acceptance_blockers_keep_closed_semantics(self):
+        capture = self.capture("PROVIDER", {
+            "provider_failure_code": "GITHUB_REVIEW_COMPARISON_REQUIRED",
+            "provider_failure_domain": "APPLICATION_VERIFICATION",
+            "provider_failure_stage": "ENGINEERING_GUARD",
+        })
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for blocker in ("CATALOG_NOT_OBSERVED", "CATALOG_EVIDENCE_INVALID", "REPRESENTATIVE_READ_NOT_OBSERVED", "VERIFICATION_RESERVE_NOT_OBSERVED", "VERIFICATION_RESERVE_EXHAUSTED"):
+            capture = self.capture("ACCEPTANCE", {"unmet_criterion_blockers": [blocker]})
+            self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+
     def test_voice_execution_and_original_fallback_failure_survive_system_engine_change(self):
         values = {
             "voice_engine": "SYSTEM", "voice_phase": "SPEAKING",

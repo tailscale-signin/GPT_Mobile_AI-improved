@@ -1,5 +1,11 @@
 # 0.9.66.13 — 2026-11-22
 
+- Complete comparison coverage when GitHub pages arrive out of order; retain the original failed page receipts and exact remaining fragment obligations, and honor the requested bounded comparison page size.
+- Distinguish full tool-result delivery from compacted evidence summaries. Use exact delivered-content proof to resume saved pages across restarts without skipping unread fragments or changing an explicit reread.
+- Plan stage-aware output capacity with a visible-output target and allow one materially changed empty-output repair. Preserve explicit reasoning choices, accepted context limits, durable provider waits and unknown-operation reconciliation; effort-only provider APIs cannot guarantee a fixed visible-token reserve.
+- Split oversized finite source reads into exact windows of at most 2,000 lines within the eight-range contract, preserving the requested tail and original invocation. Invalid actions and unsupported search fields receive schema-specific correction guidance.
+- Separate complete authorized catalogues from missing representative live reads, keep unobserved verification reserves unknown, classify application guards separately from provider failures, and preserve hash-only identity for original uncertain operations.
+- Report a complete empty failure query for the selected commit as zero observed failed workflow runs. Keep historical failure observations distinct from the latest workflow and do not infer passing required checks or newly executed tests.
 - Allow trusted calculator, date and supplied-text slicing tools in Privacy Mode while masking model continuations and preserving permissions; keep external service tools behind their existing privacy checks.
 - Distinguish local privacy rejection from GitHub/MCP network failure, preserve earlier uncertain operations and genuine cooldowns, and retain bounded audit assertion, transport, policy and recovery evidence with exact-connection repair guidance.
 - Make the repository map work directly on the phone without Gateway, with immediate revision-bound structure, progressive resumable source indexing, source navigation, search and explicitly qualified relationship candidates. Preserve native GitHub permissions and encrypted cache identity; retain Gateway as an explicit optional analysis source.

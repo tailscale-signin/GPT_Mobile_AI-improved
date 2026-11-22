@@ -80,22 +80,41 @@ internal object GitHubTestChecklist {
         (receipt["arguments"] as? JsonObject)?.containsKey("view_cursor") != true &&
         (capability.action.isBlank() || (receipt["arguments"] as? JsonObject)?.text("action") == capability.action)
 
-    private fun sameCall(receipt: JsonObject, recipe: JsonObject, issuer: JsonObject? = null): Boolean {
+    internal fun sameCall(receipt: JsonObject, recipe: JsonObject, issuer: JsonObject? = null): Boolean {
         if (issuer != null && (issuer["binding"] != receipt["binding"] || issuer["repository"] != receipt["repository"])) return false
         val arguments = recipe["arguments"] as? JsonObject ?: return false
         if (receipt.text("tool") != recipe.text("tool")) return false
-        if (receipt["arguments"] == arguments || GitHubActionIdentity.matches(recipe.text("tool"), arguments, receipt)) return true
         val actual = receipt["arguments"] as? JsonObject ?: return false
-        if (comparisonPageArguments(recipe.text("tool"), arguments, issuer?.text("repository")) == comparisonPageArguments(receipt.text("tool"), actual, issuer?.text("repository"))) return true
+        if (recipe.text("tool").githubOperationFamily() == "github_context" &&
+            arguments["action"] == JsonPrimitive("changes") &&
+            actual["action"] == JsonPrimitive("changes") &&
+            "view_cursor" !in arguments &&
+            "view_cursor" !in actual
+        ) {
+            val observedSize = data(receipt)?.let(GitHubComparisonPage::observedSize) ?: return false
+            val issuingData = issuer?.let(::data)
+            val issuingSize = issuingData?.let(GitHubComparisonPage::observedSize)
+            if (issuingData != null && issuingSize == null) return false
+            val issuedSize = if (issuingData != null && "effective_per_page" !in issuingData) {
+                GitHubComparisonPage.DEFAULT_SIZE
+            } else {
+                (arguments["per_page"] as? JsonPrimitive)?.intOrNull ?: issuingSize ?: GitHubComparisonPage.DEFAULT_SIZE
+            }
+            val expected = comparisonPageArguments(recipe.text("tool"), arguments, issuer?.text("repository"), issuedSize)
+            val observed = comparisonPageArguments(receipt.text("tool"), actual, issuer?.text("repository"), observedSize)
+            return observed == expected ||
+                observed["verify_live"] == JsonPrimitive(true) &&
+                expected["verify_live"] != JsonPrimitive(true) &&
+                observed == JsonObject(expected + ("verify_live" to JsonPrimitive(true)))
+        }
+        if (receipt["arguments"] == arguments || GitHubActionIdentity.matches(recipe.text("tool"), arguments, receipt)) return true
         if (actual["verify_live"] != JsonPrimitive(true) || arguments["verify_live"] == JsonPrimitive(true)) return false
         val live = JsonObject(arguments + ("verify_live" to JsonPrimitive(true)))
-        return actual == live ||
-            GitHubActionIdentity.matches(recipe.text("tool"), live, receipt) ||
-            comparisonPageArguments(receipt.text("tool"), actual, issuer?.text("repository")) == comparisonPageArguments(recipe.text("tool"), live, issuer?.text("repository"))
+        return actual == live || GitHubActionIdentity.matches(recipe.text("tool"), live, receipt)
     }
 
-    /** changed_since slices the pinned trees in fixed 100-file pages, independent of display defaults. */
-    internal fun comparisonPageArguments(tool: String, arguments: JsonObject, repository: String? = null): JsonObject {
+    /** Receipts use their observed size; legacy native comparisons explicitly retain their fixed 100 rows. */
+    internal fun comparisonPageArguments(tool: String, arguments: JsonObject, repository: String? = null, effectivePageSize: Int? = null): JsonObject {
         if (tool.githubOperationFamily() != "github_context" || arguments["action"] != JsonPrimitive("changes") || "view_cursor" in arguments) return arguments
         val target = repository?.lowercase(java.util.Locale.ROOT)?.split('/')?.takeIf { it.size == 2 && it.all(String::isNotBlank) }
         val sameTarget = target != null &&
@@ -104,7 +123,7 @@ internal object GitHubTestChecklist {
         return JsonObject(
             arguments + scope + mapOf(
                 "page" to (arguments["page"] ?: JsonPrimitive(1)),
-                "per_page" to JsonPrimitive(100),
+                "per_page" to (effectivePageSize?.let(::JsonPrimitive) ?: arguments["per_page"] ?: JsonPrimitive(GitHubComparisonPage.DEFAULT_SIZE)),
                 "include_patches" to (arguments["include_patches"] ?: JsonPrimitive(false)),
                 "verify_live" to (arguments["verify_live"] ?: JsonPrimitive(false))
             )

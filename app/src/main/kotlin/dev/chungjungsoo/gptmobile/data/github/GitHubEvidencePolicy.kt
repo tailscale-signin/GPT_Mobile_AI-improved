@@ -835,7 +835,10 @@ internal object GitHubEvidencePolicy {
                 }
                 if (family in setOf("github_pr", "github_issue") && (parent as? JsonObject)?.get("number") is JsonPrimitive) numberedResource = parent
             }
-            if ("/workflow_runs/" in pointer) return "Workflow run · " + parts.last().replace('_', ' ')
+            if ("/workflow_runs/" in pointer) {
+                val filteredFailure = (receipt?.get("arguments") as? JsonObject)?.get("status") == JsonPrimitive("failure")
+                return (if (filteredFailure) "Observed failed workflow · " else "Observed workflow · ") + parts.last().replace('_', ' ')
+            }
             val subject = numberedResource?.let { "${if (family == "github_issue") "Issue" else "PR"} #${it.string("number")}" } ?: (parent as? JsonObject)?.let { obj ->
                 if ("/pull_requests/" in pointer || "/pull_request/" in pointer) {
                     (obj["number"] as? JsonPrimitive)?.contentOrNull?.let { "PR #$it" }

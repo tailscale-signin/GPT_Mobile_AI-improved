@@ -6,7 +6,17 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** Evidence review, correction and claim rendering reserve their own bounded output. */
 internal object GitHubStageBudget {
-    data class Allowance(val input: Int, val output: Int)
+    const val CONTINUATION_ROLE = "github-output-continuation"
+    const val VISIBLE_OUTPUT_REPAIR_ROLE = "github-visible-output-continuation"
+
+    /** Target for effort-only APIs; manual-thinking APIs apply it above their minimum budget. */
+    data class Allowance(val input: Int, val output: Int, val visibleOutput: Int = 0)
+
+    fun visibleOutputReserve(output: Int, role: String?): Int = when (role) {
+        CONTINUATION_ROLE -> minOf(2048, output.coerceAtLeast(0) / 2)
+        VISIBLE_OUTPUT_REPAIR_ROLE -> minOf(4096, output.coerceAtLeast(0) / 2)
+        else -> 0
+    }
 
     /** Input and output rejection ceilings cannot describe the complete request context. */
     fun observedContext(admittedContext: Long?, failure: ProviderEvent.Failed?): Int? {
@@ -25,7 +35,8 @@ internal object GitHubStageBudget {
             role.endsWith("-preflight") -> GitHubReviewCompatibility.OUTPUT_TOKENS
             role.endsWith("-output-retry") -> 4096
             role == "github-claim-extraction" -> 8192
-            role == "github-output-continuation" -> 6144
+            role == CONTINUATION_ROLE -> 8192
+            role == VISIBLE_OUTPUT_REPAIR_ROLE -> 16_384
             role.endsWith("-repair") -> 4096
             else -> GitHubReviewSchema.OUTPUT_TOKENS
         }
@@ -42,6 +53,6 @@ internal object GitHubStageBudget {
             val serialized = middle + 1536
             if (serialized + RequestAdmission.estimateSafety(serialized) <= available) lower = middle else upper = middle - 1
         }
-        return Allowance(lower.toInt(), output)
+        return Allowance(lower.toInt(), output, visibleOutputReserve(output, role))
     }
 }

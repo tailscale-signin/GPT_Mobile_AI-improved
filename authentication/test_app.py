@@ -583,6 +583,7 @@ class IssueReportHttpTest(unittest.TestCase):
                      "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "GITHUB_SEARCH_ARGUMENT_EVIDENCE_V1", "REPORT_TEXT_ATTACHMENT_V1", "GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1", "TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1", "TERMINAL_DELIVERY_CODES_V1", "PROVIDER_TERMINAL_CAUSES_V1", "PAGINATION_AND_PROVIDER_LIMIT_EVIDENCE_V1", "PRIVACY_ELIGIBILITY_EVIDENCE_V1", "GATEWAY_CAPABILITY_EVIDENCE_V1", "STATUS_COVERAGE_EVIDENCE_V1", "AUDIO_FOCUS_MODE_V1", "GITHUB_VALIDATION_CONTEXT_V1", "RUNTIME_INCIDENT_DETAILS_V1", "SELECTED_MODEL_ADMISSION_V1", "REVIEW_CATALOG_OBSERVATION_V1", "ACTION_ONLY_TOOL_PRECHECK_V1", "TOOL_REPEAT_PRIOR_CAUSE_V1", "PROFILE_BEHAVIOR_CHANGE_V1", "APP_SEARCH_READINESS_V1", "VOICE_SILENCED_INPUT_V1", "TASK_AND_TOOL_FAILURE_DETAILS_V1", "READER_AND_RUN_FAILURE_DETAILS_V1", "REPLAY_BUDGET_EVIDENCE_V1", "GRAPH_TRANSPORT_EVIDENCE_V1", "EXECUTION_COMPLETION_EVIDENCE_V1"]
         additions.insert(additions.index("ACCEPTANCE_OBSERVATION_CAUSES_V1") + 1, "ACCEPTANCE_EMPTY_EXPLANATION_V1")
         additions.insert(1, "VOICE_EXECUTION_EVIDENCE_V1")
+        additions.append("VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1")
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
                          extended.json()["reportDiagnosticFeatures"])
         for key in ("service", "version", "reportContextVersions"):
@@ -601,6 +602,34 @@ class IssueReportHttpTest(unittest.TestCase):
         check_readiness(self.origin, fetch)
         self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
         self.assertFalse(self.issued)
+
+    def test_advertised_visible_output_recovery_contract_accepts_exact_approved_http_reports(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        fixtures = IncidentReportContractTest()
+        ready = self.client.get("/health/ready?capabilities=extended").json()
+        self.assertIn("VISIBLE_OUTPUT_RECOVERY_EVIDENCE_V1", ready["reportDiagnosticFeatures"])
+        for reason, action in (
+            ("BOUNDED_VISIBLE_OUTPUT_REPAIR", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST"),
+            ("VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED", "INSPECT_SAVED_PROVIDER_ATTEMPT"),
+        ):
+            with self.subTest(reason=reason):
+                capture = fixtures.capture("INCIDENT", {"incident_phase": "final_synthesis", "no_output_stop_reason": reason})
+                report = fixtures.report(capture)
+                report.update(reportId=str(uuid4()), feature="chat", errorCode="OUTPUT_CONTINUATION_NO_PROGRESS")
+                report["context"].update(source="CHAT_FAILURE", stage="final_synthesis", recoveryAction=action, retryable=False, resumeAllowed=False)
+                report["context"]["unavailableFields"] = [field for field in report["context"]["unavailableFields"] if field not in report["context"]]
+                approved = json.dumps(report, separators=(",", ":"))
+                receipt = self.client.post("/v1/issue-reports", content=approved, headers={"Content-Type": "application/json"})
+                self.assertEqual(200, receipt.status_code, receipt.text)
+                self.assertEqual({"reportId": report["reportId"], "number": 42}, receipt.json())
+                body = self.issued[-1]["body"]
+                self.assertIn(reason, body)
+                self.assertIn(action, body)
+                self.assertNotIn("visible_output_repair_request_claimed", body)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                replay = self.client.post("/v1/issue-reports", content=approved, headers={"Content-Type": "application/json"})
+                self.assertEqual(receipt.json(), replay.json())
+        self.assertEqual(2, len(self.issued))
 
     def test_policy_response_observations_cross_http_boundary_and_reject_private_or_malformed_data(self):
         from authentication.test_incident_report_contract import IncidentReportContractTest

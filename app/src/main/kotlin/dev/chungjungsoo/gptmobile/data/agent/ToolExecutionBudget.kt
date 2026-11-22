@@ -31,7 +31,7 @@ class ToolExecutionBudget(
 ) {
     private val invalidatedAuthority = AtomicReference<AgentToolResult?>(null)
     private val terminalToolFailures = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val unknownOutcomes = java.util.concurrent.ConcurrentHashMap<String, JsonObject>()
     private val calls = AtomicInteger(initialCalls.coerceAtLeast(0))
     private val attempts = AtomicInteger()
     private val invocationIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -174,7 +174,7 @@ class ToolExecutionBudget(
             val signature = "$executionOwner:${tool.definition.name}:" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments)
             val replayableRead = ToolReplaySafety.isReplayableRead(tool.definition.name, arguments, tool) ||
                 AgentToolCapability.USER_DECISION in tool.definition.capabilities
-            if (!replayableRead && signature in unknownOutcomes) return { withBudgetState(ToolResultEnvelope.error(callId, "RECONCILIATION_REQUIRED", "Previous dispatch outcome is unknown. Reconcile it before repeating this action.")) }
+            if (!replayableRead) unknownOutcomes[signature]?.let { original -> return { withBudgetState(ToolReconciliationEvidence.blocked(callId, original)) } }
             invalidatedAuthority.get()?.let { prior -> return { withBudgetState(ToolFailureMetadata.authorityBlocked(callId, definition.name, prior)) } }
             if ((failures[signature]?.get() ?: 0) >= 2) return { withBudgetState(ToolResultEnvelope.error(callId, "REPEATED_FAILURE", "An unchanged call failed twice. Stop repeating it; use retained evidence or correct the request.")) }
             terminalToolFailures[tool.definition.name]?.let { code ->
@@ -433,13 +433,13 @@ class ToolExecutionBudget(
                             if (semanticArgumentRejections.size < 128) semanticArgumentRejections.putIfAbsent(signature, normalizedResult)
                         }
                     }
-                    if (normalizedResult.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead) unknownOutcomes += signature
+                    if (normalizedResult.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead) unknownOutcomes.putIfAbsent(signature, ToolReconciliationEvidence.observation(ProviderEvent.ToolCall(callId, tool.definition.name, arguments), normalizedResult))
                     if (normalizedResult.isError && normalizedResult.dispatched && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     deliveryOutcome = if (normalizedResult.outputBudgetExhausted || normalizedResult.content != result.content || (result.retainedContent != null && result.retainedContent != result.content)) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.TRUNCATED else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     success = !normalizedResult.isError
                     return@execution normalizedResult
                 } catch (cancellation: CancellationException) {
-                    if (!replayableRead) unknownOutcomes += signature
+                    if (!replayableRead) unknownOutcomes.putIfAbsent(signature, ToolReconciliationEvidence.observation(ProviderEvent.ToolCall(callId, tool.definition.name, arguments), ToolResultEnvelope.error(callId, "DISPATCH_OUTCOME_UNKNOWN", "Operation interrupted", dispatched = physicalToolStarted)))
                     val cancellationContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]
                     val origin = if (cancellation is kotlinx.coroutines.TimeoutCancellationException) "OPERATION_DEADLINE" else cancellationContext?.record?.origin?.name ?: "PARENT_CANCELLED"
                     reason = "CANCELED_$origin"
@@ -482,7 +482,7 @@ class ToolExecutionBudget(
                         // Its completed/unknown outcome must not be overwritten.
                         combinedResult = retained
                         recordAuthorityFailure(retained)
-                        if (retained.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead) unknownOutcomes += signature
+                        if (retained.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead) unknownOutcomes.putIfAbsent(signature, ToolReconciliationEvidence.observation(ProviderEvent.ToolCall(callId, tool.definition.name, arguments), retained))
                         reason = ToolFailureMetadata.authorityCode(retained)
                         executionOutcome = when {
                             retained.errorCode in ToolResultEnvelope.unknownOutcomeCodes -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
@@ -498,12 +498,12 @@ class ToolExecutionBudget(
                     if (readOnly) executionOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
                     deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
-                    if (!readOnly) unknownOutcomes += signature
                     val readGuidance = if (ToolFailureMetadata.authorityCode(error) == null) " Completed evidence remains available; a bounded read retry may continue." else " Completed evidence remains available."
                     val failure = ToolResultEnvelope.error(callId, if (readOnly) ToolFailureMetadata.authorityCode(error) ?: "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN", failureMessage(error) + if (readOnly) readGuidance else " Dispatch outcome is unknown; reconcile before repeating an action.", dispatched = true)
                     val observed = ToolFailureMetadata.withAuthorityFailure(failure, error, "tool_execution")?.let {
                         ToolFailureMetadata.receipt(it, definition.name, diagnosticCode = ToolFailureMetadata.authorityCode(error), replaySafe = readOnly)
                     } ?: failure
+                    if (!readOnly) unknownOutcomes.putIfAbsent(signature, ToolReconciliationEvidence.observation(ProviderEvent.ToolCall(callId, tool.definition.name, arguments), observed))
                     recordAuthorityFailure(observed)
                     val boundedResult = bounded(observed)
                     if (readOnly) combinedResult = boundedResult

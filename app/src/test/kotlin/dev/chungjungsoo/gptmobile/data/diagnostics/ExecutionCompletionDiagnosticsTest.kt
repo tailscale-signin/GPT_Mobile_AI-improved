@@ -19,6 +19,83 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExecutionCompletionDiagnosticsTest {
+    @Test fun visibleOutputRecoverySurvivesStoredMessageExportAndApprovedPublicContext() {
+        for (claimed in listOf(false, true)) {
+            val progress = dev.chungjungsoo.gptmobile.data.agent.GitHubNoOutputProgress(null, false, 1)
+            assertTrue(progress.observe("", "", 6144, "length", "attempt", "a".repeat(64), true, changedOutputRepairAvailable = true))
+            val event = if (claimed) {
+                assertTrue(progress.claimVisibleOutputRequest())
+                progress.claimedVisibleOutputFailure("")
+            } else {
+                progress.failure("")
+            }
+            val code = requireNotNull(event.errorCode)
+            val reason = if (claimed) "VISIBLE_OUTPUT_REPAIR_REQUEST_ALREADY_CLAIMED" else "BOUNDED_VISIBLE_OUTPUT_REPAIR"
+            val action = if (claimed) "INSPECT_SAVED_PROVIDER_ATTEMPT" else "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST"
+            val details = requireNotNull(event.failureDetails)
+            val record = ProfileFailureRecord.fromProvider(event.message, code, details)
+            assertEquals(listOf(action), record.recoveryActions)
+            assertFalse(record.retryAllowed)
+            assertEquals(false, record.requestReplayAllowed)
+            val summary = messageSummary(record)
+            assertEquals(JsonPrimitive(reason), summary["no_output_stop_reason"])
+            assertEquals(JsonPrimitive(action), summary["recovery_action"])
+            assertEquals(JsonPrimitive(false), summary["request_replay_allowed"])
+
+            val context = capture(code, summary)
+            assertEquals(action, context.recoveryAction)
+            assertEquals(7, context.schemaVersion)
+            val diagnostics = requireNotNull(context.diagnostics)
+            assertEquals(JsonPrimitive(reason), diagnostics.values["no_output_stop_reason"])
+            assertEquals(JsonPrimitive(false), diagnostics.values["no_output_repair_scheduled"])
+            assertNotNull(diagnostics.validated())
+            assertTrue(ExecutionCompletionDiagnostics.FEATURE in diagnostics.requiredServiceFeatures())
+            assertTrue(ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE in diagnostics.requiredServiceFeatures())
+            val priorContract = diagnostics.copy(values = diagnostics.values + ("no_output_stop_reason" to JsonPrimitive("BOUNDED_EMPTY_OUTPUT_REPAIR")))
+            assertNotNull(priorContract.validated())
+            assertFalse(ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE in priorContract.requiredServiceFeatures())
+            val omittedReason = diagnostics.copy(values = diagnostics.values - "no_output_stop_reason", omittedFields = diagnostics.omittedFields + "no_output_stop_reason")
+            assertNotNull(omittedReason.validated())
+            assertFalse(ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE in omittedReason.requiredServiceFeatures())
+            val restored = Json.decodeFromString(IssueReportContext.serializer(), Json.encodeToString(IssueReportContext.serializer(), context))
+            assertEquals(context, restored)
+            assertTrue(IssueReportContext.validDiagnosticsIn(Json.encodeToJsonElement(IssueReportContext.serializer(), restored)))
+            for (privateField in listOf("repair_request_role", "visible_output_repair_pending", "visible_output_repair_request_claimed")) {
+                assertFalse(diagnostics.values.containsKey(privateField))
+                assertFalse(ExecutionCompletionDiagnostics.fields.contains(privateField))
+            }
+        }
+        assertNull(ExecutionCompletionDiagnostics.validValue("no_output_stop_reason", JsonPrimitive("private attempt text")))
+        assertNull(capture("OUTPUT_CONTINUATION_NO_PROGRESS", buildJsonObject { put("next_action", "private attempt text") }).recoveryAction)
+    }
+
+    @Test fun originalToolIdentitySurvivesStoredFailureAndPublicProjectionWithoutArguments() {
+        val call = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall("private-original-call", "private-original-tool", buildJsonObject { put("path", "private-source-path") })
+        val original = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(call.callId, "DISPATCH_OUTCOME_UNKNOWN", "private exception", dispatched = true)
+        val identity = dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.observation(call, original)
+        val details = JsonObject(
+            identity + buildJsonObject {
+                put("failed_stage", "tool_dispatch")
+                put("requires_reconciliation", true)
+                put("logical_continuation_allowed", false)
+            }
+        )
+        val record = ProfileFailureRecord.fromProvider("Original operation requires reconciliation", "RECONCILIATION_REQUIRED", details)
+        val summary = messageSummary(record)
+        assertEquals(identity["reconciliation_original_call_hash"], summary["reconciliation_original_call_hash"])
+        assertEquals(JsonPrimitive("IDENTIFIED"), summary["reconciliation_identity_state"])
+        assertFalse(record.retryAllowed)
+        val report = capture("RECONCILIATION_REQUIRED", details)
+        val diagnostics = requireNotNull(report.diagnostics)
+        assertEquals(identity["reconciliation_original_call_hash"], diagnostics.values["reconciliation_original_call_hash"])
+        assertEquals(JsonPrimitive("DISPATCH_OUTCOME_UNKNOWN"), diagnostics.values["reconciliation_original_code"])
+        assertTrue(ExecutionCompletionDiagnostics.FEATURE in diagnostics.requiredServiceFeatures())
+        assertFalse(summary.toString().contains("private-"))
+        assertFalse(diagnostics.toString().contains("private-"))
+        assertNotNull(diagnostics.validated())
+        assertTrue(ExecutionCompletionDiagnostics.publicFields("CHAT_FAILED", details).isEmpty())
+    }
+
     @Test fun currentFailureDoesNotBorrowAnEarlierFailuresTypedObservations() {
         for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "OUTPUT_CONTINUATION_NO_PROGRESS")) {
             val current = DiagnosticFailureEvidence(

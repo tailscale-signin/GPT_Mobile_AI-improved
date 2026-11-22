@@ -61,6 +61,9 @@ internal object GitHubPartialReport {
             val coverage = if (row["workflow_inventory_complete"] == JsonPrimitive(true)) "complete captured inventory" else "incomplete captured inventory"
             lines += "Workflow definitions observed: ${row["workflow_definitions_observed"]} ($coverage). Listing definitions does not run or verify those workflows" + cite(row)
         }
+        facts.lastOrNull { it["failure_query_complete"] == JsonPrimitive(true) && it["failed_runs_observed"] == JsonPrimitive(0) }?.let { row ->
+            lines += "No failed workflow runs were returned by the complete failure query for `${row.text("commit_sha")}`. Required checks and newly executed tests remain separate observations" + cite(row)
+        }
         facts.lastOrNull { "check_counts" in it }?.let { row ->
             val counts = row["check_counts"] as JsonObject
             val coverage = if (row["check_inventory_complete"] == JsonPrimitive(true)) "complete captured check list" else "partial captured check list"

@@ -67,6 +67,9 @@ internal data class IssueReportDiagnostics(
         ) {
             add(ExecutionCompletionDiagnostics.FEATURE)
         }
+        if ((values["no_output_stop_reason"] as? JsonPrimitive)?.contentOrNull in ExecutionCompletionDiagnostics.visibleOutputStopReasons) {
+            add(ExecutionCompletionDiagnostics.VISIBLE_OUTPUT_RECOVERY_FEATURE)
+        }
         if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.conversationRecoveryFields } ||
             values["incident_capture_site"] in setOf(JsonPrimitive("GITHUB_VERIFICATION_CATCH"), JsonPrimitive("OUTPUT_CONTINUATION_OPEN_CATCH")) ||
             values["catalog_selector_state"] == JsonPrimitive("NAMES_NULL") ||
@@ -522,6 +525,7 @@ internal data class IssueReportDiagnostics(
                 "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "REPOSITORY_INPUT_REQUIRED", "REPOSITORY_LIFECYCLE_REQUIRED",
                 "GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED",
                 "EXECUTION_NOT_EXERCISED", "BLOCKER_DETAIL_NOT_RECORDED", "NONE", "VERIFICATION_FAILED", "REQUIRED_OPERATION_BLOCKED", "DEVICE_EXECUTION_NOT_OBSERVED", "CATALOG_NOT_EXHAUSTED",
+                "CATALOG_NOT_OBSERVED", "CATALOG_EVIDENCE_INVALID", "REPRESENTATIVE_READ_NOT_OBSERVED", "VERIFICATION_RESERVE_NOT_OBSERVED", "VERIFICATION_RESERVE_EXHAUSTED",
                 "FIXTURE_PROOF_INCOMPLETE", "GRAPH_QUALIFICATION_INCOMPLETE", "REPOSITORY_OPERATION_UNVERIFIED", "MATCHING_EVIDENCE_MISSING"
             )
         )

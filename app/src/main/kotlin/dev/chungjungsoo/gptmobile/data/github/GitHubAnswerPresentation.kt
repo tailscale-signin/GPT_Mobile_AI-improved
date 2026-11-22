@@ -32,11 +32,13 @@ internal object GitHubAnswerPresentation {
                     val label = row.substringAfter("| ").substringBefore(" |")
                     when {
                         label.startsWith("PR ") -> "Open pull requests"
+                        label.startsWith("Observed failed workflow ·") -> "Observed workflow failures"
+                        label.startsWith("Observed workflow ·") -> "Observed workflows"
                         label.startsWith("Workflow ") || label == "Latest workflow" -> "Latest workflow"
                         label in setOf("Check state", "Checks", "Statuses", "State") -> "Checks for this commit"
                         else -> "Repository details"
                     }
-                }.toSortedMap(compareBy { listOf("Repository details", "Checks for this commit", "Open pull requests", "Latest workflow").indexOf(it) })
+                }.toSortedMap(compareBy { listOf("Repository details", "Checks for this commit", "Open pull requests", "Latest workflow", "Observed workflows", "Observed workflow failures").indexOf(it) })
             } else {
                 mapOf("Repository details" to usefulFacts.distinct())
             }

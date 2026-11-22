@@ -27,6 +27,7 @@ internal object ProviderFailureReport {
         metadata: GatewayResponseMetadata? = null
     ): JsonObject = buildJsonObject {
         put("diagnostic_area", "PROVIDER")
+        dev.chungjungsoo.gptmobile.data.agent.ToolReconciliationEvidence.retained(failure.errorCode, failure.failureDetails)?.forEach { (key, value) -> put(key, value) }
         val semanticFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.retained(failure.failureDetails)
         semanticFailure?.forEach { (key, value) -> put(key, value) }
         val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
@@ -145,7 +146,7 @@ internal object ProviderFailureReport {
         configured?.configuredProfileOutputTokens?.bounded()?.let { put("configured_output_limit", it) }
         (configured?.serializedOutputTokens ?: configured?.effectiveOutputTokens)?.bounded()?.let { put("effective_output_limit", it) }
         // Usage without the owning invocation cannot supplement a different failure.
-        usage?.takeIf { it.invocationId == receipt.invocationId }?.inputTokens?.bounded()?.let { put("input_tokens", it) }
+        usage?.takeIf { receipt.failureDomain == FailureDomain.PROVIDER && it.invocationId == receipt.invocationId }?.inputTokens?.bounded()?.let { put("input_tokens", it) }
         receipt.outputTokens?.bounded()?.let { put("output_tokens", it) }
         receipt.reasoningTokens?.bounded()?.let { put("reasoning_tokens", it) }
         receipt.outputTokenSource?.let { put("usage_source", it) }

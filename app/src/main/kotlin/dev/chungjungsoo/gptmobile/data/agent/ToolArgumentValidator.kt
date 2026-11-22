@@ -51,10 +51,16 @@ internal object ToolArgumentValidator {
             "github_search" ->
                 "Use action=search, search_repository or search_code with query. Do not send per_page: " +
                     "github_search does not accept it. max_new_blobs must be 1..100 (omit for the default); it is not a remote page size. " +
+                    "pattern_match is not a supported field. Select a declared mode explicitly; unsupported search semantics are never silently discarded. " +
                     "For another page, use the last result's exact continuation_call. "
             else -> ""
         }
         val declared = (schema["properties"] as? JsonObject).orEmpty().keys.sorted().joinToString(", ").take(1000)
+        val choices = (schema["properties"] as? JsonObject).orEmpty().filterKeys { it in setOf("action", "mode") }
+            .mapNotNull { (field, value) ->
+                val options = ((value as? JsonObject)?.get("enum") as? JsonArray)?.filterIsInstance<JsonPrimitive>() ?: return@mapNotNull null
+                "$field=" + options.take(24).joinToString("|") { it.content }
+            }.joinToString("; ").take(1000)
         val cursorGuidance = if (arguments != null && jobsReadWithoutCursor(toolName, arguments) != null) {
             "For a fresh jobs list, use action=jobs and the observed run_id. For a saved page, copy the exact cursor-only call from that run's jobs result. "
         } else if (arguments?.containsKey("view_cursor") == true) {
@@ -64,7 +70,7 @@ internal object ToolArgumentValidator {
         }
         return "Invalid arguments. " + errors.joinToString("; ").take(3000) +
             ". No action was dispatched. " + cursorGuidance + guidance + "Submit one corrected proposal with a new call ID. " +
-            "Declared fields: " + declared
+            "Declared fields: " + declared + if (choices.isBlank()) "" else ". Allowed choices: $choices"
     }
 
     /** A safe read recipe is constructed from the actual registered schema; no ID is inferred. */
@@ -367,7 +373,11 @@ internal object ToolArgumentValidator {
 
     internal fun boundedReadCorrection(operation: String, arguments: JsonObject, proposeFiniteIntersection: Boolean = true): JsonObject? {
         if (arguments.keys.any { it in setOf("view_cursor", "index_cursor", "evidence_id", "start_offset") }) return null
-        if (operation == "github_read") sourceReadArgumentCorrection(arguments)?.let { return it }
+        if (operation == "github_read") {
+            sourceReadArgumentCorrection(arguments)?.let {
+                return boundedReadCorrection(operation, it, proposeFiniteIntersection) ?: it
+            }
+        }
         val action = arguments["action"] ?: JsonPrimitive("ranges").takeIf { operation == "github_read" && "ranges" in arguments }
         return when (operation to action) {
             "github_ci" to JsonPrimitive("runs") -> {
@@ -383,12 +393,12 @@ internal object ToolArgumentValidator {
             }
             "github_read" to JsonPrimitive("ranges") -> {
                 val ranges = arguments["ranges"] as? JsonArray ?: return null
-                val corrected = ranges.map { value ->
+                val corrected = ranges.flatMap { value ->
                     val range = value as? JsonObject ?: return null
                     val end = integer(range["end_line"])
                     val count = integer(range["max_lines"])
                     val start = if ("start_line" in range) integer(range["start_line"]) else 1
-                    when {
+                    val normalized = when {
                         end == -1 && count != null && count in 1..2000 -> JsonObject(range - "end_line")
                         // A finite intersection is offered with the rejection. Only the caller
                         // can accept a narrower explicit window on a subsequent invocation.
@@ -396,13 +406,42 @@ internal object ToolArgumentValidator {
                             JsonObject(range - "max_lines" + ("end_line" to JsonPrimitive(minOf(end.toLong(), start.toLong() + count - 1).toInt())))
                         else -> range
                     }
+                    splitReadRange(normalized) ?: listOf(normalized)
                 }
+                // Never drop a requested tail merely to satisfy the eight-range
+                // contract. A larger request still needs a new bounded proposal.
+                if (corrected.size > 8) return null
                 val correctedRanges = JsonArray(corrected)
                 if (correctedRanges == ranges) return null
                 JsonObject(arguments + ("ranges" to correctedRanges))
             }
             else -> null
         }
+    }
+
+    /** Split one finite window without changing its path, first line or final line. */
+    private fun splitReadRange(range: JsonObject): List<JsonObject>? {
+        if ("start_offset" in range || "end_line" in range && "max_lines" in range) return null
+        val start = if ("start_line" in range) integer(range["start_line"]) ?: return null else 1
+        if (start < 1) return null
+        val count = if ("max_lines" in range) integer(range["max_lines"]) ?: return null else null
+        val end = if ("end_line" in range) integer(range["end_line"])?.toLong() ?: return null else count?.let { start.toLong() + it - 1 }
+        if (count != null && count < 1 || end == null || end < start || end > Int.MAX_VALUE) return null
+        val length = end - start + 1
+        if (length <= 2000 || length > 8 * 2000) return null
+        val result = mutableListOf<JsonObject>()
+        var next = start.toLong()
+        while (next <= end) {
+            val last = minOf(end, next + 1999)
+            result += JsonObject(
+                range - setOf("max_lines", "end_line", "start_line") + mapOf(
+                    "start_line" to JsonPrimitive(next.toInt()),
+                    "end_line" to JsonPrimitive(last.toInt())
+                )
+            )
+            next = last + 1
+        }
+        return result
     }
 
     private fun integer(value: JsonElement?): Int? = (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull

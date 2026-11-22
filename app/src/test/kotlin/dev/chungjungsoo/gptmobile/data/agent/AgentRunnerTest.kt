@@ -170,6 +170,8 @@ class AgentRunnerTest {
         assertEquals(1, executions)
         assertEquals(listOf("DISPATCH_OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"), results.map { it.errorCode })
         assertFalse(results.last().dispatched)
+        assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("call", "first")), results.last().executionReceipt?.get("reconciliation_original_call_hash"))
+        assertEquals(JsonPrimitive(false), results.last().executionReceipt?.get("request_replay_allowed"))
     }
 
     @Test fun failedRoundReportsOneTrackedWriteWithoutRepeatingIt() = runBlocking {
@@ -198,6 +200,9 @@ class AgentRunnerTest {
         assertEquals(JsonPrimitive("RECONCILIATION_REQUIRED"), failure.failureDetails?.get("recovery_observation"))
         assertEquals(JsonPrimitive("OUTCOMES_UNRESOLVED"), failure.failureDetails?.get("pending_tool_receipt_state"))
         assertEquals(JsonPrimitive(1), failure.failureDetails?.get("reconciliation_tracked_signature_count"))
+        assertEquals(JsonPrimitive("IDENTIFIED"), failure.failureDetails?.get("reconciliation_identity_state"))
+        assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("call", "first")), failure.failureDetails?.get("reconciliation_original_call_hash"))
+        assertEquals(JsonPrimitive("DISPATCH_OUTCOME_UNKNOWN"), failure.failureDetails?.get("reconciliation_original_code"))
     }
 
     @Test fun replayAdmissionFailureRecordsPlanningWithoutProviderDispatch() = runBlocking {

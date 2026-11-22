@@ -452,8 +452,9 @@ internal class GitHubOperationTool(
         }
         val native = nativeArguments(operation, JsonObject(arguments - "response_detail"))
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
-        pagination.completedPage(operation, native)?.let { lastPage ->
-            val error = pagination.completionError(operation, native)
+        val paginationDispatch = pagination.preparePage(operation, native)
+        paginationDispatch.completedPage?.let { lastPage ->
+            val error = paginationDispatch.errorCode
             return AgentToolResult(
                 callId,
                 ToolResultContent.Json(
@@ -468,9 +469,16 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
+        val paginationObservation = paginationDispatch.observation
         var resolved = native
         var effectiveArguments = arguments
-        var executed = backend.execute(callId, native)
+        var executed = try {
+            backend.execute(callId, native)
+        } catch (failure: Throwable) {
+            pagination.cancelPage(paginationObservation)
+            throw failure
+        }
+        if (executed.isError) pagination.cancelPage(paginationObservation)
         if (operation == "github_issue" &&
             executed.isError &&
             !executed.dispatched &&
@@ -629,7 +637,7 @@ internal class GitHubOperationTool(
             else -> null
         }
         if (!result.isError && data != null) {
-            val assessment = pagination.assessPage(operation, resolved, data)
+            val assessment = pagination.assessPage(operation, resolved, data, paginationObservation)
             if (assessment.errorCode != null) {
                 val progress = assessment.data["pagination_progress"] as? JsonObject
                 val gap = progress?.get("first_unobserved_page")
@@ -686,6 +694,8 @@ internal class GitHubOperationTool(
             } else {
                 pagination.observe(operation, resolved, data)
             }
+        } else {
+            pagination.cancelPage(paginationObservation)
         }
         val paged = if (!result.isError && pagination.expectsNumberedRemotePage(operation, resolved) && data?.get("has_more") == JsonPrimitive(true) && "continuation" !in data && operation != "github_search") {
             withPaginationState(result, JsonObject(data + ("continuation" to JsonObject(resolved + ("page" to JsonPrimitive(((effectiveArguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1) + 1))))))
@@ -1148,7 +1158,7 @@ internal class GitHubOperationTool(
                     }
                     properties["refresh"] = field("boolean")
                     properties["page"] = field("integer")
-                    properties["per_page"] = integer(1, 100, default = 30)
+                    properties["per_page"] = integer(1, 100, "Changes default to 100 files; other lists default to 30.")
                     properties["include_patches"] = field("boolean")
                 }
                 "github_search" -> {
@@ -1536,7 +1546,7 @@ internal class GitHubOperationTool(
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Copilot is off by default and requires global plugin and per-chat opt-in. copilot_create_task requires request_id,prompt,base_ref,expected_base_sha; the preview Agent tasks API requires Copilot Business or Enterprise and Agent tasks write permission. Native direct mode needs no Gateway; the selected Gateway can manage standalone continuation. copilot_task_status resumes by task_id/request_id or gateway_job_id on the original Gateway; copilot_tasks discovers remote tasks read-only. Never replay uncertain creation or switch owners. GitHub cloud work continues when the app closes; remote completion does not prove CI, exact-head acceptance or merge authority. Copilot Agent Merge: agent_merge_status reads enrollment; agent_merge_enable/update require current expected_head_sha and permitted allowed_actions; agent_merge_disable stops watching. Copilot credits are billed separately. No Agent Merge tool automatically merges a PR. Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Prefer headers for title/state/head/base only; context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA. Use ready/draft for explicit draft transitions. threads returns observed thread IDs for resolve_thread/reopen_thread; follow pageInfo using after. edit_comment and edit_review_comment require expected_comment_updated_at. enable_auto_merge queues GitHub auto-merge under repository rules and does not prove a completed merge."
-                "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. Runs filters use status; returned runs include conclusion. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations, with positive ordered line bounds spanning at most 2000 lines. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
+                "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. For CI diagnosis, resolve and pin the selected head, then inspect completed failed runs at each run's latest attempt. Skipped notification workflows are not failed builds; a complete empty failure query is a valid finding. Discover workflows, then runs (100/page), then jobs using run_id. Runs filters use status; returned runs include conclusion. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations, with positive ordered line bounds spanning at most 2000 lines. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
                 "github_watch_checks" -> "Watch pr_number and/or run_id at its exact head. Omit wait_timeout_seconds for background updates in a saved chat; supply 1..30 for bounded inline reads and polling, returning an observed outcome or pending timeout without creating a subscription. Optional follow_pr=true follows new PR revisions."
                 "github_issue" -> "Discover issues with action=list and optional state=open (PRs excluded). action=headers reads ONE observed issue and requires issue_number; it is not an inventory or listing action. After listing, use headers for title/state/updated_at, or context/comments/history when needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
@@ -1546,6 +1556,10 @@ internal class GitHubOperationTool(
                 "github_context", "github_ci", "github_pr", "github_issue" ->
                     " Saved-view continuation: copy the returned continuation_call with only view_cursor; do not carry over action, owner, repo, branch, ref, page, per_page, search_id or other fields. For a new remote read, owner and repo must be supplied together or both omitted."
                 else -> " Follow the exact continuation_call. For new calls, supply owner and repo together."
+            } + if (operation in setOf("github_read", "github_search", "github_context", "github_ci", "github_pr", "github_issue")) {
+                " continuation_call advances unread content; recovery_call/recovery_options reread the retained offset only for undelivered pages or explicit rereads."
+            } else {
+                ""
             }
             return AgentToolDefinition(
                 modelName,

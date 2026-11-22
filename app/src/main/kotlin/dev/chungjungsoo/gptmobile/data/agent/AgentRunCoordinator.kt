@@ -1024,32 +1024,46 @@ class AgentRunCoordinator @Inject constructor(
         }
 
     private suspend fun execute(request: AgentRunRequest) = coroutineScope {
-        val eligibilityFailure = combinedEligibilityFailure(request)
-        val startedAt = currentEpochSeconds()
-        val executionStartNanos = System.nanoTime()
-        AppLogRecorder.record("Agent", "RUN_EXECUTION_STARTED · runId=${request.runId} · chatId=${request.chatId} · phase=PREPARATION · providerDispatched=unknown")
-        var assistantMessage = request.assistantMessage
-        val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId || it.combinedTurn != null || it.writerIdentity != null || it.generation?.responseSource != null }
-        var committedPrefix = request.assistantMessage.content.takeIf { request.runId.startsWith("combined-synthesis:") }.orEmpty()
-        var lastCheckpointAt = 0L
-        var firstAnswerCheckpoint = false
-        var committedForHandoff = false
-        var completedCombinedPublication = false
-        var gatewayPreflightKnownUnsent = false
-        var researchLifecycle: dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle? = null
-        var latestPublishedOutput: Pair<String, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage>? = null
-        suspend fun traceReducedOutput(message: MessageV2) {
+        RunExecution(request, this).run()
+    }
+
+    /** Keep each run's mutable publication state isolated while bounding its suspend phases. */
+    private inner class RunExecution(
+        private val request: AgentRunRequest,
+        private val executionScope: CoroutineScope
+    ) {
+        private val eligibilityFailure = combinedEligibilityFailure(request)
+        private val startedAt = currentEpochSeconds()
+        private val executionStartNanos = System.nanoTime()
+
+        init {
+            AppLogRecorder.record("Agent", "RUN_EXECUTION_STARTED · runId=${request.runId} · chatId=${request.chatId} · phase=PREPARATION · providerDispatched=unknown")
+        }
+
+        private var assistantMessage = request.assistantMessage
+        private val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId || it.combinedTurn != null || it.writerIdentity != null || it.generation?.responseSource != null }
+        private var committedPrefix = request.assistantMessage.content.takeIf { request.runId.startsWith("combined-synthesis:") }.orEmpty()
+        private var lastCheckpointAt = 0L
+        private var firstAnswerCheckpoint = false
+        private var committedForHandoff = false
+        private var completedCombinedPublication = false
+        private var gatewayPreflightKnownUnsent = false
+        private var researchLifecycle: dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle? = null
+        private var latestPublishedOutput: Pair<String, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage>? = null
+        private suspend fun traceReducedOutput(message: MessageV2) {
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                 val published = latestPublishedOutput
                 val lineage = if (published != null && message.content === published.first) published.second else dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage()
                 withContext(Dispatchers.Default) { journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, message.content, fence = message.ownershipFence, invocationId = lineage.invocationId, outputOrigin = lineage.origin) }
             }
         }
-        fun newCheckpoints() = ConflatedCheckpointWriter<MessageV2>(this, minimumIntervalMillis = 500, writeGate = checkpointWriteGate) { snapshot ->
+
+        private fun newCheckpoints() = ConflatedCheckpointWriter<MessageV2>(executionScope, minimumIntervalMillis = 500, writeGate = checkpointWriteGate) { snapshot ->
             traceReducedOutput(snapshot)
             chatRepository.updateAgentMessage(snapshot)
         }
-        suspend fun finishUnavailablePolicy(error: Throwable, status: String = AgentRunStatus.FAILED): Boolean {
+
+        private suspend fun finishUnavailablePolicy(error: Throwable, status: String = AgentRunStatus.FAILED): Boolean {
             val policyError = generateSequence(error) { it.cause }.filterIsInstance<dev.chungjungsoo.gptmobile.data.database.RunPolicySnapshotException>().firstOrNull() ?: return false
             // The usual message commit hydrates the missing policy and would fail again. The
             // raw terminal update checks current run ownership without replacing any saved text.
@@ -1061,9 +1075,10 @@ class AgentRunCoordinator @Inject constructor(
             }
             return true
         }
-        var checkpoints = newCheckpoints()
-        var providerWaitScheduling: ProviderWaitSchedulingResult? = null
-        fun retainWaitDecision(decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision?, result: ProviderWaitSchedulingResult) {
+
+        private var checkpoints = newCheckpoints()
+        private var providerWaitScheduling: ProviderWaitSchedulingResult? = null
+        private fun retainWaitDecision(decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision?, result: ProviderWaitSchedulingResult) {
             providerWaitScheduling = result
             val index = assistantMessage.timeline.indexOfLast { it.profileFailure != null }
             if (index >= 0) {
@@ -1083,7 +1098,8 @@ class AgentRunCoordinator @Inject constructor(
             }
             observeProviderWaitDecision(request, decision, result)
         }
-        suspend fun retainRecoveryFailure(failure: ProfileFailureRecord?) {
+
+        private suspend fun retainRecoveryFailure(failure: ProfileFailureRecord?) {
             try {
                 providerWaits?.recordRecoveryFailure(request, failure?.category, failure?.recoveryDetails)
             } catch (cancelled: CancellationException) {
@@ -1092,7 +1108,8 @@ class AgentRunCoordinator @Inject constructor(
                 AppLogRecorder.record("ProviderRetry", "RECOVERY_RECEIPT_PENDING · runId=${request.runId} · cause=${error.javaClass.simpleName}", "W")
             }
         }
-        fun observeClaimedProviderWait(status: String? = null) {
+
+        private fun observeClaimedProviderWait(status: String? = null) {
             val claim = request.providerWaitClaimId ?: return
             val checkpoint = request.providerGitHubCheckpoint
             val report = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
@@ -1117,7 +1134,8 @@ class AgentRunCoordinator @Inject constructor(
                 )
             }
         }
-        suspend fun pauseForProvider(decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision, stage: dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage? = null): Boolean {
+
+        private suspend fun pauseForProvider(decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision, stage: dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage? = null): Boolean {
             if (!decision.mayWait) {
                 retainWaitDecision(decision, ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.REJECTION_NOT_REPLAY_SAFE))
                 return false
@@ -1154,7 +1172,25 @@ class AgentRunCoordinator @Inject constructor(
                 waiting
             }
         }
-        try {
+
+        suspend fun run() {
+            try {
+                if (!executeRequest()) return
+            } catch (error: CancellationException) {
+                cancelRun()
+                throw error
+            } catch (error: Throwable) {
+                failRun(error)
+            } finally {
+                withContext(NonCancellable) {
+                    checkpoints.cancelAndJoin()
+                    providerWaits?.reconcileTerminalCheckpointSafely(request.runId)
+                }
+            }
+            handoffSuccessors()
+        }
+
+        private suspend fun executeRequest(): Boolean {
             // Gateway admission can fail before the chat pipeline registers this run.
             // Resolve privacy first so those failures retain the same minimal journal.
             RunDiagnostics.journal?.let { journal ->
@@ -1178,242 +1214,252 @@ class AgentRunCoordinator @Inject constructor(
                     chatRepository.finishQueuedAgentRun(request.runId, AgentRunStatus.FAILED, completedAt, eligibilityFailure)
                 }
                 if (committedForHandoff) assistantMessage = terminalAgentMessage(assistantMessage, eligibilityFailure, completedAt).withCombinedOutcome(AgentRunStatus.FAILED)
-            } else {
-                val ownsExecution = withContext(NonCancellable) {
-                    if (request.providerWaitClaimId != null) providerWaits?.startClaimed(request) == true else chatRepository.markAgentRunRunning(request.runId, startedAt)
-                }
-                if (!ownsExecution) return@coroutineScope
-                observeClaimedProviderWait()
-                val gatewayHandoff = try {
-                    gatewayChatSubmission?.submitIfSupported(request)
-                } catch (failure: dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException) {
-                    if (failure.phase == dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionPhase.PRECHECK &&
-                        failure.dispatchState == dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionDispatchState.NOT_DISPATCHED
-                    ) {
-                        gatewayPreflightKnownUnsent = try {
-                            gatewayChatSubmission?.ownsRequest(request.runId) == false
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) {
-                            false
-                        }
+                return true
+            }
+            val ownsExecution = withContext(NonCancellable) {
+                if (request.providerWaitClaimId != null) providerWaits?.startClaimed(request) == true else chatRepository.markAgentRunRunning(request.runId, startedAt)
+            }
+            if (!ownsExecution) return false
+            observeClaimedProviderWait()
+            val gatewayHandoff = try {
+                gatewayChatSubmission?.submitIfSupported(request)
+            } catch (failure: dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException) {
+                if (failure.phase == dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionPhase.PRECHECK &&
+                    failure.dispatchState == dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionDispatchState.NOT_DISPATCHED
+                ) {
+                    gatewayPreflightKnownUnsent = try {
+                        gatewayChatSubmission?.ownsRequest(request.runId) == false
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        false
                     }
-                    throw failure
                 }
-                gatewayHandoff?.let { handoff ->
-                    val transferred = withContext(NonCancellable) {
-                        chatRepository.commitAgentRun(
-                            assistantMessage,
-                            request.runId,
-                            AgentRunStatus.WAITING_REMOTE_JOB,
-                            currentEpochSeconds(),
-                            if (handoff.accepted) null else "GATEWAY_ADMISSION_UNCONFIRMED"
-                        )
-                    }
-                    if (transferred) {
-                        _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, handoff.message, true))
-                        try {
-                            gatewayChatSubmission?.refresh(request.chatId)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) {
-                            // The server owns execution; losing this observer retains the handoff.
-                        }
-                    }
-                    return@coroutineScope
-                }
-                val recovered = recoveredCombinedAnswer(request)
-                val response = if (recovered != null) {
-                    kotlinx.coroutines.flow.flowOf(dev.chungjungsoo.gptmobile.data.dto.ApiState.Success(recovered), dev.chungjungsoo.gptmobile.data.dto.ApiState.Done)
-                } else {
-                    chatRepository.completeChat(
-                        request.userMessages,
-                        request.assistantMessages,
-                        request.platform,
+                throw failure
+            }
+            gatewayHandoff?.let { handoff ->
+                val transferred = withContext(NonCancellable) {
+                    chatRepository.commitAgentRun(
+                        assistantMessage,
                         request.runId,
-                        request.chatToolConfig,
-                        request.stage
+                        AgentRunStatus.WAITING_REMOTE_JOB,
+                        currentEpochSeconds(),
+                        if (handoff.accepted) null else "GATEWAY_ADMISSION_UNCONFIRMED"
                     )
                 }
-                val outcome = response.flowOn(researchLifecycle ?: kotlin.coroutines.EmptyCoroutineContext).collectApiStateUpdates(
-                    restoredTimeline = request.assistantMessage.timeline,
-                    diagnosticRunId = request.runId,
-                    diagnosticProvider = request.platform.compatibleType.name,
-                    onOutputPublication = { content, lineage, first ->
-                        if (content.isNotEmpty()) {
-                            latestPublishedOutput = content to lineage
-                        }
-                        val elapsed = ((System.nanoTime() - executionStartNanos) / 1_000_000).coerceAtLeast(0)
-                        if (first.isNotEmpty()) {
-                            withContext(Dispatchers.Default) {
-                                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
-                                    if (content.isNotEmpty()) journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, content, fence = assistantMessage.ownershipFence, invocationId = lineage.invocationId, outputOrigin = lineage.origin)
-                                    first.forEach { publication ->
-                                        journal.record(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.valueOf(publication.kind.name), invocationId = publication.lineage.invocationId, fence = assistantMessage.ownershipFence, elapsedMillis = elapsed, outputOrigin = publication.lineage.origin)
-                                    }
+                if (transferred) {
+                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, handoff.message, true))
+                    try {
+                        gatewayChatSubmission?.refresh(request.chatId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // The server owns execution; losing this observer retains the handoff.
+                    }
+                }
+                return false
+            }
+            return finishResponse(collectResponse())
+        }
+
+        private suspend fun collectResponse(): ApiStateFlowOutcome {
+            val recovered = recoveredCombinedAnswer(request)
+            val response = if (recovered != null) {
+                kotlinx.coroutines.flow.flowOf(dev.chungjungsoo.gptmobile.data.dto.ApiState.Success(recovered), dev.chungjungsoo.gptmobile.data.dto.ApiState.Done)
+            } else {
+                chatRepository.completeChat(
+                    request.userMessages,
+                    request.assistantMessages,
+                    request.platform,
+                    request.runId,
+                    request.chatToolConfig,
+                    request.stage
+                )
+            }
+            return response.flowOn(researchLifecycle ?: kotlin.coroutines.EmptyCoroutineContext).collectApiStateUpdates(
+                restoredTimeline = request.assistantMessage.timeline,
+                diagnosticRunId = request.runId,
+                diagnosticProvider = request.platform.compatibleType.name,
+                onOutputPublication = { content, lineage, first ->
+                    if (content.isNotEmpty()) {
+                        latestPublishedOutput = content to lineage
+                    }
+                    val elapsed = ((System.nanoTime() - executionStartNanos) / 1_000_000).coerceAtLeast(0)
+                    if (first.isNotEmpty()) {
+                        withContext(Dispatchers.Default) {
+                            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
+                                if (content.isNotEmpty()) journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, content, fence = assistantMessage.ownershipFence, invocationId = lineage.invocationId, outputOrigin = lineage.origin)
+                                first.forEach { publication ->
+                                    journal.record(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.valueOf(publication.kind.name), invocationId = publication.lineage.invocationId, fence = assistantMessage.ownershipFence, elapsedMillis = elapsed, outputOrigin = publication.lineage.origin)
                                 }
                             }
                         }
-                        first.forEach { publication ->
-                            AppLogRecorder.record("Agent", "RUN_${publication.kind.name} · runId=${request.runId} · elapsedMs=$elapsed · visibleCharacters=${publication.characters} · outputOrigin=${publication.lineage.origin} · invocationId=${publication.lineage.invocationId ?: "not_recorded"} · timingKind=${publication.kind.name} · observedBoundary=REDUCER_PUBLICATION · measuredDraw=false")
-                        }
-                    },
-                    onUpdate = { content, thoughts, timeline ->
-                        val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
-                        require(retained.startsWith(committedPrefix)) { "A resumed Combined stream attempted to replace its committed prefix." }
-                        assistantMessage = assistantMessage.copy(
-                            content = retained,
-                            thoughts = thoughts,
-                            timeline = recoveryMarkers + timeline
-                        )
-                        _streamMessages.update { current ->
-                            val owner = current[assistantMessage.id]
-                            if (owner != null && owner.ownershipFence > assistantMessage.ownershipFence) current else current + (assistantMessage.id to assistantMessage)
-                        }
-                        val now = SystemClock.elapsedRealtime()
-                        val firstAnswer = !firstAnswerCheckpoint && dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(retained)
-                        if (firstAnswer || now - lastCheckpointAt >= 500L) {
-                            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REDUCER_CHECKPOINT, fence = assistantMessage.ownershipFence, visibleBytes = content.toByteArray(Charsets.UTF_8).size.toLong(), reasoningBytes = thoughts.toByteArray(Charsets.UTF_8).size.toLong())
-                            checkpoints.offer(assistantMessage)
-                            firstAnswerCheckpoint = firstAnswerCheckpoint || firstAnswer
-                            lastCheckpointAt = now
-                        }
-                    },
-                    onNotice = { notice, persistent ->
-                        CombinedDeliveryPhase.entries.firstOrNull { it.label == notice }?.let { stage ->
-                            _activeRuns.update { runs -> runs[request.runId]?.let { runs + (request.runId to it.copy(combinedStage = stage)) } ?: runs }
-                        }
-                        _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, persistent))
-                    },
-                    onResearchReplacement = { digest, text ->
+                    }
+                    first.forEach { publication ->
+                        AppLogRecorder.record("Agent", "RUN_${publication.kind.name} · runId=${request.runId} · elapsedMs=$elapsed · visibleCharacters=${publication.characters} · outputOrigin=${publication.lineage.origin} · invocationId=${publication.lineage.invocationId ?: "not_recorded"} · timingKind=${publication.kind.name} · observedBoundary=REDUCER_PUBLICATION · measuredDraw=false")
+                    }
+                },
+                onUpdate = { content, thoughts, timeline ->
+                    val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
+                    require(retained.startsWith(committedPrefix)) { "A resumed Combined stream attempted to replace its committed prefix." }
+                    assistantMessage = assistantMessage.copy(
+                        content = retained,
+                        thoughts = thoughts,
+                        timeline = recoveryMarkers + timeline
+                    )
+                    _streamMessages.update { current ->
+                        val owner = current[assistantMessage.id]
+                        if (owner != null && owner.ownershipFence > assistantMessage.ownershipFence) current else current + (assistantMessage.id to assistantMessage)
+                    }
+                    val now = SystemClock.elapsedRealtime()
+                    val firstAnswer = !firstAnswerCheckpoint && dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(retained)
+                    if (firstAnswer || now - lastCheckpointAt >= 500L) {
+                        dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REDUCER_CHECKPOINT, fence = assistantMessage.ownershipFence, visibleBytes = content.toByteArray(Charsets.UTF_8).size.toLong(), reasoningBytes = thoughts.toByteArray(Charsets.UTF_8).size.toLong())
                         checkpoints.offer(assistantMessage)
-                        checkpoints.drain()
-                        val replaced = withContext(NonCancellable) { chatRepository.replaceResearchDraft(request.runId, assistantMessage.ownershipFence, digest, text) }
-                        checkpoints = newCheckpoints()
-                        if (replaced != null) {
-                            assistantMessage = replaced
-                            _streamMessages.update { it + (replaced.id to replaced) }
-                        }
-                        replaced != null
-                    },
-                    onCombinedReplacement = { candidate ->
-                        checkpoints.offer(assistantMessage)
-                        checkpoints.drain()
-                        val replaced = withContext(NonCancellable) {
-                            chatRepository.replaceCombinedAnswer(request.runId, assistantMessage.ownershipFence, candidate)
-                        }
-                        checkpoints = newCheckpoints()
-                        if (replaced != null) {
-                            assistantMessage = replaced
-                            committedPrefix = replaced.content
-                            _streamMessages.update { it + (replaced.id to replaced) }
-                        }
-                        replaced != null
-                    },
-                    onCombinedAnswer = { content, thoughts, timeline ->
-                        require(content.startsWith(committedPrefix)) { "A final Combined bundle attempted to replace its committed prefix." }
-                        // Drain drafts before the final transaction so an older conflated
-                        // checkpoint cannot subsequently overwrite the attribution bundle.
-                        checkpoints.drain()
-                        val bundled = assistantMessage.copy(content = content, thoughts = thoughts, timeline = recoveryMarkers + timeline)
-                        val report = timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
-                        val checkedFinal = report?.let { it.finalAssessment && it.complete && it.protocolComplete && !it.correctionRequired && it.semanticCoverageVerified } == true
-                        // The writer is already terminal and all checks have finished. Commit
-                        // the checked body and COMPLETED status together before making it visible.
-                        val publicationTime = currentEpochSeconds()
-                        val publication = if (checkedFinal) terminalAgentMessage(bundled, null, publicationTime).withCombinedOutcome(AgentRunStatus.COMPLETED) else bundled
-                        val contributors = publication.combinedSources.mapTo(hashSetOf()) { it.platformUid }
-                        require(report?.passages.orEmpty().all { contributors.containsAll(it.profileUids) && it.links.all { link -> contributors.containsAll(link.profileUids) } }) { "COMBINED_FINAL_CONTRIBUTOR_REFERENCE_MISSING" }
-                        val committed = withContext(NonCancellable) {
-                            if (checkedFinal) {
-                                chatRepository.commitAgentRun(publication, request.runId, AgentRunStatus.COMPLETED, publicationTime, null)
-                            } else {
-                                chatRepository.checkpointCombinedAnswer(bundled)
-                            }
-                        }
-                        if (committed && checkedFinal) completedCombinedPublication = true
-                        checkpoints = newCheckpoints()
-                        if (committed) {
-                            assistantMessage = publication
-                            firstAnswerCheckpoint = true
-                            lastCheckpointAt = SystemClock.elapsedRealtime()
-                        }
-                        committed
-                    },
-                    onPhaseChanged = { phase ->
-                        _activeRuns.update { runs ->
-                            val current = runs[request.runId]
-                            if (current != null) {
-                                runs + (request.runId to current.copy(phase = phase))
-                            } else {
-                                runs
-                            }
-                        }
-                    },
-                    onNativeProgress = { progress ->
-                        _activeRuns.update { runs ->
-                            val current = runs[request.runId]
-                            if (current == null) runs else runs + (request.runId to current.copy(nativeProgress = progress))
-                        }
-                    },
-                    onGatewayProgress = { progress ->
-                        updateGatewayProgress(request.runId, progress)
-                    },
-                    publishIntervalMillis = publishIntervalMillis
-                )
-                val failedOutcome = outcome as? ApiStateFlowOutcome.Failed
-                val limit = failedOutcome?.providerLimit
-                if (limit != null && pauseForProvider(limit)) return@coroutineScope
-                if (limit == null && failedOutcome != null && providerWaitDecisionRequired(failedOutcome.errorCode, assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure)) {
-                    retainWaitDecision(null, ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE))
-                }
-                checkpoints.drain()
-                request.providerWaitAuthority?.validate(settingRepository)
-                AppLogRecorder.record("Streaming", "CHECKPOINT_WRITER · queueAgeMs=${checkpoints.lastQueueAgeMillis} · writeMs=${checkpoints.lastWriteMillis}")
-                val terminal = outcome.toTerminalUpdate().let { update ->
-                    if (limit?.mayWait == true) {
-                        AgentRunTerminalUpdate(AgentRunStatus.BLOCKED, "PROVIDER_WAIT_REVIEW_REQUIRED: Saved work needs review before it can resume.")
-                    } else if (update.status == AgentRunStatus.FAILED && assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.isUnsentSetup == true) {
-                        update.copy(status = AgentRunStatus.BLOCKED)
-                    } else {
-                        update
+                        firstAnswerCheckpoint = firstAnswerCheckpoint || firstAnswer
+                        lastCheckpointAt = now
                     }
-                }
-                retainRecoveryFailure(assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure)
-                if (terminal.status == AgentRunStatus.FAILED && assistantMessage.content.isBlank()) {
-                    val fallback = chatRepository.publishCombinedRetainedFallback(request.runId, terminal.error.orEmpty())
-                    if (fallback != null) {
-                        assistantMessage = fallback
-                        _streamMessages.update { it + (fallback.id to fallback) }
-                        committedForHandoff = true
-                        return@coroutineScope
+                },
+                onNotice = { notice, persistent ->
+                    CombinedDeliveryPhase.entries.firstOrNull { it.label == notice }?.let { stage ->
+                        _activeRuns.update { runs -> runs[request.runId]?.let { runs + (request.runId to it.copy(combinedStage = stage)) } ?: runs }
                     }
-                }
-                val completedAt = currentEpochSeconds()
-                val waitingRemote = terminal.status == AgentRunStatus.WAITING_REMOTE_JOB
-                val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error.takeUnless { waitingRemote }, completedAt).withCombinedOutcome(terminal.status)
-                val committed = withContext(NonCancellable) {
-                    traceReducedOutput(terminalMessage)
-                    if (completedCombinedPublication && terminal.status == AgentRunStatus.COMPLETED) {
-                        true
-                    } else {
-                        chatRepository.commitAgentRun(terminalMessage, request.runId, terminal.status, completedAt, terminal.error)
+                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, persistent))
+                },
+                onResearchReplacement = { digest, text ->
+                    checkpoints.offer(assistantMessage)
+                    checkpoints.drain()
+                    val replaced = withContext(NonCancellable) { chatRepository.replaceResearchDraft(request.runId, assistantMessage.ownershipFence, digest, text) }
+                    checkpoints = newCheckpoints()
+                    if (replaced != null) {
+                        assistantMessage = replaced
+                        _streamMessages.update { it + (replaced.id to replaced) }
                     }
-                }
-                if (committed && waitingRemote) {
-                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "The remote job is still waiting. Its job ID and any answer are saved; check its status or continue without this profile.", true))
-                    return@coroutineScope
-                }
-                committedForHandoff = committed
-                if (committed) {
-                    observeClaimedProviderWait(terminal.status)
-                    settleResearchOutcome(request, researchLifecycle, terminalMessage, terminal.status, terminal.error)
-                }
-                if (committed && terminal.status == AgentRunStatus.COMPLETED && terminalMessage.id > 0) {
-                    completionStore.record(request.runId, request.chatId, terminalMessage.id, completedAt)
+                    replaced != null
+                },
+                onCombinedReplacement = { candidate ->
+                    checkpoints.offer(assistantMessage)
+                    checkpoints.drain()
+                    val replaced = withContext(NonCancellable) {
+                        chatRepository.replaceCombinedAnswer(request.runId, assistantMessage.ownershipFence, candidate)
+                    }
+                    checkpoints = newCheckpoints()
+                    if (replaced != null) {
+                        assistantMessage = replaced
+                        committedPrefix = replaced.content
+                        _streamMessages.update { it + (replaced.id to replaced) }
+                    }
+                    replaced != null
+                },
+                onCombinedAnswer = { content, thoughts, timeline ->
+                    require(content.startsWith(committedPrefix)) { "A final Combined bundle attempted to replace its committed prefix." }
+                    // Drain drafts before the final transaction so an older conflated
+                    // checkpoint cannot subsequently overwrite the attribution bundle.
+                    checkpoints.drain()
+                    val bundled = assistantMessage.copy(content = content, thoughts = thoughts, timeline = recoveryMarkers + timeline)
+                    val report = timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
+                    val checkedFinal = report?.let { it.finalAssessment && it.complete && it.protocolComplete && !it.correctionRequired && it.semanticCoverageVerified } == true
+                    // The writer is already terminal and all checks have finished. Commit
+                    // the checked body and COMPLETED status together before making it visible.
+                    val publicationTime = currentEpochSeconds()
+                    val publication = if (checkedFinal) terminalAgentMessage(bundled, null, publicationTime).withCombinedOutcome(AgentRunStatus.COMPLETED) else bundled
+                    val contributors = publication.combinedSources.mapTo(hashSetOf()) { it.platformUid }
+                    require(report?.passages.orEmpty().all { contributors.containsAll(it.profileUids) && it.links.all { link -> contributors.containsAll(link.profileUids) } }) { "COMBINED_FINAL_CONTRIBUTOR_REFERENCE_MISSING" }
+                    val committed = withContext(NonCancellable) {
+                        if (checkedFinal) {
+                            chatRepository.commitAgentRun(publication, request.runId, AgentRunStatus.COMPLETED, publicationTime, null)
+                        } else {
+                            chatRepository.checkpointCombinedAnswer(bundled)
+                        }
+                    }
+                    if (committed && checkedFinal) completedCombinedPublication = true
+                    checkpoints = newCheckpoints()
+                    if (committed) {
+                        assistantMessage = publication
+                        firstAnswerCheckpoint = true
+                        lastCheckpointAt = SystemClock.elapsedRealtime()
+                    }
+                    committed
+                },
+                onPhaseChanged = { phase ->
+                    _activeRuns.update { runs ->
+                        val current = runs[request.runId]
+                        if (current != null) {
+                            runs + (request.runId to current.copy(phase = phase))
+                        } else {
+                            runs
+                        }
+                    }
+                },
+                onNativeProgress = { progress ->
+                    _activeRuns.update { runs ->
+                        val current = runs[request.runId]
+                        if (current == null) runs else runs + (request.runId to current.copy(nativeProgress = progress))
+                    }
+                },
+                onGatewayProgress = { progress ->
+                    updateGatewayProgress(request.runId, progress)
+                },
+                publishIntervalMillis = publishIntervalMillis
+            )
+        }
+
+        private suspend fun finishResponse(outcome: ApiStateFlowOutcome): Boolean {
+            val failedOutcome = outcome as? ApiStateFlowOutcome.Failed
+            val limit = failedOutcome?.providerLimit
+            if (limit != null && pauseForProvider(limit)) return false
+            if (limit == null && failedOutcome != null && providerWaitDecisionRequired(failedOutcome.errorCode, assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure)) {
+                retainWaitDecision(null, ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE))
+            }
+            checkpoints.drain()
+            request.providerWaitAuthority?.validate(settingRepository)
+            AppLogRecorder.record("Streaming", "CHECKPOINT_WRITER · queueAgeMs=${checkpoints.lastQueueAgeMillis} · writeMs=${checkpoints.lastWriteMillis}")
+            val terminal = outcome.toTerminalUpdate().let { update ->
+                if (limit?.mayWait == true) {
+                    AgentRunTerminalUpdate(AgentRunStatus.BLOCKED, "PROVIDER_WAIT_REVIEW_REQUIRED: Saved work needs review before it can resume.")
+                } else if (update.status == AgentRunStatus.FAILED && assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.isUnsentSetup == true) {
+                    update.copy(status = AgentRunStatus.BLOCKED)
+                } else {
+                    update
                 }
             }
-        } catch (error: CancellationException) {
+            retainRecoveryFailure(assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure)
+            if (terminal.status == AgentRunStatus.FAILED && assistantMessage.content.isBlank()) {
+                val fallback = chatRepository.publishCombinedRetainedFallback(request.runId, terminal.error.orEmpty())
+                if (fallback != null) {
+                    assistantMessage = fallback
+                    _streamMessages.update { it + (fallback.id to fallback) }
+                    committedForHandoff = true
+                    return false
+                }
+            }
+            val completedAt = currentEpochSeconds()
+            val waitingRemote = terminal.status == AgentRunStatus.WAITING_REMOTE_JOB
+            val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error.takeUnless { waitingRemote }, completedAt).withCombinedOutcome(terminal.status)
+            val committed = withContext(NonCancellable) {
+                traceReducedOutput(terminalMessage)
+                if (completedCombinedPublication && terminal.status == AgentRunStatus.COMPLETED) {
+                    true
+                } else {
+                    chatRepository.commitAgentRun(terminalMessage, request.runId, terminal.status, completedAt, terminal.error)
+                }
+            }
+            if (committed && waitingRemote) {
+                _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "The remote job is still waiting. Its job ID and any answer are saved; check its status or continue without this profile.", true))
+                return false
+            }
+            committedForHandoff = committed
+            if (committed) {
+                observeClaimedProviderWait(terminal.status)
+                settleResearchOutcome(request, researchLifecycle, terminalMessage, terminal.status, terminal.error)
+            }
+            if (committed && terminal.status == AgentRunStatus.COMPLETED && terminalMessage.id > 0) {
+                completionStore.record(request.runId, request.chatId, terminalMessage.id, completedAt)
+            }
+            return true
+        }
+
+        private suspend fun cancelRun() {
             withContext(NonCancellable) {
                 checkpoints.cancelAndJoin()
                 val completedAt = currentEpochSeconds()
@@ -1442,8 +1488,9 @@ class AgentRunCoordinator @Inject constructor(
                     if (committed) settleResearchOutcome(request, researchLifecycle, cancelledMessage, if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED, cancellationReason)
                 }.onFailure { failure -> finishUnavailablePolicy(failure, if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED) }
             }
-            throw error
-        } catch (error: Throwable) {
+        }
+
+        private suspend fun failRun(error: Throwable) {
             withContext(NonCancellable) {
                 var terminalFailure = error
                 val deferredStage = (error as? dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred)?.checkpoint
@@ -1512,47 +1559,45 @@ class AgentRunCoordinator @Inject constructor(
                     if (committed && revokedWait) _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Saved work needs review before it can resume. Its evidence and answer are retained.", true))
                 }.onFailure { failure -> finishUnavailablePolicy(failure) }
             }
-        } finally {
-            withContext(NonCancellable) {
-                checkpoints.cancelAndJoin()
-                providerWaits?.reconcileTerminalCheckpointSafely(request.runId)
-            }
         }
-        if (committedForHandoff && request.chatToolConfig?.combined?.role?.finalization == true) {
-            try {
-                withChatGate(request.chatId) {
-                    synthesisPlanner?.prepareFallback(request.chatId, request.runId)?.let { next -> startUnlocked(listOf(next)) }
+
+        private suspend fun handoffSuccessors() {
+            if (committedForHandoff && request.chatToolConfig?.combined?.role?.finalization == true) {
+                try {
+                    withChatGate(request.chatId) {
+                        synthesisPlanner?.prepareFallback(request.chatId, request.runId)?.let { next -> startUnlocked(listOf(next)) }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    AppLogRecorder.record("Combined", "SUCCESSOR_NOT_STARTED · run=${request.runId} · reason=${failure.javaClass.simpleName}", "W")
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                AppLogRecorder.record("Combined", "SUCCESSOR_NOT_STARTED · run=${request.runId} · reason=${failure.javaClass.simpleName}", "W")
             }
-        }
-        if (committedForHandoff && request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) {
-            val combined = requireNotNull(request.chatToolConfig.combined)
-            val userId = request.userMessages.lastOrNull()?.id ?: return@coroutineScope
-            try {
-                // Keep the final contributor registered and its foreground service alive through
-                // durable synthesis preparation. Publish the new writer before releasing this one.
-                withChatGate(request.chatId) {
-                    synthesisPlanner?.prepare(request.chatId, userId, combined.rootBudgetId, "CONTRIBUTORS_TERMINAL")?.let { next ->
-                        withContext(NonCancellable) {
-                            if (chatRepository.isCombinedTurnCancelled(combined.rootBudgetId)) {
-                                chatRepository.finishActiveAgentRun(next.runId, AgentRunStatus.CANCELED, currentEpochSeconds(), null)
-                            } else {
-                                startUnlocked(listOf(next))
+            if (committedForHandoff && request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) {
+                val combined = requireNotNull(request.chatToolConfig.combined)
+                val userId = request.userMessages.lastOrNull()?.id ?: return
+                try {
+                    // Keep the final contributor registered and its foreground service alive through
+                    // durable synthesis preparation. Publish the new writer before releasing this one.
+                    withChatGate(request.chatId) {
+                        synthesisPlanner?.prepare(request.chatId, userId, combined.rootBudgetId, "CONTRIBUTORS_TERMINAL")?.let { next ->
+                            withContext(NonCancellable) {
+                                if (chatRepository.isCombinedTurnCancelled(combined.rootBudgetId)) {
+                                    chatRepository.finishActiveAgentRun(next.runId, AgentRunStatus.CANCELED, currentEpochSeconds(), null)
+                                } else {
+                                    startUnlocked(listOf(next))
+                                }
                             }
                         }
+                        settleResearchOutcome(request, researchLifecycle, assistantMessage, AgentRunStatus.FAILED, "FINAL_DELIVERY_NOT_STARTED", contributorsExhausted = true)
                     }
-                    settleResearchOutcome(request, researchLifecycle, assistantMessage, AgentRunStatus.FAILED, "FINAL_DELIVERY_NOT_STARTED", contributorsExhausted = true)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    chatRepository.markCombinedMergeUnavailable(request.chatId, userId, combined.rootBudgetId)
+                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "The Combined handoff could not finish. Saved contributions remain available for explicit retry.", true))
+                    AppLogRecorder.record("Combined", "HANDOFF_FAILED · root=${combined.rootBudgetId} · reason=${failure.javaClass.simpleName}", "W")
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                chatRepository.markCombinedMergeUnavailable(request.chatId, userId, combined.rootBudgetId)
-                _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "The Combined handoff could not finish. Saved contributions remain available for explicit retry.", true))
-                AppLogRecorder.record("Combined", "HANDOFF_FAILED · root=${combined.rootBudgetId} · reason=${failure.javaClass.simpleName}", "W")
             }
         }
     }

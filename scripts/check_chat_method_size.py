@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure packaged chat/voice DEX definitions against ART's fixed code-unit limit.
+"""Measure packaged chat/voice/coordinator DEX against ART's fixed code-unit limit.
 
 Like check_research_dispatch_size.py, read code_item.insns_size, which counts
 16-bit code units including instruction payloads, not decoded opcodes. ART warns
@@ -30,8 +30,13 @@ GATEWAY_RECOVERY_METHODS = (
 
 
 def measured_method(owner, method):
-    if owner.startswith((CHAT, VOICE)):
-        return True
+    # Capture every execution phase and generated continuation, even when a
+    # refactor renames it. The original oversized execute body was outside the
+    # narrower Gateway-recovery allowlist.
+    return owner.startswith((CHAT, VOICE, GATEWAY_COORDINATOR))
+
+
+def gateway_recovery_method(owner, method):
     return owner.startswith(GATEWAY_COORDINATOR) and any(
         name in method or ('$' + name + '$') in owner
         for name in GATEWAY_RECOVERY_METHODS
@@ -209,7 +214,7 @@ def inspect_apk(apk):
     return rows, dex_names
 
 
-def report_apk(apk, source_commit=None, require_gateway_recovery=False):
+def report_apk(apk, source_commit=None, require_gateway_recovery=False, require_agent_execution=False):
     report = {
         'schema_version': 1, 'apk': apk.name, 'status': 'ERROR',
         'source_commit': source_commit,
@@ -217,7 +222,7 @@ def report_apk(apk, source_commit=None, require_gateway_recovery=False):
         'exclusive_max_code_units': ART_CODE_UNIT_LIMIT,
         'art_warning_condition': 'code_item.insns_size >= UINT16_MAX / 4',
         'measurement': '16-bit DEX code units, including variable-width instructions and payloads',
-        'scope': ['chat UI and generated classes', 'voice UI and generated classes', 'Gateway recovery methods and coroutine classes'],
+        'scope': ['chat UI and generated classes', 'voice UI and generated classes', 'Agent coordinator, execution, Gateway recovery and generated classes'],
         'limitation': 'Static packaged size; not evidence of device ART compilation or frame-time performance',
     }
     try:
@@ -235,12 +240,19 @@ def report_apk(apk, source_commit=None, require_gateway_recovery=False):
         oversized = [row for row in rows if row['code_units'] >= ART_CODE_UNIT_LIMIT]
         errors = [f'Expected one actual {name} definition, found {len(found)}; wrappers are insufficient'
                   for name, found in primary.items() if len(found) != 1]
-        gateway_recovery = [row for row in rows if row['class'].startswith(GATEWAY_COORDINATOR)]
+        coordinator = [row for row in rows if row['class'].startswith(GATEWAY_COORDINATOR)]
+        gateway_recovery = [row for row in coordinator if gateway_recovery_method(row['class'], row['method'])]
         if require_gateway_recovery and not any(
             row['class'] == GATEWAY_COORDINATOR + ';' and row['method'] == 'recoverInterruptedGatewayRuns'
             for row in gateway_recovery
         ):
             errors.append('Missing actual Gateway recovery entry point; wrappers are insufficient')
+        if require_agent_execution and not any(
+            row['class'] == GATEWAY_COORDINATOR + ';' and row['method'] == 'execute'
+            for row in coordinator
+        ):
+            errors.append('Missing actual Agent execution entry point; wrappers are insufficient')
+        report['agent_coordinator_methods'] = coordinator
         report['gateway_recovery_methods'] = gateway_recovery
         report.update({
             'dex_files': dex_names, 'method_count': len(rows),
@@ -259,8 +271,9 @@ def main(argv=None):
     arguments.add_argument('--report', type=Path, required=True)
     arguments.add_argument('--source-commit', default=os.environ.get('GITHUB_SHA'))
     arguments.add_argument('--require-gateway-recovery', action='store_true')
+    arguments.add_argument('--require-agent-execution', action='store_true')
     args = arguments.parse_args(argv)
-    report = report_apk(args.apk, args.source_commit, args.require_gateway_recovery)
+    report = report_apk(args.apk, args.source_commit, args.require_gateway_recovery, args.require_agent_execution)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps({key: report.get(key) for key in (

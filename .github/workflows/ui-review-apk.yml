@@ -73,7 +73,7 @@ jobs:
         shell: bash
         run: |
           for apk in app/build/outputs/apk/debug/*.apk; do
-            python3 scripts/check_chat_method_size.py "$apk" --require-gateway-recovery --source-commit "$GITHUB_SHA" --report "build/reports/chat-method-size/${apk##*/}.json"
+            python3 scripts/check_chat_method_size.py "$apk" --require-gateway-recovery --require-agent-execution --source-commit "$GITHUB_SHA" --report "build/reports/chat-method-size/${apk##*/}.json"
           done
       - name: Retain packaged chat and voice method sizes
         if: always()

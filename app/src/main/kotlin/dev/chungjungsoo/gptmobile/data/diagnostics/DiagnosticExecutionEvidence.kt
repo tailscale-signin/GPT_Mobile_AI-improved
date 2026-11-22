@@ -8,7 +8,7 @@ import kotlinx.serialization.json.contentOrNull
 private val missingDiagnosticValues = setOf("", "unknown", "null", "none", "not_recorded", "not_reported", "not reported", "not measured", "unavailable")
 private val diagnosticIdentifier = Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
 private val modelInvocationLabel = Regex("^(?:Request|Configured|Segment|Finished|Failed) ([A-Za-z0-9][A-Za-z0-9_.-]{0,127})(?:[ :]|$)")
-private val githubFailureCode = Regex("\\b(GITHUB_[A-Z0-9_]{2,80})\\b")
+private val githubFailureCode = Regex("(?:^| · )(GITHUB_[A-Z0-9_]{2,80})(?= · |$)")
 private val legacyToolName = Regex("^Started ([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})(?: ·|$)")
 private val legacyToolRun = Regex("(?:^| · )run ([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})(?: ·|$)")
 private val legacyToolCall = Regex("(?:^| · )call ([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})(?: ·|$)")
@@ -47,7 +47,7 @@ internal fun diagnosticExecutionEvidence(fields: JsonObject, eventName: String, 
         ?: receipt?.diagnosticText("reasonCode")
         // Older GitHub tool failures placed the stable error code between fields,
         // which made it part of truncatedAtSource instead of a field of its own.
-        ?: githubFailureCode.find(eventMessage)?.groupValues?.get(1)
+        ?: legacyGitHubFailureCode(fields, eventName, eventMessage)
     return DiagnosticExecutionEvidence(
         errorCode = code,
         stage = fields.diagnosticText("failedStage") ?: fields.diagnosticText("failed_stage") ?: fields.diagnosticText("stage")
@@ -55,6 +55,38 @@ internal fun diagnosticExecutionEvidence(fields: JsonObject, eventName: String, 
         state = state ?: "NOT_DISPATCHED".takeIf { dispatched == false },
         dispatched = dispatched
     )
+}
+
+/** A returned issue title or nested receipt is data, not this operation's failure. */
+private fun legacyGitHubFailureCode(fields: JsonObject, eventName: String, message: String): String? {
+    if (listOf("errorCode", "error_code", "failureCode").any(fields::containsKey)) return null
+    val failed = eventName in setOf("Request failed", "FAILED", "INVOCATION_FAILED") ||
+        fields["error"] == JsonPrimitive(true) || fields.diagnosticText("status") == "FAILED"
+    if (!failed) return null
+    val candidates = githubFailureCode.findAll(message).associateBy { requireNotNull(it.groups[1]).range.first }
+    if (candidates.isEmpty()) return null
+    var depth = 0
+    var quoted = false
+    var escaped = false
+    message.forEachIndexed { index, character ->
+        if (!quoted && depth == 0) candidates[index]?.let { return it.groupValues[1] }
+        if (quoted) {
+            if (escaped) {
+                escaped = false
+            } else if (character == '\\') {
+                escaped = true
+            } else if (character == '"') {
+                quoted = false
+            }
+        } else {
+            when (character) {
+                '"' -> quoted = true
+                '{', '[' -> depth++
+                '}', ']' -> depth = (depth - 1).coerceAtLeast(0)
+            }
+        }
+    }
+    return null
 }
 
 internal data class DiagnosticCorrelation(val runId: String?, val invocationId: String?)

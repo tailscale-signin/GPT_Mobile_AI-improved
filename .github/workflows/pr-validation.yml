@@ -248,7 +248,7 @@ jobs:
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
           python3 scripts/check_apk_size.py app/build/outputs/apk/debug --build-type debug --report apk-size-report.json
           for apk in app/build/outputs/apk/debug/*.apk; do
-            python3 scripts/check_chat_method_size.py "$apk" --require-gateway-recovery --source-commit "$GITHUB_SHA" --report "build/reports/chat-method-size/${apk##*/}.json"
+            python3 scripts/check_chat_method_size.py "$apk" --require-gateway-recovery --require-agent-execution --source-commit "$GITHUB_SHA" --report "build/reports/chat-method-size/${apk##*/}.json"
             python3 scripts/check_research_dispatch_size.py "$apk"
           done
 

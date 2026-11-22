@@ -1,17 +1,70 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation
+import dev.chungjungsoo.gptmobile.data.network.PrivateMetadataDenied
 import java.io.EOFException
+import java.io.IOException
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpReadRecoveryTest {
+    @Test fun wrappedReadFailureRemainsObservedWhenItsRetryIsBlockedLocally() = runTest {
+        val observation = MetadataResponseObservation()
+        val first = IllegalStateException("SDK wrapper", EOFException("response interrupted"))
+        val denied = PrivateMetadataDenied()
+        var attempts = 0
+        val observed = withContext(observation) {
+            runCatching {
+                withMcpReadRecovery("tools/list", pause = {}) {
+                    throw if (++attempts == 1) first else denied
+                }
+            }.exceptionOrNull()
+        }
+        assertSame(denied, observed)
+        assertSame(first, denied.suppressed.single())
+        assertEquals(2, attempts)
+        assertTrue(observation.hasInterruptedRead)
+        assertNull(observation.observedAtEpochMs)
+    }
+
+    @Test fun localDenialsDisconnectedSdkStateAndCancellationDoNotInventInterruptedReads() = runTest {
+        for (failure in listOf(PrivateMetadataDenied(), IOException("SDK wrapper", PrivateMetadataDenied()), IllegalStateException("Not connected"), CancellationException("owner cancelled"))) {
+            val observation = MetadataResponseObservation()
+            withContext(observation) {
+                runCatching { withMcpReadRecovery("tools/list", pause = {}) { throw failure } }
+            }
+            assertFalse(observation.hasInterruptedRead)
+            assertNull(observation.observedAtEpochMs)
+        }
+    }
+
+    @Test fun anInterruptedLaterReadCannotEraseAnEarlierResponseObservation() = runTest {
+        val observation = MetadataResponseObservation()
+        observation.responded()
+        val responseAt = observation.observedAtEpochMs
+        var attempts = 0
+        withContext(observation) {
+            runCatching {
+                withMcpReadRecovery("tools/list", pause = {}) {
+                    throw if (++attempts == 1) EOFException("response interrupted") else PrivateMetadataDenied()
+                }
+            }
+        }
+        assertTrue(observation.hasInterruptedRead)
+        assertEquals(responseAt, observation.observedAtEpochMs)
+    }
+
     @Test fun aFailedSafeReadRetryRetainsItsOriginalTransportEvidence() = runTest {
         val first = UnknownHostException("first attempt")
         val second = EOFException("second attempt")

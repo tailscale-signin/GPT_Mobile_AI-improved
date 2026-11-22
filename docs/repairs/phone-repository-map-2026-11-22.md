@@ -101,3 +101,33 @@ Privacy UI coverage retains the selected source and last matching map. If an
 older Gateway index remains unconfirmed, the interface asks for Privacy Mode
 review followed by a saved-status refresh and retains the existing indexing fence.
 The new rendered UI cases still require the hosted Android suite.
+
+## Hosted integration repairs
+
+The hosted Android run on `b8ac69dc` passed production and test compilation, then
+ran 12,684 tests with three failures and five skips. The map source-link fixture
+incorrectly constructed a context with an unresolved branch name. It now checks
+constructor rejection directly and tests path traversal with a valid immutable
+context. The real-context host suite reproduced the old failure and passes all
+15 corrected cases.
+
+The diagnostic projection assertion incorrectly expected manual recovery for an
+earlier unknown outcome. The corrected 11-case suite keeps reconciliation first
+while retaining the typed privacy reason and original correlation identities.
+Production projection behavior did not change.
+
+MCP discovery previously inferred earlier interrupted reads from the outer type of
+suppressed exceptions. Wrapped failures and legacy reconnects could lose that
+evidence. A per-invocation observation now retains interrupted reads separately
+from response timestamps. Local privacy rejection, cancellation and a local
+not-connected state do not create interruption evidence; retry bounds, read
+allowlists and the prohibition on replaying tool calls are unchanged.
+
+Concurrent commit `6e788707` introduced immutable per-conversation privacy and
+Room schema 54. Its four MCP privacy tests are preserved. New transport cases inject a
+local gate rejection after an actual interrupted read without changing a
+conversation's privacy through global settings. Sixteen current host cases pass,
+including a real MCP SDK/CIO connection to a local fixture server. The whole
+manager, Robolectric, database migration and full Android suite remain hosted CI
+requirements. Together these repairs pass 42 focused cases and 616 canonical host
+tests; generated inventory and formatting checks also pass.

@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -129,12 +130,17 @@ class RepositoryGraphPresentationTest {
         assertEquals("https://github.com/owner/repo/blob/${context.commitSha}/src/A.kt#L4", repositoryGraphSourceUrl(context, json("""{"path":"src/A.kt","start_line":4,"end_line":3}""")))
     }
 
-    @Test fun sourceLinksRejectTraversalAndUnresolvedRevisions() {
+    @Test fun sourceLinksRejectTraversalAtPinnedRevision() {
         val context = GitHubConversationContext("github", "owner", "repo", "main", "c".repeat(40), "profile")
         for (path in listOf("../outside.kt", "src/./A.kt", "/absolute.kt", "src//A.kt", "src\\A.kt", "src\nA.kt")) {
             assertNull(repositoryGraphSourceUrl(context, kotlinx.serialization.json.buildJsonObject { put("path", kotlinx.serialization.json.JsonPrimitive(path)) }))
         }
-        assertNull(repositoryGraphSourceUrl(context.copy(commitSha = "main"), json("""{"path":"src/A.kt"}""")))
+    }
+
+    @Test fun unresolvedRevisionsCannotBecomeSourceLinkContexts() {
+        assertThrows(IllegalArgumentException::class.java) {
+            GitHubConversationContext("github", "owner", "repo", "main", "main", "profile")
+        }
     }
 
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "fb2fa7bbdd3a8acecfaa4bc43573b6b9ba754973743f9c132fe47e305dca9763",
+  "source_digest": "a0d5505365fe819cf65b8a116640456c5a106fbe91b4fb07ce6c8f250195964c",
   "file_count": 2910,
-  "indexed_line_count": 481670,
+  "indexed_line_count": 481695,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -65,7 +65,7 @@
       "id": "mcp_plugins",
       "label": "MCP connections and tool catalogues",
       "file_count": 31,
-      "indexed_line_count": 4827
+      "indexed_line_count": 4843
     },
     {
       "id": "marketplace_plugins",
@@ -101,7 +101,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 111,
-      "indexed_line_count": 11231
+      "indexed_line_count": 11240
     },
     {
       "id": "github",
@@ -2916,8 +2916,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpClientManager.kt",
       "area_id": "mcp_plugins",
       "kind": "source",
-      "sha256": "14b0fbcd580fb581a22880800ff521956e50a3521fd1141b63e0197b07ab4bec",
-      "indexed_lines": 1266
+      "sha256": "055324a3d010bafde3766bffebb5e86c9f5bcc48e2b7a9a431bef3c5d1988e2e",
+      "indexed_lines": 1265
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpConfigurationRevision.kt",
@@ -3014,8 +3014,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpReadRecovery.kt",
       "area_id": "mcp_plugins",
       "kind": "source",
-      "sha256": "c13c8c53ce84253ccdd92d2f8a6c30c26a2387117653c4a642b0d8cf2ae64111",
-      "indexed_lines": 58
+      "sha256": "d29611b2c63bb32d0a488cd3b17eba1be56a32fd74feb9b5e8664fcbc30d9620",
+      "indexed_lines": 75
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpStreamDeadline.kt",
@@ -10007,8 +10007,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/MetadataResponseObservation.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "5f83f1ce09ad2be1863ec1b05b43d7d33f89ebc0eb9fe08231da36d75c098eae",
-      "indexed_lines": 18
+      "sha256": "36a0232ac1eb1452f9676cd76532a146b205d7585aacc88ae331d1eb40b6b816",
+      "indexed_lines": 27
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ModelRequestPreparation.kt",

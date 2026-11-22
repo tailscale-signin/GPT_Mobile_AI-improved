@@ -58,7 +58,8 @@
     "Separate **Enable private chats** in Options from the **Private chat** choice in New Chat. Options controls availability for new chats; each selected profile receives its own permanent conversation policy. Changing Options does not change saved conversations or another open chat.",
     "Preserve a private conversation across reopening, restart, retries, branches, copies and backup restore. Room 54 adds the permanent policy separately from masking history and conservatively locks conversations with saved privacy history. Private drafts and conversations retain screen protection independently of the Options switch.",
     "Bind provider, local-tool, queued-work and voice requests to the originating conversation. Recheck the captured policy at transport dispatch, prevent unresolved conversation ownership from sending, and keep ordinary conversations independent of concurrent private work.",
-    "Keep private memories and documents local to their source conversation, including older mixed-source records, edits, deletion and restore. Prevent private source material from entering shared research indexes or external Gateway, GitHub and MCP workflows; preserve trusted local tools and explicit provider masking."
+    "Keep private memories and documents local to their source conversation, including older mixed-source records, edits, deletion and restore. Prevent private source material from entering shared research indexes or external Gateway, GitHub and MCP workflows; preserve trusted local tools and explicit provider masking.",
+    "Retain prior interrupted MCP read evidence across wrapped transport failures and session reconnects when a later request is locally rejected; preserve immutable conversation policy, observed responses, bounded read retries and no replay for tool calls."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -151,6 +152,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpDiscoveryOAuthRefresh.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpFailurePresentation.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpHealthObservationOrder.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpReadRecovery.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/MeasuredAgentTool.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModernMcpTransport.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
@@ -461,6 +463,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpFailurePresentationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpOAuthRecoveryBindingTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpPrivacyTransportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpReadRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphFallbackTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryMapToolTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditBehaviorProbeSourceTest.kt",

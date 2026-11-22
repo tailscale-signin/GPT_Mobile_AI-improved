@@ -21,7 +21,7 @@
   "authorization": "User explicitly requested all proposed repository-map changes on the latest PR, followed by merge after green checks and publication.",
   "validation": {
     "focused_tests": "PASS: 101 actual-component tests (24 engine, 10 session, 6 provider authorization, 31 ViewModel, 12 presentation, 7 facade, 3 model tool, 8 Gateway fallback); platform boundaries isolated",
-    "canonical_host": "PASS: validate-local.sh fast on integrated b8ac plus final privacy/UI/path changes; 615 Python tests, generated inventories, Android ICU, resources, icons, dependency provenance and whitespace",
+    "canonical_host": "PASS: 616 tests and all canonical fast checks on 6e788707 plus final CI repairs",
     "android_ci": "PENDING: required exact final head validation",
     "physical_device": "NOT_RUN",
     "published_release": "PENDING",
@@ -30,7 +30,8 @@
     "local_android_compile": "BLOCKED: Gradle daemon disappeared during KSP, then KAPT stub generation; not a successful build",
     "changed_kotlin": "PASS: ktlint 1.3.1 on 27 changed Kotlin files against 66cbf7122c28f9d895ee1863e613287fe44baeed",
     "release_scope": "PASS: bounded scoped manifest includes concurrent and phone-map changes",
-    "integration_followup": "PASS: 98 focused current-component tests (30 engine, 47 UI, 21 provider/tool/fallback), actual Compose compilation and ktlint on all changed production/test Kotlin files; platform boundaries isolated"
+    "integration_followup": "PASS: 98 focused current-component tests (30 engine, 47 UI, 21 provider/tool/fallback), actual Compose compilation and ktlint on all changed production/test Kotlin files; platform boundaries isolated",
+    "hosted_integration_repair": "PASS: 42 focused repair cases; full current-head Android validation still required"
   },
   "reconciled_remote_heads": [
     "e9148ab3dd6df0d1ffb67a630304c1a93c139aed",
@@ -39,7 +40,9 @@
     "06ab96439deea13262fa48130eed367914e914d0",
     "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
     "9173e21455fecd3ef331e9a4aba13709928bfa39",
-    "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2"
+    "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2",
+    "fea1a6ac82756817aad485b6267e4294873bfb8b",
+    "6e788707cc216b6e92b2189a343dedd9ceaad4b8"
   ],
   "privacy_integration": {
     "source_sha": "1b603e4fdc2d725c3b44b4f407359de5142c7cf4",
@@ -63,5 +66,23 @@
     "finding": "Complete path traversal retains the full singular path ID array on every response, so a supported 250-hop path exceeds the 16000-byte tool budget before any page can be returned.",
     "intent": "Page ordered path IDs with the node slice, retain explicit whole-path position metadata, and verify complete traversal within the actual model-tool response budget.",
     "validation": "PASS: 30 current engine tests. The b8ac baseline failed only the 250-hop/251-node regression with PHONE_GRAPH_RESULT_TOO_LARGE; the fixed implementation traverses all ordered IDs within each 16000-byte page."
+  },
+  "hosted_integration_repair": {
+    "source_sha": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+    "failed_run_sha": "b8ac69dcac38f7d71d6fbe00135dae1c34302ad2",
+    "run_id": 45070165494,
+    "job_id": 137355179755,
+    "observation": "Hosted Android production and test compilation passed; 12684 tests ran, 3 failed, 5 skipped. All three failing test files are unchanged on the current branch.",
+    "intent": [
+      "Preserve the earlier uncertain MCP read when a subsequent retry is locally rejected by Privacy Mode; reproduce and repair actual transport accounting without weakening uncertainty evidence",
+      "Reconcile diagnostic recovery expectation with the original unknown-operation priority, retaining typed privacy cause",
+      "Correct the source-link test fixture to honor the real immutable GitHubConversationContext constructor invariant and test traversal/source-link rejection through valid contexts"
+    ],
+    "validation": "PASS: 42 focused current repair tests (15 map presentation with real immutable context, 11 diagnostic projection, 16 MCP); owned-file ktlint; canonical validate-local.sh fast with 616 tests on combined 6e source; generated inventories, ICU, resources, provenance and whitespace. Exact-head hosted gates remain pending.",
+    "map_presentation": "PASS: real GitHubConversationContext, normalization and map presentation reproduced old fixture failure (14 tests/1 failure), corrected suite15/0; immutable SHA validation and traversal rejection retained",
+    "gateway_projection": "PASS: actual-source old assertion reproduced (1 test/1 failure); corrected full projection class11/0. Earlier unknown outcome retains reconciliation, privacy reason, original correlation IDs and retryable=false; no production change",
+    "mcp_retry": "PASS: pinned fea1 baseline, 12 cases / 3 failures; current 6e-compatible source, 16 cases / 0 failures, including actual Ktor wrapped-error and real MCP SDK/CIO/local-server reconnect. Per-invocation interruption survives local retry rejection; policy, cancellation and Not connected controls remain unsent. Four concurrent immutable-conversation tests are preserved. Whole-manager/Robolectric execution remains hosted scope.",
+    "integrated_source_sha": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "concurrent_privacy_policy": "Adopted permanent per-conversation policy and Room schema 54 from 6e788707. Its immutable conversation tests replace the obsolete global-toggle mid-request scenario. Preserved the independently reproduced prior-interrupted-read accounting repair and adapted its regressions to the current semantics."
   }
 }

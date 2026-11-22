@@ -1,8 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.network.MetadataResponseObservation
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import java.io.EOFException
 import java.io.IOException
 import java.net.UnknownHostException
+import java.util.Collections
+import java.util.IdentityHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -24,6 +28,18 @@ internal class McpRequestTimeoutException(method: String, timeout: Long) :
 
 private val MCP_REPLAYABLE_READS = setOf("server/discover", "tools/list", "resources/list", "prompts/list", "resources/read", "prompts/get", "tasks/get")
 
+/** The invocation owns this fact even when a retry replaces the session or exception. */
+internal suspend fun recordMcpInterruptedRead(failure: Throwable) {
+    if (failure.isLocalPrivacyPolicyRejection()) return
+    val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
+    val causes = generateSequence(failure) { it.cause }.takeWhile(seen::add).take(16).toList()
+    // The SDK's local "Not connected" state and owner cancellation do not prove
+    // an attempted network read. A typed transport cause keeps its uncertainty.
+    if (causes.none { it is CancellationException } && causes.any { it is IOException }) {
+        currentCoroutineContext()[MetadataResponseObservation]?.readInterrupted()
+    }
+}
+
 /** One bounded read retry keeps previously completed catalog pages. Tool calls are never replayed. */
 internal suspend fun <T> withMcpReadRecovery(method: String, pause: suspend (Long) -> Unit = { delay(it) }, action: suspend () -> T): T = try {
     action()
@@ -34,6 +50,7 @@ internal suspend fun <T> withMcpReadRecovery(method: String, pause: suspend (Lon
     val retryable = failure.isMcpInterruptedRead() || causes.any { it is UnknownHostException }
     if (method !in MCP_REPLAYABLE_READS || !retryable || causes.any { it is javax.net.ssl.SSLException || it is ModernMcpError || it is io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError }) throw failure
     currentCoroutineContext().ensureActive()
+    recordMcpInterruptedRead(failure)
     val category = if (causes.any { it is UnknownHostException }) "DNS_FAILED" else "CONNECTION_ABORTED"
     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "READ_RECOVERY · method=$method · originalFailure=$category · failedAttempt=1 · nextAttempt=2 · policy=IDEMPOTENT_READ_ONLY", "W")
     pause(250L + kotlin.random.Random.nextLong(0, 251))

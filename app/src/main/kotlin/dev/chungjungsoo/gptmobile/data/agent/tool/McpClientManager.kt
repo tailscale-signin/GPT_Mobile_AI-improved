@@ -442,9 +442,7 @@ class McpClientManager internal constructor(
                     if (!observation.responseObserved) retained?.restore(config.connectionUid)
                 }
                 val earlierResponse = responseEvidence.observedAtEpochMs
-                val earlierUncertainRead = generateSequence<Throwable>(error) { it.cause }.take(16).any { cause ->
-                    cause.suppressed.take(8).any { it is java.io.IOException && !it.isLocalPrivacyPolicyRejection() }
-                }
+                val earlierUncertainRead = responseEvidence.hasInterruptedRead
                 if (earlierResponse != null || earlierUncertainRead) throw McpDiscoveryPolicyRejection(error, earlierResponse)
                 throw error
             }
@@ -1007,6 +1005,7 @@ class McpClientManager internal constructor(
                 val interruptedRead = error.isMcpInterruptedRead()
                 invalidate(config.connectionUid, session)
                 if (retryStale && (staleSession || interruptedRead) && staleSessionRetries++ < MAX_STALE_SESSION_RETRIES) {
+                    recordMcpInterruptedRead(error)
                     healthOrder.publish(observation) { markRecovering(config.connectionUid) }
                     AppLogRecorder.record(
                         "MCP",

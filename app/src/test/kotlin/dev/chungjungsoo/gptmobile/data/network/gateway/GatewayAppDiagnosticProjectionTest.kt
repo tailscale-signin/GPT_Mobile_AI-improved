@@ -27,9 +27,13 @@ class GatewayAppDiagnosticProjectionTest {
                 )
             )
             val result = requireNotNull(gatewayAppDiagnosticProjection(AppLogEntry(1000, "E", "Tool", message)))
+            val attributes = result["bounded_attributes"] as JsonObject
             assertEquals(JsonPrimitive(if (unknown) "DISPATCH_UNCERTAIN" else "PRIVACY_SERVICE_UNVERIFIED"), result["error_code"])
-            assertEquals(JsonPrimitive("manual"), result["retry_class"])
-            assertEquals(JsonPrimitive("PRIVACY_SERVICE_UNVERIFIED"), (result["bounded_attributes"] as JsonObject)["reason_code"])
+            assertEquals(JsonPrimitive(if (unknown) "unknown" else "not_dispatched"), result["dispatch_state"])
+            assertEquals(JsonPrimitive(if (unknown) "reconcile" else "manual"), result["retry_class"])
+            assertEquals(JsonPrimitive("PRIVACY_SERVICE_UNVERIFIED"), attributes["reason_code"])
+            assertEquals(JsonPrimitive(if (unknown) "reconcile" else "recheck_prerequisite"), attributes["recovery_action"])
+            assertEquals(JsonPrimitive(if (unknown) "original_outcome_reconciled" else "dependency_changed"), attributes["recovery_condition"])
         }
     }
 
@@ -206,19 +210,43 @@ class GatewayAppDiagnosticProjectionTest {
     }
 
     @Test fun earlierUnknownOutcomeRequiresReconciliationEvenWithLaterUnsentAttempt() {
+        val originalIncident = "33333333-3333-3333-3333-333333333333"
+        val originalOperation = "44444444-4444-4444-4444-444444444444"
         val result = requireNotNull(
             gatewayAppDiagnosticProjection(
                 AppLogEntry(
                     1000,
                     "E",
                     "AgentRun",
-                    structuredDiagnosticEventMessage("RUN_TERMINAL", mapOf("runId" to run, "status" to "FAILED", "executionState" to "UNKNOWN_OUTCOME", "dispatched" to false))
+                    structuredDiagnosticEventMessage(
+                        "RUN_TERMINAL",
+                        mapOf(
+                            "runId" to run,
+                            "callId" to invocation,
+                            "causalIncidentId" to originalIncident,
+                            "operationId" to originalOperation,
+                            "status" to "FAILED",
+                            "executionState" to "UNKNOWN_OUTCOME",
+                            "dispatched" to false,
+                            "errorCode" to "PRIVACY_SERVICE_UNVERIFIED",
+                            "retryable" to false
+                        )
+                    )
                 )
             )
         )
         assertEquals(JsonPrimitive("DISPATCH_UNCERTAIN"), result["error_code"])
         assertEquals(JsonPrimitive("unknown"), result["dispatch_state"])
         assertEquals(JsonPrimitive("reconcile"), result["retry_class"])
+        assertEquals(JsonPrimitive(run), result["run_id"])
+        assertEquals(JsonPrimitive(invocation), result["tool_call_id"])
+        assertEquals(JsonPrimitive(originalIncident), result["incident_id"])
+        assertEquals(JsonPrimitive(originalOperation), result["operation_id"])
+        val attributes = result["bounded_attributes"] as JsonObject
+        assertEquals(JsonPrimitive("PRIVACY_SERVICE_UNVERIFIED"), attributes["reason_code"])
+        assertEquals(JsonPrimitive("reconcile"), attributes["recovery_action"])
+        assertEquals(JsonPrimitive("original_outcome_reconciled"), attributes["recovery_condition"])
+        assertEquals(JsonPrimitive(false), attributes["retryable"])
     }
 
     @Test fun legacyEventsStillProjectButExchangeAndOpaqueIdentifiersStayLocal() {

@@ -60,15 +60,19 @@ remain explicitly separate from source/regression/release evidence.
   composite index and lexicographic seek, with no temporary sort. This is not a
   SQLCipher/physical-phone performance claim.
 - Packaged-method parser and release trigger/scope regressions: 30 tests passed.
-- Authentication/report contract and reporting-route preflight suite: 175 targeted
-  tests passed. The latest published build uses native GitHub reporting; no hosted
+- Full authentication/report discovery: 195 tests passed, with no skips; the
+  targeted reporting-route preflight and contract suite also passed (175 tests). The latest published build uses native GitHub reporting; no hosted
   reporting service is configured. A configured service must advertise both new
   diagnostic capabilities before release preflight succeeds.
 - Timeout identity: nine focused JVM tests passed, covering inherited retry IDs,
   dispatcher changes, sibling separation and parent cancellation without a false
   owned-deadline event.
-- Gateway host/control targeted suite: 15 executed tests passed; three Windows
-  checks require the Windows runner and were explicitly skipped locally.
+- Gateway host/control targeted suite with an isolated, publisher-hash-verified
+  PowerShell 7.4.6 runtime: 17 tests passed; one unrelated packaged-QR check was
+  skipped locally. Both PowerShell checks executed. CI exposed a duplicate common
+  parameter in the test double; the regression was reproduced, the double fixed,
+  and action/enabled/port/profile assertions strengthened. Production containment
+  correctly retained unknown status when that test command failed.
 - Kotlin formatting, Android resources, regex preflight and secret/CI-policy
   checks passed on the inspected edits. Generated inventories are refreshed after
   integration; full host/Gateway and current-head CI results are recorded in the PR.

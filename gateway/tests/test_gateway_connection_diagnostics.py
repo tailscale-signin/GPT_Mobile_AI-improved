@@ -122,7 +122,8 @@ function Get-NetRoute { param($ErrorAction) [pscustomobject]@{ DestinationPrefix
 function Get-NetAdapter { param([switch]$IncludeHidden, $ErrorAction) [pscustomobject]@{ Status='Up'; InterfaceType=6; InterfaceDescription='private Tailscale adapter' } }
 function Get-NetConnectionProfile { param($ErrorAction) [pscustomobject]@{ NetworkCategory='Private'; Name='private network' } }
 function Get-NetFirewallRule { param($PolicyStore, $ErrorAction) if ($global:FailReads) { throw 'private firewall error' }; [pscustomobject]@{ Name=('GPTMobileGateway-' + ('a' * 24)); Action='Allow'; Enabled='True'; Profile='Private' } }
-function Get-NetFirewallPortFilter { param([Parameter(ValueFromPipeline=$true)]$InputObject, $ErrorAction) process { [pscustomobject]@{Protocol='TCP'; LocalPort='8090'} } }
+# Parameter makes this an advanced function; PowerShell supplies ErrorAction.
+function Get-NetFirewallPortFilter { param([Parameter(ValueFromPipeline=$true)]$InputObject) process { [pscustomobject]@{Protocol='TCP'; LocalPort='8090'} } }
 & $Probe -Port 8090 -BindAddress '127.0.0.1' -RuleName ('GPTMobileGateway-' + ('a' * 24))
 ''')
         executable = shutil.which('pwsh') or shutil.which('powershell')
@@ -132,5 +133,10 @@ function Get-NetFirewallPortFilter { param([Parameter(ValueFromPipeline=$true)]$
             value = json.loads(response.stdout.decode('utf-8-sig'))
             self.assertEqual('UNKNOWN' if fail else 'PRESENT', value['listener_state'])
             self.assertEqual('UNKNOWN' if fail else 'PRESENT', value['firewall_rule_state'])
+            if not fail:
+                self.assertEqual('ALLOW', value['firewall_rule_action'])
+                self.assertEqual('ENABLED', value['firewall_rule_enabled'])
+                self.assertEqual('MATCHED', value['firewall_rule_port'])
+                self.assertEqual(['Private'], value['firewall_rule_profiles'])
             self.assertEqual('PRESENT', value['tunnel_adapter_signal'])
             self.assertNotIn('private', json.dumps(value))

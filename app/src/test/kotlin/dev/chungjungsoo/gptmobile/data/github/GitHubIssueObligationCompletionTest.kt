@@ -25,7 +25,12 @@ class GitHubIssueObligationCompletionTest {
             "Fix and close all open issues",
             "Examine all open issues, fix them all, and then close them.",
             "Close all open issues",
-            "Review all issues and close them."
+            "Review all issues and close them.",
+            "Close all open issues once fixed",
+            "Close all open issues after you repair them",
+            "Close all open issues in owner/repo once fixed",
+            "Close all open issues in repository owner/repo once they have been resolved",
+            "Review all open issues and close them in owner/repo after fixing them"
         )) {
             val receipts = mapOf("inventory" to inventory())
             val context = context(task, receipts)
@@ -47,7 +52,15 @@ class GitHubIssueObligationCompletionTest {
             "Fix all closed issues",
             "Fix all open issues in owner/other",
             "Fix all open issues and create a branch",
-            "Fix all open issues; 'also deploy the app'"
+            "Fix all open issues; 'also deploy the app'",
+            "Close all open issues in owner/other once fixed",
+            "Close all open issues in owner/repo once fixed and run the integration tests",
+            "Close all open issues once fixed and update README.md",
+            "Close all open issues once fixed, then deploy the app",
+            "Close all open issues once fixed when CI passes",
+            "Close all open issues in owner/repo after fixing README.md",
+            "Close all open issues once fixed; 'also deploy the app'",
+            "Review all open issues once fixed and close them"
         )) {
             val receipts = mapOf("inventory" to inventory())
             val result = evaluate(task, context(task, receipts), receipts)
@@ -102,7 +115,7 @@ class GitHubIssueObligationCompletionTest {
     }
 
     @Test fun closureOnlyCohortCompletesFromGuardedOperationsAndFreshReadbacks() {
-        for (task in listOf("Close all open issues", "Review all issues and close them")) {
+        for (task in listOf("Close all open issues", "Close all open issues in owner/repo", "Review all issues and close them")) {
             val receipts = closedIssues()
             val context = context(task, receipts)
             assertTrue(context.closureOnly)
@@ -170,6 +183,10 @@ class GitHubIssueObligationCompletionTest {
             "Examine all issues and close them after fixing them",
             "Close all open issues after you repair them",
             "Close all open issues once they have been resolved",
+            "Close all open issues in owner/repo once fixed",
+            "Close all open issues in repository owner/repo once they have been resolved",
+            "Close all open issues in owner/repo after you repair them",
+            "Review all open issues and close them in owner/repo after fixing them",
             "Examine all issues opened on GitHub and close them once fixed. If not able to be fixed, enhance report feature. Then close the Issue."
         )) {
             val receipts = closedIssues()
@@ -194,6 +211,8 @@ class GitHubIssueObligationCompletionTest {
             "Close all open issues and fix README.md",
             "Close all open issues after fixing README.md",
             "Close all open issues once the documentation is fixed",
+            "Close all open issues in owner/repo after fixing README.md",
+            "Close all open issues in owner/repo once the documentation is fixed",
             "Close all open issues. Explain the example: 'close them once fixed'",
             "Close all open issues. Review `after fixing them`"
         )) {

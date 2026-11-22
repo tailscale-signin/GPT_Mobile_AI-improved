@@ -21,6 +21,7 @@ internal object GitHubIssueRemediation {
     private val quoted = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"[^\"\\r\\n]*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'|(?m)^\\s*>[^\\r\\n]*")
     private val repairVerb = Regex("(?i)\\b(?:fix|repair|resolve)\\b")
     private val conditionalRepair = Regex("(?i)^\\s*,?\\s*(?:only\\s+)?(?:once|after|when)\\s+(?:(?:(?:they|these(?:\\s+issues?)?|those(?:\\s+issues?)?|the\\s+issues?)\\s+(?:are|is|have\\s+been|has\\s+been)\\s+)?(?:fixed|repaired|resolved)|(?:(?:you|we)\\s+)?(?:fix(?:ing)?|repair(?:ing)?|resolv(?:e|ing))\\s+(?:them(?:\\s+all)?|all\\s+of\\s+them|(?:the\\s+)?(?:issues?|(?:all|every|each|open|remaining)\\s+(?:open\\s+)?issues?)))\\b(?=\\s*(?:$|[.!?,;]|and\\b|then\\b))")
+    private val repositoryQualifier = Regex("(?i)^\\s+in\\s+(?:repository\\s+)?[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
     private val issueClause = Regex("(?i)^\\s*(?:please\\s+)?(?:(?:can|could|would|will) you (?:please )?|i (?:want|need|would like) you to )?((?:review|inspect|examine|list|fix|repair|resolve|close)(?:\\s+(?:(?:and|then)\\s+)*(?:review|inspect|examine|list|fix|repair|resolve|close))*)\\s+((?:the\\s+)?(?:(?:all|every|each)(?:\\s+(?:open|remaining))?|open|remaining|repository)\\s+issues?\\b|them(?:\\s+all)?\\b|all(?:\\s+of\\s+them)?\\b)(?:\\s+in\\s+(?:repository\\s+)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?")
     private val issueSeparator = Regex("(?i)^(?:\\s*[,;.]?\\s*(?:and(?:\\s+then)?|then|also)\\s+|\\s*[,;.\\n]\\s*)")
 
@@ -48,9 +49,11 @@ internal object GitHubIssueRemediation {
             if (repairVerb.containsMatchIn(directive.groupValues[1])) return@any true
             val objectText = request.substring(directive.range.last + 1)
             val target = bulk.find(objectText)?.takeIf { it.range.first == 0 } ?: pronoun.find(objectText) ?: return@any false
+            val qualifiedTail = objectText.substring(target.range.last + 1)
+            val tail = repositoryQualifier.find(qualifiedTail)?.let { qualifiedTail.substring(it.range.last + 1) } ?: qualifiedTail
             // The condition must immediately qualify these issues. A later fix
             // of an unrelated file, or quoted example text, is not repair intent.
-            conditionalRepair.containsMatchIn(objectText.substring(target.range.last + 1).take(512))
+            conditionalRepair.containsMatchIn(tail.take(512))
         }
         return if (repair) WorkKind.REPAIR_AND_CLOSE else WorkKind.CLOSURE_ONLY
     }
@@ -69,8 +72,10 @@ internal object GitHubIssueRemediation {
                 return false
             }
             if (clause.groupValues[3].isNotBlank() && !repository.equals(clause.groupValues[3], true)) return false
-            action = action || Regex("(?i)\\b(?:fix|repair|resolve|close)\\b").containsMatchIn(clause.groupValues[1])
+            val clauseAction = Regex("(?i)\\b(?:fix|repair|resolve|close)\\b").containsMatchIn(clause.groupValues[1])
+            action = action || clauseAction
             remaining = remaining.substring(clause.range.last + 1)
+            if (clauseAction) conditionalRepair.find(remaining)?.let { remaining = remaining.substring(it.range.last + 1) }
             if (remaining.isBlank()) return issueTarget && action
             val separator = issueSeparator.find(remaining) ?: return false
             remaining = remaining.substring(separator.range.last + 1)

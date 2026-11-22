@@ -26,4 +26,8 @@ class ChatRepositoryResearchIncidentTest {
     @Test fun missingRecoverySourceRetainsBoundaryEvidenceThroughCollector() {
         fixture.missingRecoverySourceRetainsBoundaryEvidenceThroughCollector()
     }
+
+    @Test fun verificationOnlyRecoveryDoesNotAcquireOriginalWebSearchAgain() {
+        fixture.verificationOnlyRecoveryDoesNotAcquireOriginalWebSearchAgain()
+    }
 }

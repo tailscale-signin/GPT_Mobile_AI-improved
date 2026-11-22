@@ -582,6 +582,27 @@ class ChatRepositoryImpl(
         }
     )
 
+    private val providerSessions by lazy {
+        dev.chungjungsoo.gptmobile.data.agent.provider.ProviderSessionDispatcher(
+            openAI = openAIResponsesAdapter::openSession,
+            compatible = openAICompatibleAdapter::openSession,
+            anthropic = anthropicMessagesAdapter::openSession,
+            gemini = geminiAdapter::openSession,
+            local = { turns, profile, constraints, options ->
+                liteRtLmAdapter.openSession(
+                    turns,
+                    profile,
+                    options.tools,
+                    constraints,
+                    fallbackSystemPrompt = options.fallbackSystemPrompt,
+                    progressSettings = options.progressSettings,
+                    advertisedTools = options.advertisedTools,
+                    githubMode = options.githubMode
+                )
+            }
+        )
+    }
+
     private val assistPreparation by lazy { localAssistPreparation ?: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPreparation(context, localRuntime, localModelRepository, settingRepository) }
     private val githubReviewCompatibility = dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility()
     private suspend fun runtimeEligibleForAssist(target: PlatformV2, policy: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy): Boolean = assistPreparation.eligible(target, policy)
@@ -842,13 +863,8 @@ class ChatRepositoryImpl(
             }
         )
         val effectiveTools = tools.takeIf { constraints.allowTools }.orEmpty()
-        val session = when (target.compatibleType) {
-            ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)
-            ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
-                openAICompatibleAdapter.openSession(turns, target, constraints)
-            ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, target, constraints)
-            ClientType.GOOGLE -> geminiAdapter.openSession(turns, target, constraints)
-            ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, target, effectiveTools, constraints)
+        val session = providerSessions.openSession(turns, target, constraints) {
+            dev.chungjungsoo.gptmobile.data.agent.provider.LocalProviderSessionOptions(tools = effectiveTools)
         }
         val requestBudget = requested.requestDeadlineMs?.let { dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(it, java.util.concurrent.atomic.AtomicInteger(), requestLimit = 48) }
         val observed = object : AgentProviderSession by session {
@@ -902,13 +918,7 @@ class ChatRepositoryImpl(
             val inputCapacity = delegationInputBudget(target, researchOutputTokens)
             check(dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt + target.systemPrompt.orEmpty()) <= inputCapacity) { "${dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.CONTEXT_INSUFFICIENT}: The complete Research packet exceeds this route's admitted context; split the unfinished source." }
         }
-        val session = when (target.compatibleType) {
-            ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)
-            ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE -> openAICompatibleAdapter.openSession(turns, target, constraints)
-            ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, target, constraints)
-            ClientType.GOOGLE -> geminiAdapter.openSession(turns, target, constraints)
-            ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, target, emptyList(), constraints)
-        }
+        val session = providerSessions.openSession(turns, target, constraints)
         // Retain every physical attempt without introducing another allowance or invocation ledger.
         return invocationLedger?.wrap(
             session, parentRunId, rootWorkId, target.compatibleType.name, target.model, role,
@@ -1397,13 +1407,12 @@ class ChatRepositoryImpl(
             systemPrompt = boundedSystemPrompt
         )
         val turns = listOf(ConversationTurn(MessageV2(content = task, platformType = null), null, true))
-        val session = when (bounded.compatibleType) {
-            ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, bounded, constraints)
-            ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
-                openAICompatibleAdapter.openSession(turns, bounded, constraints)
-            ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, bounded, constraints)
-            ClientType.GOOGLE -> geminiAdapter.openSession(turns, bounded, constraints)
-            ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, bounded, childTools, constraints, progressSettings = settingRepository.getFeatureSettings().profileProgressDeadlines[bounded.uid] ?: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings(), githubMode = chatToolConfig.github != null)
+        val session = providerSessions.openSession(turns, bounded, constraints) {
+            dev.chungjungsoo.gptmobile.data.agent.provider.LocalProviderSessionOptions(
+                tools = childTools,
+                progressSettings = settingRepository.getFeatureSettings().profileProgressDeadlines[bounded.uid] ?: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings(),
+                githubMode = chatToolConfig.github != null
+            )
         }.withDeviceLocation(
             clientType = bounded.compatibleType,
             userPrompt = task,
@@ -5387,21 +5396,9 @@ class ChatRepositoryImpl(
             }
             AppLogRecorder.record("Context", "REQUEST_BUDGET · runId=$runId · requestKind=$kind · phase=initial_advertisement · authorizedTools=${if (textOnly) 0 else contextPlan.authorizedTools.size} · advertisedSchema=see_WIRE_SCHEMA · ${costs.diagnostic()}", if (costs.total > 131_072) "W" else "I")
             suspend fun providerSession(sessionTurns: List<ConversationTurn>, profile: PlatformV2): AgentProviderSession =
-                when (profile.compatibleType) {
-                    ClientType.OPENAI -> openAIResponsesAdapter.openSession(sessionTurns, profile, constraints)
-
-                    ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
-                        openAICompatibleAdapter.openSession(sessionTurns, profile, constraints)
-
-                    ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(sessionTurns, profile, constraints)
-
-                    ClientType.GOOGLE -> geminiAdapter.openSession(sessionTurns, profile, constraints)
-
-                    ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
-                        sessionTurns,
-                        profile,
-                        if (textOnly) emptyList() else effectiveTools.map(::bindGitHubTarget),
-                        constraints,
+                providerSessions.openSession(sessionTurns, profile, constraints) {
+                    dev.chungjungsoo.gptmobile.data.agent.provider.LocalProviderSessionOptions(
+                        tools = if (textOnly) emptyList() else effectiveTools.map(::bindGitHubTarget),
                         fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true, researchReport = chatToolConfig?.research?.researchToggle == true),
                         advertisedTools = if (textOnly) emptyList() else contextPlan.tools,
                         progressSettings = progressSettings,

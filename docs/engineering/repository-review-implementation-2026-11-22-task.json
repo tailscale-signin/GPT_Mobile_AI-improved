@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_pr": 2254,
+  "source_sha": "f225c208e80393f0232ba7849340461fd23901b9",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "integration_branch": "work/review-implementation-2026-11-22",
+  "intent": "Implement the actionable repository review improvements and publish verified Android and Gateway releases from the existing shared PR while preserving concurrent changes.",
+  "status": "READY_FOR_DRAFT_PR_CI",
+  "requirements": [
+    {
+      "id": "recovery",
+      "status": "INHERITED_PENDING_FINAL_VALIDATION"
+    },
+    {
+      "id": "caption_motion_and_250ms_word_fade",
+      "status": "IMPLEMENTED_PENDING_INTEGRATED_CI"
+    },
+    {
+      "id": "voice_readiness_and_hardware_evidence",
+      "status": "IMPLEMENTED_PENDING_INTEGRATED_CI"
+    },
+    {
+      "id": "setup_and_runtime_route_clarity",
+      "status": "IMPLEMENTED_PENDING_INTEGRATED_CI"
+    },
+    {
+      "id": "adaptive_delegation_and_provider_boundary",
+      "status": "IMPLEMENTED_PENDING_INTEGRATED_CI"
+    },
+    {
+      "id": "completed_task_efficiency_and_exports",
+      "status": "IMPLEMENTED_PENDING_INTEGRATED_CI"
+    },
+    {
+      "id": "capability_and_backup_guidance",
+      "status": "IMPLEMENTED_PENDING_INTEGRATED_CI"
+    },
+    {
+      "id": "exact_revision_validation",
+      "status": "LOCAL_CHECKS_PASSED_CURRENT_REMOTE_CI_PENDING"
+    },
+    {
+      "id": "merge_and_publication",
+      "status": "AUTHORIZED_WAITING_FOR_SUCCESSFUL_REQUIRED_CI"
+    }
+  ],
+  "qualification_limits": [
+    "No physical-phone latency, acoustic, battery, or accelerator result may be inferred from source or host tests.",
+    "External providers, compatible runtime packages and Windows signing credentials retain their independently observed availability."
+  ],
+  "preserved_concurrent_sha": "3d672c0456abbc09318dffb69f8bb7eed11162e0",
+  "integrated_local_changes": [
+    "setup_and_runtime_route_clarity",
+    "capability_and_backup_guidance",
+    "adaptive_delegation_and_provider_boundary",
+    "completed_task_efficiency_and_exports"
+  ],
+  "local_verification": {
+    "readiness_behavior_tests": 12,
+    "routing_dispatch_behavior_tests": 12,
+    "efficiency_format_behavior_tests": 19,
+    "full_android": "NOT_RUN_LOCALLY_ANDROID_SDK_UNAVAILABLE",
+    "integrated_host": "PASSED",
+    "voice_behavior_tests": 41,
+    "host_script_tests": 605,
+    "pricing_efficiency_and_format_tests": 43,
+    "changed_kotlin_format_files": 51,
+    "release_scope": "PASSED",
+    "focused_test_total": 108
+  }
+}

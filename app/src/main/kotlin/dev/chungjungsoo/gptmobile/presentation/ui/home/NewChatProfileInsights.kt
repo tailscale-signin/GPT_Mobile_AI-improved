@@ -20,6 +20,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.pricing.PriceFreshness
 import dev.chungjungsoo.gptmobile.data.pricing.PriceSource
 import dev.chungjungsoo.gptmobile.data.pricing.formatRate
+import dev.chungjungsoo.gptmobile.data.readiness.configuredInferenceRoute
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import java.text.DateFormat
 import java.util.Date
@@ -55,6 +56,9 @@ internal fun ProfileInsightDetailsDialog(insight: ProfileInsight, refresh: () ->
     AlertDialog(onDismissRequest = onDismiss, title = { Text(insight.profile.name) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(insight.profile.model)
+            val route = configuredInferenceRoute(insight.profile.compatibleType, insight.profile.apiUrl)
+            Text(route.label, style = MaterialTheme.typography.titleSmall)
+            Text(route.detail, style = MaterialTheme.typography.bodySmall)
             if (insight.settings.newChatScores) {
                 Text(benchmarkText, style = MaterialTheme.typography.titleMedium)
                 Text(stringResource(R.string.insights_benchmark_scope))

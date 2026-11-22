@@ -14,6 +14,53 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BenchmarkExportTest {
+    @Test fun routeBoundPriceSnapshotRoundTripsWithoutPrivateSourceDetails() {
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Profile", model = "model")
+        val now = requireNotNull(dev.chungjungsoo.gptmobile.data.pricing.reviewTime("2026-11-22")) + 1_000
+        val price = dev.chungjungsoo.gptmobile.data.pricing.ModelPrice("OPENAI", "model", "1", "2", source = dev.chungjungsoo.gptmobile.data.pricing.PriceSource.ACCOUNT_OVERRIDE, sourceUrl = "Private account contract 123", reviewedOn = "2026-11-22")
+        val manual = dev.chungjungsoo.gptmobile.data.pricing.ManualPrice(dev.chungjungsoo.gptmobile.data.pricing.priceContextKey(profile), price)
+        val snapshot = benchmarkPricingSnapshot(profile, listOf(manual), emptyList(), now, "key")
+        val sample = BenchmarkSample("passed", "Passed", "task", BenchmarkOutcome.PASSED, durationMs = 200, requestDispatched = true, inputTokens = 10, outputTokens = 20, estimatedTokens = false, inputTokenConfidence = "final_reported", outputTokenConfidence = "final_reported")
+        val run = BenchmarkRun("run", "profile", "Profile", "OPENAI", "model", "key", false, BenchmarkMode.QUICK, now, listOf(sample), pricingSnapshot = snapshot)
+        val raw = Json.encodeToString(BenchmarkBackupPayload.serializer(), BenchmarkBackupPayload(runs = listOf(run)))
+        val output = benchmarkExport(raw, false)
+        assertFalse(output.contains(price.sourceUrl))
+        val root = Json.parseToJsonElement(output).jsonObject
+        val restored = benchmarkExportJson.decodeFromJsonElement(BenchmarkRun.serializer(), root.getValue("runs").jsonArray.single())
+        assertEquals(snapshot, restored.pricingSnapshot)
+        assertEquals("ACCOUNT_OVERRIDE", restored.pricingSnapshot?.sourceKind)
+        assertEquals(benchmarkHash(price.sourceUrl), restored.pricingSnapshot?.sourceDigest)
+        assertEquals(50L, benchmarkTaskEfficiency(restored).apiCostEstimateMicros)
+    }
+
+    @Test fun standardAndDiagnosticExportsRedactLegacyPriceContractNotes() {
+        val source = "https://private.example/contracts/customer-123?account=secret"
+        val snapshot = BenchmarkPricingSnapshot("profile", "OPENAI", "model", "USD", 1, dev.chungjungsoo.gptmobile.data.accounting.ModelPrice("model", 1_000_000, 2_000_000, source, 1))
+        val run = BenchmarkRun("run", "profile", "Profile", "OPENAI", "model", "key", false, BenchmarkMode.QUICK, 1, pricingSnapshot = snapshot)
+        val raw = Json.encodeToString(BenchmarkBackupPayload.serializer(), BenchmarkBackupPayload(runs = listOf(run)))
+        listOf(false, true).forEach { detailed ->
+            val output = benchmarkExport(raw, detailed)
+            assertFalse(output.contains("private.example"))
+            assertFalse(output.contains("customer-123"))
+            val retained = Json.parseToJsonElement(output).jsonObject.getValue("runs").jsonArray.single().jsonObject.getValue("pricingSnapshot").jsonObject
+            assertEquals("LEGACY_ALLOWANCE_RATE", retained.getValue("sourceKind").jsonPrimitive.content)
+            assertEquals(benchmarkHash(source), retained.getValue("sourceDigest").jsonPrimitive.content)
+        }
+    }
+
+    @Test fun taskEfficiencyIsExportedWithUnknownCostAndItsPopulationScope() {
+        val sample = BenchmarkSample("passed", "Passed", "task", BenchmarkOutcome.PASSED, durationMs = 200, requestDispatched = true)
+        val run = BenchmarkRun("run", "profile", "Profile", "OPENAI", "model", "key", false, BenchmarkMode.QUICK, 1, listOf(sample))
+        val raw = Json.encodeToString(BenchmarkBackupPayload.serializer(), BenchmarkBackupPayload(runs = listOf(run)))
+        val root = Json.parseToJsonElement(benchmarkExport(raw, false)).jsonObject
+        val efficiency = root.getValue("perRunMetrics").jsonArray.single().jsonObject.getValue("taskEfficiency").jsonObject
+        assertEquals("1", efficiency.getValue("successfulTasks").jsonPrimitive.content)
+        assertEquals("200.0", efficiency.getValue("elapsedMsPerSuccessfulTask").jsonPrimitive.content)
+        assertEquals(kotlinx.serialization.json.JsonNull, efficiency.getValue("apiCostEstimateMicrosPerSuccessfulTask"))
+        assertEquals("benchmark-task-efficiency-v1", efficiency.getValue("policyVersion").jsonPrimitive.content)
+        assertTrue(root.getValue("units").jsonObject.containsKey("apiCostEstimate"))
+    }
+
     @Test fun exportPreservesPhaseUsageConfidenceAndExplicitUnknownRuntimeIdentity() {
         val sample = BenchmarkSample("test", "Test", "task", BenchmarkOutcome.PASSED, canonicalAnswer = "READY", outputCharacters = 5, outputTokens = 3, inputTokenSource = "unknown", outputTokenSource = "provider_reported_initial", outputTokenConfidence = "partial_observation", phaseIntervals = listOf(BenchmarkPhaseInterval("loading", 0, 15)), phaseElapsedMs = mapOf("loading" to 15), nativeIdentity = BenchmarkNativeIdentity("run", "attempt", workerGenerationId = "worker", actualRuntime = "LLAMA_CPP", actualAccelerator = "cpu", configuredOffloadLayers = 8, observedAt = 1, unknownFields = setOf("actualOffloadLayers", "driverIdentity", "engineInstanceId")))
         val run = BenchmarkRun("run", "profile", "Profile", "LITERT_LM", "model", "key", true, BenchmarkMode.QUICK, 1, listOf(sample))

@@ -58,6 +58,7 @@ internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
                 if (delivery != null && delivery.denominator > 0) {
                     Text("Delivery: ${delivery.numerator}/${delivery.denominator} requests · $planned planned cases", style = MaterialTheme.typography.bodySmall)
                 }
+                BenchmarkTaskEfficiencyDetails(run)
             } else {
                 Text("Attempt coverage: not recorded", style = MaterialTheme.typography.bodySmall)
             }
@@ -106,6 +107,7 @@ private fun BenchmarkResultDetails(result: BenchmarkResultPresentation) {
         val coverage = benchmarkCoverage(recorded)
         Text("Admitted ${coverage.admitted} · terminal observed ${coverage.terminalized} · passed ${coverage.passed} · failed ${coverage.failed} · partial ${coverage.partial} · blocked ${coverage.blocked} · skipped ${coverage.skipped} · pending ${if (coverage.plannedKnown) coverage.pending else "unknown"}", style = MaterialTheme.typography.bodySmall)
         Text("Unknown observations: admission ${coverage.admissionUnknown} · execution ${coverage.executionUnknown} · terminal ${coverage.terminalUnknown}", style = MaterialTheme.typography.bodySmall)
+        BenchmarkTaskEfficiencyDetails(recorded, expanded = true)
     }
     val metrics = result.attemptMetrics.associateBy { it.id }
     fun ratio(id: String) = metrics[id]?.let { "${benchmarkMetricText(it.value, "%", 1)} (${it.numerator}/${it.denominator})" } ?: "Not measured"

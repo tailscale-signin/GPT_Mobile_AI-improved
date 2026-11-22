@@ -46,7 +46,7 @@ internal fun VoiceTuningSettings(
     VoiceSettingsSection("Performance")
     VoiceCalibrationControl(benchmark)
     VoiceSynthesisStatus(feedback)
-    VoicePerformancePanel(history)
+    VoicePerformancePanel(history, feedback?.collectAsStateWithLifecycle()?.value)
 }
 
 @Composable

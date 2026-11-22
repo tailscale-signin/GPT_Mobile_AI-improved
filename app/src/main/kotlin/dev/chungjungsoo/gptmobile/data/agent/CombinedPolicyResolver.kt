@@ -239,6 +239,13 @@ object CombinedPolicyResolver {
             costReservesByOwner = costReserves,
             hardLimits = hardLimits,
             caps = caps + listOf(
+                CombinedCapRecord(
+                    "accepted_contributors",
+                    requested.participantUids.size.toLong(),
+                    CombinedCapOrigin.APPLICATION_DEFAULT,
+                    CombinedCapScope.COMBINED_TURN,
+                    "Accepted contributor scope is retained for this turn. Adaptive selection runs only before acceptance; explicit participation, full source diversity and Research preserve their selected scope."
+                ),
                 if (githubIntegrationCalls != null) {
                     CombinedCapRecord("github_integration_tool_operations", sharedToolOperations, CombinedCapOrigin.APPLICATION_DEFAULT, CombinedCapScope.COMBINED_TURN, "Shared GitHub integration execution ceiling")
                 } else {

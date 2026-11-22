@@ -9,6 +9,7 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 - Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.
 - Reserve accepted PCM against measured next-phrase synthesis time within a bounded five-second reserve, preserve natural first clauses, and align follow-up phrase targets to Quality 24 words, Balanced 16 and Fast 12 with adaptive Auto pacing.
 - Separate first visible text, publishable phrase, queued speech, prepared PCM and presented audio timings; distinguish warm-at-request from engine reuse and show measured buffering, refill and effective-provider evidence.
+- Save a frozen voice measurement report through the document picker with bounded timing series and selected/effective backend evidence, excluding conversation text, audio and device identifiers. Correct outer-caption row spacing during fractional transitions and explain the shipped English voice and measurement boundaries.
 
 ## Kokoro GPU, NPU and recovery
 
@@ -18,6 +19,20 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 - Move deferred speech preference reads off the UI path and retain explicit cancellation origins, bounded cleanup and separate synthesis/playback ownership.
 
 Capability receipts are limited to 24 entries. Successful measurements expire after seven days and failed qualifications after six hours; clock rollback invalidates the receipt. **Compare engines on next reply** measures CPU, GPU and NPU with two phrase shapes, including preparation. **Recheck engine on next reply** explicitly retries the selected backend. Per-shape profiles identify actual accelerator and CPU participation; selecting an engine alone does not qualify it.
+
+## Setup, model routes and recovery
+
+- Distinguish saved configuration and downloaded weights from a verified complete response; guide the first chat and expose existing response checks from profile settings.
+- Show configured phone inference, recognized cloud APIs, observed Gateway routes and other network services separately. A private address or engineering Gateway binding does not establish where a different inference endpoint runs.
+- Separate requested local processors from native execution receipts. Failed, recovering and released runtimes do not display retained receipts as current readiness.
+- Explain unavailable research adapters, document text recovery and backup transfer boundaries alongside the existing controls, including credentials, model downloads and device-specific NPU packages.
+
+## Task efficiency and provider consistency
+
+- Centralize provider session creation across ordinary chat, Research, delegated work and benchmarks while preserving the selected profile, request constraints, authorization and accounting.
+- Allow explicitly Automatic preparation to avoid optional helper setup for narrowly identified greetings and short inline text transformations. Explicit helpers, reviews, Research, plans and local-first ownership retain their accepted work.
+- Keep two contributors for routine tasks only when adaptive Combined participation is already enabled; preserve explicit participants, required diversity, accepted plans and hard budgets.
+- Report elapsed effort and configured API cost per successful benchmark fixture, including unsuccessful attempts and work skipped after dispatch. Preserve unknown timing, price, retry and participant usage instead of displaying partial totals as complete costs. Expose the measurement scope and exportable evidence; these measurements do not establish real-world task quality or physical-device savings.
 
 ## Execution, GitHub and diagnostic reliability
 

@@ -32,6 +32,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceHistory
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSynthesisFeedback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -78,7 +79,7 @@ internal fun VoiceHealthObservation(history: VoicePerformanceHistory, sampleMemo
 }
 
 @Composable
-internal fun VoicePerformancePanel(history: VoicePerformanceHistory) {
+internal fun VoicePerformancePanel(history: VoicePerformanceHistory, latest: VoiceSynthesisFeedback? = null) {
     val snapshot by history.snapshots.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxWidth().testTag("voice_performance_panel"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth()) {
@@ -87,6 +88,7 @@ internal fun VoicePerformancePanel(history: VoicePerformanceHistory) {
         }
         Text("Latest 64 samples per stage · milliseconds · median / slower 95th percentile", style = MaterialTheme.typography.bodySmall)
         Text("Speech stage timings follow your local diagnostics privacy settings.", style = MaterialTheme.typography.bodySmall)
+        Text("To compare engines, use the same phrase and audio route. Reset between runs, collect a cold start and several warm turns, then save each set of measurements.", style = MaterialTheme.typography.bodySmall)
         if (snapshot.rows.none { it.metric !in setOf("frame_interval", "frame_duration", "gpu_duration") }) Text("Speak a few turns to collect speech timings. Missing measurements remain unreported.", style = MaterialTheme.typography.bodyMedium)
         snapshot.rows.forEach { row ->
             val title = metricLabel(row.metric)
@@ -103,6 +105,7 @@ internal fun VoicePerformancePanel(history: VoicePerformanceHistory) {
         Text("Capture queue: ${snapshot.captureQueueMs?.let { "$it ms" } ?: "Not measured"}", style = MaterialTheme.typography.bodySmall)
         Text("App memory: ${snapshot.processMemoryKb?.let { "${it / 1024} MB PSS" } ?: "Not measured"} · Thermal: ${thermalLabel(snapshot.thermalStatus)}", style = MaterialTheme.typography.bodySmall)
         Text("Frame and GPU durations come from Android FrameMetrics when available. Speech end uses the detector’s audio boundary, including its smoothing window. Playback timing identifies the output clock; acoustic speaker delay requires a device loopback measurement.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        VoicePerformanceExportControl(snapshot, latest)
     }
 }
 

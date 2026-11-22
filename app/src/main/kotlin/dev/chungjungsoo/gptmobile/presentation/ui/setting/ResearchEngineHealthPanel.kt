@@ -31,8 +31,16 @@ import kotlinx.coroutines.withContext
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet(), onEngineEnabled: ((String, Boolean) -> Unit)? = null) {
+internal fun ResearchEngineHealthPanel(
+    disabledEngineIds: Set<String> = emptySet(),
+    onEngineEnabled: ((String, Boolean) -> Unit)? = null,
+    onOpenSearch: (() -> Unit)? = null,
+    onOpenCitationImport: (() -> Unit)? = null
+) {
     val context = LocalContext.current
+    Text("${ResearchEngineRegistry.entries.count { it.ready }} implemented adapters · ${ResearchEngineRegistry.entries.count { !it.ready }} unavailable integrations", style = MaterialTheme.typography.titleSmall)
+    Text("An implemented adapter still needs a successful request. Useful results, readable full text and examined evidence are tracked separately.", style = MaterialTheme.typography.bodySmall)
+    onOpenSearch?.let { open -> OutlinedButton(onClick = open) { Text("Search studies to check access") } }
     var initializationRetry by remember(context) { mutableStateOf(0) }
     val initialized by produceState<Result<ResearchTelemetryStore>?>(null, context, initializationRetry) {
         value = try {
@@ -135,6 +143,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
         OutlinedButton(onClick = { confirmClear = true }) { Text("Clear research statistics") }
         OutlinedButton(onClick = { pending = !pending }) { Text(if (pending) "Hide unimplemented integrations" else "Unavailable integrations (not queued)") }
         if (pending) {
+            onOpenCitationImport?.let { open -> OutlinedButton(onClick = open) { Text("Import citations or open Google Scholar") } }
             ResearchEngineRegistry.entries.filterNot { it.ready }.forEach { engine ->
                 Text("${engine.name} · ${if (engine.id == "google_scholar") "Browser-assisted" else "Adapter not ready"}", style = MaterialTheme.typography.labelLarge)
                 Text(engine.limitation, style = MaterialTheme.typography.bodySmall)

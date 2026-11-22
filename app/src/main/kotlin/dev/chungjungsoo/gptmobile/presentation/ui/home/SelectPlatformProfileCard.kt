@@ -56,6 +56,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
+import dev.chungjungsoo.gptmobile.data.readiness.configuredInferenceRoute
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -146,6 +147,12 @@ internal fun SelectPlatformProfileCard(
                             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.testTag("privacy_profile_status_${profile.uid}"))
                         }
                         Text(profile.model, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.primary, maxLines = lines, overflow = TextOverflow.Ellipsis)
+                        val route = configuredInferenceRoute(
+                            profile.compatibleType,
+                            profile.apiUrl,
+                            gatewayIdentityObserved = gatewayAvailability?.instanceId != null && !gatewayAvailability.engineeringBinding && gatewayAvailability.gatewayProfileUid == profile.uid
+                        )
+                        Text(route.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("profile_route_${profile.uid}"))
                     }
                 }
                 insight?.compact()?.let { compact ->

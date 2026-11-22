@@ -97,7 +97,7 @@ fun settingsHomeProfileStatus(
 ): SettingsHomeProfileStatus {
     if (!enabled) return SettingsHomeProfileStatus("Disabled", "Disabled in AI Profiles", SettingsHomeTone.NEGATIVE)
     if (!modelConfigured) return SettingsHomeProfileStatus("Needs a model", "Select a model in AI Profiles", SettingsHomeTone.NEGATIVE)
-    if (last == null) return SettingsHomeProfileStatus("Not checked", "No recorded request for this model", SettingsHomeTone.UNKNOWN)
+    if (last == null) return SettingsHomeProfileStatus("Not checked", "No recorded request for this model. Choose it in New chat and send a short message.", SettingsHomeTone.UNKNOWN)
     val observedAt = last.completedAt ?: last.startedAt ?: last.createdAt
     val age = nowSeconds - observedAt
     if (age !in 0..freshSeconds) return SettingsHomeProfileStatus("Stale result", "Last update ${settingsHomeAge(observedAt, nowSeconds)}", SettingsHomeTone.STALE)

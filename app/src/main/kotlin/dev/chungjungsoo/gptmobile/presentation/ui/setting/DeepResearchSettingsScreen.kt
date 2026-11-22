@@ -275,6 +275,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                         Text("Native discovery follows permitted full-text links. Network, rate-limit and temporary memory waits keep their checkpoints. Source access refusals require an available alternate source or manual retry; they do not lower scientific reliability. Tables, figures and supplements remain unknown until inspected.")
                                         ResearchFeatureSwitch("Targeted article crawling", feature.targetedCrawl, enabled) { viewModel.editFeature(feature.copy(targetedCrawl = it)) }
                                         Text("Manual Examine does not change research depth. Provider, paper-reading, connection and cloud permissions are rechecked before dispatch. Native PDF support is capability-gated.")
+                                        Text("If an article has no readable text, provide an accessible full-text URL or paste the relevant passage in chat. A downloaded PDF alone does not establish that its tables, figures or scanned pages were read.")
                                     }
                                 }
                             }
@@ -351,7 +352,17 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                 }
                             }
                         }
-                        if (tab == 3) item { ResearchEngineHealthPanel() }
+                        if (tab == 3) {
+                            item {
+                                ResearchEngineHealthPanel(
+                                    onOpenSearch = { tab = 0 },
+                                    onOpenCitationImport = {
+                                        showImport = true
+                                        tab = 0
+                                    }
+                                )
+                            }
+                        }
                         if (tab == 1) {
                             if (newEntries > 0) {
                                 item(key = "archive-insertions") {

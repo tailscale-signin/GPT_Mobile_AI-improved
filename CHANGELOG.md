@@ -1,5 +1,9 @@
 # 0.9.66.13 — 2026-11-22
 
+- Clarify first-chat readiness, phone/cloud/network processing routes, actual local processor receipts, research adapter availability and backup recovery guidance.
+- Centralize provider session dispatch and reduce optional preparation for routine tasks only within explicitly enabled automatic/adaptive choices, preserving accepted participants, reviews and budgets.
+- Add per-success benchmark effort and configured API cost reporting with failed-attempt inclusion, immutable price evidence, explicit unknowns and exportable measurement scope.
+- Add a private numeric voice measurement export and correct fractional caption edge overlap while preserving the concurrent audio-clock and accelerator work.
 - Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.
 - Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.
 - Drive captions from monotonic presented-audio frames using validated AudioTrack timestamps with playback-head fallback; freeze progress during pause/refill, bound interpolation by accepted audio and retain route and reply-generation fences.

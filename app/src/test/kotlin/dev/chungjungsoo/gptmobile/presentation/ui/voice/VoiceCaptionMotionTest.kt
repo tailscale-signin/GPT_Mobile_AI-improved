@@ -27,6 +27,18 @@ class VoiceCaptionMotionTest {
         }
     }
 
+    @Test fun fractionalMotionKeepsNeighbouringLineBoxesFromOverlappingAtTheOuterEdge() {
+        for (step in 0..2000) {
+            val focus = step / 1000f
+            val visible = (-4..6).filter { captionLineAlpha(it - focus) > 0f }
+            visible.zipWithNext().forEach { (upper, lower) ->
+                val upperBottom = captionLineDisplacement(upper - focus) + captionLineScale(upper - focus) / 2f
+                val lowerTop = captionLineDisplacement(lower - focus) - captionLineScale(lower - focus) / 2f
+                assertTrue("Caption rows $upper and $lower overlap at $focus", upperBottom <= lowerTop + .0001f)
+            }
+        }
+    }
+
     @Test fun aLineMovesThroughIntermediatePositionsInsteadOfReplacingRows() {
         val motion = VoiceCaptionMotion(2f)
         motion.retarget(3f, 0, animate = true)

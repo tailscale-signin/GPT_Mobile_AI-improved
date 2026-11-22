@@ -26,12 +26,12 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.SpeculativeDecodingMode
+import dev.chungjungsoo.gptmobile.data.readiness.runtimeReadinessPresentation
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, section: String = "engine") {
+internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, section: String = "engine", onOpenDiagnostics: (() -> Unit)? = null) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val backend by viewModel.backend.collectAsStateWithLifecycle()
     val active by viewModel.active.collectAsStateWithLifecycle()
@@ -61,8 +61,24 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, 
             if (section == "engine") {
                 Text("Engine and processor", style = MaterialTheme.typography.titleLarge)
                 Text("${viewModel.soc} · ${viewModel.cores} CPU cores · ${viewModel.ramGb} GB RAM", style = MaterialTheme.typography.bodyMedium)
-                Text(active.engineSpec?.let { if (active.backend in setOf(LocalRuntimeBackend.GENIEX_QAIRT, LocalRuntimeBackend.GENIEX_LLAMA_CPP)) "${active.backend?.displayName} · Requested ${it.accelerator.uppercase()} · Effective processor not reported by SDK" else "${active.backend?.displayName} · Active ${it.accelerator.uppercase()} · ${it.maxTokens} context" } ?: "Engine idle", color = MaterialTheme.colorScheme.primary)
+                val readiness = runtimeReadinessPresentation(
+                    hasLoadedModel = active.engineSpec != null,
+                    engine = active.backend?.displayName,
+                    requestedProcessor = active.engineSpec?.accelerator,
+                    requestedContext = active.engineSpec?.maxTokens,
+                    lifecycle = active.lifecycle,
+                    engineHealth = active.engineHealth,
+                    loadOutcome = active.engineLoadReceipt?.outcome,
+                    observedProcessor = active.engineLoadReceipt?.actualBackend,
+                    processorAcknowledged = active.engineLoadReceipt?.nativeAcknowledgedFields?.contains("actualBackend") == true
+                )
+                Text(readiness.status, color = MaterialTheme.colorScheme.primary)
+                active.engineSpec?.modelPath?.substringAfterLast('/')?.takeIf(String::isNotBlank)?.let { Text("Model file: $it", style = MaterialTheme.typography.bodySmall) }
+                readiness.configured?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                readiness.observed?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 active.fallbackReason?.let { Text("Fallback: $it", style = MaterialTheme.typography.bodySmall) }
+                Text("Configured is your selected setup. Loaded is a prepared engine. Measured speed and reliability appear in Diagnostics.", style = MaterialTheme.typography.bodySmall)
+                onOpenDiagnostics?.let { open -> TextButton(onClick = open) { Text("View measurements and compare") } }
                 Text("The model package determines its engine. Choose a supported processor in the model profile; changing a global label cannot convert a model.", style = MaterialTheme.typography.bodySmall)
                 Text(npuStatus, style = MaterialTheme.typography.bodySmall)
                 if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) Text("GenieX preview · Import a validated .localmodel bundle. Chat only; device qualification pending.", style = MaterialTheme.typography.bodySmall)

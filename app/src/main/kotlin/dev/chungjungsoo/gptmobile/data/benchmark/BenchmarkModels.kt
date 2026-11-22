@@ -316,7 +316,8 @@ data class BenchmarkRun(
     val deadlinePolicy: String? = null,
     val structuredOutputMode: BenchmarkStructuredOutputMode? = null,
     val structuredSchemaModes: Map<String, BenchmarkStructuredOutputMode> = emptyMap(),
-    val verifiedStructuredCompatibilityKeys: Map<String, String> = emptyMap()
+    val verifiedStructuredCompatibilityKeys: Map<String, String> = emptyMap(),
+    val pricingSnapshot: BenchmarkPricingSnapshot? = null
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)

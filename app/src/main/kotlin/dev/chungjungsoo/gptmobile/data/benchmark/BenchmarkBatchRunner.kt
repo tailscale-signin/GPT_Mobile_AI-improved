@@ -16,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.pricing.ProviderPricingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.util.UUID
@@ -61,7 +62,8 @@ class BenchmarkBatchRunner @Inject constructor(
     private val runtime: LocalRuntime,
     @param:ApplicationContext private val context: Context,
     private val appAuditRunner: AppAuditRunner? = null,
-    private val auditModels: AppAuditSelectedModelServices? = null
+    private val auditModels: AppAuditSelectedModelServices? = null,
+    private val pricing: ProviderPricingRepository? = null
 ) {
     @Volatile private var child: Deferred<BenchmarkRun>? = null
 
@@ -676,30 +678,43 @@ class BenchmarkBatchRunner @Inject constructor(
 
     private fun appendDependentSkips(run: BenchmarkRun, suite: List<BenchmarkCase>, failure: BenchmarkFailure): BenchmarkRun = run.copy(samples = run.samples + suite.filter { test -> run.samples.none { it.testId == test.id } }.map { test -> BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.SKIPPED, error = failure.message, failureCategory = "SKIPPED_DEPENDENCY", failure = failure, requestDispatched = false, workload = test.workload, warmup = test.warmup, tokenBasis = ReferenceTextTokenizer.VERSION) })
 
-    private fun newRun(batch: BenchmarkBatch, item: BenchmarkQueueItem, profile: PlatformV2, planned: Int) = BenchmarkRun(
-        item.runId, profile.uid, profile.name, profile.compatibleType.name, profile.model, item.configKey,
-        profile.compatibleType == ClientType.LITERT_LM, batch.mode, System.currentTimeMillis(), finished = false,
-        suiteVersion = batch.suiteVersion, measurementVersion = batch.measurementVersion, scoringVersion = batch.scoringVersion,
-        plannedTrials = planned, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT,
-        runtimeVersion = "unreported", device = "${Build.MANUFACTURER} ${Build.MODEL}",
-        thermalBefore = thermal(), batteryBefore = battery(), engineWasLoaded = false,
-        batchId = batch.id, queueOrdinal = item.ordinal, state = "RUNNING", requestedAccelerator = if (batch.mode == BenchmarkMode.CPU_EXPERIMENT) "cpu" else profile.accelerator,
-        loadRegime = if (profile.compatibleType != ClientType.LITERT_LM) {
-            "remote_unknown"
-        } else {
-            "unverified_residency"
-        },
-        cacheRegime = if (profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec()?.cacheEnabled == true) "enabled_unknown_reuse" else "unknown",
-        delegationSettings = batch.delegationSettings?.copy(targetProfileUid = item.profile.uid), delegationPlan = batch.delegationPlan,
-        delegationSuiteVersion = if (batch.mode == BenchmarkMode.DELEGATION) if (batch.paired) 2 else 1 else 0,
-        reviewerProvider = batch.delegationReviewer?.compatibleType?.name, reviewerModel = batch.delegationReviewer?.model,
-        diagnosticMode = batch.diagnosticMode || batch.mode in setOf(BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE),
-        deadlinePolicy = if (batch.suiteVersion >= 10) "benchmark-workload-deadlines-v2" else "benchmark-request-deadline-v1",
-        executionPolicy = batch.executionPolicy, fixtureRotationSeed = batch.fixtureRotationSeed,
-        fixtureSetVersion = if (batch.suiteVersion >= 10) BenchmarkIntelligenceFixtures.VERSION else null,
-        deviceBuild = Build.FINGERPRINT.takeIf { it.isNotBlank() },
-        measurementPolicy = "benchmark-measurement-v${batch.measurementVersion}", aggregatePolicy = if (batch.suiteVersion >= 10) "benchmark-score-v6" else "benchmark-score-v5"
-    )
+    private suspend fun newRun(batch: BenchmarkBatch, item: BenchmarkQueueItem, profile: PlatformV2, planned: Int): BenchmarkRun {
+        val startedAt = System.currentTimeMillis()
+        val priceSnapshot = try {
+            val features = settings.getFeatureSettings()
+            pricing?.hydrate()
+            benchmarkPricingSnapshot(profile, features.manualPrices, pricing?.state?.value?.entries.orEmpty(), startedAt, item.configKey, batch.executionPolicy ?: BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1)
+        } catch (canceled: CancellationException) {
+            throw canceled
+        } catch (_: Exception) {
+            null
+        }
+        return BenchmarkRun(
+            item.runId, profile.uid, profile.name, profile.compatibleType.name, profile.model, item.configKey,
+            profile.compatibleType == ClientType.LITERT_LM, batch.mode, startedAt, finished = false,
+            suiteVersion = batch.suiteVersion, measurementVersion = batch.measurementVersion, scoringVersion = batch.scoringVersion,
+            plannedTrials = planned, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT,
+            runtimeVersion = "unreported", device = "${Build.MANUFACTURER} ${Build.MODEL}",
+            thermalBefore = thermal(), batteryBefore = battery(), engineWasLoaded = false,
+            batchId = batch.id, queueOrdinal = item.ordinal, state = "RUNNING", requestedAccelerator = if (batch.mode == BenchmarkMode.CPU_EXPERIMENT) "cpu" else profile.accelerator,
+            loadRegime = if (profile.compatibleType != ClientType.LITERT_LM) {
+                "remote_unknown"
+            } else {
+                "unverified_residency"
+            },
+            cacheRegime = if (profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec()?.cacheEnabled == true) "enabled_unknown_reuse" else "unknown",
+            delegationSettings = batch.delegationSettings?.copy(targetProfileUid = item.profile.uid), delegationPlan = batch.delegationPlan,
+            delegationSuiteVersion = if (batch.mode == BenchmarkMode.DELEGATION) if (batch.paired) 2 else 1 else 0,
+            reviewerProvider = batch.delegationReviewer?.compatibleType?.name, reviewerModel = batch.delegationReviewer?.model,
+            diagnosticMode = batch.diagnosticMode || batch.mode in setOf(BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE),
+            deadlinePolicy = if (batch.suiteVersion >= 10) "benchmark-workload-deadlines-v2" else "benchmark-request-deadline-v1",
+            executionPolicy = batch.executionPolicy, fixtureRotationSeed = batch.fixtureRotationSeed,
+            fixtureSetVersion = if (batch.suiteVersion >= 10) BenchmarkIntelligenceFixtures.VERSION else null,
+            deviceBuild = Build.FINGERPRINT.takeIf { it.isNotBlank() },
+            measurementPolicy = "benchmark-measurement-v${batch.measurementVersion}", aggregatePolicy = if (batch.suiteVersion >= 10) "benchmark-score-v6" else "benchmark-score-v5",
+            pricingSnapshot = priceSnapshot
+        )
+    }
 
     private suspend fun interrupt(id: String, origin: BenchmarkStopOrigin) {
         val batch = store.batch(id) ?: return

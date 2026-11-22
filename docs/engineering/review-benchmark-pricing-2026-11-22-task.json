@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "work/review-implementation-2026-11-22",
+  "base_sha": "b6417173b071d1fbecd8e831d80c0fb4cd6c2e4c",
+  "parent_pr": 2254,
+  "working_branch": "work/review-benchmark-pricing-2026-11-22",
+  "intent": "Bind benchmark rate snapshots to the existing route-scoped pricing settings and redact private price-source details from standard exports.",
+  "status": "LOCAL_IMPLEMENTATION_COMPLETE_PENDING_PARENT_INTEGRATION",
+  "requirements": [
+    {"id": "context_bound_immutable_prices", "status": "IMPLEMENTED"},
+    {"id": "private_source_export_redaction", "status": "IMPLEMENTED"},
+    {"id": "focused_behavior_validation", "status": "41_JVM_TESTS_PASSED"},
+    {"id": "canonical_fast_validation", "status": "STOPPED_GENERATED_ARCHITECTURE_INDEX_STALE_PARENT_OWNED"},
+    {"id": "full_android_validation", "status": "PENDING_PARENT_CI"}
+  ],
+  "qualification_limits": [
+    "No provider prices, invoice accuracy or physical-device result is inferred from source or host tests.",
+    "Parent worker owns generated inventories and full Android validation."
+  ]
+}

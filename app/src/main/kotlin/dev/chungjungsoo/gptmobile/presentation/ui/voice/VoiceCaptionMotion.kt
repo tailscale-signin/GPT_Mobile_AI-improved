@@ -15,7 +15,16 @@ internal fun captionLineAlpha(distance: Float): Float = when (val offset = abs(d
 /** Integrating the type scale keeps neighbouring baselines separated while their sizes change. */
 internal fun captionLineDisplacement(distance: Float): Float {
     val offset = abs(distance)
-    val magnitude = if (offset <= 2f) 2f * offset - .25f * offset * offset else 3f + offset - 2f
+    val magnitude = when {
+        offset <= 2f -> 2f * offset - .25f * offset * offset
+        offset < 3f -> {
+            // The outer type size stays at 1x. Continue the neighbouring row's
+            // half-height separation through the fractional edge transition.
+            val edge = offset - 2f
+            3f + 1.25f * edge - .25f * edge * edge
+        }
+        else -> offset + 1f
+    }
     return if (distance < 0f) -magnitude else magnitude
 }
 

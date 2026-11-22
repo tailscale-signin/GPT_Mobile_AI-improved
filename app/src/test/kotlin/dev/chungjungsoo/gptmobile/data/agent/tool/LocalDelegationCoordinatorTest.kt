@@ -20,6 +20,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalDelegationCoordinatorTest {
+    @Test fun automaticRoutinePreparationDoesNotInspectProfilesOrStartWorkers() = runTest {
+        val automatic = config.copy(
+            selectionMode = dev.chungjungsoo.gptmobile.data.delegation.WorkerSelectionMode.AUTOMATIC,
+            targetProfileUid = "",
+            deepResearch = dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings(enabled = false)
+        )
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { automatic },
+            { error("Routine automatic preparation must not inspect or load a helper") },
+            { _, _, _ -> error("Routine automatic preparation must not start a model") },
+            nowMs = { error("No preparation deadline is started for skipped work") }
+        )
+        val result = coordinator.prepare("Rewrite: Thank you for your help.", emptyList(), "routine", automatic = true)
+        assertEquals(LocalResearchOutcome.NO_RESEARCH_NEEDED, result.outcome)
+        assertEquals("", result.handoff)
+        assertEquals(0, result.pagesRead)
+    }
+
     @Test fun gatewayCompletionRepairExhaustionCannotRestartTheIdenticalChild() = runTest {
         var calls = 0
         val coordinator = LocalDelegationCoordinator(source, { config.copy(researchEnabled = false, localRetryLimit = 5, fallbackToAnotherProfile = false) }, { listOf(target) }, { _, _, _ ->

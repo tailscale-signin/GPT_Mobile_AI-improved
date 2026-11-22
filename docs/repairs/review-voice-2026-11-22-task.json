@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "2dfb90432b2981fdb3183b71883df2e3217f77d2",
+  "original_base_sha": "f225c208e80393f0232ba7849340461fd23901b9",
+  "parent_pr": 2254,
+  "working_branch": "work/review-voice-2026-11-22",
+  "intent": "Preserve the concurrent continuous-caption, 250 ms word-colour and backend-evidence implementation; correct fractional outer-row spacing and add numeric-only measurement export plus local language and qualification guidance.",
+  "status": "IMPLEMENTED_AWAITING_COMBINED_HEAD_CI",
+  "requirements": [
+    {
+      "id": "CAPTION_TRACK",
+      "title": "Preserve line identity and interpolate position, scale and opacity continuously",
+      "status": "PRESERVED_WITH_TESTED_OUTER_ROW_SPACING_CORRECTION"
+    },
+    {
+      "id": "WORD_FADE",
+      "title": "Fade each active spoken word to the theme colour over 250 ms without underline",
+      "status": "PRESERVED_FROM_CONCURRENT_IMPLEMENTATION"
+    },
+    {
+      "id": "PRESENTATION_CONTRACT",
+      "title": "Retain two-second speech-start fade, thinking-state hiding, reduced motion, manual browsing and accessible text",
+      "status": "PRESERVED_FROM_CONCURRENT_IMPLEMENTATION"
+    },
+    {
+      "id": "QUALIFICATION",
+      "title": "Expose installed language support, actual speech provider and reproducible device measurements without assuming acceleration",
+      "status": "IMPLEMENTED_WITH_FOCUSED_HOST_VALIDATION"
+    }
+  ],
+  "validation": {
+    "focused": "PASS: 41 actual-source Kotlin/JUnit tests covering caption content, layout cache, Hermite motion, word colour timing, performance history and export. Standalone Kotlin 2.4.20/JDK 21 compilation; not a full Android build.",
+    "regression": "The new fractional-motion test failed on the incoming geometry at focus 0.001, where rows -2 and -1 overlapped. It passes after the outer-row displacement correction across a 0.001-step sweep.",
+    "export": "Tests verify bounded cold/warm provider series, unknown-value nulls, arbitrary-label exclusion, reset-independent frozen capture, selected accelerator versus actual CPU fallback, and exclusion of model/runtime/device identifiers.",
+    "formatting": "PASS: ktlint 1.3.1 on all changed Kotlin files and git diff --check",
+    "fast": "BLOCKED: bash scripts/validate-local.sh fast passed CI policy then reported stale app audit source inventory due to added files. Parent integration owns inventory regeneration and final rerun.",
+    "android": "NOT_RUN: full Android toolchain unavailable in this checkout; final combined-head CI required",
+    "physical_device": "NOT_RUN: no physical ASUS phone, Qualcomm accelerator or CUDA device attached"
+  },
+  "concurrent_source_sha": "2dfb90432b2981fdb3183b71883df2e3217f77d2",
+  "concurrency": "The incoming voice implementation supplies the continuous caption track, exact 250 ms highlight, reflow/pause/return-to-live behavior and backend evidence. The independently developed duplicate was archived locally and excluded from this supplement."
+}

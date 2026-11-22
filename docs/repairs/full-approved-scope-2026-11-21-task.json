@@ -3,7 +3,7 @@
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "base_branch": "main",
   "base_sha": "9a50912fdeb0bde59a83ea32764e0b403b19e620",
-  "source_sha": "34f3e83fb2fa27ca9648a270840d8d0f610e7465",
+  "source_sha": "af50b4b2f62eeaa3e2dd2884ef0b48453b4c5d1e",
   "working_branch": "fix/offline-kokoro-release-publication-2026-11-21",
   "parent_pr": 2126,
   "intent": "Complete all 17 approved repairs and 16 conversation/intelligence improvements alongside the concurrent 21-issue patch, preserve shared-branch commits, validate, merge and publish Android 0.9.66.12 (146) and Gateway 18.1.0.",

@@ -10,6 +10,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
@@ -31,7 +32,6 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
@@ -123,30 +123,50 @@ class VoiceConversationInstrumentedTest {
         compose.onNodeWithTag("voice_profile_picker").assertIsNotEnabled()
     }
 
-    @Test fun onlyTheCenterLineHighlightsAndSilenceKeepsItsPlace() {
+    @Test fun drawnHighlightsKeepGlyphGeometryAndSilenceKeepsItsPlace() {
         val reply = "One\nTwo\nThree fish\nFour\nFive\nSix"
         val session = mutableStateOf(VoiceState(phase = VoicePhase.SPEAKING, reply = reply, spokenRange = 14..17))
-        compose.setContent { MaterialTheme { VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp)) } }
+        compose.setContent {
+            MaterialTheme(colorScheme = lightColorScheme(primary = Color.Magenta, onSurface = Color.Black)) {
+                VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp))
+            }
+        }
         fun line(value: String): TextLayoutResult {
             val results = mutableListOf<TextLayoutResult>()
             compose.onNodeWithText(value, useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
             return results.single()
         }
-        val active = line("Three fish").layoutInput
-        val mark = active.text.spanStyles.single()
-        assertEquals("fish", active.text.text.substring(mark.start, mark.end))
-        assertEquals(FontWeight.Bold, mark.item.fontWeight)
-        assertEquals(null, mark.item.textDecoration)
-        assertEquals(active.style.fontSize.value * .75f, line("Two").layoutInput.style.fontSize.value, .01f)
-        assertEquals(active.style.fontSize.value * .5f, line("One").layoutInput.style.fontSize.value, .01f)
-        compose.onNodeWithText("Six", useUnmergedTree = true).assertDoesNotExist()
+        fun bounds(value: String) = compose.onNodeWithText(value, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        fun accentPixels(): Int {
+            val image = compose.onNodeWithTag("voice_live_captions").captureToImage().asAndroidBitmap()
+            var count = 0
+            for (y in 0 until image.height) {
+                for (x in 0 until image.width) {
+                    val pixel = image.getPixel(x, y)
+                    if (android.graphics.Color.red(pixel) > 180 && android.graphics.Color.blue(pixel) > 180 && android.graphics.Color.green(pixel) < 120) count++
+                }
+            }
+            return count
+        }
+        compose.waitForIdle()
+        val focused = bounds("Three fish")
+        val geometry = line("Three fish")
+        assertEquals(focused.height * .75f, bounds("Two").height, 1f)
+        assertEquals(focused.height * .5f, bounds("One").height, 1f)
+        assertTrue("The spoken glyphs must actually draw in the theme colour", accentPixels() > 0)
+        compose.runOnIdle { session.value = session.value.copy(spokenRange = 8..12) }
+        compose.waitForIdle()
+        val movedWord = line("Three fish")
+        for (offset in "Three fish".indices) assertEquals(geometry.getBoundingBox(offset), movedWord.getBoundingBox(offset))
+        assertEquals(focused, bounds("Three fish"))
         compose.runOnIdle { session.value = session.value.copy(spokenRange = null) }
-        assertTrue(line("Three fish").layoutInput.text.spanStyles.isEmpty())
-        assertEquals(active.style.fontSize, line("Three fish").layoutInput.style.fontSize)
+        compose.waitForIdle()
+        assertEquals(0, accentPixels())
+        assertEquals(focused, bounds("Three fish"))
         compose.runOnIdle { session.value = session.value.copy(spokenRange = 19..22) }
-        assertEquals(active.style.fontSize, line("Four").layoutInput.style.fontSize)
-        assertTrue(line("Three fish").layoutInput.text.spanStyles.isEmpty())
-        compose.onNodeWithText("One", useUnmergedTree = true).assertDoesNotExist()
+        compose.waitForIdle()
+        assertEquals(focused, bounds("Four"))
+        assertTrue(accentPixels() > 0)
     }
 
     @Test fun accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing() {

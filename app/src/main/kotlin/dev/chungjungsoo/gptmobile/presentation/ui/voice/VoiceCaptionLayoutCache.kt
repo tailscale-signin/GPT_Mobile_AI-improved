@@ -1,7 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
-internal data class VoiceCaptionLine(val start: Int, val end: Int)
-
 /** Append-only text retains shaped lines; corrections rebuild from the corrected snapshot. */
 internal class VoiceCaptionLayoutCache {
     private var previous = ""
@@ -43,9 +41,4 @@ internal class VoiceCaptionWordCache {
         previous = caption.text
         return words
     }
-}
-
-internal fun List<VoiceCaptionLine>.lineForOffset(offset: Int): Int {
-    val index = binarySearchBy(offset) { it.start }
-    return (if (index >= 0) index else -index - 2).coerceIn(0, lastIndex.coerceAtLeast(0))
 }

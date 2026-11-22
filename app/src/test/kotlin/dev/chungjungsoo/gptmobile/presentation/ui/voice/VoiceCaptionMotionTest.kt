@@ -1,0 +1,185 @@
+package dev.chungjungsoo.gptmobile.presentation.ui.voice
+
+import kotlin.math.abs
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class VoiceCaptionMotionTest {
+    @Test fun theFiveSettledRowsRetainTheirTypographyAndOpacity() {
+        assertEquals(listOf(1f, 1.5f, 2f, 1.5f, 1f), (-2..2).map { captionLineScale(it.toFloat()) })
+        assertEquals(listOf(.5f, .75f, 1f, .75f, .5f), (-2..2).map { captionLineAlpha(it.toFloat()) })
+        assertEquals(listOf(-3f, -1.75f, 0f, 1.75f, 3f), (-2..2).map { captionLineDisplacement(it.toFloat()) })
+    }
+
+    @Test fun everyIntermediateFocusHasAtMostFiveVisibleLinesAndContinuousGeometry() {
+        for (step in 0..2000) {
+            val focus = step / 1000f
+            assertTrue((-4..6).count { captionLineAlpha(it - focus) > 0f } <= 5)
+            for (line in -4..6) {
+                val before = line - focus
+                val after = before + .00001f
+                assertTrue(abs(captionLineScale(before) - captionLineScale(after)) < .0001f)
+                assertTrue(abs(captionLineAlpha(before) - captionLineAlpha(after)) < .0001f)
+                assertTrue(abs(captionLineDisplacement(before) - captionLineDisplacement(after)) < .0001f)
+            }
+        }
+    }
+
+    @Test fun aLineMovesThroughIntermediatePositionsInsteadOfReplacingRows() {
+        val motion = VoiceCaptionMotion(2f)
+        motion.retarget(3f, 0, animate = true)
+        assertEquals(2f, motion.sample(0).position, 0f)
+        assertEquals(2.5f, motion.sample(160_000_000).position, .0001f)
+        assertEquals(3f, motion.sample(320_000_000).position, 0f)
+        assertEquals(0f, motion.sample(320_000_000).velocity, 0f)
+    }
+
+    @Test fun retargetingKeepsTheCurrentPositionAndVelocityAtEveryRefreshRate() {
+        for (hz in listOf(60, 90, 120, 165)) {
+            val motion = VoiceCaptionMotion(0f)
+            motion.retarget(1f, 0, animate = true)
+            val changedAt = 137_000_000L
+            val before = motion.sample(changedAt)
+            motion.retarget(4f, changedAt, animate = true)
+            assertEquals(before, motion.sample(changedAt))
+            var previous = before.position
+            for (frame in 1..hz) {
+                val current = motion.sample(changedAt + frame * 1_000_000_000L / hz).position
+                assertTrue("$hz Hz frame $frame moved backwards", current >= previous)
+                assertTrue(current <= 4f)
+                previous = current
+            }
+            assertEquals(4f, previous, 0f)
+        }
+    }
+
+    @Test fun severalSkippedLinesStillTravelInsteadOfSnapping() {
+        val motion = VoiceCaptionMotion(1f)
+        motion.retarget(8f, 1_000_000, animate = true)
+        assertEquals(1f, motion.sample(1_000_000).position, 0f)
+        assertTrue(motion.sample(100_000_000).position in 1.01f..7.99f)
+        assertEquals(8f, motion.sample(500_000_000).position, 0f)
+    }
+
+    @Test fun aPlaybackRefillFreezesTheTrajectoryAndResumesWithoutAJump() {
+        val motion = VoiceCaptionMotion(0f)
+        motion.retarget(1f, 0, animate = true)
+        motion.playing(false, 100_000_000)
+        val held = motion.sample(100_000_000)
+        assertEquals(held, motion.sample(3_000_000_000))
+        assertFalse(motion.moving(3_000_000_000))
+        motion.playing(true, 3_000_000_000)
+        assertEquals(held, motion.sample(3_000_000_000))
+        assertEquals(1f, motion.sample(3_220_000_000).position, 0f)
+    }
+
+    @Test fun manualSeekingAndReducedMotionAreImmediateAndDoNotLeaveMomentum() {
+        val motion = VoiceCaptionMotion(5f)
+        motion.retarget(6f, 0, animate = true)
+        motion.seek(2.25f, 100_000_000)
+        assertEquals(VoiceCaptionMotionSample(2.25f, 0f), motion.sample(100_000_000))
+        motion.retarget(9f, 200_000_000, animate = false)
+        assertEquals(VoiceCaptionMotionSample(9f, 0f), motion.sample(200_000_000))
+        assertFalse(motion.moving(200_000_000))
+    }
+
+    @Test fun widthReflowKeepsTheSameSourceAnchorAndFractionalReadingPosition() {
+        val before = listOf(VoiceCaptionLine(0, 10), VoiceCaptionLine(10, 20), VoiceCaptionLine(20, 30))
+        val after = listOf(VoiceCaptionLine(0, 5), VoiceCaptionLine(5, 10), VoiceCaptionLine(10, 15), VoiceCaptionLine(15, 20), VoiceCaptionLine(20, 30))
+        assertEquals(2.25f, captionReflowPosition(before, after, 1.25f), 0f)
+    }
+
+    @Test fun rtlAndEmojiSourceAnchorsSurviveAFontSizeReflow() {
+        val text = "مرحبا بالعالم 👋 مرحبا من تورونتو"
+        val first = text.indexOf(' ')
+        val emoji = text.indexOf("👋")
+        val afterEmoji = emoji + "👋 ".length
+        val tail = text.indexOf("من")
+        val before = listOf(VoiceCaptionLine(0, emoji), VoiceCaptionLine(emoji, tail), VoiceCaptionLine(tail, text.length))
+        val after = listOf(VoiceCaptionLine(0, first), VoiceCaptionLine(first + 1, emoji), VoiceCaptionLine(emoji, afterEmoji), VoiceCaptionLine(afterEmoji, tail), VoiceCaptionLine(tail, text.length))
+        val mapped = captionReflowPosition(before, after, 1.4f)
+        assertEquals(2.4f, mapped, .0001f)
+        assertEquals("👋", text.substring(after[2].start, after[2].start + 2))
+        assertFalse(text[after[2].start].isLowSurrogate())
+    }
+
+    @Test fun layoutReanchoringPreservesTheVisibleLinesRelativePositionAndVelocity() {
+        val motion = VoiceCaptionMotion(3f)
+        motion.retarget(4f, 0, animate = true)
+        val before = motion.sample(100_000_000)
+        motion.reanchor(2f)
+        val after = motion.sample(100_000_000)
+        assertEquals(4f - before.position, 6f - after.position, .0001f)
+        assertEquals(before.velocity, after.velocity, .0001f)
+    }
+
+    @Test fun aWordTakesExactly250MillisecondsToReachTheThemeColour() {
+        val highlights = VoiceCaptionHighlights()
+        highlights.update(4..8, 0, 0, animate = true)
+        assertEquals(0f, highlights.visible(0).single().colour, 0f)
+        assertEquals(.5f, highlights.visible(125_000_000).single().colour, .0001f)
+        assertEquals(.996f, highlights.visible(249_000_000).single().colour, .0001f)
+        assertEquals(1f, highlights.visible(250_000_000).single().colour, 0f)
+        assertTrue(highlights.visible(0).single().active)
+        assertFalse(highlights.animating(250_000_000))
+    }
+
+    @Test fun aShortWordFinishesItsColourEnvelopeWithoutDelayingTheNextBoldWord() {
+        val highlights = VoiceCaptionHighlights()
+        highlights.update(0..1, 0, 0, animate = true)
+        highlights.update(3..7, 100_000_000, 100_000_000, animate = true)
+        val boundary = highlights.visible(100_000_000)
+        assertEquals(listOf(3..7), boundary.filter { it.active }.map { it.range })
+        assertEquals(.4f, boundary.first { it.range == 0..1 }.colour, .0001f)
+        assertEquals(1f, highlights.visible(250_000_000).first { it.range == 0..1 }.colour, 0f)
+        assertEquals(.5f, highlights.visible(310_000_000).first { it.range == 0..1 }.colour, .0001f)
+        assertTrue(highlights.visible(370_000_000).none { it.range == 0..1 })
+        assertEquals(listOf(3..7), highlights.visible(370_000_000).filter { it.active }.map { it.range })
+    }
+
+    @Test fun repeatedTimingUpdatesDoNotRestartAWordFade() {
+        val highlights = VoiceCaptionHighlights()
+        highlights.update(2..5, 0, 0, animate = true)
+        highlights.update(2..5, 100_000_000, 100_000_000, animate = true)
+        assertEquals(1f, highlights.visible(250_000_000).single().colour, 0f)
+    }
+
+    @Test fun silenceReleasesBoldImmediatelyAndBoundsTheCosmeticTrail() {
+        val highlights = VoiceCaptionHighlights()
+        highlights.update(0..3, 0, 0, animate = true)
+        highlights.update(null, 50_000_000, 50_000_000, animate = true)
+        assertTrue(highlights.visible(50_000_000).none { it.active })
+        assertTrue(highlights.visible(370_000_000).isEmpty())
+        assertFalse(highlights.animating(370_000_000))
+    }
+
+    @Test fun aDenseCallbackBurstCannotAccumulateAnUnboundedTranscript() {
+        val highlights = VoiceCaptionHighlights()
+        repeat(1000) { highlights.update(it * 2..it * 2, 0, 0, animate = true) }
+        assertTrue(highlights.visible(10_000_000).size <= 12)
+        assertEquals(1, highlights.visible(10_000_000).count { it.active })
+    }
+
+    @Test fun reducedMotionUsesOneImmediateHighlightWithoutACosmeticTrail() {
+        val highlights = VoiceCaptionHighlights()
+        highlights.update(0..3, 0, 0, animate = false)
+        assertEquals(VoiceCaptionHighlight(0..3, true, 1f), highlights.visible(0).single())
+        highlights.update(5..8, 0, 0, animate = false)
+        assertEquals(VoiceCaptionHighlight(5..8, true, 1f), highlights.visible(0).single())
+        assertFalse(highlights.animating(0))
+    }
+
+    @Test fun wordAgeUsesMeasuredAudioAndCannotAdvancePastBufferedFrames() {
+        assertEquals(800_000_000L, captionWordOnsetNanos(1000, 5000, 1100, 4000, 1000, 900_000_000, 1_000_000_000, true))
+        assertEquals(850_000_000L, captionWordOnsetNanos(1000, 5000, 1100, 1150, 1000, 900_000_000, 1_000_000_000, true))
+        assertEquals(900_000_000L, captionWordOnsetNanos(1000, 5000, 1100, 4000, 1000, 900_000_000, 1_000_000_000, false))
+    }
+
+    @Test fun invalidOrFutureTimingNeverFabricatesAnEarlierWord() {
+        assertEquals(1_000_000_000L, captionWordOnsetNanos(1000, 5000, 900, 4000, 1000, 2_000_000_000, 1_000_000_000, true))
+        assertEquals(1_000_000_000L, captionWordOnsetNanos(1000, 1000, 1500, 4000, 1000, 900_000_000, 1_000_000_000, true))
+        assertEquals(1_000_000_000L, captionWordOnsetNanos(1000, 5000, 1500, 4000, 0, 900_000_000, 1_000_000_000, true))
+    }
+}

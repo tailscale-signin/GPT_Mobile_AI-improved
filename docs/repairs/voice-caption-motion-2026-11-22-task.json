@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_pr": 2254,
+  "source_sha": "2fb4f4434fa80ef26455d84f09e45fc425c6b629",
+  "working_branch": "work/voice-caption-motion-2026-11-22",
+  "integration_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "intent": "Implement continuous five-line voice caption movement and 250ms theme-colour word onset, preserving exact spoken ownership, manual reading, Unicode, reduced motion and current native timing evidence.",
+  "status": "IMPLEMENTED_AWAITING_ANDROID_CI",
+  "validation": {
+    "focused_host": "PASS: 31 JUnit tests (18 new motion/highlight and 13 existing caption/layout cases), compiled actual changed source with Kotlin2.4.20/JUnit4.13.2. VoiceState/VoicePhase/VoiceRecoveryAction declarations were copied verbatim from current production VoiceSession into the bounded host harness; no Android UI execution is claimed.",
+    "canonical_fast": "PASS: 603 host tests plus generated-source, metadata, dependency, regex, resource, secret and policy checks. Inventory was regenerated for the worktree; root will regenerate the combined tree.",
+    "formatting": "PASS: ktlint1.3.1 for all changed caption sources/tests; git diff --check.",
+    "android": "NOT_RUN locally: no Android SDK or Compose dependency classpath. Instrumented regression now checks actually rendered theme pixels, unchanged glyph geometry, settled row bounds and silence. Required full Android CI remains outstanding.",
+    "physical_device": "NOT_RUN: physical ROG Phone9Pro unavailable. No on-device rendering/latency or acceleration qualification is claimed."
+  },
+  "implementation": [
+    "Stable source-line identities with continuously interpolated translation, scale and opacity; maximum five positive-opacity lines.",
+    "Retargetable 240-420ms Hermite motion preserves position/velocity; pause/refill freezes movement; manual reading and source-anchor reflow retained.",
+    "250ms word colour onset and120ms cosmetic release; one active bold range; reduced-motion immediate highlight.",
+    "Cached normal/bold contextual glyph drawing preserves word advances and selection text; font-resolution changes invalidate layout, while animation frames do not reshape text.",
+    "Additive root-owned VoiceCaptionTiming contract consumed without editing session/audio producers."
+  ]
+}

@@ -63,9 +63,9 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
     }
 }
 
-internal fun captionLineScale(offset: Int): Float = 2f - kotlin.math.abs(offset) * .5f
+internal fun captionLineScale(offset: Int): Float = captionLineScale(offset.toFloat())
 
-internal fun captionLineAlpha(offset: Int): Float = 1f - kotlin.math.abs(offset) * .25f
+internal fun captionLineAlpha(offset: Int): Float = captionLineAlpha(offset.toFloat())
 
 /** Holds a fractional line while browsing. Scrolling to the end resumes the playback cursor. */
 internal data class VoiceCaptionReader(private val manualLine: Float? = null) {
@@ -74,4 +74,6 @@ internal data class VoiceCaptionReader(private val manualLine: Float? = null) {
     fun position(live: Int, last: Int): Float = (manualLine ?: live.toFloat()).coerceIn(0f, last.toFloat())
 
     fun scroll(line: Float, last: Int) = VoiceCaptionReader(line.takeIf { it < last }?.coerceAtLeast(0f))
+
+    fun reanchor(line: Float) = if (following) this else VoiceCaptionReader(line.coerceAtLeast(0f))
 }

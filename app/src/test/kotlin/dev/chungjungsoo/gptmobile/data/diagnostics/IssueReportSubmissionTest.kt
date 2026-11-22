@@ -58,6 +58,53 @@ class IssueReportSubmissionTest {
         )
     )
 
+    @Test fun voiceExecutionEvidenceWaitsForACompatibleReporterWithoutRewritingApprovedBytes() {
+        val context = IssueReportContext.fromFields(
+            "VOICE_STATE",
+            mapOf(
+                "diagnostic_area" to "VOICE", "voice_engine" to "SYSTEM",
+                "voice_selected_backend" to "QNN_GPU", "voice_effective_provider" to "SYSTEM",
+                "voice_fallback_source" to "QNN_GPU", "voice_fallback_target" to "SYSTEM",
+                "voice_fallback_outcome" to "SUCCEEDED", "voice_fallback_failure" to "ENGINE_FAILED", "voice_fallback_count" to 1
+            ),
+            1_000L
+        )
+        val approved = report.copy(context = context)
+        val payload = approved.approvedPayload()
+        val needed = requireNotNull(context.diagnostics).requiredServiceFeatures()
+        var compatible = false
+        val methods = mutableListOf<String>()
+        val posted = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            methods += request.method
+            if (request.method == "GET") {
+                assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                val readiness = buildJsonObject {
+                    put("service", "gpt-mobile-issue-reporter")
+                    put("version", 2)
+                    put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                    put("reportDiagnosticFeatures", JsonArray(needed.filter { compatible || it != VoiceExecutionDiagnostics.FEATURE }.map(::JsonPrimitive)))
+                }
+                response(request, 200, readiness.toString())
+            } else {
+                posted += body(request)
+                response(request, 200, """{"reportId":"${report.reportId}","number":1741}""")
+            }
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        val blocked = submission.send(report.reportId, payload) as IssueReportSubmission.Failure
+        assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+        assertFalse(blocked.automaticRetry)
+        assertEquals(listOf("GET"), methods)
+        assertTrue(posted.isEmpty())
+        compatible = true
+        assertEquals(IssueReportSubmission.Confirmed(1741), submission.send(report.reportId, payload))
+        assertEquals(listOf("GET", "GET", "POST"), methods)
+        assertEquals(listOf(payload), posted)
+        assertEquals(payload, approved.approvedPayload())
+    }
+
     @Test fun executionCompletionReportsWaitForCompatibleServiceAndKeepApprovedBytes() {
         val details = dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict(
             "private-record",

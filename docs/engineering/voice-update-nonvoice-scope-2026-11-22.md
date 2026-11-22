@@ -47,3 +47,11 @@ Capture line 887 reports `AgentRunCoordinator$execute$2.invokeSuspend` at 25,050
 - The capture's 339 janky frames among 49,004 sampled frames, eleven frames above 100 ms and a 334.082 ms maximum do not establish a GPU bottleneck. The maximum follows voice exit. The native/Java peaks establish memory pressure to measure; subsequent native release prevents claiming a confirmed leak from the peak alone. Device replay must compare frame timing and memory under the same voice workload after the update.
 
 Voice synthesis, caption motion/highlighting and hardware provider qualification are owned by the parallel voice implementation. No issue closures or remote publication are performed by this follow-up branch.
+
+## Voice execution evidence contract
+
+The parallel voice producer now distinguishes the selected backend from an observed effective provider and retains a fallback receipt across an engine switch. `VoiceExecutionDiagnostics.kt`, the incident capsule and authentication contract accept only closed backend/provider/source/target/outcome/failure enums and a typed fallback count in `0..100`. `SYSTEM` is a valid effective provider after Android recovery; `KOKORO` is a valid fallback source when initialization failed before a concrete execution provider was observed. Neither value certifies accelerated synthesis. No speech, raw exception, model path or provider request ID is part of these fields.
+
+The additive `VOICE_EXECUTION_EVIDENCE_V1` feature is advertised only in extended reporter readiness, leaving the legacy readiness response unchanged. Approved reports wait for that feature and reporter protocol 2 before sending their original bytes. Client round-trip and submission tests cover fallback failure retention with a `SYSTEM` engine, private/unknown values, wrong diagnostic areas, omitted evidence and compatibility negotiation.
+
+Focused validation of this addition: three actual-source Kotlin enum/count tests pass (eight tests with the provenance suite); 108 authentication contract/reporter-configuration tests and 69 authentication app tests pass. Android-backed round-trip/submission tests remain part of the integrated Android test gate.

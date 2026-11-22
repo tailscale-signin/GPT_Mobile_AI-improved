@@ -268,7 +268,7 @@ COUNTS.add("voice_install_elapsed_ms")
 FIELDS_BY_AREA["VOICE"].update(VOICE_INSTALL_EVIDENCE_FIELDS)
 
 VOICE_CAPTURE_PLAYBACK_FIELDS = {"voice_silenced_system_mic_muted", "voice_silenced_audio_mode", "voice_pronunciation_unknown_word_length", "voice_playback_audio_mode", "voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_failure_kind", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed"}
-ENUMS["voice_playback_failure"] = {"AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "AUDIO_FOCUS_TIMEOUT", "AUDIO_FOCUS_RESUME_FAILED", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED", "PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE"}
+ENUMS["voice_playback_failure"] = capsule.VOICE_PLAYBACK_FAILURES
 ENUMS["voice_pronunciation_failure_kind"] = {"UNKNOWN_WORD", "UNSUPPORTED_SCRIPT", "MISSING_LETTER"}
 ENUMS["voice_playback_audio_mode"] = {"NORMAL", "RINGTONE", "IN_CALL", "IN_COMMUNICATION", "OTHER"}
 FLAGS.add("voice_silenced_system_mic_muted")

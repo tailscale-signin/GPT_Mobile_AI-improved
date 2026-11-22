@@ -145,6 +145,7 @@ internal data class IssueReportDiagnostics(
             add("GITHUB_GRAPH_POLICY_EVIDENCE_V1")
         }
         if ((values.keys + omittedFields).any { it in voiceInstallEvidenceFields } || values["voice_install_failure"] == JsonPrimitive("WORK_NOT_FOUND")) add("VOICE_INSTALL_EVIDENCE_V1")
+        if ((values.keys + omittedFields).any { it in VoiceExecutionDiagnostics.fields }) add(VoiceExecutionDiagnostics.FEATURE)
         if ((values.keys + omittedFields + unavailableFields).any { it == "claim_extraction_validation_stage" || it == "github_prerequisite_observation" }) add("GITHUB_VALIDATION_CONTEXT_V1")
         if ("voice_playback_audio_mode" in values || "voice_playback_audio_mode" in omittedFields) add("AUDIO_FOCUS_MODE_V1")
         if ((values.keys + omittedFields).any { it in voiceCapturePlaybackFields || it in voicePackStateFields }) add("VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1")
@@ -281,7 +282,7 @@ internal data class IssueReportDiagnostics(
         internal val composerSlotFields = composerEventFields + composerAgeFields
         internal val composerTimelineFields = composerSlotFields + setOf("composer_generation", "composer_events_dropped", "composer_enabled", "composer_window_focused", "composer_lifecycle", "composer_input_mode")
         private val composerEvidenceFields = composerTimelineFields + setOf("composer_focus_transitions", "composer_ime_transitions", "composer_focused", "composer_ime_visible")
-        private val protocolTwoFields = reasoningProbeFields + composerTimelineFields + setOf("tool_budget_bytes_available", "graph_index_attempt_hash")
+        private val protocolTwoFields = reasoningProbeFields + composerTimelineFields + VoiceExecutionDiagnostics.fields + setOf("tool_budget_bytes_available", "graph_index_attempt_hash")
         private val composerEvents = setOf("ATTACHED", "DETACHED", "EDITOR_FOCUSED", "EDITOR_UNFOCUSED", "IME_VISIBLE", "IME_HIDDEN", "WINDOW_FOCUSED", "WINDOW_UNFOCUSED", "CHAT_ENABLED", "CHAT_DISABLED", "INPUT_TOUCH", "INPUT_KEYBOARD", "LIFECYCLE_CREATE", "LIFECYCLE_START", "LIFECYCLE_RESUME", "LIFECYCLE_PAUSE", "LIFECYCLE_STOP", "LIFECYCLE_DESTROY", "RELEASE_SEND", "RELEASE_SHORTCUT", "RELEASE_BACKGROUND_TAP", "RELEASE_DISABLED", "RELEASE_LIFECYCLE_STOP", "RELEASE_DISPOSE")
         private val completionEvidenceFields = setOf("empty_completion_observed_attempts", "empty_completion_reasoning_only_attempts")
         private val voicePackStateFields = setOf("voice_install_recognition_status", "voice_install_playback_status")
@@ -481,7 +482,7 @@ internal data class IssueReportDiagnostics(
             "acceptance_evidence_scope" to setOf("CURRENT_VERDICT", "RETAINED_VERDICT"),
             "voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO"),
             "voice_phase" to setOf("PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"),
-            "voice_playback_failure" to setOf("AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "AUDIO_FOCUS_TIMEOUT", "AUDIO_FOCUS_RESUME_FAILED", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED", "PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE"),
+            "voice_playback_failure" to VoiceExecutionDiagnostics.playbackFailures,
             "voice_install_recognition_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),
             "voice_install_playback_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),
             "voice_pronunciation_failure_kind" to setOf("UNKNOWN_WORD", "UNSUPPORTED_SCRIPT", "MISSING_LETTER"),

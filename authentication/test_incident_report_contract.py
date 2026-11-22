@@ -10,6 +10,53 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_voice_execution_and_original_fallback_failure_survive_system_engine_change(self):
+        values = {
+            "voice_engine": "SYSTEM", "voice_phase": "SPEAKING",
+            "voice_selected_backend": "QNN_HTP", "voice_effective_provider": "SYSTEM",
+            "voice_fallback_source": "QNN_HTP", "voice_fallback_target": "SYSTEM",
+            "voice_fallback_outcome": "SUCCEEDED", "voice_fallback_failure": "SYNTHESIS_FAILED",
+            "voice_fallback_count": 1, "voice_playback_failure": "SYNTHESIS_FAILED",
+        }
+        capture = self.capture("VOICE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        approved = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("| voice_engine | `SYSTEM` |", issue["body"])
+        self.assertIn("| voice_fallback_failure | `SYNTHESIS_FAILED` |", issue["body"])
+        self.assertIn("| voice_fallback_outcome | `SUCCEEDED` |", issue["body"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        for field in capsule.VOICE_EXECUTION_FIELDS:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {**values, field: "private speech or request-id"}))
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {field: values[field]}))
+        for field in ("speech_text", "voice_provider_request_id", "voice_native_exception"):
+            with self.subTest(field=field), self.assertRaises(ReportError):
+                issue_from_report(self.report(self.capture("VOICE", {**values, field: "private-canary"})))
+
+    def test_voice_execution_count_and_enums_are_closed_and_match_native_contract(self):
+        for field, choices in capsule.VOICE_EXECUTION_ENUMS.items():
+            for choice in choices:
+                self.assertTrue(capsule.valid_value(field, choice), (field, choice))
+            for invalid in (True, 1, None, [], {}, "private-canary"):
+                self.assertFalse(capsule.valid_value(field, invalid), (field, invalid))
+        for count in (0, 1, 100):
+            self.assertTrue(capsule.valid_value("voice_fallback_count", count))
+        for invalid in (-1, 101, "1", 1.0, True, None):
+            self.assertFalse(capsule.valid_value("voice_fallback_count", invalid))
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {"voice_fallback_count": invalid}))
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/VoiceExecutionDiagnostics.kt").read_text()
+        for field, choices in capsule.VOICE_EXECUTION_ENUMS.items():
+            if field == "voice_fallback_failure":
+                match = re.search(r"val playbackFailures = setOf\((.*?)\n    \)", source, re.S)
+            else:
+                match = re.search(r'"' + field + r'" to setOf\(([^)]+)\)', source)
+            self.assertIsNotNone(match, field)
+            self.assertEqual(choices, set(re.findall(r'"([^"\n]+)"', match.group(1))))
+
     def test_search_argument_rule_survives_submission_without_raw_query_or_exception(self):
         values = {
             "search_argument_field": "query", "search_argument_rule": "FUZZY_IDENTIFIER",

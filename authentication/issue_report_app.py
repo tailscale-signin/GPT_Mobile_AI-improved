@@ -50,6 +50,7 @@ def create_app(public_url, reporter, rate_key):
         if capabilities == "extended":
             response["reportDiagnosticFeatures"].extend([
                 "CONVERSATION_RECOVERY_DIAGNOSTICS_V1",
+                "VOICE_EXECUTION_EVIDENCE_V1",
                 "REQUEST_BYTE_BUDGET_V1",
                 "CLAIM_EXTRACTION_SCHEMA_HASH_V1",
                 "ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",

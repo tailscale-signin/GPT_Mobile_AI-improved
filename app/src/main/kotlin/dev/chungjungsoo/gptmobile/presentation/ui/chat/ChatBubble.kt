@@ -102,6 +102,7 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -146,6 +147,7 @@ internal fun shouldShowContinuePrompt(
 fun UserChatBubble(
     modifier: Modifier = Modifier,
     text: String,
+    privacyProtectedValues: List<String> = emptyList(),
     timestamp: Long? = null,
     files: List<String> = emptyList(),
     hasDetails: Boolean = false,
@@ -163,6 +165,12 @@ fun UserChatBubble(
         disabledContainerColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.38f)
     )
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
+    val protectedText = rememberPrivacyProtectedText(
+        text = remember(text) { AnnotatedString(text) },
+        surface = cardColor.containerColor,
+        values = privacyProtectedValues,
+        sourceText = text
+    )
 
     val actions = listOf(
         BubbleAction(stringResource(R.string.select_text), ImageVector.vectorResource(R.drawable.ic_select), invoke = onSelectClick),
@@ -179,7 +187,7 @@ fun UserChatBubble(
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                     Text(
-                        text = text,
+                        text = protectedText,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         style = MaterialTheme.typography.bodyMedium.copy(
                             platformStyle = PlatformTextStyle(includeFontPadding = false),
@@ -225,6 +233,7 @@ fun OpponentChatBubble(
     isLoading: Boolean,
     isError: Boolean = false,
     text: String,
+    privacyProtectedValues: List<String> = emptyList(),
     timestamp: Long? = null,
     thoughts: String = "",
     timeline: List<AssistantTimelineItem> = emptyList(),
@@ -463,6 +472,7 @@ fun OpponentChatBubble(
                     }
 
                     AssistantChronologicalContent(
+                        privacyProtectedValues = privacyProtectedValues,
                         selectedModel = agentRun?.modelSnapshot,
                         outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
                         animateResponse = debugSettings.responseAnimation && !hasFinalGitHubAnswer, timeline = contentTimeline,

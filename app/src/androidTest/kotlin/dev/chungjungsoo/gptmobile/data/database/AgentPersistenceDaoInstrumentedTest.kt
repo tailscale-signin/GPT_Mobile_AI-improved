@@ -4,9 +4,12 @@ import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest
@@ -15,6 +18,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectedRange
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt
+import dev.chungjungsoo.gptmobile.data.privacy.effectivePrivacyProtectedValues
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -39,6 +45,104 @@ class AgentPersistenceDaoInstrumentedTest {
     @After
     fun tearDown() {
         database.close()
+    }
+
+    @Test
+    fun unmaskedProfilePermanentlyRemovesTheSharedUserHighlightInEitherOrder() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val room = newChat().let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        val text = "Hello Alice"
+        val protected = PrivacyProtectionReceipt.create(text, listOf(PrivacyProtectedRange(6, 11)))
+        val unprotected = PrivacyProtectionReceipt.create(text, emptyList())
+        for (receipts in listOf(listOf(protected, unprotected), listOf(unprotected, protected))) {
+            val pending = MessageV2(
+                chatId = room.id,
+                content = text,
+                platformType = null,
+                timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, privacyProtection = PrivacyProtectionReceipt.create(text, emptyList(), confirmed = false)))
+            ).let { it.copy(id = dao.insertMessage(it).toInt()) }
+            receipts.forEach { dao.recordPrivacyProtection(pending, it) }
+            dao.recordPrivacyProtection(pending, protected)
+            val saved = requireNotNull(dao.recoveryMessage(pending.id))
+            assertEquals(text, saved.content)
+            assertTrue(saved.effectivePrivacyProtectedValues().isEmpty())
+            assertTrue(requireNotNull(saved.timeline.last().privacyProtection).confirmed)
+        }
+    }
+
+    @Test
+    fun staleUserSnapshotCannotRestoreHighlightsAfterAnUnmaskedSend() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val room = newChat().let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        val text = "Hello Alice"
+        val stale = MessageV2(
+            chatId = room.id,
+            content = text,
+            platformType = null,
+            timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, privacyProtection = PrivacyProtectionReceipt.create(text, emptyList(), confirmed = false)))
+        ).let { it.copy(id = dao.insertMessage(it).toInt()) }
+        val protected = PrivacyProtectionReceipt.create(text, listOf(PrivacyProtectedRange(6, 11)))
+        dao.recordPrivacyProtection(stale, protected)
+        assertEquals(listOf("Alice"), requireNotNull(dao.recoveryMessage(stale.id)).effectivePrivacyProtectedValues())
+        dao.recordPrivacyProtection(stale, PrivacyProtectionReceipt.create(text, emptyList()))
+
+        dao.persistAgentTurn(
+            PersistAgentTurnRequest(
+                room,
+                stale,
+                listOf(AgentRunDraft("privacy-stale-retry", "profile-1", "OPENAI", "gpt-5")),
+                mapOf("profile-1" to "gpt-5")
+            )
+        )
+        dao.recordPrivacyProtection(stale, protected)
+
+        assertTrue(requireNotNull(dao.recoveryMessage(stale.id)).effectivePrivacyProtectedValues().isEmpty())
+    }
+
+    @Test
+    fun protectionReceiptCannotAuthorizeLegacyOrEditedMessageText() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val room = newChat().let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        val original = MessageV2(chatId = room.id, content = "Hello Alice", platformType = null)
+            .let { it.copy(id = dao.insertMessage(it).toInt()) }
+        val protected = PrivacyProtectionReceipt.create(original.content, listOf(PrivacyProtectedRange(6, 11)))
+        dao.recordPrivacyProtection(original, protected)
+        assertTrue(requireNotNull(dao.recoveryMessage(original.id)).effectivePrivacyProtectedValues().isEmpty())
+
+        val pending = original.copy(timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, privacyProtection = PrivacyProtectionReceipt.create(original.content, emptyList(), confirmed = false))))
+        dao.updateMessage(pending)
+        val edited = pending.copy(content = "Hello Bob")
+        dao.updateMessage(edited)
+        dao.recordPrivacyProtection(pending, protected)
+        val saved = requireNotNull(dao.recoveryMessage(original.id))
+        assertEquals(edited.content, saved.content)
+        assertTrue(saved.effectivePrivacyProtectedValues().isEmpty())
+    }
+
+    @Test
+    fun recordingProtectionPreservesCompressedArchivedBodies() = runBlocking {
+        val dao = database.agentPersistenceDao()
+        val room = newChat().let { it.copy(id = dao.insertChatRoom(it).toInt()) }
+        val text = "Alice " + "ordinary text ".repeat(200)
+        val thoughts = "Retained reasoning ".repeat(200)
+        val storedContent = ArchivedTextCodec.encode(text)
+        val storedThoughts = ArchivedTextCodec.encode(thoughts)
+        assertTrue(storedContent.startsWith(ArchivedTextCodec.PREFIX))
+        assertTrue(storedThoughts.startsWith(ArchivedTextCodec.PREFIX))
+        val message = MessageV2(
+            chatId = room.id,
+            content = storedContent,
+            thoughts = storedThoughts,
+            platformType = "profile-1",
+            timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, privacyProtection = PrivacyProtectionReceipt.create(text, emptyList(), confirmed = false)))
+        ).let { it.copy(id = dao.insertMessage(it).toInt()) }
+
+        dao.recordPrivacyProtection(message.copy(content = text, thoughts = thoughts), PrivacyProtectionReceipt.create(text, listOf(PrivacyProtectedRange(0, 5))))
+
+        val raw = requireNotNull(dao.rawRecoveryMessage(message.id))
+        assertEquals(storedContent, raw.content)
+        assertEquals(storedThoughts, raw.thoughts)
+        assertEquals(listOf("Alice"), requireNotNull(dao.recoveryMessage(message.id)).effectivePrivacyProtectedValues())
     }
 
     @Test

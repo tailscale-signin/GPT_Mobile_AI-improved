@@ -557,6 +557,13 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    /** Legacy chats have no per-conversation evidence of Privacy Mode use. */
+    val MIGRATION_52_53 = object : Migration(52, 53) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            addColumnIfMissing(db, "chats_v2", "privacy_mode_enabled", "INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -600,7 +607,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_49_50,
         MIGRATION_50_51,
         MIGRATION_49_51,
-        MIGRATION_51_52
+        MIGRATION_51_52,
+        MIGRATION_52_53
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

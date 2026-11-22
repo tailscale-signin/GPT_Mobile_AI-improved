@@ -12,10 +12,17 @@ import kotlinx.serialization.json.Json
 internal class PrivateTextMask(private val categories: Set<PrivacyCategory>, private val privateTerms: List<String>) {
     private val prefix = "[PRIVATE_" + UUID.randomUUID().toString().replace("-", "") + "_"
     private val replacements = linkedMapOf<String, String>()
+    private val identities = PrivateIdentityDetector()
+
+    fun seedIdentities(inputs: Iterable<String>) {
+        if (PrivacyCategory.IDENTITIES in categories) identities.seed(inputs)
+    }
 
     private fun marker(value: String): String = replacements.getOrPut(value) { prefix + replacements.size + "]" }
 
-    fun protect(input: String): String {
+    fun protect(input: String): String = protectWithReceipt(input).text
+
+    fun protectWithReceipt(input: String): PrivateProtectedText {
         val hidden = BooleanArray(input.length)
         fun cover(pattern: Regex) {
             pattern.findAll(input).forEach { match ->
@@ -26,18 +33,31 @@ internal class PrivateTextMask(private val categories: Set<PrivacyCategory>, pri
             privateTerms.filter(String::isNotBlank).distinct().forEach { cover(Regex(Regex.escape(it), RegexOption.IGNORE_CASE)) }
         }
         for ((category, pattern) in patterns) if (category in categories) cover(pattern)
-        return buildString {
+        if (PrivacyCategory.IDENTITIES in categories) identities.ranges(input).forEach { hidden.fill(true, it.first, it.last + 1) }
+        val ranges = mutableListOf<PrivacyProtectedRange>()
+        val text = buildString {
             var start = 0
             while (start < input.length) {
                 var end = start + 1
                 while (end < input.length && hidden[end] == hidden[start]) end++
-                if (hidden[start]) append(marker(input.substring(start, end))) else append(input, start, end)
+                if (hidden[start]) {
+                    ranges += PrivacyProtectedRange(start, end)
+                    append(marker(input.substring(start, end)))
+                } else {
+                    append(input, start, end)
+                }
                 start = end
             }
         }
+        return PrivateProtectedText(text, PrivacyProtectionReceipt.create(input, ranges))
     }
 
     fun sealForResponse(): (String) -> String {
+        val restore = sealWithReceipts()
+        return { restore(it).text }
+    }
+
+    fun sealWithReceipts(): (String) -> PrivateProtectedText {
         val key = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key) }
         val plaintext = Json.encodeToString(replacements.keys.toList()).encodeToByteArray()
@@ -48,13 +68,31 @@ internal class PrivateTextMask(private val categories: Set<PrivacyCategory>, pri
         }
         val iv = cipher.iv
         replacements.clear()
+        identities.clear()
         val markerPattern = Regex(Regex.escape(prefix) + "(\\d+)]")
         return { answer ->
             val reader = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv)) }
             val bytes = reader.doFinal(ciphertext)
             try {
                 val values = Json.decodeFromString<List<String>>(bytes.decodeToString())
-                markerPattern.replace(answer) { it.groupValues[1].toIntOrNull()?.let(values::getOrNull) ?: it.value }
+                val ranges = mutableListOf<PrivacyProtectedRange>()
+                val restored = buildString {
+                    var previousEnd = 0
+                    markerPattern.findAll(answer).forEach { match ->
+                        append(answer, previousEnd, match.range.first)
+                        val value = match.groupValues[1].toIntOrNull()?.let(values::getOrNull)
+                        if (value == null) {
+                            append(match.value)
+                        } else {
+                            val start = length
+                            append(value)
+                            ranges += PrivacyProtectedRange(start, length)
+                        }
+                        previousEnd = match.range.last + 1
+                    }
+                    append(answer, previousEnd, answer.length)
+                }
+                PrivateProtectedText(restored, PrivacyProtectionReceipt.create(restored, ranges))
             } finally {
                 bytes.fill(0)
             }
@@ -71,7 +109,7 @@ internal class PrivateTextMask(private val categories: Set<PrivacyCategory>, pri
             PrivacyCategory.PRIVATE_DATES to Regex("""(?i)\b(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:,\s*\d{4})?)\b"""),
             PrivacyCategory.FINANCES to Regex("""(?:[$€£]\s*\d[\d,.]*|\b(?:\d[ -]?){13,19}\b|(?i:\b(?:account|iban|routing)\s*(?:number|no\.?)?\s*[:#=]?\s*[A-Z0-9-]{5,}))"""),
             PrivacyCategory.DOCUMENT_IDS to Regex("""(?i)\b(?:passport|ssn|sin|employee\s*id|patient\s*id|student\s*id|license)\s*[:#=]?\s*[\w-]+|\b\d{3}[- ]\d{2,3}[- ]\d{3,4}\b"""),
-            PrivacyCategory.HEALTH to Regex("""(?i)\b(?:diagnos(?:is|ed)|medication|allerg(?:y|ic)|pregnan(?:cy|t)|medical history|spouse|daughter|son|partner|wife|husband)\b[^\n.!?]*"""),
+            PrivacyCategory.HEALTH to Regex("""(?i)\b(?:diagnos(?:is|ed)|medication|allerg(?:y|ic)|pregnan(?:cy|t)|medical history|spouse|daughter|son|partner|wife|husband|girlfriend|boyfriend|fianc[ée]{1,2}|fiancee?|mother|father|mom|mum|dad|sister|brother)\b[^\n.!?]*"""),
             PrivacyCategory.CONFIDENTIAL_WORK to Regex("""(?i)\b(?:confidential|client|project|codename|under NDA)\s+[^.!?\n]+"""),
             PrivacyCategory.IDENTITIES to Regex("""\b[\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){1,3}\b|(?i:\b(?:my name is|named|name\s*:|call me)\s+)[\p{L}'’-]+""")
         )

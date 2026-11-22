@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_pr": 2254,
+  "source_sha": "5e4ab1ebdcc8c27110a992e982697e4071c3e5ab",
+  "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "intent": "Enforce local privacy masking for the supplied conversation, render verified locally protected words yellow, and persist privacy badges in conversation cards while preserving concurrent work.",
+  "status": "IMPLEMENTED_AWAITING_CANONICAL_ANDROID_SCHEMA_AND_CI",
+  "diagnostic_evidence": {
+    "app": "0.9.66.12 (146)",
+    "single_names": "Conversation introductions not covered by existing identity rules; all-context seeding and bounded reuse required.",
+    "wire_limit": "No raw outbound request bodies included; privacy capture flags are not proof of master mode state."
+  },
+  "validation": {
+    "host": "PASS: 605 repository host tests; 44 actual-source provider/mask/receipt tests; 10 request-context tests; 11 exact-range/Markdown-source projection tests; 5 display-value tests; additive SQLite migration probe; pinned ktlint, resources, icons, regex, CI policy, dependency provenance and whitespace. Host suites use narrow platform boundary fixtures where Android dependencies are unavailable.",
+    "android": "PENDING: canonical Android/KSP, Compose/Room/instrumented tests and complete current-head CI. Room 53 schema must be exported by the real build; generated agent metadata will follow that export.",
+    "device": "NOT_RUN"
+  },
+  "concurrent_commits_preserved": [
+    "3d672c0456abbc09318dffb69f8bb7eed11162e0",
+    "5e4ab1ebdcc8c27110a992e982697e4071c3e5ab"
+  ]
+}

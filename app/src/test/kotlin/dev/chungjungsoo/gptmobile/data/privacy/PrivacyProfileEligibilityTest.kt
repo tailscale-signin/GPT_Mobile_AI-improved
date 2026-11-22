@@ -758,4 +758,37 @@ class PrivacyProfileEligibilityTest {
         assertEquals("Send to ada@example.org.", restore(next))
         assertEquals("Other tokens [PRIVATE_1] stay intact", restore("Other tokens [PRIVATE_1] stay intact"))
     }
+
+    @Test
+    fun maskingProtectsIntroducedPartnerAndParenthesizedSelfAcrossTheRequest() {
+        val introduction = "My girlfriend Alice and I, (Sam) are dating and are looking for ideas."
+        val reference = "ALICE and Sam both enjoy museums."
+        val mask = PrivateTextMask(setOf(PrivacyCategory.IDENTITIES), emptyList())
+        mask.seedIdentities(listOf(reference, introduction))
+        val maskedReference = mask.protect(reference)
+        val maskedIntroduction = mask.protect(introduction)
+        assertFalse(maskedReference.contains("Alice", ignoreCase = true) || maskedReference.contains("Sam"))
+        assertFalse(maskedIntroduction.contains("Alice") || maskedIntroduction.contains("Sam"))
+        val restore = mask.sealForResponse()
+        assertEquals(reference, restore(maskedReference))
+        assertEquals(introduction, restore(maskedIntroduction))
+    }
+
+    @Test
+    fun disabledIdentityCategoryDoesNotLearnOrMaskIntroducedNames() {
+        val introduction = "My girlfriend Alice and I, (Sam) are dating."
+        val mask = PrivateTextMask(setOf(PrivacyCategory.CONTACTS), emptyList())
+        mask.seedIdentities(listOf(introduction))
+        assertEquals(introduction, mask.protect(introduction))
+        assertEquals("Alice and Sam", mask.protect("Alice and Sam"))
+    }
+
+    @Test
+    fun healthCategoryIncludesPartnerAndFamilyRelationshipDetails() {
+        val text = "My girlfriend is expecting a child. My brother needs care."
+        val mask = PrivateTextMask(setOf(PrivacyCategory.HEALTH), emptyList())
+        val protected = mask.protect(text)
+        assertFalse(protected.contains("expecting") || protected.contains("needs care"))
+        assertEquals(text, mask.sealForResponse()(protected))
+    }
 }

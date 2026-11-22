@@ -45,13 +45,17 @@ internal class PrivateInferenceSession(
             val state = store.snapshot()
             check(state.enabled) { "Privacy settings changed. Resend to confirm the new settings." }
             val mask = PrivateTextMask(state.categories, store.privateTerms())
+            val protection = currentCoroutineContext()[PrivateProtectionContext]
+            mask.seedIdentities(listOfNotNull(profile.systemPrompt) + turns.flatMap { listOfNotNull(it.userMessage.content, it.assistantMessage?.content) })
             val messages = buildJsonArray {
-                fun message(role: String, text: String) {
+                fun message(role: String, text: String, source: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2? = null) {
                     if (text.isNotBlank()) {
+                        val protected = mask.protectWithReceipt(text)
+                        source?.let { protection?.input(it, protected.receipt) }
                         add(
                             buildJsonObject {
                                 put("role", role)
-                                put("content", mask.protect(text))
+                                put("content", protected.text)
                             }
                         )
                     }
@@ -59,14 +63,14 @@ internal class PrivateInferenceSession(
                 profile.systemPrompt?.let { message("system", it) }
                 turns.forEach { turn ->
                     check(turn.userMessage.attachments.isEmpty() && turn.assistantMessage?.attachments.isNullOrEmpty()) { "Attachments require separate privacy verification." }
-                    message("user", turn.userMessage.content)
-                    turn.assistantMessage?.let { message("assistant", it.content) }
+                    message("user", turn.userMessage.content, turn.userMessage)
+                    turn.assistantMessage?.let { message("assistant", it.content, it) }
                 }
             }
             val preferred = constraints.outputLimit(profile.maxTokens) ?: 4096
             val limit = if (profile.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(profile).outputAllowance(preferred) else preferred
             // The response map exists only for this invocation. No plaintext mapping is persisted.
-            val restore = mask.sealForResponse()
+            val restore = mask.sealWithReceipts()
             val originalContext = currentCoroutineContext()
             val authorization = originalContext[RequestAuthorizationGuard]
             authorization?.validate?.invoke()
@@ -84,6 +88,7 @@ internal class PrivateInferenceSession(
                     requestRole = constraints.requestRole ?: "primary"
                 )
                 val wire = verifier.preparation.prepareQueued(body.toString(), config, requestModel, limit)
+                protection?.flushInputs()
                 val request = Request.Builder().url(route.url).apply {
                     if (route.kind == ClientType.ANTHROPIC) {
                         header("x-api-key", profile.token.orEmpty())
@@ -137,7 +142,9 @@ internal class PrivateInferenceSession(
                 }
                 emit(ProviderEvent.Usage(inputTokens = count("prompt_tokens", "input_tokens"), outputTokens = count("completion_tokens", "output_tokens"), totalTokens = count("total_tokens")))
             }
-            emit(ProviderEvent.TextDelta(restore(text)))
+            val restored = restore(text)
+            protection?.restored(restored)
+            emit(ProviderEvent.TextDelta(restored.text))
             emit(ProviderEvent.Completed)
         } catch (cancelled: CancellationException) {
             throw cancelled

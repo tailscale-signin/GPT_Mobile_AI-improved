@@ -61,7 +61,7 @@ class GatewayJobsMigrationTest {
         try {
             assertEquals("Keep original room", database.gatewayJobDao().localChat(7)?.title)
             assertEquals("Keep original turn", database.gatewayJobDao().localMessage(11)?.content)
-            assertEquals(51, database.openHelper.readableDatabase.version)
+            assertEquals(53, database.openHelper.readableDatabase.version)
             database.gatewayJobDao().saveMigration(GatewayMigrationRecord("verified", "checksum", 1))
             assertNotNull(database.gatewayJobDao().migration("verified"))
             database.openHelper.readableDatabase.query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'gateway_%'").use { rows -> assertTrue(rows.count >= 7) }
@@ -81,7 +81,7 @@ class GatewayJobsMigrationTest {
         }
         val db = openMigrated(name)
         try {
-            assertEquals(51, db.openHelper.readableDatabase.version)
+            assertEquals(53, db.openHelper.readableDatabase.version)
             assertEquals("retained-cursor", db.gatewayJobDao().conversation(key)?.messageCursor)
             assertTrue(requireNotNull(db.gatewayJobDao().message(key, "original")).content.length < 1000)
             val parts = mutableListOf<dev.chungjungsoo.gptmobile.data.database.entity.GatewayMessagePartRecord>()

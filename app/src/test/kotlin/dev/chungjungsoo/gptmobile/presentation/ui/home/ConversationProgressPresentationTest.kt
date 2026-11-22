@@ -14,7 +14,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import dev.chungjungsoo.gptmobile.data.chat.CompletedGeneration
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
+import dev.chungjungsoo.gptmobile.data.model.NewChatType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,6 +29,67 @@ import org.robolectric.annotation.Config
 class ConversationProgressPresentationTest {
     @get:Rule val compose = createComposeRule()
     private val progressNode = SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo)
+
+    @Test fun privacyBadgeTracksTheSavedConversationForEveryChatType() {
+        var privacyEnabled by mutableStateOf(true)
+        var type by mutableStateOf(NewChatType.SINGLE)
+        compose.setContent {
+            val room = ChatRoomV2(
+                id = 1,
+                title = "Private conversation",
+                enabledPlatform = if (type == NewChatType.MULTI_CHAT) listOf("one", "two") else listOf("one"),
+                conversationMode = if (type == NewChatType.COMBINED) ConversationMode.COMBINED else ConversationMode.STANDARD,
+                privacyModeEnabled = privacyEnabled
+            )
+            MaterialTheme {
+                ChatListItem(
+                    room,
+                    0,
+                    HomeViewModel.ChatListState(chats = listOf(room)),
+                    false,
+                    false,
+                    "Selected profile",
+                    emptyList(),
+                    isGitHub = type == NewChatType.GITHUB,
+                    isResearch = type == NewChatType.RESEARCH,
+                    onItemClick = {},
+                    onItemLongClick = {},
+                    animateStatus = false
+                )
+            }
+        }
+        NewChatType.entries.forEach { chatType ->
+            compose.runOnIdle { type = chatType }
+            val icon = compose.onNodeWithContentDescription("${chatType.title} · read", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            val badge = compose.onNodeWithTag("conversation_privacy_badge", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertTrue(badge.center.x > icon.center.x)
+            assertTrue(badge.center.y > icon.center.y)
+            compose.onNodeWithContentDescription("Privacy Mode", useUnmergedTree = true).assertExists()
+        }
+        compose.runOnIdle { privacyEnabled = false }
+        compose.onNodeWithTag("conversation_privacy_badge", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Privacy Mode", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun privacyBadgeAndGatewayConnectionRemainVisibleWithoutOverlapping() {
+        val room = ChatRoomV2(id = 1, title = "Private gateway", conversationMode = ConversationMode.GATEWAY, privacyModeEnabled = true)
+        var working by mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                ChatListItem(room, 0, HomeViewModel.ChatListState(chats = listOf(room)), working, !working, "Selected gateway", emptyList(), onItemClick = {}, onItemLongClick = {}, animateStatus = false)
+            }
+        }
+        repeat(2) {
+            val mode = compose.onNodeWithTag("gateway_conversation_mode_SINGLE", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            val cloud = compose.onNodeWithTag("gateway_conversation_cloud", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            val privacy = compose.onNodeWithTag("conversation_privacy_badge", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertTrue(cloud.bottom <= privacy.top)
+            assertTrue(privacy.center.x > mode.center.x)
+            assertTrue(privacy.center.y > mode.center.y)
+            compose.onNodeWithContentDescription("Privacy Mode", useUnmergedTree = true).assertExists()
+            compose.runOnIdle { working = false }
+        }
+    }
 
     @Test fun completionFlashesOnlyAfterVisibleActivityAndTerminalBarsDoNotReplay() {
         val complete = ConversationWorkProgress(1f, "Complete", running = false, userMessageId = 10)

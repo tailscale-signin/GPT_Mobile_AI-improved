@@ -1772,6 +1772,9 @@ class ChatRepositoryImpl(
             )
         }
         val privateMode = privacyMode?.takeIf { it.snapshot().enabled }
+        if (privateMode != null) {
+            userMessages.lastOrNull()?.chatId?.takeIf { it > 0 }?.let { agentPersistenceDao.markPrivacyModeUsed(it) }
+        }
         if (privateMode != null && (chatToolConfig?.github != null || chatToolConfig?.research?.researchToggle == true || chatToolConfig?.combined != null || stage != null || userMessages.any { it.attachments.isNotEmpty() })) {
             emit(ApiState.Error("This conversation uses an unverified tool, attachment or workflow. Choose a text chat with a verified profile.", errorCode = "PRIVACY_SERVICE_UNVERIFIED", taskOutcome = "BLOCKED"))
             emit(ApiState.Done)
@@ -1860,10 +1863,33 @@ class ChatRepositoryImpl(
         val githubProfile = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.platform(platform, features, chatToolConfig?.github)
         val githubTools = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(chatToolConfig, features, platform.uid)
         if (privateMode == null) {
+            (userMessages + completeHistory.flatten()).filter { message ->
+                message.id > 0 &&
+                    (message.timeline + message.revisions.flatMap { it.timeline }).any { item ->
+                        item.privacyProtection?.let { !it.confirmed || it.ranges.isNotEmpty() } == true
+                    }
+            }.distinctBy { it.id }.forEach { message ->
+                agentPersistenceDao.recordPrivacyProtection(message, dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(message.content, emptyList()))
+            }
             emitAll(preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, githubTools, fence, boundStage))
         } else {
             val privateTools = ChatMcpToolConfig(allToolsDisabled = true, allowAllByDefault = false, delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false))
-            emitAll(preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, privateTools, fence, boundStage).flowOn(dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn))
+            val protection = dev.chungjungsoo.gptmobile.data.privacy.PrivateProtectionContext(agentPersistenceDao::recordPrivacyProtection)
+            try {
+                emitAll(
+                    preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, privateTools, fence, boundStage)
+                        .flowOn(dev.chungjungsoo.gptmobile.data.privacy.PrivateTurn + protection)
+                        .map { state ->
+                            when (state) {
+                                is ApiState.Success -> state.copy(privacyProtection = protection.displayReceipt(state.textChunk))
+                                is ApiState.ProgressCheckpoint -> state.also { if (it.modelAuthored) protection.displayReceipt(it.text) }
+                                else -> state
+                            }
+                        }
+                )
+            } finally {
+                protection.clear()
+            }
         }
     }.withFailureBoundaryEvidence(runId, platform).withSystemOutputLineage(runId).flowOn(Dispatchers.Default)
 
@@ -7852,6 +7878,7 @@ class ChatRepositoryImpl(
             enabledPlatform = selected,
             activePlatform = selected,
             conversationMode = mode,
+            privacyModeEnabled = privacyMode?.snapshot()?.enabled == true,
             combinedPrimaryUid = primaryProfileUid?.takeIf { it in selected && mode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED }
         )
         return room.copy(id = chatRoomV2Dao.addChatRoom(room).toInt())

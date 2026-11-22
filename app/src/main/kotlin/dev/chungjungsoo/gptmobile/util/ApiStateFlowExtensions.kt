@@ -203,7 +203,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.Success -> {
-                    buffer.appendContent(chunk.textChunk, chunk.lineage)
+                    buffer.appendContent(chunk.textChunk, chunk.lineage, chunk.privacyProtection)
                     buffer.publishIfDue(onUpdate)
                 }
 
@@ -340,6 +340,8 @@ private class StreamingMessageBuffer(
     private val githubPrefixLineage = OutputLineageAccumulator()
     private val outputPublications = OutputPublicationTracker()
     private val timeline = mutableListOf<AssistantTimelineItem>()
+    private val privacyRanges = mutableListOf<dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectedRange>()
+    private var hasPrivacyReceipt = false
     private var githubProgress = false
     private var progressSequence = restoredTimeline.maxOfOrNull { it.progressSequence ?: 0L } ?: 0L
     private var githubRoundAwaitingAnswer = false
@@ -456,6 +458,8 @@ private class StreamingMessageBuffer(
         }
         contentSnapshot = null
         content.setLength(0)
+        privacyRanges.clear()
+        hasPrivacyReceipt = false
         contentLineage.reset()
         githubRoundAwaitingAnswer = false
         boundGitHubProgress()
@@ -521,7 +525,7 @@ private class StreamingMessageBuffer(
         }
     }
 
-    fun appendContent(rawChunk: String, lineage: OutputLineage = OutputLineage()) {
+    fun appendContent(rawChunk: String, lineage: OutputLineage = OutputLineage(), privacy: dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt? = null) {
         if (rawChunk.isNotEmpty() && githubRoundAwaitingAnswer) githubPrefixLineage.append(lineage)
         val effectiveLineage = if (githubRoundAwaitingAnswer) githubPrefixLineage.lineage else lineage
         val chunk = if (githubRoundAwaitingAnswer) {
@@ -537,6 +541,11 @@ private class StreamingMessageBuffer(
             replaceGitHubRoundAnswer()
             githubAnswerPrefix.setLength(0)
             contentSnapshot = null
+            if (privacy != null && privacy.confirmed && rawChunk == chunk && privacy.validFor(chunk)) {
+                hasPrivacyReceipt = true
+                val start = content.length
+                privacyRanges += privacy.ranges.map { it.copy(start = it.start + start, endExclusive = it.endExclusive + start) }
+            }
             content.append(chunk)
             fun observeOutput(text: String, owner: OutputLineage) {
                 contentLineage.append(owner)
@@ -713,6 +722,8 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         contentSnapshot = null
         content.setLength(0)
+        privacyRanges.clear()
+        hasPrivacyReceipt = false
         contentLineage.reset()
         pendingTimelineIndex = -1
         pendingTimelineText.setLength(0)
@@ -741,6 +752,8 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         contentSnapshot = null
         content.setLength(0)
+        privacyRanges.clear()
+        hasPrivacyReceipt = false
         contentLineage.reset()
         pendingTimelineIndex = -1
         pendingTimelineText.setLength(0)
@@ -797,7 +810,15 @@ private class StreamingMessageBuffer(
     ) {
         flushTimelineText()
         onOutputPublication(currentContent(), contentLineage.lineage, outputPublications.drain())
-        onUpdate(currentContent(), thoughts.toString(), timeline.toList())
+        val publishedTimeline = if (hasPrivacyReceipt) {
+            timeline + AssistantTimelineItem(
+                type = AssistantTimelineItemType.NOTICE,
+                privacyProtection = dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(currentContent(), privacyRanges)
+            )
+        } else {
+            timeline.toList()
+        }
+        onUpdate(currentContent(), thoughts.toString(), publishedTimeline)
         hasPublishedAnswer = hasPublishedAnswer || hasResponse
         publishedContentLength = content.length
         publishedThoughtLength = thoughts.length

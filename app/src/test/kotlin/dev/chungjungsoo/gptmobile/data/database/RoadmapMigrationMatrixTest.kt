@@ -26,7 +26,7 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [34])
 class RoadmapMigrationMatrixTest {
     @Test fun publishedAndIntermediateUpgradePathsPreserveConversationEvidence() = runBlocking {
-        for (version in listOf(10, 27, 28, 29, 30, 31, 32, 33, 35, 38, 39, 40, 41, 42, 43, 44, 45, 46, 51)) {
+        for (version in listOf(10, 27, 28, 29, 30, 31, 32, 33, 35, 38, 39, 40, 41, 42, 43, 44, 45, 46, 51, 52)) {
             val context = RuntimeEnvironment.getApplication()
             val name = "roadmap-migration-$version-${UUID.randomUUID()}.db"
             val file = context.getDatabasePath(name).also { it.parentFile!!.mkdirs() }
@@ -86,6 +86,7 @@ class RoadmapMigrationMatrixTest {
             try {
                 assertEquals("from v$version", "migration evidence", migrated.messageDao().loadMessages(1).first().content)
                 assertEquals("from v$version", listOf("profile"), migrated.chatRoomDao().getChatRooms().single().activePlatform)
+                assertFalse("from v$version", migrated.chatRoomDao().getChatRooms().single().privacyModeEnabled)
                 val profile = requireNotNull(migrated.platformDao().getPlatformByUid("profile"))
                 assertFalse(profile.enabled)
                 assertEquals("migration-fixture-token", profile.token)

@@ -375,8 +375,9 @@ private fun ChatMarkdownContent(
     val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
     val targetBg = SuggestionHighlightManager.HIGHLIGHT_TRANSLUCENT_BG
 
+    val privatePresentation = LocalPrivacyProtectedValues.current.isNotEmpty()
     val sourceLinkRanges = rendered.sourceLinkRanges
-    val annotator = remember(sourceLinkRanges, memoryRanges, rendered.profileIndex, provenance, wording, answerForeground, gatewaySource, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, interactionOwner, renderedDigest) {
+    val annotator = remember(privatePresentation, sourceLinkRanges, memoryRanges, rendered.profileIndex, provenance, wording, answerForeground, gatewaySource, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, interactionOwner, renderedDigest) {
         markdownAnnotator { source, child ->
             val text = source.substring(child.startOffset, child.endOffset)
             val hasMath = containsInlineMathPlaceholder(text)
@@ -388,10 +389,16 @@ private fun ChatMarkdownContent(
 
             val memorySpans = memoryRanges.filter { it.first < child.endOffset && it.last >= child.startOffset }
             val profileSpans = profileIndex.overlapping(child.startOffset, child.endOffset)
-            if (!hasSentenceHighlight && streamVisibleText != null && (answerForeground != null || profileSpans.isNotEmpty())) {
+            val outputStart = length
+            var recordedSource = false
+            val handled = if (!hasSentenceHighlight && streamVisibleText != null && (answerForeground != null || profileSpans.isNotEmpty() || privatePresentation)) {
                 appendTextWithInlineMath(this, streamVisibleText, inlineMathByPlaceholder) { from, to, outputStart ->
                     val startOffset = child.startOffset + from
                     val endOffset = child.startOffset + to
+                    if (privatePresentation && streamVisibleText == text) {
+                        addStringAnnotation(PRIVACY_VERBATIM_SOURCE, "$startOffset:$endOffset", outputStart, outputStart + to - from)
+                        recordedSource = true
+                    }
                     if (sourceLinkRanges.none { it.first < endOffset && it.last >= startOffset }) {
                         answerForeground?.let { addStyle(SpanStyle(color = it), outputStart, outputStart + to - from) }
                     }
@@ -471,6 +478,10 @@ private fun ChatMarkdownContent(
                     true
                 }
             }
+            if (privatePresentation && handled && !recordedSource && !hasMath && streamVisibleText == text && length - outputStart == text.length) {
+                addStringAnnotation(PRIVACY_VERBATIM_SOURCE, "${child.startOffset}:${child.endOffset}", outputStart, length)
+            }
+            handled
         }
     }
     val inlineContent = remember(parsed.inlineMath) {
@@ -495,7 +506,7 @@ private fun ChatMarkdownContent(
             }
         }
     }
-    val plainTextAllowed = memoryRanges.isEmpty() && provenance == null && wording == null && highlightSentence.isNullOrBlank() && inlineMathByPlaceholder.isEmpty()
+    val plainTextAllowed = !privatePresentation && memoryRanges.isEmpty() && provenance == null && wording == null && highlightSentence.isNullOrBlank() && inlineMathByPlaceholder.isEmpty()
     val components = remember(
         streaming,
         isDarkTheme,
@@ -739,7 +750,7 @@ private fun ChatMarkdownContent(
             Box(Modifier.heightIn(min = if (awaitingContent) minimumPendingHeight else 0.dp), propagateMinConstraints = true) {
                 if (formattingFailed || parserTimedOut || parserFailed) {
                     val fallbackContent = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)
-                    val fallbackSource = remember(fallbackContent) { AnnotatedString(fallbackContent) }
+                    val fallbackSource = rememberPrivacyProtectedText(remember(fallbackContent) { AnnotatedString(fallbackContent) }, sourceText = fallbackContent)
                     val fallbackPages = remember(fallbackContent) { paragraphPageRanges(fallbackContent) }
                     var visibleFallbackPages by remember(contentIdentity) { mutableIntStateOf(1) }
                     Column(modifier) {
@@ -911,7 +922,7 @@ private fun HighlightedCodeContent(
     }
 
     Text(
-        text = highlightedCode,
+        text = rememberPrivacyProtectedText(highlightedCode, MaterialTheme.colorScheme.surfaceContainerLow, sourceText = code),
         onTextLayout = rememberGitHubTextLayout("source:$sourceOffset:0", sourceOffset),
         style = style,
         softWrap = false,
@@ -1174,21 +1185,22 @@ private fun DefaultParagraph(
             }.toAnnotatedString()
         }
     }
+    val protectedAnnotated = rememberPrivacyProtectedText(annotated, sourceText = content)
     val containsImage = remember(node) {
         fun hasImage(current: org.intellij.markdown.ast.ASTNode): Boolean =
             current.type == org.intellij.markdown.MarkdownElementTypes.IMAGE || current.children.any(::hasImage)
         hasImage(node)
     }
-    val pages = remember(annotated, containsImage) {
+    val pages = remember(protectedAnnotated, containsImage) {
         // Image promotion uses offsets into the complete paragraph. Keep that
         // path intact; ordinary prose retains all inline annotations per page.
-        if (containsImage) listOf(0 until annotated.length) else paragraphPageRanges(annotated)
+        if (containsImage) listOf(0 until protectedAnnotated.length) else paragraphPageRanges(protectedAnnotated)
     }
     var visiblePages by remember(node.startOffset) { mutableIntStateOf(1) }
     Column {
         pages.take(visiblePages).forEachIndexed { index, range ->
             key(index) {
-                val page = remember(annotated, range) { annotated.subSequence(range.first, range.last + 1) }
+                val page = remember(protectedAnnotated, range) { protectedAnnotated.subSequence(range.first, range.last + 1) }
                 val reportLayout = rememberGitHubTextLayout("source:$lineOffset:$index", lineOffset + range.first, firstAppearanceAddsLines = index == 0)
                 MarkdownText(page, node, Modifier, style, onTextLayout = { result, _ -> reportLayout(result) }, sourceContent = content)
             }

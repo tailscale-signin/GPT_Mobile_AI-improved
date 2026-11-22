@@ -68,3 +68,10 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 The recorded graph regression covers 17-, 31- and 83-token probes of the exact shipped model, each with 39 QNN kernels plus CPU partitions and valid same-inference PCM/duration alignment. This mixed execution is separate from the recovery path that replaces a failed accelerator with CPU. See the [QNN graph evidence and reproduction](docs/repairs/evidence/kokoro-qnn-graph-2026-11-22/README.md) and [retained diagnostic repair ledger](docs/engineering/voice-update-nonvoice-scope-2026-11-22.md) for the measured scope and remaining device checks.
 
 The exact release commit must pass the required main workflows, artifact identity, signer and provenance verification before publication. The scoped manifest retains the existing release checks; host tests, emulator evidence and source review do not replace exact-head Android, packaging or publication verification.
+
+## Privacy visibility and local protection
+
+- Render words kept local by actual privacy substitutions in yellow, with contrast-aware foregrounds and preserved Markdown/link behavior. Store only content digests and ranges for display evidence; do not persist the replacement dictionary.
+- Show a small privacy lock at the bottom-right of each saved conversation type icon when the chat was created or used with Privacy Mode. Preserve Gateway and work indicators; Room 53 adds the saved flag without guessing historical privacy state.
+- Detect introduced single names, partner/family relationships and parenthesized self aliases, seed identity references across the whole request, and recheck privacy settings after evidence persistence and queued preparation.
+- Keep indicators conservative across retry, edits, selected revisions, mixed masking policies and later unmasked sends. The prior diagnostic export lacks raw request bodies, so historical words are not retroactively claimed to have stayed local. Automatic category detection remains heuristic; custom private terms remain available.

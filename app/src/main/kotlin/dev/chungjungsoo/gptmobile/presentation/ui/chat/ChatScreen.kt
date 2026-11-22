@@ -160,6 +160,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.UiOperationContext
 import dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
+import dev.chungjungsoo.gptmobile.data.privacy.effectivePrivacyProtectedValues
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as ModalBottomSheet
@@ -2133,6 +2134,7 @@ internal fun ChatMessagePair(
                     UserChatBubble(
                         modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
                         text = visiblePrompt,
+                        privacyProtectedValues = remember(message) { message.effectivePrivacyProtectedValues() },
                         timestamp = (message.createdAt * 1000L).takeIf { debugSettings.messageTimestamps },
                         files = message.attachments.map { it.filePathForDisplay },
                         canEdit = canUseChat && isIdle,
@@ -2300,6 +2302,7 @@ internal fun ChatMessagePair(
                         debugMemorySources = debugMemorySources,
                         showReasoning = showReasoning,
                         text = assistantContent,
+                        privacyProtectedValues = remember(selectedAssistantMessage) { selectedAssistantMessage?.effectivePrivacyProtectedValues().orEmpty() },
                         combinedManifest = selectedAssistantMessage?.effectiveCombinedManifest(),
                         originalSource = selectedSourceReader,
                         loadCombinedBlocks = loadCombinedBlocks,

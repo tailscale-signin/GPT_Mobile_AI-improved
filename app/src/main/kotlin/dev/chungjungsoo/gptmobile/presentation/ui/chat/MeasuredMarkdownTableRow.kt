@@ -44,9 +44,10 @@ internal fun MeasuredMarkdownTableRow(content: String, node: ASTNode, width: Dp,
     Row(Modifier.width(width).then(if (header) Modifier.semantics { heading() } else Modifier), verticalAlignment = Alignment.CenterVertically) {
         cells.forEachIndexed { index, cell ->
             key(index) {
+                val protectedCell = rememberPrivacyProtectedText(text[index], sourceText = content)
                 Box(Modifier.weight(1f).padding(padding)) {
                     MarkdownText(
-                        text[index],
+                        protectedCell,
                         cell,
                         Modifier,
                         style,

@@ -61,6 +61,7 @@ internal fun AssistantChronologicalContent(
     fallbackThoughts: String,
     contentIdentity: Any,
     isLoading: Boolean,
+    privacyProtectedValues: List<String> = emptyList(),
     animateResponse: Boolean = true,
     selectedModel: String? = null,
     proseColor: androidx.compose.ui.graphics.Color? = null,
@@ -170,7 +171,10 @@ internal fun AssistantChronologicalContent(
             }
             beforeAnswer()
             key(answerIdentity) {
-                CompositionLocalProvider(LocalAnswerSource provides documentSource) {
+                CompositionLocalProvider(
+                    LocalAnswerSource provides documentSource,
+                    LocalPrivacyProtectedValues provides privacyProtectedValues
+                ) {
                     if (originalSource != null) {
                         BoundedOriginalAssistantDocument(answerIdentity, originalSource, proseColor, outputTrace, articleCards)
                     } else if (combinedManifest != null) {
@@ -195,7 +199,10 @@ internal fun AssistantChronologicalContent(
                             Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         AssistantTimelineItemType.TEXT -> if (combinedManifest == null && originalSource == null) {
-                            CompositionLocalProvider(LocalAnswerSource provides item.responseSource) {
+                            CompositionLocalProvider(
+                                LocalAnswerSource provides item.responseSource,
+                                LocalPrivacyProtectedValues provides privacyProtectedValues
+                            ) {
                                 // Retain the previous committed display while the next streamed
                                 // snapshot is prepared. A message key prevents cross-message reuse.
                                 val latestBody = rememberUpdatedState(item.content to item.outputLineage)

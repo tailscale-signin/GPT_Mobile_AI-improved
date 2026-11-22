@@ -251,6 +251,35 @@ interface AgentPersistenceDao :
     @Insert
     suspend fun insertMessage(message: MessageV2): Long
 
+    @Query("UPDATE chats_v2 SET privacy_mode_enabled = 1 WHERE chat_id = :chatId AND privacy_mode_enabled = 0")
+    suspend fun markPrivacyModeUsed(chatId: Int)
+
+    /** Update evidence against the saved body, never an edited or guessed historical message. */
+    @Transaction
+    suspend fun recordPrivacyProtection(message: MessageV2, receipt: dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt) {
+        val raw = rawRecoveryMessage(message.id) ?: return
+        val saved = raw.decodedArchiveText()
+        if (saved.chatId != message.chatId || !receipt.validFor(message.content)) return
+        fun retainedTimeline(text: String, items: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>): List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem> {
+            val prior = items.lastOrNull { it.privacyProtection != null }?.privacyProtection ?: return items
+            if (!prior.validFor(text)) return items.filterNot { it.privacyProtection != null }
+            // A prepared/truncated body cannot establish new evidence for the stored original.
+            // Clearing on a mismatch is conservative when that earlier body was sent again.
+            val retained = if (text == message.content) prior.intersect(text, receipt) else dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(text, emptyList())
+            if (retained == prior) return items
+            return items.filterNot { it.privacyProtection != null } +
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    privacyProtection = retained
+                )
+        }
+        val next = saved.copy(
+            timeline = retainedTimeline(saved.content, saved.timeline),
+            revisions = saved.revisions.map { revision -> revision.copy(timeline = retainedTimeline(revision.content, revision.timeline)) }
+        )
+        if (next != saved) rawUpdateMessage(raw.copy(timeline = next.timeline, revisions = next.revisions))
+    }
+
     @Transaction
     suspend fun insertRun(run: AgentRun) = writePolicyRun(run, upsert = false)
 
@@ -1039,7 +1068,8 @@ interface AgentPersistenceDao :
                 queuedRecovery = descriptor
             }
         }
-        val pinnedRequestRoom = request.chatRoom.let { room ->
+        val pinnedRequestRoom = request.chatRoom.let { original ->
+            val room = original.copy(privacyModeEnabled = original.privacyModeEnabled || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
             if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED && room.combinedPrimaryUid == null) room.copy(combinedPrimaryUid = room.activePlatform.firstOrNull()) else room
         }
         val chatRoom = if (request.chatRoom.id == 0) {
@@ -1053,16 +1083,44 @@ interface AgentPersistenceDao :
             val roomSnapshot = (if (request.queuedPromptId == null) pinnedRequestRoom else current).let { room ->
                 if (room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED) room.copy(combinedPrimaryUid = current.combinedPrimaryUid ?: room.combinedPrimaryUid ?: room.activePlatform.firstOrNull()) else room
             }
-            val merged = roomSnapshot.copy(draftText = if (submittedDraft) null else current.draftText, draftAttachments = if (submittedDraft) "[]" else current.draftAttachments, draftUpdatedAt = if (submittedDraft) null else current.draftUpdatedAt, lastShareToken = current.lastShareToken)
+            val merged = roomSnapshot.copy(draftText = if (submittedDraft) null else current.draftText, draftAttachments = if (submittedDraft) "[]" else current.draftAttachments, draftUpdatedAt = if (submittedDraft) null else current.draftUpdatedAt, lastShareToken = current.lastShareToken, privacyModeEnabled = roomSnapshot.privacyModeEnabled || current.privacyModeEnabled || dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active())
             updateChatRoom(merged)
             merged
         }
         val userMessage = request.userMessage.copy(chatId = chatRoom.id).let { message ->
             if (message.id == 0) {
-                message.copy(id = insertMessage(message).toInt())
+                val recorded = message.copy(
+                    timeline = message.timeline.filterNot { it.privacyProtection != null } +
+                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                            type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                            privacyProtection = dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(
+                                message.content,
+                                emptyList(),
+                                confirmed = !dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
+                            )
+                        )
+                )
+                recorded.copy(id = insertMessage(recorded).toInt())
             } else {
-                updateMessage(message)
-                message
+                val saved = requireNotNull(rawRecoveryMessage(message.id)?.decodedArchiveText())
+                require(saved.chatId == chatRoom.id && saved.platformType == null) { "The saved user message changed." }
+                val evidence = if (saved.content == message.content) {
+                    saved.timeline.filter { it.privacyProtection != null }
+                } else {
+                    listOf(
+                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                            type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                            privacyProtection = dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt.create(
+                                message.content,
+                                emptyList(),
+                                confirmed = !dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.active()
+                            )
+                        )
+                    )
+                }
+                val retained = message.copy(timeline = message.timeline.filterNot { it.privacyProtection != null } + evidence)
+                updateMessage(retained)
+                retained
             }
         }
         val assistantMessages = request.runs.map { draft ->

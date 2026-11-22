@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -1297,7 +1298,8 @@ internal fun ChatListItem(
                                 isGenerating,
                                 hasUnreadResponse,
                                 animate = motionEnabled,
-                                conversationType = conversationType(chatRoom, isResearch, isGitHub)
+                                conversationType = conversationType(chatRoom, isResearch, isGitHub),
+                                privacyEnabled = chatRoom.privacyModeEnabled
                             )
                         } else {
                             ConversationModeSymbol(chatRoom, isResearch, hasUnreadResponse, isGitHub)
@@ -1326,12 +1328,17 @@ private fun ConversationModeSymbol(
     isGitHub: Boolean
 ) {
     val type = conversationType(chatRoom, isResearch, isGitHub)
-    Icon(
-        conversationTypeIcon(type, hasUnreadResponse),
-        "${type.title} · ${if (hasUnreadResponse) "unread reply" else "read"}",
-        Modifier.size(24.dp),
-        tint = MaterialTheme.colorScheme.primary
-    )
+    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+        Icon(
+            conversationTypeIcon(type, hasUnreadResponse),
+            "${type.title} · ${if (hasUnreadResponse) "unread reply" else "read"}",
+            Modifier.size(24.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        if (chatRoom.privacyModeEnabled) {
+            ConversationPrivacyBadge(Modifier.align(Alignment.BottomEnd).offset(x = 6.dp, y = 6.dp))
+        }
+    }
 }
 
 @Composable

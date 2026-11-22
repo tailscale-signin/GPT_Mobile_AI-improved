@@ -51,6 +51,8 @@ class DeepResearchDiscoveryConsentTest {
         val presets = listOf("Fast", "Brief overview", "Scientific")
         presets.forEach { compose.onNodeWithText(it).assertIsNotEnabled() }
         compose.runOnIdle { editable.value = true }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
         presets.forEach { compose.onNodeWithText(it).assertIsEnabled() }
         compose.onNodeWithText("Fast").performClick()
         compose.runOnIdle { assertEquals(ResearchIntensity.QUICK, changed?.intensity) }

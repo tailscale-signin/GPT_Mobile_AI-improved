@@ -7,8 +7,8 @@
   "reviewed_head": "7afcd240aeba55d597d0387d6d7a1afea8e30dbd",
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "intent": "Trace new features from their entry points, repair integration defects and improve their presentation.",
-  "status": "HOST_CHECKS_CURRENT_ANDROID_CI_REQUIRED",
-  "integrated_head": "459261b5b537b8eee2479927488e81e455a4c39c",
+  "status": "FOCUSED_ANDROID_AND_HOST_CHECKS_PASS_FULL_CI_PENDING",
+  "integrated_head": "87204b8667233f1d01334cdae2765d1f152d6545",
   "coverage": {
     "voice": "Caption correction, bidi shaping, five-line cursor, presented-audio timing, PCM reserve, engine selection and retest, and measurement export.",
     "chat": "Compact decision queue, response and notification ownership, draft retention, Markdown/privacy evidence projection and conversation indicators.",
@@ -20,7 +20,8 @@
     "Three caption fixtures failed on 7afcd240, including a StringIndexOutOfBoundsException. All three pass after correction.",
     "The host-inspection absence fixture returned PARTIAL before the change and OBSERVED afterward. An unavailable independent adapter observation still produces PARTIAL.",
     "Added Android regression coverage for separate queued answers, adaptive choice layout, explicit voice recheck, stable picker route and Research controls with unavailable history.",
-    "Research preset and report chips were editable while the parent editor was locked. Feature controls also accepted changes after Save captured the draft. The controls now follow editor state and the save operation uses a single draft snapshot."
+    "Research preset and report chips were editable while the parent editor was locked. Feature controls also accepted changes after Save captured the draft. The controls now follow editor state and the save operation uses a single draft snapshot.",
+    "The read-only-to-editable preset test sampled its previous semantics before the next display frame. Advancing one frame and waiting for Compose to idle verifies the same transition reproducibly."
   ],
   "host_validation": {
     "caption_junit": 41,
@@ -33,12 +34,14 @@
     "native_kokoro_ctest": 4,
     "gateway_probe_unittest": 10,
     "authentication_unittest": 200,
-    "canonical_repository_tests": 608,
+    "canonical_repository_tests": 615,
     "gateway_python_tests_passed": 1586,
     "gateway_python_tests_skipped": 31,
     "gateway_browser_bridge_js": 7,
     "kokoro_qnn_emulator_profiled_shapes": 3,
-    "kokoro_real_model_jni_integration": "passed"
+    "kokoro_real_model_jni_integration": "passed",
+    "configured_inference_route_junit": 5,
+    "focused_android_ui_and_voice_junit": 30
   },
-  "qualification": "Host JVM suites exercise production helpers with platform or data boundary fixtures where necessary. CI verifies actual Android, Compose, Room and packaged behavior. Device-specific speech processing, latency and physical Windows/phone routing require target hardware."
+  "qualification": "The 30 focused tests run the changed Compose controls, Android ViewModel, Android SharedPreferences and real Qualcomm factory selection code on Robolectric and the JVM. Unused repository, Gateway transport, telemetry and dialog decoration use isolated boundaries. The JNI integration executes the pinned model and native runtime. The QNN graph checks use an x86 emulator. Full application CI, end-to-end device behavior and physical accelerator latency require their respective targets."
 }

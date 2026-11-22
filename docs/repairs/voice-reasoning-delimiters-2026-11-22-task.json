@@ -1,0 +1,21 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "baseBranch": "voice-published-20261122",
+  "baseSha": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+  "workingBranch": "voice-reasoning-fix-20261122",
+  "intent": "Preserve the final voice answer after arbitrary-width inline code delimiters and numeric inch/feet marks inside explicit reasoning, while retaining literal-tag and per-choice protections.",
+  "status": "implemented_and_host_verified",
+  "scope": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/ReasoningTagScanner.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/GroqReasoningParserTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt"
+  ],
+  "evidence": {
+    "baseline": "Actual c29 production sources with the added regression tests: 61 tests, 6 expected failures for arbitrary-width inline backticks, same-line inline closure, and numeric inch marks in both provider parsing and voice projection.",
+    "validation": "Patched actual production-source suite: 63 tests passed. Includes every provider split and character delivery, live/replay/full-detail/rich projection prefixes, longer closing fences on the first reasoning line, and all existing literal-tag and per-choice regressions. Compiler and test JVM heaps capped at 512 MB.",
+    "ktlint": "ktlint 1.3.1 passed on all three changed Kotlin files with a 256 MB heap.",
+    "canonicalFast": "Ran bash scripts/validate-local.sh fast. CI policy passed; validation stopped at the stale generated app audit source inventory. Parent owns the combined inventory refresh and integrated canonical rerun.",
+    "integratedCanonical": "Parent regenerated both inventories after retaining concurrent dbc29, then passed616 canonical host tests,6-file pinned formatting and scoped-release validation. Parser production/test files match the independently reviewed63-test source snapshot."
+  },
+  "publication": "Local commit only; parent owns integration and release qualification."
+}

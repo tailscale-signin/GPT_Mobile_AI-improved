@@ -131,9 +131,10 @@ internal object VoiceMeasuredBackendPolicy {
         val cpu = eligible.firstOrNull { it.backend == VoiceSpeechBackend.CPU } ?: return VoiceSpeechBackend.CPU
         val accelerated = eligible.filter {
             it.backend in setOf(VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP) && it.verifiedAccelerator
-        }.minByOrNull { it.scoreMs!! } ?: return VoiceSpeechBackend.CPU
+        }.minByOrNull { it.sampleMs.sum() } ?: return VoiceSpeechBackend.CPU
         // Small/noisy differences do not justify slower graph preparation or a
-        // backend switch. Scores include graph preparation for different shapes.
-        return if (accelerated.scoreMs!! * 10 <= cpu.scoreMs!! * 9) accelerated.backend else VoiceSpeechBackend.CPU
+        // backend switch. Rounding the means could admit a smaller gain or hide the faster engine.
+        // Eligibility bounds each three-sample total to 900,000 ms, so scaling is safe.
+        return if (accelerated.sampleMs.sum() * 10 <= cpu.sampleMs.sum() * 9) accelerated.backend else VoiceSpeechBackend.CPU
     }
 }

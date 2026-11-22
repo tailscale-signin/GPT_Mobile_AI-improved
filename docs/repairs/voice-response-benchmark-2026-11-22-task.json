@@ -68,7 +68,7 @@
     "publication": "PENDING: expected-head push to draft PR2254, exact-current-head PR checks, rules-compliant merge, green main and signed Android0.9.66.13/Gateway18.1.1 publication. Final hosted gate and publication receipts belong to the PR and release workflows, not this pre-publication source snapshot."
   },
   "concurrency": "Preserved original0885 and diagnostic fea1a6 work; merged permanent conversation privacy6e788 with both scopes and instructions retained. Root compares the remote head before every ref update and merge, uses expected-head leases without force pushes, and never edits another worker checkout. Preserved concurrent MCP/read-recovery and phone-map integration commitdda6f5; voice source hashes and tested behavior remain unchanged.",
-  "integrated_remote_head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+  "integrated_remote_head": "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d",
   "feature_sources_reviewed_at": "52a6749e41e4298f0f4de6ca4a8c4ea6b1bea8d4",
   "final_results_location": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254",
   "post_integration_review": {
@@ -78,5 +78,21 @@
     "regression_evidence": "Nine parser regressions fail against ecd207; three protocol identity/ranking regressions fail before repair. New caption visual case is mandatory on both Android acceptance API levels. No local device execution or physical accelerator speed is claimed.",
     "remaining": "The separately announced acceptance-completion-70afcf89 scope must be retained and reviewed. Merge remains gated by the actual final head, then exact-main checks and signed Android/Gateway publication readback.",
     "canonical": "PASS616 canonical tests in26.714s;35 changed Kotlin files pass pinned formatting, generated inventories and Room schema history match, and all664 changed paths remain within the unchanged version/release scope. This is host validation, not hosted Android/device qualification."
+  },
+  "exact_cost_and_literal_followup": {
+    "source_base": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+    "concurrent_commits_preserved": [
+      "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+      "dbc29c55b2fdee91decdd8cbd83f8b591886fb4d"
+    ],
+    "local_reviewed_commits": [
+      "5f04d742c37973252d89e76349253dd70fa98b38",
+      "f584d551907f108e16abd212dfbfe012fe3527d6"
+    ],
+    "auto": "Exact validated three-sample totals determine accelerator ordering and the minimum ten percent benefit. Rounded display means cannot qualify a smaller improvement or choose a slower tied engine; invalid and overflowing inputs remain ineligible.",
+    "reasoning": "Arbitrary-width inline code, numeric inch marks and initial fences retain reasoning boundaries and the final answer across arbitrary stream chunks and saved/live/detail projections. Unfinished literal regions remain hidden.",
+    "validation": "PASS12 actual-source Auto policy tests, with2 baseline failures reproduced; PASS63 actual-source parser/projection/provider tests, with6 baseline failures reproduced. Pinned formatting and independent source review passed. No physical-device execution claimed.",
+    "canonical": "PASS after preserving dbc29 private-caption protection and ordinary memory-scope edits:616 canonical host tests in29.670s,6 changed Kotlin files, generated inventories,1923 literal regex patterns,36 XML files, dependency/provenance checks and scoped-release validation. Production/test sources match both independently validated agent commits. Exact-head hosted gates remain pending.",
+    "remaining": "Preserve and review the separately announced acceptance-completion-70afcf89 and GitHub/coding benchmark scopes. Exact final-head hosted checks, guarded merge, green-main checks and signed Android/Gateway publication remain mandatory."
   }
 }

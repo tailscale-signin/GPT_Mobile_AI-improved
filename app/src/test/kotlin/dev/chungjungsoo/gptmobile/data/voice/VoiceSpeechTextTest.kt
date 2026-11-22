@@ -192,6 +192,44 @@ class VoiceSpeechTextTest {
         }
     }
 
+    @Test fun arbitraryWidthInlineBackticksAndMidlineTildesCannotHideTheAnswer() {
+        for (tag in listOf("think", "thinking", "analysis", "reasoning")) {
+            for (width in listOf(3, 4, 7)) {
+                val marker = "`".repeat(width)
+                assertHiddenReasoningBoundary("Before. <$tag>Use $marker</$tag> `short` <$tag>$marker then PRIVATE_SECRET stays.</$tag>Answer.")
+                assertHiddenReasoningBoundary("Before. <$tag>Use $marker</$tag>\n${"`".repeat(width - 1)} <$tag>\n$marker then PRIVATE_SECRET stays.</$tag>Answer.")
+                assertHiddenReasoningBoundary("Before. <$tag>Use $marker</$tag>\n$marker ~~~ then PRIVATE_SECRET stays.</$tag>Answer.")
+            }
+            assertHiddenReasoningBoundary("Before. <$tag>Compare ~~~ and ~~~~; PRIVATE_SECRET stays.</$tag>Answer.")
+        }
+    }
+
+    @Test fun matchingBackticksOnTheOpeningLineDoNotCreateAnUnclosedFence() {
+        for (indent in listOf("", " ", "   ")) {
+            assertHiddenReasoningBoundary("Before. <think>\n$indent```literal </think>``` then PRIVATE_SECRET stays.</think>Answer.")
+        }
+    }
+
+    @Test fun initialReasoningFencesKeepLiteralTagsHiddenAndAcceptLongerClosingRuns() {
+        for (marker in listOf('`', '~')) {
+            for (prefix in listOf("", " ", "   ", "\n", "\n   ")) {
+                assertHiddenReasoningBoundary("Before. <think>$prefix${marker.toString().repeat(3)}xml\n</think>\n<think>\n${marker.toString().repeat(4)}\nPRIVATE_SECRET stays.</think>Answer.")
+            }
+        }
+    }
+
+    @Test fun numericInchAndFeetMarksInReasoningPreserveTheAnswerAndRealQuotes() {
+        for (body in listOf(
+            "The user means a 6\" screen and 5' shelf; PRIVATE_SECRET stays.",
+            "The dimensions are 6.5\" and 5' 11\"; PRIVATE_SECRET stays.",
+            "The panel is 3/8\" thick; PRIVATE_SECRET stays.",
+            "A 6\" mark then \"quoted </think> PRIVATE_SECRET\" remains private.",
+            "The quoted \"6\" and '5' stay PRIVATE_SECRET."
+        )) {
+            assertHiddenReasoningBoundary("Before. <think>$body</think>Answer.")
+        }
+    }
+
     @Test fun literalDetailClosingTagsCannotMoveDetailTextIntoBriefSpeech() {
         val input = "Before. <details>Use the token '</details>' in this example. More details.</details>Answer."
         assertEquals("Before. Answer.", VoiceSpeechText.project(input))
@@ -281,6 +319,20 @@ class VoiceSpeechTextTest {
         for (end in 1..input.length) {
             val partial = VoiceSpeechText.project(input.take(end), final = false, includeDetails = includeDetails)
             assertTrue("Projection revised at $end: $partial", complete.startsWith(partial))
+        }
+    }
+
+    private fun assertHiddenReasoningBoundary(input: String) {
+        val expected = "Before. Answer."
+        assertEquals(input, expected, VoiceSpeechText.project(input))
+        assertEquals(input, expected, VoiceSpeechText.project(input, includeDetails = true))
+        assertEquals(input, expected, VoiceSpeechText.withoutReasoning(input))
+        assertEquals(input, expected, VoiceSpeechText.richDetails(input))
+        assertFalse(VoiceSpeechText.hasDetails(input))
+        assertAllSnapshots(input)
+        assertProjectionPrefixes(input, includeDetails = true)
+        for (end in 1..input.length) {
+            assertTrue("rich prefix=$end input=$input", expected.startsWith(VoiceSpeechText.richDetails(input.take(end), final = false)))
         }
     }
 

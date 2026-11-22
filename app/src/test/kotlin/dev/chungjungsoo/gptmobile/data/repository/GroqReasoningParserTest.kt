@@ -221,6 +221,46 @@ class GroqReasoningParserTest {
     }
 
     @Test
+    fun `inline backticks of any width and midline tildes preserve the final answer`() {
+        for (width in listOf(3, 4, 7)) {
+            val marker = "`".repeat(width)
+            assertSeparatedAtEveryBoundary("Use $marker</think> `short` <think>$marker then PRIVATE_SECRET stays.")
+            assertSeparatedAtEveryBoundary("Use $marker</think>\n${"`".repeat(width - 1)} <think>\n$marker then PRIVATE_SECRET stays.")
+            assertSeparatedAtEveryBoundary("Use $marker</think>\n$marker ~~~ then PRIVATE_SECRET stays.")
+        }
+        assertSeparatedAtEveryBoundary("Compare the sequences ~~~ and ~~~~ before deciding; PRIVATE_SECRET stays.")
+    }
+
+    @Test
+    fun `matching backticks on the opening line form an inline span`() {
+        for (indent in listOf("", " ", "   ")) {
+            assertSeparatedAtEveryBoundary("\n$indent```literal </think>``` then PRIVATE_SECRET stays.")
+        }
+    }
+
+    @Test
+    fun `fences at the start of reasoning allow longer closing runs`() {
+        for (marker in listOf('`', '~')) {
+            for (prefix in listOf("", " ", "   ", "\n", "\n   ")) {
+                assertSeparatedAtEveryBoundary("$prefix${marker.toString().repeat(3)}xml\n</think>\n<think>\n${marker.toString().repeat(4)}\nPRIVATE_SECRET stays.")
+            }
+        }
+    }
+
+    @Test
+    fun `numeric inch and feet marks do not start quoted reasoning`() {
+        for (thought in listOf(
+            "The user means a 6\" screen and 5' shelf; PRIVATE_SECRET stays.",
+            "The dimensions are 6.5\" and 5' 11\"; PRIVATE_SECRET stays.",
+            "The panel is 3/8\" thick; PRIVATE_SECRET stays.",
+            "A 6\" mark then \"quoted </think> PRIVATE_SECRET\" remains private.",
+            "The quoted \"6\" and '5' stay PRIVATE_SECRET."
+        )) {
+            assertSeparatedAtEveryBoundary(thought)
+        }
+    }
+
+    @Test
     fun `unfinished quoted and code reasoning stays reasoning at every boundary`() {
         for (literal in listOf("\"", "'", "“", "‘", "`", "``", "```xml\n", "~~~xml\n")) {
             val thought = "${literal}literal </think> PRIVATE_SECRET"
@@ -231,6 +271,17 @@ class GroqReasoningParserTest {
                 assertTrue("split=$split input=$input", states.none { it is ApiState.Success })
                 assertEquals(thought, states.filterIsInstance<ApiState.Thinking>().joinToString("") { it.thinkingChunk })
             }
+        }
+    }
+
+    private fun assertSeparatedAtEveryBoundary(thought: String) {
+        val input = "<think>$thought</think>Answer."
+        val chunkings = (0..input.length).map { listOf(input.take(it), input.drop(it)) } + listOf(input.map(Char::toString))
+        for (chunks in chunkings) {
+            val parser = GroqReasoningParser()
+            val states = chunks.flatMap { parser.append(it) } + parser.flush()
+            assertEquals("chunks=$chunks", "Answer.", states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+            assertEquals("chunks=$chunks", thought.trim(), states.filterIsInstance<ApiState.Thinking>().joinToString("") { it.thinkingChunk })
         }
     }
 }

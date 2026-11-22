@@ -4,6 +4,7 @@
 - Improve contextual pronunciation and caption mapping for dates, times, signed quantities, units and IP addresses; add natural speech defaults and a preset without overwriting saved choices.
 - Add Quick/Full CPU, GPU and NPU speech benchmarks with identical fixtures, cold/warm timing, first PCM, real-time factor, median/p95, thermal and actual mixed-kernel evidence, cancellation, saved reports and private JSON export.
 - Preserve readable captions through the start of speech, isolate replay cursor ownership, keep literal reasoning delimiters out of answer audio, and prevent Auto from mixing incompatible comparison protocols.
+- Preserve final answers after inline code and numeric inch marks in reasoning, and enforce Auto's ten percent improvement threshold using exact measured costs.
 - Make Options enable the availability of private chats, with a separate permanent privacy choice for every profile selected in New Chat. Keep saved private chats protected when Options is disabled, across restart, retry, copy and restore; migrate existing privacy history conservatively with Room 54.
 - Preserve existing permanent privacy locks when restoring an older conversation backup, without inventing masking evidence for the restored content.
 - Protect restored voice captions until the saved conversation's privacy policy finishes loading after app restart.

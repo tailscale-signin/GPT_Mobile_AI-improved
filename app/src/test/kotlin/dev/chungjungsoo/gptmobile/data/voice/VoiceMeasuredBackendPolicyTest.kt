@@ -47,6 +47,35 @@ class VoiceMeasuredBackendPolicyTest {
         assertEquals(VoiceSpeechBackend.QNN_HTP, VoiceMeasuredBackendPolicy.choose(listOf(receipt(VoiceSpeechBackend.CPU, 100), receipt(VoiceSpeechBackend.QNN_HTP, 90)), now))
     }
 
+    @Test fun roundedMeansCannotManufactureATenPercentAdvantage() {
+        val cpu = receipt(VoiceSpeechBackend.CPU, 100).copy(sampleMs = listOf(100, 100, 99))
+        val gpu = receipt(VoiceSpeechBackend.QNN_GPU, 90)
+        assertEquals(100L, cpu.scoreMs)
+        assertEquals(90L, gpu.scoreMs)
+        // 299 -> 270 improves by less than 10%, even though the rounded means are 100 -> 90.
+        assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu, gpu), now))
+    }
+
+    @Test fun equalRoundedMeansStillChooseTheLowestCompleteWorkloadCost() {
+        val cpu = receipt(VoiceSpeechBackend.CPU, 100)
+        val gpu = receipt(VoiceSpeechBackend.QNN_GPU, 80)
+        val npu = receipt(VoiceSpeechBackend.QNN_HTP, 80).copy(sampleMs = listOf(80, 80, 79))
+        assertEquals(gpu.scoreMs, npu.scoreMs)
+        assertEquals(VoiceSpeechBackend.QNN_HTP, VoiceMeasuredBackendPolicy.choose(listOf(cpu, gpu, npu), now))
+        assertEquals(VoiceSpeechBackend.QNN_HTP, VoiceMeasuredBackendPolicy.choose(listOf(npu, gpu, cpu), now))
+    }
+
+    @Test fun exactThresholdAtTheTimingLimitRejectsOneExtraMillisecondAndOverflowingInputs() {
+        val cpu = receipt(VoiceSpeechBackend.CPU, 300_000)
+        val exact = receipt(VoiceSpeechBackend.QNN_GPU, 270_000)
+        assertEquals(VoiceSpeechBackend.QNN_GPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu, exact), now))
+        val slower = exact.copy(sampleMs = listOf(270_000, 270_000, 270_001))
+        assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu, slower), now))
+        val invalid = exact.copy(sampleMs = listOf(Long.MAX_VALUE, Long.MAX_VALUE, 2))
+        assertNull(invalid.scoreMs)
+        assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu, invalid), now))
+    }
+
     @Test fun failuresExpiredMeasurementsAndClockRollbackCannotQualify() {
         val cpu = receipt(VoiceSpeechBackend.CPU, 100)
         val fast = receipt(VoiceSpeechBackend.QNN_GPU, 10)

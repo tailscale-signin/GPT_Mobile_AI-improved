@@ -72,6 +72,7 @@
     "Keep readable preview opacity and manual caption position through the first playback timing, assign explicit new-presentation ownership to replies and replays, and reject stale cursors without requiring an observed empty frame.",
     "Keep quoted, escaped and code reasoning delimiters inside the hidden reasoning channel across saved projections and arbitrary stream splits; preserve independent parser and incomplete-tool cleanup for each choice.",
     "Bind Auto capability cache and resident engine identities to the current three-fixture workload and complete-cost scoring protocol; reject legacy pairs from current ranking while preserving explicit backend qualification.",
+    "Preserve final answers after arbitrary-width inline code and numeric inch marks in reasoning, retain initial and incomplete fence protections, and enforce Auto's ten percent improvement threshold and fastest-engine ordering using exact validated workload totals.",
     "Protect restored voice captions while the saved conversation's privacy policy is loading after process recreation. Keep the window protected for a private room and release that loading protection only after an ordinary room is known.",
     "Allow ordinary memories to move between personal and project scopes while keeping private and unshared memories permanently restricted."
   ],
@@ -610,7 +611,6 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSessionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProtectionContextTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMaskReceiptTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/rag/FactVaultIdentityRegressionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/readiness/CatalogueInvalidationPolicyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/readiness/ConfiguredInferenceRouteTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/readiness/RuntimeReadinessPresentationTest.kt",
@@ -722,6 +722,7 @@
     "docs/repairs/saved-read-delivery-proof-2026-11-22-task.json",
     "docs/repairs/voice-caption-motion-2026-11-22-task.json",
     "docs/repairs/voice-motion-acceleration-2026-11-22-task.json",
+    "docs/repairs/voice-reasoning-delimiters-2026-11-22-task.json",
     "docs/repairs/voice-response-benchmark-2026-11-22-task.json",
     "docs/repairs/voice-response-policy-2026-11-22-task.json",
     "docs/repairs/voice-speech-benchmark-2026-11-22-task.json",
@@ -762,7 +763,8 @@
     "scripts/tests/test_native_memory_smoke.py",
     "scripts/tests/test_prepare_emulator_ui.py",
     "scripts/tests/test_release_scope.py",
-    "scripts/tests/test_robolectric_provisioning.py"
+    "scripts/tests/test_robolectric_provisioning.py",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/rag/FactVaultIdentityRegressionTest.kt"
   ],
   "publicationRequest": {
     "android": "0.9.66.13",

@@ -70,12 +70,12 @@ internal fun GitHubDecisionQueue(decisions: List<GitHubChatDecision>, content: @
     Column(Modifier.fillMaxWidth().testTag("github_decision_queue")) {
         if (decisions.size > 1) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Choice ${index + 1} of ${decisions.size}", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                Text("Choice ${index + 1} of ${decisions.size}", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
                 IconButton(onClick = { selectedId = decisions[(index - 1 + decisions.size) % decisions.size].id }, modifier = Modifier.testTag("github_decision_previous")) {
-                    Icon(Icons.Rounded.ChevronLeft, "Previous choice")
+                    Icon(Icons.Rounded.ChevronLeft, "Previous choice", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(onClick = { selectedId = decisions[(index + 1) % decisions.size].id }, modifier = Modifier.testTag("github_decision_next")) {
-                    Icon(Icons.Rounded.ChevronRight, "Next choice")
+                    Icon(Icons.Rounded.ChevronRight, "Next choice", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -109,7 +109,7 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
     ) {
         Row(Modifier.fillMaxWidth().background(Brush.horizontalGradient(listOf(colors.primaryContainer, colors.tertiaryContainer))).padding(start = 14.dp, end = if (compact) 4.dp else 14.dp, top = if (compact) 0.dp else 10.dp, bottom = if (compact) 0.dp else 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Rounded.Tune, contentDescription = null, tint = colors.onPrimaryContainer)
-            Text(if (decision.answer == null) title else "Choice saved", style = MaterialTheme.typography.titleSmall, color = colors.onPrimaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
+            Text(if (decision.answer == null) title else "Choice saved", style = MaterialTheme.typography.titleSmall, color = colors.onPrimaryContainer, maxLines = if (showDetails) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
             if (compact) {
                 IconButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("github_decision_details")) {
                     Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Hide choice details" else "Show choice details", tint = colors.onPrimaryContainer)
@@ -149,7 +149,7 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
                         val optionWidth = 128.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
                         val columns = if (maxWidth >= optionWidth * 2 + 8.dp) 2 else 1
-                        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = columns) {
+                        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp), maxItemsInEachRow = columns) {
                             decision.options.forEachIndexed { index, option ->
                                 GitHubDecisionOptionButton(index, option, decision.recommended == index, false, { select(index) }, Modifier.weight(1f))
                             }
@@ -160,8 +160,12 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
                         GitHubDecisionOptionButton(index, option, decision.recommended == index, true, { select(index) }, Modifier.fillMaxWidth())
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(onClick = { custom = !custom }, modifier = Modifier.weight(1f)) { Text(if (custom) "Hide custom answer" else "Write my own answer") }
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    TextButton(onClick = { custom = !custom }) { Text(if (custom) "Hide custom answer" else "Write my own answer") }
                     if (compact) TextButton(onClick = onStop) { Text("Stop task") }
                 }
                 if (custom) {

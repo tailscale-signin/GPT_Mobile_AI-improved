@@ -9,23 +9,29 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecision
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionOption
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
@@ -79,26 +85,35 @@ class GitHubDecisionCardTest {
         compose.runOnIdle { assertEquals(listOf(question.id to "Keep it compact", second.id to "Use teal"), submitted) }
     }
 
-    @Test fun compactQueueShowsOneChoiceAndKeepsDetailsAndAllChoicesReachableAtLargeFont() {
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test
+    fun compactQueueShowsOneChoiceAndKeepsDetailsAndAllChoicesReachableAtLargeFont() {
+        val first = question.copy(question = "How should the project activity appear while a job is waiting for your decision?")
         val second = question.copy(id = "second", question = "Which colour?")
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, 1.5f)) {
                 MaterialTheme {
                     Column(Modifier.width(300.dp).verticalScroll(rememberScrollState())) {
-                        GitHubDecisionQueue(listOf(question, second)) { decision -> GitHubDecisionCard(decision, true, { _, _ -> }, {}, {}, compact = true) }
+                        GitHubDecisionQueue(listOf(first, second)) { decision -> GitHubDecisionCard(decision, true, { _, _ -> }, {}, {}, compact = true) }
                     }
                 }
             }
         }
         val firstOption = compose.onNodeWithTag("github_decision_option_0").fetchSemanticsNode()
         val secondOption = compose.onNodeWithTag("github_decision_option_1").fetchSemanticsNode()
-        org.junit.Assert.assertTrue(secondOption.positionInRoot.y >= firstOption.positionInRoot.y + firstOption.size.height)
+        assertTrue(secondOption.positionInRoot.y > firstOption.positionInRoot.y + firstOption.size.height)
+        val customAnswer = compose.onNodeWithText("Write my own answer").fetchSemanticsNode()
+        val stop = compose.onNodeWithText("Stop task").fetchSemanticsNode()
+        assertTrue(stop.positionInRoot.y >= customAnswer.positionInRoot.y + customAnswer.size.height)
         compose.onNodeWithText("Choice 1 of 2").assertExists()
         compose.onNodeWithTag("github_decision_test").assertExists()
         compose.onNodeWithTag("github_decision_second").assertDoesNotExist()
         compose.onNodeWithText(question.context).assertDoesNotExist()
         compose.onNodeWithTag("github_decision_details").performScrollTo().performClick()
         compose.onNodeWithText(question.context).assertExists()
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText(first.question).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertFalse(layouts.single().hasVisualOverflow)
         compose.onNodeWithTag("github_decision_next").performScrollTo().performClick()
         compose.onNodeWithTag("github_decision_second").assertExists()
         compose.onNodeWithTag("github_decision_test").assertDoesNotExist()

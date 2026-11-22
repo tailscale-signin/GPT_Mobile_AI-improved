@@ -41,7 +41,7 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 
 ## Execution, GitHub and diagnostic reliability
 
-- GitHub choices retain separate custom drafts as you page between them and use full-width options on narrow screens with large text. Gateway host inspection reports an observed missing firewall rule without requiring properties of an absent rule.
+- GitHub choices retain separate drafts as you page between them. On narrow screens, options and actions wrap, and expanding a choice reveals the full question. Gateway host inspection reports an observed missing firewall rule without requiring properties of an absent rule.
 - Separate immutable approval, classification and recheck records and preserve typed local persistence conflicts with safe correlation.
 - Correlate provider retry checkpoints and permit one durable bounded repair for reasoning-only or empty completions while preserving unknown-write reconciliation.
 - Issue larger exact source-page alternatives, retain path/query/branch facts through compaction, and move repeated exploration toward implementation milestones.

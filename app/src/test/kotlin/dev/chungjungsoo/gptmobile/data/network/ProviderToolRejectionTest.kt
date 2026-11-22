@@ -371,6 +371,7 @@ class ProviderToolRejectionTest {
                 val chunk = chunks.single { it.error != null }
                 assertEquals("AUTHENTICATION_FAILED", chunk.error?.code)
                 val details = requireNotNull(chunk.error?.failureDetails)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("401"), details["upstream_error_code"])
                 assertEquals(kotlinx.serialization.json.JsonPrimitive(200), details["http_status"])
                 assertEquals(kotlinx.serialization.json.JsonPrimitive("AUTHENTICATION"), details["provider_failure_kind"])
                 assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["generation_completed"])

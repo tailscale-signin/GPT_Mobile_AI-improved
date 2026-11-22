@@ -26,11 +26,9 @@ import org.junit.Before
 import org.junit.Test
 
 class GatewayDashboardClientTest {
-    @Before fun resetFixtureTransportEvidence() {
-        LocalServiceHealth.checkAgain(config.apiUrl)
-    }
-
-    @After fun clearFixtureTransportEvidence() {
+    @Before
+    @After
+    fun clearFixtureConnectionCooldown() {
         LocalServiceHealth.checkAgain(config.apiUrl)
     }
 
@@ -114,6 +112,10 @@ class GatewayDashboardClientTest {
             val results = List(12) { async { runCatching { client.readiness(config, "selected-model") } } }.awaitAll()
             assertTrue(results.all { it.exceptionOrNull() is java.net.ConnectException })
             assertEquals(3, calls)
+            client.refresh()
+            assertTrue(runCatching { client.readiness(config, "selected-model") }.exceptionOrNull() is LocalServiceUnavailableException)
+            assertEquals(3, calls)
+            // Explicit refresh rechecks this service after cache-only invalidation stays held.
             client.refresh(config)
             assertTrue(runCatching { client.readiness(config, "selected-model") }.exceptionOrNull() is java.net.ConnectException)
             assertEquals(5, calls)
@@ -139,6 +141,7 @@ class GatewayDashboardClientTest {
             client.refresh()
             assertTrue(runCatching { client.read(config) }.exceptionOrNull() is LocalServiceUnavailableException)
             assertEquals(2, calls)
+            assertEquals(1, evictions)
             client.refresh(config)
             val refreshed = List(12) { async { runCatching { client.read(config) } } }.awaitAll()
             assertTrue(refreshed.all { it.exceptionOrNull() is EOFException })

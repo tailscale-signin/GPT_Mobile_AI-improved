@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "5e4ab1ebdcc8c27110a992e982697e4071c3e5ab",
+  "parent_pr": 2254,
+  "working_branch": "work/review-ci-agent-2026-11-22",
+  "intent": "Reproduce and repair current-source provider failure identity, bounded GitHub tool schemas, policy invalidation and continuation invocation regressions without relaxing budgets or safety assertions.",
+  "status": "IMPLEMENTED_AWAITING_COMBINED_HEAD_CI",
+  "evidence": {
+    "stale_source_sha": "f225c208e80393f0232ba7849340461fd23901b9",
+    "unit_job_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/45052936588/job/137305365276",
+    "qualification": "Stale run identifies candidate failures; current source and focused reproductions are required before changes."
+  },
+  "validation": {
+    "reproduction": "Seven original failures reproduced against current base source before edits using exact extracted schema/checkpoint methods and full provider/terminal production files. Two added provider identity tests also failed before the fix.",
+    "focused": "11 focused Kotlin/JUnit contract tests passed using actual production files and exact method extraction with narrow surrounding type stubs. This is not the complete Android application test runner.",
+    "schema_constraints": "All 14 GitHub operation schemas are identical before/after when descriptive prose is excluded. Ordinary wire estimate fell from 1677 to 1516 tokens; native selected schemas plus discovery fell from 2104 to 1941. Limits remain 1600 and 2000.",
+    "cause_traversal": "Self/cycle/deep shapes retain the original exception and need 1/2/15 cause reads, respectively; no additional execution or publication introduced.",
+    "formatting": "PASS: ktlint 1.3.1 on all changed Kotlin and git diff --check.",
+    "fast": "BLOCKED: bash scripts/validate-local.sh fast passed CI policy then stopped at stale app audit source inventory. Root owns regeneration.",
+    "android": "NOT_RUN: no full local Android SDK. Existing OpenAI API, resolver, runner and verified-session integration tests remain required on combined-head CI."
+  },
+  "concurrent_source_sha": "2fa6f59fad9084e0e72b7237f4aca0b8f01275af",
+  "concurrency": "Compared the concurrent privacy/schema revision eeb2a205 and its child2fa6f59f audit-workflow change; neither changes files in this repair. Root owns integration and generated inventories.",
+  "changes": [
+    "Traverse cyclic/deep throwable causes once into a bounded identity-aware snapshot before policy, persistence and cancellation classification.",
+    "Reduce repeated model-facing GitHub description prose; retain every schema constraint, authorized operation, cursor restriction and original token budget.",
+    "Preserve typed provider stream categories, observed transport status and safe numeric upstream codes; retain only a bounded hash for unknown upstream error codes.",
+    "Restore concrete platform-settings guidance for authentication failure inside a successful HTTP stream.",
+    "Keep replay-blocked task output BLOCKED despite retained read receipts; retain exact durable receipt assertions and prohibit a completed event."
+  ]
+}

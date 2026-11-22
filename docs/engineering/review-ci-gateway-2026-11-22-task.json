@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "origin/review-pr-2254",
+  "base_sha": "5e4ab1ebdcc8c27110a992e982697e4071c3e5ab",
+  "parent_pr": 2254,
+  "working_branch": "work/review-ci-gateway-2026-11-22",
+  "intent": "Reproduce and repair Gateway admission/dashboard CI failures without weakening error, network, cancellation or retry contracts.",
+  "status": "LOCAL_FIX_VERIFIED_PENDING_PARENT_INTEGRATION",
+  "requirements": [
+    {"id": "reproduce_reported_failures", "status": "EXACT_11_FAILURES_REPRODUCED_AMONG_36_TESTS"},
+    {"id": "preserve_typed_failures_and_recovery", "status": "FIXTURE_ISOLATION_AND_EXPLICIT_RECOVERY_ASSERTED"},
+    {"id": "focused_behavior_validation", "status": "37_JVM_TESTS_PASSED"},
+    {"id": "canonical_fast_validation", "status": "PASSED_605_HOST_TESTS"},
+    {"id": "full_android_validation", "status": "PENDING_PARENT_CI"}
+  ]
+}

@@ -108,6 +108,7 @@ class GitHubContinuationInvocationTest {
         val output = events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { (it.event as? ProviderEvent.TextDelta)?.text }.joinToString("")
         assertTrue(output.contains("Status: BLOCKED. Recorded failure: `REPLAY_EVIDENCE_REQUIRED`."))
         assertFalse("A retained receipt cannot establish a partial task outcome.", output.contains("Status: PARTIAL"))
+        assertTrue(events.none { it is AgentRunEvent.Provider && it.event is ProviderEvent.Completed })
         assertTrue(output.contains("Stopped during `planning`."))
     }
 

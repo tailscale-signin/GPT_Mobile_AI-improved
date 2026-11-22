@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6591d7ee978380a13aeca6d78eea3edf40ca0a2fe383a8fd2eececb8a2ce976e",
+  "source_digest": "80b550d7713a8ab823b803b566bad10abe341984d94944ef631eb94cb5c584ff",
   "file_count": 2887,
-  "indexed_line_count": 477021,
+  "indexed_line_count": 477028,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -101,7 +101,7 @@
       "id": "network",
       "label": "Networking and readiness",
       "file_count": 108,
-      "indexed_line_count": 11067
+      "indexed_line_count": 11074
     },
     {
       "id": "github",
@@ -10245,15 +10245,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderFailure.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "762863adf8f538fd01f5db08c5c26d2b80c32980edfc639c31a827f68a77e0d3",
+      "sha256": "76f1fb18baa13d1e697f1ff73bb69a9425eb36b58b1c045a58681e916a2d5e0b",
       "indexed_lines": 77
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ProviderStreamFailure.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "dc3f6540cc565f5d5e384285adc83d35393bf8ea5914e438105f0c15bb24df49",
-      "indexed_lines": 110
+      "sha256": "9435435bad61869745290d4df4a95d883c4b655908e31bd09ac0a8001999ba5f",
+      "indexed_lines": 117
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAPI.kt",

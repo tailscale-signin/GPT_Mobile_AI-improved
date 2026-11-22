@@ -834,6 +834,10 @@ class OpenAIRecoveryTransportTest {
                         assertEquals("PROVIDER_GENERATION_FAILED", failure.errorCode)
                         assertEquals(kotlinx.serialization.json.JsonPrimitive("UNKNOWN"), failure.failureDetails?.get("provider_failure_kind"))
                         assertNull(failure.failureDetails?.get("upstream_error_code"))
+                        assertEquals(
+                            kotlinx.serialization.json.JsonPrimitive(requireNotNull(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("provider-error-code", "backend_failed"))),
+                            failure.failureDetails?.get("upstream_error_code_hash")
+                        )
                         assertFalse(failure.failureDetails?.get("requires_reconciliation") == kotlinx.serialization.json.JsonPrimitive(true))
                     }
                     assertEquals(kotlinx.serialization.json.JsonPrimitive(200), failure.failureDetails?.get("http_status"))

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "eeb2a205e7eeccc72c0d70f8609552fcbb54b384",
+  "original_base_sha": "5e4ab1ebdcc8c27110a992e982697e4071c3e5ab",
+  "parent_pr": 2254,
+  "working_branch": "work/review-ci-diagnostics-2026-11-22",
+  "intent": "Triage eleven stale-head CI failures against current staged diagnostic export, incident correlation, Room 53 migrations and Markdown source-colour contracts; preserve the concurrent privacy feature and fix actual regressions or outdated fixtures without weakening privacy, ownership, bounds or schema validation.",
+  "status": "IMPLEMENTED_PENDING_COMBINED_HEAD_CI",
+  "reported_ci": {
+    "head": "f225c208e80393f0232ba7849340461fd23901b9",
+    "run": 45052936588,
+    "job": 137305365276,
+    "assigned_failures": 11
+  },
+  "findings": [
+    "Six StagedChatDebugExport failures: the mock omitted the new thirteenth timing-collector argument, so production calls failed instead of invoking the fixture producer. Match the explicit per-stage collector and retain all export privacy, cancellation, continuation and bounds assertions.",
+    "Two GatewayJobsMigration failures: stale-head Room reached exported schema 52 but tests expected 51. Concurrent eeb2a205 advances to 53 and corrects the expected version. Preserve that change and additionally assert the workspace_records(chatId, updatedAt) index and false historical Privacy Mode default after both migration entry paths; retain complete Room validation, retained content and oversized-row checks.",
+    "GroupedAppLogs failure: causal identity is intentionally process-session scoped. Use deterministic scope expectations and add cross-session non-resolution coverage.",
+    "IssueReportIncidents failure: ExecutionCompletionDiagnostics removed ownership_fence then republished it only for local persistence, dropping the field from typed local recovery. Allow the existing bounded integer field for the typed recovery family and reject unrelated or malformed observations.",
+    "ChatMarkdownWording failure: settled literal paragraphs intentionally reuse an unstyled AnnotatedString and obtain foreground from TextStyle. Observe rendered TextLayoutResult foreground with span overrides instead of assuming every character has a span. Keep verified-source, theme-change and removed-source checks and the incoming privacy highlight renderer."
+  ],
+  "validation": {
+    "focused": "PASS: 14 Kotlin/JUnit tests for actual-source grouping/classification/correlation and ExecutionCompletionDiagnostics. Android defaults and immutable application contract declarations are isolated at copied-source host boundaries; no full Android build claimed.",
+    "regression": "ExecutionRecoveryFenceTest reproduced expected 3 versus actual null against base 5e4ab1eb, then passed after the production eligibility fix. Negative unrelated-origin and malformed integer cases pass.",
+    "sqlite": "PASS: executed actual MIGRATION_51_52 SQL and MIGRATION_52_53 column declaration on exported schema 51 with foreign keys enabled; verified retained rows, every exported schema 52 index column list and false historical privacy default. This supplements rather than substitutes for generated Room53 schema and Room validation.",
+    "formatting": "PASS: ktlint 1.3.1 on all six changed Kotlin files and git diff --check",
+    "fast": "BLOCKED: latest-base fast validation passes CI policy then stops at sync_agent_metadata because the canonical current Room53 schema export is missing from incoming eeb2a205. Parent owns KSP schema handoff and generated inventory/metadata regeneration; no gate was bypassed.",
+    "android": "NOT_RUN: no Android SDK available locally. StagedChatDebugExport, Room migration, IssueReportIncidents and Compose integration suites require final combined-head CI. Canonical Room53 JSON must be produced by KSP and its handoff gate remains mandatory."
+  }
+}

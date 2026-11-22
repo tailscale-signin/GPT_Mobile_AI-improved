@@ -8,7 +8,7 @@
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "integration_branch": "work/review-implementation-2026-11-22",
   "intent": "Implement the actionable repository review improvements and publish verified Android and Gateway releases from the existing shared PR while preserving concurrent changes.",
-  "status": "READY_FOR_DRAFT_PR_CI",
+  "status": "CI_REPAIRS_LOCALLY_VERIFIED_PENDING_FULL_ANDROID",
   "requirements": [
     {
       "id": "recovery",
@@ -51,7 +51,7 @@
     "No physical-phone latency, acoustic, battery, or accelerator result may be inferred from source or host tests.",
     "External providers, compatible runtime packages and Windows signing credentials retain their independently observed availability."
   ],
-  "preserved_concurrent_sha": "3d672c0456abbc09318dffb69f8bb7eed11162e0",
+  "preserved_concurrent_sha": "6e03f1e08f4273623a896c31a7a1d0b4fe3068d6",
   "integrated_local_changes": [
     "setup_and_runtime_route_clarity",
     "capability_and_backup_guidance",
@@ -70,5 +70,34 @@
     "changed_kotlin_format_files": 51,
     "release_scope": "PASSED",
     "focused_test_total": 108
+  },
+  "schema_handoff": {
+    "version": 53,
+    "source_head": "2fa6f59fad9084e0e72b7237f4aca0b8f01275af",
+    "ci_merge": "7676c6df92babba586f67443056c3eb04c947563",
+    "identical_source_tree": true,
+    "run": 45058161842,
+    "job": 137318034810,
+    "artifact": 14768098633,
+    "artifact_digest": "c601674748694d9511ab3b85673ee84ece8ef476cbdb6fb02926b90d5b23b3e6",
+    "schema_sha256": "4d9294e56972dd23bb99841b263e026d9f4d97faa0acf71d4d40da4f9b28afdb",
+    "identityHash": "489fe6ad9e5f86a5af203af446e77dbf",
+    "byte_count": 164660,
+    "lossless_job_log_match": true,
+    "current_applicability": "Entities, converters and migrations unchanged from artifact source; DAO transaction behavior updated by concurrent privacy repair. Current-head KSP remains required."
+  },
+  "ci_repair_validation": {
+    "stale_failure_source": "f225c208e80393f0232ba7849340461fd23901b9",
+    "stale_failure_count": 29,
+    "gateway_before": "36 tests, 11 identical failures on current source",
+    "gateway_after": 39,
+    "provider_policy_schema": 11,
+    "diagnostic_helpers": 14,
+    "full_android": "PENDING_CURRENT_HEAD_CI",
+    "canonical_host_tests": 608,
+    "changed_kotlin_format_files": 12,
+    "preserved_concurrent_repairs": "7c7634dff82f712b5122aa3d5dd4b0ba1b9c9d58",
+    "research_callback_fix": "6e03f1e08f4273623a896c31a7a1d0b4fe3068d6",
+    "canonical_host_result": "PASSED_AFTER_RECONCILIATION"
   }
 }

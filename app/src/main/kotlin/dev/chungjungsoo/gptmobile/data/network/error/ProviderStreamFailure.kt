@@ -77,6 +77,11 @@ internal object ProviderStreamFailure {
         streamEventType?.takeIf { it in EVENT_TYPES }?.let { fields["stream_event_type"] = JsonPrimitive(it) }
         safeProviderRequestIdentity(providerResponseId)?.let { fields["provider_response_id"] = JsonPrimitive(it) }
         failure.code?.let { fields["upstream_error_code"] = JsonPrimitive(it) }
+        // Unknown codes can contain arbitrary upstream text. Keep correlation
+        // through the existing bounded identifier hash, never publish that text.
+        code?.takeUnless { it.lowercase(java.util.Locale.ROOT) in ProviderFailure.SAFE_CODES }
+            ?.let { dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("provider-error-code", it) }
+            ?.let { fields["upstream_error_code_hash"] = JsonPrimitive(it) }
         type?.lowercase(java.util.Locale.ROOT)?.takeIf { it in ProviderFailure.SAFE_CODES }?.let { fields["upstream_error_type"] = JsonPrimitive(it) }
         return ResponseErrorEvent(code = category, message = readable, failureDetails = JsonObject(fields))
     }
@@ -93,6 +98,8 @@ internal object ProviderStreamFailure {
             (details[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it in ProviderFailure.SAFE_CODES }
                 ?.let { fields[key] = JsonPrimitive(it) }
         }
+        (details["upstream_error_code_hash"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+            ?.let { fields["upstream_error_code_hash"] = JsonPrimitive(it) }
         (details["http_status"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 100..599 }
             ?.let { fields["http_status"] = JsonPrimitive(it) }
         (details["provider_semantic_status"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it == 429 && kind == "RATE_LIMIT" }

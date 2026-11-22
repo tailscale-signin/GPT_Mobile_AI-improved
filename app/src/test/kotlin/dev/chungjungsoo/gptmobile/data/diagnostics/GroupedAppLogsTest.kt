@@ -55,6 +55,15 @@ class GroupedAppLogsTest {
         assertEquals(listOf(failed, exchange, recovered), updated.single { readA in it.incidentIds }.rawDetails)
     }
 
+    @Test fun anotherProcessSessionCannotResolveAReusedMetadataIncidentLabel() {
+        val failed = AppLogEntry(1000, "I", "Gateway", "CLIENT_EXCHANGE · incident_id=read-a · transport=TIMEOUT", processId = 42, processSessionId = "session-a")
+        val unrelatedRecovery = AppLogEntry(1100, "I", "Gateway", "METADATA_READ_OUTCOME · incident_id=read-a · outcome=COMPLETED", processId = 42, processSessionId = "session-b")
+        val groups = groupAppLogs(listOf(failed, unrelatedRecovery))
+        assertEquals(setOf("incident:session:9:session-a:process:2:42:read-a"), groups.flatMap { it.unresolvedIncidentIds }.toSet())
+        assertEquals(listOf(failed), groups.single { it.unresolvedIncidentIds.isNotEmpty() }.rawDetails)
+        assertEquals(listOf(failed, unrelatedRecovery), groups.flatMap { it.rawDetails })
+    }
+
     @Test fun largeRepeatedGroupRetainsEveryOriginalEntry() {
         val entries = (0 until 2000).map { index -> AppLogEntry(1000L + index, "I", "Model", "Waiting") }
         val group = groupAppLogs(entries).single()

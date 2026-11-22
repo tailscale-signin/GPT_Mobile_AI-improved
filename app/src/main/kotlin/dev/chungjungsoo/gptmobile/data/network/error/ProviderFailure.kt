@@ -70,7 +70,7 @@ data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val c
 
         internal val BUDGET_CODES = setOf("402", "insufficient_quota", "insufficient_credits", "budget_exceeded", "credit_limit_exceeded", "kudosupfront", "sharedkeyempty")
         internal val TRANSIENT_CODES = setOf("500", "502", "503", "504", "server_error", "internal_error", "internal_server_error", "service_unavailable", "overloaded_error", "api_error", "processing_error")
-        internal val SAFE_CODES = BUDGET_CODES + TRANSIENT_CODES + setOf("invalid_api_key", "authentication_error", "permission_denied", "model_access_denied", "route_forbidden", "anonforbidden", "noworkers", "no_valid_workers", "context_window_exceeded", "context_length_exceeded", "rate_limit_exceeded", "tokens_limit_exceeded", "rate_limit_error", "content_policy_violation", "content_filter", "safety_blocked")
+        internal val SAFE_CODES = BUDGET_CODES + TRANSIENT_CODES + setOf("401", "429", "invalid_api_key", "authentication_error", "permission_denied", "model_access_denied", "route_forbidden", "anonforbidden", "noworkers", "no_valid_workers", "context_window_exceeded", "context_length_exceeded", "rate_limit_exceeded", "tokens_limit_exceeded", "rate_limit_error", "content_policy_violation", "content_filter", "safety_blocked")
         private val budgetMessage = Regex("(?i)\\b(?:no credits remaining|insufficient (?:credits|funds|balance)|credit balance|payment required|billing.{0,30}(?:required|disabled|exhausted))\\b")
         private val processingMessage = Regex("(?i)\\b(?:error (?:occurred )?(?:while )?processing (?:your|the) request|provider is temporarily unavailable)\\b")
     }

@@ -211,15 +211,16 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                     LazyColumn(modifier = Modifier.weight(1f), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("research-save-error")) } }
                         if (tab == 4) {
+                            val editable = enabled && !state.saving
                             item { SettingsTabs(listOf("General", "Evidence", "Library", "Automation", "Storage"), settingsCategory) { settingsCategory = it } }
-                            if (settingsCategory == 0) item { state.draft?.let { DeepResearchSettingsCard(it, enabled && !state.saving, viewModel::edit) } }
+                            if (settingsCategory == 0) item { state.draft?.let { DeepResearchSettingsCard(it, editable, viewModel::edit) } }
                             if (settingsCategory == 1) {
                                 item {
                                     SettingsPanel("Scientific appraisal") {
                                         val feature = state.featureDraft
                                         Text("Original evidence rubric. Explains methodological concerns and uncertainty; no probability-of-truth score or certification.")
-                                        ScientificAppraisalMode.entries.forEach { value -> FilterChip(feature.appraisalMode == value, { viewModel.editFeature(feature.copy(appraisalMode = value)) }, enabled = enabled, label = { Text(value.name.lowercase().replaceFirstChar { it.titlecase() }) }) }
-                                        ResearchFeatureSwitch("Peer-reviewed only", feature.peerReviewedOnly, enabled) { viewModel.editFeature(feature.copy(peerReviewedOnly = it)) }
+                                        ScientificAppraisalMode.entries.forEach { value -> FilterChip(feature.appraisalMode == value, { viewModel.editFeature(feature.copy(appraisalMode = value)) }, enabled = editable, label = { Text(value.name.lowercase().replaceFirstChar { it.titlecase() }) }) }
+                                        ResearchFeatureSwitch("Peer-reviewed only", feature.peerReviewedOnly, editable) { viewModel.editFeature(feature.copy(peerReviewedOnly = it)) }
                                         Text("Unknown publication status stays unknown. Independent AI review is recorded separately.")
                                     }
                                 }
@@ -228,19 +229,19 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                 item {
                                     SettingsPanel("Archive and article cards") {
                                         val feature = state.featureDraft
-                                        ResearchFeatureSwitch("Automatically organize studies", feature.automaticOrganization, enabled) { viewModel.editFeature(feature.copy(automaticOrganization = it)) }
-                                        ResearchFeatureSwitch("Recall grounded research outcomes", feature.researchMemory, enabled) { viewModel.editFeature(feature.copy(researchMemory = it)) }
-                                        ResearchFeatureSwitch("Share research recall with remote AI", feature.shareResearchRecall, enabled && feature.researchMemory) { viewModel.editFeature(feature.copy(shareResearchRecall = it)) }
+                                        ResearchFeatureSwitch("Automatically organize studies", feature.automaticOrganization, editable) { viewModel.editFeature(feature.copy(automaticOrganization = it)) }
+                                        ResearchFeatureSwitch("Recall grounded research outcomes", feature.researchMemory, editable) { viewModel.editFeature(feature.copy(researchMemory = it)) }
+                                        ResearchFeatureSwitch("Share research recall with remote AI", feature.shareResearchRecall, editable && feature.researchMemory) { viewModel.editFeature(feature.copy(shareResearchRecall = it)) }
                                         Text("Research recall also requires Memory recall permission. Remote sharing additionally requires cloud-memory permission. Study findings remain separate from personal facts.")
                                         Text("Studies save automatically. Evidence-checked results remain until you delete them.")
                                         Text("$protectedCount protected studies · unexamined limit ${feature.unexaminedStudyLimit}")
-                                        OutlinedTextField(feature.unexaminedStudyLimit.toString(), { value -> value.toIntOrNull()?.takeIf { it in 1..50000 }?.let { viewModel.editFeature(feature.copy(unexaminedStudyLimit = it)) } }, label = { Text("Unexamined study limit") }, enabled = enabled)
-                                        OutlinedButton(onClick = viewModel::clearUnexamined, enabled = enabled) { Text("Clear unexamined") }
-                                        ResearchFeatureSwitch("Use archive leads before discovery", feature.archivePreflight, enabled) { viewModel.editFeature(feature.copy(archivePreflight = it)) }
-                                        ResearchFeatureSwitch("Show article cards", feature.articleCards, enabled) { viewModel.editFeature(feature.copy(articleCards = it)) }
-                                        ResearchFeatureSwitch("Compact article cards", feature.compactCards, enabled) { viewModel.editFeature(feature.copy(compactCards = it)) }
-                                        ResearchFeatureSwitch("Show coverage warnings", feature.showWarnings, enabled) { viewModel.editFeature(feature.copy(showWarnings = it)) }
-                                        ResearchFeatureSwitch("Show validated method metrics", feature.showMethodMetrics, enabled) { viewModel.editFeature(feature.copy(showMethodMetrics = it)) }
+                                        OutlinedTextField(feature.unexaminedStudyLimit.toString(), { value -> value.toIntOrNull()?.takeIf { it in 1..50000 }?.let { viewModel.editFeature(feature.copy(unexaminedStudyLimit = it)) } }, label = { Text("Unexamined study limit") }, enabled = editable)
+                                        OutlinedButton(onClick = viewModel::clearUnexamined, enabled = editable) { Text("Clear unexamined") }
+                                        ResearchFeatureSwitch("Use archive leads before discovery", feature.archivePreflight, editable) { viewModel.editFeature(feature.copy(archivePreflight = it)) }
+                                        ResearchFeatureSwitch("Show article cards", feature.articleCards, editable) { viewModel.editFeature(feature.copy(articleCards = it)) }
+                                        ResearchFeatureSwitch("Compact article cards", feature.compactCards, editable) { viewModel.editFeature(feature.copy(compactCards = it)) }
+                                        ResearchFeatureSwitch("Show coverage warnings", feature.showWarnings, editable) { viewModel.editFeature(feature.copy(showWarnings = it)) }
+                                        ResearchFeatureSwitch("Show validated method metrics", feature.showMethodMetrics, editable) { viewModel.editFeature(feature.copy(showMethodMetrics = it)) }
                                         Text("At most 1,000 reusable works. The oldest insertion leaves the archive first; original chat citations and active jobs retain their own evidence. This does not limit research acquisition.")
                                     }
                                 }
@@ -255,28 +256,28 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                         DelegateModelDropdown(
                                             selectedProfileUid = feature.crawlerProfileUid.orEmpty(),
                                             profiles = crawlerProfiles.filter { it.enabled },
-                                            enabled = enabled,
+                                            enabled = editable,
                                             onSelected = { viewModel.editFeature(feature.copy(crawlerProfileUid = it?.uid)) },
                                             roleLabel = "Examiner",
                                             automaticLabel = "Choose Examiner"
                                         )
-                                        if (!feature.crawlerProfileUid.isNullOrBlank()) OutlinedButton(onClick = { viewModel.editFeature(feature.copy(crawlerProfileUid = null, autoExamination = AutoExamination.OFF, ordinaryChatAutoExamination = false)) }, enabled = enabled) { Text("Clear Examiner selection") }
+                                        if (!feature.crawlerProfileUid.isNullOrBlank()) OutlinedButton(onClick = { viewModel.editFeature(feature.copy(crawlerProfileUid = null, autoExamination = AutoExamination.OFF, ordinaryChatAutoExamination = false)) }, enabled = editable) { Text("Clear Examiner selection") }
                                         dev.chungjungsoo.gptmobile.data.research.feature.examinerSelectionIssue(examiner)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                                         Text("Research reviewer", style = MaterialTheme.typography.titleMedium)
                                         DelegateModelDropdown(
                                             selectedProfileUid = feature.reviewerProfileUid.orEmpty(),
                                             profiles = crawlerProfiles.filter { it.enabled },
-                                            enabled = enabled,
+                                            enabled = editable,
                                             onSelected = { viewModel.editFeature(feature.copy(reviewerProfileUid = it?.uid)) },
                                             roleLabel = "Research reviewer",
                                             automaticLabel = "Use existing review policy"
                                         )
                                         Text("The selected reviewer receives captured Research evidence. A different model is needed for independent review; this choice also applies in Combined mode.")
-                                        AutoExamination.entries.forEach { value -> FilterChip(feature.autoExamination == value, { viewModel.editFeature(feature.copy(autoExamination = value)) }, enabled = enabled && (value == AutoExamination.OFF || examiner.profile != null), label = { Text(if (value == AutoExamination.OFF) "Manual" else value.name.lowercase().replace('_', ' ')) }) }
-                                        ResearchFeatureSwitch("Auto-examine in ordinary chat", feature.ordinaryChatAutoExamination, enabled && examiner.profile != null) { viewModel.editFeature(feature.copy(ordinaryChatAutoExamination = it)) }
-                                        ResearchFeatureSwitch("Allow background examination", feature.backgroundExamination, enabled) { viewModel.editFeature(feature.copy(backgroundExamination = it)) }
+                                        AutoExamination.entries.forEach { value -> FilterChip(feature.autoExamination == value, { viewModel.editFeature(feature.copy(autoExamination = value)) }, enabled = editable && (value == AutoExamination.OFF || examiner.profile != null), label = { Text(if (value == AutoExamination.OFF) "Manual" else value.name.lowercase().replace('_', ' ')) }) }
+                                        ResearchFeatureSwitch("Auto-examine in ordinary chat", feature.ordinaryChatAutoExamination, editable && examiner.profile != null) { viewModel.editFeature(feature.copy(ordinaryChatAutoExamination = it)) }
+                                        ResearchFeatureSwitch("Allow background examination", feature.backgroundExamination, editable) { viewModel.editFeature(feature.copy(backgroundExamination = it)) }
                                         Text("Native discovery follows permitted full-text links. Network, rate-limit and temporary memory waits keep their checkpoints. Source access refusals require an available alternate source or manual retry; they do not lower scientific reliability. Tables, figures and supplements remain unknown until inspected.")
-                                        ResearchFeatureSwitch("Targeted article crawling", feature.targetedCrawl, enabled) { viewModel.editFeature(feature.copy(targetedCrawl = it)) }
+                                        ResearchFeatureSwitch("Targeted article crawling", feature.targetedCrawl, editable) { viewModel.editFeature(feature.copy(targetedCrawl = it)) }
                                         Text("Manual Examine does not change research depth. Provider, paper-reading, connection and cloud permissions are rechecked before dispatch. Native PDF support is capability-gated.")
                                         Text("If an article has no readable text, provide an accessible full-text URL or paste the relevant passage in chat. A downloaded PDF alone does not establish that its tables, figures or scanned pages were read.")
                                     }

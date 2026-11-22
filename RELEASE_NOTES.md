@@ -24,7 +24,7 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 
 ## Setup, model routes and recovery
 
-- Profile details keep the route shown in the picker. Research source switches and citation import stay available if activity history fails to load.
+- Profile details keep the route shown in the picker. Research source switches and citation import stay available if activity history fails to load. Research presets, report options and feature settings respect the editor’s read-only and saving states.
 - Distinguish saved configuration and downloaded weights from a verified complete response; guide the first chat and expose existing response checks from profile settings.
 - Show configured phone inference, recognized cloud APIs, observed Gateway routes and other network services separately. A private address or engineering Gateway binding does not establish where a different inference endpoint runs.
 - Separate requested local processors from native execution receipts. Failed, recovering and released runtimes do not display retained receipts as current readiness.

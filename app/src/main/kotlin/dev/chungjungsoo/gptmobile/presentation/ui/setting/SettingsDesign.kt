@@ -44,10 +44,10 @@ internal fun SettingsHero(eyebrow: String, title: String, detail: String, modifi
 }
 
 @Composable
-internal fun SettingsTabs(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+internal fun SettingsTabs(labels: List<String>, selected: Int, enabled: Boolean = true, onSelect: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         labels.forEachIndexed { index, label ->
-            FilterChip(selected = selected == index, onClick = { onSelect(index) }, label = { Text(label) })
+            FilterChip(selected = selected == index, onClick = { onSelect(index) }, enabled = enabled, label = { Text(label) })
         }
     }
 }

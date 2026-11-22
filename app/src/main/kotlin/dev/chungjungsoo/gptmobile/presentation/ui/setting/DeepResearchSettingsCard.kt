@@ -42,7 +42,7 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                 Switch(value.enabled, { onChange(value.copy(enabled = it)) }, enabled = enabled)
             }
             if (value.enabled) {
-                SettingsTabs(listOf("Fast", "Balanced", "Thorough"), ResearchIntensity.entries.indexOf(value.intensity)) { onChange(value.preset(ResearchIntensity.entries[it]).copy(customSourceTarget = null)) }
+                SettingsTabs(listOf("Fast", "Balanced", "Thorough"), ResearchIntensity.entries.indexOf(value.intensity), enabled = enabled) { onChange(value.preset(ResearchIntensity.entries[it]).copy(customSourceTarget = null)) }
                 Text(
                     when (value.intensity) {
                         ResearchIntensity.QUICK -> "A focused starting point with fewer research rounds."
@@ -54,10 +54,10 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                 Text("$goal source goal · ${value.effort}% depth", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Text("Report style", style = MaterialTheme.typography.titleSmall)
                 val details = dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail.entries
-                SettingsTabs(details.map { it.label }, details.indexOf(value.reportDetail)) { onChange(value.copy(reportDetail = details[it])) }
+                SettingsTabs(details.map { it.label }, details.indexOf(value.reportDetail), enabled = enabled) { onChange(value.copy(reportDetail = details[it])) }
                 Text("Report structure", style = MaterialTheme.typography.titleSmall)
                 val structures = dev.chungjungsoo.gptmobile.data.model.ResearchReportStructure.entries
-                SettingsTabs(structures.map { it.label }, structures.indexOf(value.reportStructure)) { onChange(value.copy(reportStructure = structures[it])) }
+                SettingsTabs(structures.map { it.label }, structures.indexOf(value.reportStructure), enabled = enabled) { onChange(value.copy(reportStructure = structures[it])) }
                 Text("Choose Examine to review consent for an Examiner. Public study discovery can also be allowed here.", style = MaterialTheme.typography.bodySmall)
                 if (value.academicSources) {
                     TextButton(onClick = { onChange(value.copy(academicSources = false)) }, enabled = enabled) { Text("Revoke default papers consent") }

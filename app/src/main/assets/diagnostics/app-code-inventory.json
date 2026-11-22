@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "bc2622bdc487baaeb49a83b579c6274fe2383da7aea99437d8ea8f2bd6d98375",
+  "source_digest": "bebed9f94336b3385db8d21d00b691c077647780b008c6b03d0aa1fe9dfd7d6e",
   "file_count": 2888,
-  "indexed_line_count": 477300,
+  "indexed_line_count": 477304,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -41,7 +41,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 592,
-      "indexed_line_count": 104046
+      "indexed_line_count": 104050
     },
     {
       "id": "accessibility_and_localization",
@@ -15439,22 +15439,22 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/DeepResearchSettingsCard.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "ef4f2febd3f99a997e69d28be346033cb41d669cb841a451410e871d187fe4c4",
+      "sha256": "70b2b39a3288b38833483516e95654dedf99117528e08720af4f171355e55b8a",
       "indexed_lines": 167
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/DeepResearchSettingsScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "0e9910cb822837d15e93a7d5827295b696725040ce67311843e4e1cabbdab164",
-      "indexed_lines": 492
+      "sha256": "527417e92fa5b89cc5e3e4a18784dd2aa4d607a065a20cd1da35e7b4e7c166a2",
+      "indexed_lines": 493
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/DeepResearchSettingsViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "8f8031b9c4dadf4442b926b7b69231cf45aa84df578b625aab6789012d519644",
-      "indexed_lines": 334
+      "sha256": "cc78104bb87d14700060e5821cc9187066df76e8122cd0d5305fe6bf554e51a4",
+      "indexed_lines": 337
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/DelegateModelDropdown.kt",
@@ -16251,7 +16251,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingsDesign.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "dbfcff12fd110d4f440b4f8a2c16f139ce5602651487a567a3388fa281ba40d8",
+      "sha256": "1ad27e919a127fd543004ca12e093ff4b734a82f80efc0307ee77376e9836b67",
       "indexed_lines": 67
     },
     {

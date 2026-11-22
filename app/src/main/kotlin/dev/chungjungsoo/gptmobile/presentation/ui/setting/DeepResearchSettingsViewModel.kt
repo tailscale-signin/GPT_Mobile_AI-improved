@@ -241,6 +241,7 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
     }
 
     fun editFeature(value: dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings) {
+        if (mutable.value.saving) return
         savedState["researchFeatureDraft"] = Json.encodeToString(value)
         mutable.update { it.copy(featureDraft = value, dirty = it.draft != original || value != originalFeature, error = null) }
     }
@@ -293,17 +294,19 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
     }
 
     fun edit(value: DeepResearchSettings) {
+        if (mutable.value.saving) return
         savedState["researchDraft"] = Json.encodeToString(value)
         mutable.update { it.copy(draft = value, dirty = value != original || it.featureDraft != originalFeature, error = null) }
     }
 
     fun save(onSuccess: () -> Unit) {
-        val value = mutable.value.draft ?: return
-        if (mutable.value.saving) return
+        val snapshot = mutable.value
+        val value = snapshot.draft ?: return
+        if (snapshot.saving) return
         mutable.update { it.copy(saving = true, error = null) }
         viewModelScope.launch {
             try {
-                val feature = mutable.value.featureDraft.validated()
+                val feature = snapshot.featureDraft.validated()
                 if (feature.autoExamination != dev.chungjungsoo.gptmobile.data.research.feature.AutoExamination.OFF || feature.ordinaryChatAutoExamination) {
                     val selection = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.selection(feature.crawlerProfileUid.orEmpty(), repository.fetchPlatformV2s())
                     val issue = dev.chungjungsoo.gptmobile.data.research.feature.examinerSelectionIssue(selection)

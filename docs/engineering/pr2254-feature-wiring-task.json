@@ -8,18 +8,19 @@
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "intent": "Trace new features from their entry points, repair integration defects and improve their presentation.",
   "status": "HOST_CHECKS_CURRENT_ANDROID_CI_REQUIRED",
-  "integrated_head": "85389f14ab1159d7d9d1c2c5b8ff6dfb84102e31",
+  "integrated_head": "459261b5b537b8eee2479927488e81e455a4c39c",
   "coverage": {
     "voice": "Caption correction, bidi shaping, five-line cursor, presented-audio timing, PCM reserve, engine selection and retest, and measurement export.",
     "chat": "Compact decision queue, response and notification ownership, draft retention, Markdown/privacy evidence projection and conversation indicators.",
-    "profiles_and_research": "Setup and saved-profile verification, configured route and direct Gateway evidence, Research source configuration, history, citation import and selected-provider routing.",
+    "profiles_and_research": "Setup and saved-profile verification, configured route and direct Gateway evidence, Research source configuration, history, citation import, read-only and saving state, and selected-provider routing.",
     "benchmarks": "Fixture-level timing and pricing, partial/failed attempts, exports and progressive disclosure.",
     "gateway_and_diagnostics": "Local inspection dispatch and firewall observations, dashboard/admission, incident export, recovery ownership, accepted baseline and built-in binding changes."
   },
   "regressions": [
     "Three caption fixtures failed on 7afcd240, including a StringIndexOutOfBoundsException. All three pass after correction.",
     "The host-inspection absence fixture returned PARTIAL before the change and OBSERVED afterward. An unavailable independent adapter observation still produces PARTIAL.",
-    "Added Android regression coverage for separate queued answers, adaptive choice layout, explicit voice recheck, stable picker route and Research controls with unavailable history."
+    "Added Android regression coverage for separate queued answers, adaptive choice layout, explicit voice recheck, stable picker route and Research controls with unavailable history.",
+    "Research preset and report chips were editable while the parent editor was locked. Feature controls also accepted changes after Save captured the draft. The controls now follow editor state and the save operation uses a single draft snapshot."
   ],
   "host_validation": {
     "caption_junit": 41,
@@ -32,7 +33,12 @@
     "native_kokoro_ctest": 4,
     "gateway_probe_unittest": 10,
     "authentication_unittest": 200,
-    "canonical_repository_tests": 608
+    "canonical_repository_tests": 608,
+    "gateway_python_tests_passed": 1586,
+    "gateway_python_tests_skipped": 31,
+    "gateway_browser_bridge_js": 7,
+    "kokoro_qnn_emulator_profiled_shapes": 3,
+    "kokoro_real_model_jni_integration": "passed"
   },
   "qualification": "Host JVM suites exercise production helpers with platform or data boundary fixtures where necessary. CI verifies actual Android, Compose, Room and packaged behavior. Device-specific speech processing, latency and physical Windows/phone routing require target hardware."
 }

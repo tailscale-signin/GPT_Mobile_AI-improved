@@ -13,6 +13,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.GatewayConversationRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
+import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
+import dev.chungjungsoo.gptmobile.data.privacy.requireUnprotectedConversationPrivacy
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -67,13 +70,33 @@ class GatewayEngineeringSubmissionTest {
         coEvery { store.deferCommandLookup(any()) } returns Unit
         coEvery { modelPreparation.prepareSelected(any(), any(), any(), any()) } returns null
         coEvery { history.identity(any()) } returns GatewayScopeIdentity("gateway", "owner")
-        coEvery { conversations.requireUnprotectedConversation(8) } returns dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext(8, false)
         coEvery { conversations.requireSavedSelection(any()) } returns Unit
+        coEvery { conversations.requireUnprotectedConversation(8) } returns ConversationPrivacyContext(8, false)
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(githubProfileOverrides = mapOf(selected.uid to GitHubChatProfileOverride(githubTools = true)))
     }
 
     @After fun restoreWorkManager() {
         unmockkObject(WorkManager.Companion)
+    }
+
+    @Test fun lockedConversationIsRejectedBeforeAdmissionOrDurableSubmission() = runTest {
+        coEvery { conversations.requireUnprotectedConversation(8) } coAnswers {
+            requireUnprotectedConversationPrivacy(8) { true }
+        }
+        val workspace = GitHubConversationContext("github", "owner", "repo", "work", "a".repeat(40), selected.uid)
+
+        val failure = runCatching { repository().start(8, workspace, "main", "work", "Inspect the parser", GatewayEngineeringSettings()) }.exceptionOrNull()
+
+        assertTrue(failure is UnverifiedServiceTransport)
+        coVerify(exactly = 1) { conversations.requireUnprotectedConversation(8) }
+        coVerify(exactly = 0) {
+            settings.fetchPlatformV2s()
+            modelPreparation.prepareSelected(any(), any(), any(), any())
+            client.capabilities(any())
+            client.prepareBinding(any(), any())
+            client.create(any(), any())
+            store.add(any())
+        }
     }
 
     @Test fun importedConversationUsesFrozenServerDestinationAndModelWithoutPhoneWorkspace() = runTest {

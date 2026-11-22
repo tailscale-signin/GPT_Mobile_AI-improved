@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6f417a3aae1d5e715091bd3773879607fa9effc9f69f902a1a544c1c94c61ea7",
+  "source_digest": "d91c30dc0a2f8bf3b9a60d4903bed361f86f4466eaa71e0becac3b8490761ba8",
   "file_count": 2925,
   "indexed_line_count": 485183,
   "line_coverage_available": false,
@@ -1817,7 +1817,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "f53fac899ae7b4d68756f9532c741a1acedd364a816cfe97268124493093d736",
+      "sha256": "9786cda362b581732b67b1b57174abd04f653bc66e78e5524336c3eb5d7a042e",
       "indexed_lines": 921
     },
     {

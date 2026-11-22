@@ -1996,32 +1996,39 @@ class IssueReportSubmissionTest {
             assertEquals(code, retained.originalFailureCode)
             for (enriched in listOf(report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = code), report.copy(context = retained), report.copy(events = listOf("-1ms E tools $code")))) {
                 val payload = enriched.approvedPayload()
-                val requiredFeatures = enriched.context?.diagnostics?.requiredServiceFeatures().orEmpty() + "REVIEW_COMPARISON_V1" +
-                    if (code == "GITHUB_REVIEW_COMPARISON_REQUIRED") setOf(ExecutionCompletionDiagnostics.FEATURE) else emptySet()
-                var supported = false
-                val posted = mutableListOf<String>()
-                var dispatched = 0
-                val client = OkHttpClient.Builder().addInterceptor { chain ->
-                    val request = chain.request()
-                    if (request.method == "GET") {
-                        val features = JsonArray(requiredFeatures.filter { supported || it != "REVIEW_COMPARISON_V1" }.map(::JsonPrimitive))
-                        response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5],"reportDiagnosticFeatures":$features}""")
-                    } else {
-                        posted += body(request)
-                        response(request, 200, """{"reportId":"${report.reportId}","number":885}""")
-                    }
-                }.build()
-                val submission = IssueReportSubmission(origin, client)
-                val failure = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
-                assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", failure.code)
-                assertFalse(failure.automaticRetry)
-                assertEquals(0, dispatched)
-                assertTrue(posted.isEmpty())
-                supported = true
-                assertEquals(IssueReportSubmission.Confirmed(885), submission.send(report.reportId, payload) { dispatched++ })
-                assertEquals(listOf(payload), posted)
-                assertEquals(1, dispatched)
-                assertEquals(payload, enriched.approvedPayload())
+                val requiredFeatures = enriched.context?.diagnostics?.requiredServiceFeatures().orEmpty() +
+                    setOf("REVIEW_COMPARISON_V1", ExecutionCompletionDiagnostics.FEATURE)
+                val featureGates = if (code == "GITHUB_REVIEW_COMPARISON_REQUIRED") {
+                    listOf("REVIEW_COMPARISON_V1", ExecutionCompletionDiagnostics.FEATURE)
+                } else {
+                    listOf("REVIEW_COMPARISON_V1")
+                }
+                for (missingFeature in featureGates) {
+                    var supported = false
+                    val posted = mutableListOf<String>()
+                    var dispatched = 0
+                    val client = OkHttpClient.Builder().addInterceptor { chain ->
+                        val request = chain.request()
+                        if (request.method == "GET") {
+                            val features = JsonArray(requiredFeatures.filter { supported || it != missingFeature }.map(::JsonPrimitive))
+                            response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":2,"reportContextVersions":[1,2,3,4,5],"reportDiagnosticFeatures":$features}""")
+                        } else {
+                            posted += body(request)
+                            response(request, 200, """{"reportId":"${report.reportId}","number":885}""")
+                        }
+                    }.build()
+                    val submission = IssueReportSubmission(origin, client)
+                    val failure = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+                    assertEquals("$code requires $missingFeature", "REPORT_SERVICE_UPDATE_REQUIRED", failure.code)
+                    assertFalse(failure.automaticRetry)
+                    assertEquals(0, dispatched)
+                    assertTrue(posted.isEmpty())
+                    supported = true
+                    assertEquals(IssueReportSubmission.Confirmed(885), submission.send(report.reportId, payload) { dispatched++ })
+                    assertEquals(listOf(payload), posted)
+                    assertEquals(1, dispatched)
+                    assertEquals(payload, enriched.approvedPayload())
+                }
             }
         }
     }

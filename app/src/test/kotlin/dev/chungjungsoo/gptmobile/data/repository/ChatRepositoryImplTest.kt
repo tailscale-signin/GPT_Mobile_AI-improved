@@ -2315,7 +2315,7 @@ class ChatRepositoryImplTest {
         assertEquals(1, openAIAPI.streamChatCompletionCalls)
     }
 
-    @Test
+    /** The Robolectric wrapper supplies real AtomicFile storage for the retained denied tool result. */
     fun `complete chat rejects unapproved web search and persists its trace`() = runBlocking {
         val connection = ToolConnection(
             connectionUid = "search-1",

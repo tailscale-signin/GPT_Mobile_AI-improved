@@ -15,6 +15,10 @@ class ChatRepositoryResearchIncidentTest {
 
     @get:Rule val testFiles = fixture.testFiles
 
+    @Test fun unapprovedWebSearchRetainsItsDeniedTraceAndCompletes() {
+        fixture.`complete chat rejects unapproved web search and persists its trace`()
+    }
+
     @Test fun incidentReplayRetainsEvidenceAcrossTwentyFourHelperRequestsWriter403AndContinue() {
         fixture.incidentReplayRetainsEvidenceAcrossTwentyFourHelperRequestsWriter403AndContinue()
     }

@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -18,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -56,6 +58,8 @@ class VoiceMessageControlsInstrumentedTest {
 
     @Test fun voiceAnswerShowsItsSpeechAndKeepsDetailsCollapsedUntilSelected() {
         val source = "<think>Private planning</think>Short answer. <details>Extra facts.</details>"
+        val speech = VoiceSpeechText.project(source)
+        assertEquals("Short answer.", speech.trim())
         compose.setContent {
             MaterialTheme {
                 CompositionLocalProvider(
@@ -67,10 +71,11 @@ class VoiceMessageControlsInstrumentedTest {
                 }
             }
         }
-        compose.onNodeWithText("Short answer.").assertIsDisplayed()
+        compose.onNodeWithTag("voice_spoken_answer").assertIsDisplayed().assertTextEquals(speech)
         compose.onNodeWithText("Private planning", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Extra facts.", substring = true).assertDoesNotExist()
         compose.onNodeWithText("Expanded rich details").assertDoesNotExist()
-        compose.onNodeWithTag("voice_answer_details_toggle").performClick()
+        compose.onNodeWithTag("voice_answer_details_toggle").assertIsDisplayed().performClick()
         compose.onNodeWithText("Expanded rich details").assertIsDisplayed()
     }
 

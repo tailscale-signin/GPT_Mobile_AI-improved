@@ -162,4 +162,9 @@ class GraphIndexContinuationTest {
     }
 
     private fun action(value: String) = buildJsonObject { put("action", value) }
+
+    private fun graphAction(value: String) = buildJsonObject {
+        put("action", value)
+        put("map_source", "gateway")
+    }
 }

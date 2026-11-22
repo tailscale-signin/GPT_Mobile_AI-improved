@@ -8,7 +8,7 @@
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "integration_branch": "work/review-implementation-2026-11-22",
   "intent": "Implement the actionable repository review improvements and publish verified Android and Gateway releases from the existing shared PR while preserving concurrent changes.",
-  "status": "C29_SOURCE_UNION_REVIEWED_FOCUSED_TESTS_PASSED_PENDING_FINAL_VALIDATION",
+  "status": "SOURCE_INTEGRATED_PENDING_BENCHMARK_PACKAGE_AND_CURRENT_CI",
   "requirements": [
     {
       "id": "recovery",
@@ -51,7 +51,7 @@
     "No physical-phone latency, acoustic, battery, or accelerator result may be inferred from source or host tests.",
     "External providers, compatible runtime packages and Windows signing credentials retain their independently observed availability."
   ],
-  "preserved_concurrent_sha": "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+  "preserved_concurrent_sha": "35228794d6fb667a56f0ff97c80672852093d74b",
   "integrated_local_changes": [
     "setup_and_runtime_route_clarity",
     "capability_and_backup_guidance",
@@ -247,7 +247,7 @@
     "generated_inventories": "PASSED",
     "mandatory_receipts": "Privacy selection added; all existing exact-method receipts retained"
   },
-  "incoming_concurrent_sha": "ba7752460bb0c1f9de4adc99a6a24943976fca61",
+  "incoming_concurrent_sha": "35228794d6fb667a56f0ff97c80672852093d74b",
   "fea_reconciliation": {
     "source": "fea1a6ac82756817aad485b6267e4294873bfb8b",
     "canonical_host_tests": 616,
@@ -564,8 +564,7 @@
     "qualification": "Not a passing Android build. Hosted exact-head compilation remains mandatory; existing budgets and source gates unchanged."
   },
   "pending_external_scopes": [
-    "acceptance-completion-70afcf89: separately active16-finding/30-scenario work; integrate and verify before final readiness.",
-    "github-coding-benchmark-2026-11-22: separately active B01-B16 work; integrate and verify before final readiness."
+    "Coding benchmark package currently assembled in14d/d831 successor; independent review and worker validation pending before final readiness."
   ],
   "ba_voice_followup": {
     "source": "ba7752460bb0c1f9de4adc99a6a24943976fca61",
@@ -574,5 +573,80 @@
     "canonical_host_tests": 616,
     "kotlin_format_files": 49,
     "release_scope_paths": 672
+  },
+  "current_6e_ci_repairs": {
+    "historical_source": "6e788707cc216b6e92b2189a343dedd9ceaad4b8",
+    "historical_failures": 41,
+    "qualification": "Each failure has a current-source disposition; full exact-current-head Android execution remains required. No failed/skipped gate is accepted.",
+    "compact_schema": {
+      "baseline_tokens": 2008,
+      "current_tokens": 1997,
+      "unchanged_strict_limit": "<2000",
+      "change": "Shorten discovery description only; input schema and all validation constraints unchanged.",
+      "actual_source_suite": "43 cases: baseline2 failures, corrected43 passes. Delivery-proof failures already fixed by the incoming closed outcome-code fixtures."
+    },
+    "graph_source": {
+      "change": "Preserve trusted map source through status/recovery/preparation; partition source receipts and require exact bound native uncertainty before legacy Gateway inference. Explicitly select Gateway in remote graph fixtures.",
+      "tool_boundary": "3 cases: baseline3 failures, corrected3 passes.",
+      "helper": "13 cases: baseline4 failures, corrected13 passes.",
+      "reuse": "Independently reviewed compatible worker86b81b814d89ba63cc50913db23f8942c82a72d1 helper and tests."
+    },
+    "gateway_ownership": "Exact ordinary-chat8 context in strict engineering mocks; added private-lock denial before readiness, binding, command creation or storage. Missing deleted-room authority remains fail-closed and cannot trigger external reads or commands.",
+    "private_fixture": "Capture explicit private conversation before constructing the session; actual target baseline1 failure to2 corrected passes including missing-context denial; actual context/boundary9 passes. Production guards unchanged.",
+    "audit_fixture": "Allow and assert the new featureAvailable Boolean independently of effective enabled protection; actual exporter baseline1 failure to1 corrected pass.",
+    "reporter_and_classification": "Five actual-source cases: baseline3 failures to5 passes;42 evidence variants and9 independently withheld comparison/execution capability variants. Retain no-dispatch and immutable approved-byte checks; comparison prerequisites retain their existing engineering guard/application domain.",
+    "platform_fixture": "Move the unchanged denied-web-search assertion body into its existing Robolectric wrapper, exactly once. All72 combined test entries retained. Actual AtomicFile failure reproduced under unit stubs; filesystem-boundary probe passes. Full wrapper execution remains CI.",
+    "voice_device_fixture": "Historical4c long-caption expectation already corrected in c29. Exact current speech bytes are Short answer. followed by one space; tagged node asserts displayed exact shared projection plus literal trimmed answer, hidden reasoning/details and explicit expansion. All4 mandatory receipt names retained. Full Compose/emulator execution remains required.",
+    "unchanged_limits": "No validation budgets, schema constraints, dispatch/privacy guards, required receipts or release qualification limits weakened."
+  },
+  "acceptance_f025_integration": {
+    "source": "f0250cf0c82b0a1939af9721a814c89129be377a",
+    "same_reviewed_tree": "459dbf3dccd13fa6725290c4ef2586a6e6f6f2ef",
+    "scope": "61 files,31 non-generated production Kotlin files plus inventory,four new helpers. Source-linked acceptance, independent authorized lanes, durable full journals, exact recovery and bounded reads.",
+    "independent_review": "No blocker in task/source/regression/draft/branch proof, binding and schema-authorized scheduling, captured dispatch authority, replay versus original journal identity, or generation/cursor preservation.",
+    "exact_source_correspondence": {
+      "contract_tests": 9,
+      "recovery_tests": 110,
+      "pagination_tests": 70,
+      "progress_tests": 11,
+      "diagnostics_tests": 27,
+      "projection_tests": 3
+    },
+    "qualified_other_evidence": "Criterion13 has current core/tests and older comparison dependencies, now covered by current70pagination evidence; scheduler15 differs only ktlint wrapping. Historical62/MCP35/voice81+4 are not exact-upload whole suites.",
+    "limits": "Full orchestration, Android/Hilt/Room/Compose and device/publication gates still pending. No physical audio, frame-time or export-performance claim.",
+    "composition": "Operation facade identical to reviewed incomingf025 after proving local21fc copy exactly matchedc818; local CIrepairs and source-partitioned graph continuation retained.",
+    "combined_local_validation": {
+      "canonical_host_tests": 616,
+      "kotlin_format_files": 71,
+      "scope_paths": 713,
+      "production_inventory_files": 2925,
+      "regex_literals": 1949,
+      "regex_dynamic_skipped": 99,
+      "full_android": "PENDING"
+    }
+  },
+  "concurrent_352_reconciliation": {
+    "head": "35228794d6fb667a56f0ff97c80672852093d74b",
+    "status": "SOURCE_REVIEWED_LOCAL_CANONICAL_PASSED",
+    "retained": [
+      "Source-scoped graph status/cursor ownership plus explicit execution-source admission",
+      "Digest verification of retained result and prior budget projection before recovery/replay",
+      "Invocation-owned uncertain TLS response separate from known handshake/peer admission failures",
+      "Root independent reporter feature gates, missing-private-context denial, private Gateway submission denial and mandatory voice projection assertion",
+      "Remote stronger saved-room zero-egress assertions, explicit availability-versus-protection audit fixture and exact Gateway failure fixtures"
+    ],
+    "current_android_qualification": "PENDING_CURRENT_HEAD_CI",
+    "benchmark_package": "IMPLEMENTING; final source integration and two independently reproduced repairs pending",
+    "validation": {
+      "canonical_tests": 616,
+      "canonical_seconds": 29.727,
+      "format_files": 24,
+      "scope_paths": 714,
+      "inventory_files": 2925,
+      "literal_regex_checks": 1949,
+      "dynamic_patterns_skipped": 99,
+      "resource_xml_files": 36,
+      "full_android": "PENDING_EXACT_HEAD_CI"
+    }
   }
 }

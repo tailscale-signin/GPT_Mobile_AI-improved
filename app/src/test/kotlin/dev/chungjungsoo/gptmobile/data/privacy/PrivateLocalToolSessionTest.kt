@@ -36,6 +36,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -165,6 +166,7 @@ class PrivateLocalToolSessionTest {
             PrivateLocalToolSession(fixture.store, fixture.profile, fixture.turns, listOf(local)) { _, _ ->
                 object : AgentProviderSession {
                     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                        assertTrue(PrivacyModeStore.active())
                         fixture.state = fixture.state.copy(revision = 2)
                         requireNotNull(currentCoroutineContext()[RequestAuthorizationGuard]).validate()
                         fixture.dispatches++
@@ -173,8 +175,25 @@ class PrivateLocalToolSessionTest {
                 }
             }
         }
+        assertNull(ConversationPrivacyContext.capture())
         val failure = runCatching { session.streamRound(listOf(local.definition), emptyList()).toList() }.exceptionOrNull()
         assertTrue(failure?.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true)
+        assertEquals(0, fixture.dispatches)
+    }
+
+    @Test fun missingConversationPolicyFailsBeforeOpeningAnyProvider() = runTest {
+        val fixture = Fixture()
+        var providerOpens = 0
+        assertNull(ConversationPrivacyContext.capture())
+        val failure = runCatching {
+            PrivateLocalToolSession(fixture.store, fixture.profile, fixture.turns, listOf(CalculatorTool())) { _, _ ->
+                providerOpens++
+                error("A missing conversation policy cannot authorize a provider")
+            }
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+        assertEquals("Conversation privacy policy is unavailable.", failure?.message)
+        assertEquals(0, providerOpens)
         assertEquals(0, fixture.dispatches)
     }
 

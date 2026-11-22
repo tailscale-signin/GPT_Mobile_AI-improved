@@ -7,6 +7,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedActivity
 
+/** Restored captions can precede the saved room; protect them until its policy is known. */
+@Composable
+internal fun PrivateConversationScreenProtection(chatId: Int, privacyLocked: Boolean) {
+    PrivateConversationScreenProtection(chatId <= 0 || privacyLocked)
+}
+
 /** Retain secure-window protection until the last visible private conversation leaves the window. */
 @Composable
 internal fun PrivateConversationScreenProtection(locked: Boolean) {

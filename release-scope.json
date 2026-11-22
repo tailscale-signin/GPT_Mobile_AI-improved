@@ -71,7 +71,9 @@
     "Restoring an older backup cannot remove an existing conversation's permanent privacy lock. Keep restored masking-history evidence tied to the content actually included in that backup.",
     "Keep readable preview opacity and manual caption position through the first playback timing, assign explicit new-presentation ownership to replies and replays, and reject stale cursors without requiring an observed empty frame.",
     "Keep quoted, escaped and code reasoning delimiters inside the hidden reasoning channel across saved projections and arbitrary stream splits; preserve independent parser and incomplete-tool cleanup for each choice.",
-    "Bind Auto capability cache and resident engine identities to the current three-fixture workload and complete-cost scoring protocol; reject legacy pairs from current ranking while preserving explicit backend qualification."
+    "Bind Auto capability cache and resident engine identities to the current three-fixture workload and complete-cost scoring protocol; reject legacy pairs from current ranking while preserving explicit backend qualification.",
+    "Protect restored voice captions while the saved conversation's privacy policy is loading after process recreation. Keep the window protected for a private room and release that loading protection only after an ordinary room is known.",
+    "Allow ordinary memories to move between personal and project scopes while keeping private and unshared memories permanently restricted."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",
@@ -608,6 +610,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateLocalToolSessionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateProtectionContextTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/privacy/PrivateTextMaskReceiptTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/rag/FactVaultIdentityRegressionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/readiness/CatalogueInvalidationPolicyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/readiness/ConfiguredInferenceRouteTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/readiness/RuntimeReadinessPresentationTest.kt",

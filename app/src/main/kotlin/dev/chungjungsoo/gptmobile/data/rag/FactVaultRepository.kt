@@ -428,7 +428,7 @@ class FactVaultRepository @Inject constructor(
             KnowledgeEntity(text.trim().lowercase(Locale.ROOT), text.trim(), "FACT")
         )
         val protectedOld = old?.let { dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.protect(it, scopes?.privacyLockedChatIds().orEmpty()) }
-        val effectiveScope = protectedOld?.scope ?: scope
+        val effectiveScope = protectedOld?.scope?.takeIf { dev.chungjungsoo.gptmobile.data.knowledge.MemoryPrivacyPolicy.isPrivate(it) } ?: scope
         val canonicalId = scopedFactId(fact, effectiveScope)
         require(_state.value.facts.none { it.id != old?.id && it.scope == effectiveScope && scopedFactId(it.fact, effectiveScope) == canonicalId }) { "This memory already exists. Merge the records instead." }
         // Edits keep their original ID, which may still be the hash of an older value.

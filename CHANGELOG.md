@@ -6,6 +6,8 @@
 - Preserve readable captions through the start of speech, isolate replay cursor ownership, keep literal reasoning delimiters out of answer audio, and prevent Auto from mixing incompatible comparison protocols.
 - Make Options enable the availability of private chats, with a separate permanent privacy choice for every profile selected in New Chat. Keep saved private chats protected when Options is disabled, across restart, retry, copy and restore; migrate existing privacy history conservatively with Room 54.
 - Preserve existing permanent privacy locks when restoring an older conversation backup, without inventing masking evidence for the restored content.
+- Protect restored voice captions until the saved conversation's privacy policy finishes loading after app restart.
+- Allow ordinary memories to move between personal and project scopes while keeping private and unshared memories permanently restricted.
 - Scope provider, background, local-tool and voice transport to the originating conversation, preserving ordinary chats during concurrent private work. Retain screen protection and clear private-chat labels independently of feature availability.
 - Isolate private memories, documents and legacy mixed-source evidence through edits, deletion and restore; keep private content out of shared research indexes and unsupported external workflows. Preserve responsive profile selection, New Chat and asynchronous settings saves.
 - Complete comparison coverage when GitHub pages arrive out of order; retain the original failed page receipts and exact remaining fragment obligations, and honor the requested bounded comparison page size.

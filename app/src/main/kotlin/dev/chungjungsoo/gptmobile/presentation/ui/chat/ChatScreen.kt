@@ -254,7 +254,7 @@ private fun ChatScreenContent(
         if (voiceControls != null) chatViewModel.askVoiceQuestion() else chatViewModel.askQuestion()
     }
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
-    dev.chungjungsoo.gptmobile.presentation.common.PrivateConversationScreenProtection(chatRoom.privacyModeLocked)
+    dev.chungjungsoo.gptmobile.presentation.common.PrivateConversationScreenProtection(chatRoom.id, chatRoom.privacyModeLocked)
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val providerWaitDeadlines by chatViewModel.providerWaitDeadlines.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()

@@ -7,7 +7,7 @@
   "source_sha": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
   "working_branch": "fix/diagnostic-execution-completion-2026-11-22",
   "intent": "Separate privacy feature availability from an immutable per-conversation privacy choice; enforce saved conversation policy across concurrent sends, retries, reopened conversations, background work and voice; validate, merge and publish the complete release after all required checks pass.",
-  "status": "LOCAL_CHECKS_PASSED_AWAITING_HOSTED_CI",
+  "status": "IMPLEMENTED_LOCAL_VALIDATION_PASSED_PENDING_HOSTED_CI",
   "scope": [
     "Options enables availability for new private conversations without changing existing conversations",
     "New Chat stores an independent permanent privacy choice for every selected profile",
@@ -17,7 +17,7 @@
     "Preserve concurrent commits; draft PR, current-head verification, main verification and publication"
   ],
   "validation": {
-    "canonical_host": "PASS bash scripts/validate-local.sh fast after full ecd20731 voice/benchmark integration plus restore follow-up: 616 tests, generated inventories, CI policy, secrets, resources, 1922 literal regex patterns and provenance checks",
+    "canonical_host": "PASS bash scripts/validate-local.sh fast after preserving c29 voice/parser/benchmark/MCP/memory corrections and both loading-window/ordinary-memory follow-ups: 616 tests in25.190s, generated inventories, CI policy, secrets, resources,1923 literal regex patterns and provenance checks. Complete generation/validation/schema/whitespace sequence elapsed31.39s.",
     "store_writer_context": "PASS 26 production-source host tests",
     "transport": "PASS 5 production-source Ktor3.6/OkHttp5.5 loopback tests",
     "voice": "PASS 4 actual Android/Kokoro/Gateway transport tests in isolated Robolectric harness; production voice sources compiled",
@@ -32,18 +32,21 @@
     "publication": "PENDING signed Android0.9.66.13/build147 and coordinated Gateway18.1.1 readback",
     "room_schema_history": "PASS scripts/check_room_schemas.py",
     "acceptance_receipts": "PASS host contract requires all four new privacy migration/persistence methods and both new voice-details/control methods. It verifies every method in all four suites and rejects missing/skipped receipts.",
-    "window_protection": "PASS 2 actual ProtectedActivity/DevicePrivacySettings/AndroidAppLock/AppLockChallenge Robolectric tests, with no production source stubs",
+    "window_protection": "PASS 3 actual ProtectedActivity/DevicePrivacySettings/AndroidAppLock/AppLockChallenge and Compose-helper Robolectric tests. The new unchanged restored-caption case fails at its first frame with the old lock-only predicate, then all 3 pass after restoring the actual helper. This renders preloaded restored captions in the real window; it is not a full VoiceChatScreen/device process-recreation test.",
     "hosted_source_generation": "PASS Room schema and annotation generation on 6e788707 in standard diagnostic and GenieX workflows; newer commit requires fresh hosted validation",
     "mcp": "PASS 6 actual McpPrivacyTransportTest and 9 McpReadRecoveryTest cases pinned to dda6f5c; all 51 harness production sources match current integrated source",
     "restore": "PASS 7 actual SQLite/Robolectric backup tests. The unchanged tests fail exactly 3 new privacy cases against unpatched 6e788 and pass all 7 against the fixed helper; unrelated run/Combined validators are explicit guarded harness boundaries.",
-    "followup_formatting": "PASS all 3 changed Kotlin files after integration with ecd20731; committed Room schema history unchanged"
+    "followup_formatting": "PASS all 6 changed Kotlin source/test files with ktlint1.3.1 after integration with c29; committed Room schema history unchanged.",
+    "ordinary_memory_scope": "PASS 10 actual-repository saveManual identity/persistence tests, with 2 reproduced pre-fix failures and private/unshared controls retained."
   },
   "concurrent_commits_preserved": [
     "06ab96439deea13262fa48130eed367914e914d0",
     "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
     "fea1a6ac82756817aad485b6267e4294873bfb8b",
     "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
-    "ecd207312bbbcef04790762217c3d66a75ebb26f"
+    "ecd207312bbbcef04790762217c3d66a75ebb26f",
+    "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+    "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6"
   ],
   "navigation_persistence": {
     "owner": "privacy_navigation",
@@ -133,5 +136,30 @@
     "remaining": "Full exact-current-head Android/JVM, all mandatory acceptance receipts on both API levels, and every applicable CI workflow remain required. The incoming voice/benchmark scope is integrated; its reproduced caption/parser/Auto corrections and the newly announced acceptance-completion follow-up are in progress. No merge/publication qualification is inferred.",
     "canonical": "Combined source with all retained comparison/MCP/test corrections and sticky mixed-private-memory fix passed616 canonical host tests in27.594s; all620 changed paths remain within the exact unchanged-version release scope. Hosted exact-head/full Android remains mandatory.",
     "restore_followup": "Preserved4c48b776 full and selected-chat raw SQL restore guard, older-column compatibility, stronger actual SQLite/Robolectric regressions and mandatory voice-control acceptance methods. Root independently reviewed the19-line production delta; upstream seven-test before/after evidence is retained under backup_restore_followup."
-  }
+  },
+  "screen_policy_loading_followup": {
+    "source_base": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+    "finding": "After process recreation, rememberSaveable voice captions/reply can be restored before the durable room policy finishes loading. Initial room id=-1 has privacyModeLocked=false, so guarding only the lock field could display private saved captions without the secure-window lease. Audio transport already treats unknown rooms as protected.",
+    "implementation": "The actual shared screen-protection helper now accepts chatId and privacyLocked and protects unknown/nonpositive IDs or locked rooms. Both chat and voice screens pass their saved room. Existing explicit New Chat/GitHub boolean policy is unchanged.",
+    "validation": "PASS all 3 actual-window/Compose tests, including unknown IDs -1/0, private policy load without a protection clear event, ordinary policy with an independent screen lease, release, a second private screen and disposal. The unchanged new case fails against the old predicate at the first rendered private frame. Actual sources were restored, recompiled, rerun and hash-verified; source paths are unchanged between 4c48 and incoming c29.",
+    "qualification": "Actual shared helper and ProtectedActivity render preloaded restored captions. Full VoiceChatScreen device process recreation is not claimed by this focused Robolectric regression.",
+    "integration": "Preserved c29 caption ownership, reasoning parser, benchmark protocol, comparison/MCP and sticky-unshared corrections. Rebase conflicts were limited to the shared ledger and release scope; both scopes retained."
+  },
+  "ordinary_memory_scope_followup": {
+    "source_base": "4c48b77621b603f80a480ea45e0d7eedcddde86e",
+    "finding": "saveManual retained the old scope for all edited memories, unintentionally ignoring ordinary personal/project scope moves. Only private and unshared scopes require immutable restrictions.",
+    "implementation": "Retain the protected previous scope only when MemoryPrivacyPolicy.isPrivate returns true; otherwise honor the requested validated scope. Preserve identity, revision, destination collision checks, persistence and private localOnly enforcement.",
+    "validation": "PASS 10 actual-repository identity/persistence tests (7 existing plus 3 new). The unchanged suite fails exactly 2 ordinary-move/destination-collision cases before the one-line fix; all private/unshared controls pass before and after. Real repository/models/serialization/policy/scope/graph/selection are compiled; the existing fake SecretVault is the I/O boundary and optional unconfigured integrations are guarded. Source hashes, pinned formatting and whitespace pass.",
+    "integrated_validation": "PASS same10 actual-repository tests recompiled against e350a57 over c29, including incoming sticky-unshared MemoryPrivacyPolicy. Compiled input hashes reverified after execution; only generated inventories and this evidence ledger changed afterward.",
+    "source_hashes": {
+      "MemoryPrivacyPolicy.kt": "0588e7b6288478f19421369f6041e213fe34037b485637e5fa3f72bd905f10f6",
+      "FactVaultRepository.kt": "3cb37dfd09867f21fc0790affb85028932f14c87b7e5eb7680fb410bbaecbe99",
+      "FactVaultIdentityRegressionTest.kt": "4d5d40a0600f40ce0f8bea18a0dc2790bb0549aee6b4301975f4e3834f96e83d"
+    }
+  },
+  "last_reconciled_remote_head": "c29cc56bc003f67ee7c6e3d746b9899b46e6f4b6",
+  "pending_concurrent_scope": [
+    "acceptance-completion-70afcf89: preserve and review the separately announced 16-finding/30-scenario implementation before final readiness.",
+    "github-coding-benchmark-2026-11-22: preserve and review the separately announced benchmark audit implementation before final readiness."
+  ]
 }

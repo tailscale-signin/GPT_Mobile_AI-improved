@@ -16,6 +16,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -233,6 +234,76 @@ class IssueReportSubmissionTest {
                 assertEquals(listOf("GET", "GET", "POST"), methods)
                 assertEquals(1, dispatched)
                 assertEquals(listOf(payload), posted)
+                fixtures++
+            }
+        }
+        assertEquals(18, fixtures)
+    }
+
+    @Test fun publicationFieldsNegotiateConversationRecoveryIndependently() {
+        val feature = IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE
+        var fixtures = 0
+        for (key in GitHubAcceptancePublicationEvidence.fields - GitHubAcceptancePublicationEvidence.observationFields) {
+            val needsRecovery = key == "acceptance_advertised_tool_count"
+            val value = when (key) {
+                "acceptance_publication_source" -> JsonPrimitive("PARTIAL_FALLBACK")
+                "acceptance_extraction_observation" -> JsonPrimitive("PLAN_INPUT_LIMIT")
+                "acceptance_draft_state" -> JsonPrimitive("PRESENT")
+                else -> JsonPrimitive(0)
+            }
+            for (omitted in listOf(false, true)) {
+                val context = requireNotNull(publicationReport().context)
+                val base = requireNotNull(context.diagnostics)
+                val values = base.values - GitHubAcceptancePublicationEvidence.fields
+                val diagnostics = if (omitted) base.copy(values = values, omittedFields = listOf(key)) else base.copy(values = values + (key to value))
+                assertTrue(diagnostics.isValid())
+                assertEquals(needsRecovery, feature in diagnostics.requiredServiceFeatures())
+                val approved = report.copy(context = context.withDiagnostics(diagnostics))
+                val payload = approved.approvedPayload()
+                val approvedBytes = payload.encodeToByteArray()
+                var recoveryReady = false
+                var dispatched = 0
+                val methods = mutableListOf<String>()
+                val posted = mutableListOf<ByteArray>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    methods += request.method
+                    val responseBody = when (request.method) {
+                        "GET" -> {
+                            assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                            val features = legacyReadyFeatures + GitHubAcceptancePublicationEvidence.FEATURE + if (recoveryReady) listOf(feature) else emptyList()
+                            buildJsonObject {
+                                put("service", "gpt-mobile-issue-reporter")
+                                put("version", 2)
+                                put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                                put("reportDiagnosticFeatures", JsonArray(features.map(::JsonPrimitive)))
+                            }.toString()
+                        }
+                        "POST" -> {
+                            assertEquals("$origin/v1/issue-reports", request.url.toString())
+                            posted += Buffer().also { requireNotNull(request.body).writeTo(it) }.readByteArray()
+                            """{"reportId":"${report.reportId}","number":1240}"""
+                        }
+                        else -> error("Unexpected report request: ${request.method}")
+                    }
+                    response(request, 200, responseBody)
+                }.build()
+                val submission = IssueReportSubmission(origin, client)
+                val initial = submission.send(report.reportId, payload) { dispatched++ }
+                if (needsRecovery) {
+                    assertEquals(IssueReportSubmission.Failure("REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, automaticRetry = false), initial)
+                    assertEquals(listOf("GET"), methods)
+                    assertEquals(0, dispatched)
+                    assertTrue(posted.isEmpty())
+                    assertArrayEquals(approvedBytes, approved.approvedPayload().encodeToByteArray())
+                    recoveryReady = true
+                    assertEquals(IssueReportSubmission.Confirmed(1240), submission.send(report.reportId, payload) { dispatched++ })
+                } else {
+                    assertEquals(IssueReportSubmission.Confirmed(1240), initial)
+                }
+                assertEquals(if (needsRecovery) listOf("GET", "GET", "POST") else listOf("GET", "POST"), methods)
+                assertEquals(1, dispatched)
+                assertArrayEquals(approvedBytes, posted.single())
                 fixtures++
             }
         }

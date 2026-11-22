@@ -51,7 +51,7 @@ class RobolectricProvisioningTest(unittest.TestCase):
 
     def test_preview_and_release_validate_runtimes_before_running_full_unit_suites(self):
         workflows = Path(__file__).resolve().parents[2] / '.github/workflows'
-        for name in ('geniex-preview.yml', 'release-build.yml'):
+        for name in ('geniex-preview.yml', 'release-build.yml', 'audit-workspace.yml', 'marketplace-contracts.yml'):
             with self.subTest(workflow=name):
                 workflow = (workflows / name).read_text(encoding='utf-8')
                 restore = workflow.index('- name: Restore verified Robolectric runtime cache')

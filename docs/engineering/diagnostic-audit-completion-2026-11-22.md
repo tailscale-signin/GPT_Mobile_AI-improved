@@ -388,3 +388,36 @@ checks and both exact-main publication verifications remain required.
 
 The assertion follow-up passes the same 615 canonical checks, its changed Kotlin
 file passes ktlint, and the proposed 411-file delta passes the scope validator.
+
+## Binding ownership integration and device compilation
+
+Concurrent `24a1262` preserves the prior repairs and adds supported built-in
+mutation transactions plus import ownership checks. A binding UID cannot replace
+another profile, connection or tool, and validation precedes deletion. Exact
+profile/tool/NULL-connection replacement retains remote grants and unrelated
+built-ins; legacy names still import through the general path. Five actual-source
+DAO default-method contract tests pass. Real Room tests now cover repository
+rollback, competing UI/import writes and selected/unselected staged restore.
+The gate requires all 26 persistence, one migration and nine caption cases on
+each acceptance API. The database-open and backup normalization helpers remain
+unchanged, as do the authentic Room schemas.
+
+API 34 compilation on `459261b`, job `137341238366`, found a Kotlin 2.4.20
+intersection-type inference error in the raw SQL test helper's mixed string,
+nullable string and timestamp array. The helper now declares `arrayOf<Any?>`,
+matching SQLite's object-array boundary without changing SQL, argument values or
+test behavior. The exact before/after helper reproduces the compiler error and
+then compiles successfully with Kotlin 2.4.20 and the Java boundary. Device
+compilation and all 36 required runtime receipts per API remain mandatory.
+
+The stricter selected-Gateway fixture still checks cancellation, target changes,
+null selection and edited credentials with exact configurations. Profile-card
+animation now follows the resolved visible detail panel instead of a stale saved
+UID. Independent reviews found no additional concrete regression in these
+concurrent changes. One host runner fixture exceeded its existing 20-second limit
+during a container stall; the same isolated case then passed in 0.338 seconds,
+with no test or timeout change.
+
+The integrated compile repair passes all 615 canonical host checks, all twelve
+Kotlin files changed by the concurrent integration and this repair pass ktlint,
+and the full 416-file proposed release delta passes the existing scope gate.

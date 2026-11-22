@@ -716,7 +716,7 @@ class AgentPersistenceDaoInstrumentedTest {
     }
 
     private fun insertRawBinding(sql: SupportSQLiteDatabase, uid: String, profile: String = "profile-1", connection: String? = null, tool: String = "read_url", createdAt: Long = 1) {
-        sql.execSQL("INSERT INTO agent_tool_bindings(binding_uid,profile_uid,connection_uid,tool_name,created_at) VALUES(?,?,?,?,?)", arrayOf(uid, profile, connection, tool, createdAt))
+        sql.execSQL("INSERT INTO agent_tool_bindings(binding_uid,profile_uid,connection_uid,tool_name,created_at) VALUES(?,?,?,?,?)", arrayOf<Any?>(uid, profile, connection, tool, createdAt))
     }
 
     private fun assertSqlConstraint(block: () -> Unit) {

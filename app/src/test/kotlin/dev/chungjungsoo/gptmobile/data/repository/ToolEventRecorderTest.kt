@@ -1095,6 +1095,7 @@ class ToolEventRecorderTest {
 private class FakeAgentRunDao :
     AgentRunDao,
     UnusedPolicySnapshotAccess {
+    override suspend fun ownsPendingDecision(runId: String, chatId: Int, messageId: Int, profileUid: String): Boolean = false
     override suspend fun chatsWithRecordedOutcome(status: String): List<RecordedChatOutcome> = emptyList()
     override suspend fun gatewayDiagnosticStates(baseUrl: String, profileUid: String): List<GatewayRunDiagnosticState> = emptyList()
     override suspend fun recordGatewayCancellation(runId: String, jobId: String, receipt: String): Int = 0

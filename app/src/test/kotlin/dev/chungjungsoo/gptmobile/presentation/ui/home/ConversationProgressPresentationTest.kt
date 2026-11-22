@@ -10,6 +10,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import dev.chungjungsoo.gptmobile.data.chat.CompletedGeneration
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
@@ -51,7 +52,7 @@ class ConversationProgressPresentationTest {
         compose.onNode(progressNode).assertDoesNotExist()
     }
 
-    @Test fun gatewayRowsUseWorkingUnreadAndReadCloudStates() {
+    @Test fun gatewayRowsKeepTheirConversationTypeThroughWorkingUnreadAndReadStates() {
         val room = ChatRoomV2(id = 1, title = "Gateway task", conversationMode = dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY)
         var working by mutableStateOf(true)
         var unread by mutableStateOf(false)
@@ -60,20 +61,29 @@ class ConversationProgressPresentationTest {
                 ChatListItem(room, 0, HomeViewModel.ChatListState(chats = listOf(room)), working, unread, "Selected gateway", emptyList(), onItemClick = {}, onItemLongClick = {}, animateStatus = false)
             }
         }
-        compose.onNodeWithContentDescription("Gateway · working", useUnmergedTree = true).assertExists()
+        compose.onNodeWithContentDescription("Gateway · Single Chat · working", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_mode_SINGLE", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_cloud", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_icon", useUnmergedTree = true).assertDoesNotExist()
         compose.runOnIdle {
             working = false
             unread = true
         }
-        compose.onNodeWithContentDescription("Gateway · working", useUnmergedTree = true).assertDoesNotExist()
-        compose.onNodeWithContentDescription("Gateway · unread reply", useUnmergedTree = true).assertExists()
+        compose.onNodeWithContentDescription("Gateway · Single Chat · working", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Gateway · Single Chat · unread reply", useUnmergedTree = true).assertExists()
         compose.runOnIdle { unread = false }
-        compose.onNodeWithContentDescription("Gateway · read", useUnmergedTree = true).assertExists()
+        compose.onNodeWithContentDescription("Gateway · Single Chat · unread reply", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Gateway · Single Chat · read", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_mode_SINGLE", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_cloud", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_icon", useUnmergedTree = true).assertDoesNotExist()
     }
 
-    @Test fun gatewayTabShowsChatModeInsideTheBubbleWhileOtherDestinationsKeepTheCloud() {
+    @Test fun gatewayRowsKeepTheirModeAcrossDestinationsAndUpdateWhenTheConversationTypeChanges() {
         val room = ChatRoomV2(id = 1, title = "GitHub task")
-        var inGatewayTab by mutableStateOf(true)
+        var isServerChat by mutableStateOf(true)
+        var isGitHub by mutableStateOf(true)
+        var isResearch by mutableStateOf(false)
         compose.setContent {
             MaterialTheme {
                 ChatListItem(
@@ -85,19 +95,35 @@ class ConversationProgressPresentationTest {
                     "Selected gateway",
                     emptyList(),
                     isGateway = true,
-                    isGitHub = true,
+                    isServerChat = isServerChat,
+                    isGitHub = isGitHub,
+                    isResearch = isResearch,
                     onItemClick = {},
                     onItemLongClick = {},
-                    animateStatus = false,
-                    showGatewayMode = inGatewayTab
+                    animateStatus = false
                 )
             }
         }
         compose.onNodeWithContentDescription("Gateway · GitHub Chat · unread reply", useUnmergedTree = true).assertExists()
-        compose.onNodeWithContentDescription("Gateway · unread reply", useUnmergedTree = true).assertDoesNotExist()
-        compose.runOnIdle { inGatewayTab = false }
+        compose.onNodeWithTag("gateway_conversation_mode_GITHUB", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_cloud", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_icon", useUnmergedTree = true).assertDoesNotExist()
+        // Gateway inventory and Home rows retain the same mode and connection badge.
+        compose.runOnIdle { isServerChat = false }
+        compose.onNodeWithContentDescription("Gateway · GitHub Chat · unread reply", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_mode_GITHUB", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_cloud", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_icon", useUnmergedTree = true).assertDoesNotExist()
+        compose.runOnIdle {
+            isGitHub = false
+            isResearch = true
+        }
         compose.onNodeWithContentDescription("Gateway · GitHub Chat · unread reply", useUnmergedTree = true).assertDoesNotExist()
-        compose.onNodeWithContentDescription("Gateway · unread reply", useUnmergedTree = true).assertExists()
+        compose.onNodeWithContentDescription("Gateway · Research Chat · unread reply", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_mode_GITHUB", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("gateway_conversation_mode_RESEARCH", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_cloud", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("gateway_conversation_icon", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun progressUsesTheTextColumnAndAcknowledgementUpdatesTheResearchIcon() {

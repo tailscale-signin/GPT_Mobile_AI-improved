@@ -68,7 +68,7 @@ remain explicitly separate from source/regression/release evidence.
   dispatcher changes, sibling separation and parent cancellation without a false
   owned-deadline event.
 - Gateway host/control targeted suite with an isolated, publisher-hash-verified
-  PowerShell 7.4.6 runtime: 17 tests passed; one unrelated packaged-QR check was
+  PowerShell 7.4.6 runtime: 19 tests passed; one unrelated packaged-QR check was
   skipped locally. Both PowerShell checks executed. CI exposed a duplicate common
   parameter in the test double; the regression was reproduced, the double fixed,
   and action/enabled/port/profile assertions strengthened. Production containment
@@ -91,3 +91,18 @@ Android **0.9.66.13** (build **147**) and Gateway **18.1.1** use one explicit
 publication request. Preserve the scoped qualification disclosures in the release
 notes. Recheck the remote branch and base, qualify the actual PR head, then qualify
 the exact merged main commit and published artifact identities.
+
+## CI integration follow-ups
+
+- The Windows profile observation uses separate network-category and firewall-
+  profile vocabularies. Domain, Any, mixed profiles and NotApplicable retain their
+  meaning; empty or unrecognized rule scope remains unknown/partial and is shown
+  explicitly. Real PowerShell and normalization regressions cover these cases.
+- Audit unit compilation on `2fb4f44` identified two inherited test API mismatches.
+  The no-record DAO fake now rejects pending-decision ownership, and conversation
+  presentation regressions retain the chat mode/cloud badge through working, unread,
+  read and home/server states, then verify an actual conversation-type transition.
+  Full Android test execution remains the authority for these fixture corrections.
+- CI production compilation and APK packaging passed for the integrated production
+  source; the packaged chat/voice method-size gate, including Gateway recovery, also
+  passed. Final release qualification still requires the final PR and main revisions.

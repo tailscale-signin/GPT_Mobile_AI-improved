@@ -2768,13 +2768,17 @@ class GitHubWorkspaceClient(
         val cached = if (cacheable && !forceLive) responseCache.get(cacheKey) else null
         // Mutable branch heads and permission checks are always revalidated.
         val freshList = path.startsWith("/user/repos") || path.startsWith("/user/installations") || path.matches(Regex("/repos/[^/]+/[^/]+/(?:branches|contents)(?:[?].*)?"))
-        if (cached != null && freshList && System.currentTimeMillis() - cached.storedAtMillis < freshnessSeconds.coerceIn(0, 120) * 1000L) {
-            GitHubDispatchAccounting.cached(cached.storedAtMillis)
-            return cached.value
+        val fresh = cached != null && System.currentTimeMillis() - cached.storedAtMillis in 0 until freshnessSeconds.coerceIn(0, 120) * 1000L
+        if (method == HttpMethod.Get) {
+            GitHubDispatchAccounting.freshness(path, GitHubReadFreshness.decision(forceLive, cached, freshList, fresh, responseCache.invalidatedByMutation(cacheKey)), cached?.storedAtMillis)
         }
         if (cached != null && cached.immutable) {
             GitHubDispatchAccounting.cached(cached.storedAtMillis, immutable = true)
             scheduler.recordCacheHit()
+            return cached.value
+        }
+        if (cached != null && freshList && fresh) {
+            GitHubDispatchAccounting.cached(cached.storedAtMillis)
             return cached.value
         }
         return GitHubReadRetry.run(readOnly = method == HttpMethod.Get) {
@@ -2836,6 +2840,7 @@ class GitHubWorkspaceClient(
                     check(response.status.value != 304) { "GITHUB_CACHE_BODY_MISSING: unconditional revalidation returned no body." }
                 }
                 if (response.status.value == 304 && cached != null) {
+                    GitHubDispatchAccounting.freshness(path, GitHubReadFreshness.CONDITIONAL_BODY_UNCHANGED, cached.storedAtMillis)
                     responseCache.put(cacheKey, cached.etag, cached.value)
                     scheduler.recordCacheHit()
                     return@execute cached.value
@@ -2903,6 +2908,14 @@ class GitHubWorkspaceClient(
                     )
                 }
                 val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
+                if (method == HttpMethod.Get &&
+                    cached != null &&
+                    cached.etag.isNotBlank() &&
+                    !response.headers[HttpHeaders.ETag].isNullOrBlank() &&
+                    response.headers[HttpHeaders.ETag] != cached.etag
+                ) {
+                    GitHubDispatchAccounting.freshness(path, GitHubReadFreshness.CONDITIONAL_ETAG_CHANGED, cached.storedAtMillis)
+                }
                 if (method == HttpMethod.Get) credential.refAvailability.succeeded(path)
                 if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
                 if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, immutablePath(path))

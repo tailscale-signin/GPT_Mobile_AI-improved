@@ -35,6 +35,8 @@ internal class GitHubDispatchAccounting(
         suspend fun responded(mutation: Boolean, status: Int, requestId: String?, serverRequestId: String?, expectedAbsence: Boolean) =
             currentCoroutineContext()[Key]?.response(mutation, status, requestId, serverRequestId, expectedAbsence)
         suspend fun cached(observedAt: Long?, immutable: Boolean = false) = currentCoroutineContext()[Key]?.cache(observedAt, immutable)
+        suspend fun freshness(path: String, reason: GitHubReadFreshness, observedAt: Long? = null) =
+            currentCoroutineContext()[Key]?.recordFreshness(path, reason, observedAt)
     }
 
     private data class Pending(
@@ -67,6 +69,23 @@ internal class GitHubDispatchAccounting(
     private var oldestCacheObservation: Long? = null
     private var oldestImmutableObservation: Long? = null
     private var terminalRecorded = false
+    private val freshnessObservations = linkedMapOf<String, kotlinx.serialization.json.JsonObject>()
+    private var omittedFreshnessObservations = 0
+
+    @Synchronized private fun recordFreshness(path: String, reason: GitHubReadFreshness, observedAt: Long?) {
+        val target = GitHubEvidenceBook.digest(path)
+        val key = "$target:${reason.name}"
+        if (key in freshnessObservations) return
+        if (freshnessObservations.size >= 32) {
+            omittedFreshnessObservations++
+            return
+        }
+        freshnessObservations[key] = buildJsonObject {
+            put("target_sha256", target)
+            put("reason", reason.name)
+            observedAt?.takeIf { it > 0 }?.let { put("previous_observed_at_ms", it) }
+        }
+    }
 
     private fun emit(value: String) {
         // Diagnostics must not turn an accepted operation into a transport failure.
@@ -279,6 +298,8 @@ internal class GitHubDispatchAccounting(
                 put("unobserved_read_requests", pending.values.count { !it.mutation })
                 put("observation_mismatches", observationMismatches)
                 put("cached_read_observations", cachedReads)
+                if (freshnessObservations.isNotEmpty()) put("read_freshness", kotlinx.serialization.json.JsonArray(freshnessObservations.values.toList()))
+                if (omittedFreshnessObservations > 0) put("omitted_read_freshness", omittedFreshnessObservations)
                 put(
                     "read_source",
                     when {

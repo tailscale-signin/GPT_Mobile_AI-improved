@@ -68,6 +68,11 @@ internal data class IssueReportDiagnostics(
         ) {
             add(IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE)
         }
+        if ((values.keys + omittedFields).any { it in dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.fields } ||
+            values["provider_failure_code"] == JsonPrimitive(dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE)
+        ) {
+            add(dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.FEATURE)
+        }
         if ((values.keys + omittedFields).any { it in incidentDetailFields }) add(INCIDENT_DETAIL_FEATURE)
         if ("claim_extraction_schema_hash" in values.keys + omittedFields + unavailableFields) add("CLAIM_EXTRACTION_SCHEMA_HASH_V1")
         if ((values.keys + omittedFields + unavailableFields).any { it in GatewayCapabilityFailureEvidence.fields } ||
@@ -331,7 +336,7 @@ internal data class IssueReportDiagnostics(
             "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash", "gateway_manifest_hash", "gateway_operation_id_hash", "operation_id_hash"
         )
         private val hashLists = setOf("unmet_criterion_id_hashes", "unmet_criterion_reason_hashes")
-        private val flags = profileSelectionFlags + setOf(
+        private val flags = profileSelectionFlags + setOf("payload_replan_allowed") + setOf(
             "gateway_model_advertised", "gateway_model_loaded",
             "native_trace_truncated", "search_explicit_mode", "round_catalog_discovery_available",
             "acceptance_fixture_creation_admissible", "acceptance_acquisition_allowed", "status_branch_protected", "status_policy_complete",
@@ -401,6 +406,7 @@ internal data class IssueReportDiagnostics(
             "repository_graph_observation" to setOf("NOT_INDEXED", "OBSERVED", "UNOBSERVED", "REVISION_MISMATCH", "UNAVAILABLE"),
             "workflow_dependency_observation" to setOf("UNOBSERVED", "READ_FAILED", "OBSERVED_EXECUTED_JOB", "RUN_READ_PENDING", "MISSING_EXECUTED_JOB", "RUN_PAGE_AVAILABLE"),
             "gateway_validation_policy_state" to setOf("NOT_CONFIGURED", "MISSING_OR_OVERSIZED", "REPOSITORY_UNCONFIGURED", "INVALID_DOCUMENT", "INVALID_ENTRY", "UNREADABLE", "VALIDATED"),
+            "provider_request_limit_source" to setOf("UNREPORTED", "RESPONSE_HEADER"),
             "admission_measurement" to setOf("SERVING_TOKENIZER", "UTF8_ESTIMATE"),
             "admission_dominant_component" to setOf("tool_schemas", "system_instructions", "retained_history", "tool_results", "current_request", "response_schema", "serialization_and_template_estimate", "attachments"),
             "status_policy_recovery" to setOf("CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION"),
@@ -427,7 +433,7 @@ internal data class IssueReportDiagnostics(
 
             "provider_failure_stage" to setOf("ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"),
             "provider_failure_domain" to setOf("PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"),
-            "provider_failure_code" to GatewayCapabilityFailureEvidence.codes + reconciliationCodes + selectedModelFailureCodes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES + setOf("GITHUB_VERIFICATION_INTERNAL_ERROR", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE),
+            "provider_failure_code" to GatewayCapabilityFailureEvidence.codes + reconciliationCodes + selectedModelFailureCodes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES + setOf("GITHUB_VERIFICATION_INTERNAL_ERROR", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "REQUEST_BYTES_EXCEEDED", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE),
             GatewayCapabilityFailureEvidence.KIND to GatewayCapabilityFailureEvidence.kinds,
             GatewayCapabilityFailureEvidence.DECODE_REASON to GatewayCapabilityFailureEvidence.decodeReasons,
             "privacy_reason_code" to PrivacyFailureEvidence.reasonCodes,
@@ -514,7 +520,7 @@ internal data class IssueReportDiagnostics(
             "gateway_model_state", "gateway_failure_category", "gateway_dependency", "gateway_upstream_status", "gateway_upstream_message_code", "gateway_reconciliation_status"
         )
         private val fieldsByArea = mapOf(
-            "PROVIDER" to selectedModelObservationFields + GatewayCapabilityFailureEvidence.fields + reasoningProbeFields + githubCooldownFields + profileSelectionFields + completionEvidenceFields + capacityEvidenceFields + githubSchemaBudgetFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
+            "PROVIDER" to dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.fields + selectedModelObservationFields + GatewayCapabilityFailureEvidence.fields + reasoningProbeFields + githubCooldownFields + profileSelectionFields + completionEvidenceFields + capacityEvidenceFields + githubSchemaBudgetFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
                 "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash",
                 "provider_failure_stage", "provider_failure_domain", "provider_failure_code",
                 "provider_error_code_state", "provider_error_origin", "chat_failure_code_state",
@@ -727,6 +733,7 @@ internal data class IssueReportDiagnostics(
                 in capacityCeilingFields -> 1L..16_000_000L
                 in attempts -> 0L..10_000L
                 in durations -> 0L..86_400_000L
+                in dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.counts -> 0L..Int.MAX_VALUE.toLong()
                 in counts -> 0L..16_000_000L
                 else -> return null
             }

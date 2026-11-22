@@ -28,7 +28,9 @@ data class PromptBudgetReceipt(
     val attachmentReserveTokens: Long,
     val outputAllowanceTokens: Long?,
     val contextTokens: Long?,
-    val deliberateCompactions: List<String> = emptyList()
+    val deliberateCompactions: List<String> = emptyList(),
+    /** Exact UTF-8 request envelope, distinct from estimated token attribution. Null in older receipts. */
+    val serializedRequestBytes: Long? = null
 ) {
     val dominantComponent: PromptBudgetComponent? get() = components.maxByOrNull { it.tokens }
 
@@ -61,6 +63,22 @@ internal object PromptBudgets {
             if (value == null) return
             parts[name] = Math.addExact(parts[name] ?: 0, value.toString().toByteArray(Charsets.UTF_8).size.toLong())
         }
+        fun toolResult(value: JsonElement): Boolean {
+            val item = value as? JsonObject ?: return false
+            return item.containsKey("functionResponse") || (item["type"] as? JsonPrimitive)?.content in setOf("tool_result", "function_call_output")
+        }
+        fun messagePart(name: String, message: JsonElement) {
+            val objectValue = message as? JsonObject
+            val key = listOf("content", "parts").firstOrNull { objectValue?.get(it) is JsonArray }
+            val content = key?.let { objectValue?.get(it) as? JsonArray }
+            val results = content?.filter(::toolResult).orEmpty()
+            if (name != "tool_results" && results.isNotEmpty() && key != null && objectValue != null) {
+                part("tool_results", JsonArray(results))
+                part(name, JsonObject(objectValue + (key to JsonArray(requireNotNull(content).filterNot(::toolResult)))))
+            } else {
+                part(name, message)
+            }
+        }
         val nativeEnvelope = root?.containsKey("system") == true && root.containsKey("input")
         var originalInput: JsonElement? = null
         if (root != null) {
@@ -87,12 +105,25 @@ internal object PromptBudgets {
                         !nativeEnvelope && index == lastUser -> "current_request"
                         else -> "retained_history"
                     }
-                    part(name, message)
+                    messagePart(name, message)
                     if (index == lastUser) originalInput = message
                 }
             }
             val input = root["input"] ?: root["prompt"]
-            if (input != null) {
+            if (input is JsonArray) {
+                val lastUser = input.indexOfLast { ((it as? JsonObject)?.get("role") as? JsonPrimitive)?.content == "user" }
+                input.forEachIndexed { index, value ->
+                    messagePart(
+                        when {
+                            toolResult(value) -> "tool_results"
+                            index == lastUser -> "current_request"
+                            else -> "retained_history"
+                        },
+                        value
+                    )
+                }
+                originalInput = input.getOrNull(lastUser)
+            } else if (input != null) {
                 part("current_request", input)
                 originalInput = input
             }
@@ -123,7 +154,8 @@ internal object PromptBudgets {
             attachmentReserveTokens = attachmentReserveTokens,
             outputAllowanceTokens = outputTokens,
             contextTokens = contextTokens,
-            deliberateCompactions = deliberateCompactions
+            deliberateCompactions = deliberateCompactions,
+            serializedRequestBytes = serializedBytes
         )
     }
 }

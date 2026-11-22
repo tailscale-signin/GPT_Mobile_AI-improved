@@ -141,6 +141,14 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
     fun serialized(payload: String, receipt: RequestAdmissionReceipt, config: dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig? = null) {
         val ordinal = physicalOrdinal.incrementAndGet()
         receipts += receipt
+        receipt.promptBudget?.let { budget ->
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
+                "Admission",
+                "REQUEST_BYTE_BUDGET",
+                mapOf("runId" to runId, "invocationId" to invocationId, "physicalAttemptId" to receipt.physicalAttemptId) +
+                    dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.fields(budget).mapValues { it.value }
+            )
+        }
         if (config?.profileRevision?.matches(Regex("[a-f0-9]{64}")) == true) {
             // Capture immutable, redacted intent from this admitted request. The profile may
             // change before a later attempt; never reconstruct history from current settings.

@@ -161,13 +161,15 @@ class GoogleAPIImpl @Inject constructor(
                                     dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
                                 }
 
+                                val payloadRejection = requestPayloadRejection(response.status.value, admittedPayload, config, model, receivedPayload, response.headers::get)
                                 receivedPayload = true
                                 emit(
                                     GenerateContentResponse(
                                         error = ErrorDetail(
                                             message = errorMessage,
                                             code = response.status.value,
-                                            status = "ERROR"
+                                            status = "ERROR",
+                                            failureDetails = payloadRejection
                                         )
                                     )
                                 )

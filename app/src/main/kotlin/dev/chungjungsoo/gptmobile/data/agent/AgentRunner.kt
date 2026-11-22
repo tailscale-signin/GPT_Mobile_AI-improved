@@ -120,7 +120,8 @@ class AgentRunner(
     private val onToolResultsRestored: (suspend (List<AgentToolExchange>) -> Unit)? = null,
     private val remainingTaskMillis: (suspend () -> Long?)? = null,
     private val replayDispatcher: CoroutineDispatcher = Dispatchers.Default,
-    private val diagnosticRunId: String? = null
+    private val diagnosticRunId: String? = null,
+    private val prepareToolSelection: (suspend () -> Unit)? = null
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
     private val replayCompactionLogGate = ReplayCompactionLogGate()
@@ -156,7 +157,7 @@ class AgentRunner(
     }
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
-        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope()))
+        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope() + dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope()))
     }
 
     private fun runWithRepairScope(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): Flow<AgentRunEvent> = flow {
@@ -264,6 +265,7 @@ class AgentRunner(
         dynamicTools: () -> List<AgentTool>,
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>
     ) {
+        prepareToolSelection?.invoke()
         val initialSchemaTokens = selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
         val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
         val ciInvestigation = GitHubCiInvestigationRecovery(limits.githubTaskRequest)
@@ -281,6 +283,7 @@ class AgentRunner(
         with(state) {
             while (true) {
                 if (!prepareNextRound(session, exchanges, state, executionToolCallLimit)) return
+                prepareToolSelection?.invoke()
 
                 // collectRound catches only upstream provider failures. Cancellation and
                 // downstream collector errors must leave the run without retrying or emitting.
@@ -373,6 +376,30 @@ class AgentRunner(
                 }
                 if (round.failure != null) {
                     val admission = round.failureDetails
+                    if (capacityReplans < 2 &&
+                        !session.handlesToolsInternally &&
+                        !retainedUnknownOutcome &&
+                        unknownOutcomes.isEmpty() &&
+                        !round.textEmitted &&
+                        round.calls.isEmpty() &&
+                        exchanges.isNotEmpty() &&
+                        admission?.get("logical_continuation_allowed") != JsonPrimitive(false) &&
+                        round.errorCode in setOf("413", dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE) &&
+                        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.RequestByteBudgetScope]?.consumeReplan(admission) == true
+                    ) {
+                        val target = dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.replayTarget(admission, replayTokens, admittedReplayLimit)
+                        if (target != null) {
+                            val fit = prepareReplay(exchanges, target, limits.maxReplayResultTokens, consumedCallIds)
+                            if (fit.compactedTokens <= target && fit.compactedTokens.toLong() < replayTokens) {
+                                admittedReplayLimit = target
+                                replayTokens = fit.compactedTokens.toLong()
+                                capacityReplans++
+                                rounds--
+                                emit(AgentRunEvent.Notice("The provider's request-size limit was reached. I have retained the findings and am reducing the tool-result replay before continuing.", persistent = false))
+                                continue
+                            }
+                        }
+                    }
                     if (capacityReplans < 2 &&
                         !session.handlesToolsInternally &&
                         !retainedUnknownOutcome &&

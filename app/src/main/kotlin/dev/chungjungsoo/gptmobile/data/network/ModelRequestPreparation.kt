@@ -29,6 +29,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val capacity = RequestAdmission.auxiliaryCapacity(config.requestRole, CapacitySnapshot(runtime, config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong(), provenance = CapacityProvenance.UNKNOWN))
         val measurement = RequestAdmission.estimate(payload)
         val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(payload, measurement, outputTokens?.toLong(), capacity.contextTokens, runtime.templateRevision)
+        requireRequestByteBudget(budget, config, model)
         val prepared = RequestAdmission.prepare(payload, config.requestRole, capacity, measurement, outputTokens?.toLong(), revision, config.requireKnownCapacity, "queued-native-v1", promptBudget = budget, requestDeadline = context[WorkerRequestBudget]?.preflight())
         config.freeDiagnostics?.admission = prepared.receipt
         prepared.receipt.outputTokens?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()?.let { config.onSerializedOutputTokens?.invoke(it) }
@@ -166,6 +167,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             "WIRE_SCHEMA · role=${config.requestRole} · serializedTools=${toolNames.size} · names=${toolNames.joinToString()} · serializedBytes=${toolSchema.toByteArray(Charsets.UTF_8).size} · schemaTokens=${if (toolSchema.isEmpty()) 0 else RequestAdmission.estimate(toolSchema).promptTokens} · measurement=UTF8_ESTIMATE"
         )
         val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(finalPayload, measured, finalAllowance.tokens, snapshot.contextTokens, snapshot.fingerprint.templateRevision)
+        requireRequestByteBudget(budget, config, model)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
             "Admission",
             "RUNTIME_IDENTITY",

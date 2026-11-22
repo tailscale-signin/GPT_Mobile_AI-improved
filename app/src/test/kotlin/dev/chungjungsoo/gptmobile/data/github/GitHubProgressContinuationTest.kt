@@ -62,7 +62,7 @@ class GitHubProgressContinuationTest {
         assertTrue(
             "A fresh evidence delta may resume only the verification stage",
             GitHubExecutionContinuation.canResume(
-                JsonObject(report("RESUME_VERIFICATION") + ("failure_code" to JsonPrimitive("GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION"))),
+                JsonObject(report("RESUME_VERIFICATION") + mapOf("failure_code" to JsonPrimitive("GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION"), "evidence_retention_complete" to JsonPrimitive(true))),
                 receipts,
                 10,
                 1000,

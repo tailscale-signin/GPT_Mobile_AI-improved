@@ -45,7 +45,7 @@ class IssueReportSubmissionTest {
         put("service", "gpt-mobile-issue-reporter")
         put("version", 2)
         put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
-        val features = legacyReadyFeatures + if (extended) listOf(GitHubAcceptancePublicationEvidence.FEATURE) else emptyList()
+        val features = legacyReadyFeatures + if (extended) listOf(GitHubAcceptancePublicationEvidence.FEATURE, IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE) else emptyList()
         put("reportDiagnosticFeatures", JsonArray(features.map(::JsonPrimitive)))
     }.toString()
 
@@ -236,7 +236,7 @@ class IssueReportSubmissionTest {
                 fixtures++
             }
         }
-        assertEquals(16, fixtures)
+        assertEquals(18, fixtures)
     }
 
     @Test fun repeatPersistenceAndAcceptanceCausesNegotiateTheirOwnExtendedFeaturesForValuesAndOmissions() {

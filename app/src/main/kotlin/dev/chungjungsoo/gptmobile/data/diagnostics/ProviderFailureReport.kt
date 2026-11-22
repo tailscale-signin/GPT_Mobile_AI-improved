@@ -28,6 +28,9 @@ internal object ProviderFailureReport {
         for (key in listOf("verification_phase", "continuation_cause", "continuation_trigger", "continuation_saved_characters", "continuation_attempt_count", "continuation_output_cap", "checkpoint_mismatch_reason", "observed_checkpoint_state")) {
             failure.failureDetails?.get(key)?.let { value -> IssueReportIncidentCapsule.validValue(key, value) }?.let { put(key, it) }
         }
+        for (key in dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.fields) {
+            failure.failureDetails?.get(key)?.let { put(key, it) }
+        }
         if (failure.errorCode == "BUDGET_RESTRICTED" && failure.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) put("failure_origin", "APPLICATION")
         GatewayCapabilityFailureEvidence.retained(receipt.errorCode, failure.failureDetails).forEach { (key, value) -> put(key, value) }
         if (receipt.errorCode == PrivacyFailureEvidence.CODE) {

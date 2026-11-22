@@ -39,8 +39,12 @@ class ProgressiveToolCatalog(
     private val taskText = task
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
     private val actionSelections = mutableMapOf<String, Pair<String, String>>()
+    private val requirementActions = mutableMapOf<String, Pair<String, String>>()
+    private val explicitSelections = linkedSetOf<String>()
+    private var candidateRevision = 0L
+    private var requirementFocusKey: Pair<String, Long>? = null
     private fun presented(tool: AgentToolDefinition): AgentToolDefinition {
-        val selected = actionSelections[tool.name] ?: return tool
+        val selected = actionSelections[tool.name] ?: requirementActions[tool.name] ?: return tool
         if (selected.first != contractFingerprint(tool)) return tool
         return GitHubActionSchema.project(tool, selected.second) ?: tool
     }
@@ -150,6 +154,13 @@ class ProgressiveToolCatalog(
     }
 
     private fun contractFingerprint(tool: AgentToolDefinition): String = fingerprint(tool.contractVersion.toString() + ":" + ToolContractFingerprint.definition(tool))
+    private fun selectionContractChanged(before: AgentToolDefinition?, after: AgentToolDefinition): Boolean =
+        before == null ||
+            contractFingerprint(before) != contractFingerprint(after) ||
+            before.capabilities != after.capabilities ||
+            before.dependsOn != after.dependsOn ||
+            before.workflowLinks != after.workflowLinks ||
+            before.modelVisible != after.modelVisible
 
     @Synchronized
     internal fun recordObservation(name: String, result: AgentToolResult, observedAtEpochMillis: Long = System.currentTimeMillis()) {
@@ -286,6 +297,48 @@ class ProgressiveToolCatalog(
         return (active + NAME).distinct().mapNotNull(definitions::get).map(::presented)
     }
 
+    /** Reorder existing authorized contracts; discovery and execution admission remain independent. */
+    @Synchronized
+    internal fun focusRequirement(checkpoint: JsonObject?): Boolean {
+        if (conversational || scopedGitHubStatus) return false
+        val focus = GitHubRequirementToolFocus.next(checkpoint) ?: return false
+        val key = focus.identity to candidateRevision
+        if (requirementFocusKey == key) return false
+        val previous = presentedSchemas()
+        val previousActive = active.toList()
+        requirementActions.clear()
+        val focused = focus.operations.flatMap { operation ->
+            candidates.values.filter { (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) ?: it.name.substringBefore("__")) == operation }
+                .let { preferredInitialContracts(it, null) }
+        }
+        for (tool in focused) {
+            if (tool.name in explicitSelections || tool.name in actionSelections) continue
+            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name) ?: continue
+            val action = focus.actions[operation] ?: continue
+            if (GitHubActionSchema.project(tool, action) != null) requirementActions[tool.name] = contractFingerprint(tool) to action
+        }
+        val explicit = (explicitlyRequiredToolNames(taskText, candidates.keys) + explicitSelections).mapNotNull { candidates[resolveName(it)] }
+        val recovery = taskRequired.filter { it.name == "read_recovery_context" || AgentToolCapability.USER_DECISION in it.capabilities }
+        val ordered = explicit + recovery + focused + ranked(focus.query) + taskRequired + active.mapNotNull(candidates::get)
+        val expanded = mutableListOf<AgentToolDefinition>()
+        val included = mutableSetOf<String>()
+        fun include(tool: AgentToolDefinition) {
+            if (!included.add(tool.name)) return
+            tool.dependsOn.mapNotNull(candidates::get).forEach(::include)
+            expanded += tool
+        }
+        ordered.forEach(::include)
+        val selected = window(expanded)
+        // A missing or oversized focused schema does not erase a working window.
+        if (selected.isNotEmpty()) {
+            active.clear()
+            active.addAll(selected.map { it.name })
+            discovered.addAll(active)
+        }
+        requirementFocusKey = key
+        return previousActive != active.toList() || previous != presentedSchemas()
+    }
+
     /** Reflect trusted execution wrappers without adding names or changing discovery selection. */
     @Synchronized
     internal fun bindExecutionContracts(definitions: Collection<AgentToolDefinition>) {
@@ -293,6 +346,7 @@ class ProgressiveToolCatalog(
             val existing = candidates[definition.name] ?: return@forEach
             val source = executionBindings[definition.name]?.source ?: existing
             executionBindings[definition.name] = ExecutionBinding(source, definition)
+            if (selectionContractChanged(existing, definition)) candidateRevision++
             candidates[definition.name] = definition
         }
     }
@@ -320,6 +374,7 @@ class ProgressiveToolCatalog(
         if (conversational || !definition.modelVisible || definition.name == NAME) return false
         val existing = candidates[definition.name]
         if (existing != null && existing != definition) return false
+        if (existing == null) candidateRevision++
         candidates[definition.name] = definition
         val explicitRequired = explicitlyRequiredToolNames(taskText, candidates.keys).mapNotNull { candidates[resolveName(it)] }
         val selected = window(explicitRequired + definition + implementationTools + taskRequired + active.mapNotNull(candidates::get))
@@ -421,7 +476,11 @@ class ProgressiveToolCatalog(
                     }
                     if (acquired.isNotEmpty()) {
                         synchronized(this) {
-                            acquired.forEach { candidates[it.name] = acquiredDefinition(it) }
+                            acquired.forEach {
+                                val definition = acquiredDefinition(it)
+                                if (selectionContractChanged(candidates[it.name], definition)) candidateRevision++
+                                candidates[it.name] = definition
+                            }
                             if (githubUpfront) active.addAll(acquired.filter(::isGitHubTool).map { it.name })
                         }
                         if (acquiredQueryKeys.size >= 128) acquiredQueryKeys.clear()
@@ -481,6 +540,7 @@ class ProgressiveToolCatalog(
         } else {
             names.forEach(actionSelections::remove)
         }
+        names.forEach(requirementActions::remove)
         if (query.isBlank() && names.isEmpty()) {
             // Cold inventory must seed an executable window, otherwise an empty call can
             // discover tools forever while every subsequent request advertises only us.
@@ -677,11 +737,13 @@ class ProgressiveToolCatalog(
             (active.mapNotNull(candidates::get) + ranked(taskText)).firstOrNull { capability in it.capabilities }
         }
         val explicit = names.mapNotNull(candidates::get) + listOfNotNull(exact)
+        explicitSelections.addAll(explicit.map { it.name })
         val retained = ranked(taskText).filter { it.name in active }
         val selected = window(explicit + implementationTools + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))
             .distinctBy { it.name }
         active.clear()
         active.addAll(selected.map { it.name })
+        explicitSelections.retainAll(active)
         val admitted = found.filter { it.name in active }
         discovered.addAll(admitted.map { it.name })
         val unchanged = previousActive == active && previousSchemas == presentedSchemas()

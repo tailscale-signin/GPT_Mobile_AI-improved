@@ -87,7 +87,7 @@ data class ProfileFailureRecord(
         private val executionCode = Regex("EXECUTION_[A-Z0-9_]{1,72}")
         private val repositoryAdmissionCodes = setOf("GITHUB_REPOSITORY_UNAVAILABLE", "GITHUB_REF_UNAVAILABLE")
         private val githubSchemaAdmissionCodes = setOf("GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_TOOL_CONTRACT_UNSUPPORTED")
-        private val capacityCodes = dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES
+        private val capacityCodes = dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES + dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE
         private val readinessCodes = setOf("REQUIRED_TOOL_ACQUISITION_PENDING", "REQUIRED_TOOL_ACQUISITION_TIMED_OUT", "REQUIRED_TOOL_ACQUISITION_FAILED", "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION", "REQUIRED_TOOL_AUTHORIZATION_REQUIRED")
         private val engineeringPreflightCodes = GatewayEngineeringPrerequisites.codes
         private val gatewayAdmissionCodes = dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason.entries.mapTo(hashSetOf()) { "GATEWAY_${it.name}" }
@@ -110,7 +110,7 @@ data class ProfileFailureRecord(
             val generationCompleted = (details?.get("generation_completed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
             val causeTypes = (details?.get("cause_types") as? JsonArray).orEmpty().take(16).mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.length <= 160 && value.matches(Regex("[A-Za-z0-9_.$]+")) } }
             val recoveryActions = (listOfNotNull(details?.get("recovery_action") ?: details?.get("next_action")) + ((details?.get("recovery_actions") ?: details?.get("allowed_recovery_actions")) as? JsonArray).orEmpty()).mapNotNull { item ->
-                (item as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT)?.takeIf { it in GatewayEngineeringPrerequisites.recoveryActions || it in setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RETRY_AFTER_CONFIGURATION_CHANGE", "RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE", "INSPECT_VERIFICATION_FAILURE", "INSPECT_CONTINUATION_FAILURE", "REPLAN_REQUEST_BUDGET", "SEND_ORIGINAL_REQUEST", "REVIEW_SAVED_RECOVERY", "RECONCILE_TOOL_RECEIPTS") }
+                (item as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT)?.takeIf { it in GatewayEngineeringPrerequisites.recoveryActions || it in setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RETRY_AFTER_CONFIGURATION_CHANGE", "RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE", "RESUME_VERIFICATION", "RESTORE_AUTHORIZED_CONFIGURATION", "WAIT_PROVIDER_DEADLINE", "INSPECT_VERIFICATION_FAILURE", "INSPECT_CONTINUATION_FAILURE", "REPLAN_REQUEST_BUDGET", "SEND_ORIGINAL_REQUEST", "REVIEW_SAVED_RECOVERY", "RECONCILE_TOOL_RECEIPTS") }
             }.distinct()
             // A local rejection must not replace an already ambiguous remote operation.
             if (observed.category in setOf(GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")) {

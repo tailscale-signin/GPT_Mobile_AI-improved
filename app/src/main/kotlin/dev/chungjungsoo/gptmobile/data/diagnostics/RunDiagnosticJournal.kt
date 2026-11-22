@@ -119,15 +119,23 @@ internal class RunDiagnosticJournal(
     private val lock = Any()
     private val pending = ArrayDeque<RunDiagnosticEvent>()
     private val wake = Channel<Unit>(Channel.CONFLATED)
+    private val maintenanceWake = Channel<Unit>(Channel.CONFLATED)
     private var captureEpoch = 0L
     private var inFlight: List<RunDiagnosticEvent> = emptyList()
     private val writes = kotlinx.coroutines.sync.Mutex()
     private val sequences = mutableMapOf<String, Long>()
     private val terminals = mutableSetOf<String>()
+    private val generationAfterTerminal = mutableSetOf<String>()
+    private val compactedVersions = mutableMapOf<String, Long>()
+    private val compaction = RunJournalCompaction(vault, now)
     private val lastObservedStages = mutableMapOf<String, dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage>()
     private data class FirstVisibleKey(val runId: String, val fence: Long?, val origin: OutputOrigin, val invocationId: String?)
     private val firstVisible = mutableSetOf<FirstVisibleKey>()
     private val outputLineage = OutputLineageRegistry()
+    private data class OutputCheckpointKey(val runId: String, val fence: Long?, val boundary: OutputTraceBoundary, val representation: OutputTextRepresentation, val partId: String?, val origin: OutputOrigin, val invocationId: String?)
+    private val outputCheckpoints = object : LinkedHashMap<OutputCheckpointKey, OutputFingerprint>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<OutputCheckpointKey, OutputFingerprint>?) = size > 2048
+    }
     private var outputEpoch = 0L
     private val permittedRuns = mutableSetOf<String>()
     private val privateRuns = mutableSetOf<String>()
@@ -146,6 +154,7 @@ internal class RunDiagnosticJournal(
             if (field != value) {
                 outputEpoch++
                 outputLineage.clear()
+                outputCheckpoints.clear()
                 lastObservedStages.clear()
             }
             field = value
@@ -241,10 +250,47 @@ internal class RunDiagnosticJournal(
                     storageFailedEvents.addAndGet(batch.size.toLong())
                 } finally {
                     synchronized(lock) { inFlight = emptyList() }
+                    maintenanceWake.trySend(Unit)
+                }
+            }
+        }
+        // Maintenance never batches/delays a critical writer. Every source batch
+        // is durable before this independent, cancellable idle worker may start.
+        scope.launch {
+            for (signal in maintenanceWake) {
+                val candidates = synchronized(lock) {
+                    if (!compactionIdle()) emptyList() else terminals.asSequence().filter { it in permittedRuns && it !in privateRuns && compactedVersions[it] != sequences[it] }.take(16).map { Triple(it, sequences[it] ?: 0L, captureEpoch) }.toList()
+                }
+                for ((run, version, epoch) in candidates) {
+                    fun current() = synchronized(lock) { epoch == captureEpoch && run in permittedRuns && run !in privateRuns && !privateSession && sequences[run] == version && compactionIdle() }
+                    if (!current()) break
+                    try {
+                        val references = vault.references()
+                        val completed = compaction.compact(run, references, ::current) { reference, bytes ->
+                            writes.withLock {
+                                if (!current()) return@withLock false
+                                vault.put(reference, bytes)
+                                if (!current()) {
+                                    vault.delete(reference)
+                                    false
+                                } else {
+                                    true
+                                }
+                            }
+                        }
+                        if (completed && current()) synchronized(lock) { compactedVersions[run] = version }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Optional cache failure cannot change original capture coverage.
+                    }
                 }
             }
         }
     }
+
+    /** Called only under lock. New work after an earlier terminal is never treated as idle. */
+    private fun compactionIdle() = !privateSession && pending.isEmpty() && inFlight.isEmpty() && sequences.keys.none { it in permittedRuns && (it !in terminals || it in generationAfterTerminal) }
 
     /** Unknown privacy scopes cannot persist diagnostics; revocation is sticky for this run. */
     fun setRunPrivacy(runId: String, isTemporary: Boolean) = synchronized(lock) {
@@ -253,6 +299,8 @@ internal class RunDiagnosticJournal(
             permittedRuns.remove(runId)
             pending.removeAll { it.runId == runId }
             outputLineage.removeRun(runId)
+            outputCheckpoints.keys.removeAll { it.runId == runId }
+            compactedVersions.remove(runId)
             firstVisible.removeAll { it.runId == runId }
             lastObservedStages.remove(runId)
         } else if (runId !in privateRuns && permittedRuns.size < 10_000) {
@@ -264,7 +312,7 @@ internal class RunDiagnosticJournal(
         setRunPrivacy(runId, isTemporary = true)
         writes.withLock {
             try {
-                vault.references().filter { it.startsWith("journal-${identity(runId)}-") || it.startsWith("journalcheckpoint-${identity(runId)}-") }.forEach { vault.delete(it) }
+                vault.references().filter { it.startsWith("journal-${identity(runId)}-") || it.startsWith("journalcheckpoint-${identity(runId)}-") || RunJournalCompaction.isRunCache(it, runId) }.forEach { vault.delete(it) }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -353,6 +401,8 @@ internal class RunDiagnosticJournal(
             }
             val visibleKey = FirstVisibleKey(runId, fence, lineage.origin, lineage.invocationId)
             if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT && visibleKey in firstVisible) return null
+            val outputKey = if (kind == RunDiagnosticKind.OUTPUT_CHECKPOINT && outputBoundary != null && outputRepresentation != null && outputFingerprint != null) OutputCheckpointKey(runId, fence, outputBoundary, outputRepresentation, outputPartId, lineage.origin, lineage.invocationId) else null
+            if (outputKey != null && outputCheckpoints[outputKey] == outputFingerprint) return null
             val prior = sequences[runId] ?: 0L
             if (prior == Long.MAX_VALUE || prior == 0L && sequences.size >= 10_000) {
                 dropped.incrementAndGet()
@@ -382,6 +432,7 @@ internal class RunDiagnosticJournal(
                 capacityDropped.incrementAndGet()
             }
             if (kind == RunDiagnosticKind.RUN_TERMINAL) terminals += runId
+            if (runId in terminals && (kind !in settledOutputKinds || outputBoundary == OutputTraceBoundary.PROVIDER_VISIBLE)) generationAfterTerminal += runId
             val observedStage = progressStage ?: when (kind) {
                 RunDiagnosticKind.FIRST_TEXT -> dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.ANSWER
                 RunDiagnosticKind.FIRST_REASONING -> dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.REASONING
@@ -391,6 +442,7 @@ internal class RunDiagnosticJournal(
             if (observedStage != null) lastObservedStages[runId] = observedStage
             if (kind == RunDiagnosticKind.RUN_TERMINAL) lastObservedStages.remove(runId)
             if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT) firstVisible += visibleKey
+            if (outputKey != null) outputCheckpoints[outputKey] = requireNotNull(outputFingerprint)
             pending.addLast(event)
             event
         }
@@ -413,6 +465,12 @@ internal class RunDiagnosticJournal(
             val fingerprint = outputFingerprint(text)
             synchronized(lock) {
                 if (epoch != (captureEpoch to outputEpoch) || !enabled || privateSession || runId !in permittedRuns) return@synchronized OutputLineage()
+                val explicit = OutputLineage(outputOrigin, invocationId)
+                val lineage = if (boundary == OutputTraceBoundary.RENDER_TRANSFORM) explicit else outputLineage.resolve(runId, fingerprint, explicit)
+                val key = OutputCheckpointKey(runId, fence, boundary, representation, outputTracePartId(partId), lineage.origin, lineage.invocationId)
+                // A repeated remount still needs the resolved ownership for first draw.
+                // Only the redundant telemetry record is suppressed.
+                if (outputCheckpoints[key] == fingerprint) return@synchronized lineage
                 val event = record(runId, RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = invocationId, fence = fence, outputBoundary = boundary, outputRepresentation = representation, outputFingerprint = fingerprint, outputPartId = outputTracePartId(partId), outputOrigin = outputOrigin)
                 event?.let { OutputLineage(it.outputOrigin, it.invocationId) } ?: OutputLineage()
             }
@@ -546,7 +604,8 @@ internal class RunDiagnosticJournal(
             val runsByIdentity = runIds.associateBy(::identity)
             val batches = mutableMapOf<String, MutableList<String>>()
             val checkpoints = mutableMapOf<String, MutableList<String>>()
-            for (reference in vault.references()) {
+            val references = vault.references()
+            for (reference in references) {
                 val checkpoint = reference.startsWith("journalcheckpoint-")
                 if (!checkpoint && !reference.startsWith("journal-")) continue
                 val runId = runsByIdentity[reference.substringAfter('-').substringBefore('-')] ?: continue
@@ -588,11 +647,17 @@ internal class RunDiagnosticJournal(
             val sortedBatches = batches.mapValues { (_, references) ->
                 references.sortedBy { it.substringAfter('-').substringAfter('-').substringBefore('-').toLongOrNull() ?: 0L }
             }
+            val compacted = mutableMapOf<String, RunJournalCompaction.Index?>()
+            for (runId in runIds) {
+                beforeRead()
+                compacted[runId] = compaction.index(runId, references, sortedBatches[runId].orEmpty())
+            }
             synchronized(lock) {
                 val queued = (pending.asSequence() + inFlight.asSequence()).filter { it.runId in runIds }.groupBy { it.runId }
                 runIds.withIndex().associate { (index, runId) ->
                     runId to FrozenJournalBoundary(
                         sortedBatches[runId].orEmpty(),
+                        compacted[runId],
                         boundaries[runId].orEmpty(), unreadable[runId] ?: 0, sequences[runId] ?: 0L, queued[runId].orEmpty(),
                         runId in privateRuns || privateSession, captureEpoch, capturedAt,
                         if (index == 0) boundaryLockWaitNanos else 0L,
@@ -638,7 +703,33 @@ internal class RunDiagnosticJournal(
             consume(event)
             records++
         }
-        for (reference in frozen.references) {
+        var packedComplete = frozen.compacted != null
+        for (segment in frozen.compacted?.segments.orEmpty()) {
+            beforeRead()
+            ensureCurrent()
+            val started = System.nanoTime()
+            val batch = try {
+                val bytes = requireNotNull(compaction.read(segment))
+                try {
+                    json.decodeFromString<List<RunDiagnosticEvent>>(bytes.decodeToString())
+                } finally {
+                    bytes.fill(0)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                packedComplete = false
+                break
+            } finally {
+                batchReadDecodeNanos += (System.nanoTime() - started).coerceAtLeast(0)
+            }
+            decodedBatchCount++
+            for (event in batch) emit(event)
+        }
+        // Sources are never removed by compaction. A missing cache can therefore
+        // replay originals, with sequence coverage deduplicating any emitted prefix.
+        val packedSources = if (packedComplete) frozen.compacted?.sources.orEmpty().toSet() else emptySet()
+        for (reference in frozen.references.filterNot { it in packedSources }) {
             beforeRead()
             val readStartedNanos = System.nanoTime()
             val batch = try {
@@ -689,6 +780,7 @@ internal class RunDiagnosticJournal(
 
     private data class FrozenJournalBoundary(
         val references: List<String>,
+        val compacted: RunJournalCompaction.Index?,
         val highWatermarks: Map<String, Long>,
         val unreadableCheckpoints: Int,
         val currentHighWatermark: Long,
@@ -709,15 +801,18 @@ internal class RunDiagnosticJournal(
             inFlight = emptyList()
             sequences.clear()
             terminals.clear()
+            generationAfterTerminal.clear()
+            compactedVersions.clear()
             lastObservedStages.clear()
             firstVisible.clear()
             outputLineage.clear()
+            outputCheckpoints.clear()
             outputEpoch++
             dropped.set(0)
             listOf(disabledSuppressed, privacySuppressed, rejected, capacityDropped, storageFailedEvents, retentionPrunedBatches).forEach { it.set(0) }
         }
         try {
-            vault.references().filter { it.startsWith("journal-") || it.startsWith("journalcheckpoint-") }.forEach { vault.delete(it) }
+            vault.references().filter { it.startsWith("journal-") || it.startsWith("journalcheckpoint-") || RunJournalCompaction.isCache(it) }.forEach { vault.delete(it) }
             failed = false
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
@@ -761,7 +856,20 @@ internal class RunDiagnosticJournal(
                 retentionPrunedBatches.incrementAndGet()
             }
         }
+        try {
+            var cacheBytes = 0L
+            references.filter(RunJournalCompaction::isCache).sortedByDescending(RunJournalCompaction::timestamp).forEachIndexed { index, reference ->
+                cacheBytes += vault.storedSize(reference) ?: 64L * 1024
+                if (RunJournalCompaction.timestamp(reference) < now() - retentionMillis || cacheBytes > maxStoredBytes / 4 || index >= 1024) vault.delete(reference)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Read-cache cleanup is independent of original journal durability.
+        }
     }
+
+    private val settledOutputKinds = setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.OUTPUT_CHECKPOINT, RunDiagnosticKind.FIRST_VISIBLE_TEXT, RunDiagnosticKind.FIRST_APPLICATION_REPORT, RunDiagnosticKind.FIRST_VISIBLE_ANSWER, RunDiagnosticKind.FIRST_SYSTEM_ERROR, RunDiagnosticKind.FIRST_RETAINED_CONTENT, RunDiagnosticKind.FIRST_UNATTRIBUTED_OUTPUT)
 
     private val minimalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INVOCATION_STARTED, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.FIRST_TEXT, RunDiagnosticKind.FIRST_REASONING, RunDiagnosticKind.FIRST_TOOL, RunDiagnosticKind.FIRST_PROGRESS, RunDiagnosticKind.FIRST_VISIBLE_ANSWER, RunDiagnosticKind.FIRST_SYSTEM_ERROR, RunDiagnosticKind.FIRST_APPLICATION_REPORT, RunDiagnosticKind.FIRST_RETAINED_CONTENT, RunDiagnosticKind.FIRST_UNATTRIBUTED_OUTPUT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.TOOL_ADMITTED, RunDiagnosticKind.TOOL_RESULT, RunDiagnosticKind.TOOL_RESULTS_RESTORED, RunDiagnosticKind.CONTINUATION_SELECTED, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE, RunDiagnosticKind.RUN_TERMINAL)
     private val criticalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE) + setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.SEGMENT_COMMITTED, RunDiagnosticKind.PROGRESS_DEADLINE, RunDiagnosticKind.CAPTURE_GAP)

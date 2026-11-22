@@ -18,6 +18,35 @@ class GitHubWorkflowPresentationTest {
     private fun event(id: String, arguments: String = "{}", status: String = ToolEventStatus.COMPLETED, name: String = "github_read", error: String? = null, runId: String = "run") =
         ToolEvent(id, runId, id.hashCode(), id, null, null, name, name, arguments, null, null, status, status == ToolEventStatus.FAILED, error = error)
 
+    @Test fun verifierOnlyRecoveryHasOneExactActionAndCannotFallBackToExecutionRetry() {
+        val verdict = Json.parseToJsonElement("""{"failure_code":"GITHUB_VERIFICATION_INTERNAL_ERROR","task_outcome":"PARTIAL","evidence_retention_complete":true,"resume_allowed":false,"retryable_without_new_input":false,"execution_ledger":{"recovery":"INSPECT_VERIFICATION_FAILURE"}}""") as JsonObject
+        val stopped = run(AgentRunStatus.PARTIAL).copy(terminalError = "GITHUB_VERIFICATION_INTERNAL_ERROR")
+        val snapshot = GitHubWorkflowPresentation.snapshot(stopped, emptyList(), true, verdict)
+        assertEquals(listOf(TaskRecoveryAction.RESUME_VERIFICATION), snapshot.recovery)
+        assertEquals("RESUME_VERIFICATION", snapshot.effectiveRecoveryAction)
+        assertEquals("Resume verification", snapshot.recoveryLabel)
+        assertTrue(GitHubWorkflowPresentation.snapshot(stopped.copy(synthesisSnapshot = "accepted combined turn"), emptyList(), true, verdict).recovery.isEmpty())
+        assertTrue(snapshot.recoveryExplanation.contains("cannot repeat tools or writes"))
+        assertTrue(GitHubWorkflowPresentation.snapshot(stopped, emptyList(), false, verdict).recovery.isEmpty())
+        assertTrue(GitHubWorkflowPresentation.snapshot(stopped, emptyList(), true, verdict, evidenceReadFailed = true).recovery.isEmpty())
+        val uncertain = event("write", """{"action":"commit"}""", ToolEventStatus.FAILED, "github_write", "MUTATION_OUTCOME_UNKNOWN")
+        assertTrue(GitHubWorkflowPresentation.snapshot(stopped, listOf(uncertain), true, verdict).recovery.isEmpty())
+    }
+
+    @Test fun authoritativeRecoveryDetailsCannotOfferGenericContinueOrRetry() {
+        val cases = listOf(
+            """{"task_outcome":"CONFIGURATION_INVALIDATED"}""" to "Review changed authority",
+            """{"retry_not_before_ms":5000}""" to "Review provider deadline",
+            """{"requires_reconciliation":true}""" to "Review uncertain write",
+            """{"resume_allowed":false,"execution_ledger":{"recovery":"RESUME_UNFINISHED_WORK"}}""" to "Review recovery details"
+        )
+        cases.forEach { (json, label) ->
+            val snapshot = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.FAILED), emptyList(), true, Json.parseToJsonElement(json) as JsonObject)
+            assertTrue(json, snapshot.recovery.isEmpty())
+            assertEquals(label, snapshot.recoveryLabel)
+        }
+    }
+
     @Test fun reconciliationAndApprovalBlockersExplainTheirActualPrerequisites() {
         val handoff = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.BLOCKED).copy(terminalError = "OUTPUT_CONTINUATION_PENDING_TOOLS"), emptyList(), true)
         assertEquals("Receipt reconciliation required", handoff.phase)

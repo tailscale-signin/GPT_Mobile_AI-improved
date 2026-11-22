@@ -47,7 +47,11 @@ data class ErrorDetail(
     val code: Int? = null,
 
     @SerialName("status")
-    val status: String? = null
+    val status: String? = null,
+
+    /** Local transport evidence is never accepted from a provider's JSON body. */
+    @kotlinx.serialization.Transient
+    val failureDetails: kotlinx.serialization.json.JsonObject? = null
 )
 
 @Serializable

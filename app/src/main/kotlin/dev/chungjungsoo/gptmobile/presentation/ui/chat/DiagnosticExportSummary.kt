@@ -40,7 +40,18 @@ internal fun diagnosticExportSummary(manifest: JsonObject): String {
     }
     val completed = stages.count { it.text("status") in setOf("COMPLETED", "EMPTY") }
     val coverage = "Section coverage: $completed of ${stages.size} requested sections are complete or referenced. This does not measure the percentage of history captured."
+    val bundle = manifest["archiveBundle"] as? JsonObject
     val parts = when {
+        bundle?.get("dependencyClosureComplete") == JsonPrimitive(false) -> {
+            val missing = (bundle["missingParts"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.map { it.text("fileName") }.filter(String::isNotBlank).distinct()
+            "This diagnostic bundle is incomplete: referenced archive parts are missing or could not be verified. " +
+                (if (missing.isEmpty()) "See the bundle manifest for unresolved dependencies. " else "Missing or unverified: ${missing.joinToString(", ")}. ") +
+                "Available parts remain included; referenced history is not considered recovered."
+        }
+        bundle?.get("dependencyClosureComplete") == JsonPrimitive(true) -> {
+            val count = (bundle["parts"] as? JsonArray)?.size ?: 0
+            "This bundle includes $count verified archive parts and their dependency manifest. Open the latest part first; earlier referenced history is included."
+        }
         manifest["externalPartsRequired"] == JsonPrimitive(true) -> {
             val previous = (manifest["previousArchive"] as? JsonObject)?.text("fileName").orEmpty()
             "This is archive part ${manifest.text("archivePart")}. Keep it with ${previous.ifBlank { "the preceding archive" }} and earlier linked parts; their history records are not repeated here."

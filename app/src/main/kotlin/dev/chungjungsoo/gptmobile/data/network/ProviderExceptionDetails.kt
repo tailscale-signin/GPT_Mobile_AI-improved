@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.network
 
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -14,6 +15,29 @@ internal fun providerExceptionDetails(
     nowMillis: Long = System.currentTimeMillis(),
     monotonicMillis: Long = System.nanoTime() / 1_000_000
 ): ErrorDetail? {
+    if (error is RequestByteLimitException) {
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "local_admission",
+            code = RequestByteBudget.CODE,
+            retryable = false,
+            failureDetails = JsonObject(
+                RequestByteBudget.fields(error.budget, error.limit) + buildJsonObject {
+                    put("code", RequestByteBudget.CODE)
+                    put("provider_failure_code", RequestByteBudget.CODE)
+                    put("failed_stage", "provider_admission")
+                    put("provider_failure_stage", "ADMISSION")
+                    put("failure_origin", "APPLICATION")
+                    put("diagnostic_area", "PROVIDER")
+                    put("diagnostic_capture_mode", "INCIDENT")
+                    put("attempt_dispatch_state", "NOT_DISPATCHED")
+                    put("request_replay_allowed", false)
+                    put("payload_replan_allowed", true)
+                    put("recovery_action", "REPLAN_REQUEST_BUDGET")
+                }
+            )
+        )
+    }
     toolEvidenceAdmissionFailure(error)?.let { return it }
     if (error is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected && error.status == 0) {
         val cooldown = error.cause as? dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive

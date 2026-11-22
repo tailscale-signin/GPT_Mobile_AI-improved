@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.AndroidDiagnosticExportMemory
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.CapturedJournalTimeline
 import dev.chungjungsoo.gptmobile.data.diagnostics.CapturedJournalTimelineFailure
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticArchiveBundle
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureLogSnapshot
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureOptions
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureResult
@@ -100,7 +101,8 @@ internal suspend fun writeStagedChatDiagnostics(
             },
             resumable = !room.isTemporary,
             deferArchiveHandoff = !room.isTemporary,
-            cooperativeHeapRecovery = useReducedMemory
+            cooperativeHeapRecovery = useReducedMemory,
+            releaseOptionalCaches = ::clearChatRenderingCaches
         )
         val maximumCharacters = if (useReducedMemory) 12 * 1024 else 96 * 1024
         // A single measured source row may exceed one JSONL record; redact it once, then chunk.
@@ -272,6 +274,8 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("timelineKeys", "Journal eventId/runId/invocationId and database run_id/parentRunId/call_id join source records. Sequence orders each journal stream; stage intervals qualify cross-section comparisons.")
                         put("issueReportCorrelation", "latest-state.jsonl retains public reportId values independently of app-log recording. Context IDs use SHA256 of UTF-8 gptmobile.issue-context.v1:<kind>:<raw-id>, where kind is run, invocation, call, or job. activeJobIdHash identifies a blocker, not ownership. Context source and unavailableFields distinguish retained evidence from absent facts; MANUAL_REPORT time is report creation, not an inferred incident time.")
                         put("drawTimingScope", "Measured FIRST_VISIBLE_TEXT records observe Compose drawContent completion for the owned run/fence/part, with outputOrigin, processSession and monotonicNanos. Exact-byte provenance may link a model invocation; provider-to-draw timing requires MODEL_TEXT plus matching INVOCATION_STARTED and FIRST_TEXT in the same process. System errors, progress notices and ambiguous output are not provider latency. Draw completion does not confirm display presentation; per-HTTP first_ui_paint_ms remains unmeasured without explicit lineage.")
+                        put("finalReportDrawScope", "Application-report acknowledgements do not establish final-report timing. A final-report span requires a terminal ownership fence, its last committed APPLICATION_REPORT fingerprint and an exact matching render-input part followed by a measured draw in the same run and process; otherwise the span is unmeasured.")
+                        put("frameHeapScope", "FRAME_WINDOW_EVIDENCE records observed callback timestamps, frame durations and sampled process Java heap peaks separately. Run associations are active phases at the observed callbacks; shared process work prevents causal attribution or an exact per-run heap peak. Lifetime allocation and GC counters are not run metrics.")
                         put("sourceDigests", "Record digests describe their original stored representations. Credential redaction can change text; stage file hashes certify the bytes in this export.")
                         put("logSnapshotScope", "Logs are frozen independently per log section and capture session, then retained for interrupted stages. Resume does not replace captured evidence after ring rotation. Start a new capture to collect newer logs.")
                         put("logRecorderScope", "Network diagnostics and the application log recorder are independent settings. If application recording was disabled, enable it, reproduce the issue, then start a new capture; resuming cannot create missing historical logs.")
@@ -498,20 +502,22 @@ internal suspend fun writeStagedChatDiagnostics(
                 ?: StagedDiagnosticCapture.capture(workDirectory, identity, stages, options, session)
             authorized()
             check(destinationDirectory.mkdirs() || destinationDirectory.isDirectory)
-            val destination = File(destinationDirectory, result.file.name)
+            val share = DiagnosticArchiveBundle.prepare(result, listOf(workDirectory, destinationDirectory), guard = ::authorized)
+            val destination = File(destinationDirectory, share.file.name)
             val partial = File(destinationDirectory, "${destination.name}.partial")
             try {
                 FileOutputStream(partial).use { output ->
-                    result.file.inputStream().use { source -> source.copyTo(output, options.bufferBytes) }
+                    share.file.inputStream().use { source -> source.copyTo(output, options.bufferBytes) }
                     output.fd.sync()
                 }
                 authorized()
                 check(partial.renameTo(destination)) { "Unable to publish diagnostic archive" }
                 publishedFile = destination
-                if (room.isTemporary) result.file.delete() else StagedDiagnosticCapture.acknowledgeArchiveHandoff(workDirectory, result)
-                result.copy(file = destination)
+                if (room.isTemporary) result.file.delete() else StagedDiagnosticCapture.acknowledgeArchiveHandoff(workDirectory, result, retainArchive = true)
+                share.copy(file = destination)
             } finally {
                 partial.delete()
+                if (share.file != result.file) share.file.delete()
             }
         } finally {
             logs.values.forEach { it.close() }

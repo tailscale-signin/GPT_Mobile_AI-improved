@@ -34,12 +34,13 @@ internal object GitHubRequestCompletion {
 
     /** Only explicit work on repository subjects requires tool evidence before review. */
     fun requiresRepositoryEvidence(task: String): Boolean {
-        if (GitHubRepositoryLifecycle.intent(task) != null) return true
+        if (GitHubRepositoryLifecycle.intent(task) != null || GitHubIssueRemediation.requested(task)) return true
         val request = requestText(task)
         return requestsAction(request) && repositorySubject.containsMatchIn(request)
     }
 
     fun informational(task: String): Boolean {
+        if (GitHubIssueRemediation.requested(task)) return false
         val request = requestText(task)
         return !requestsAction(request) &&
             (
@@ -60,7 +61,9 @@ internal object GitHubRequestCompletion {
         return informational(task) && sessionReview(request) && asksForCurrent && namesMutableGitHubFacts
     }
 
-    fun requirements(task: String): List<String> {
+    fun requirements(task: String): List<String> = requirements(task, null)
+
+    fun requirements(task: String, issueWork: GitHubIssueRemediation.Context?): List<String> {
         if (GitHubStatusRequest.matches(task)) {
             return GitHubStatusRequest.requirements(task)
         }
@@ -96,7 +99,7 @@ internal object GitHubRequestCompletion {
                 "Recommendations are clearly labeled and distinguish evidence from inference"
             )
         } else {
-            requested
+            requested + GitHubIssueRemediation.requirements(task, issueWork)
         }
     }
     fun id(requirement: String): String = GitHubEvidenceBook.digest(requirement).take(24)
@@ -119,11 +122,11 @@ internal object GitHubRequestCompletion {
         }
     }
 
-    private data class Assessment(val state: GitHubAcceptanceLedger.State, val reason: String)
+    internal data class Assessment(val state: GitHubAcceptanceLedger.State, val reason: String)
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
 
-    private fun engineeringAcceptance(acceptance: JsonObject, receipts: Map<String, JsonObject>, expectedRepository: String? = null): Assessment {
+    internal fun engineeringAcceptance(acceptance: JsonObject, receipts: Map<String, JsonObject>, expectedRepository: String? = null, requireLatestHead: Boolean = true): Assessment {
         fun selected(key: String) = (acceptance[key] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.let(receipts::get) }
         fun root(receipt: JsonObject): JsonObject? = (receipt["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
         fun eligible(receipt: JsonObject) = receipt["trusted"] == JsonPrimitive(true) &&
@@ -133,13 +136,15 @@ internal object GitHubRequestCompletion {
             (expectedRepository == null || receipt.text("repository").equals(expectedRepository, true))
         val implementations = selected("implementation_receipts").filter { receipt ->
             eligible(receipt) &&
-                (receipt["arguments"] as? JsonObject)?.text("action") in setOf("commit", "commit_staged_patch") &&
+                ((receipt["arguments"] as? JsonObject)?.text("action") in setOf("commit", "commit_staged_patch") || GitHubIssueRemediation.publishedRevision(receipt) != null) &&
                 receipt.text("source_head_sha").matches(Regex("[a-fA-F0-9]{40}"))
         }
         if (implementations.isEmpty()) return Assessment(GitHubAcceptanceLedger.State.NOT_TESTED, "No authorized published implementation receipt is linked to this requirement")
         val attempts = latestAttempts(receipts)
         val latestHead = receipts.values.lastOrNull { eligible(it) && it["head_observation"] == JsonPrimitive(true) && it.text("source_head_sha").matches(Regex("[a-fA-F0-9]{40}")) }?.get("source_head_sha")
-        if (implementations.any { latestHead != null && latestHead != it["source_head_sha"] }) {
+        // Completed issue work records the tested fix revision independently. The
+        // overall task and release retain this current-head check by default.
+        if (requireLatestHead && implementations.any { latestHead != null && latestHead != it["source_head_sha"] }) {
             return Assessment(GitHubAcceptanceLedger.State.BLOCKED, "Implementation or test evidence belongs to a superseded repository revision")
         }
         val assessments = implementations.map implementation@{ implementation ->
@@ -180,7 +185,7 @@ internal object GitHubRequestCompletion {
             ?: assessments.first()
     }
 
-    fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis(), omittedOptionalClaimIndexes: Set<Int> = emptySet()): JsonObject {
+    fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis(), omittedOptionalClaimIndexes: Set<Int> = emptySet(), issueWork: GitHubIssueRemediation.Context? = null): JsonObject {
         val informational = informational(task)
         val sessionReview = informational && sessionReview(requestText(task))
         val acceptedClaimStatuses = if (sessionReview) setOf("VERIFIED", "INFERRED", "HISTORICAL") else setOf("VERIFIED", "INFERRED")
@@ -188,7 +193,7 @@ internal object GitHubRequestCompletion {
         // claim. It still prevents that requirement from being counted as covered.
         val factualClaims = claims.filterIndexed { index, claim -> index !in omittedOptionalClaimIndexes && !GitHubEvidencePolicy.explicitlyUnmeasured(claim) }
         val verified = factualClaims.isNotEmpty() && factualClaims.all { (it["status"] as? JsonPrimitive)?.contentOrNull in acceptedClaimStatuses }
-        val requirements = requirements(task)
+        val requirements = requirements(task, issueWork)
         val coverage = (answer["requirement_claims"] as? JsonObject).orEmpty()
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts).isNotEmpty()
         val pendingDecision = receipts.values.any { receipt ->
@@ -200,6 +205,9 @@ internal object GitHubRequestCompletion {
         val unanswered = pendingApprovals || pendingDecision
         val comparisonMissing = GitHubReviewComparison.incompleteReason(task, receipts)
         val rows = requirements.map { requirement ->
+            if (requirement == GitHubIssueRemediation.INVENTORY_REQUIREMENT && GitHubIssueRemediation.requested(task)) {
+                return@map GitHubIssueRemediation.inventory(issueWork)
+            }
             val selected = (coverage[id(requirement)] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.intOrNull }
             val selectedClaims = when {
                 id(requirement) in coverage -> selected.mapNotNull(claims::getOrNull)
@@ -222,6 +230,17 @@ internal object GitHubRequestCompletion {
                     .flatMap { key -> (mapping[key] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull } }
                     .toSet()
             }.orEmpty()
+            GitHubIssueRemediation.group(requirement, issueWork)?.let { group ->
+                return@map GitHubIssueRemediation.assess(
+                    group,
+                    requireNotNull(issueWork),
+                    acceptance,
+                    citedReceiptIds,
+                    selectedClaims.isNotEmpty() && selectedClaims.all { it.text("status") in acceptedClaimStatuses },
+                    receipts,
+                    now
+                )
+            }
             val allLinkedReceiptIds = citedReceiptIds + acceptanceReceiptIds
             val linkedReceiptIds = allLinkedReceiptIds.filterTo(linkedSetOf()) { receiptId -> receipts[receiptId]?.let { it["trusted"] == JsonPrimitive(true) && it["success"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) } == true }
             val missingReceiptIds = allLinkedReceiptIds - linkedReceiptIds
@@ -339,6 +358,7 @@ internal object GitHubRequestCompletion {
             put("answer_verified", verified)
             put("completion_verified", complete)
             put("task_outcome", if (complete) "COMPLETED" else "PARTIAL")
+            issueWork?.let { put("issue_cohort", it.cohort) }
             put("requirements", JsonArray(rows))
             put("remaining_requirements", JsonArray(rows.filter { it["status"] != JsonPrimitive("PASSED") }))
             put("completion_scope", if (informational) "Answer coverage" else "Operation-specific remote state or implementation and revision-bound test evidence, as required by the request")

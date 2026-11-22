@@ -159,6 +159,8 @@ internal object GitHubExecutionContinuation {
         allowVerificationResume: Boolean = false
     ): Boolean {
         val ledger = report["execution_ledger"] as? JsonObject ?: return false
+        val effective = GitHubEffectiveRecovery.resolve(report)
+        if (!effective.continueWork && !(allowVerificationResume && effective.verificationOnly)) return false
         // Keep one tool call unspent for exact-revision final verification.
         if (report["completion_verified"] == JsonPrimitive(true) || remainingCalls?.let { it <= 1 } == true || remainingMillis == 0L) return false
         val resumable = ledger["recovery"] == JsonPrimitive("RESUME_UNFINISHED_WORK") ||

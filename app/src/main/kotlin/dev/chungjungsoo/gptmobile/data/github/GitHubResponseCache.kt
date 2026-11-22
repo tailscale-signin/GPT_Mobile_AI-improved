@@ -24,10 +24,13 @@ class GitHubResponseCache(
     private val entries = LinkedHashMap<String, Entry>(16, 0.75f, true)
     private val decodedBlobs = LinkedHashMap<String, DecodedBlob>(16, 0.75f, true)
     private val entrySizes = mutableMapOf<String, Int>()
+    private val mutationInvalidations = linkedSetOf<String>()
     private var entryCharacters = 0
     private var blobCharacters = 0
 
     @Synchronized fun get(key: String): Entry? = entries[key]
+
+    @Synchronized internal fun invalidatedByMutation(key: String): Boolean = key in mutationInvalidations
 
     @Synchronized fun put(key: String, etag: String?, value: JsonElement, immutable: Boolean = false, allowWithoutEtag: Boolean = false) {
         if (etag.isNullOrBlank() && !immutable && !allowWithoutEtag) return
@@ -35,6 +38,7 @@ class GitHubResponseCache(
         if (size > maxCharacters) return
         entryCharacters += size - (entrySizes.put(key, size) ?: 0)
         entries[key] = Entry(etag.orEmpty(), value, immutable = immutable)
+        mutationInvalidations.remove(key)
         while (entries.size > maxEntries.coerceAtLeast(1) || entryCharacters > maxCharacters) {
             val oldest = entries.keys.first()
             entries.remove(oldest)
@@ -59,13 +63,16 @@ class GitHubResponseCache(
         for (key in remove) {
             entries.remove(key)
             entryCharacters -= entrySizes.remove(key) ?: 0
+            mutationInvalidations.add(key)
         }
+        while (mutationInvalidations.size > maxEntries.coerceAtLeast(1)) mutationInvalidations.remove(mutationInvalidations.first())
     }
 
     @Synchronized fun clear() {
         entries.clear()
         decodedBlobs.clear()
         entrySizes.clear()
+        mutationInvalidations.clear()
         entryCharacters = 0
         blobCharacters = 0
     }

@@ -377,7 +377,15 @@ def _string_list(value, allowed):
     return isinstance(value, list) and all(isinstance(item, str) and item in allowed for item in value) and len(set(value)) == len(value)
 
 
+REQUEST_BYTE_COUNTS = {"request_serialized_bytes", "request_tool_schema_bytes", "request_evidence_bytes", "provider_request_byte_limit"}
+FIELDS_BY_AREA["PROVIDER"].update(REQUEST_BYTE_COUNTS | {"provider_request_limit_source", "payload_replan_allowed"})
+ENUMS["provider_request_limit_source"] = {"UNREPORTED", "RESPONSE_HEADER"}
+ENUMS["provider_failure_code"].add("REQUEST_BYTES_EXCEEDED")
+FLAGS.add("payload_replan_allowed")
+
 def _valid_value(key, value):
+    if key in REQUEST_BYTE_COUNTS:
+        return type(value) is int and 0 <= value <= 2_147_483_647
     if capsule.valid_value(key, value):
         return True
     if key in HASH_LISTS or key in ENUM_LISTS:

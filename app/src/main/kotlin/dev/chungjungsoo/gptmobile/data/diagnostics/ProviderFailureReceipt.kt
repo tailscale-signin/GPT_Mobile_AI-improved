@@ -115,7 +115,7 @@ data class ProviderFailureReceipt(
             "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "CLIENT_TOOL_RESULTS_REQUIRED", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED",
             "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED", PrivacyFailureEvidence.CODE
         ) + GatewayEngineeringPrerequisites.codes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES +
-            dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES +
+            dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES + setOf(dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE) +
             dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes +
             dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.entries.map { it.code } +
             dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason.entries.map { "GATEWAY_${it.name}" }
@@ -151,7 +151,7 @@ data class ProviderFailureReceipt(
                 failedStage == "tool_execution" &&
                 status in setOf(403, 429) &&
                 classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
-            val capacityAdmissionRejected = code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES &&
+            val capacityAdmissionRejected = (code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES || code == dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE) &&
                 failedStage == "provider_admission" &&
                 classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
             val privacyAdmissionRejected = code == PrivacyFailureEvidence.CODE && failedStage == "provider_admission"

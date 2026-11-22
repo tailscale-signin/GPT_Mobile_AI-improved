@@ -103,7 +103,14 @@ internal object GitHubTaskLifecycle {
         if (domain != null || originalFailure == null) put("failure_domain", domain ?: JsonPrimitive("APPLICATION_VERIFICATION"))
         val extractionRecovery = extractionFailure?.get("recovery_action").takeIf { originalFailure == null && !unresolved }
         val recovery = if (unresolved) JsonPrimitive("RECONCILE_REMOTE_OUTCOME") else originalFailure?.get("recovery_action") ?: originalFailure?.get("next_action") ?: extractionRecovery ?: stop?.get("recovery_action") ?: ledger?.get("recovery")
-        if (recovery != null || originalFailure == null) put("recovery_action", recovery ?: JsonPrimitive("RESUME_UNFINISHED_WORK"))
+        if (recovery != null) put("recorded_recovery_action", recovery)
+        val effective = GitHubEffectiveRecovery.resolve(verdict)
+        put("effective_recovery", effective.json())
+        put("recovery_action", effective.action)
+        put("resume_allowed", effective.continueWork)
+        put("user_verification_retry_allowed", effective.verificationOnly)
+        put("logical_continuation_allowed", effective.continueWork)
+        put("request_replay_allowed", false)
         automaticContinuations?.let { put("automatic_continuations", it) }
         listOf("required_criteria", "verified_criteria", "remaining_criteria").forEach { key -> ledger?.get(key)?.let { put(key, it) } }
         GitHubAcceptanceReportDiagnostics.fields(verdict, retainedReport).forEach { (key, value) -> put(key, value) }
@@ -144,6 +151,7 @@ internal object GitHubTaskLifecycle {
             listOf(
                 "stop_reason", "next_action", "resume_allowed", "resume_kind", "user_input_required", "requires_reconciliation",
                 "automatic_retry_allowed", "user_resumable", "resume_requires_changed_input_or_configuration",
+                "effective_recovery", "recovery_action", "recorded_recovery_action", "logical_continuation_allowed", "user_verification_retry_allowed",
                 "pending_invocation_fingerprints", "continuations_used", "continuation_limit", "rounds_used", "round_limit",
                 "tool_calls_used", "tool_call_limit", "tool_calls_remaining", "execution_state"
             ).forEach { key -> details[key]?.let { put(key, it) } }

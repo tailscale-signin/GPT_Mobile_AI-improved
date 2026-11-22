@@ -233,6 +233,7 @@ internal class GitHubEvidenceBook(
         val evidenceRepository = lifecycleRepository ?: if (selected) repository else "$owner/$repo"
         val head = (
             listOf("head_sha", "commit_sha").firstNotNullOfOrNull { (root?.get(it) as? JsonPrimitive)?.contentOrNull }
+                ?: GitHubIssueRemediation.publishedHead(action, native, root)?.takeIf { !result.isError && result.errorCode == null }
                 ?: ((root?.get("head") as? JsonObject)?.get("sha") as? JsonPrimitive)?.contentOrNull
                 ?: (((root?.get("repository") as? JsonObject)?.get("head") as? JsonObject)?.get("sha") as? JsonPrimitive)?.contentOrNull
                 ?: (savedSource?.get("source_head_sha") as? JsonPrimitive)?.contentOrNull
@@ -727,6 +728,30 @@ internal class GitHubEvidenceBook(
     suspend fun remainingTaskMillis(): Long? = ((deadlineGrant ?: taskContract ?: load("task_contract"))?.get("deadline_at_ms") as? JsonPrimitive)?.longOrNull
         ?.let { (it - now()).coerceAtLeast(0) }
 
+    @Volatile private var issueCohort: JsonObject? = null
+
+    /** The first complete intake survives refreshed inventories and process restart. */
+    suspend fun issueRemediation(task: String): GitHubIssueRemediation.Context? = mutex.withLock {
+        val accepted = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull ?: task
+        if (!GitHubIssueRemediation.requested(accepted)) return@withLock null
+        val key = "issue_cohort_" + digest(binding).take(24)
+        val saved = issueCohort ?: load(key)
+        val cohort = if (saved != null) {
+            check(GitHubIssueRemediation.valid(saved, accepted, binding, repository)) { "GITHUB_ISSUE_COHORT_CHANGED: Retained intake does not match the accepted task." }
+            saved
+        } else {
+            GitHubIssueRemediation.freeze(accepted, binding, repository, records.toMap())?.also { save(key, it) } ?: return@withLock null
+        }
+        issueCohort = cohort
+        val previous = load("verification_current_" + digest(binding).take(24))
+        val rows = if (previous?.get("binding") == JsonPrimitive(binding) && previous["issue_cohort"] == cohort) {
+            (previous["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        } else {
+            emptyList()
+        }
+        GitHubIssueRemediation.Context(cohort, rows)
+    }
+
     suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
 
     suspend fun acceptedPromptContract(): JsonObject? = (taskContract ?: load("task_contract"))?.let { contract ->
@@ -884,6 +909,7 @@ internal class GitHubEvidenceBook(
 
     suspend fun retainProgress(task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, failureCode: String? = null, failure: ProviderEvent.Failed? = null, remainingToolCalls: Int? = null) {
         val (receipts, _) = snapshot()
+        val issueWork = issueRemediation(task)
         val fixturePreflight = if (GitHubTestChecklist.integration(task)) fixtureApprovalPreflight() else null
         val budget = stageBudget(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools))
         val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, budget)
@@ -909,7 +935,13 @@ internal class GitHubEvidenceBook(
             GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight)
         } else {
             JsonArray(
-                GitHubRequestCompletion.requirements(task).map { requirement ->
+                GitHubRequestCompletion.requirements(task, issueWork).map { requirement ->
+                    if (requirement == GitHubIssueRemediation.INVENTORY_REQUIREMENT && GitHubIssueRemediation.requested(task)) {
+                        return@map GitHubIssueRemediation.inventory(issueWork)
+                    }
+                    GitHubIssueRemediation.group(requirement, issueWork)?.let { group ->
+                        return@map GitHubIssueRemediation.assess(group, requireNotNull(issueWork), null, emptySet(), false, receipts, now())
+                    }
                     buildJsonObject {
                         put("id", GitHubRequestCompletion.id(requirement))
                         put("requirement", requirement)
@@ -936,6 +968,7 @@ internal class GitHubEvidenceBook(
                 put("task_state", GitHubTaskLifecycle.progress(failure ?: failureCode?.let { ProviderEvent.Failed(it, errorCode = it) }, receipts.size).name)
                 failure?.let { GitHubTaskLifecycle.failureMetadata(it).forEach { (key, value) -> put(key, value) } }
                 failureCode?.let { put("failure_code", it) }
+                issueWork?.let { put("issue_cohort", it.cohort) }
                 put("requirements", requirements)
                 put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))
                 put("test_checklist", checkpoint)

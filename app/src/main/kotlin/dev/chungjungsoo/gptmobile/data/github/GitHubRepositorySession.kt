@@ -573,7 +573,7 @@ internal class GitHubRepositorySession(
         val fromStart get() = priorCoverage?.get("from_start")?.jsonPrimitive?.booleanOrNull == true
     }
 
-    private class SearchProgress(request: SearchRequest) {
+    private class SearchProgress(request: SearchRequest, val knownFailures: Set<String>) {
         var next = request.cursor
         var fetched = 0
         var skipped = 0
@@ -582,6 +582,7 @@ internal class GitHubRepositorySession(
         var incompleteSymbols = false
         var truncatedMatches = false
         var noProgressAttempts = 0
+        val completedFailures = mutableSetOf<String>()
         val deferred = mutableListOf<JsonObject>()
         val hits = mutableListOf<JsonObject>()
         val contextBudget = SearchContextBudget()
@@ -597,9 +598,10 @@ internal class GitHubRepositorySession(
         cachedSource(scope, request.cacheKey)?.let { cached ->
             return withSearchRecovery(JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0))), request.recovery)
         }
-        val progress = SearchProgress(request)
+        val knownFailures = if (request.mode == "paths") emptySet() else GitHubSearchFileFailures.entries(store.read(scope, GitHubSearchFileFailures.STORE_KEY)).keys
+        val progress = SearchProgress(request, knownFailures)
         scanSearch(context, request, progress)
-        advanceRepeatedSearchDeadline(request, progress)
+        advanceRepeatedSearchDeadline(context, request, progress)
         val result = searchResult(context, request, progress)
         retainSearchPage(request, progress, result)
         return withSearchRecovery(result, request.recovery)
@@ -776,6 +778,10 @@ internal class GitHubRepositorySession(
                 progress.readDeadline = true
                 break
             }
+            if (progress.knownFailures.isNotEmpty()) {
+                val identity = GitHubSearchFileFailures.identity(context, item.s("path"), item.s("sha"))
+                if (identity in progress.knownFailures) progress.completedFailures += identity
+            }
             val matches = match.items
             if (matches.size > 10) progress.truncatedMatches = true
             if (matches.isNotEmpty()) {
@@ -822,29 +828,19 @@ internal class GitHubRepositorySession(
         return null
     }
 
-    private suspend fun advanceRepeatedSearchDeadline(request: SearchRequest, progress: SearchProgress) {
-        val key = "search-no-progress:${request.searchId}"
-        if (progress.next > request.cursor) {
-            store.remove(scope, key)
-            return
+    private suspend fun advanceRepeatedSearchDeadline(context: GitHubTaskSnapshot, request: SearchRequest, progress: SearchProgress) {
+        // Earlier files may have advanced this page; only the exact file still at next stalled.
+        val item = request.all.getOrNull(progress.next)?.takeIf { progress.readDeadline }
+        val identity = item?.let { GitHubSearchFileFailures.identity(context, it.s("path"), it.s("sha")) }
+        if (identity == null && progress.completedFailures.isEmpty()) return
+        val retained = store.update(scope, GitHubSearchFileFailures.STORE_KEY) {
+            GitHubSearchFileFailures.update(it, progress.completedFailures, identity)
         }
-        if (!progress.readDeadline || request.cursor >= request.all.size) return
-        store.update(scope, key) { retained ->
-            val previous = if (retained?.get("cursor") == JsonPrimitive(request.cursor)) {
-                (retained["attempts"] as? JsonPrimitive)?.intOrNull ?: 0
-            } else {
-                0
-            }
-            progress.noProgressAttempts = (previous + 1).coerceAtMost(2)
-            buildJsonObject {
-                put("cursor", request.cursor)
-                put("attempts", progress.noProgressAttempts)
-            }
-        }
-        if (progress.noProgressAttempts < 2) return
+        if (identity == null || item == null) return
+        progress.noProgressAttempts = GitHubSearchFileFailures.entries(retained)[identity] ?: 0
+        if (progress.noProgressAttempts < GitHubSearchFileFailures.MAX_ATTEMPTS) return
         // A permanently slow blob must not pin every later file behind the same cursor.
-        // Keep the unresolved file explicit and carry incomplete coverage through the chain.
-        val item = request.all[request.cursor]
+        // Query variants share failures, never coverage: this chain retains its own deferred file.
         progress.deferred += buildJsonObject {
             put("path", item.getValue("path"))
             put("sha", item.getValue("sha"))

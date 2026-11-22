@@ -163,7 +163,7 @@ internal object GitHubEvidencePolicy {
         return assertions.isNotEmpty() && assertions.all { it.string("status") in allowed }
     }
 
-    fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null): Pair<String, JsonObject> {
+    fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, issueWork: GitHubIssueRemediation.Context? = null): Pair<String, JsonObject> {
         val claims = answer["claims"] as? JsonArray ?: error("Missing claim-level evidence response")
         require(claims.size in 1..128) { "Claim count exceeds the verification bound" }
         val checked = mutableListOf<JsonObject>()
@@ -246,7 +246,7 @@ internal object GitHubEvidencePolicy {
         // Only an explicit, complete requirement map can identify an optional claim.
         // Preserve original indexes for required claims during acceptance evaluation.
         val mapping = answer["requirement_claims"] as? JsonObject
-        val required = GitHubRequestCompletion.requirements(task).map(GitHubRequestCompletion::id)
+        val required = GitHubRequestCompletion.requirements(task, issueWork).map(GitHubRequestCompletion::id)
         val mapped = mapping?.values?.filterIsInstance<JsonArray>().orEmpty().flatten().mapNotNull { (it as? JsonPrimitive)?.intOrNull }.toSet()
         val canOmit = required.isNotEmpty() &&
             required.all { mapping?.get(it) is JsonArray } &&
@@ -262,7 +262,7 @@ internal object GitHubEvidencePolicy {
         val retainedClaims = checked.filterIndexed { index, _ -> index !in omitted }
         val supportedClaims = retainedClaims.filterNot(::explicitlyUnmeasured)
         val unmeasuredScopes = checked.filter(::explicitlyUnmeasured)
-        val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now, omittedOptionalClaimIndexes = omitted)
+        val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now, omittedOptionalClaimIndexes = omitted, issueWork = issueWork)
         val checklist = if (GitHubTaskCoverage.matches(task)) {
             GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, stageBudget, acceptedContract)
         } else {
@@ -310,7 +310,7 @@ internal object GitHubEvidencePolicy {
     }
 
     /** A formatter outage cannot turn a private draft into proof or erase retained observations. */
-    fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, inspectExtractorFailure: Boolean = false): Pair<String, JsonObject> {
+    fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null, inspectExtractorFailure: Boolean = false, issueWork: GitHubIssueRemediation.Context? = null): Pair<String, JsonObject> {
         if (GitHubTaskCoverage.matches(task)) return testing(receipts, now, epoch, task, tools, remainingToolCalls, stageBudget, acceptedContract, fixturePreflight)
         val allowHistorical = historicalReview(task)
         val fallback = fallbackClaims(receipts, now, epoch, task, allowHistorical)
@@ -330,7 +330,7 @@ internal object GitHubEvidencePolicy {
                 }
             )
         }
-        val (observations, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task)
+        val (observations, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, issueWork = issueWork)
         val coverage = GitHubTaskCoverage.rows(receipts)
         val operations = if (coverage.isEmpty()) {
             ""

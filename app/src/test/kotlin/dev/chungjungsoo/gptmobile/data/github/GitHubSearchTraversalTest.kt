@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import java.nio.file.Files
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
@@ -14,12 +15,112 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSearchTraversalTest {
     private val head = "a".repeat(40)
     private val tree = "b".repeat(40)
+
+    @Test fun queryChangeAndPersistedRestartRetainExactFileFailureButNotAnotherQueryCoverage() = runBlocking {
+        val directory = Files.createTempDirectory("search-file-failures").toFile()
+        try {
+            val slow = AtomicInteger()
+            var simulateSlowBlob = true
+            val source = "fun needle() = 1\nfun alternate() = 2"
+            fun session(store: GitHubRepositoryStateStore) = GitHubRepositorySession(
+                "account",
+                "connection",
+                "chat",
+                "task",
+                store,
+                { path ->
+                    when {
+                        "/commits/" in path -> buildJsonObject {
+                            put("sha", head)
+                            put("commit", buildJsonObject { put("tree", buildJsonObject { put("sha", tree) }) })
+                        }
+                        "/git/trees/" in path -> buildJsonObject {
+                            put("truncated", false)
+                            put(
+                                "tree",
+                                JsonArray(
+                                    (1..3).map { index ->
+                                        buildJsonObject {
+                                            put("path", "src/File$index.kt")
+                                            put("sha", "%040x".format(index))
+                                            put("type", "blob")
+                                            put("size", source.toByteArray().size)
+                                        }
+                                    }
+                                )
+                            )
+                        }
+                        "/git/blobs/" in path -> {
+                            if (simulateSlowBlob && path.endsWith("/git/blobs/${"%040x".format(2)}")) {
+                                slow.incrementAndGet()
+                                kotlinx.coroutines.awaitCancellation()
+                            }
+                            buildJsonObject {
+                                put("encoding", "base64")
+                                put("content", Base64.getEncoder().encodeToString(source.toByteArray()))
+                            }
+                        }
+                        else -> error("Unexpected request $path")
+                    }
+                },
+                { _, _ -> error("Search must never mutate") },
+                searchBlobTimeoutMs = 500
+            )
+            val first = session(GitHubRepositoryStateStore(directory)).execute("search_repository", "owner", "repo", args("literal", 2)).jsonObject
+            assertEquals(JsonPrimitive(1), first["interval_end"])
+            assertEquals(JsonPrimitive(1), first["no_progress_attempts"])
+            assertEquals(JsonPrimitive(0), first["total_deferred_files"])
+            val originalContinuation = first.getValue("continuation").jsonObject
+            assertEquals(JsonPrimitive(1), originalContinuation["index_cursor"])
+
+            // Recreate both the session and persistent store; changing the query restarts only its traversal.
+            val restoredStore = GitHubRepositoryStateStore(directory)
+            val restored = session(restoredStore)
+            val changed = restored.execute("search_repository", "owner", "repo", JsonObject(originalContinuation + ("query" to JsonPrimitive("alternate")))).jsonObject
+            assertNotEquals(first["search_id"], changed["search_id"])
+            assertEquals(JsonPrimitive("SEARCH_PARAMETERS_CHANGED"), changed.getValue("recovery").jsonObject["code"])
+            assertEquals(JsonPrimitive(0), changed["interval_start"])
+            assertEquals(JsonPrimitive(2), changed["interval_end"])
+            assertEquals(JsonPrimitive(2), changed["no_progress_attempts"])
+            assertEquals(JsonPrimitive("src/File2.kt"), changed.getValue("deferred_files").jsonArray.single().jsonObject["path"])
+            assertEquals(JsonPrimitive("%040x".format(2)), changed.getValue("deferred_files").jsonArray.single().jsonObject["sha"])
+            assertEquals(JsonPrimitive(false), changed["complete"])
+            assertEquals(2, slow.get())
+            val retained = restoredStore.read("account:connection:chat:task", GitHubSearchFileFailures.STORE_KEY)
+            assertEquals(listOf(2), GitHubSearchFileFailures.entries(retained).values.toList())
+            assertFalse(retained.toString().contains("needle"))
+            assertFalse(retained.toString().contains("alternate"))
+
+            // Resolving the exact file can complete the original query, whose coverage never inherited the deferral.
+            simulateSlowBlob = false
+            val originalLast = restored.execute("search_repository", "owner", "repo", originalContinuation).jsonObject
+            assertEquals(first["search_id"], originalLast["search_id"])
+            assertEquals(JsonPrimitive(1), originalLast["interval_start"])
+            assertEquals(JsonPrimitive(true), originalLast["complete"])
+            assertEquals(JsonPrimitive(true), originalLast["matches_complete"])
+            assertEquals(JsonPrimitive(0), originalLast["total_deferred_files"])
+            assertTrue(GitHubSearchFileFailures.entries(restoredStore.read("account:connection:chat:task", GitHubSearchFileFailures.STORE_KEY)).isEmpty())
+
+            // The changed query still has its own unread file, even after the original query succeeds.
+            val changedLast = restored.execute("search_repository", "owner", "repo", changed.getValue("continuation").jsonObject).jsonObject
+            assertEquals(changed["search_id"], changedLast["search_id"])
+            assertEquals(JsonPrimitive(2), changedLast["interval_start"])
+            assertEquals(JsonPrimitive(true), changedLast["traversal_complete"])
+            assertEquals(JsonPrimitive(false), changedLast["complete"])
+            assertEquals(JsonPrimitive(false), changedLast["matches_complete"])
+            assertEquals(JsonPrimitive(1), changedLast["total_deferred_files"])
+            assertEquals(JsonPrimitive(1), changedLast["total_skipped_files"])
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 
     @Test fun repeatedBlobDeadlineDefersOneExactFileAndResumesLaterFilesWithoutClaimingCoverage() = runBlocking {
         val store = GitHubRepositoryStateStore()

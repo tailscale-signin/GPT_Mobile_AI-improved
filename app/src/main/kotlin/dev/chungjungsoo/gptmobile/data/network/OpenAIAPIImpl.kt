@@ -265,7 +265,15 @@ class OpenAIAPIImpl @Inject constructor(
                                     put("http_status", response.status.value)
                                     responseObserver.snapshot().serverRequestId?.let { put("server_request_id", it) }
                                 } + ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS, endpoint) +
-                                    structuredProviderFailure(errorBody, response.status.value).orEmpty()
+                                    structuredProviderFailure(errorBody, response.status.value).orEmpty() +
+                                    requestPayloadRejection(
+                                        response.status.value,
+                                        admittedPayload,
+                                        config,
+                                        preparedRequest.model,
+                                        receivedAssistantPayload || receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown,
+                                        response.headers::get
+                                    )
                             )
                             val retainedGatewayAttempts = hasRetainedGatewayAttempts(failureDetails)
                             // Error responses also own durable job identity. Publish trusted headers
@@ -921,7 +929,17 @@ class OpenAIAPIImpl @Inject constructor(
                                         "E"
                                     )
 
-                                    val rejection = ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint)
+                                    val rejection = JsonObject(
+                                        ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint) +
+                                            requestPayloadRejection(
+                                                response.status.value,
+                                                admittedPayload,
+                                                effectiveConfig,
+                                                preparedRequest.model,
+                                                receivedResponsePayload || dispatchRetryGuard.remoteOutcomeUnknown,
+                                                response.headers::get
+                                            )
+                                    )
                                     emit(
                                         ResponseErrorEvent(
                                             message = if (response.status.value in setOf(401, 402, 403)) errorMessage else effectiveConfig.readableProviderError(errorMessage, response.status.value.toString()),

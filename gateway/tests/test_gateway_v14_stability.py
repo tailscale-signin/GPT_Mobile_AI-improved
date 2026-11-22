@@ -205,6 +205,7 @@ class LoadTests(unittest.TestCase):
             async def send(message): sent.append(message)
             await guard({'type': 'http', 'path': '/v1/chat/completions', 'method': 'POST'}, receive, send)
             self.assertEqual(sent[0]['status'], 413)
+            self.assertEqual(dict(sent[0]['headers'])[b'x-gateway-max-request-bytes'], b'1024')
             self.assertFalse(called)
             self.assertEqual(guard.active, 0)
         asyncio.run(scenario())

@@ -227,29 +227,22 @@ class ProviderWaitStore @Inject constructor(
     }
 
     /** Retry reattaches to the durable slot owner before preparing a new action. */
-    internal suspend fun reattach(message: MessageV2): ProviderWaitDeadline? {
+    internal suspend fun reattach(message: MessageV2): ProviderWaitDeadline? = reattach(message, null)
+
+    /** A workflow control may only reschedule the exact run and fence shown to the user. */
+    internal suspend fun reattachOwned(message: MessageV2, expected: AgentRun): ProviderWaitDeadline? = reattach(message, expected)
+
+    private suspend fun reattach(message: MessageV2, expected: AgentRun?): ProviderWaitDeadline? {
         val dao = database.agentPersistenceDao()
-        val current = dao.recoveryMessage(message.id) ?: return null
-        if (current.chatId != message.chatId || current.platformType != message.platformType) return null
-        val runId = current.currentRunId ?: return null
-        val row = dao.rawProviderWait(runId) ?: return null
-        val run = dao.recoveryRun(runId) ?: return null
-        if (current.ownershipFence != row.fence || run.ownershipFence != row.fence || run.status !in setOf("WAITING_PROVIDER_LIMIT", "QUEUED", "RUNNING")) return null
-        val deadline = ProviderWaitSchedule.prepare(listOf(row), settings::fetchPlatformV2s).single().project()
-        // Profile loading can suspend. A cancelled or replaced owner cannot
-        // schedule another wake after the read-only deadline projection.
-        val latest = dao.recoveryMessage(message.id) ?: return null
-        val latestRun = dao.recoveryRun(runId) ?: return null
-        if (dao.rawProviderWait(runId) != row ||
-            latest.currentRunId != runId ||
-            latest.ownershipFence != row.fence ||
-            latestRun.ownershipFence != row.fence ||
-            latestRun.status !in setOf("WAITING_PROVIDER_LIMIT", "QUEUED", "RUNNING")
-        ) {
-            return null
-        }
-        if (latestRun.status != "RUNNING") ProviderLimitResumeWorker.enqueue(context, row.scope, deadline.effectiveRetryAt)
-        return deadline
+        return ProviderWaitReattachment.reattach(
+            message,
+            expected,
+            dao::recoveryMessage,
+            dao::recoveryRun,
+            dao::rawProviderWait,
+            project = { row -> ProviderWaitSchedule.prepare(listOf(row), settings::fetchPlatformV2s).single().project() },
+            enqueue = { scope, retryAt -> ProviderLimitResumeWorker.enqueue(context, scope, retryAt) }
+        )
     }
 
     suspend fun combinedRoots(runIds: Set<String>): List<String> = database.agentPersistenceDao().providerWaits().filter { it.runId in runIds }.mapNotNull { row ->

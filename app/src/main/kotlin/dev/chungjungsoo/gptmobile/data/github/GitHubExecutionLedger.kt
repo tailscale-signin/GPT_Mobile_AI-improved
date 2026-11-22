@@ -310,7 +310,7 @@ internal object GitHubExecutionLedger {
         } else {
             JsonObject(emptyMap())
         }
-        return JsonObject(checkpoint + limitation + ("execution_ledger" to ledger))
+        return GitHubEffectiveRecovery.attach(JsonObject(checkpoint + limitation + ("execution_ledger" to ledger)))
     }
 
     /** Receipt IDs settled by exact native readback, shared by checkpoint and continuation policy. */

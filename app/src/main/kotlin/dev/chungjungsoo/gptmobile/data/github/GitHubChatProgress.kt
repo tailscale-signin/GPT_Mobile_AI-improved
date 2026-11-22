@@ -38,6 +38,10 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private val recentSteps = ArrayDeque<String>()
     private data class Problem(val text: String, val requiredResolutions: Set<String>)
     private val activeProblems = linkedMapOf<String, Problem>()
+    private data class MeaningfulTransition(val key: Triple<String, String, String>, val text: String)
+    private val pendingTransitions = linkedMapOf<String, MeaningfulTransition>()
+    private val activeTransitionKinds = linkedMapOf<String, String>()
+    private val announcedTransitions = linkedSetOf<Triple<String, String, String>>()
     private var revision = 0L
     private var pendingSummary: ApiState.ActivitySummary? = null
     private var pendingSummaryRevision = -1L
@@ -79,6 +83,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     }
 
     private fun admitSummary(at: Long, allowFallback: Boolean): ApiState.ActivitySummary? {
+        if (pendingTransitions.isNotEmpty() && (initial || at - lastSummaryAt < summaryInterval(findingsPublished))) {
+            return admitMeaningfulTransition()
+        }
         if (!initial && at - lastSummaryAt < summaryInterval(findingsPublished)) return null
         if (!initial && pendingSummary == null && revision == lastSummaryRevision) return null
         val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision }
@@ -111,6 +118,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         lastSummaryAt = at
         initial = false
         selectedAuthoredSummary = candidate.modelAuthored
+        acknowledgeTransitions()
         // Introduction is only a promise, not a completed observation.
         if (!introduction) {
             findingsPublished = true
@@ -118,6 +126,41 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             while (reportedFactKeys.size > 256) reportedFactKeys.remove(reportedFactKeys.first())
         }
         return candidate
+    }
+
+    /** Use saved call identity and typed state, never a timer, display text or counter change. */
+    private fun queueTransition(call: Pair<String, String>?, scope: String, kind: String, text: String) {
+        if (call == null) return
+        val key = Triple(call.first, call.second, kind)
+        if (key in announcedTransitions || kind != "RECOVERY" && activeTransitionKinds[scope] == kind) return
+        if (kind == "RECOVERY") activeTransitionKinds.remove(scope) else activeTransitionKinds[scope] = kind
+        while (activeTransitionKinds.size > 64) activeTransitionKinds.remove(activeTransitionKinds.keys.first())
+        pendingTransitions[scope] = MeaningfulTransition(key, text.take(320))
+        while (pendingTransitions.size > 64) pendingTransitions.remove(pendingTransitions.keys.first())
+    }
+
+    private fun acknowledgeTransitions() {
+        pendingTransitions.values.forEach { announcedTransitions.add(it.key) }
+        pendingTransitions.clear()
+        while (announcedTransitions.size > 4096) announcedTransitions.remove(announcedTransitions.first())
+    }
+
+    private fun admitMeaningfulTransition(): ApiState.ActivitySummary? {
+        val transitions = pendingTransitions.values.toList()
+        if (transitions.isEmpty()) return null
+        val latest = transitions.takeLast(4)
+        val text = latest.joinToString("\n") { if (latest.size == 1) it.text else "- ${it.text}" } +
+            if (transitions.size > latest.size) "\nAdditional blocker and recovery observations remain in activity details." else ""
+        acknowledgeTransitions()
+        summary = text
+        lastSummaryKey = GitHubProgressPresentation.lineKey(text)
+        initial = false
+        selectedAuthoredSummary = false
+        transitions.map { GitHubProgressPresentation.lineKey(it.text) }.forEach(reportedFactKeys::add)
+        while (reportedFactKeys.size > 256) reportedFactKeys.remove(reportedFactKeys.first())
+        // Immediate transitions do not postpone or replace the 45s/135s routine
+        // cadence. Their fact keys still prevent duplicate routine narration.
+        return ApiState.ActivitySummary(text, modelAuthored = false)
     }
 
     private fun admitCounter(liveKey: String, text: String): Boolean {
@@ -208,7 +251,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         selectedAuthoredSummary = false
                         activity = milestone(name, true, false, progress.toolArgs)
                         nextStep = "inspect the ${operation.subject} error and identify whether a corrected request or connection recovery is needed"
-                        rememberStep(observation(name, true, false, progress.toolArgs), problemScope = problemScope)
+                        val finding = observation(name, true, false, progress.toolArgs)
+                        rememberStep(finding, problemScope = problemScope)
+                        queueTransition(terminalKey, problemScope, "BLOCKER", finding)
                     }
                     "tool_blocked" -> {
                         if (terminalKey in terminalCalls || terminalKey != null && !blockedCalls.add(terminalKey)) return
@@ -219,7 +264,14 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         selectedAuthoredSummary = false
                         activity = "${operation.subject.replaceFirstChar(Char::uppercase)} blocked${sourceFocus(progress.toolArgs).let { if (it.isBlank()) "" else " · $it" }}"
                         nextStep = "inspect the recorded blocker and identify the required approval, setup or correction before continuing"
-                        rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} is blocked; the requested action has not been verified.", problemScope = problemScope)
+                        val decision = progress.status?.lowercase(java.util.Locale.ROOT) in setOf("awaiting_approval", "waiting_for_approval")
+                        val finding = if (decision) {
+                            "The ${operation.subject}${focusClause(progress.toolArgs)} needs approval before continuing; the requested action has not been verified."
+                        } else {
+                            "The ${operation.subject}${focusClause(progress.toolArgs)} is blocked; the requested action has not been verified."
+                        }
+                        rememberStep(finding, problemScope = problemScope)
+                        queueTransition(terminalKey, problemScope, if (decision) "DECISION" else "BLOCKER", finding)
                     }
                     "tool_completed", "tool_finished", "tool_skipped" -> {
                         if (terminalKey != null && !terminalCalls.add(terminalKey)) return
@@ -243,7 +295,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                             resolveProblem(problemScope, observed?.resolvedConditions.orEmpty())?.let {
                                 selectedAuthoredSummary = false
                                 pendingSummary = null
-                                rememberStep("The ${operation.subject}${focusClause(progress.toolArgs)} is available again. The remaining task still needs verification.")
+                                val finding = "The ${operation.subject}${focusClause(progress.toolArgs)} is available again. The remaining task still needs verification."
+                                rememberStep(finding)
+                                queueTransition(terminalKey, problemScope, "RECOVERY", finding)
                             }
                         }
                         if (observed != null || sourceFocus(progress.toolArgs).isNotBlank()) selectedAuthoredSummary = false
@@ -254,6 +308,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         nextStep = nextFor(operation)
                         if (observed?.problem == true) {
                             pendingSummary = null
+                            if (freshResult) queueTransition(terminalKey, problemScope, "BLOCKER", observed.summary)
                         }
                         if (observed != null || sourceFocus(progress.toolArgs).isNotBlank() || operation.mutation) {
                             // Saved facts remain visible as history but cannot replace a current
@@ -279,6 +334,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 if (event.textChunk.isNotBlank()) {
                     responseStarted = true
                     pendingSummary = null
+                    pendingTransitions.clear()
                     activity = ""
                 }
             }
@@ -292,6 +348,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 activity = ""
                 resultObservations.clear()
                 savedResults.clear()
+                pendingTransitions.clear()
             }
             else -> Unit
         }

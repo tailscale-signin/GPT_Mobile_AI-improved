@@ -1,11 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.workspace
 
 import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.github.GitHubEffectiveRecovery
 import dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -49,7 +51,13 @@ internal data class GitHubWorkflowSnapshot(
     val reconciliationRequired: Boolean = false,
     val lastFreshObservationMillis: Long? = null,
     val exactBlocker: String? = null,
-    val sourceReadRecoveryAvailable: Boolean = false
+    val sourceReadRecoveryAvailable: Boolean = false,
+    val effectiveRecoveryAction: String? = null,
+    val recoveryLabel: String? = null,
+    val providerRetryAtMillis: Long? = null,
+    val providerOriginalRetryAtMillis: Long? = null,
+    val providerRetrySchedulable: Boolean = false,
+    val authorityReviewAvailable: Boolean = false
 )
 
 /** Presentation uses persisted verifier output. API success never becomes acceptance evidence. */
@@ -59,7 +67,7 @@ internal object GitHubWorkflowPresentation {
     private val mutationActions = setOf("commit", "commit_staged_patch", "create", "update", "delete", "merge", "publish", "push", "rerun", "cancel", "close", "reopen", "approve", "comment", "request_changes")
     private val code = Regex("\\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\\b")
 
-    fun snapshot(run: AgentRun, events: List<ToolEvent>, eventWindowComplete: Boolean, verification: JsonObject? = null, evidenceReadFailed: Boolean = false, nowMillis: Long = System.currentTimeMillis()): GitHubWorkflowSnapshot {
+    fun snapshot(run: AgentRun, events: List<ToolEvent>, eventWindowComplete: Boolean, verification: JsonObject? = null, evidenceReadFailed: Boolean = false, nowMillis: Long = System.currentTimeMillis(), providerWait: ProviderWaitDeadline? = null): GitHubWorkflowSnapshot {
         val observed = events.filter { it.runId == run.runId }.distinctBy { it.callId.takeIf(String::isNotBlank) ?: it.eventId }
         val retained = (verification?.get("evidence_retention_complete") as? JsonPrimitive)?.booleanOrNull
         val ledger = verification?.get("acceptance_ledger") as? JsonObject
@@ -140,9 +148,35 @@ internal object GitHubWorkflowPresentation {
             !unresolvedRemoteOutcome &&
             !pendingApproval &&
             verifiedSourceReadRecovery(verification, observed)
+        val effective = verification?.let(GitHubEffectiveRecovery::resolve)
+        val providerDeadline = GitHubWorkflowPrerequisites.providerDeadline(run, providerWait, effective?.action)
+        val verificationOnly = recoverable &&
+            run.synthesisKey == null &&
+            run.synthesisSnapshot == null &&
+            retained == true &&
+            !evidenceReadFailed &&
+            !unknown &&
+            !unresolvedRemoteOutcome &&
+            !pendingApproval &&
+            !waiting &&
+            effective?.verificationOnly == true
+        val explicitRecoveryBlocked = effective?.kind in setOf(
+            GitHubEffectiveRecovery.Kind.REFRESH_AUTHORITY,
+            GitHubEffectiveRecovery.Kind.WAIT_FOR_PROVIDER,
+            GitHubEffectiveRecovery.Kind.REVIEW_APPROVAL,
+            GitHubEffectiveRecovery.Kind.RECONCILE_REMOTE_OUTCOME
+        ) ||
+            effective != null &&
+            !effective.continueWork &&
+            !verificationOnly &&
+            !sourceReadRecovery
         val recovery = buildList {
-            if (recoverable && !pendingApproval && (!deterministic || reconcileReceipts || sourceReadRecovery) && !waiting && !unreconciledGateway) add(TaskRecoveryAction.CONTINUE_RUN)
-            if (recoverable && !pendingApproval && !deterministic && !waiting && !unknown && !unresolvedRemoteOutcome && run.status == AgentRunStatus.FAILED) add(TaskRecoveryAction.RETRY_FAILED_STAGE)
+            if (verificationOnly) {
+                add(TaskRecoveryAction.RESUME_VERIFICATION)
+            } else if (!explicitRecoveryBlocked) {
+                if (recoverable && !pendingApproval && (!deterministic || reconcileReceipts || sourceReadRecovery) && !waiting && !unreconciledGateway) add(TaskRecoveryAction.CONTINUE_RUN)
+                if (recoverable && !pendingApproval && !deterministic && !waiting && !unknown && !unresolvedRemoteOutcome && run.status == AgentRunStatus.FAILED) add(TaskRecoveryAction.RETRY_FAILED_STAGE)
+            }
         }
         return GitHubWorkflowSnapshot(
             run.runId,
@@ -169,6 +203,10 @@ internal object GitHubWorkflowPresentation {
             failureCategory,
             recovery,
             when {
+                providerDeadline != null -> "This control keeps the saved run and its existing checkpoint scheduled at or after the provider deadline. It does not repeat tools or create a new request; the worker rechecks current authority before dispatch."
+                effective?.kind == GitHubEffectiveRecovery.Kind.REFRESH_AUTHORITY -> "Refresh the saved profile and connection identities, then review their settings. This read-only action cannot grant access, clear a blocker or resume the request."
+                effective?.kind == GitHubEffectiveRecovery.Kind.WAIT_FOR_PROVIDER -> "The retained provider deadline is shown below. No matching durable waiting owner is available to reschedule; review the saved failure before starting any new work."
+                verificationOnly -> "Resume one verification pass using the saved results and receipts. It cannot repeat tools or writes; stale evidence remains unverified."
                 unreconciledGateway -> "The gateway outcome is unknown and no saved job can be reconciled. Inspect the remote operation before continuing; Resume and Retry are unavailable to prevent repeating a possible mutation."
                 unresolvedRemoteOutcome -> "Check the saved remote operation before approving or repeating a change. Its outcome is still unconfirmed."
                 pendingApproval -> "Review the existing proposed changes card in Chat to approve or reject the saved patch. Repeating preparation does not resolve its approval."
@@ -185,7 +223,13 @@ internal object GitHubWorkflowPresentation {
                 .mapNotNull { it.completedAt }.maxOrNull(),
             exactBlocker = criteria.firstOrNull { it.status != GitHubAcceptanceStatus.PASS }?.detail
                 ?: run.terminalError?.takeIf(String::isNotBlank),
-            sourceReadRecoveryAvailable = sourceReadRecovery
+            sourceReadRecoveryAvailable = sourceReadRecovery,
+            effectiveRecoveryAction = effective?.action,
+            recoveryLabel = if (effective?.verificationOnly == true && !verificationOnly) "Review saved verification" else effective?.takeUnless { it.kind == GitHubEffectiveRecovery.Kind.NONE }?.label,
+            providerRetryAtMillis = providerDeadline?.effectiveRetryAt ?: effective?.retryAtMillis,
+            providerOriginalRetryAtMillis = providerDeadline?.retryAt ?: effective?.retryAtMillis,
+            providerRetrySchedulable = providerDeadline != null && !pendingApproval && !unresolvedRemoteOutcome && retained != false && !evidenceReadFailed,
+            authorityReviewAvailable = recoverable && effective?.kind == GitHubEffectiveRecovery.Kind.REFRESH_AUTHORITY && !evidenceReadFailed
         )
     }
 

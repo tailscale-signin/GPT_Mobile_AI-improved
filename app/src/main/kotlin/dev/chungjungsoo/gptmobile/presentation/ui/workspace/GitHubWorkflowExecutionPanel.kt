@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubProgrammerState
 
 internal data class GitHubRecoveryRequest(val chatId: Int, val runId: String, val action: TaskRecoveryAction)
@@ -37,11 +38,12 @@ internal fun GitHubWorkflowExecutionPanel(
     onExport: () -> Unit,
     model: GitHubWorkflowViewModel = hiltViewModel(),
     approvalPending: Boolean = false,
-    onReviewApproval: () -> Unit = {}
+    onReviewApproval: () -> Unit = {},
+    onProfileSettings: (String) -> Unit = {}
 ) {
     LaunchedEffect(state.chatId) { model.bind(state.chatId) }
     val evidence by model.evidence.collectAsStateWithLifecycle()
-    GitHubWorkflowExecutionContent(state, evidence, onRecovery, onExport, approvalPending, onReviewApproval)
+    GitHubWorkflowExecutionContent(state, evidence, onRecovery, onExport, approvalPending, onReviewApproval, model::retryAfterProviderDeadline) { run -> model.refreshAuthority(run, onProfileSettings) }
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -52,13 +54,15 @@ internal fun GitHubWorkflowExecutionContent(
     onRecovery: (GitHubRecoveryRequest) -> Unit,
     onExport: () -> Unit,
     approvalPending: Boolean = false,
-    onReviewApproval: () -> Unit = {}
+    onReviewApproval: () -> Unit = {},
+    onRetryProvider: (AgentRun) -> Unit = {},
+    onRefreshAuthority: (AgentRun) -> Unit = {}
 ) {
     val latestMessageRun = state.messages.lastOrNull { it.currentRunId != null }?.currentRunId
     val run = state.runs.firstOrNull { it.runId == latestMessageRun }
         ?: state.runs.maxWithOrNull(compareBy({ it.createdAt }, { it.startedAt ?: 0 }, { it.runId }))
     val snapshot = remember(run, state.events, state.eventCountsByRun, evidence) {
-        run?.let { GitHubWorkflowPresentation.snapshot(it, state.events, state.events.count { event -> event.runId == it.runId } == (state.eventCountsByRun[it.runId] ?: 0), evidence.verifications[it.runId], it.runId in evidence.unreadableRuns) }
+        run?.let { GitHubWorkflowPresentation.snapshot(it, state.events, state.events.count { event -> event.runId == it.runId } == (state.eventCountsByRun[it.runId] ?: 0), evidence.verifications[it.runId], it.runId in evidence.unreadableRuns, providerWait = evidence.providerWaits[it.runId]) }
     }
     var details by remember(run?.runId) { mutableStateOf(false) }
     Surface(modifier = Modifier.fillMaxWidth().testTag("github-workflow-execution"), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -78,6 +82,15 @@ internal fun GitHubWorkflowExecutionContent(
                     Text("Last fresh observation: $time", style = MaterialTheme.typography.bodySmall)
                 }
                 snapshot.exactBlocker?.let { Text("Blocker: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                snapshot.providerRetryAtMillis?.let { deadline ->
+                    Text("Earliest provider retry: ${java.time.Instant.ofEpochMilli(deadline)}", style = MaterialTheme.typography.bodySmall)
+                    snapshot.providerOriginalRetryAtMillis?.takeIf { it != deadline }?.let { original ->
+                        Text("Original rejection deadline: ${java.time.Instant.ofEpochMilli(original)}. The current shared limit extends this wait.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (snapshot.effectiveRecoveryAction == "WAIT_PROVIDER_DEADLINE" && snapshot.providerRetryAtMillis == null) {
+                    Text("No confirmed provider deadline is retained. Scheduling is unavailable.", style = MaterialTheme.typography.bodySmall)
+                }
                 val unfinished = snapshot.criteria.filter { it.status != GitHubAcceptanceStatus.PASS }
                 val preview = (unfinished + snapshot.criteria.filter { it.status == GitHubAcceptanceStatus.PASS }).take(3)
                 preview.forEach { criterion ->
@@ -91,32 +104,43 @@ internal fun GitHubWorkflowExecutionContent(
                 if (approvalPending && !snapshot.reconciliationRequired) {
                     Text("Review the existing proposed changes card in Chat before continuing this work.", style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = onReviewApproval) { Text("Review approval") }
-                } else if (snapshot.reconciliationRequired || snapshot.recovery.isNotEmpty() || snapshot.failureCategory != null) {
+                } else if (snapshot.reconciliationRequired || snapshot.recovery.isNotEmpty() || snapshot.failureCategory != null || snapshot.providerRetrySchedulable || snapshot.authorityReviewAvailable) {
                     Text(snapshot.recoveryExplanation, style = MaterialTheme.typography.bodySmall)
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val prerequisitePending = evidence.prerequisiteRunId == run?.runId && evidence.prerequisiteFence == run?.ownershipFence
+                    val prerequisiteEnabled = run != null && state.chatId == run.chatId && !approvalPending && state.approvals.isEmpty() && !state.submitting && state.pending.isEmpty() && !prerequisitePending
+                    if (snapshot.providerRetrySchedulable) {
+                        OutlinedButton(onClick = { run?.let(onRetryProvider) }, enabled = prerequisiteEnabled) { Text("Retry after the provider deadline") }
+                    }
+                    if (snapshot.authorityReviewAvailable) {
+                        OutlinedButton(onClick = { run?.let(onRefreshAuthority) }, enabled = prerequisiteEnabled) { Text("Refresh changed authority") }
+                    }
                     snapshot.recovery.forEach { action ->
                         OutlinedButton(
                             onClick = { state.chatId?.let { onRecovery(GitHubRecoveryRequest(it, snapshot.runId, action)) } },
                             enabled = state.chatId != null && !approvalPending && state.approvals.isEmpty() && !state.submitting && state.pending.isEmpty()
                         ) {
                             Text(
-                                if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.sourceReadRecoveryAvailable) {
+                                if (action == TaskRecoveryAction.RESUME_VERIFICATION) {
+                                    "Resume verification"
+                                } else if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.sourceReadRecoveryAvailable) {
                                     "Restore saved read"
                                 } else if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.reconciliationRequired) {
                                     "Reconcile saved results"
-                                } else if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.exactBlocker?.contains(Regex("(?i)stale|missing evidence|not measured|receipt")) == true) {
-                                    "Refresh evidence"
                                 } else if (action == TaskRecoveryAction.CONTINUE_RUN) {
-                                    "Resume"
+                                    snapshot.recoveryLabel?.takeIf { snapshot.effectiveRecoveryAction == "RESUME_UNFINISHED_WORK" } ?: "Resume"
                                 } else {
                                     "Retry failed stage"
                                 }
                             )
                         }
                     }
-                    TextButton(onClick = { details = true }) { Text("View details") }
+                    TextButton(onClick = { details = true }) {
+                        Text(if (snapshot.recovery.isEmpty() && !snapshot.providerRetrySchedulable && !snapshot.authorityReviewAvailable) snapshot.recoveryLabel ?: "View details" else "View details")
+                    }
                 }
+                evidence.prerequisiteNotice?.takeIf { evidence.prerequisiteNoticeRunId == snapshot.runId && evidence.prerequisiteNoticeFence == run?.ownershipFence }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
         }
     }
@@ -155,6 +179,7 @@ internal fun GitHubWorkflowExecutionContent(
                         }
                     }
                     Text(snapshot.recoveryExplanation)
+                    snapshot.providerRetryAtMillis?.let { Text("Provider retry not before ${java.time.Instant.ofEpochMilli(it)}") }
                     Text("Run: ${snapshot.runId}", style = MaterialTheme.typography.bodySmall)
                 }
             },

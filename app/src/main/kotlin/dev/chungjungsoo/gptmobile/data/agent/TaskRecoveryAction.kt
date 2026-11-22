@@ -6,6 +6,7 @@ import java.util.Locale
 @kotlinx.serialization.Serializable
 enum class TaskRecoveryAction {
     CONTINUE_RUN,
+    RESUME_VERIFICATION,
     RETRY_FAILED_STAGE,
     RETRY_WRITING,
     CONTINUE_PRIMARY_ONLY;
@@ -13,6 +14,7 @@ enum class TaskRecoveryAction {
     companion object {
         fun fromText(text: String): TaskRecoveryAction? = when (dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(text).lowercase(Locale.ROOT).trimEnd('.', '!', '?').trim().replace(Regex("\\s+"), " ").removePrefix("please ")) {
             "continue", "continue research", "continue run", "continue response", "resume", "proceed" -> CONTINUE_RUN
+            "resume verification", "verify saved results" -> RESUME_VERIFICATION
             "retry writing", "resume writing" -> RETRY_WRITING
             "test again", "retest", "retry", "retry full", "retry failed stage", "try again" -> RETRY_FAILED_STAGE
             "proceed primary-only", "proceed primary only", "continue primary-only", "continue primary only", "primary-only" -> CONTINUE_PRIMARY_ONLY
@@ -49,7 +51,7 @@ internal fun resolveTaskRecovery(messages: List<MessageV2>, descriptor: TaskResu
         source.content,
         descriptor.action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY,
         retryUndispatchedBudgetFailures = descriptor.allowUndispatchedBudgetRetry && descriptor.action == TaskRecoveryAction.RETRY_FAILED_STAGE,
-        renewsToolBudget = descriptor.allowNewToolBudget && descriptor.action != TaskRecoveryAction.RETRY_WRITING
+        renewsToolBudget = descriptor.allowNewToolBudget && descriptor.action !in setOf(TaskRecoveryAction.RETRY_WRITING, TaskRecoveryAction.RESUME_VERIFICATION)
     )
 }
 
@@ -57,7 +59,11 @@ internal data class ResolvedTaskRecovery(val action: TaskRecoveryAction, val sou
     fun prompt(): String = "Original task and constraints:\n$originalRequest\n\n" +
         "Recovery action: ${action.name}. Continue unfinished work using the saved partial answer and evidence. " +
         "Do not search for the recovery command itself. Do not repeat completed tool actions; verify unknown action outcomes before retrying. " +
-        if (primaryOnly) "Use the primary model and its permitted tools. Delegation and independent reviewer selection are disabled for this recovery." else "Retry only unfinished or failed work; preserve completed results."
+        when {
+            action == TaskRecoveryAction.RESUME_VERIFICATION -> "Verify only saved results and receipts. Do not reopen execution, refresh sources, or repeat tools or writes."
+            primaryOnly -> "Use the primary model and its permitted tools. Delegation and independent reviewer selection are disabled for this recovery."
+            else -> "Retry only unfinished or failed work; preserve completed results."
+        }
 }
 
 /** Reconstruct from persisted user turns, including chains of controls after process restart. */

@@ -51,7 +51,8 @@ data class DiagnosticCaptureOptions(
     val traceStage: (String) -> (() -> Unit) = { {} },
     val resumable: Boolean = true,
     val deferArchiveHandoff: Boolean = false,
-    val cooperativeHeapRecovery: Boolean = false
+    val cooperativeHeapRecovery: Boolean = false,
+    val releaseOptionalCaches: () -> Unit = {}
 ) {
     init {
         require(bufferBytes in 1024..64 * 1024 && maxRecordBytes in 1..1024 * 1024)
@@ -95,9 +96,8 @@ class DiagnosticStageSink internal constructor(
     private val payloadReferences = DiagnosticPayloadReferences()
 
     internal suspend fun redactedRecord(value: JsonElement, maximumCharacters: Int, evidence: Boolean = true) {
-        payloadReferences.write(value) { output ->
+        payloadReferences.writeEncoded(value) { redacted ->
             logicalRecord {
-                val redacted = output.toString()
                 if (redacted.length <= maximumCharacters / 2) {
                     record(redacted, evidence)
                 } else {
@@ -375,6 +375,7 @@ object StagedDiagnosticCapture {
         // Heap pressure is often transient. Once cheap sections have completed, retry
         // each deferred collector at most once if measured headroom has recovered.
         run {
+            var cachesReleased = false
             for (index in receipts.indices) {
                 val prior = receipts[index]
                 val stage = stages.firstOrNull { it.id == prior.text("id") } ?: continue
@@ -383,6 +384,19 @@ object StagedDiagnosticCapture {
                 if (!safeToRetry) continue
                 currentCoroutineContext().ensureActive()
                 options.guard()
+                if (!cachesReleased) {
+                    // Derived caches may be rebuilt by their owners. Source snapshots
+                    // and committed cursors are never discarded by pressure recovery.
+                    try {
+                        options.releaseOptionalCaches()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Optional cache owners cannot discard an already captured
+                        // failure envelope. The unchanged admission guard still wins.
+                    }
+                    cachesReleased = true
+                }
                 // Never start recovery below the same guard that just deferred the stage.
                 // Check each stage independently because another retry may consume headroom.
                 val retryThreshold = if (stage.critical || stage.lowMemorySafe) minOf(options.minimumHeadroomBytes, 1024L * 1024) else options.minimumHeadroomBytes
@@ -808,14 +822,23 @@ object StagedDiagnosticCapture {
     }
 
     /** Call only after the archive is durable at the user-facing export destination. */
-    fun acknowledgeArchiveHandoff(directory: File, result: DiagnosticCaptureResult) {
+    fun acknowledgeArchiveHandoff(directory: File, result: DiagnosticCaptureResult, retainArchive: Boolean = false) {
         require(sessionPattern.matches(result.sessionId)) { "INVALID_DIAGNOSTIC_SESSION" }
         val sessionFile = File(directory, "diagnostic-capture-checkpoints/${result.sessionId}/session.json")
         val saved = readObject(sessionFile, CHECKPOINT_LIMIT)
         val published = requireNotNull(saved["publishedArchive"] as? JsonObject)
         require(published.text("fileName") == result.file.name && saved.text("sourceIdentityHash") == result.manifest.text("sourceIdentityHash")) { "DIAGNOSTIC_ARCHIVE_HANDOFF_CHANGED" }
+        if (retainArchive) {
+            val index = File(sessionFile.parentFile, "retained-archives.json")
+            val retained = retainedArchives(directory, sessionFile.parentFile).filter { it.isFile && it.name != result.file.name }.toMutableList()
+            retained += result.file
+            val removed = mutableListOf<File>()
+            while (retained.size > 64 || retained.size > 1 && retained.sumOf { it.length() } > 256L * 1024 * 1024) removed += retained.removeAt(0)
+            atomicJson(index, buildJsonObject { put("fileNames", JsonArray(retained.map { JsonPrimitive(it.name) })) })
+            removed.forEach { it.delete() }
+        }
         atomicJson(sessionFile, JsonObject(saved + ("publishedArchive" to JsonObject(published + ("handedOff" to JsonPrimitive(true))))))
-        result.file.delete()
+        if (!retainArchive) result.file.delete()
     }
 
     fun findResumableSession(directory: File, sourceIdentity: String): String? {
@@ -911,9 +934,21 @@ object StagedDiagnosticCapture {
                 it.canonicalFile.parentFile == root.canonicalFile
         }.sortedByDescending { File(it, "session.json").lastModified() }
         candidates.forEachIndexed { index, folder ->
-            if (index >= 3 || folder.lastModified() < expiry) folder.deleteRecursively()
+            if (index >= 3 || folder.lastModified() < expiry) {
+                val retained = retainedArchives(root.parentFile, folder)
+                folder.deleteRecursively()
+                retained.forEach { it.delete() }
+            }
         }
     }
+
+    /** Only explicitly retained working parts expire with their session; caller-owned exports do not. */
+    private fun retainedArchives(directory: File, session: File): List<File> = runCatching {
+        (readObject(File(session, "retained-archives.json"), CHECKPOINT_LIMIT)["fileNames"] as? JsonArray).orEmpty()
+            .take(64).mapNotNull { (it as? JsonPrimitive)?.content }
+            .filter { it == File(it).name && session.name in it && it.endsWith(".zip") }
+            .map { File(directory, it) }.filter { it.canonicalFile.parentFile == directory.canonicalFile }
+    }.getOrDefault(emptyList())
 
     private fun readReceipt(session: File, stage: DiagnosticCaptureStage): JsonObject? = runCatching {
         readObject(File(session, "${stage.id}.receipt.json"), CHECKPOINT_LIMIT).takeIf { it.text("id") == stage.id && it.text("fileName") == stage.fileName }

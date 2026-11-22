@@ -123,6 +123,7 @@ internal class IssueReportSubmission(
         private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
             IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE,
+            "REQUEST_BYTE_BUDGET_V1",
             IssueReportDiagnostics.SELECTED_MODEL_ADMISSION_FEATURE, IssueReportDiagnostics.REVIEW_CATALOG_FEATURE, IssueReportDiagnostics.ACTION_ONLY_FEATURE,
             IssueReportDiagnostics.REPEAT_PRIOR_CAUSE_FEATURE, IssueReportDiagnostics.PROFILE_BEHAVIOR_FEATURE,
             IssueReportDiagnostics.SEARCH_READINESS_FEATURE, IssueReportDiagnostics.SILENCED_INPUT_FEATURE,
@@ -179,6 +180,7 @@ internal class IssueReportSubmission(
                     add(IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE)
                 }
                 if (PrivacyFailureEvidence.CODE in codes) add(PrivacyFailureEvidence.FEATURE)
+                if (dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.CODE in codes) add(dev.chungjungsoo.gptmobile.data.network.RequestByteBudget.FEATURE)
                 if ("OUTPUT_CONTINUATION_NO_PROGRESS" in codes ||
                     "PROVIDER_INVOCATION_FAILED" in codes ||
                     code(diagnostics?.values?.get("provider_failure_code")) == "BUDGET_RESTRICTED"

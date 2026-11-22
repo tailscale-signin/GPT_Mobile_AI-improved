@@ -51,6 +51,7 @@ internal class GitHubVerifiedSession(
     private val currentRequest: String = task,
     private val openExecutionContinuation: (suspend (String) -> AgentProviderSession)? = null,
     private val resumeClaimExtraction: Boolean = false,
+    private val verificationOnlyRequested: Boolean = false,
     private val awaitOwnedDescendants: suspend (Long) -> Boolean = { true }
 ) : AgentProviderSession by delegate {
     override val handlesToolResultRecovery: Boolean = GitHubTestChecklist.integration(task) ||
@@ -71,6 +72,8 @@ internal class GitHubVerifiedSession(
     private var providerStepResumed = false
     private var statusPlanTools: List<AgentToolDefinition> = emptyList()
     private var observedAdvertisedToolCount: Int? = null
+    private var issueWork: GitHubIssueRemediation.Context? = null
+    private var verificationOnlyAttempted = false
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
     private fun failureCauses(error: Throwable): Sequence<Throwable> =
@@ -135,6 +138,56 @@ internal class GitHubVerifiedSession(
                     GitHubAcceptancePublicationEvidence.Entry.TASK_DEADLINE,
                     failureCode = "GITHUB_TASK_INCOMPLETE",
                     originalFailure = observeExpiredDeadline(GitHubExecutionLimits.expiredTaskFailure(GitHubExecutionLimits.DeadlineCheck.VERIFIED_SESSION_ENTRY))
+                )
+            )
+            return@flow
+        }
+        if (verificationOnlyRequested) {
+            // This explicit control cannot fall through to generation, discovery,
+            // approval polling or tool acquisition even when its saved draft is absent.
+            validatePublication()
+            val previous = evidence.diagnostic()
+            val effective = previous?.let(GitHubEffectiveRecovery::resolve)
+            val receipts = evidence.snapshot().first
+            val unsettled = receipts.values.any {
+                GitHubExecutionLedger.receiptState(it) in setOf(
+                    GitHubExecutionLedger.ReceiptState.UNKNOWN_OUTCOME,
+                    GitHubExecutionLedger.ReceiptState.DISPATCHED,
+                    GitHubExecutionLedger.ReceiptState.WAITING_FOR_APPROVAL
+                )
+            }
+            val draft = evidence.retainedClaimExtraction()?.get("draft")
+                ?.let { it as? JsonPrimitive }?.content?.takeIf(String::isNotBlank)
+            if (verificationOnlyAttempted || effective?.verificationOnly != true || unsettled) {
+                evidence.retainedAnswer(includeEarlierFindings = true)?.let { (body, _) ->
+                    emit(ProviderEvent.TextDelta(body, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT)))
+                }
+                emit(
+                    ProviderEvent.Failed(
+                        "This saved checkpoint does not permit another verification-only pass. Review its retained recovery details before continuing.",
+                        errorCode = "GITHUB_TASK_INCOMPLETE",
+                        taskOutcome = "PARTIAL",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "acceptance_verification")
+                            put("dispatched", false)
+                            put("resume_allowed", false)
+                            put("retryable", false)
+                            put("request_replay_allowed", false)
+                            effective?.let { put("effective_recovery", it.json()) }
+                        }
+                    )
+                )
+                return@flow
+            }
+            verificationOnlyAttempted = true
+            progress("Verifying the saved result once; completed operations remain retained")
+            // Empty continuation tools prohibit source refresh or execution repair.
+            // A stale receipt or another verifier failure remains a partial result.
+            emitAll(
+                publish(
+                    draft,
+                    GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION,
+                    verificationRestart = MAX_VERIFICATION_RESTARTS
                 )
             )
             return@flow
@@ -836,6 +889,7 @@ internal class GitHubVerifiedSession(
             validatePublication()
             verificationPhase = GitHubVerificationFault.Phase.SNAPSHOT
             val (receipts, epoch) = evidence.snapshot()
+            issueWork = evidence.issueRemediation(task)
             val stopped = originalFailure != null || remainingToolCalls() == 0
             verificationPhase = GitHubVerificationFault.Phase.RECEIPT_RENDERING
             val ciObservation = withContext(computationDispatcher) {
@@ -1360,7 +1414,7 @@ internal class GitHubVerifiedSession(
         val budget = evidence.stageBudget(receipts, remainingToolCalls(), GitHubSelfTestFixtures.minimumCalls(authorizedTools))
         val remaining = (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull
         val preflight = fixturePreflight ?: if (GitHubTestChecklist.integration(task)) evidence.fixtureApprovalPreflight() else null
-        GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode, authorizedTools, remaining, budget, evidence.acceptedPromptContract(), preflight, inspectExtractorFailure)
+        GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode, authorizedTools, remaining, budget, evidence.acceptedPromptContract(), preflight, inspectExtractorFailure, issueWork = evidence.issueRemediation(task))
     }
 
     private suspend fun claimExtractionContext(receipts: Map<String, JsonObject>, epoch: Long): String = withContext(computationDispatcher) {
@@ -1474,7 +1528,7 @@ internal class GitHubVerifiedSession(
                 }
                 val batches = completed.map { requireNotNull(it) }
                 val result = withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.render(GitHubClaimBatches.combine(batches), receipts, now(), epoch, task)
+                    GitHubEvidencePolicy.render(GitHubClaimBatches.combine(batches), receipts, now(), epoch, task, issueWork = issueWork)
                 }
                 evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = false)
                 ClaimExtraction(result)
@@ -1515,7 +1569,7 @@ internal class GitHubVerifiedSession(
 
     private fun verificationRequests(draft: String, receipts: Map<String, JsonObject>): VerificationPlan {
         val hardLimit = inputLimit()
-        val groups = GitHubRequestCompletion.requirements(task).distinct().chunked(GitHubClaimBatches.REQUIREMENTS_PER_BATCH)
+        val groups = GitHubIssueRemediation.verificationWindow(task, issueWork, receipts, now()).chunked(GitHubClaimBatches.REQUIREMENTS_PER_BATCH)
         // Never let the extraction bound silently remove acceptance criteria. A task
         // that exceeds the bounded batch plan remains incomplete until it is split or
         // a larger, explicitly supported plan is introduced.

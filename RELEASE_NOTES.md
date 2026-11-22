@@ -12,6 +12,18 @@ Reports collect bounded verification, continuation, checkpoint and cursor eviden
 
 Implementation, issue mapping and validation limits: [conversation repair map](docs/repairs/conversation-intelligence-2026-11-21.md).
 
+Recovery controls now share one effective decision. **Resume verification** checks the saved result once without repeating completed tools, reopening execution or renewing its allowance. **Retry after the provider deadline** reattaches the existing scheduled run at its retained or later shared deadline. **Refresh changed authority** opens the saved writer profile’s settings after checking its saved connection identities. The controls recheck run and checkpoint ownership, including combined answers; required approvals and uncertain writes retain their specific review actions. A new blocker, required decision or proven recovery can appear immediately once; routine findings keep the existing 45-second initial and 135-second follow-up cadence.
+
+Bulk issue work freezes the observed intake and tracks each issue's diagnosis, published fix or targeted diagnostic improvement, revision-bound tests and verified closure independently. Completed groups remain visible when another group is blocked. Tool selection follows the next unfinished acceptance step while preserving authorized schemas, explicit selections and discovery. Read receipts explain pinned-source reuse, mutable revalidation, write invalidation and observed ETag changes.
+
+Serialized request budgets now retain exact UTF-8 envelope counts plus tool/evidence attribution. A safely rejected oversized request can compact saved tool evidence within a bounded retry allowance; partial output, saved remote jobs and uncertain writes prevent replay. Gateway body-limit responses expose the actual limit. Hosted reporters must also advertise REQUEST_BYTE_BUDGET_V1 before receiving these fields.
+
+Diagnostic exports reduce repeated encoding and can clear disposable rendering caches before a guarded low-memory retry. Resumed shares include verified original ZIP parts with an explicit dependency manifest; unavailable parts stay marked incomplete. The offline inspector validates the same multipart closure. Idle journal compaction retains original encrypted evidence, and repeated unchanged rendering checkpoints are coalesced. Progress publication, model receive/draw, final-report draw and sampled frame/heap windows are measured separately with their ownership and observation limits.
+
+REQUEST_BYTE_BUDGET_V1 is required for hosted byte diagnostics. Saved-job identity, partial output, uncertain writes and changed authority prevent automatic replay. Missing diagnostic archive dependencies remain explicitly incomplete. Frame/heap windows describe overlapping process observations, not causal per-run ownership or measured physical-device speedups.
+
+Complete design and test coverage: [17-repair / 16-improvement implementation map](docs/repairs/full-approved-scope-2026-11-21.md).
+
 ## Voice performance and speech backends
 
 Voice now reuses verified model installations and the loaded Moonshine model while creating a fresh recognition stream for each turn. Quick, Natural and Thoughtful listening styles, a Done speaking button and configurable microphone frame sizes make turn-taking adjustable. A navigation-owned warm runtime survives rotation and brief interruptions while capture and playback pause immediately.

@@ -517,6 +517,32 @@ class ProviderWaitRecoveryTest {
         }
     }
 
+    @Test fun ownedDeadlineControlRejectsStaleRunAndFenceAndPreservesDelayedSchedule() = runBlocking {
+        val fixture = Fixture("Retained answer")
+        val scheduled = mutableListOf<Long>()
+        mockkObject(ProviderLimitResumeWorker.Companion)
+        try {
+            every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } answers { scheduled += arg<Long>(2) }
+            fixture.initialize()
+            val decision = fixture.decision().copy(retryAt = System.currentTimeMillis() + 120_000)
+            val row = fixture.row(decision, ProviderWaitMode.RESEARCH_STAGE)
+            assertTrue(fixture.dao.deferRunningProvider(row))
+            val owner = requireNotNull(fixture.dao.recoveryRun("run"))
+            assertNull(fixture.store.reattachOwned(fixture.answer, owner.copy(runId = "old-owner")))
+            assertNull(fixture.store.reattachOwned(fixture.answer, owner.copy(ownershipFence = owner.ownershipFence + 1)))
+            assertTrue(scheduled.isEmpty())
+            assertEquals(ProviderWaitDeadline("run", owner.ownershipFence, decision.retryAt), fixture.store.reattachOwned(fixture.answer, owner))
+            assertEquals(listOf(decision.retryAt), scheduled)
+            assertTrue(fixture.store.readyActions(decision.scope).isEmpty())
+            assertEquals(owner, fixture.dao.recoveryRun("run"))
+            assertEquals(row, fixture.dao.rawProviderWait("run"))
+            assertEquals("Retained answer", fixture.dao.recoveryMessage(2)?.content)
+        } finally {
+            unmockkObject(ProviderLimitResumeWorker.Companion)
+            fixture.database.close()
+        }
+    }
+
     @Test fun successfulWriteThenTwoProviderRejectionsResumeOneOwnerWithoutReplayingTheWrite() = runBlocking {
         val fixture = Fixture()
         val file = java.io.File.createTempFile("provider-wait-receipts", ".json").apply { delete() }

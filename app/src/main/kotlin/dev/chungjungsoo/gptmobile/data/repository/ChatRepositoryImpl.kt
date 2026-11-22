@@ -2627,7 +2627,8 @@ class ChatRepositoryImpl(
                                 recoveredResearch = { recovery?.researchSnapshotForDelivery() },
                                 originalUserRequest = savedUserTurns.lastOrNull()?.content.orEmpty(),
                                 acceptanceRequest = taskRecovery?.originalRequest ?: savedUserTurns.lastOrNull()?.content.orEmpty(),
-                                restoreGatewayHandoffRequested = taskRecovery != null && !synthesisRun,
+                                restoreGatewayHandoffRequested = taskRecovery != null && !synthesisRun && taskRecovery.action != dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RESUME_VERIFICATION,
+                                verificationOnlyRequested = taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RESUME_VERIFICATION,
                                 validateSavedEvidence = {
                                     validateDocuments()
                                     val allowed = recovery?.isAuthorized() != false && researchMemory.validate()
@@ -5084,7 +5085,15 @@ class ChatRepositoryImpl(
                 outputContinuation?.restoreToolResults(exchanges)
             },
             remainingTaskMillis = verifiedEvidence?.let { it::remainingTaskMillis },
-            diagnosticRunId = dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionHistory.runIdWithoutPriorEvents(runId, agentPersistenceDao::rawMaxToolEventSequence)
+            diagnosticRunId = dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionHistory.runIdWithoutPriorEvents(runId, agentPersistenceDao::rawMaxToolEventSequence),
+            prepareToolSelection = if (catalog != null && verifiedEvidence != null) {
+                {
+                    catalog.focusRequirement(verifiedEvidence.diagnostic())
+                    Unit
+                }
+            } else {
+                null
+            }
         )
     }
 
@@ -5229,6 +5238,7 @@ class ChatRepositoryImpl(
         originalUserRequest: String = latestUser?.content.orEmpty(),
         acceptanceRequest: String = originalUserRequest,
         restoreGatewayHandoffRequested: Boolean = false,
+        verificationOnlyRequested: Boolean = false,
         validateSavedEvidence: suspend () -> Boolean = { true }
     ): Flow<ApiState> = channelFlow {
         val admission = streamPrimaryAnswerAdmission(
@@ -5900,6 +5910,23 @@ class ChatRepositoryImpl(
             authorizedEvidenceTools, evidenceCatalog, dispatchAuthority, originalUserRequest, acceptanceRequest, requiresNativeAcceptance,
             toolBudgetSourceMessageId, customRunner.limits.maxToolCalls, dev.chungjungsoo.gptmobile.data.agent.ToolBudgetPolicy.executionLimit(customRunner.limits), validateSavedEvidence
         )
+        if (verificationOnlyRequested && (verifiedEvidence == null || chatToolConfig?.combined != null)) {
+            send(
+                ApiState.Error(
+                    "Verification-only recovery requires this run's saved native GitHub workflow. Review its retained recovery details.",
+                    errorCode = "GITHUB_EVIDENCE_REQUIRED",
+                    taskOutcome = "PARTIAL",
+                    failureDetails = buildJsonObject {
+                        put("failed_stage", "acceptance_verification")
+                        put("dispatched", false)
+                        put("resume_allowed", false)
+                        put("retryable", false)
+                        put("request_replay_allowed", false)
+                    }
+                )
+            )
+            return@channelFlow
+        }
         currentGitHubPromptContract = verifiedEvidence?.acceptedPromptContract()
         data class GitHubAnswerSessions(
             val advertisedSession: AgentProviderSession,
@@ -6231,6 +6258,7 @@ class ChatRepositoryImpl(
                     resumeCommitSha = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(originalUserRequest),
                     resumeRequestKey = "${user.chatId}:${user.id}",
                     resumeClaimExtraction = restoreGatewayHandoffRequested,
+                    verificationOnlyRequested = verificationOnlyRequested,
                     awaitOwnedDescendants = await@{ maxWaitMillis ->
                         val ledger = invocationLedger ?: return@await true
                         val currentInvocation = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]

@@ -553,6 +553,60 @@ class IntegrationRoutingTests(unittest.TestCase):
             workspace_tool_integrations.call(self.backend, self.job, action)
         self.assertFalse(self.calls)
 
+    def test_denied_status_and_calls_never_start_discovery(self):
+        action = {'integration': 'context7', 'tool': 'docs_query-docs', 'arguments': {'query': 'v2'}, 'invocation_id': 'blocked'}
+        for denial in ('local_only', 'private', 'disabled', 'remote_denied'):
+            with self.subTest(denial=denial):
+                job, config = copy.deepcopy(self.job), copy.deepcopy(self.config)
+                if denial == 'local_only':
+                    job['execution_binding'] = {'required_capability_policy': ['LOCAL_ONLY']}
+                elif denial == 'private':
+                    job['request']['private'] = True
+                elif denial == 'disabled':
+                    config['context7']['enabled'] = False
+                else:
+                    config['context7']['allow_remote'] = False
+                with patch.object(workspace_tool_integrations, 'configuration', return_value=config), \
+                        patch.object(self.backend.runtime, 'get_all_mcp_tools', wraps=self.backend.runtime.get_all_mcp_tools) as discovery:
+                    for discover in (False, True):
+                        state = workspace_tool_integrations.status(self.backend, job, discover=discover)
+                        observed = next(row for row in state['integrations'] if row['id'] == 'context7')
+                        self.assertEqual('DISABLED' if denial == 'disabled' else 'LOCAL_ONLY_POLICY', observed['state'])
+                        discovery.assert_not_called()
+                    with self.assertRaises(PermissionError):
+                        workspace_tool_integrations.call(self.backend, job, action)
+                    discovery.assert_not_called()
+                    self.assertFalse(self.calls)
+                    self.assertNotIn('workspace_integrations', job['data'])
+
+    def test_denied_call_cannot_borrow_another_integrations_discovery_permission(self):
+        action = {'integration': 'playwright', 'tool': 'docs_query-docs', 'arguments': {'query': 'v2'}, 'invocation_id': 'blocked'}
+        for denial in ('disabled', 'remote_denied', 'unlisted_tool'):
+            with self.subTest(denial=denial):
+                config = copy.deepcopy(self.config)
+                config['playwright'] = {'enabled': denial != 'disabled', 'allow_remote': denial != 'remote_denied',
+                                        'tools': [] if denial == 'unlisted_tool' else ['docs_query-docs']}
+                with patch.object(workspace_tool_integrations, 'configuration', return_value=config), \
+                        patch.object(self.backend.runtime, 'get_all_mcp_tools', wraps=self.backend.runtime.get_all_mcp_tools) as discovery:
+                    with self.assertRaises(PermissionError):
+                        workspace_tool_integrations.call(self.backend, self.job, action)
+                    discovery.assert_not_called()
+                    self.assertFalse(self.calls)
+
+    def test_authorized_discovery_retains_passive_status_and_exact_dispatch(self):
+        action = {'integration': 'context7', 'tool': 'docs_query-docs', 'arguments': {'query': 'v2'}, 'invocation_id': 'allowed'}
+        with patch.object(self.backend.runtime, 'get_all_mcp_tools', wraps=self.backend.runtime.get_all_mcp_tools) as discovery:
+            workspace_tool_integrations.status(self.backend, self.job)
+            discovery.assert_not_called()
+            observed = workspace_tool_integrations.status(self.backend, self.job, discover=True)
+            self.assertEqual('READY_FOR_DISPATCH', next(row['state'] for row in observed['integrations'] if row['id'] == 'context7'))
+            discovery.assert_called_once()
+            self.assertFalse(self.calls)
+            result = workspace_tool_integrations.call(self.backend, self.job, action)
+            self.assertEqual('COMPLETED', result['status'])
+        self.assertEqual([('docs', 'tools/call', {'name': 'query-docs', 'arguments': {'query': 'v2'}})], self.calls)
+        self.assertEqual('EXISTING_MCP_DISPATCHER', result['execution_owner'])
+
     def install_test_tool(self, name, operation, schema):
         runtime = self.backend.runtime
         runtime.mcp_tool_metadata = {name: {'server': 'docs', 'tool': operation, 'inputSchema': schema}}

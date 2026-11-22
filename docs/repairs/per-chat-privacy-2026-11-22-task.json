@@ -157,7 +157,7 @@
       "FactVaultIdentityRegressionTest.kt": "4d5d40a0600f40ce0f8bea18a0dc2790bb0549aee6b4301975f4e3834f96e83d"
     }
   },
-  "last_reconciled_remote_head": "ede2caa9536c7b79cbd8556e79cf7ba63f1207a8",
+  "last_reconciled_remote_head": "6f887cc3f4e81deb497879c9f83cf773fc002189",
   "pending_concurrent_scope": [
     "acceptance-completion-70afcf89: preserve and review the separately announced 16-finding/30-scenario implementation before final readiness.",
     "github-coding-benchmark-2026-11-22: preserve and review the separately announced benchmark audit implementation before final readiness."
@@ -185,5 +185,83 @@
       "new_cases_pending_current_source_triage": 11,
       "new_groups": "One OpenRouter setup cancellation case and ten voice start/buffering/diagnostic/callback cases. This stale-source run is diagnostic evidence only, not qualification of the current head. Corresponding test classes have not changed since ba775, so do not dismiss the failures solely because the source revision is older."
     }
+  },
+  "deterministic_preview_cancellation_followup": {
+    "source_base": "57ee520c5b4d99947e724c4eff13e413ddc7ce78",
+    "integrated_parent": "6f887cc3f4e81deb497879c9f83cf773fc002189",
+    "status": "LOCAL_VALIDATION_COMPLETE_DRAFT_PUSH_PENDING",
+    "finding": "The old test assumes a second caller Runnable after IO completion. A legal completion-before-suspension path can return in the first caller turn, leaving no second Runnable; the production cancellation cleanup remains correct.",
+    "repair": "Use an explicit IO-entry/caller-suspension handshake, cancel only after IO has prepared its result but before caller delivery, then release/cancel/drain in finally. Retain five cycles; prove all four preview slots are available, a fifth live preview is refused, and discarded slots are reusable.",
+    "production_changes": false,
+    "validation": {
+      "actual_source_suite": {
+        "tests": 20,
+        "passed": 20,
+        "seconds": 2.022
+      },
+      "async_executor_repetitions": {
+        "unique_methods": 1,
+        "repetitions": 25,
+        "cancelled_preview_cycles": 125,
+        "passed": 25,
+        "seconds": 1.424,
+        "dispatcher": "Real asynchronous single-thread executor; dispatch enqueues and returns without joining or sleeping."
+      },
+      "negative_control": {
+        "tests": 1,
+        "failures": 1,
+        "expected": true,
+        "mutation": "Remove only prepared-preview discard from an isolated production copy.",
+        "observed": "Actual four-session-capacity exception exposes leaked undelivered previews."
+      },
+      "source_readback": "All10 actual inputs, including the test, remain hash-identical after integration onto6f887. Pinned formatting and whitespace pass.",
+      "qualification": "Actual service/policy/setup test source with documented isolated settings/provider boundaries; full current-head Android test execution remains required. A separate joined-worker baseline timing illustration is not used as repaired-dispatch qualification."
+    }
+  },
+  "agent_workspace_admission_followup": {
+    "source_base": "8504366c8edf4e1911284ea6426ccb53e449141c",
+    "integrated_parent": "6f887cc3f4e81deb497879c9f83cf773fc002189",
+    "status": "LOCAL_VALIDATION_COMPLETE_DRAFT_PUSH_PENDING",
+    "finding": "Optional workspace integration status/call could trigger MCP discovery before rejecting a LOCAL_ONLY/private job or disabled/remote-denied integration. Discovery can start processes or network reads before tool execution. Two new Android test stubs also returned Unit where durable admission returns ConversationPrivacyContext.",
+    "repair": "Keep blocked status passive; check the exact requested integration privacy, enabled/remote policy and configured tool membership before discovery. Preserve authorized discovery, schema/ledger checks and exact existing MCP dispatcher. Return the exact ordinary context(8,false) in both strict workspace repository fixtures; preserve their privacy and identity negatives.",
+    "validation": {
+      "actual_gateway_module": {
+        "tests": 34,
+        "passed": 34
+      },
+      "baseline": {
+        "new_methods": 3,
+        "failed_denial_subcases": 7,
+        "errors": 0,
+        "authorized_positive_control": "PASS"
+      },
+      "runtime": "Python3.12; installed requests2.32.3 appended from system pure-Python packages after primary FastAPI0.141.1/cryptography50.0.0. No dependency changes or real external service calls. Pinned full CI remains required.",
+      "android_fixture": "Actual return signature inspected; pinned ktlint and whitespace pass. Full changed repository test compilation/execution remains a hosted gate.",
+      "integrated_actual_gateway_module": {
+        "parent": "6f887cc3f4e81deb497879c9f83cf773fc002189",
+        "tests": 34,
+        "passed": 34,
+        "seconds": 0.307
+      }
+    },
+    "independent_review": "All new Android workspace paths reload durable chat policy and original account/credentials before external work; mutations recheck after retained argument/identity persistence. Worker roles preserve the parent binding/context, and cloud/local agent dispatch retains source/model/account leases and local-only policy. Desktop actions use durable revision-bound commands and consent. No additional concrete blocker found in the reviewed paths.",
+    "remaining_shared_work": "Versioned complete journal proof/legacy migration and coding benchmark remain separately active; final-head hosted tests, exact-main checks and signed publication readback are mandatory."
+  },
+  "preview_and_workspace_integration_validation": {
+    "integrated_parent": "6f887cc3f4e81deb497879c9f83cf773fc002189",
+    "canonical": {
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 616,
+      "seconds": 27.588,
+      "result": "PASS"
+    },
+    "other": [
+      "Exact12 consulted/test source hashes preserved",
+      "Pinned ktlint1.3.1 on all3 changed Kotlin files",
+      "Generated architecture/audit/diagnostic/agent metadata synchronized",
+      "Room schema history and whitespace checks pass",
+      "Exact committed release scope required before push"
+    ],
+    "hosted_status": "PENDING: complete Android workspace repository fixture and all exact-current-head gates remain required."
   }
 }

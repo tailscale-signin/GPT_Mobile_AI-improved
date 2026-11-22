@@ -145,6 +145,8 @@ The exact release commit must pass the required main workflows, artifact identit
 
 ## Privacy visibility and local protection
 
+- Check conversation privacy and exact integration permissions before discovering or calling optional workspace tools.
+
 - Keep mixed private memories unavailable to other conversations when one source is forgotten. Removing source records cannot broaden recall, and forgetting the final source still removes the memory.
 
 - Separate **Enable private chats** in Options from the **Private chat** choice in New Chat. Options controls availability for new chats; each selected profile receives its own permanent conversation policy. Changing Options does not change saved conversations or another open chat.

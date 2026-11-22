@@ -101,7 +101,8 @@
     "Propagate wrapped MCP cancellation before reconnect or replay while retaining earlier response and interruption facts.",
     "Align streaming playback lifecycle, timing and privacy failure fixtures with stable completed opening clauses while retaining every cancellation, ownership, reporting and numeric timing assertion.",
     "Repair verification and export ranking with missing timestamps, preserve unread GitHub pages after malformed cursor calls, and offer schema-correct tool discovery and context-budget recovery.",
-    "Distinguish unsent search-budget and dependency refusals in incident reports, retain actual dispatch counts, and negotiate the recorded Combined single-pass stop with the reporting service."
+    "Distinguish unsent search-budget and dependency refusals in incident reports, retain actual dispatch counts, and negotiate the recorded Combined single-pass stop with the reporting service.",
+    "Check conversation privacy and exact integration permissions before discovering or calling optional workspace tools."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; this scoped release does not mark the broader milestone or unexecuted scenarios as passed.",

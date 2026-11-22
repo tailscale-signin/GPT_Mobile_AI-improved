@@ -53,7 +53,12 @@ def status(backend, job, *, discover=False):
         return {'state': 'SETUP_REQUIRED', 'integrations': [dict(id=name, state='SETUP_REQUIRED', tools=[]) for name in INTEGRATIONS]}
     runtime = getattr(backend, 'runtime', None)
     catalog = getattr(runtime, 'gateway_catalogue', None)
-    if discover and callable(getattr(runtime, 'get_all_mcp_tools', None)):
+    local_only = _local_only(job)
+    discovery_allowed = not local_only and any(
+        entry.get('enabled') and entry.get('allow_remote') and entry.get('tools') for entry in config.values())
+    # Discovery can start processes and network reads before any tools/call.
+    # A blocked job or host policy must remain passive at this boundary too.
+    if discover and discovery_allowed and callable(getattr(runtime, 'get_all_mcp_tools', None)):
         runtime.get_all_mcp_tools()
     metadata = copy.deepcopy(getattr(runtime, 'mcp_tool_metadata', {}))
     rows = []
@@ -66,7 +71,7 @@ def status(backend, job, *, discover=False):
             state, readiness = 'DISABLED', {}
         elif name == 'github' and configured_names and not names:
             state, readiness = 'NATIVE_GITHUB_SELECTED', {}
-        elif _local_only(job) or not entry.get('allow_remote'):
+        elif local_only or not entry.get('allow_remote'):
             state, readiness = 'LOCAL_ONLY_POLICY', {}
         elif catalog is None or not callable(getattr(runtime, '_execute_mcp_tool_single', None)):
             state, readiness = 'RUNTIME_UNAVAILABLE', {}
@@ -90,6 +95,10 @@ def call(backend, job, action):
     if name not in INTEGRATIONS or not isinstance(arguments, dict) or len(canonical(arguments).encode()) > 16384:
         raise ValueError('Choose a configured integration and at most 16 KiB of structured arguments')
     configs = configuration(backend, job)
+    entry = configs.get(name, {})
+    if (_local_only(job) or not entry.get('enabled') or not entry.get('allow_remote') or
+            tool not in entry.get('tools', [])):
+        raise PermissionError('This exact integration tool is not currently admitted for this job')
     admitted = next(row for row in status(backend, job, discover=True)['integrations'] if row['id'] == name)
     if admitted['state'] != 'READY_FOR_DISPATCH' or tool not in {row['name'] for row in admitted['tools']}:
         raise PermissionError('This exact integration tool is not currently admitted for this job')

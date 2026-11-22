@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.privacy.ConversationPrivacyContext
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -42,7 +43,7 @@ class GatewayWorkspaceRepositoryTest {
 
     @Before fun setup() {
         coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
-        coEvery { conversations.requireUnprotectedConversation(8) } returns Unit
+        coEvery { conversations.requireUnprotectedConversation(8) } returns ConversationPrivacyContext(8, false)
         coEvery { store.bindings(any(), any()) } answers { listOf(saved) }
         coEvery { store.save(any()) } coAnswers {
             saved = firstArg()
@@ -123,7 +124,7 @@ class GatewayWorkspaceRepositoryTest {
         coEvery { conversations.requireUnprotectedConversation(8) } throws IllegalStateException("Protected chat")
         assertTrue(runCatching { repository.workspace(request.requestId) }.isFailure)
         coVerify(exactly = 0) { client.workspace(any(), any()) }
-        coEvery { conversations.requireUnprotectedConversation(8) } returns Unit
+        coEvery { conversations.requireUnprotectedConversation(8) } returns ConversationPrivacyContext(8, false)
         coEvery { history.identity(any()) } returns GatewayScopeIdentity("different", "owner")
         assertTrue(runCatching { repository.workspaceCommand(request.requestId, board, "review_draft", args) }.isFailure)
         coVerify(exactly = 0) { client.workspaceCommand(any(), any(), any()) }

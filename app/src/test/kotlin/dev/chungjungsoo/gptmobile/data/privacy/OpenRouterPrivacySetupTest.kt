@@ -125,16 +125,48 @@ class OpenRouterPrivacySetupTest {
         val scope = CoroutineScope(SupervisorJob() + caller)
         try {
             repeat(5) {
+                val entered = CountDownLatch(1)
+                val release = CountDownLatch(1)
+                fixture.onAuthorityAccess = { operation ->
+                    if (operation == "revision") {
+                        entered.countDown()
+                        check(release.await(10, TimeUnit.SECONDS)) { "The caller did not release the inspection worker." }
+                    }
+                }
                 val inspection = scope.async { setup.inspect(fixture.profile, MANAGEMENT) }
-                checkNotNull(queued.poll(5, TimeUnit.SECONDS)).run()
-                // IO has prepared its session, but delivery is still queued on the caller.
-                val delivery = checkNotNull(queued.poll(5, TimeUnit.SECONDS))
-                inspection.cancel()
-                delivery.run()
-                assertTrue(inspection.isCancelled)
-                assertTrue(inspection.isCompleted)
+                try {
+                    checkNotNull(queued.poll(10, TimeUnit.SECONDS)) { "The inspection did not reach the caller dispatcher." }.run()
+                    assertTrue(entered.await(10, TimeUnit.SECONDS))
+                    assertFalse(inspection.isCompleted)
+                    // Hold IO until the caller has suspended. A fast IO result can
+                    // otherwise return in the first caller turn without a dispatch.
+                    release.countDown()
+                    val delivery = checkNotNull(queued.poll(10, TimeUnit.SECONDS)) { "The completed inspection did not return to the caller." }
+                    inspection.cancel()
+                    delivery.run()
+                    assertTrue(inspection.isCancelled)
+                    assertTrue(inspection.isCompleted)
+                } finally {
+                    release.countDown()
+                    inspection.cancel()
+                    while (!inspection.isCompleted) {
+                        checkNotNull(queued.poll(10, TimeUnit.SECONDS)) { "The cancelled inspection did not finish." }.run()
+                    }
+                    while (true) (queued.poll() ?: break).run()
+                    fixture.onAuthorityAccess = {}
+                }
             }
-            // The four-session limit must not be consumed by cancelled, unseen previews.
+            // Every slot remains usable after cancelling unseen previews, and the
+            // four-session limit still applies to previews actually delivered.
+            val previews = mutableListOf<OpenRouterPrivacySetup.Preview>()
+            try {
+                runBlocking {
+                    repeat(4) { previews += setup.inspect(fixture.profile, MANAGEMENT) }
+                    expectSetupFailure { setup.inspect(fixture.profile, MANAGEMENT) }
+                }
+            } finally {
+                previews.forEach(setup::discard)
+            }
             runBlocking { setup.discard(setup.inspect(fixture.profile, MANAGEMENT)) }
         } finally {
             scope.cancel()

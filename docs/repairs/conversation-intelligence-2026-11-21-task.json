@@ -7,7 +7,7 @@
   "source_sha": "ad26151b2916bf25feb20bcb99c5f233e7de790d",
   "working_branch": "fix/offline-kokoro-release-publication-2026-11-21",
   "intent": "Implement the part-6 conversation/intelligence audit and every current open diagnostic issue. Preserve concurrent work on the existing PR. For unresolved runtime causes, improve targeted incident collection before closing the intake report. Merge only after current-head required verification and GitHub merge policy pass.",
-  "status": "FINAL_CORRECTION_LOCALLY_VERIFIED_CI_PENDING",
+  "status": "TERMINAL_PUBLICATION_FOLLOWUP_LOCALLY_VERIFIED_CI_PENDING",
   "intake_issues": [
     2214,
     2215,
@@ -175,7 +175,8 @@
       "af904cbda526f7e89d273fec51a440ccf8fa7b77"
     ],
     "additional_scope": "Concurrent approved design work remains on the same PR; its latest head and final checks must be integrated before merge.",
-    "integrated_full_scope_head": "e66e9665402b388a673dd42dc3ddc70fe3e3ea29"
+    "integrated_full_scope_head": "e66e9665402b388a673dd42dc3ddc70fe3e3ea29",
+    "integrated_recovery_followup_head": "5b433508af9be0181c3ec7057aba8353efc68a4a"
   },
   "disposition_policy": "Close each current intake only after its code repair or targeted diagnostic improvement is verified. Unknown historic causes and missing physical-device proof remain explicitly disclosed in the issue resolution.",
   "integration_review": {
@@ -297,5 +298,42 @@
       ]
     },
     "integrated_incoming_head": "e66e9665402b388a673dd42dc3ddc70fe3e3ea29"
+  },
+  "terminal_publication_followup": {
+    "base_head": "5b433508af9be0181c3ec7057aba8353efc68a4a",
+    "finding": "An application report followed by a final review failure can invoke retained publication again and finish a pending receipt checkpoint.",
+    "red": {
+      "tests": 8,
+      "failures": 2,
+      "scope": "Exact incoming production plus focused actual-source regressions."
+    },
+    "green": {
+      "tests": 39,
+      "failures": 0,
+      "scope": "Actual current-source JVM behavior suite; not full Android or final CI."
+    },
+    "implementation": "Carry the existing applicationReportEmitted flag into both terminal-delivery callers and guard review-origin retained publication.",
+    "preserved": [
+      "Original failure code, invocation, transport, details and outcome",
+      "Pending receipt and unconsumed checkpoint",
+      "Fallback after absent or blank application reports and unverified model text",
+      "Authority, reconciliation, verification-only and tool-budget rules"
+    ],
+    "peer_review": "PASS_NO_CONCRETE_BLOCKER",
+    "final_ci": "REQUIRED_ON_PUBLISHED_HEAD",
+    "merge_and_issue_receipts": "Tracked on PR #2126; no closure or merge claimed by this source checkpoint.",
+    "canonical_fast": {
+      "status": "PASS",
+      "tests": 601
+    },
+    "changed_kotlin_formatting": {
+      "status": "PASS",
+      "owned_files": 3
+    },
+    "pending_release_scope": {
+      "status": "PASS",
+      "combined_paths": 576,
+      "limitations_preserved": 87
+    }
   }
 }

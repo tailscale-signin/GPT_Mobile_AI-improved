@@ -26,7 +26,7 @@ Verification-only recovery also blocks saved queued calls before execution begin
 
 Verification-only recovery now suppresses search, page reads, new memory/delegation preparation, queued follow-ups and optional narration before the runner. Ordinary retry keeps authorized acquisition. Conditional issue requests such as “close all open issues in owner/repo once fixed” retain per-issue repair obligations; a verified empty cohort completes only the issue-only requirement and leaves unrelated work intact.
 
-Native status reports are delivered once when execution continuation is forbidden. Saved-report fallback remains available when no application report was delivered; verifier-only decisions and incomplete retained evidence continue to block execution recovery.
+Native status reports are delivered once when execution continuation is forbidden or a final review fails. Saved-report fallback remains available when no application report was delivered, including after unverified model text. An already delivered report retains its original typed failure and pending receipt checkpoint; verifier-only decisions and incomplete retained evidence continue to block execution recovery.
 
 Complete design and test coverage: [17-repair / 16-improvement implementation map](docs/repairs/full-approved-scope-2026-11-21.md).
 

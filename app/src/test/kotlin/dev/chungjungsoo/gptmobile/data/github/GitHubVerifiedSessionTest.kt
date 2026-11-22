@@ -1214,7 +1214,10 @@ class GitHubVerifiedSessionTest {
         assertTrue(text, text.contains("| Branch main · Open pull requests | 0 |"))
         assertTrue(text, text.contains("| Branch main · Workflow result | success |"))
         assertFalse(text.contains("/data/") || text.contains("ev_") || text.contains("clean state"))
-        assertEquals("PARTIAL", (published.last() as ProviderEvent.Failed).taskOutcome)
+        val failure = published.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("PARTIAL", failure.taskOutcome)
+        assertEquals(failure, published.last())
+        assertFalse(published.any { it == ProviderEvent.Completed })
     }
 
     @Test fun continuationRefusalPublishesOnlyAnUndeliveredApplicationReport() = runTest {

@@ -243,6 +243,38 @@ missing-task recovery. These local results do not claim a full final-head
 Android pass. The unchanged required and applicable CI gates must validate the
 published combined correction before merge and issue closure.
 
+### Full-suite terminal publication follow-up
+
+The full suite at `c7d507a32986f75adab38b303bdb3019b0c889a4` compiled
+production and test sources and ran **12,095 tests**, with **six failures** and
+**five skips**. The concurrent corrections through
+`5b433508af9be0181c3ec7057aba8353efc68a4a` address all six: one stale tool-grant
+expectation, two stale execution-continuation expectations, incomplete-evidence
+incident export, the deadline control's missing scrollable test host, and a
+duplicate native report publication. Their actual-source selections pass
+**63** runner/verifier/progress tests, **two** incident-export tests and **four**
+Android 34 Compose recovery-control tests. These selections are not a unique
+combined total.
+
+An independent follow-up reproduced the same duplicate in final review-failure
+delivery against the incoming production fix: **eight** focused tests ran and
+the **two** review-publication/checkpoint cases failed. The supplement applies
+the existing application-report flag to that terminal path. A previously
+delivered application report is not published again, its original typed failure
+and invocation remain intact, and the pending receipt checkpoint is not finished.
+No report, whitespace-only reports and unverified model text still permit the
+saved-report fallback. Authority, uncertain-outcome, tool-budget and verification
+rules are unchanged.
+
+The final focused selection passes **39 tests** using actual current production
+sources and dependencies without handwritten production stubs. It includes the
+strict single-status-report regression, both publication paths, original failure
+identity, pending receipt preservation, verification-only recovery, child
+isolation and user-decision behavior. The tested source hashes are retained in
+the local integration record. Full Android and every applicable check must still
+pass on the final published revision; final merge and issue-closure receipts are
+recorded on PR #2126.
+
 ## Limits
 
 The archived `Long` to `Integer` failure lacks the source stack required to

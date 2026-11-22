@@ -87,6 +87,9 @@ The exact release commit must pass the required main workflows, artifact identit
 
 ## Privacy visibility and local protection
 
+- Make Privacy Mode changes effective immediately while saving on a background writer shared by Settings and New Chat. Keep toggles and navigation responsive during disk writes, preserve the latest choice across rapid changes, and expose save failure/retry without cancelling saves when a screen closes.
+- Load provider verification status and run account setup away from the UI thread. Confine loading and recoverable errors to account setup; retain authority checks, uncertain-write reconciliation and cancellation cleanup.
+- Keep profile selection and draft chat creation independent of unfinished or failed provider verification, including opening a local GitHub workspace or Research draft. Enforce privacy when external work is actually dispatched. Add regression coverage for privacy status changes, pending verification, stale save completions and main-thread responsiveness.
 - Render words kept local by actual privacy substitutions in yellow, with contrast-aware foregrounds and preserved Markdown/link behavior. Store only content digests and ranges for display evidence; do not persist the replacement dictionary.
 - Show a small privacy lock at the bottom-right of each saved conversation type icon when the chat was created or used with Privacy Mode. Preserve Gateway and work indicators; Room 53 adds the saved flag without guessing historical privacy state.
 - Detect introduced single names, partner/family relationships and parenthesized self aliases, seed identity references across the whole request, and recheck privacy settings after evidence persistence and queued preparation.

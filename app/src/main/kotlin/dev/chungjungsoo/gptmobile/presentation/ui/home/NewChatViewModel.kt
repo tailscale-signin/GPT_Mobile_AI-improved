@@ -20,6 +20,7 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayAvailabilityTarget
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacySettingsSaveState
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.util.concurrent.atomic.AtomicLong
@@ -60,6 +61,7 @@ class NewChatViewModel @Inject constructor(
     val features = settings.observeFeatureSettings()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppFeatureSettings())
     val privacyState: StateFlow<PrivacyModeState> = privacyMode?.state ?: MutableStateFlow(PrivacyModeState())
+    val privacyUpdates: StateFlow<PrivacySettingsSaveState> = privacyMode?.updates ?: MutableStateFlow(PrivacySettingsSaveState())
     val typeName = savedStateHandle.getStateFlow("new_chat_type", "")
     internal val gatewayAvailability = combine(profiles, features, typeName) { savedProfiles, settings, type ->
         gatewayAvailabilityTargets(savedProfiles, settings, type == NewChatType.GITHUB.name)
@@ -162,9 +164,11 @@ class NewChatViewModel @Inject constructor(
         privacyCheckGeneration.incrementAndGet()
         checked.value = emptyMap()
         _privacyChecking.value = false
-        privacyMode?.setEnabled(enabled)
+        privacyMode?.requestEnabled(enabled)
         clearError()
     }
+
+    fun retryPrivacySave() = privacyMode?.retrySaving()
 
     fun chooseType(choice: NewChatType): Boolean {
         if (choice.requiredPluginId?.let { !features.value.isToolPluginEnabled(it) } == true) {
@@ -309,19 +313,14 @@ class NewChatViewModel @Inject constructor(
             }
             return
         }
-        if (privacyMode?.snapshot()?.enabled == true && choice in setOf(NewChatType.GITHUB, NewChatType.RESEARCH)) {
-            _error.value = "Privacy Mode currently blocks cloud-capable GitHub and Research tools because their downstream services lack verified retention terms."
-            return
-        }
         _creating.value = true
         _error.value = null
         viewModelScope.launch {
             val created = mutableListOf<ChatRoomV2>()
             try {
                 val creationPrivacy = privacyMode?.snapshot()
-                require(creationPrivacy?.enabled != true || choice !in setOf(NewChatType.GITHUB, NewChatType.RESEARCH)) {
-                    "Privacy Mode currently blocks cloud-capable GitHub and Research tools because their downstream services lack verified retention terms."
-                }
+                // Opening a workspace or saving a draft does not dispatch provider or tool work.
+                // Outbound operations retain their own live privacy and permission checks.
                 val available = settings.fetchPlatformV2s().filter { it.enabled }
                 require(selected.all { uid -> available.any { it.uid == uid } }) {
                     "A selected AI profile was disabled or deleted. Check your selection."

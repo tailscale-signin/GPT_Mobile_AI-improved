@@ -107,6 +107,7 @@ internal fun NewChatProfileScreen(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val features by viewModel.features.collectAsStateWithLifecycle()
     val privacy by viewModel.privacyState.collectAsStateWithLifecycle()
+    val privacyUpdates by viewModel.privacyUpdates.collectAsStateWithLifecycle()
     val privacyChecking by viewModel.privacyChecking.collectAsStateWithLifecycle()
     val selected by viewModel.selectedUids.collectAsStateWithLifecycle()
     val modelPreparation by viewModel.gatewayModelPreparation.collectAsStateWithLifecycle()
@@ -270,6 +271,13 @@ internal fun NewChatProfileScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
+                    if (privacyUpdates.saving) Text("Saving privacy settings…", style = MaterialTheme.typography.bodySmall)
+                    if (privacyUpdates.failed) {
+                        Text("Privacy settings could not be saved. Review the current choice and retry.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { viewModel.retryPrivacySave() }, enabled = !privacyUpdates.saving, modifier = Modifier.testTag("new_chat_privacy_retry")) {
+                            Text("Retry saving")
+                        }
+                    }
                     if (privacy.enabled) {
                         Text("Profile privacy checks", style = MaterialTheme.typography.titleSmall)
                         val counts = privacyDecisions.values.groupingBy { it.status }.eachCount()
@@ -384,7 +392,7 @@ internal fun NewChatProfileScreen(
                                 }
                                 TextButton(onClick = {
                                     target?.let { viewModel.chooseSuggestedProfile(it.uid, research) }
-                                }, enabled = target != null && !creating && !(research && privacy.enabled)) {
+                                }, enabled = target != null && !creating) {
                                     Text(if (choice == ChatRouteChoice.AUTO && rank != choice) "Auto · " + rank.label else choice.label)
                                 }
                             }

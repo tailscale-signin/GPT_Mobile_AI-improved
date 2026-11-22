@@ -7,10 +7,12 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -28,6 +30,13 @@ internal class OpenRouterPrivacySetup(
     private val now: () -> Long = System::currentTimeMillis
 ) {
     class SetupException(val userMessage: String, internal val rejected: Boolean = false) : Exception(userMessage)
+
+    data class SavedStatus(val managed: Boolean, val summary: String?)
+
+    suspend fun savedStatus(profile: PlatformV2?): SavedStatus = friendly {
+        val managed = authority.managedSetup()
+        SavedStatus(managed, if (managed) null else profile?.let(authority::personalSetupSummary))
+    }
 
     class Preview internal constructor(
         val workspaceName: String,
@@ -63,7 +72,19 @@ internal class OpenRouterPrivacySetup(
     private val sessions = ConcurrentHashMap<String, Session>()
     private val writes = Mutex()
 
-    suspend fun inspect(profile: PlatformV2, managementKey: String): Preview = friendly {
+    suspend fun inspect(profile: PlatformV2, managementKey: String): Preview {
+        var prepared: Preview? = null
+        try {
+            return friendly { inspectAccount(profile, managementKey).also { prepared = it } }
+        } catch (cancelled: CancellationException) {
+            // Cancellation can win while an IO result is being returned to the caller.
+            // A preview that never reached the UI must not retain an active setup session.
+            prepared?.let(::discard)
+            throw cancelled
+        }
+    }
+
+    private suspend fun inspectAccount(profile: PlatformV2, managementKey: String): Preview {
         requireProfile(profile)
         val revision = authority.personalRevision()
         if (!authority.personalAllowed(revision)) throw SetupException("This device uses organization or signed verification. Manage that setup under Advanced.")
@@ -100,7 +121,7 @@ internal class OpenRouterPrivacySetup(
         if (sessions.size >= 4) throw SetupException("Close the other privacy setup and check this account again.")
         val id = UUID.randomUUID().toString()
         sessions[id] = session
-        Preview(workspace.name, !workspace.promptLogging, !workspace.dataCollection, !workspace.broadcast, ready, id, policyReviewRequired = !ready && !canCreate)
+        return Preview(workspace.name, !workspace.promptLogging, !workspace.dataCollection, !workspace.broadcast, ready, id, policyReviewRequired = !ready && !canCreate)
     }
 
     fun discard(preview: Preview) {
@@ -396,7 +417,9 @@ internal class OpenRouterPrivacySetup(
     private fun unknown() = SetupException("An earlier privacy change has not been confirmed. Check this account again to read its outcome. The app will not repeat an uncertain change.")
 
     private suspend fun <T> friendly(block: suspend () -> T): T = try {
-        block()
+        // RestrictionsManager and SharedPreferences may synchronously access disk even
+        // before a network request or after a response. Keep every setup entry point off UI.
+        withContext(Dispatchers.IO) { block() }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (known: SetupException) {

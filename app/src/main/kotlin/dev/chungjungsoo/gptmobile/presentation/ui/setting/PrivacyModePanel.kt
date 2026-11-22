@@ -33,10 +33,12 @@ import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class PrivacyModeViewModel @Inject constructor(
@@ -44,6 +46,7 @@ class PrivacyModeViewModel @Inject constructor(
     settings: SettingRepository
 ) : ViewModel() {
     val state = store.state
+    val updates = store.updates
     internal val authority get() = store.verifier.authority
     internal val setup get() = store.verifier.accountSetup
     internal val openRouterProfiles = settings.observePlatformV2s().map { profiles ->
@@ -55,18 +58,21 @@ class PrivacyModeViewModel @Inject constructor(
         }.distinctBy { it.apiUrl.trimEnd('/') to it.token }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun setEnabled(enabled: Boolean) = store.setEnabled(enabled)
+    fun setEnabled(enabled: Boolean) = store.requestEnabled(enabled)
 
-    suspend fun privateTerms() = store.privateTerms().joinToString("\n")
-    suspend fun saveTerms(value: String) = store.savePrivateTerms(value)
+    fun retrySaving() = store.retrySaving()
 
-    fun setCategory(category: PrivacyCategory, enabled: Boolean) = store.setCategory(category, enabled)
+    suspend fun privateTerms() = withContext(Dispatchers.IO) { store.privateTerms().joinToString("\n") }
+    suspend fun saveTerms(value: String) = withContext(Dispatchers.IO) { store.savePrivateTerms(value) }
+
+    fun setCategory(category: PrivacyCategory, enabled: Boolean) = store.requestCategory(category, enabled)
 }
 
 /** Simple master switch; maximum safeguards when enabled, individual categories default ON. */
 @Composable
 internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val updates by viewModel.updates.collectAsStateWithLifecycle()
     val profiles by viewModel.openRouterProfiles.collectAsStateWithLifecycle()
     var customize by remember { mutableStateOf(false) }
     var details by remember { mutableStateOf(false) }
@@ -88,6 +94,13 @@ internal fun PrivacyModePanel(viewModel: PrivacyModeViewModel = hiltViewModel())
                 onCheckedChange = viewModel::setEnabled,
                 modifier = Modifier.testTag("settings_privacy_mode")
             )
+        }
+        if (updates.saving) Text("Saving privacy settings…", style = MaterialTheme.typography.bodySmall)
+        if (updates.failed) {
+            Text("Privacy settings could not be saved. Review the current choices and retry.", color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = viewModel::retrySaving, enabled = !updates.saving, modifier = Modifier.testTag("privacy_settings_retry")) {
+                Text("Retry saving")
+            }
         }
         Text(
             "When on, Privacy Mode masks personal details on this device and checks cloud routes for no training, content logging or routine retention. All enabled profiles can be selected. Unverified providers receive masked text under their own retention policies.",

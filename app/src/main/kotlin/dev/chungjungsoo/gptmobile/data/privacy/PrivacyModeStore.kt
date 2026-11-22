@@ -5,6 +5,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -79,11 +82,16 @@ class PrivacyModeStore @Inject constructor(
 
     companion object {
         @Volatile private var application: Context? = null
+
+        @Volatile private var requestedMaster: Boolean? = null
         fun initialize(context: Context) {
             application = context.applicationContext
+            requestedMaster = null
         }
-        fun active(): Boolean = application?.getSharedPreferences("device_privacy", Context.MODE_PRIVATE)
-            ?.getBoolean("privacy_mode_enabled", false) == true
+        fun active(): Boolean = requestedMaster ?: (
+            application?.getSharedPreferences("device_privacy", Context.MODE_PRIVATE)
+                ?.getBoolean("privacy_mode_enabled", false) == true
+            )
 
         fun requireUnprotectedTransport() {
             if (active()) throw UnverifiedServiceTransport()
@@ -93,33 +101,95 @@ class PrivacyModeStore @Inject constructor(
     private val preferences = context.getSharedPreferences("device_privacy", Context.MODE_PRIVATE)
     private val mutable = MutableStateFlow(read())
     val state = mutable.asStateFlow()
+    private val stateLock = Any()
 
-    @Synchronized
-    fun snapshot(): PrivacyModeState = read()
-
-    @Synchronized
-    fun setEnabled(enabled: Boolean) {
-        if (read().enabled == enabled) return
-        updateRevision { putBoolean("privacy_mode_enabled", enabled) }
-    }
-
-    @Synchronized
-    fun setCategory(category: PrivacyCategory, protected: Boolean) {
-        if ((category in read().categories) == protected) return
-        updateRevision { putBoolean("privacy_category_${category.name}", protected) }
-    }
-
-    @Synchronized
-    private fun updateRevision(change: android.content.SharedPreferences.Editor.() -> Unit = {}) {
-        val next = Math.incrementExact(preferences.getLong("privacy_revision", 0))
-        val editor = preferences.edit().putLong("privacy_revision", next).apply(change)
-        val saved = try {
-            editor.commit()
-        } finally {
-            // SharedPreferences updates its in-memory state even if persistence reports failure.
-            mutable.value = read()
+    @Volatile private var requested: PrivacyModeState? = null
+    private val writer = PrivacySettingsWriter(
+        CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        persist = { persistLatest() },
+        onResult = { change, saved ->
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "PrivacyMode",
+                "PRIVACY_SETTINGS_SAVE · control=${change.key} · saved=$saved · enabled=${snapshot().enabled}",
+                if (saved) "I" else "W"
+            )
         }
-        check(saved) { "Privacy settings could not be saved." }
+    )
+    val updates = writer.state
+
+    /** UI intent takes effect before disk I/O; readers never wait for the persistence monitor. */
+    fun snapshot(): PrivacyModeState = requested ?: readConsistent()
+
+    private fun readConsistent(): PrivacyModeState {
+        while (true) {
+            val revision = preferences.getLong("privacy_revision", 0)
+            val observed = read()
+            if (revision == observed.revision && revision == preferences.getLong("privacy_revision", 0)) return observed
+        }
+    }
+
+    fun requestEnabled(enabled: Boolean) {
+        synchronized(stateLock) {
+            publish { it.copy(enabled = enabled) }
+            writer.submit(PrivacySettingChange.Enabled(enabled))
+        }
+    }
+
+    fun requestCategory(category: PrivacyCategory, protected: Boolean) {
+        synchronized(stateLock) {
+            publish { it.copy(categories = if (protected) it.categories + category else it.categories - category) }
+            writer.submit(PrivacySettingChange.Category(category, protected))
+        }
+    }
+
+    fun retrySaving() = writer.retry()
+
+    fun setEnabled(enabled: Boolean) {
+        synchronized(stateLock) {
+            if (snapshot().enabled == enabled && requested == null) return
+            publish { it.copy(enabled = enabled) }
+        }
+        persistLatest()
+    }
+
+    fun setCategory(category: PrivacyCategory, protected: Boolean) {
+        synchronized(stateLock) {
+            if ((category in snapshot().categories) == protected && requested == null) return
+            publish { it.copy(categories = if (protected) it.categories + category else it.categories - category) }
+        }
+        persistLatest()
+    }
+
+    private fun updateRevision() {
+        synchronized(stateLock) { publish { it } }
+        persistLatest()
+    }
+
+    /** Caller holds only the short state lock, never the disk-write monitor. */
+    private fun publish(change: (PrivacyModeState) -> PrivacyModeState) {
+        val current = snapshot()
+        val next = change(current).copy(revision = Math.incrementExact(current.revision))
+        requestedMaster = next.enabled
+        requested = next
+        mutable.value = next
+    }
+
+    @Synchronized
+    private fun persistLatest() {
+        val target = snapshot()
+        val editor = preferences.edit()
+            .putLong("privacy_revision", target.revision)
+            .putBoolean("privacy_mode_enabled", target.enabled)
+        PrivacyCategory.entries.forEach { editor.putBoolean("privacy_category_${it.name}", it in target.categories) }
+        check(editor.commit()) { "Privacy settings could not be saved." }
+        synchronized(stateLock) {
+            // A completed older write cannot undo a newer tap or revive its authorization.
+            if (requested == target) {
+                requested = null
+                requestedMaster = null
+                mutable.value = readConsistent()
+            }
+        }
     }
 
     private fun read(): PrivacyModeState = PrivacyModeState(

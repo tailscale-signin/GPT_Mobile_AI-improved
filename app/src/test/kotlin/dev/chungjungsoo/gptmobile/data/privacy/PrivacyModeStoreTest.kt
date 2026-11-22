@@ -6,13 +6,27 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -21,6 +35,16 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PrivacyModeStoreTest {
+    @After
+    fun resetApplicationPrivacyState() {
+        val context = mockk<Context>()
+        val preferences = mockk<SharedPreferences>()
+        every { context.applicationContext } returns context
+        every { context.getSharedPreferences("device_privacy", Context.MODE_PRIVATE) } returns preferences
+        every { preferences.getBoolean("privacy_mode_enabled", false) } returns false
+        PrivacyModeStore.initialize(context)
+    }
+
     @Test
     fun restoringTheSamePrivacyChoicesDoesNotRestoreAnEarlierAuthorization() {
         val fixture = Fixture()
@@ -143,15 +167,214 @@ class PrivacyModeStoreTest {
         assertEquals(listOf("original private term"), fixture.store.privateTerms())
     }
 
+    @Test
+    fun snapshotRemainsResponsiveAfterMemoryChangesWhileDiskCommitIsBlocked() {
+        val fixture = Fixture()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        fixture.afterMemoryCommit = {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+        }
+        val workers = Executors.newFixedThreadPool(2)
+        try {
+            val saving = workers.submit { fixture.store.setEnabled(true) }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+
+            val reading = workers.submit<PrivacyModeState> { fixture.store.snapshot() }
+            val observed = reading.get(2, TimeUnit.SECONDS)
+
+            assertTrue(observed.enabled)
+            assertEquals(1L, observed.revision)
+            assertEquals(PrivacyCategory.entries.toSet(), observed.categories)
+            assertFalse(saving.isDone)
+            release.countDown()
+            saving.get(5, TimeUnit.SECONDS)
+            assertEquals(observed, fixture.store.state.value)
+        } finally {
+            release.countDown()
+            workers.shutdownNow()
+        }
+    }
+
+    @Test
+    fun repeatingTheSameMasterChoiceAfterFailedCommitRetriesPersistence() {
+        val fixture = Fixture()
+        fixture.failNextCommit = true
+
+        val failure = runCatching { fixture.store.setEnabled(true) }
+        assertTrue(failure.exceptionOrNull() is IllegalStateException)
+        assertTrue(fixture.store.snapshot().enabled)
+        assertTrue(fixture.persistedValues.isEmpty())
+
+        fixture.store.setEnabled(true)
+
+        assertEquals(2, fixture.commits.get())
+        assertEquals(true, fixture.persistedValues["privacy_mode_enabled"])
+        assertEquals(2L, fixture.persistedValues["privacy_revision"])
+        assertEquals(fixture.store.snapshot(), fixture.store.state.value)
+    }
+
+    @Test
+    fun repeatingTheSameCategoryChoiceAfterFailedCommitRetriesPersistence() {
+        val fixture = Fixture()
+        fixture.failNextCommit = true
+
+        val failure = runCatching { fixture.store.setCategory(PrivacyCategory.LOCATIONS, false) }
+        assertTrue(failure.exceptionOrNull() is IllegalStateException)
+        assertFalse(PrivacyCategory.LOCATIONS in fixture.store.snapshot().categories)
+        assertTrue(fixture.persistedValues.isEmpty())
+
+        fixture.store.setCategory(PrivacyCategory.LOCATIONS, false)
+
+        assertEquals(2, fixture.commits.get())
+        assertEquals(false, fixture.persistedValues["privacy_category_LOCATIONS"])
+        assertEquals(2L, fixture.persistedValues["privacy_revision"])
+    }
+
+    @Test
+    fun asynchronousChangesStayResponsiveAndKeepTheLastChoiceAcrossControls() {
+        val fixture = Fixture()
+        val caller = Thread.currentThread()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        fixture.afterMemoryCommit = {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+        }
+        val submitting = Executors.newSingleThreadExecutor()
+        try {
+            fixture.store.requestEnabled(true)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            submitting.submit {
+                fixture.store.requestEnabled(false)
+                fixture.store.requestCategory(PrivacyCategory.LOCATIONS, false)
+            }.get(2, TimeUnit.SECONDS)
+            assertEquals(3, fixture.store.updates.value.pending)
+            release.countDown()
+            fixture.awaitUpdates()
+
+            assertFalse(fixture.store.snapshot().enabled)
+            assertFalse(PrivacyCategory.LOCATIONS in fixture.store.snapshot().categories)
+            assertEquals(3, fixture.commits.get())
+            assertTrue(fixture.commitThreads.all { it != caller })
+            assertFalse(fixture.store.updates.value.failed)
+            assertEquals(false, fixture.persistedValues["privacy_mode_enabled"])
+            assertEquals(false, fixture.persistedValues["privacy_category_LOCATIONS"])
+        } finally {
+            release.countDown()
+            submitting.shutdownNow()
+        }
+    }
+
+    @Test
+    fun retrySavingRecoversAnAsynchronouslyFailedCommitWithoutChangingTheChoice() {
+        val fixture = Fixture()
+        fixture.failNextCommit = true
+        fixture.store.requestEnabled(true)
+        fixture.awaitUpdates()
+        assertTrue(fixture.store.updates.value.failed)
+        assertTrue(fixture.store.snapshot().enabled)
+        assertTrue(fixture.persistedValues.isEmpty())
+
+        fixture.store.retrySaving()
+        fixture.awaitUpdates()
+
+        assertEquals(2, fixture.commits.get())
+        assertTrue(fixture.store.snapshot().enabled)
+        assertEquals(true, fixture.persistedValues["privacy_mode_enabled"])
+        assertEquals(PrivacySettingsSaveState(), fixture.store.updates.value)
+    }
+
+    @Test
+    fun queuedIntentIsImmediatelyVisibleToSnapshotsAndTransportBeforePersistence() {
+        val fixture = Fixture()
+        fixture.initializeActivePrivacy()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        fixture.afterMemoryCommit = {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+        }
+        try {
+            fixture.store.requestCategory(PrivacyCategory.CONTACTS, false)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val before = fixture.store.snapshot()
+
+            fixture.store.requestEnabled(true)
+            val enabled = fixture.store.snapshot()
+            assertTrue(enabled.enabled)
+            assertTrue(enabled.revision > before.revision)
+            assertTrue(PrivacyModeStore.active())
+            assertEquals(enabled, fixture.store.state.value)
+
+            fixture.store.requestCategory(PrivacyCategory.LOCATIONS, false)
+            val categorized = fixture.store.snapshot()
+            assertFalse(PrivacyCategory.LOCATIONS in categorized.categories)
+            assertFalse(PrivacyCategory.CONTACTS in categorized.categories)
+            assertTrue(categorized.revision > enabled.revision)
+            assertEquals(1, fixture.commits.get())
+
+            fixture.store.requestEnabled(false)
+            val disabled = fixture.store.snapshot()
+            assertFalse(disabled.enabled)
+            assertTrue(disabled.revision > categorized.revision)
+            assertFalse(PrivacyModeStore.active())
+            assertEquals(disabled, fixture.store.state.value)
+        } finally {
+            release.countDown()
+            fixture.awaitUpdates()
+        }
+    }
+
+    @Test
+    fun oldPersistenceCompletionCannotRevertANewerRequestedChoice() {
+        val fixture = Fixture()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        fixture.afterMemoryCommit = {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+        }
+        val observing = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            fixture.store.requestEnabled(true)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            fixture.store.requestEnabled(false)
+            val latest = fixture.store.snapshot()
+            assertFalse(latest.enabled)
+            val reverted = AtomicBoolean()
+            observing.launch { fixture.store.state.collect { if (it.enabled) reverted.set(true) } }
+
+            release.countDown()
+            fixture.awaitUpdates()
+
+            assertFalse(reverted.get())
+            assertFalse(fixture.store.snapshot().enabled)
+            assertTrue(fixture.store.snapshot().revision >= latest.revision)
+            assertEquals(false, fixture.persistedValues["privacy_mode_enabled"])
+        } finally {
+            release.countDown()
+            observing.cancel()
+        }
+    }
+
     private class Fixture {
-        val values = mutableMapOf<String, Any>()
-        var failNextCommit = false
+        val values: MutableMap<String, Any> = Collections.synchronizedMap(mutableMapOf())
+        val persistedValues: MutableMap<String, Any> = Collections.synchronizedMap(mutableMapOf())
+        val commits = AtomicInteger()
+        val commitThreads: MutableList<Thread> = Collections.synchronizedList(mutableListOf())
+
+        @Volatile var failNextCommit = false
+
+        @Volatile var afterMemoryCommit: (() -> Unit)? = null
         val vault = ControlledVault()
         private val preferences = mockk<SharedPreferences>()
         private val context = mockk<Context>()
         private val verifier = mockk<PrivacyProviderVerifier>()
 
         init {
+            every { context.applicationContext } returns context
             every { context.getSharedPreferences("device_privacy", Context.MODE_PRIVATE) } returns preferences
             every { preferences.getBoolean(any(), any()) } answers { values[firstArg<String>()] as? Boolean ?: secondArg() }
             every { preferences.getLong(any(), any()) } answers { values[firstArg<String>()] as? Long ?: secondArg() }
@@ -167,8 +390,14 @@ class PrivacyModeStoreTest {
                     editor
                 }
                 every { editor.commit() } answers {
+                    commits.incrementAndGet()
+                    commitThreads += Thread.currentThread()
                     values.putAll(pending)
-                    (!failNextCommit).also { failNextCommit = false }
+                    afterMemoryCommit?.invoke()
+                    (!failNextCommit).also { saved ->
+                        failNextCommit = false
+                        if (saved) synchronized(values) { persistedValues.putAll(values) }
+                    }
                 }
                 editor
             }
@@ -176,6 +405,8 @@ class PrivacyModeStoreTest {
 
         val store = recreate()
         fun recreate() = PrivacyModeStore(context, verifier, vault)
+        fun initializeActivePrivacy() = PrivacyModeStore.initialize(context)
+        fun awaitUpdates() = runBlocking { withTimeout(5_000) { store.updates.first { !it.saving } } }
     }
 
     private class ControlledVault : SecretVault {

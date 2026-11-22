@@ -6,11 +6,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.model.NewChatType
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityRepository
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeState
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProfileEligibility
 import dev.chungjungsoo.gptmobile.data.privacy.PrivacyProviderVerifier
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacySettingsSaveState
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
@@ -174,6 +177,152 @@ class SharedMultiChatCreationTest {
     }
 
     @Test
+    fun privacyEnabledPluginModesOpenLocallyWhileProviderVerificationIsPending() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            for (type in listOf(NewChatType.GITHUB, NewChatType.RESEARCH)) {
+                val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+                var features = pluginCreationFeatures(profile.uid)
+                val fixture = privacyFixture(listOf(profile), listOf(profile.uid), type, features)
+                store.put(type.name, fixture.model)
+                val reply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
+                coEvery { fixture.verifier.verify(profile) } coAnswers { PrivacyProviderVerifier.Result(reply.await()) }
+                coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile)
+                coEvery { fixture.settings.providerActivationRequired(any()) } returns false
+                coEvery { fixture.settings.mutateFeatureSettings(any()) } answers {
+                    firstArg<(AppFeatureSettings) -> AppFeatureSettings>().invoke(features).also { features = it }
+                }
+                coEvery { fixture.chats.createDraftChat(any(), any(), any(), any(), any()) } returns
+                    ChatRoomV2(id = 64, title = "Research Chat", enabledPlatform = listOf(profile.uid))
+                val refresh = backgroundScope.launch { fixture.model.checkPrivacyProfiles(listOf(profile)) }
+                runCurrent()
+                assertEquals(PrivacyProfileEligibility.Status.CHECKING, fixture.model.privacyDecision(profile).status)
+                fixture.model.editFirstMessage("Keep this research question in the local draft.")
+
+                var route = ""
+                fixture.model.start { route = it }
+                runCurrent()
+
+                assertTrue(fixture.model.privacyState.value.enabled)
+                assertTrue(fixture.model.privacyChecking.value)
+                assertFalse(reply.isCompleted)
+                assertTrue(fixture.model.error.value.isNullOrEmpty())
+                coVerify(exactly = 1) { fixture.verifier.verify(profile) }
+                if (type == NewChatType.GITHUB) {
+                    assertEquals("github_chat/private", route)
+                    coVerify(exactly = 0) { fixture.chats.createDraftChat(any(), any(), any(), any(), any()) }
+                } else {
+                    assertEquals("chat_room/64?enabled=private&mode=STANDARD", route)
+                    coVerify(exactly = 1) {
+                        fixture.chats.createDraftChat(listOf(profile.uid), ConversationMode.STANDARD, "Research Chat", profile.uid, "Keep this research question in the local draft.")
+                    }
+                    assertTrue(64 in features.researchChatIds)
+                    assertTrue(features.conversationResearch.getValue(64).researchToggle)
+                }
+                refresh.cancel()
+                refresh.join()
+            }
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun privacyEnabledPluginModesStillRequireToolPermissionsAndProviderActivation() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            for (type in listOf(NewChatType.GITHUB, NewChatType.RESEARCH)) {
+                for (activationRequired in listOf(false, true)) {
+                    val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+                    val allowed = pluginCreationFeatures(profile.uid)
+                    val features = if (activationRequired) allowed else allowed.withToolPluginEnabled(requireNotNull(type.requiredPluginId), false)
+                    val fixture = privacyFixture(listOf(profile), listOf(profile.uid), type, features)
+                    store.put("${type.name}-$activationRequired", fixture.model)
+                    coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile)
+                    coEvery { fixture.settings.providerActivationRequired(any()) } returns activationRequired
+
+                    var opened = false
+                    fixture.model.start { opened = true }
+                    runCurrent()
+
+                    assertFalse(opened)
+                    assertFalse(fixture.model.creating.value)
+                    val reason = fixture.model.error.value.orEmpty()
+                    assertTrue(reason, if (activationRequired) reason.contains("data policy") else reason.contains("plugin", ignoreCase = true))
+                    coVerify(exactly = 0) { fixture.chats.createDraftChat(any(), any(), any(), any(), any()) }
+                    coVerify(exactly = 0) { fixture.verifier.verify(any()) }
+                }
+            }
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun privacyEnabledResearchStillRequiresProfileNetworkPermission() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "private", name = "Private provider", model = "model", disableRemoteTools = true)
+            val fixture = privacyFixture(listOf(profile), listOf(profile.uid), NewChatType.RESEARCH, pluginCreationFeatures(profile.uid))
+            store.put("research", fixture.model)
+            coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile)
+            coEvery { fixture.settings.providerActivationRequired(any()) } returns false
+
+            var opened = false
+            fixture.model.start { opened = true }
+            runCurrent()
+
+            assertFalse(opened)
+            assertTrue(fixture.model.error.value.orEmpty().contains("Network tools are disabled"))
+            coVerify(exactly = 0) { fixture.chats.createDraftChat(any(), any(), any(), any(), any()) }
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun privacyEnabledPluginModesRejectPrivacyChangesDuringCreation() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            for (type in listOf(NewChatType.GITHUB, NewChatType.RESEARCH)) {
+                val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+                val fixture = privacyFixture(listOf(profile), listOf(profile.uid), type, pluginCreationFeatures(profile.uid))
+                store.put(type.name, fixture.model)
+                val approval = CompletableDeferred<Boolean>()
+                coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile)
+                coEvery { fixture.settings.providerActivationRequired(any()) } coAnswers { approval.await() }
+                var opened = false
+                fixture.model.start { opened = true }
+                runCurrent()
+                assertTrue(fixture.model.creating.value)
+
+                fixture.model.setPrivacyMode(false)
+                fixture.model.setPrivacyMode(true)
+                approval.complete(false)
+                runCurrent()
+
+                assertFalse(opened)
+                assertTrue(fixture.model.error.value.orEmpty().contains("Privacy settings changed"))
+                coVerify(exactly = 0) { fixture.chats.createDraftChat(any(), any(), any(), any(), any()) }
+            }
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
     fun suggestionsRemainSelectedAcrossPrivacyChecks() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val store = ViewModelStore()
@@ -186,6 +335,7 @@ class SharedMultiChatCreationTest {
             val verifier = mockk<PrivacyProviderVerifier>()
             val privacy = mockk<PrivacyModeStore>()
             every { privacy.state } returns state
+            every { privacy.updates } returns MutableStateFlow(PrivacySettingsSaveState())
             every { privacy.snapshot() } returns state.value
             every { privacy.verifier } returns verifier
             val viewModel = NewChatViewModel(SavedStateHandle(), settings, mockk(), mockk(), privacyMode = privacy)
@@ -344,6 +494,96 @@ class SharedMultiChatCreationTest {
     }
 
     @Test
+    fun privacySaveStatesKeepProfilesSelectableAndToggleQueuesPersistence() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+            val fixture = privacyFixture(listOf(profile), listOf(profile.uid))
+            store.put("privacy", fixture.model)
+            val observer = backgroundScope.launch { fixture.model.profiles.collect {} }
+            runCurrent()
+            every { fixture.privacy.requestEnabled(any()) } answers {
+                fixture.updates.value = PrivacySettingsSaveState(pending = 1)
+            }
+            every { fixture.privacy.retrySaving() } returns Unit
+
+            fixture.model.setPrivacyMode(false)
+            verify(exactly = 1) { fixture.privacy.requestEnabled(false) }
+            assertTrue(fixture.model.privacyUpdates.value.saving)
+            assertEquals(listOf(profile.uid), fixture.model.selectedUids.value)
+            fixture.model.toggleProfile(profile.uid)
+            assertTrue(fixture.model.selectedUids.value.isEmpty())
+            fixture.model.toggleProfile(profile.uid)
+            assertEquals(listOf(profile.uid), fixture.model.selectedUids.value)
+
+            fixture.updates.value = PrivacySettingsSaveState(failed = true)
+            assertTrue(fixture.model.privacyUpdates.value.failed)
+            assertFalse(fixture.model.privacyUpdates.value.saving)
+            assertEquals(listOf(profile.uid), fixture.model.selectedUids.value)
+            fixture.model.toggleProfile(profile.uid)
+            assertTrue(fixture.model.selectedUids.value.isEmpty())
+            fixture.model.toggleProfile(profile.uid)
+            assertEquals(listOf(profile.uid), fixture.model.selectedUids.value)
+            fixture.model.retryPrivacySave()
+            verify(exactly = 1) { fixture.privacy.retrySaving() }
+
+            fixture.model.setPrivacyMode(true)
+            verify(exactly = 1) { fixture.privacy.requestEnabled(true) }
+            verify(exactly = 0) { fixture.privacy.setEnabled(any()) }
+            assertEquals(listOf(profile.uid), fixture.model.selectedUids.value)
+            assertTrue(fixture.model.error.value.isNullOrEmpty())
+            observer.cancel()
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun startingChatDoesNotWaitForPendingPrivacyVerification() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "private", name = "Private provider", model = "model")
+            val fixture = privacyFixture(listOf(profile), listOf(profile.uid))
+            store.put("privacy", fixture.model)
+            val reply = CompletableDeferred<PrivacyProfileEligibility.Decision>()
+            coEvery { fixture.verifier.verify(profile) } coAnswers { PrivacyProviderVerifier.Result(reply.await()) }
+            coEvery { fixture.settings.fetchPlatformV2s() } returns listOf(profile)
+            coEvery { fixture.settings.providerActivationRequired(any()) } returns false
+            coEvery { fixture.chats.createDraftChat(any(), any(), any(), any(), any()) } returns
+                ChatRoomV2(id = 42, title = "New Chat", enabledPlatform = listOf(profile.uid))
+            coEvery { fixture.settings.mutateFeatureSettings(any()) } returns AppFeatureSettings()
+
+            val refresh = backgroundScope.launch { fixture.model.checkPrivacyProfiles(listOf(profile)) }
+            runCurrent()
+            assertTrue(fixture.model.privacyChecking.value)
+            assertEquals(PrivacyProfileEligibility.Status.CHECKING, fixture.model.privacyDecision(profile).status)
+
+            var route = ""
+            fixture.model.start { route = it }
+            runCurrent()
+
+            assertTrue(route.startsWith("chat_room/42?"))
+            assertFalse(fixture.model.creating.value)
+            assertTrue(fixture.model.privacyChecking.value)
+            assertFalse(reply.isCompleted)
+            assertEquals(listOf(profile.uid), fixture.model.selectedUids.value)
+            assertTrue(fixture.model.error.value.isNullOrEmpty())
+            coVerify(exactly = 1) { fixture.verifier.verify(profile) }
+            coVerify(exactly = 1) { fixture.chats.createDraftChat(any(), any(), any(), any(), any()) }
+            refresh.cancel()
+            refresh.join()
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
     fun startingChatWithUnverifiedProfileSkipsPrivacyAdmission() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val store = ViewModelStore()
@@ -433,22 +673,42 @@ class SharedMultiChatCreationTest {
         }
     }
 
-    private data class PrivacyFixture(val model: NewChatViewModel, val verifier: PrivacyProviderVerifier, val settings: SettingRepository, val chats: ChatRepository)
+    private data class PrivacyFixture(
+        val model: NewChatViewModel,
+        val verifier: PrivacyProviderVerifier,
+        val settings: SettingRepository,
+        val chats: ChatRepository,
+        val privacy: PrivacyModeStore,
+        val updates: MutableStateFlow<PrivacySettingsSaveState>
+    )
 
-    private fun privacyFixture(profiles: List<PlatformV2>, selection: List<String> = emptyList()): PrivacyFixture {
+    private fun pluginCreationFeatures(profileUid: String): AppFeatureSettings = AppFeatureSettings()
+        .withToolPluginEnabled(ToolPluginId.GITHUB, true)
+        .withToolPluginEnabled(ToolPluginId.DEEP_RESEARCH, true)
+        .withProfileToolPluginEnabled(profileUid, ToolPluginId.DEEP_RESEARCH, true)
+
+    private fun privacyFixture(
+        profiles: List<PlatformV2>,
+        selection: List<String> = emptyList(),
+        type: NewChatType = NewChatType.SINGLE,
+        features: AppFeatureSettings = AppFeatureSettings()
+    ): PrivacyFixture {
         val settings = mockk<SettingRepository>()
         every { settings.observePlatformV2s() } returns flowOf(profiles)
-        every { settings.observeFeatureSettings() } returns flowOf(AppFeatureSettings())
+        every { settings.observeFeatureSettings() } returns flowOf(features)
+        coEvery { settings.getFeatureSettings() } returns features
         val state = MutableStateFlow(PrivacyModeState(enabled = true))
+        val updates = MutableStateFlow(PrivacySettingsSaveState())
         val verifier = mockk<PrivacyProviderVerifier>()
         val privacy = mockk<PrivacyModeStore>()
         every { privacy.state } returns state
+        every { privacy.updates } returns updates
         every { privacy.snapshot() } answers { state.value }
         every { privacy.verifier } returns verifier
-        every { privacy.setEnabled(any()) } answers { state.value = state.value.copy(enabled = firstArg(), revision = state.value.revision + 1) }
+        every { privacy.requestEnabled(any()) } answers { state.value = state.value.copy(enabled = firstArg(), revision = state.value.revision + 1) }
         val chats = mockk<ChatRepository>()
-        val model = NewChatViewModel(SavedStateHandle(mapOf("new_chat_type" to "SINGLE", "new_chat_uids" to selection)), settings, chats, mockk(), privacyMode = privacy)
-        return PrivacyFixture(model, verifier, settings, chats)
+        val model = NewChatViewModel(SavedStateHandle(mapOf("new_chat_type" to type.name, "new_chat_uids" to selection)), settings, chats, mockk(), privacyMode = privacy)
+        return PrivacyFixture(model, verifier, settings, chats, privacy, updates)
     }
 
     private inline fun <reified T> proxy(crossinline invoke: (String, Array<out Any?>) -> Any?): T =

@@ -372,6 +372,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSynthesisPerformanceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/GitHubWorkTimingProjectionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedSynthesisCheckpointTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantDisplayPreparationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownWordingTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatRunProjectionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubDecisionCardTest.kt",

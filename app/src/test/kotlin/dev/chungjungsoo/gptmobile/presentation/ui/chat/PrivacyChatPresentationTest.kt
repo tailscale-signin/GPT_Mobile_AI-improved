@@ -35,6 +35,44 @@ class PrivacyChatPresentationTest {
     private val yellow = Color(0xFFFFD740)
 
     @Test
+    fun hiddenReasoningCannotColourAnUnprotectedWordAssembledByFiltering() {
+        val raw = "Al<think>Alice</think>ice and Bob"
+        val alice = raw.indexOf("Alice")
+        val bob = raw.indexOf("Bob")
+        val message = MessageV2(
+            content = raw,
+            platformType = "remote",
+            timeline = listOf(
+                AssistantTimelineItem(AssistantTimelineItemType.TEXT, raw),
+                AssistantTimelineItem(AssistantTimelineItemType.NOTICE, privacyProtection = PrivacyProtectionReceipt.create(raw, listOf(PrivacyProtectedRange(alice, alice + 5), PrivacyProtectedRange(bob, bob + 3))))
+            )
+        )
+        compose.setContent {
+            MaterialTheme(colorScheme = darkColorScheme(background = Color.Black)) {
+                AssistantChronologicalContent(
+                    timeline = message.timeline,
+                    toolEvents = emptyList(),
+                    fallbackText = raw,
+                    fallbackThoughts = "",
+                    contentIdentity = "filtered-private-answer",
+                    isLoading = false,
+                    privacyProtectedValues = message.effectivePrivacyProtectedValues(),
+                    animateResponse = false,
+                    responseSurface = Color.Black,
+                    debugMode = false,
+                    showReasoning = false,
+                    expanded = false,
+                    onExpandedChange = {}
+                )
+            }
+        }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Alice and Bob", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        val text = compose.onAllNodesWithText("Alice and Bob", useUnmergedTree = true).fetchSemanticsNodes()
+            .flatMap { it.config[SemanticsProperties.Text] }.first { it.text == "Alice and Bob" }
+        assertEquals(listOf("Bob"), text.spanStyles.filter { it.item.color == yellow }.map { text.text.substring(it.start, it.end) })
+    }
+
+    @Test
     fun receiptColoursTheUserBubbleAndDisappearsWhenEvidenceIsRemoved() {
         var values by mutableStateOf(listOf("Alice"))
         compose.setContent {

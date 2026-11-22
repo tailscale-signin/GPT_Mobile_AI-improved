@@ -171,6 +171,58 @@
       "result": "PASS",
       "runtime": "Kotlin2.4.20 with Android14 framework and compiled JNI Java API",
       "scope": "Actual audio/factory/cache/clock/buffer/feedback source; model-store/log/diagnostic boundary shims. Full Android hosted checks required."
+    },
+    {
+      "suite": "fractional caption spacing and velocity continuity",
+      "result": "PASS",
+      "tests": 20,
+      "runtime": "Kotlin2.4.20 actual VoiceCaptionLine and VoiceCaptionMotion; includes both-direction nonzero-speed boundary crossings and all fractional neighboring rows"
+    },
+    {
+      "suite": "canonical fast after concurrent review and C1 caption correction",
+      "result": "PASS",
+      "tests": 605,
+      "scope": "Source at5e4ab1 plus C1 correction; subsequent privacy/Room53 integration still requires canonical schema and CI."
+    },
+    {
+      "suite": "canonical Room53 schema and migration",
+      "result": "PASS",
+      "source_head": "2fa6f59fad9084e0e72b7237f4aca0b8f01275af",
+      "merge_sha": "7676c6df92babba586f67443056c3eb04c947563",
+      "workflow_run": 45058161842,
+      "job": 137318034810,
+      "artifact_id": 14768098633,
+      "artifact_sha256": "c601674748694d9511ab3b85673ee84ece8ef476cbdb6fb02926b90d5b23b3e6",
+      "schema_sha256": "4d9294e56972dd23bb99841b263e026d9f4d97faa0acf71d4d40da4f9b28afdb",
+      "room_identity": "489fe6ad9e5f86a5af203af446e77dbf",
+      "evidence": "Canonical artifact equals lossless KSP log export; exact schema delta is the new privacy column. SQLite replay preserved a seeded legacy row and matched table metadata. Six memory-schema checks passed. Full Android and physical-device gates remain pending."
+    },
+    {
+      "suite": "privacy display filtering and source projection",
+      "result": "PASS",
+      "tests": 19,
+      "runtime": "Kotlin2.4.20 production helpers and verbatim pure preparation/parser sections; Compose integration regression committed for hosted execution"
+    },
+    {
+      "suite": "consolidated canonical fast validation with privacy and full-suite repairs",
+      "result": "PASS",
+      "tests": 608,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Merged through 7c7634 with the C1 caption correction, source-bound privacy display proof and complete DAO test fixture."
+    },
+    {
+      "suite": "final combined draft with research callback correction",
+      "result": "PASS",
+      "tests": 608,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "All concurrent changes through 6e03f1 preserved with source-bound privacy display, C1 caption motion and DAO fixture; generated inventories, schema metadata, regex, resources, icons and provenance passed."
+    },
+    {
+      "suite": "combined draft after concurrent provider evidence reconciliation",
+      "result": "PASS",
+      "tests": 608,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Source through 9e4b767 preserved with all voice corrections; inventories, schema metadata, regex, resources, icons, provenance and diff checks passed."
     }
   ],
   "hardware_qualification": "Physical phone GPU/NPU performance and audio route calibration require device execution evidence; host tests and successful compilation alone are not qualification.",
@@ -204,6 +256,42 @@
       "head": "f225c208e80393f0232ba7849340461fd23901b9",
       "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
       "action": "Merged verified Robolectric-cache workflow repair without overwriting it."
+    },
+    {
+      "event": "concurrent recovery commit preserved",
+      "head": "3d672c0456abbc09318dffb69f8bb7eed11162e0",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Fast-forwarded retired engine cache recovery, readiness negotiation and regression tests; integrated audio compilation and16 backend tests passed."
+    },
+    {
+      "event": "concurrent repository review commit preserved",
+      "head": "5e4ab1ebdcc8c27110a992e982697e4071c3e5ab",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Fast-forwarded setup/routing/benchmark/export improvements. Reviewed integration and repaired the new fractional caption spacing derivative discontinuity without removing its non-overlap guarantee."
+    },
+    {
+      "event": "concurrent privacy and Room schema changes preserved",
+      "head": "7c4b142dbeb0c18663b06e3891f1fae37f1bc4f4",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Merged eeb2 privacy features,2fa6 early canonical schema verification and7c4b authentic Room53 export without losing tested C1 caption changes."
+    },
+    {
+      "event": "concurrent full-suite repairs preserved",
+      "head": "7c7634dff82f712b5122aa3d5dd4b0ba1b9c9d58",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Merged full-suite diagnostic/network/persistence regressions and stronger mandatory Room/caption emulator coverage; no required gate weakened."
+    },
+    {
+      "event": "concurrent research settings compilation correction preserved",
+      "head": "6e03f1e08f4273623a896c31a7a1d0b4fe3068d6",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Merged the explicitly named engine-selection callback and regenerated combined inventories. Both call sites were reviewed; no concurrent source change was discarded."
+    },
+    {
+      "event": "guarded push deferred for concurrent provider evidence commit",
+      "head": "9e4b767818c5a258751c22cd3eab4a91d79ebeef",
+      "base": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+      "action": "Expected-head check stopped branch mutation. Preserved safe numeric provider codes, bounded unknown-code correlation and stronger full-suite regressions; regenerated the combined inventory."
     }
   ],
   "integration_regressions": [
@@ -213,6 +301,10 @@
     "Require a validated phrase from the current reply before reporting native fallback success.",
     "Retain accelerator preparation evidence if subsequent CPU creation or synthesis also fails.",
     "Do not classify an Auto CPU-baseline failure as CPU-to-CPU fallback.",
-    "Do not show uncollected CPU operator counts as a zero-work profile."
+    "Do not show uncollected CPU operator counts as a zero-work profile.",
+    "Preserve continuous row velocity and non-overlap across fractional caption scale boundaries using bounded leading and matching viewport extent.",
+    "Do not transfer privacy proof across removed thinking blocks or unmapped source-list cleanup.",
+    "Keep prepared text and privacy proof together and prevent retained Markdown trees from acquiring a different snapshot\u2019s proof.",
+    "Complete the AgentPersistenceDao test fixture for the new privacy-use method."
   ]
 }

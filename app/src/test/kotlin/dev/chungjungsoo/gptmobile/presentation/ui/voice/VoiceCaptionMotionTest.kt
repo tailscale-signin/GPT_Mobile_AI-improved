@@ -10,7 +10,7 @@ class VoiceCaptionMotionTest {
     @Test fun theFiveSettledRowsRetainTheirTypographyAndOpacity() {
         assertEquals(listOf(1f, 1.5f, 2f, 1.5f, 1f), (-2..2).map { captionLineScale(it.toFloat()) })
         assertEquals(listOf(.5f, .75f, 1f, .75f, .5f), (-2..2).map { captionLineAlpha(it.toFloat()) })
-        assertEquals(listOf(-3f, -1.75f, 0f, 1.75f, 3f), (-2..2).map { captionLineDisplacement(it.toFloat()) })
+        assertEquals(listOf(-3.125f, -1.8125f, 0f, 1.8125f, 3.125f), (-2..2).map { captionLineDisplacement(it.toFloat()) })
     }
 
     @Test fun everyIntermediateFocusHasAtMostFiveVisibleLinesAndContinuousGeometry() {
@@ -35,6 +35,24 @@ class VoiceCaptionMotionTest {
                 val upperBottom = captionLineDisplacement(upper - focus) + captionLineScale(upper - focus) / 2f
                 val lowerTop = captionLineDisplacement(lower - focus) - captionLineScale(lower - focus) / 2f
                 assertTrue("Caption rows $upper and $lower overlap at $focus", upperBottom <= lowerTop + .0001f)
+            }
+        }
+    }
+
+    @Test fun outerRowsCrossTheScaleBoundaryWithoutChangingTheirVerticalVelocity() {
+        val crossing = 160_000_000L
+        val step = 100_000L
+        val seconds = step / 1_000_000_000f
+        for (direction in listOf(-1f, 1f)) {
+            val motion = VoiceCaptionMotion(0f)
+            motion.retarget(4f * direction, 0, animate = true)
+            assertTrue(abs(motion.sample(crossing).velocity) > 1f)
+            for (line in listOf(0f, 4f * direction)) {
+                assertEquals(2f, abs(line - motion.sample(crossing).position), .0001f)
+                fun displacement(time: Long) = captionLineDisplacement(line - motion.sample(time).position)
+                val beforeVelocity = (displacement(crossing) - displacement(crossing - step)) / seconds
+                val afterVelocity = (displacement(crossing + step) - displacement(crossing)) / seconds
+                assertEquals("Row $line changes velocity across the scale boundary", beforeVelocity, afterVelocity, .05f)
             }
         }
     }

@@ -6,6 +6,29 @@ import org.junit.Test
 
 class PrivacyProtectedRangesTest {
     @Test
+    fun removingThinkingCannotLendProofToNewlyJoinedCharacters() {
+        assertTrue(privacyProtectedValuesAfterThinking("Al<think>Alice</think>ice", "Alice", listOf("Alice")).isEmpty())
+        assertTrue(privacyProtectedValuesAfterThinking("Alice and Al<think>hidden</think>ice", "Alice and Alice", listOf("Alice")).isEmpty())
+    }
+
+    @Test
+    fun unchangedWordsAfterHiddenThinkingKeepTheirOwnProtection() {
+        assertEquals(
+            listOf("Bob", "João"),
+            privacyProtectedValuesAfterThinking("Al<THINK>Alice</THINK>ice and Bob 😀 João", "Alice and Bob 😀 João", listOf("Alice", "Bob", "João"))
+        )
+        assertEquals(listOf("Alice"), privacyProtectedValuesAfterThinking("  <think>hidden</think> Hello **Alice**  ", "Hello **Alice**", listOf("Alice")))
+        assertEquals(listOf("Alice"), privacyProtectedValuesAfterThinking("Hello Alice<think>unfinished", "Hello Alice", listOf("Alice")))
+    }
+
+    @Test
+    fun unknownThinkingProjectionNeverGuessesCorrespondenceFromARepeatedLiteral() {
+        assertTrue(privacyProtectedValuesAfterThinking("prefix Alice", "Alice", listOf("Alice")).isEmpty())
+        assertTrue(privacyProtectedValuesAfterThinking("Al<think>Alice</think>ice", "Alice Alice", listOf("Alice")).isEmpty())
+        assertEquals(listOf("Alice"), privacyProtectedValuesAfterThinking("  Alice  ", "  Alice  ", listOf("Alice")))
+    }
+
+    @Test
     fun privateLookingTextWithoutProtectionEvidenceIsNotHighlighted() {
         assertTrue(privacyProtectedRanges("Email alex@example.com and call 555-123-4567", emptyList()).isEmpty())
     }

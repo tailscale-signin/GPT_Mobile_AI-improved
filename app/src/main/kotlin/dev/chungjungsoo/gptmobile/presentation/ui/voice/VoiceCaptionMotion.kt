@@ -12,19 +12,11 @@ internal fun captionLineAlpha(distance: Float): Float = when (val offset = abs(d
     else -> (2.5f - offset).coerceIn(0f, .5f)
 }
 
-/** Integrating the type scale keeps neighbouring baselines separated while their sizes change. */
+/** Continuous leading covers the scale kink's maximum 1/16-line spacing deficit without a velocity discontinuity. */
 internal fun captionLineDisplacement(distance: Float): Float {
     val offset = abs(distance)
-    val magnitude = when {
-        offset <= 2f -> 2f * offset - .25f * offset * offset
-        offset < 3f -> {
-            // The outer type size stays at 1x. Continue the neighbouring row's
-            // half-height separation through the fractional edge transition.
-            val edge = offset - 2f
-            3f + 1.25f * edge - .25f * edge * edge
-        }
-        else -> offset + 1f
-    }
+    val integratedScale = if (offset <= 2f) 2f * offset - .25f * offset * offset else offset + 1f
+    val magnitude = integratedScale + offset / 16f
     return if (distance < 0f) -magnitude else magnitude
 }
 

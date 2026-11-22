@@ -129,6 +129,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
         }
         val liveLine = lines.lineForOffset(offset.coerceIn(0, caption.text.length))
         val lineHeight = with(density) { base.lineHeight.toPx() }
+        val ribbonHeight = lineHeight * (2f * captionLineDisplacement(2f) + captionLineScale(2f))
         val scrollStep = lineHeight * 1.75f
         var reader by remember { mutableStateOf(VoiceCaptionReader()) }
         var returningToLive by remember { mutableStateOf(false) }
@@ -204,7 +205,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                         scrollBy { _, y -> move(y) != 0f }
                     }
             ) {
-                Box(Modifier.fillMaxWidth().height(with(density) { (lineHeight * 7).toDp() }).clipToBounds()) {
+                Box(Modifier.fillMaxWidth().height(with(density) { ribbonHeight.toDp() }).clipToBounds()) {
                     for (index in visible) {
                         val line = lines[index]
                         key(line.start, normalTypeface, boldTypeface) {

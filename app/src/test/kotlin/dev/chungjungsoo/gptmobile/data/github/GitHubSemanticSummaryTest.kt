@@ -16,6 +16,68 @@ import org.junit.Test
 class GitHubSemanticSummaryTest {
     private fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
 
+    @Test fun pathOnlySearchKeepsTheQueryPinnedBlobAndIncompleteCoverageAfterCompaction() {
+        val request = json("""{"query":"Conversation","mode":"paths","path_prefix":"app/src/","path_suffix":".kt","fuzzy_match":false}""")
+        val source = json("""{"schema":"github.result.v1","data":{"commit_sha":"${"a".repeat(40)}","matches_complete":false,"items":[{"path":"app/src/ConversationIcon.kt","sha":"${"b".repeat(40)}"}],"returned":1}}""")
+        val summary = GitHubSemanticSummary.from("github_search__account", request, source)
+        val compact = GitHubSemanticSummary.bounded(summary, 1400)
+        assertEquals(request, compact["search_identity"])
+        assertEquals(JsonPrimitive("a".repeat(40)), compact["commit_sha"])
+        assertEquals(JsonPrimitive(false), compact["search_complete"])
+        assertEquals(JsonPrimitive(false), compact["source_read_verified"])
+        val observation = compact.getValue("path_observations").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("app/src/ConversationIcon.kt"), observation["path"])
+        assertEquals(JsonPrimitive("b".repeat(40)), observation["sha"])
+        assertEquals(JsonPrimitive("/data/items/0"), observation["pointer"])
+        assertTrue(compact.toString().length <= 1400)
+    }
+
+    @Test fun boundedPathPreviewNeverClaimsAllSixteenPathsAreStillVisible() {
+        val source = buildJsonObject {
+            put("commit_sha", "a".repeat(40))
+            put("matches_complete", true)
+            put(
+                "items",
+                JsonArray(
+                    (1..16).map { index ->
+                        buildJsonObject {
+                            put("path", "app/src/" + "nested/".repeat(20) + "Conversation$index.kt")
+                            put("sha", "b".repeat(40))
+                        }
+                    }
+                )
+            )
+        }
+        val summary = GitHubSemanticSummary.bounded(GitHubSemanticSummary.from("github_search", json("""{"query":"Conversation","mode":"paths"}"""), source), 1400)
+        assertTrue(summary.toString().length <= 1400)
+        assertEquals(JsonPrimitive(16), summary["paths_observed"])
+        assertEquals(JsonPrimitive(false), summary["path_preview_complete"])
+        assertEquals(JsonPrimitive(true), summary["search_complete"])
+        assertTrue(summary.getValue("path_observations").jsonArray.isNotEmpty())
+    }
+
+    @Test fun omittedPreviewsNeverGrowPastTheExactBudgetWhenCompletenessChanges() {
+        for (kind in listOf("path", "branch")) {
+            val summary = buildJsonObject {
+                put("${kind}_observations", JsonArray(listOf(buildJsonObject { put("path", "x".repeat(500)) })))
+                put("${kind}_preview_complete", true)
+                put("unrelated_metadata", "x".repeat(500))
+            }
+            for (budget in 40..150) {
+                val bounded = GitHubSemanticSummary.bounded(summary, budget)
+                assertTrue("$kind preview exceeded $budget characters", bounded.toString().length <= budget)
+                assertFalse(bounded["${kind}_preview_complete"] == JsonPrimitive(true))
+            }
+        }
+    }
+
+    @Test fun branchObservationDoesNotTurnPageOneIntoCompleteInventory() {
+        val summary = GitHubSemanticSummary.from("github_context", json("""{"action":"branches"}"""), json("""{"branches":[{"name":"feature/repair","commit":{"sha":"${"c".repeat(40)}"}}],"page":1,"has_more":true}"""))
+        assertEquals(JsonPrimitive(false), summary["branch_inventory_complete"])
+        assertEquals(JsonPrimitive("feature/repair"), summary.getValue("branch_observations").jsonArray.single().jsonObject["name"])
+        assertEquals(JsonPrimitive("c".repeat(40)), summary.getValue("branch_observations").jsonArray.single().jsonObject["sha"])
+    }
+
     @Test fun issueSymptomsSurviveWithTheirResourceIdentityAndExactSourcePointer() {
         val source = json("""{"schema":"github.result.v1","data":{"items":[{"number":2229,"title":"Verifier cast drops the final answer","state":"open","body":"A Long cannot be cast to Integer during final verification."}],"has_more":false}}""")
         val summary = GitHubSemanticSummary.from("github_issue", json("""{"action":"list"}"""), source)

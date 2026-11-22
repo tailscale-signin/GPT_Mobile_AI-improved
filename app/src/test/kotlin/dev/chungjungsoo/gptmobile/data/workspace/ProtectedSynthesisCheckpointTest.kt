@@ -2,12 +2,18 @@ package dev.chungjungsoo.gptmobile.data.workspace
 
 import android.app.Application
 import androidx.room.Room
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubAuthorizedCatalog
+import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionMode
+import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -50,6 +56,94 @@ class ProtectedSynthesisCheckpointTest {
 
     @After fun close() {
         database.close()
+    }
+
+    @Test fun fixtureApprovalClassificationAndRestartPreserveOriginalEncryptedApproval() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Fixture approval")).toInt()
+        val store = WorkspaceRepository(database, vault)
+        val binding = "b".repeat(64)
+        val prefix = "github-evidence:$binding:"
+        val tools = listOf(
+            AgentToolDefinition("github_context", "Read context", kotlinx.serialization.json.Json.parseToJsonElement("""{"properties":{"action":{"enum":["status"]}}}""") as JsonObject),
+            AgentToolDefinition(GitHubAuthorizedCatalog.TOOL, "Discover tools", JsonObject(emptyMap()))
+        )
+        fun book(mode: GitHubDecisionMode?, revision: String?) = GitHubEvidenceBook(
+            binding, "owner/repo", "main", tools.map { it.name }.toSet(),
+            fixtureDecisionMode = mode,
+            authorizationRevision = revision,
+            runtimeIdentity = { JsonObject(emptyMap()) },
+            load = { store.protectedSynthesisCheckpoint(prefix + it) },
+            save = { id, value -> store.saveProtectedSynthesisCheckpoint(prefix + id, chat, "run", value, appendOnly = !GitHubEvidenceBook.currentSnapshot(id)) }
+        )
+        val original = book(null, null).fixtureApprovalPreflight()
+        val accepted = book(GitHubDecisionMode.ASK, "approved-task")
+        val approval = accepted.fixtureApprovalPreflight()
+        val catalog = buildJsonObject {
+            put("receipt_id", "catalog")
+            put("binding", binding)
+            put("repository", "owner/repo")
+            put("tool", GitHubAuthorizedCatalog.TOOL)
+            put("trusted", true)
+            put("success", true)
+            put(
+                "result",
+                buildJsonObject {
+                    put("inventory_version", "catalog-v1")
+                    put("authorized_tool_count", tools.size)
+                    put("inventory_offset", 0)
+                    put("returned", tools.size)
+                    put("has_more", false)
+                    put(
+                        "authorized_inventory",
+                        JsonArray(
+                            tools.map { tool ->
+                                buildJsonObject {
+                                    put("name", tool.name)
+                                    put("schema_fingerprint", GitHubEvidenceBook.digest(tool.inputSchema.toString()))
+                                }
+                            }
+                        )
+                    )
+                }
+            )
+        }
+        val classified = accepted.classifyBeforeAcquisition("Test all authorized GitHub integration tools. Classify each capability before bulk execution. [github-workflow-preset:test_integration]", tools, mapOf("catalog" to catalog), approval)
+        assertTrue(classified.containsKey("capability_classification"))
+        assertEquals(JsonPrimitive("ASK"), classified["decision_mode"])
+        assertEquals(classified, book(GitHubDecisionMode.AUTO_APPROVE, "different-revision").fixtureApprovalPreflight())
+        val suffix = GitHubEvidenceBook.digest(binding).take(24)
+        assertEquals(original, store.protectedSynthesisCheckpoint(prefix + "fixture_preflight_$suffix"))
+        assertEquals(approval, store.protectedSynthesisCheckpoint(prefix + "fixture_preflight_known_$suffix"))
+        assertEquals("github_evidence", store.dao.get(prefix + "fixture_preflight_$suffix")?.kind)
+        assertEquals("synthesis_checkpoint", store.dao.get(prefix + "fixture_classification_current_$suffix")?.kind)
+    }
+
+    @Test fun conflictingImmutableWriteReportsApplicationFailureAndRetainsOriginalChunks() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Immutable evidence")).toInt()
+        val store = WorkspaceRepository(database, vault)
+        val original = buildJsonObject { put("private_source", "First saved evidence") }
+        val changed = buildJsonObject { put("private_source", "Changed evidence") }
+        store.saveProtectedSynthesisCheckpoint("private-record-identity", chat, "run", original, appendOnly = true)
+        val references = secrets.keys.toSet()
+        val failure = runCatching { store.saveProtectedSynthesisCheckpoint("private-record-identity", chat, "run", changed, appendOnly = true) }.exceptionOrNull() as WorkspaceEvidenceConflict
+        assertEquals("WORKSPACE_EVIDENCE_CONFLICT", failure.event().errorCode)
+        assertEquals(JsonPrimitive("application_persistence"), failure.event().failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(false), failure.event().failureDetails?.get("retryable"))
+        assertFalse(failure.event().failureDetails.toString().contains("private-record-identity"))
+        assertFalse(failure.event().failureDetails.toString().contains("Changed evidence"))
+        assertEquals(original, store.protectedSynthesisCheckpoint("private-record-identity"))
+        assertEquals(references, secrets.keys)
+    }
+
+    @Test fun identicalConcurrentAppendKeepsFirstChunksAndDiscardsUnpublishedDuplicate() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Concurrent evidence")).toInt()
+        val store = WorkspaceRepository(database, vault)
+        val payload = buildJsonObject { put("decision", "ASK") }
+        beforePut = { assertTrue(store.saveProtectedSynthesisCheckpoint("approval", chat, "first-run", payload, appendOnly = true)) }
+        assertTrue(store.saveProtectedSynthesisCheckpoint("approval", chat, "second-run", payload, appendOnly = true))
+        assertEquals(payload, store.protectedSynthesisCheckpoint("approval"))
+        assertEquals("first-run", store.dao.get("approval")?.runId)
+        assertEquals(1, secrets.size)
     }
 
     @Test fun reopenedReceiptsCountOneContractAcrossMultipleAttempts() = runBlocking {

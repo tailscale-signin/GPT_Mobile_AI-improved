@@ -61,6 +61,8 @@ internal data class GitHubSearchOptions(
 
     companion object {
         private val identifier = Regex("[A-Za-z_][A-Za-z_0-9]*")
+        private val fuzzyQuery = Regex("[A-Za-z_][A-Za-z_0-9]{1,79}")
+        fun supportsFuzzyQuery(query: String) = fuzzyQuery.matches(query)
         fun from(args: JsonObject): GitHubSearchOptions {
             fun number(key: String, fallback: Int) = args[key]?.jsonPrimitive?.intOrNull ?: fallback
             val result = GitHubSearchOptions(
@@ -86,7 +88,7 @@ internal data class GitHubSearchOptions(
                 val query = args["query"]?.jsonPrimitive?.content.orEmpty()
                 require(!result.fuzzy && query.length in 1..200 && query.count { it == '*' } <= 16 && (query.any { it != '*' && !it.isWhitespace() } || args["mode"]?.jsonPrimitive?.content == "paths" && query == "*")) { "Pattern search accepts literal segments separated by at most 16 stars; fuzzy matching cannot be combined with patterns." }
             }
-            if (result.fuzzy) require(args["query"]?.jsonPrimitive?.content.orEmpty().matches(Regex("[A-Za-z_][A-Za-z_0-9]{1,79}"))) { "Fuzzy search accepts one identifier of 2–80 characters." }
+            if (result.fuzzy) require(supportsFuzzyQuery(args["query"]?.jsonPrimitive?.content.orEmpty())) { "Fuzzy search accepts one identifier of 2–80 characters. For a phrase, retain the query and set fuzzy_match=false for a literal search." }
             return result
         }
 

@@ -10,6 +10,58 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_execution_completion_evidence_crosses_report_contract_without_private_fields(self):
+        samples = [
+            ("WORKSPACE_EVIDENCE_CONFLICT", "application_persistence", "REVIEW_APPLICATION_EVIDENCE", {
+                "evidence_conflict_reason": "IMMUTABLE_PAYLOAD_CHANGED",
+                "evidence_record_hash": "a" * 64,
+                "evidence_proposed_payload_hash": "b" * 64,
+                "evidence_retained_payload_hash": "c" * 64,
+            }),
+            ("OUTPUT_CONTINUATION_NO_PROGRESS", "final_synthesis", "UPDATE_OUTPUT_CAPACITY_OR_REMAINING_REQUEST", {
+                "no_output_kind": "REASONING_ONLY", "no_output_visible_bytes": 0,
+                "no_output_reasoning_bytes": 19128, "no_output_tool_call_count": 0,
+                "no_output_repairs": 1, "no_output_repair_limit": 1, "no_output_repair_scheduled": False,
+                "no_output_draft_hash": "a" * 64,
+            }),
+            ("BILLING_UNAVAILABLE", "response_stream", None, {
+                "provider_failure_kind": "BUDGET", "upstream_error_code": "insufficient_quota",
+            }),
+            ("PROVIDER_WAIT_CHECKPOINT_CHANGED", "lifecycle", "REVIEW_SAVED_RECOVERY", {
+                "checkpoint_validation_stage": "TOOL_JOURNAL", "checkpoint_mismatch_reason": "TOOL_JOURNAL_CHANGED_DURING_RESTORE",
+                "provider_wait_expected_tool_journal_hash": "a" * 64,
+                "provider_wait_observed_tool_journal_hash": "b" * 64,
+                "provider_wait_queued_tool_count": 2, "provider_wait_unsettled_tool_count": 1,
+            }),
+            ("PROVIDER_RATE_LIMITED", "provider_wait", None, {
+                "provider_failure_kind": "RATE_LIMIT", "provider_semantic_status": 429,
+                "provider_wait_decision_state": "NOT_SCHEDULED", "provider_wait_no_wait_reason": "OWNER_CHANGED",
+                "provider_wait_scheduler_state": "NOT_SCHEDULED", "provider_wait_persisted": False,
+            }),
+        ]
+        for code, stage, action, values in samples:
+            with self.subTest(code=code):
+                capture = self.capture("INCIDENT", {**values, "incident_phase": stage, "causal_failure_code": code})
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                report["errorCode"] = code
+                report["context"]["stage"] = stage
+                if "stage" in report["context"]["unavailableFields"]:
+                    report["context"]["unavailableFields"].remove("stage")
+                if action:
+                    report["context"]["recoveryAction"] = action
+                    report["context"]["unavailableFields"].remove("recoveryAction")
+                self.assertIn(code, str(issue_from_report(report)))
+        for key, value in [
+            ("no_output_kind", "private provider body"), ("upstream_error_code", "secret-token"),
+            ("no_output_reasoning_bytes", "19128"), ("no_output_reasoning_bytes", True),
+            ("provider_wait_expected_tool_journal_hash", "raw-private-id"),
+            ("provider_wait_no_wait_reason", "private exception"), ("provider_semantic_status", 200),
+        ]:
+            self.assertFalse(capsule.valid_value(key, value), (key, value))
+        self.assertNotIn("private_payload", capsule.fields_for("INCIDENT"))
+        self.assertNotIn("no_output_kind", capsule.fields_for("TOOL"))
+
     def test_conversation_recovery_details_survive_approved_report_submission(self):
         samples = [
             ("PROVIDER", "GITHUB_VERIFICATION_INTERNAL_ERROR", "INSPECT_VERIFICATION_FAILURE", {

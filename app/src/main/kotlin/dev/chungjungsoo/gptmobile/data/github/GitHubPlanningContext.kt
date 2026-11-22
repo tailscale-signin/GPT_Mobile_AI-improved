@@ -43,6 +43,7 @@ data class GitHubPlanningContext(
                 contexts.distinct().forEach { append(it.record()).append('\n') }
                 append("Use the selected target for omitted owner/repo/ref. A newer successful resolve receipt supersedes the recorded head. Do not ask for a target already selected, invent owner/repo values, or reinterpret a workflow preset as a repository. If selection is missing or ambiguous, use authorized repository discovery or ask the user to select the exact target before dependent calls. Test fixtures are owned disposable branches/files inside the verified target, never guessed repositories.\n")
                 append("Copy each continuation_call's exact tool and arguments. Listing inventory, advertising schemas, executing operations and passing acceptance criteria are different counts. Use recorded coverage fields; never infer test success from discovery or an HTTP success. A 404 does not establish deletion or insufficient OAuth scopes; accepted OAuth scopes describe endpoint requirements, not missing grants.")
+                append(" Reuse retained branch observations and pinned source ranges. Once the requested edit's target source, repository instructions and acceptance criteria are established, make the next authorized working-branch or patch operation; only perform another discovery read for a specific missing prerequisite. A coding task is still unfinished when only reads and searches have completed.")
             }
         }
     }

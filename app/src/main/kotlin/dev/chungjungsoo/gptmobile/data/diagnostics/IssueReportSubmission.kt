@@ -123,6 +123,7 @@ internal class IssueReportSubmission(
         private const val PROVIDER_TERMINAL_CAUSES_FEATURE = "PROVIDER_TERMINAL_CAUSES_V1"
         private const val TERMINAL_DELIVERY_CODES_FEATURE = "TERMINAL_DELIVERY_CODES_V1"
         private val EXTENDED_READINESS_FEATURES = setOf(
+            ExecutionCompletionDiagnostics.FEATURE,
             IssueReportIncidentCapsule.CONVERSATION_RECOVERY_FEATURE,
             RequestByteBudget.FEATURE,
             IssueReportDiagnostics.SELECTED_MODEL_ADMISSION_FEATURE, IssueReportDiagnostics.REVIEW_CATALOG_FEATURE, IssueReportDiagnostics.ACTION_ONLY_FEATURE,
@@ -174,6 +175,13 @@ internal class IssueReportSubmission(
                     code(event)?.let(REPORT_EVENT::matchEntire)?.groupValues?.get(1)
                 }
             return buildSet {
+                if (codes.any { it in ExecutionCompletionDiagnostics.codes } ||
+                    code(context?.get("recoveryAction")) in ExecutionCompletionDiagnostics.actions ||
+                    code(context?.get("reasonCode")) == "GITHUB_SEARCH_FUZZY_QUERY_INVALID" ||
+                    code(context?.get("stage")) == "application_persistence"
+                ) {
+                    add(ExecutionCompletionDiagnostics.FEATURE)
+                }
                 if (RequestByteBudget.CODE in codes) add(RequestByteBudget.FEATURE)
                 if ("GITHUB_VERIFICATION_INTERNAL_ERROR" in codes ||
                     codes.any { it in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES } ||

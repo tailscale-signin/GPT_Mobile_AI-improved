@@ -773,6 +773,7 @@ internal class GitHubVerifiedSession(
         // progress checkpoint stops work before any further provider/tool action.
         val policy = failureCauses(error)
             .filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
+        val persistence = failureCauses(error).filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()
         val original = (error as? ProgressCheckpointFailure)?.originalFailure
         if (original != null) {
             val checkpoint = buildJsonObject {
@@ -781,6 +782,7 @@ internal class GitHubVerifiedSession(
                     put("checkpoint_failure_code", "DISPATCH_POLICY_CHANGED")
                     put("resume_required", true)
                 }
+                persistence?.event()?.failureDetails?.let { put("persistence_failure", it) }
             }
             emit(original.copy(failureDetails = JsonObject(original.failureDetails.orEmpty() + checkpoint)))
             return
@@ -789,6 +791,10 @@ internal class GitHubVerifiedSession(
             // Do not ask the old profile to regenerate or acquire more evidence.
             // Earlier durable receipts remain available to a newly authorized run.
             emit(GitHubTaskLifecycle.configurationInvalidated(policy))
+            return
+        }
+        if (persistence != null) {
+            emit(persistence.event())
             return
         }
         if (error !is ProgressCheckpointFailure) throw error
@@ -1166,6 +1172,14 @@ internal class GitHubVerifiedSession(
             throw cancelled
         } catch (failure: Exception) {
             failureCauses(failure).filterIsInstance<CancellationException>().firstOrNull()?.let { throw it }
+            val persistence = failureCauses(failure).filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()
+            if (persistence != null) {
+                // A local save failure must not hide an already uncertain remote
+                // operation or be mislabeled as a provider/verification failure.
+                val local = persistence.event()
+                emit(originalFailure?.copy(failureDetails = JsonObject(originalFailure.failureDetails.orEmpty() + ("persistence_failure" to requireNotNull(local.failureDetails)))) ?: local)
+                return@flow
+            }
             failureCauses(failure).firstOrNull {
                 it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
                     it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied

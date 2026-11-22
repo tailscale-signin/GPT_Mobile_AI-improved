@@ -19,7 +19,6 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
         var restoredResults = 0
         val receipts = linkedSetOf<String>()
         val observations = linkedMapOf<String, kotlinx.serialization.json.JsonObject>()
-        var successfulDispatch = false
         suspend fun finish(failure: ProviderEvent.Failed) {
             if (terminal) return
             // A typed rejection can be saved for the existing provider wait. Do not
@@ -36,6 +35,10 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
                     ?.takeIf { it.matches(Regex("[a-z_]{1,64}")) }
                 val nextAction = (failure.failureDetails?.get("next_action") as? kotlinx.serialization.json.JsonPrimitive)?.content
                     ?.takeIf { it.matches(Regex("[A-Z_]{1,96}")) }
+                // A successful read is retained evidence, not a completed task.
+                // Only an explicit task result may establish a partial outcome.
+                val blocked = failure.taskOutcome == "BLOCKED" || failure.errorCode in ProviderRecoveryFailure.CODES || failure.errorCode in setOf("OUTPUT_CONTINUATION_NO_PROGRESS", "WORKSPACE_EVIDENCE_CONFLICT")
+                val executionStatus = if (!blocked && failure.taskOutcome == "PARTIAL") "PARTIAL" else "BLOCKED"
                 val rateLimitMessage = failure.rateLimitDeliveryMessage()
                 val text = if (rateLimitMessage != null) {
                     val progress = established.ifEmpty { if (restoredResults > 0 || receipts.isNotEmpty()) evidence else "" }
@@ -43,7 +46,7 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
                 } else {
                     "The GitHub task stopped before a verified final result was available.\n\n" +
                         (if (established.isEmpty()) "$evidence\n\n" else "$established\n\n") +
-                        "Status: ${if (successfulDispatch) "PARTIAL" else "BLOCKED"}. Recorded failure: `$reason`. " +
+                        "Status: $executionStatus. Recorded failure: `$reason`. " +
                         stage?.let { "Stopped during `$it`. " }.orEmpty() + nextAction?.let { "Next required step: `$it`. " }.orEmpty() +
                         "Review the failure details before resuming. Completed actions must be reconciled, and uncertain writes must not be repeated."
                 }
@@ -99,7 +102,6 @@ internal fun Flow<AgentRunEvent>.withGitHubTerminalDelivery(enabled: Boolean): F
                         observations[event.call.callId] = summary
                         while (observations.size > 128) observations.remove(observations.keys.first())
                     }
-                    successfulDispatch = successfulDispatch || event.result.dispatched && !event.result.isError
                     emit(event)
                 }
                 is AgentRunEvent.Provider -> when (val value = event.event) {

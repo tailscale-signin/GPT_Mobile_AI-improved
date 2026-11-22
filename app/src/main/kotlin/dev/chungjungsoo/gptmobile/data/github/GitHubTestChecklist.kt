@@ -91,6 +91,22 @@ internal object GitHubTestChecklist {
         return actual == live || GitHubActionIdentity.matches(recipe.text("tool"), live, receipt)
     }
 
+    /** Retain the exact issued page chain even when cursor-only calls omit the root action. */
+    fun paginationReceipts(receipts: Map<String, JsonObject>, root: (JsonObject) -> Boolean): Map<String, JsonObject> {
+        val observations = receipts.filterValues { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
+        val selected = observations.filterValues(root).toMutableMap()
+        var frontier = selected.values.toList()
+        while (frontier.isNotEmpty()) {
+            val issued = frontier.flatMap { issuer -> issuedPages(issuer).map { issuer to it } }
+            val next = observations.filter { (id, receipt) ->
+                id !in selected && issued.any { (issuer, recipe) -> sameCall(receipt, recipe, issuer) }
+            }
+            selected.putAll(next)
+            frontier = next.values.toList()
+        }
+        return selected
+    }
+
     /** Follow only exact issued read recipes. Local fragments and remote pages are independent. */
     fun pendingPages(receipts: Map<String, JsonObject>): List<JsonObject> {
         val observations = trusted(receipts)

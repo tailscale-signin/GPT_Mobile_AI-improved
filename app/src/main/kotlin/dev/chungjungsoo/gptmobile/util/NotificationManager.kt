@@ -124,7 +124,7 @@ class NotificationManager @Inject constructor(
         notificationManager.cancel(NOTIFICATION_ID)
     }
 
-    fun showGitHubDecision(requestId: String, chatId: Int, messageId: Int, question: String, title: String, action: String) {
+    fun showGitHubDecision(requestId: String, chatId: Int, messageId: Int, question: String, title: String, action: String, choices: List<dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotificationAction> = emptyList()) {
         if (!androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         val id = decisionNotificationId(requestId)
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -148,6 +148,12 @@ class NotificationManager @Inject constructor(
                 .setOnlyAlertOnce(true)
                 .setAutoCancel(true)
                 .setContentIntent(pending)
+                .apply {
+                    choices.take(2).forEach { choice ->
+                        val answer = PendingIntent.getBroadcast(context, 0, dev.chungjungsoo.gptmobile.data.github.GitHubDecisionActionReceiver.intent(context, choice), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                        addAction(NotificationCompat.Action.Builder(R.drawable.ic_ai_notification, choice.label.take(40).dropLastWhile(Char::isHighSurrogate), answer).setAuthenticationRequired(true).build())
+                    }
+                }
                 .addAction(R.drawable.ic_ai_notification, action, pending)
                 .build()
         )

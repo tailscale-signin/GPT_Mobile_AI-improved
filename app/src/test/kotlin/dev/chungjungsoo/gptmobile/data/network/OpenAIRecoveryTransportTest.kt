@@ -328,6 +328,85 @@ class OpenAIRecoveryTransportTest {
         }
     }
 
+    @Test fun explicitBillingDenialDoesNotCreateADurableRateWaitForEitherApi() = runTest {
+        val bodies = listOf(
+            """{"error":{"code":"insufficient_quota","message":"The account allowance is exhausted"}}""",
+            """{"code":"insufficient_credits","error":{"message":"Allowance unavailable"}}""",
+            """{"error":{"message":"You have no credits remaining"}}"""
+        )
+        for (responses in listOf(false, true)) {
+            for ((index, body) in bodies.withIndex()) {
+                var requests = 0
+                val selected = config.copy(apiUrl = "https://billing-$responses-$index.$fixtureHost/v1/", profileUid = "billing-profile", providerType = "OPENAI")
+                withApi(
+                    MockEngine {
+                        requests++
+                        respond(body, HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.ContentType to listOf("application/json"), HttpHeaders.RetryAfter to listOf("600"), "X-Request-Id" to listOf("req_billing_fixture")))
+                    }
+                ) { api ->
+                    withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                        repeat(2) {
+                            val record = if (responses) {
+                                val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                                val error = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected).toList()
+                                    .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                                assertNull(error.providerLimit)
+                                dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                            } else {
+                                val error = api.streamChatCompletion(request, 5, selected).toList().mapNotNull { chunk -> chunk.error }.single()
+                                assertNull(error.providerLimit)
+                                assertEquals(false, error.retryable)
+                                dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                            }
+                            assertEquals("BILLING_UNAVAILABLE", record.category)
+                            assertFalse(record.retryAllowed)
+                            assertEquals(false, record.requestReplayAllowed)
+                            assertNull(record.retryAfterMillis)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(429), record.providerFailure?.get("http_status"))
+                            assertEquals("req_billing_fixture", record.serverRequestId)
+                            assertEquals("An explicit next attempt must not inherit a rate cooldown", it + 1, requests)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun billingDenialCannotReplaceAnUnknownGatewayOperationInEitherApi() = runTest {
+        for (responses in listOf(false, true)) {
+            var requests = 0
+            val selected = config.copy(apiUrl = "https://billing-gateway-$responses.$fixtureHost/v1/", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))
+            withApi(
+                MockEngine { incoming ->
+                    if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
+                        respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""")
+                    } else {
+                        requests++
+                        respond("""{"error":{"code":"insufficient_quota","message":"No credits remaining"}}""", HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.RetryAfter, "600"))
+                    }
+                }
+            ) { api ->
+                withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                    val record = if (responses) {
+                        val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                        val error = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected).toList()
+                            .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                        assertNull(error.providerLimit)
+                        dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                    } else {
+                        val error = api.streamChatCompletion(request, 5, selected).toList().mapNotNull { it.error }.single()
+                        assertNull(error.providerLimit)
+                        dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                    }
+                    assertEquals(1, requests)
+                    assertEquals("GATEWAY_OUTCOME_UNKNOWN", record.category)
+                    assertFalse(record.retryAllowed)
+                    assertEquals(false, record.requestReplayAllowed)
+                }
+            }
+        }
+    }
+
     @Test fun durableRateLimitKeepsTheServerDeadlineAndBlocksTheNextRequestOnThatCredential() = runTest {
         var attempts = 0
         val selected = config.copy(profileUid = "selected", providerType = "OPENROUTER")

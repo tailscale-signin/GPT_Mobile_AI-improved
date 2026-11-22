@@ -144,6 +144,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -4726,10 +4727,18 @@ class ChatRepositoryImpl(
                     dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reuse(originalUserRequest, previousTask) ||
                         dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(originalUserRequest) == dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(previousTask)
                     )
-            val providerResume = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.GitHubProviderResumeContext]?.checkpoint
+            val providerResumeContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.GitHubProviderResumeContext]
+            val providerResume = providerResumeContext?.checkpoint
             val binding = if (reuse) requireNotNull(previous).binding else derivedBinding
             if (providerResume != null) {
-                dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.require(providerResume.binding == binding, "PROVIDER_WAIT_TASK_CHANGED")
+                dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.require(
+                    providerResume.binding == binding,
+                    "PROVIDER_WAIT_TASK_CHANGED",
+                    JsonObject(
+                        dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.correlation(providerResume, providerResumeContext?.claimId, providerResumeContext?.fence, runId) +
+                            ("checkpoint_mismatch_reason" to JsonPrimitive("TASK_BINDING_CHANGED"))
+                    )
+                )
             }
             check(binding.matches(Regex("[a-f0-9]{64}"))) { "Saved task identity is invalid" }
             if (reuse && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(originalUserRequest)) {
@@ -6088,7 +6097,15 @@ class ChatRepositoryImpl(
                         dispatchAuthority.validate()
                         check(validateSavedEvidence())
                         val store = checkNotNull(workspace) { "GITHUB_EVIDENCE_RETENTION_INCOMPLETE" }
-                        val owner = agentPersistenceDao.recoveryRun(runId) ?: throw dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED")
+                        val owner = agentPersistenceDao.recoveryRun(runId) ?: throw dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure(
+                            "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+                            dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.interruption(expected),
+                            dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.checkpointCorrelation(
+                                expectedCheckpoint ?: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint(verifiedEvidence.checkpointBinding(), dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(expected.toString())),
+                                expected,
+                                "RECOVERY_OWNER_UNAVAILABLE"
+                            )
+                        )
                         store.saveProtectedSynthesisCheckpoint(checkpointKey, latestUser.chatId, runId, value, expectedDigest = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(expected.toString()), expectedRunFence = owner.ownershipFence)
                     }
                 ) { draft, exchanges, tools ->
@@ -6109,7 +6126,7 @@ class ChatRepositoryImpl(
                         requestPlatform.systemPrompt.orEmpty(),
                         limits.copy(contextTokens = capacity, outputTokens = allowance.output),
                         draft,
-                        "Finish the next outstanding GitHub requirement using the accepted task and retained receipts. Prefer a short conclusion with receipt references. If a tool is still required, request that tool directly. Never repeat completed operations or claim unverified completion.",
+                        "Finish the next outstanding GitHub requirement using the accepted task and retained receipts. Return the next concrete tool action, a usable answer, or a precise blocker; reasoning alone does not advance this task. If the visible draft is empty, begin the substantive response now. Prefer a short conclusion with receipt references. If a tool is still required, request that tool directly. Never repeat completed operations or claim unverified completion.",
                         exchanges,
                         advertisedTools = selected,
                         fitProviderBudget = true,

@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.GitHubNoOutputProgress
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.coroutines.flow.flowOf
@@ -20,6 +21,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubTaskLifecycleTest {
+    @Test fun reasoningOnlyBlockKeepsExecutionAndPartialDeliveryDistinctAcrossRetainedReports() = runBlocking {
+        val rows = linkedMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("task", "o/r", "main", emptySet(), save = { key, value -> rows[key] = value })
+        val progress = GitHubNoOutputProgress(null, revised = false, maximumRepairs = 0)
+        assertFalse(progress.observe("", "Earlier useful answer", 19128, "stop", "last-invocation", "a".repeat(64), limited = false))
+        val failure = progress.failure("Earlier useful answer")
+        assertEquals(GitHubTaskLifecycle.State.BLOCKED, GitHubTaskLifecycle.progress(failure, receiptCount = 5))
+        val metadata = GitHubTaskLifecycle.failureMetadata(failure)
+        val verdict = book.retainVerdict(
+            JsonObject(
+                metadata + buildJsonObject {
+                    put("task_outcome", failure.taskOutcome)
+                    put("partial", true)
+                    put("completion_verified", false)
+                    put("response_delivered", true)
+                    put("original_failure", requireNotNull(failure.failureDetails))
+                }
+            )
+        )
+        assertEquals(JsonPrimitive("BLOCKED"), verdict["task_state"])
+        assertEquals(JsonPrimitive("BLOCKED"), verdict["task_outcome"])
+        for (projection in listOf(metadata, metadata.getValue("failure_outcome") as JsonObject, verdict, GitHubTaskLifecycle.acceptanceFailureDetails(verdict, retainedReport = true))) {
+            assertEquals(JsonPrimitive("PARTIAL_DRAFT"), projection["delivery_state"])
+            assertEquals(JsonPrimitive("REASONING_ONLY"), (projection["output_progress"] as JsonObject)["no_output_kind"])
+            assertEquals(JsonPrimitive(19128), (projection["output_progress"] as JsonObject)["reasoning_bytes"])
+            assertFalse(projection.toString().contains("Earlier useful answer"))
+        }
+        assertEquals(GitHubTaskLifecycle.State.BLOCKED, GitHubTaskLifecycle.terminal(verdict))
+    }
+
     @Test fun retainedExtractionReportDoesNotPresentHistoricalAttemptFactsAsFreshDispatch() {
         val verdict = buildJsonObject {
             put("failure_code", "GITHUB_EXTRACTION_FAILED")

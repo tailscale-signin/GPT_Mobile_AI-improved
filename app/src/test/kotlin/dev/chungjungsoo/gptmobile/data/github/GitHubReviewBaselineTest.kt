@@ -14,6 +14,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReviewBaselineTest {
+    @Test fun comparisonCoverageSeparatesObservedSourceFromPendingFilesAndReviewAcceptance() {
+        val compared = receipt("github_context", json("""{"action":"changes","base_sha":"$base","commit_sha":"$head"}"""), json("""{"base_sha":"$base","head_sha":"$head","files":[{"filename":"A.kt"},{"filename":"B.kt"}],"has_more":false}"""))
+        val source = receipt("github_read", json("""{"commit_sha":"$head"}"""), json("""{"commit_sha":"$head","items":[{"path":"A.kt","start_line":1,"end_line":20}]}"""))
+        val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $base", tools, mapOf("status" to context(), "comparison" to compared, "source" to source)))
+        assertEquals(JsonPrimitive("READ_CHANGED_SOURCE"), plan.checkpoint["state"])
+        val coverage = plan.checkpoint.getValue("comparison_coverage").jsonObject
+        assertEquals(JsonPrimitive(true), coverage["pages_complete"])
+        assertEquals(JsonPrimitive(2), coverage["changed_files_observed"])
+        assertEquals(JsonPrimitive(1), coverage["changed_files_with_source_observation"])
+        assertEquals(JsonPrimitive(1), coverage["changed_files_without_source_observation"])
+        assertEquals(JsonPrimitive(false), coverage["source_review_verified"])
+    }
+
     private val head = "a".repeat(40)
     private val base = "b".repeat(40)
     private val review = "Review the selected branch against its base."

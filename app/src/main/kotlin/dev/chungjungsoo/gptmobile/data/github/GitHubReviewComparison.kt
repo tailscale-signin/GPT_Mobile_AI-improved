@@ -245,6 +245,25 @@ internal object GitHubReviewComparison {
                 put("comparison_verified", code == "READ_CHANGED_SOURCE")
                 put("source_review_verified", false)
                 put("user_input_required", code == "BASELINE_REQUIRED")
+                if (code in setOf("COMPARISON_PAGES_PENDING", "READ_CHANGED_SOURCE")) {
+                    val changed = eligible.filter { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head }
+                        .flatMap { (data(it)["files"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it.text("filename").takeIf(String::isNotBlank) }.toSet()
+                    val read = eligible.filter { targetReceipt(it) && operation(it) == "github_read" && data(it).text("commit_sha") in setOf(base, head) }
+                        .flatMap { (data(it)["items"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it.text("path").takeIf(String::isNotBlank) }.toSet()
+                    val pending = changed - read
+                    put(
+                        "comparison_coverage",
+                        buildJsonObject {
+                            put("pages_complete", code == "READ_CHANGED_SOURCE")
+                            put("changed_files_observed", changed.size)
+                            put("changed_files_with_source_observation", (changed intersect read).size)
+                            put("changed_files_without_source_observation", pending.size)
+                            put("pending_source_paths", JsonArray(pending.filter { it.length <= 384 }.take(16).map(::JsonPrimitive)))
+                            put("pending_source_preview_complete", pending.size <= 16 && pending.all { it.length <= 384 })
+                            put("source_review_verified", false)
+                        }
+                    )
+                }
                 failure?.let { put("baseline_resolution_failure", it) }
                 next?.let {
                     put(
@@ -434,7 +453,7 @@ internal object GitHubReviewComparison {
                         )
                     )
                 }
-                val pending = GitHubTestChecklist.pendingPages(receipts.filterValues { targetReceipt(it) && operation(it) == "github_pr" && args(it).text("action") == "list" }).firstOrNull()
+                val pending = GitHubTestChecklist.pendingPages(GitHubTestChecklist.paginationReceipts(receipts) { targetReceipt(it) && operation(it) == "github_pr" && args(it).text("action") == "list" }).firstOrNull()
                 if (pending != null) return state("PR_BASE_LOOKUP", "Finish the exact retained PR inventory page before excluding a PR base.", (pending["arguments"] as? JsonObject)?.let { call(pending.text("tool").githubOperationFamily(), it, issuedToolName = pending.text("tool")) })
                 if (inventory.none { data(it)["has_more"] == JsonPrimitive(false) }) return state("PR_BASE_UNVERIFIED", "PR inventory completeness is unverified; reuse its exact continuation or establish the intended baseline.")
                 if (branch.isBlank() || default.isBlank()) return state("BASELINE_REQUIRED", "The selected/default branch identity is incomplete. Choose the baseline for the captured head.")
@@ -457,7 +476,7 @@ internal object GitHubReviewComparison {
         }
         val comparison = eligible.lastOrNull { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head }
         if (comparison != null) {
-            val pending = GitHubTestChecklist.pendingPages(receipts.filterValues { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head }).firstOrNull()
+            val pending = GitHubTestChecklist.pendingPages(GitHubTestChecklist.paginationReceipts(receipts) { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head }).firstOrNull()
             if (pending != null) return state("COMPARISON_PAGES_PENDING", "The comparison has unread changed-file pages; retain the exact pair while following its continuation.", (pending["arguments"] as? JsonObject)?.let { call(pending.text("tool").githubOperationFamily(), it, issuedToolName = pending.text("tool")) })
             if (data(comparison)["has_more"] == JsonPrimitive(true)) return state("COMPARISON_PAGES_PENDING", "The comparison has unread changed-file pages; restore its exact continuation before asserting coverage.")
             return state("READ_CHANGED_SOURCE", "The exact comparison is retained. Inspect its changed files and relevant source at the pinned base/head before reporting correctness findings.")

@@ -35,6 +35,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun fuzzyPhraseRejectionOffersAnExactLiteralCorrectionWithoutRewritingTheQuery() = runBlocking {
+        val observed = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                observed += arguments
+                return if (arguments["fuzzy_match"] == JsonPrimitive(true)) {
+                    AgentToolResult(callId, ToolResultContent.Text("Fuzzy search accepts one identifier."), true, dispatched = false, errorCode = "INVALID_ARGUMENTS")
+                } else {
+                    AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("matches_complete", true) }), false)
+                }
+            }
+        }
+        val tool = GitHubOperationTool("github_search", backend, "fuzzy-query", "github_search__selected")
+        val original = args("""{"query":"main menu","mode":"literal","path_prefix":"app/","fuzzy_match":true,"fuzzy_threshold":0.8}""")
+        val rejected = tool.execute("invalid", original)
+        assertEquals(JsonPrimitive("GITHUB_SEARCH_FUZZY_QUERY_INVALID"), rejected.executionReceipt?.get("reason_code"))
+        assertFalse(rejected.dispatched)
+        val correction = (rejected.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive("github_search__selected"), correction["tool"])
+        val corrected = correction.getValue("arguments").jsonObject
+        assertEquals(JsonObject((original - "fuzzy_threshold") + ("fuzzy_match" to JsonPrimitive(false))), corrected)
+        assertFalse(tool.execute("corrected", corrected).isError)
+        assertEquals(JsonPrimitive("main menu"), observed.last()["query"])
+        val advanced = tool.execute("advanced", JsonObject(original + ("index_cursor" to JsonPrimitive(10))))
+        assertFalse((advanced.content as ToolResultContent.Json).value.jsonObject.containsKey("correction_call"))
+    }
+
     @Test fun noncanonicalContinuationHandlesReturnSchemaAndFieldDiagnosticsBeforeDispatch() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})

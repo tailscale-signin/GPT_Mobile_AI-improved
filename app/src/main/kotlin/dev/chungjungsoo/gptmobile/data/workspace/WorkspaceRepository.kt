@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.gitHubWorkTiming
 import dev.chungjungsoo.gptmobile.data.rag.FactRecall
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
 import java.security.MessageDigest
@@ -48,7 +49,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
     }
 
     /** Decrypt bounded, current task snapshots only when the conversation's receipts are opened. */
-    internal suspend fun conversationWork(chatId: Int): dev.chungjungsoo.gptmobile.data.github.GitHubConversationWork = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    internal suspend fun conversationWork(chatId: Int, decisions: List<dev.chungjungsoo.gptmobile.data.github.GitHubChatDecision> = emptyList(), observedAtMillis: Long = System.currentTimeMillis()): dev.chungjungsoo.gptmobile.data.github.GitHubConversationWork = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val keys = dao.recentTaskContracts(chatId)
         val tasks = keys.take(24).map { key ->
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -57,7 +58,9 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                 val suffix = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(binding).take(24)
                 val snapshot = "github-evidence:$binding:verification_current_$suffix"
                 val verdict = protectedSynthesisCheckpoint(snapshot)?.takeIf { it["binding"] == kotlinx.serialization.json.JsonPrimitive(binding) }
-                dev.chungjungsoo.gptmobile.data.github.GitHubWorkMeasurement.from(verdict, dao.taskSnapshotRunState(chatId, snapshot, key))
+                val contract = protectedSynthesisCheckpoint(key)?.takeIf { it["binding"] == kotlinx.serialization.json.JsonPrimitive(binding) }
+                val measurement = dev.chungjungsoo.gptmobile.data.github.GitHubWorkMeasurement.from(verdict, dao.taskSnapshotRunState(chatId, snapshot, key))
+                measurement.copy(timing = gitHubWorkTiming(chatId, binding, contract, decisions, measurement, dao.get(snapshot)?.updatedAt, observedAtMillis))
             } else {
                 dev.chungjungsoo.gptmobile.data.github.GitHubWorkMeasurement.from(null)
             }
@@ -184,8 +187,11 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
     ): Boolean {
         if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return false
         if (appendOnly && dao.get(id) != null) {
-            if (engineeringMemory) return protectedSynthesisCheckpoint(id) == payload
-            check(protectedSynthesisCheckpoint(id) == payload) { "Existing evidence is immutable" }
+            val retained = protectedSynthesisCheckpoint(id)
+            if (engineeringMemory) return retained == payload
+            if (retained != payload) {
+                throw WorkspaceEvidenceConflict(id, digest(payload.toString()), retained?.let { digest(it.toString()) }, if (retained == null) "RETAINED_PAYLOAD_UNAVAILABLE" else "IMMUTABLE_PAYLOAD_CHANGED")
+            }
             return true
         }
         val bytes = payload.toString().encodeToByteArray()
@@ -193,6 +199,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
         val payloadDigest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
         val references = mutableListOf<String>()
         var committed = false
+        var retainedExisting = false
         try {
             for (start in bytes.indices step 60_000) {
                 val reference = "workspace-memory-$chatId-${UUID.randomUUID()}"
@@ -230,7 +237,16 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                     }
                 }
                 if (appendOnly && existing != null && engineeringMemory) return@withTransaction false
-                check(!appendOnly || existing == null) { "Evidence was already appended; refresh before retrying" }
+                if (appendOnly && existing != null) {
+                    val retainedDigest = (previous?.get("digest") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    if (existing.chatId == chatId && retainedDigest == payloadDigest) {
+                        // Two writers may race to append the same immutable record.
+                        // Retain the first encrypted chunks and discard this duplicate.
+                        retainedExisting = true
+                        return@withTransaction true
+                    }
+                    throw WorkspaceEvidenceConflict(id, payloadDigest, retainedDigest?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }, "CONCURRENT_APPEND_CONFLICT")
+                }
                 dao.save(
                     WorkspaceRecord(
                         id,
@@ -254,6 +270,12 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                     )
                 )
                 true
+            }
+            if (retainedExisting) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    references.forEach { reference -> runCatching { vault.delete(reference) } }
+                }
+                return true
             }
             if (!committed) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {

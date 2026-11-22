@@ -22,8 +22,15 @@ internal suspend fun <T> gatewayClientExchange(
     val headers = if (observedReadAttempt == null) diagnosticHeaders else diagnosticHeaders.filterKeys { !it.equals("X-Gateway-Retry-Attempt", true) } + ("X-Gateway-Retry-Attempt" to observedReadAttempt.toString())
     if (!safeRead && method == "POST") GatewayJobPollCoordinator.continuing(config)
     return try {
-        block(headers).also { if (it != null) GatewayClientDiagnostics.metadataReadCompleted(config, headers) }
+        // A bounded read retry owns its second attempt. Other surfaces share the
+        // service's TCP/DNS cooldown instead of independently probing a down host.
+        if (safeRead && read?.ordinal != 1) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireLocalAvailable(config.apiUrl)
+        block(headers).also {
+            if (safeRead) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordLocalHandshakeSuccess(config.apiUrl)
+            if (it != null) GatewayClientDiagnostics.metadataReadCompleted(config, headers)
+        }
     } catch (failure: Throwable) {
+        if (safeRead) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordLocalFailure(config.apiUrl, failure)
         val origin = when (context[DelegationCancellationContext]?.record?.origin) {
             CancellationOrigin.USER_WHOLE_RUN, CancellationOrigin.USER_STOP_RESEARCH_AND_SUMMARIZE, CancellationOrigin.USER_PRIMARY_ONLY -> "user"
             CancellationOrigin.SUPERSEDED_GENERATION -> "superseded"

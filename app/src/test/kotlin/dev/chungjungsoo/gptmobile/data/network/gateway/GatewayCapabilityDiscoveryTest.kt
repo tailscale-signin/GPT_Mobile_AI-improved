@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
+import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import io.ktor.client.HttpClient
@@ -221,6 +222,50 @@ class GatewayCapabilityDiscoveryTest {
             assertEquals("15.0.0", GatewayAPIImpl(network).getCapabilities(selected)?.gatewayVersion)
             assertEquals(2, calls)
             coVerify(exactly = 1) { network.evictIdleConnections() }
+        }
+    }
+
+    @Test fun sharedLocalCooldownKeepsOneReadRetryAndExplicitReconnectCanRecoverImmediately() = runBlocking {
+        LocalServiceHealth.networkChanged()
+        val selected = config.copy(apiUrl = "http://100.64.0.2:29785/v1")
+        var calls = 0
+        var unavailable = true
+        try {
+            HttpClient(
+                MockEngine {
+                    calls++
+                    if (unavailable) throw java.net.ConnectException("Connection refused")
+                    respond("""{"gatewayVersion":"16.0.0","instanceId":"${"c".repeat(32)}"}""")
+                }
+            ).use { http ->
+                val network = mockk<NetworkClient>()
+                every { network.gatewayReadClient() } returns http
+                val api = GatewayAPIImpl(network)
+                assertTrue(runCatching { api.getCapabilities(selected) }.exceptionOrNull() is GatewayCapabilityDiscoveryException)
+                assertEquals("The logical metadata read owns exactly one retry", 2, calls)
+
+                var siblingDispatches = 0
+                val sibling = selected.copy(apiUrl = "http://100.64.0.2:29785/gateway")
+                assertTrue(
+                    runCatching {
+                        gatewayClientExchange(sibling, "ready", safeRead = true) {
+                            siblingDispatches++
+                            "ready"
+                        }
+                    }.isFailure
+                )
+                assertEquals("Another route must reuse the shared transport cooldown", 0, siblingDispatches)
+                assertEquals(2, calls)
+                LocalServiceHealth.requireLocalAvailable("http://100.64.0.2:29786/v1")
+
+                unavailable = false
+                assertEquals("16.0.0", api.getCapabilities(selected, forceRefresh = true)?.gatewayVersion)
+                assertEquals(3, calls)
+                LocalServiceHealth.requireLocalAvailable(sibling.apiUrl)
+                coVerify(exactly = 0) { network.evictIdleConnections() }
+            }
+        } finally {
+            LocalServiceHealth.networkChanged()
         }
     }
 

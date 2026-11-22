@@ -27,6 +27,11 @@ data class WorkspaceRecord(
 
 data class OutcomeRecordKey(val id: String, val chatId: Int, val storedRow: Long, val updatedAt: Long, val messageId: Int? = null)
 
+data class GitHubTimingRun(val runId: String, val createdAtSeconds: Long, val completedAtSeconds: Long?, val status: String)
+data class GitHubTimingInvocation(val runId: String, val startMillis: Long, val durationMillis: Long)
+data class GitHubTimingTool(val runId: String, val startSeconds: Long?, val endSeconds: Long?)
+data class GitHubTimingWait(val runId: String, val checkpoint: String)
+
 @Dao
 interface WorkspaceDao {
     @Query("SELECT * FROM workspace_records WHERE chatId = :chatId AND kind = 'github_evidence' ORDER BY updatedAt DESC LIMIT 80")
@@ -37,6 +42,19 @@ interface WorkspaceDao {
 
     @Query("SELECT r.status FROM workspace_records w JOIN agent_runs r ON r.run_id=w.runId AND r.chat_id=w.chatId WHERE w.chatId=:chatId AND w.id IN (:snapshot,:contract) ORDER BY CASE WHEN w.id=:snapshot THEN 0 ELSE 1 END LIMIT 1")
     suspend fun taskSnapshotRunState(chatId: Int, snapshot: String, contract: String): String?
+
+    // Timing inspection loads bounded scalar metadata, never archived tool results or model output.
+    @Query("SELECT DISTINCT r.run_id AS runId, r.created_at AS createdAtSeconds, r.completed_at AS completedAtSeconds, r.status FROM workspace_records w JOIN agent_runs r ON r.run_id=w.runId AND r.chat_id=w.chatId WHERE w.chatId=:chatId AND substr(w.id,1,length(:prefix))=:prefix ORDER BY r.created_at, r.run_id LIMIT 65")
+    suspend fun githubTimingRuns(chatId: Int, prefix: String): List<GitHubTimingRun>
+
+    @Query("SELECT parentRunId AS runId, startedAt AS startMillis, durationMs AS durationMillis FROM model_invocations WHERE parentRunId IN (:runIds) AND durationMs>0 AND status!='NOT_DISPATCHED' ORDER BY startedAt, id LIMIT 4097")
+    suspend fun githubTimingInvocations(runIds: List<String>): List<GitHubTimingInvocation>
+
+    @Query("SELECT run_id AS runId, started_at AS startSeconds, completed_at AS endSeconds FROM tool_events WHERE run_id IN (:runIds) AND tool_name!='github_decide' AND substr(tool_name,1,15)!='github_decide__' AND started_at IS NOT NULL AND completed_at IS NOT NULL ORDER BY started_at, event_id LIMIT 4097")
+    suspend fun githubTimingTools(runIds: List<String>): List<GitHubTimingTool>
+
+    @Query("SELECT w.runId, substr(w.checkpoint,1,262145) AS checkpoint FROM provider_waits w JOIN agent_runs r ON r.run_id=w.runId AND r.ownership_fence=w.fence WHERE w.runId IN (:runIds) ORDER BY w.runId")
+    suspend fun githubTimingWaits(runIds: List<String>): List<GitHubTimingWait>
 
     @Query("SELECT w.id, w.chatId, w.rowid AS storedRow, w.updatedAt, CASE WHEN m.current_run_id=r.run_id THEN r.assistant_message_id ELSE r.user_message_id END AS messageId FROM workspace_records w JOIN chats_v2 c ON c.chat_id=w.chatId LEFT JOIN agent_runs r ON r.run_id=w.runId AND r.chat_id=c.chat_id AND r.display_role != 'INTERNAL' LEFT JOIN messages_v2 m ON m.message_id=r.assistant_message_id AND m.chat_id=c.chat_id WHERE c.is_temporary=0 AND w.rowid<:beforeRow AND ((w.kind='github_evidence' AND w.id GLOB 'github-evidence:*:ev_*') OR (w.kind='github_engineering_memory' AND (w.id GLOB 'engineering:*:decision:*' OR w.id GLOB 'engineering:*:feedback:*'))) ORDER BY w.rowid DESC LIMIT 64")
     suspend fun outcomeEvidenceKeys(beforeRow: Long): List<OutcomeRecordKey>

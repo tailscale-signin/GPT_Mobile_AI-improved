@@ -28,6 +28,51 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun providerRecoveryRetainsCompletedReadAndItsDigestMismatchWithoutRedispatch() = runBlocking {
+        val file = File.createTempFile("provider-boundary", ".json").apply { delete() }
+        try {
+            val call = ProviderEvent.ToolCall("read", "github_read", JsonObject(emptyMap()))
+            val journal = ToolBatchCheckpoint(file, "same-grant")
+            journal.enqueue(listOf(call))
+            journal.execute(call) { AgentToolResult(call.callId, ToolResultContent.Text("Protected source"), false) }
+            val receipts = GitHubProviderReplayEvidence.receipts(journal.recoverySnapshot().completedExchanges)
+            val digest = requireNotNull(GitHubProviderReplayEvidence.journalDigest(receipts))
+            journal.markConsumed(setOf(call.callId))
+            val restored = ToolBatchCheckpoint(file, "same-grant", expectedProviderJournalDigest = digest)
+            assertEquals(setOf(call.callId), restored.recoverySnapshot().consumedCallIds)
+            assertTrue(restored.execute(call) { error("A settled read must not dispatch again") }.sharedResult)
+            val bytes = file.readText()
+            val failure = runCatching { ToolBatchCheckpoint(file, "same-grant", expectedProviderJournalDigest = "f".repeat(64)).recoverySnapshot() }.exceptionOrNull() as ProviderRecoveryFailure
+            assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", failure.code)
+            assertEquals(JsonPrimitive("TOOL_JOURNAL_CHANGED"), failure.correlation["checkpoint_mismatch_reason"])
+            assertEquals(JsonPrimitive(digest), failure.correlation["observed_tool_journal_digest"])
+            assertEquals(JsonPrimitive(1), failure.correlation["settled_tool_count"])
+            assertTrue(!failure.correlation.toString().contains("Protected source"))
+            assertEquals(bytes, file.readText())
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun providerRecoveryReportsQueuedAndUnknownCallsSeparatelyAndKeepsBothUndispatched() = runBlocking {
+        for (started in listOf(false, true)) {
+            val file = File.createTempFile("unsettled-provider", ".json").apply { delete() }
+            try {
+                val call = ProviderEvent.ToolCall("write", "github_write", JsonObject(emptyMap()))
+                val journal = ToolBatchCheckpoint(file, "same-grant")
+                journal.enqueue(listOf(call))
+                if (started) runCatching { journal.execute(call) { throw java.io.IOException("Lost write response") } }
+                val failure = runCatching { ToolBatchCheckpoint(file, "same-grant", expectedProviderJournalDigest = "f".repeat(64)).recoverySnapshot() }.exceptionOrNull() as ProviderRecoveryFailure
+                assertEquals(if (started) "PROVIDER_WAIT_OUTCOME_UNKNOWN" else "PROVIDER_WAIT_CHECKPOINT_CHANGED", failure.code)
+                assertEquals(JsonPrimitive(if (started) "TOOL_OUTCOME_UNKNOWN" else "TOOL_RESULTS_PENDING"), failure.correlation["checkpoint_mismatch_reason"])
+                assertEquals(JsonPrimitive(1), failure.correlation[if (started) "unsettled_tool_count" else "queued_tool_count"])
+                assertEquals(JsonPrimitive(false), failure.event().failureDetails?.get("request_replay_allowed"))
+            } finally {
+                file.delete()
+            }
+        }
+    }
+
     @Test fun normalizedInvocationRetainsOriginalProviderWireAcrossRestartWithoutReplayingCompletedAction() = runBlocking {
         val file = File.createTempFile("normalized-invocation", ".json").apply { delete() }
         try {

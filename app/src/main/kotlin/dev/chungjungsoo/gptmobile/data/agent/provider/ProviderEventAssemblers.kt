@@ -111,9 +111,16 @@ class OpenAIResponsesEventAssembler {
             }
         }
 
-        is ResponseFailedEvent -> listOf(ProviderEvent.Failed(event.response.error?.message ?: "Response failed", errorCode = event.response.error?.code))
+        is ResponseFailedEvent -> {
+            val error = event.response.error
+            val failure = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(error?.code, error?.message ?: "Response failed", error?.type)
+            listOf(ProviderEvent.Failed(failure.message, errorCode = failure.code, failureDetails = failure.failureDetails))
+        }
 
-        is ResponseErrorEvent -> listOf(ProviderEvent.Failed(event.message, errorCode = event.code, providerLimit = event.providerLimit, failureDetails = event.failureDetails))
+        is ResponseErrorEvent -> {
+            val failure = if (event.failureDetails != null || event.providerLimit != null) event else dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(event.code, event.message)
+            listOf(ProviderEvent.Failed(failure.message, errorCode = failure.code, providerLimit = failure.providerLimit, failureDetails = failure.failureDetails))
+        }
 
         is ResponseCompletedEvent -> buildList {
             event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens, reasoningTokens = (it.outputTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { count -> count >= 0 })) }

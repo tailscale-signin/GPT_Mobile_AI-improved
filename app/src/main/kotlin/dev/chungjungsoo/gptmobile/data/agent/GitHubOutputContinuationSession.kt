@@ -28,6 +28,7 @@ internal class GitHubOutputContinuationSession(
     private val maxCharacters: Int = 1_048_576,
     private val continuationRevision: String = "",
     private val recoveryRevision: String = "",
+    private val maxNoOutputRepairs: Int = 1,
     private val expectedProviderCheckpoint: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint? = null,
     private val checkpointContext: JsonObject = JsonObject(emptyMap()),
     val toolCheckpointBinding: String? = null,
@@ -121,7 +122,7 @@ internal class GitHubOutputContinuationSession(
             return@flow
         }
         if (sameEvidence && previous?.get("state") == JsonPrimitive("BLOCKED_NO_PROGRESS") && !revised) {
-            emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_PROGRESS: The saved draft is blocked because its unchanged continuation added no new work. Change the request or supported output configuration before resuming.", errorCode = "OUTPUT_CONTINUATION_NO_PROGRESS", taskOutcome = "BLOCKED"))
+            emit(GitHubNoOutputProgress.savedFailure(previous))
             return@flow
         }
         val handoff = previous?.takeIf {
@@ -156,13 +157,14 @@ internal class GitHubOutputContinuationSession(
         val draftLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
         if (draft.isNotEmpty()) draftLineage.append(dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT))
         var attempts = if (revised) 0 else (restored?.get("continuations") as? JsonPrimitive)?.intOrNull ?: 0
+        val noOutputProgress = GitHubNoOutputProgress(restored, revised, maxNoOutputRepairs)
         require(draft.length <= maxCharacters && attempts in 0..maxContinuations) { "Saved GitHub continuation is invalid; no generation was dispatched." }
         var active = delegate
         var needsContinuation = restored != null
         var claimContinuation = restored != null &&
             handoff == null &&
             (restored["resume_kind"] == JsonPrimitive("OUTPUT_CONTINUATION") || restored["resume_kind"] == null && restored["state"] == JsonPrimitive("OUTPUT_LIMIT"))
-        var interruptedContinuation = restored != null && handoff == null && !claimContinuation
+        var interruptedContinuation = restored != null && handoff == null && !claimContinuation && restored["state"] != JsonPrimitive("NO_OUTPUT_REPAIR")
         var interruptionAttempts = if (previous?.get("recovery_revision") == JsonPrimitive(recoveryRevision)) {
             (previous["interruption_attempts"] as? JsonPrimitive)?.intOrNull?.coerceIn(0, GitHubTaskRecovery.MAX_CONNECTION_RECOVERIES) ?: 0
         } else {
@@ -188,7 +190,8 @@ internal class GitHubOutputContinuationSession(
             settledCallIds,
             claimContinuation,
             pendingApproval,
-            needsContinuation
+            needsContinuation,
+            noOutputProgress.checkpoint()
         )
 
         if (pendingApproval || unresolvedOutcome) {
@@ -252,8 +255,27 @@ internal class GitHubOutputContinuationSession(
                 if (claimContinuation) attempts++
                 if (interruptedContinuation) interruptionAttempts++
                 // Claim before dispatch so process death cannot replenish the allowance.
-                save(if (claimContinuation) "OUTPUT_LIMIT" else "GENERATING", resumable = true)
-                emit(ProviderEvent.Notice(if (claimContinuation) "Continuing the saved GitHub draft ($attempts/$maxContinuations); unfinished operations keep their authorized tools." else "Resuming the saved GitHub draft with the confirmed tool results.", false))
+                val repairingNoOutput = currentCheckpoint?.get("state") == JsonPrimitive("NO_OUTPUT_REPAIR")
+                save(
+                    if (claimContinuation) {
+                        "OUTPUT_LIMIT"
+                    } else if (repairingNoOutput) {
+                        "NO_OUTPUT_REPAIR"
+                    } else {
+                        "GENERATING"
+                    },
+                    resumable = true
+                )
+                emit(
+                    ProviderEvent.Notice(
+                        when {
+                            repairingNoOutput -> "The provider returned no usable answer or tool action. Continuing once from the saved task and confirmed results."
+                            claimContinuation -> "Continuing the saved GitHub draft ($attempts/$maxContinuations); unfinished operations keep their authorized tools."
+                            else -> "Resuming the saved GitHub draft with the confirmed tool results."
+                        },
+                        false
+                    )
+                )
                 active = try {
                     reopen(draft, exchanges, tools)
                 } catch (cancelled: CancellationException) {
@@ -264,6 +286,7 @@ internal class GitHubOutputContinuationSession(
                         it is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException ||
                             it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
                             it is SavedEvidenceAccessDenied ||
+                            it is dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict ||
                             it is ProviderRecoveryFailure
                     }
                     if (authorityFailure != null) throw authorityFailure
@@ -319,9 +342,20 @@ internal class GitHubOutputContinuationSession(
                 !GatewayOutcomeRecovery.requiresReconciliation(failure?.message.orEmpty(), failure?.errorCode) &&
                 (failure?.transportComplete == true || failure == null && completed) &&
                 continuationPermitted
-            if (limited && safeBoundary && needsContinuation && novel.isBlank()) {
-                save("BLOCKED_NO_PROGRESS")
-                emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_PROGRESS: The provider exhausted its output without adding to the saved draft. Change the request or supported output capacity before resuming.", errorCode = "OUTPUT_CONTINUATION_NO_PROGRESS", taskOutcome = "BLOCKED"))
+            if (safeBoundary && novel.isBlank() && (limited || failure == null && completed)) {
+                val repair = noOutputProgress.observe(generated.text, draft, generated.reasoningBytes, finishReason, generated.invocationId, evidenceDigest, limited)
+                if (repair) {
+                    needsContinuation = true
+                    claimContinuation = false
+                    interruptedContinuation = false
+                    // Claim before opening the next request; process death cannot
+                    // replenish this allowance or replay a completed tool action.
+                    save("NO_OUTPUT_REPAIR", resumable = true)
+                    continue
+                }
+                val noProgress = noOutputProgress.failure(draft)
+                save("BLOCKED_NO_PROGRESS", failure = noProgress)
+                emit(noProgress)
                 return@flow
             }
             if (limited && safeBoundary && draft.isNotBlank() && novel.isNotBlank()) {
@@ -359,8 +393,10 @@ internal class GitHubOutputContinuationSession(
                 return@flow
             }
             if (needsContinuation && calls.isEmpty() && novel.isBlank()) {
-                save("BLOCKED_NO_PROGRESS")
-                emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_PROGRESS: The continuation repeated the saved draft without new work. Saved evidence remains available.", errorCode = "OUTPUT_CONTINUATION_NO_PROGRESS", taskOutcome = "BLOCKED"))
+                noOutputProgress.observe(generated.text, draft, generated.reasoningBytes, finishReason, generated.invocationId, evidenceDigest, limited, allowRepair = false)
+                val noProgress = noOutputProgress.failure(draft)
+                save("BLOCKED_NO_PROGRESS", failure = noProgress)
+                emit(noProgress)
                 return@flow
             }
             save(if (calls.isEmpty()) "COMPLETED" else "TOOL_HANDOFF", pendingCalls = calls)
@@ -445,6 +481,8 @@ internal class GitHubOutputContinuationSession(
         var finishReason: String? = null
         var failure: ProviderEvent.Failed? = null
         var receivedToolResult = false
+        var reasoningBytes = 0L
+        val invocationIds = linkedSetOf<String>()
         var savedAt = 0
         try {
             active.streamRound(tools, exchanges).stopAtUnknownGatewayOutcome().withSummedRequestUsage().collect { event ->
@@ -453,6 +491,7 @@ internal class GitHubOutputContinuationSession(
                         check(draft.length.toLong() + segment.length + event.text.length <= maxCharacters) { "GitHub draft exceeded its retention allowance; completed evidence remains saved." }
                         segment.append(publicProgress.accept(event))
                         segmentLineage.append(event.lineage)
+                        event.lineage.invocationId?.let(invocationIds::add)
                         if (segment.length - savedAt >= CHECKPOINT_CHARACTER_INTERVAL) {
                             checkpoint("WRITING", draft + continuationSuffix(draft, segment.toString()), calls.isEmpty() && !receivedToolResult)
                             savedAt = segment.length
@@ -470,6 +509,11 @@ internal class GitHubOutputContinuationSession(
                     }
                     is ProviderEvent.Usage -> {
                         finishReason = event.finishReason ?: finishReason
+                        event.invocationId?.let(invocationIds::add)
+                        emit(event)
+                    }
+                    is ProviderEvent.ThinkingDelta -> {
+                        reasoningBytes = (reasoningBytes + event.text.toByteArray(Charsets.UTF_8).size).coerceAtMost(Int.MAX_VALUE.toLong())
                         emit(event)
                     }
                     is ProviderEvent.Failed -> if (failure == null) failure = event
@@ -492,7 +536,7 @@ internal class GitHubOutputContinuationSession(
             }
             throw error
         }
-        return GeneratedSegment(segment.toString(), segmentLineage.lineage, calls, completed, finishReason, failure, receivedToolResult)
+        return GeneratedSegment(segment.toString(), segmentLineage.lineage, calls, completed, finishReason, failure, receivedToolResult, reasoningBytes, invocationIds.singleOrNull())
     }
 
     private suspend fun loadCheckpointForRound(
@@ -502,7 +546,10 @@ internal class GitHubOutputContinuationSession(
         val saved = readCheckpoint() ?: currentCheckpoint
         if (!providerCheckpointValidated && expectedProviderCheckpoint != null) {
             val resume = kotlinx.coroutines.currentCoroutineContext()[GitHubProviderResumeContext]
-            val correlation = ProviderRecoveryFailure.correlation(expectedProviderCheckpoint, resume?.claimId, resume?.fence, recoveryRevision.takeIf(String::isNotBlank))
+            val correlation = JsonObject(
+                ProviderRecoveryFailure.checkpointCorrelation(expectedProviderCheckpoint, saved) +
+                    ProviderRecoveryFailure.correlation(expectedProviderCheckpoint, resume?.claimId, resume?.fence, recoveryRevision.takeIf(String::isNotBlank))
+            )
             if (saved == null || !expectedProviderCheckpoint.matches(saved)) throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", saved?.let(ProviderRecoveryFailure::interruption), correlation)
             val retained = (saved["completed_results"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             val fingerprints = retained.mapNotNullTo(linkedSetOf()) { (it["invocation_fingerprint"] as? JsonPrimitive)?.contentOrNull } + replayReceipts.map { it.invocationFingerprint }
@@ -516,7 +563,11 @@ internal class GitHubOutputContinuationSession(
                 val blocked = failure.block(saved)
                 if (!withContext(NonCancellable) { saveRecoveryCheckpoint(saved, blocked) }) {
                     currentCheckpoint = readCheckpoint()
-                    throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(saved), correlation)
+                    throw ProviderRecoveryFailure(
+                        "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+                        ProviderRecoveryFailure.interruption(saved),
+                        JsonObject(correlation + ProviderRecoveryFailure.checkpointCorrelation(expectedProviderCheckpoint, currentCheckpoint, "CHECKPOINT_COMPARE_AND_SET_REJECTED"))
+                    )
                 }
                 currentCheckpoint = blocked
                 throw failure
@@ -611,7 +662,8 @@ internal class GitHubOutputContinuationSession(
         settledCallIds: Set<String>,
         claimContinuation: Boolean,
         pendingApproval: Boolean,
-        needsContinuation: Boolean
+        needsContinuation: Boolean,
+        noOutputProgress: JsonObject
     ): JsonObject {
         val checkpoint = buildJsonObject {
             put("schema", "github.output-checkpoint.v1")
@@ -623,6 +675,7 @@ internal class GitHubOutputContinuationSession(
             put("continuation_revision", continuationRevision)
             put("recovery_revision", recoveryRevision)
             put("interruption_attempts", interruptionAttempts)
+            noOutputProgress.forEach { (key, value) -> put(key, value) }
             put("context", checkpointContext)
             put("completed_results", if (state == "WAITING_PROVIDER_LIMIT") bindWaitReceipts(receiptBoundary) else receiptBoundary)
             put("reconciled_call_ids", JsonArray(settledCallIds.sorted().map(::JsonPrimitive)))
@@ -727,7 +780,9 @@ internal class GitHubOutputContinuationSession(
         val completed: Boolean,
         val finishReason: String?,
         val failure: ProviderEvent.Failed?,
-        val receivedToolResult: Boolean
+        val receivedToolResult: Boolean,
+        val reasoningBytes: Long,
+        val invocationId: String?
     )
 
     private data class ContinuationEvidenceDigests(

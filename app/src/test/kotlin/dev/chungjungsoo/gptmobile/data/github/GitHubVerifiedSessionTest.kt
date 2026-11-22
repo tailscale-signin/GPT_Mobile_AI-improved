@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
+import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -43,6 +44,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun immutableCheckpointConflictKeepsItsApplicationFailureClassification() = runBlocking {
+        val conflict = WorkspaceEvidenceConflict("private-record", "a".repeat(64), "b".repeat(64), "IMMUTABLE_PAYLOAD_CHANGED")
+        val book = GitHubEvidenceBook("task", "o/r", "main", emptySet(), save = { _, _ -> throw conflict })
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("No provider dispatch after a failed checkpoint")
+        }
+        val gate = GitHubVerifiedSession(source, book, "Implement the feature", { 8192 }, { error("No verifier dispatch") }, {}, {})
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        val failure = events.last() as ProviderEvent.Failed
+        assertEquals("WORKSPACE_EVIDENCE_CONFLICT", failure.errorCode)
+        assertEquals("BLOCKED", failure.taskOutcome)
+        assertEquals(JsonPrimitive("application_persistence"), failure.failureDetails?.get("failed_stage"))
+        assertTrue(events.none { it is ProviderEvent.TextDelta || it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+        assertFalse(failure.failureDetails.toString().contains("private-record"))
+    }
+
+    @Test fun persistenceFailureCannotReplaceUnknownRemoteOutcomeDuringProgressRetention() = runBlocking {
+        var failStorage = false
+        val conflict = WorkspaceEvidenceConflict("private-record", "a".repeat(64), "b".repeat(64), "IMMUTABLE_PAYLOAD_CHANGED")
+        val book = GitHubEvidenceBook("task", "o/r", "main", emptySet(), save = { _, _ -> if (failStorage) throw conflict })
+        val original = ProviderEvent.Failed(
+            "The remote write outcome is unknown",
+            errorCode = "TOOL_OUTCOME_UNKNOWN",
+            failureDetails = buildJsonObject {
+                put("requires_reconciliation", true)
+                put("request_replay_allowed", false)
+            }
+        )
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                failStorage = true
+                emit(original)
+            }
+        }
+        val gate = GitHubVerifiedSession(source, book, "Implement the feature", { 8192 }, { error("No verifier dispatch") }, {}, {})
+        val failure = gate.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        assertEquals("TOOL_OUTCOME_UNKNOWN", failure.errorCode)
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("requires_reconciliation"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+        assertEquals(JsonPrimitive("WORKSPACE_EVIDENCE_CONFLICT"), (failure.failureDetails?.get("persistence_failure") as JsonObject)["code"])
+    }
+
     @Test fun ordinaryProviderAcquisitionStopsAtVerificationReserveAndRetainsPartialTask() = runTest {
         var verdict: JsonObject? = null
         val book = GitHubEvidenceBook(

@@ -26,12 +26,14 @@ internal data class McpDiscoveryReceipt(val tools: List<Tool>, val source: McpDi
 internal enum class McpDiscoveryTrigger { AUTOMATIC_RESOLUTION, AUTOMATIC_HEALTH, USER_RECONNECT, AUDIT_REFRESH, OAUTH_REFRESH, EXPLICIT_UNSPECIFIED }
 
 internal enum class McpDiscoveryDecision { REQUESTED, PAUSED_CONFIGURATION, PAUSED_AUTHENTICATION, WAITING_BACKOFF, LIVE_CACHE, SHARED_PRODUCER, START_ACQUISITION }
+internal enum class McpCatalogueCacheReason { NOT_EVALUATED, EXPLICIT_REFRESH, MISSING_OR_EXPIRED, IDENTITY_CHANGED, HEALTH_STALE, CATALOGUE_UNVERIFIED, HIT }
 
 /** Only opaque saved-record identity is logged, never endpoint, authorization, or transport key. */
-internal fun mcpDiscoveryDiagnostic(config: McpConnectionConfig, trigger: McpDiscoveryTrigger, force: Boolean, decision: McpDiscoveryDecision): String {
+internal fun mcpDiscoveryDiagnostic(config: McpConnectionConfig, trigger: McpDiscoveryTrigger, force: Boolean, decision: McpDiscoveryDecision, cacheReason: McpCatalogueCacheReason = McpCatalogueCacheReason.NOT_EVALUATED): String {
     val connection = MessageDigest.getInstance("SHA-256").digest(config.connectionUid.toByteArray(Charsets.UTF_8)).take(8).joinToString("") { "%02x".format(it) }
     val revision = config.configurationRevision?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: "unobserved"
-    return "DISCOVERY_REQUEST · connectionHash=$connection · trigger=$trigger · forceRefresh=$force · configurationRevision=$revision · decision=$decision"
+    val invalidation = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation
+    return "DISCOVERY_REQUEST · connectionHash=$connection · trigger=$trigger · forceRefresh=$force · configurationRevision=$revision · decision=$decision · cacheReason=$cacheReason · catalogueEpoch=${invalidation.catalogueEpoch} · networkEpoch=${dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch} · invalidationReason=${invalidation.catalogueReason}"
 }
 
 /** Schema shape only: arbitrary keys, server descriptions and malformed values never enter logs. */

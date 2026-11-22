@@ -20,6 +20,25 @@ data class DiagnosticExportMemory(
     val freedBytes: Long? = null,
     val nativeGcSampledAtMillis: Long? = null
 ) {
+    /** Correlation only: other app work may allocate or collect during this interval. */
+    fun intervalSince(before: DiagnosticExportMemory): JsonObject = buildJsonObject {
+        val from = before.nativeGcSampledAtMillis ?: before.capturedAtMillis
+        val to = nativeGcSampledAtMillis ?: capturedAtMillis
+        val fresh = to > from
+        fun delta(start: Long?, end: Long?): JsonPrimitive? =
+            if (fresh && start != null && end != null && end >= start) JsonPrimitive(end - start) else null
+        put("measurementScope", "PROCESS_WIDE_DURING_STAGE")
+        put("attribution", "CORRELATED_NOT_EXCLUSIVE")
+        put("counterIntervalMillis", (to - from).takeIf { it > 0 }?.let(::JsonPrimitive) ?: JsonNull)
+        put("freshCounterSamples", fresh)
+        put("javaUsedDeltaBytes", javaUsedBytes - before.javaUsedBytes)
+        put("allocatedDeltaBytes", delta(before.allocatedBytes, allocatedBytes) ?: JsonNull)
+        put("freedDeltaBytes", delta(before.freedBytes, freedBytes) ?: JsonNull)
+        put("gcCountDelta", delta(before.gcCount, gcCount) ?: JsonNull)
+        put("gcTimeDeltaMillis", delta(before.gcTimeMillis, gcTimeMillis) ?: JsonNull)
+        put("counterReset", listOf(before.allocatedBytes to allocatedBytes, before.freedBytes to freedBytes, before.gcCount to gcCount, before.gcTimeMillis to gcTimeMillis).any { (start, end) -> start != null && end != null && end < start })
+    }
+
     fun json(): JsonObject = buildJsonObject {
         put("capturedAtMillis", capturedAtMillis)
         put("javaMaxBytes", javaMaxBytes)

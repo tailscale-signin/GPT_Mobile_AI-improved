@@ -55,9 +55,9 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
 
     companion object {
         val CODES = setOf("PROVIDER_WAIT_CHECKPOINT_CHANGED", "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", "PROVIDER_WAIT_OUTCOME_UNKNOWN", "PROVIDER_WAIT_TASK_CHANGED", "PROVIDER_WAIT_CHECKPOINT_INVALID", "PROVIDER_WAIT_INPUT_CHANGED", "PROVIDER_WAIT_PREFIX_CHANGED", "PROVIDER_WAIT_REVIEW_REQUIRED", "RESEARCH_RECOVERY_ACTION_CHANGED")
-        private val CORRELATION_KEYS = setOf("checkpoint_binding", "checkpoint_digest", "resume_claim_id", "ownership_fence", "run_id", "observed_checkpoint_digest", "observed_checkpoint_state", "checkpoint_mismatch_reason")
-        val CHECKPOINT_MISMATCH_REASONS = setOf("MISSING_CHECKPOINT", "STATE_CHANGED", "RESUME_DISALLOWED", "DIGEST_CHANGED", "TASK_BINDING_CHANGED", "TOOL_BINDING_CHANGED", "EVIDENCE_DIGEST_INVALID")
-        val CHECKPOINT_STATES = setOf("WAITING_PROVIDER_LIMIT", "TOOL_RESULTS_READY", "TOOL_HANDOFF", "BLOCKED_RECOVERY", "COMPLETED", "PARTIAL", "FAILED", "UNKNOWN")
+        private val CORRELATION_KEYS = setOf("checkpoint_binding", "checkpoint_digest", "resume_claim_id", "ownership_fence", "run_id", "observed_checkpoint_digest", "observed_checkpoint_state", "checkpoint_mismatch_reason", "expected_tool_journal_digest", "observed_tool_journal_digest", "expected_tool_evidence_digest", "observed_tool_evidence_digest", "tool_checkpoint_binding_sha256", "queued_tool_count", "unsettled_tool_count", "settled_tool_count", "checkpoint_validation_stage")
+        val CHECKPOINT_MISMATCH_REASONS = setOf("MISSING_CHECKPOINT", "STATE_CHANGED", "RESUME_DISALLOWED", "DIGEST_CHANGED", "TASK_BINDING_CHANGED", "TOOL_BINDING_CHANGED", "EVIDENCE_DIGEST_INVALID", "TOOL_OUTCOME_UNKNOWN", "TOOL_RESULTS_PENDING", "TOOL_JOURNAL_CHANGED", "TOOL_RECEIPTS_CHANGED", "TOOL_JOURNAL_CHANGED_DURING_RESTORE", "RECOVERY_OWNER_UNAVAILABLE", "CHECKPOINT_COMPARE_AND_SET_REJECTED")
+        val CHECKPOINT_STATES = setOf("WAITING_PROVIDER_LIMIT", "TOOL_RESULTS_READY", "TOOL_HANDOFF", "BLOCKED_RECOVERY", "COMPLETED", "PARTIAL", "FAILED", "GENERATING", "WRITING", "NO_OUTPUT_REPAIR", "OUTPUT_LIMIT", "INTERRUPTED", "BLOCKED_NO_PROGRESS", "UNKNOWN")
 
         fun checkpointCorrelation(expected: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint, observed: JsonObject?, reason: String? = null): JsonObject = buildJsonObject {
             correlation(expected, null, null, null).forEach { (key, value) -> put(key, value) }
@@ -114,8 +114,8 @@ internal class ProviderRecoveryFailure(val code: String, val original: JsonObjec
             }
         }
 
-        fun require(condition: Boolean, code: String) {
-            if (!condition) throw ProviderRecoveryFailure(code)
+        fun require(condition: Boolean, code: String, correlation: JsonObject = JsonObject(emptyMap())) {
+            if (!condition) throw ProviderRecoveryFailure(code, correlation = correlation)
         }
     }
 }

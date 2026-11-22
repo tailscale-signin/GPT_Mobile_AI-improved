@@ -463,6 +463,7 @@ PHASES = {
     'gateway_recovery',
     'inventory_pagination',
     'lifecycle',
+    'application_persistence',
     'message_admission',
     'model_invocation',
     'provider_wait',
@@ -674,8 +675,59 @@ ENUMS.update({
 })
 
 
+
+# Same-failure, closed evidence for durable recovery and semantic stream failures.
+EXECUTION_COMPLETION_FEATURE = 'EXECUTION_COMPLETION_EVIDENCE_V1'
+EXECUTION_COMPLETION_CODES = {'WORKSPACE_EVIDENCE_CONFLICT', 'BILLING_UNAVAILABLE', 'PROVIDER_CONTENT_POLICY', 'PROVIDER_GENERATION_FAILED'}
+EXECUTION_COMPLETION_HASHES = {
+    'no_output_draft_hash', 'no_output_segment_hash', 'no_output_evidence_hash',
+    'evidence_record_hash', 'evidence_proposed_payload_hash', 'evidence_retained_payload_hash',
+    'provider_wait_expected_tool_journal_hash', 'provider_wait_observed_tool_journal_hash',
+    'provider_wait_expected_tool_evidence_hash', 'provider_wait_observed_tool_evidence_hash', 'provider_wait_tool_binding_hash',
+}
+EXECUTION_COMPLETION_COUNTS = {
+    'no_output_visible_bytes', 'no_output_reasoning_bytes', 'no_output_tool_call_count',
+    'no_output_repairs', 'no_output_repair_limit',
+    'provider_wait_queued_tool_count', 'provider_wait_unsettled_tool_count', 'provider_wait_settled_tool_count',
+}
+EXECUTION_COMPLETION_UPSTREAM_CODES = {
+    '402', 'insufficient_quota', 'insufficient_credits', 'budget_exceeded', 'credit_limit_exceeded', 'kudosupfront', 'sharedkeyempty',
+    '500', '502', '503', '504', 'server_error', 'internal_error', 'internal_server_error', 'service_unavailable', 'overloaded_error', 'api_error', 'processing_error',
+    'invalid_api_key', 'authentication_error', 'permission_denied', 'model_access_denied', 'route_forbidden', 'anonforbidden', 'noworkers', 'no_valid_workers',
+    'context_window_exceeded', 'context_length_exceeded', 'rate_limit_exceeded', 'tokens_limit_exceeded', 'rate_limit_error', 'content_policy_violation', 'content_filter', 'safety_blocked',
+}
+EXECUTION_COMPLETION_ENUMS = {
+    'no_output_kind': {'REASONING_ONLY', 'EMPTY_VISIBLE_COMPLETION', 'DUPLICATE_DRAFT', 'OUTPUT_LIMIT_WITHOUT_NOVELTY'},
+    'evidence_conflict_reason': {'IMMUTABLE_PAYLOAD_CHANGED', 'RETAINED_PAYLOAD_UNAVAILABLE', 'CONCURRENT_APPEND_CONFLICT'},
+    'provider_failure_kind': {'AUTHENTICATION', 'BUDGET', 'PERMISSION', 'CONTENT_POLICY', 'FORBIDDEN_UNKNOWN', 'RATE_LIMIT', 'UNAVAILABLE', 'UNKNOWN'},
+    'upstream_error_code': EXECUTION_COMPLETION_UPSTREAM_CODES,
+    'upstream_error_type': EXECUTION_COMPLETION_UPSTREAM_CODES,
+    'checkpoint_validation_stage': {'TOOL_JOURNAL'},
+    'provider_wait_decision_state': {'ELIGIBLE', 'INELIGIBLE', 'ROUTE_MISMATCH', 'DURABLE_WAIT', 'NOT_SCHEDULED', 'PERSISTENCE_UNCERTAIN'},
+    'provider_wait_scheduler_state': {'ENQUEUED', 'PENDING_RECONCILIATION', 'NOT_SCHEDULED'},
+    'provider_wait_no_wait_reason': {
+        'DECISION_UNAVAILABLE', 'REJECTION_NOT_REPLAY_SAFE', 'RETRY_LIMIT_REACHED', 'CONNECTIVITY_RESUME_UNSAFE',
+        'RESEARCH_CHECKPOINT_INVALID', 'ROUTE_MISMATCH', 'RUN_UNAVAILABLE', 'MESSAGE_UNAVAILABLE', 'OWNER_CHANGED',
+        'CHECKPOINT_UNAVAILABLE', 'CHECKPOINT_CHANGED', 'REMOTE_JOB_PRESENT', 'INITIAL_OUTPUT_PRESENT',
+        'CONTINUATION_PREFIX_CHANGED', 'COMBINED_SNAPSHOT_INVALID', 'COMBINED_RESUME_UNSAFE', 'AUTHORITY_UNAVAILABLE',
+        'AUTHORITY_CHANGED', 'PROFILE_UNAVAILABLE', 'INPUT_UNAVAILABLE', 'TASK_SOURCE_UNAVAILABLE', 'TASK_SOURCE_INVALID',
+        'DEADLINE_EXPIRED', 'PERSISTENCE_REJECTED', 'PERSISTENCE_FAILED', 'PERSISTENCE_OUTCOME_UNKNOWN',
+        'WAIT_STORE_UNAVAILABLE', 'MESSAGE_CHECKPOINT_FAILED', 'WAIT_PREPARATION_FAILED',
+    },
+}
+EXECUTION_COMPLETION_FIELDS = EXECUTION_COMPLETION_HASHES | EXECUTION_COMPLETION_COUNTS | set(EXECUTION_COMPLETION_ENUMS) | {'provider_semantic_status', 'no_output_repair_scheduled', 'provider_wait_state', 'provider_wait_persisted'}
+HASHES.update(EXECUTION_COMPLETION_HASHES)
+FLAGS.add('no_output_repair_scheduled')
+ENUMS.update(EXECUTION_COMPLETION_ENUMS)
+ENUMS['checkpoint_mismatch_reason'].update({
+    'TOOL_OUTCOME_UNKNOWN', 'TOOL_RESULTS_PENDING', 'TOOL_JOURNAL_CHANGED', 'TOOL_RECEIPTS_CHANGED',
+    'TOOL_JOURNAL_CHANGED_DURING_RESTORE', 'RECOVERY_OWNER_UNAVAILABLE', 'CHECKPOINT_COMPARE_AND_SET_REJECTED',
+})
+ENUMS['observed_checkpoint_state'].update({'GENERATING', 'WRITING', 'NO_OUTPUT_REPAIR', 'OUTPUT_LIMIT', 'INTERRUPTED', 'BLOCKED_NO_PROGRESS'})
+
+
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | {LAST_UNSENT_CODE} | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS, 'INCIDENT': {'github_prerequisite_observation', 'app_search_readiness'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | (EXECUTION_COMPLETION_FIELDS if area in {'INCIDENT', 'PROVIDER'} else set()) | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | {LAST_UNSENT_CODE} | INVENTORY_PAGINATION_FIELDS | PR_CONTEXT_RACE_FIELDS, 'INCIDENT': {'github_prerequisite_observation', 'app_search_readiness'} | COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': {'github_prerequisite_observation'} | ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
@@ -722,6 +774,10 @@ def valid_value(key, value):
         return type(value) is bool
     if type(value) is not int:
         return False
+    if key in EXECUTION_COMPLETION_COUNTS:
+        return 0 <= value <= 2_147_483_647
+    if key == 'provider_semantic_status':
+        return value == 429
     if key == 'voice_pronunciation_unknown_word_length':
         return 1 <= value <= 256
     if key in {'retry_delay_ms', 'privacy_metadata_age_ms', 'mcp_health_age_ms'}:

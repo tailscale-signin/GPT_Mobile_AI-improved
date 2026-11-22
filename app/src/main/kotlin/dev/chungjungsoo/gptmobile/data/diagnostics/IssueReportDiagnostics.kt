@@ -58,6 +58,14 @@ internal data class IssueReportDiagnostics(
         }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values.keys + omittedFields + unavailableFields).any { it in ExecutionCompletionDiagnostics.newFields || it in ExecutionCompletionDiagnostics.deadlineFields } ||
+            (values["provider_wait_decision_state"] as? JsonPrimitive)?.contentOrNull in ExecutionCompletionDiagnostics.newWaitStates ||
+            area == "INCIDENT" &&
+            "provider_wait_decision_state" in values.keys + omittedFields ||
+            values["tool_reason_code"] == JsonPrimitive("GITHUB_SEARCH_FUZZY_QUERY_INVALID")
+        ) {
+            add(ExecutionCompletionDiagnostics.FEATURE)
+        }
         if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.conversationRecoveryFields } ||
             values["incident_capture_site"] in setOf(JsonPrimitive("GITHUB_VERIFICATION_CATCH"), JsonPrimitive("OUTPUT_CONTINUATION_OPEN_CATCH")) ||
             values["catalog_selector_state"] == JsonPrimitive("NAMES_NULL") ||
@@ -336,7 +344,7 @@ internal data class IssueReportDiagnostics(
             "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash", "gateway_manifest_hash", "gateway_operation_id_hash", "operation_id_hash"
         )
         private val hashLists = setOf("unmet_criterion_id_hashes", "unmet_criterion_reason_hashes")
-        private val flags = profileSelectionFlags + setOf("payload_replan_allowed") + setOf(
+        private val flags = profileSelectionFlags + setOf("payload_replan_allowed", "task_deadline_renewed") + setOf(
             "gateway_model_advertised", "gateway_model_loaded",
             "native_trace_truncated", "search_explicit_mode", "round_catalog_discovery_available",
             "acceptance_fixture_creation_admissible", "acceptance_acquisition_allowed", "status_branch_protected", "status_policy_complete",
@@ -376,7 +384,7 @@ internal data class IssueReportDiagnostics(
         )
         private val finishReasons = setOf("STOP", "TOOL_CALLS", "LENGTH", "CONTENT_FILTER", "OTHER", "UNKNOWN")
         private val enums = mapOf(
-            "provider_wait_decision_state" to setOf("NOT_RECORDED", "ROUTE_MISMATCH", "ELIGIBLE", "INELIGIBLE"),
+            "provider_wait_decision_state" to dev.chungjungsoo.gptmobile.data.agent.ProviderWaitSchedulingResult.decisionStates + "NOT_RECORDED",
             "dispatch_gateway_selection_change" to setOf("SELECTED", "CLEARED", "REPLACED"),
             "read_handle_kind" to setOf("SAVED_CURSOR", "NO_HANDLE", "DIGEST_SHAPED", "VERIFICATION_RECEIPT", "NONCANONICAL_HANDLE"),
             "native_trace_format" to setOf("text", "protobuf", "binary", "unknown"),
@@ -400,6 +408,7 @@ internal data class IssueReportDiagnostics(
             "catalog_selector_state" to setOf("MIXED_INVENTORY_SELECTORS", "ACTION_NOT_STRING", "ACTION_WITHOUT_NAMES", "NAMES_NOT_ARRAY", "NAMES_NULL", "NAMES_CONTAIN_NON_STRING", "ACTION_REQUIRES_ONE_NAME", "OTHER_SCHEMA_CONSTRAINT"),
             "task_deadline_check" to GitHubExecutionLimits.DeadlineCheck.entries.map { it.name }.toSet(),
             "task_deadline_observation" to GitHubAcceptanceRecoveryEvidence.deadlineObservations,
+            "task_deadline_clock" to setOf("WALL_CLOCK"),
             "acceptance_preparation_state" to GitHubAcceptanceRecoveryEvidence.preparationStates,
             "status_policy_recovery_hint" to GitHubAcceptanceRecoveryEvidence.policyRecoveryHints,
             "acceptance_pagination_mode" to setOf("COMPLETE_INVENTORY_REQUESTED", "BOUNDED_SMOKE_SAMPLE"),
@@ -433,7 +442,7 @@ internal data class IssueReportDiagnostics(
 
             "provider_failure_stage" to setOf("ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"),
             "provider_failure_domain" to setOf("PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"),
-            "provider_failure_code" to GatewayCapabilityFailureEvidence.codes + reconciliationCodes + selectedModelFailureCodes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES + setOf("GITHUB_VERIFICATION_INTERNAL_ERROR", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "REQUEST_BYTES_EXCEEDED", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE),
+            "provider_failure_code" to ExecutionCompletionDiagnostics.codes + GatewayCapabilityFailureEvidence.codes + reconciliationCodes + selectedModelFailureCodes + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES + setOf("GITHUB_VERIFICATION_INTERNAL_ERROR", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_CONTINUATION_NO_PROGRESS", "PROVIDER_INVOCATION_FAILED", "BUDGET_RESTRICTED", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_TOOL_CONTEXT_BUDGET", "TOOL_PROTOCOL_INVALID_FRAME", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "REQUEST_BYTES_EXCEEDED", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION", PrivacyFailureEvidence.CODE),
             GatewayCapabilityFailureEvidence.KIND to GatewayCapabilityFailureEvidence.kinds,
             GatewayCapabilityFailureEvidence.DECODE_REASON to GatewayCapabilityFailureEvidence.decodeReasons,
             "privacy_reason_code" to PrivacyFailureEvidence.reasonCodes,
@@ -445,7 +454,7 @@ internal data class IssueReportDiagnostics(
             "action_only_validation" to setOf("NO_RECEIPT", "CALL_BOUND_VALIDATOR", "VALIDATOR_CALL_MISMATCH", "NO_VALIDATOR_ID"),
             "tool_action" to setOf("stage", "agent_merge_status", "agent_merge_enable", "agent_merge_update", "agent_merge_disable", "status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch"),
             "tool_error_code" to setOf("APP_ERROR", "DNS_RESOLUTION_FAILED", "TOOL_FAILURE", "TOOL_PRECHECK_FAILED", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "EVIDENCE_UNAVAILABLE", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "GITHUB_PR_HEAD_CHANGED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED"),
-            "tool_reason_code" to setOf("GITHUB_PATH_NOT_FOUND", "BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "TOOL_PRECHECK_FAILED", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH", "GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER"),
+            "tool_reason_code" to setOf("GITHUB_PATH_NOT_FOUND", "BUDGET_EXHAUSTED", "COMBINED_BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "TOOL_PRECHECK_FAILED", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "SAVED_VIEW_CURSOR_MALFORMED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "GITHUB_REPOSITORY_INPUT_REJECTED", "GITHUB_CI_RUN_SELECTOR_REQUIRED", "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE", "GITHUB_SEARCH_QUERY_EMPTY", "GITHUB_SEARCH_QUERY_TOO_LONG", "GITHUB_SEARCH_FUZZY_QUERY_INVALID", "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH", "GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER"),
             "tool_dispatch_phase" to setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED"),
             "chat_failure_code_state" to setOf("ABSENT", "KNOWN", "UNRECOGNIZED"),
             // These states come from the actual OpenAI-compatible stream error
@@ -722,7 +731,7 @@ internal data class IssueReportDiagnostics(
                 "voice_install_progress_percent" -> 0L..100L
                 "voice_install_downloaded_bytes", "voice_install_total_bytes" -> 0L..1_000_000_000L
                 "voice_install_http_status", "status_policy_protection_http_status", "status_policy_rules_http_status" -> 100L..599L
-                "task_deadline_window_seconds", "task_deadline_overdue_seconds", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum",
+                "task_deadline_window_seconds", "task_deadline_overdue_seconds", "task_deadline_elapsed_seconds", "task_deadline_remaining_seconds", "acceptance_cleanup_reserve", "acceptance_fixture_start_minimum",
                 "acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_additional_blocked_family_count" -> 0L..16_000_000L
                 "backend_terminal_status", "gateway_http_status", "gateway_upstream_status", "gateway_reconciliation_status", "branch_protection_http_status", "branch_rules_http_status" -> 100L..599L
                 "gateway_protocol_version" -> 1L..1000L

@@ -8,7 +8,14 @@ internal const val PARAGRAPH_PAGE_CHARACTERS = 3072
 internal fun paragraphPages(text: AnnotatedString, limit: Int = PARAGRAPH_PAGE_CHARACTERS): List<AnnotatedString> {
     require(limit >= 2)
     if (text.length <= limit) return listOf(text)
-    val pages = mutableListOf<AnnotatedString>()
+    return paragraphPageRanges(text, limit).map { text.subSequence(it.first, it.last + 1) }
+}
+
+/** Retain only offsets until a page is visible; hidden pages need no copied spans or link objects. */
+internal fun paragraphPageRanges(text: CharSequence, limit: Int = PARAGRAPH_PAGE_CHARACTERS): List<IntRange> {
+    require(limit >= 2)
+    if (text.length <= limit) return listOf(0 until text.length)
+    val pages = mutableListOf<IntRange>()
     var start = 0
     while (start < text.length) {
         var end = minOf(text.length, start + limit)
@@ -19,7 +26,7 @@ internal fun paragraphPages(text: AnnotatedString, limit: Int = PARAGRAPH_PAGE_C
             if (boundary != null) end = boundary + 1
             if (text[end - 1].isHighSurrogate() && text[end].isLowSurrogate()) end--
         }
-        pages += text.subSequence(start, end)
+        pages += start until end
         start = end
     }
     return pages

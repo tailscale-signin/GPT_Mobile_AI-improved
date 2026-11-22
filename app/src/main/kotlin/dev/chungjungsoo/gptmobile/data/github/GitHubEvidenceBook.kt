@@ -58,36 +58,60 @@ internal class GitHubEvidenceBook(
     private var overflow = false
     private val authorizationDigest = authorizationRevision?.takeIf(String::isNotBlank)?.let(::digest)
     private val fixturePreflightId = "fixture_preflight_" + digest(binding).take(24)
+    private val fixtureKnownPreflightId = "fixture_preflight_known_" + digest(binding).take(24)
+    private val fixtureClassificationId = "fixture_classification_current_" + digest(binding).take(24)
 
     /** Freeze the effective approval mode before an integration recipe may create a fixture. */
     suspend fun fixtureApprovalPreflight(): JsonObject = mutex.withLock {
+        fixtureApprovalPreflightLocked()
+    }
+
+    private fun fixtureScopeMatches(value: JsonObject): Boolean =
+        value["binding"] == JsonPrimitive(binding) &&
+            value["repository"] == JsonPrimitive(repository) &&
+            value["selected_branch"] == JsonPrimitive(branch)
+
+    /** Approval bytes never change. Classification is a separately versioned, non-authorizing view. */
+    private suspend fun fixtureApprovalPreflightLocked(): JsonObject {
         val saved = load(fixturePreflightId)
-        if (saved?.get("binding") == JsonPrimitive(binding) &&
-            saved["repository"] == JsonPrimitive(repository) &&
-            saved["selected_branch"] == JsonPrimitive(branch)
-        ) {
-            // The first known task-bound decision is immutable. An older UNKNOWN
-            // checkpoint may be refreshed only with a current authorization
-            // revision and a known effective decision, never from display settings.
-            if (saved["decision_mode"] != JsonPrimitive("UNKNOWN")) return@withLock saved
-            if (fixtureDecisionMode != null && authorizationDigest != null) {
-                val rechecked = JsonObject(
-                    GitHubTestChecklist.fixtureApprovalPreflight(fixtureDecisionMode, binding, repository, branch, runtimeIdentity()) +
-                        ("recheck_source" to JsonPrimitive("TASK_BOUND_AUTHORIZATION_REVISION"))
-                )
-                save(fixturePreflightId, rechecked)
-                return@withLock rechecked
+        val original = if (saved != null && fixtureScopeMatches(saved)) {
+            saved
+        } else {
+            GitHubTestChecklist.fixtureApprovalPreflight(fixtureDecisionMode, binding, repository, branch, runtimeIdentity()).also {
+                save(fixturePreflightId, it)
             }
-            // Older checkpoints used CONDITIONAL for an unobserved mode. Do
-            // not treat this as a conditional approval supplied by the user.
-            if (saved["state"] != JsonPrimitive("UNKNOWN")) {
-                return@withLock GitHubTestChecklist.fixtureApprovalPreflight(null, binding, repository, branch, saved["runtime_identity"] as? JsonObject ?: runtimeIdentity())
-            }
-            return@withLock saved
         }
-        val preflight = GitHubTestChecklist.fixtureApprovalPreflight(fixtureDecisionMode, binding, repository, branch, runtimeIdentity())
-        save(fixturePreflightId, preflight)
-        preflight
+        val approval = if (original["decision_mode"] == JsonPrimitive("UNKNOWN")) {
+            val originalDigest = digest(original.toString())
+            val known = load(fixtureKnownPreflightId)?.takeIf {
+                fixtureScopeMatches(it) &&
+                    it["original_preflight_sha256"] == JsonPrimitive(originalDigest) &&
+                    it["decision_mode"] != JsonPrimitive("UNKNOWN")
+            }
+            when {
+                known != null -> known
+                fixtureDecisionMode != null && authorizationDigest != null -> JsonObject(
+                    GitHubTestChecklist.fixtureApprovalPreflight(fixtureDecisionMode, binding, repository, branch, runtimeIdentity()) + buildJsonObject {
+                        put("recheck_source", "TASK_BOUND_AUTHORIZATION_REVISION")
+                        put("authorization_revision_sha256", authorizationDigest)
+                        put("original_preflight_sha256", originalDigest)
+                    }
+                ).also { save(fixtureKnownPreflightId, it) }
+                // Legacy CONDITIONAL/UNKNOWN did not contain a user decision.
+                original["state"] != JsonPrimitive("UNKNOWN") -> GitHubTestChecklist.fixtureApprovalPreflight(null, binding, repository, branch, original["runtime_identity"] as? JsonObject ?: runtimeIdentity())
+                else -> original
+            }
+        } else {
+            original
+        }
+        val approvalDigest = digest(JsonObject(approval.filterKeys { it != "capability_classification" }).toString())
+        val current = load(fixtureClassificationId)?.takeIf { it["approval_sha256"] == JsonPrimitive(approvalDigest) && it["binding"] == JsonPrimitive(binding) }
+        val version = (current?.get("classification_id") as? JsonPrimitive)?.contentOrNull
+            ?.takeIf { it.matches(Regex("fixture_classification_[a-f0-9]{24}")) }
+            ?.let { load(it) }
+            ?.takeIf { it["approval_sha256"] == JsonPrimitive(approvalDigest) && it["binding"] == JsonPrimitive(binding) }
+        val classification = version?.get("capability_classification") as? JsonObject ?: return approval
+        return JsonObject(approval + ("capability_classification" to classification))
     }
 
     suspend fun classifyBeforeAcquisition(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, preflight: JsonObject): JsonObject {
@@ -115,8 +139,26 @@ internal class GitHubEvidenceBook(
             put("states", states)
         }
         return mutex.withLock {
-            val saved = load(fixturePreflightId) ?: preflight
-            if ("capability_classification" in saved) saved else JsonObject(saved + ("capability_classification" to plan)).also { save(fixturePreflightId, it) }
+            val approval = fixtureApprovalPreflightLocked()
+            if ("capability_classification" in approval) return@withLock approval
+            val approvalDigest = digest(approval.toString())
+            val version = buildJsonObject {
+                put("schema", "github.fixture-classification.v1")
+                put("binding", binding)
+                put("approval_sha256", approvalDigest)
+                put("capability_classification", plan)
+            }
+            val versionId = "fixture_classification_" + digest(version.toString()).take(24)
+            save(versionId, version)
+            save(
+                fixtureClassificationId,
+                buildJsonObject {
+                    put("binding", binding)
+                    put("approval_sha256", approvalDigest)
+                    put("classification_id", versionId)
+                }
+            )
+            JsonObject(approval + ("capability_classification" to plan))
         }
     }
 
@@ -709,12 +751,15 @@ internal class GitHubEvidenceBook(
         val sent = messageCreatedSeconds * 1000
         if (sent + 999 < end || messageId <= ((previous["grant_message_id"] as? JsonPrimitive)?.intOrNull ?: source)) return@withLock
         val grant = buildJsonObject {
+            put("schema", "github.deadline-grant.v1")
             put("binding", binding)
             put("source_message_id", source)
             put("grant_message_id", messageId)
             put("accepted_at_ms", sent)
             put("deadline_at_ms", sent + duration)
             put("previous_deadline_at_ms", end)
+            put("authorized_duration_ms", duration)
+            put("authorization_source", "EXPLICIT_USER_MESSAGE")
         }
         save("deadline_grant_$messageId", grant)
         deadlineGrant = grant
@@ -1122,7 +1167,7 @@ internal class GitHubEvidenceBook(
         private const val SIMPLE_RECEIPT_MAX_BYTES = 1_400_000
         private const val ORIGINAL_RECEIPT_MAX_BYTES = 8 * 1024 * 1024
 
-        fun currentSnapshot(id: String): Boolean = id.matches(Regex("(?:verification|checklist|answer|answer_useful|claim_extraction)_current_[a-f0-9]{24}"))
+        fun currentSnapshot(id: String): Boolean = id.matches(Regex("(?:verification|checklist|answer|answer_useful|claim_extraction|fixture_classification)_current_[a-f0-9]{24}"))
 
         /** Preparing a verdict does not prove that its visible delivery completed. */
         fun publishedChecklistDigest(checkpoint: JsonObject?): JsonPrimitive? =

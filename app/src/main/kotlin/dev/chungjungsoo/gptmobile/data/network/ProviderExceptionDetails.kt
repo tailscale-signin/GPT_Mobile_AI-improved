@@ -438,6 +438,10 @@ internal fun providerExceptionDetails(
             }
             (observedHttpStatus ?: rateLimit?.cooldown?.status)
                 ?.let { put(if (responded) "http_status" else "originating_http_status", it) }
+            if (responded && httpFailure?.status == 429 && httpFailure.cooldownScope?.removePrefix("provider:")?.matches(Regex("[a-f0-9]{64}")) == true) {
+                put("provider_failure_kind", "RATE_LIMIT")
+                put("provider_semantic_status", 429)
+            }
             if (responded) safeProviderRequestIdentity(httpFailure?.serverRequestId)?.let { put("server_request_id", it) }
             rateLimit?.cooldown?.providerCode?.let { put(if (responded) "provider_code" else "originating_provider_code", it) }
             (http?.retryAfterMillis ?: retryAt?.let { ProviderRetryPolicy.remainingMillis(it, nowMillis) })?.let { put("retry_after_ms", it) }

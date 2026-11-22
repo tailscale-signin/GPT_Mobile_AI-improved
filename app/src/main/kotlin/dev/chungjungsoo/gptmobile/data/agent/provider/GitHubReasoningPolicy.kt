@@ -1,7 +1,54 @@
 package dev.chungjungsoo.gptmobile.data.agent.provider
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.context.ReasoningMode
+import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
 /** Request-scoped effort; stored profile settings and provider output ceilings are unchanged. */
 internal object GitHubReasoningPolicy {
+    fun supportsOpenAiMechanicalEffort(model: String): Boolean {
+        val name = model.lowercase().substringAfterLast('/')
+        // High-effort support alone does not establish a low-effort control on
+        // specialized Pro or deep-research variants.
+        return openAiEffort(model) != null && "-pro" !in name && "-deep-research" !in name
+    }
+
+    /** Lower effort only while native source recovery still has an exact unread local page. */
+    fun mechanicalContinuation(constraints: RequestConstraints, tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Boolean {
+        if (!constraints.maximizeReasoning ||
+            !constraints.allowReasoning ||
+            !constraints.allowTools ||
+            tools.isEmpty() ||
+            constraints.reasoningModeOverride !in setOf(null, ReasoningMode.AUTO) ||
+            (constraints.requestRole ?: "primary") !in setOf("primary", "github-output-continuation")
+        ) {
+            return false
+        }
+        val last = exchanges.lastOrNull() ?: return false
+        if (last.calls.isEmpty() || last.calls.size != last.results.size) return false
+        return last.calls.all { call ->
+            if (!call.callId.startsWith("saved-result-consume-") || call.name.githubOperationFamily() !in setOf("github_read", "github_search", "github_context") || call.arguments.keys != setOf("view_cursor")) return@all false
+            if (tools.none { it.modelVisible && it.name == call.name }) return@all false
+            val current = (call.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.split(':') ?: return@all false
+            val result = last.results.singleOrNull { it.callId == call.callId }?.takeUnless { it.isError || it.executionReceipt?.get("requires_reconciliation") == JsonPrimitive(true) } ?: return@all false
+            val page = (result.content as? ToolResultContent.Json)?.value as? JsonObject ?: return@all false
+            if (page["local_page_complete"] != JsonPrimitive(false)) return@all false
+            val recipe = page["continuation_call"] as? JsonObject ?: return@all false
+            val args = recipe["arguments"] as? JsonObject ?: return@all false
+            val next = (args["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.split(':') ?: return@all false
+            recipe["tool"] == JsonPrimitive(call.name) &&
+                args.keys == setOf("view_cursor") &&
+                current.size == 3 &&
+                next.size == 3 &&
+                current[0] == next[0] &&
+                current[1].toIntOrNull()?.let { offset -> next[1].toIntOrNull()?.let { it > offset } } == true
+        }
+    }
+
     fun gatewayHeaders(existing: Map<String, String>, engineering: Boolean, outputTokens: Int?): Map<String, String> {
         if (!engineering) return existing
         val controls = setOf("x-gateway-performance-profile", "x-gateway-reasoning-effort", "x-gateway-intermediate-max-tokens")

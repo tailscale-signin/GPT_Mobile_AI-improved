@@ -136,8 +136,12 @@ class ChatReadinessCoordinator @Inject constructor(
         }
         scope.launchReadinessObserver("invalidation") {
             ReadinessInvalidation.changes.collectLatest {
-                mcp.clearReadinessCache()
                 memory.clear()
+            }
+        }
+        scope.launchReadinessObserver("catalogue-invalidation") {
+            ReadinessInvalidation.catalogueChanges.collectLatest {
+                mcp.clearReadinessCache()
             }
         }
     }

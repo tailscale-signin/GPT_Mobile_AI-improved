@@ -303,6 +303,33 @@ class AgentRunCoordinator @Inject constructor(
         startUnlocked(eligible)
     }
 
+    private fun observeProviderWaitDecision(request: AgentRunRequest, decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision?, result: ProviderWaitSchedulingResult) {
+        val observation = mutableMapOf<String, Any?>(
+            "run_id" to request.runId,
+            "profile_id" to (decision?.profileUid ?: request.platform.uid),
+            "model" to (decision?.model ?: request.platform.model),
+            "stage" to "provider_wait",
+            "provider_wait_checkpoint_hash" to dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("provider-wait-checkpoint", decision?.gitHubCheckpoint?.digest),
+            "recovery_observation" to when {
+                result.waiting && result.schedulerState == "ENQUEUED" -> "RETRY_SCHEDULED"
+                result.waiting -> "WAITING_RETRY"
+                result.persisted == null -> "RECONCILIATION_REQUIRED"
+                else -> "TERMINAL"
+            },
+            "recovery_authority" to if (result.waiting) "VALID" else "UNVERIFIED"
+        )
+        observation.putAll(result.fields())
+        decision?.let {
+            observation["retry_delay_ms"] = dev.chungjungsoo.gptmobile.data.network.ProviderRetryPolicy.remainingMillis(it.retryAt, System.currentTimeMillis())
+            observation["retry_delay_source"] = when (it.retrySource) {
+                "RETRY_AFTER", "RATE_LIMIT_RESET" -> "PROVIDER_HEADER"
+                "APP_BACKOFF", "CONNECTIVITY_BACKOFF" -> "LOCAL_BACKOFF"
+                else -> "UNKNOWN"
+            }
+        }
+        runCatching { dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents.providerRecoveryObservation(observation) }
+    }
+
     private suspend fun startUnlocked(incoming: List<AgentRunRequest>) {
         // Persisted quotas and the device identity must be restored before preflight
         // or a worker may calculate a new scope and bypass a previous cooldown.
@@ -321,7 +348,28 @@ class AgentRunCoordinator @Inject constructor(
         val requests = included.map { it.copy(researchParticipantUids = it.researchParticipantUids.ifEmpty { participantsBeforeWait[rootWorkId(it.userMessages, it.runId)].orEmpty() }) }.filter { request ->
             val cooldown = dev.chungjungsoo.gptmobile.data.network.providerPreflightLimit(request.platform)
             val deadline = cooldown?.retryAt
-            val deferred = deadline != null && deadline > System.currentTimeMillis() && providerWaits?.defer(request) == true
+            val deferred = if (deadline != null && deadline > System.currentTimeMillis()) {
+                val result = providerWaits?.deferResult(request) ?: ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.WAIT_STORE_UNAVAILABLE)
+                observeProviderWaitDecision(request, cooldown, result)
+                if (result.failure != null) {
+                    // Admission may fail before execute() owns the coroutine.
+                    // Publish only through the original message fence; a wait
+                    // that actually committed cannot be overwritten as QUEUED.
+                    withContext(NonCancellable) {
+                        val error = "The provider wait needs review before this work can resume."
+                        val failure = result.retain(providerWaitFailureRecord(error, cooldown))
+                        val completedAt = currentEpochSeconds()
+                        val message = terminalAgentMessage(request.assistantMessage, error, completedAt, failure).withCombinedOutcome(AgentRunStatus.BLOCKED)
+                        runCatching { chatRepository.commitAgentRun(message, request.runId, AgentRunStatus.BLOCKED, completedAt, error) }
+                            .onFailure { AppLogRecorder.record("ProviderRetry", "WAIT_DECISION_PUBLICATION_PENDING · runId=${request.runId} · reason=${result.noWaitReason}", "W") }
+                    }
+                    true
+                } else {
+                    result.waiting
+                }
+            } else {
+                false
+            }
             !deferred
         }
         if (requests.isNotEmpty() && !AgentRunForegroundService.canStartNow() && backgroundEnabled()) {
@@ -965,6 +1013,27 @@ class AgentRunCoordinator @Inject constructor(
             return true
         }
         var checkpoints = newCheckpoints()
+        var providerWaitScheduling: ProviderWaitSchedulingResult? = null
+        fun retainWaitDecision(decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision?, result: ProviderWaitSchedulingResult) {
+            providerWaitScheduling = result
+            val index = assistantMessage.timeline.indexOfLast { it.profileFailure != null }
+            if (index >= 0) {
+                assistantMessage = assistantMessage.copy(
+                    timeline = assistantMessage.timeline.mapIndexed { itemIndex, item ->
+                        if (itemIndex == index) item.copy(profileFailure = result.retain(requireNotNull(item.profileFailure))) else item
+                    }
+                )
+            } else if (!result.waiting) {
+                val failure = providerWaitFailureRecord("The provider step could not be scheduled.", decision).copy(retryAllowed = false)
+                assistantMessage = assistantMessage.copy(
+                    timeline = assistantMessage.timeline + dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                        profileFailure = result.retain(failure)
+                    )
+                )
+            }
+            observeProviderWaitDecision(request, decision, result)
+        }
         suspend fun retainRecoveryFailure(failure: ProfileFailureRecord?) {
             try {
                 providerWaits?.recordRecoveryFailure(request, failure?.category, failure?.recoveryDetails)
@@ -1000,52 +1069,38 @@ class AgentRunCoordinator @Inject constructor(
             }
         }
         suspend fun pauseForProvider(decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision, stage: dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage? = null): Boolean {
-            if (!decision.mayWait) return false
+            if (!decision.mayWait) {
+                retainWaitDecision(decision, ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.REJECTION_NOT_REPLAY_SAFE))
+                return false
+            }
             val savedStage = stage ?: researchLifecycle?.let { lifecycle ->
                 dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage(lifecycle.rootWorkId, "PRIMARY", dev.chungjungsoo.gptmobile.data.research.researchHash(request.userMessages.lastOrNull()?.content.orEmpty()), decision)
             }
             return withContext(NonCancellable) {
-                checkpoints.drain()
-                chatRepository.updateAgentMessage(assistantMessage)
-                fun observeWait(persisted: Boolean?) {
-                    // Capture the scheduling decision after the durable store has
-                    // answered. Earlier approved failure reports stay immutable.
-                    val observation = mutableMapOf<String, Any?>(
-                        "run_id" to request.runId,
-                        "profile_id" to decision.profileUid,
-                        "model" to decision.model,
-                        "stage" to "provider_wait",
-                        "provider_wait_checkpoint_hash" to dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("provider-wait-checkpoint", decision.gitHubCheckpoint?.digest),
-                        "recovery_observation" to if (persisted == true) "RETRY_SCHEDULED" else "UNOBSERVED",
-                        "recovery_authority" to if (persisted == true) "VALID" else "UNVERIFIED",
-                        "retry_delay_ms" to dev.chungjungsoo.gptmobile.data.network.ProviderRetryPolicy.remainingMillis(decision.retryAt, System.currentTimeMillis()),
-                        "retry_delay_source" to when (decision.retrySource) {
-                            "RETRY_AFTER", "RATE_LIMIT_RESET" -> "PROVIDER_HEADER"
-                            "APP_BACKOFF", "CONNECTIVITY_BACKOFF" -> "LOCAL_BACKOFF"
-                            else -> "UNKNOWN"
-                        }
-                    )
-                    if (persisted != null) {
-                        observation["provider_wait_persisted"] = persisted
-                        observation["provider_wait_state"] = if (persisted) "WAITING_PROVIDER_LIMIT" else "NOT_SCHEDULED"
-                    }
-                    runCatching { dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents.providerRecoveryObservation(observation) }
-                }
-                val waiting = try {
-                    (providerWaits?.deferRunning(request, decision, savedStage) == true).also(::observeWait)
+                try {
+                    checkpoints.drain()
+                    chatRepository.updateAgentMessage(assistantMessage)
                 } catch (failure: Exception) {
-                    // An enqueue error may follow a successful DB write. Do not
-                    // assert failed persistence or grant replay from an exception.
-                    observeWait(null)
+                    retainWaitDecision(decision, ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.MESSAGE_CHECKPOINT_FAILED, failure))
                     throw failure
                 }
+                val result = try {
+                    providerWaits?.deferRunningResult(request, decision, savedStage) ?: ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.WAIT_STORE_UNAVAILABLE)
+                } catch (failure: Exception) {
+                    // The store normally returns typed evidence. If its boundary
+                    // itself fails, persistence is unknown until reconciliation.
+                    ProviderWaitSchedulingResult.uncertain(failure)
+                }
+                retainWaitDecision(decision, result)
+                val waiting = result.valueOrThrow()
                 AppLogRecorder.record(
                     "ProviderRetry",
                     "JOB_WAIT · runId=${request.runId} · provider=${decision.provider} · scope=${decision.scope} · retryAtMs=${decision.retryAt} · source=${decision.retrySource ?: "PROVIDER_POLICY"} · count=${decision.consecutiveRejections} · githubCheckpoint=${decision.gitHubCheckpoint != null} · persisted=$waiting"
                 )
                 if (waiting) {
                     researchLifecycle?.terminal(dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.WAITING_PROVIDER_LIMIT, "PROVIDER_LIMIT:${decision.retryAt}")
-                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Work saved. The provider step will resume automatically when it is eligible.", true))
+                    val notice = if (result.schedulerState == "ENQUEUED") "Work saved. The provider step will resume automatically when it is eligible." else "Work saved. The retry scheduler needs recovery; the saved step will be reconciled before resuming."
+                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, true))
                 }
                 waiting
             }
@@ -1257,11 +1312,15 @@ class AgentRunCoordinator @Inject constructor(
                     },
                     publishIntervalMillis = publishIntervalMillis
                 )
+                val failedOutcome = outcome as? ApiStateFlowOutcome.Failed
+                val limit = failedOutcome?.providerLimit
+                if (limit != null && pauseForProvider(limit)) return@coroutineScope
+                if (limit == null && failedOutcome != null && providerWaitDecisionRequired(failedOutcome.errorCode, assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure)) {
+                    retainWaitDecision(null, ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE))
+                }
                 checkpoints.drain()
                 request.providerWaitAuthority?.validate(settingRepository)
                 AppLogRecorder.record("Streaming", "CHECKPOINT_WRITER · queueAgeMs=${checkpoints.lastQueueAgeMillis} · writeMs=${checkpoints.lastWriteMillis}")
-                val limit = (outcome as? ApiStateFlowOutcome.Failed)?.providerLimit
-                if (limit != null && pauseForProvider(limit)) return@coroutineScope
                 val terminal = outcome.toTerminalUpdate().let { update ->
                     if (limit?.mayWait == true) {
                         AgentRunTerminalUpdate(AgentRunStatus.BLOCKED, "PROVIDER_WAIT_REVIEW_REQUIRED: Saved work needs review before it can resume.")
@@ -1338,9 +1397,13 @@ class AgentRunCoordinator @Inject constructor(
         } catch (error: Throwable) {
             withContext(NonCancellable) {
                 var terminalFailure = error
-                if (error is dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) {
+                val deferredStage = (error as? dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred)?.checkpoint
+                val caughtLimit = deferredStage?.limit ?: (error as? Exception)?.let {
+                    dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(it, assistantMessage.content.isNotBlank() || assistantMessage.thoughts.isNotBlank())?.providerLimit
+                }
+                if (caughtLimit != null && providerWaitScheduling == null) {
                     try {
-                        if (pauseForProvider(error.checkpoint.limit, error.checkpoint)) return@withContext
+                        if (pauseForProvider(caughtLimit, deferredStage)) return@withContext
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (pauseFailure: Exception) {
@@ -1355,9 +1418,15 @@ class AgentRunCoordinator @Inject constructor(
                 val revokedWait = terminalFailure is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged
                 val recoveryFailure = (terminalFailure as? ProviderRecoveryFailure) ?: ProviderRecoveryFailure("PROVIDER_WAIT_REVIEW_REQUIRED").takeIf { revokedWait }
                 if (recoveryFailure != null) terminalFailure = providerWaits?.localRecoveryFailure(request, recoveryFailure) ?: recoveryFailure
-                val typedFailure = coordinatorFailureRecord(assistantMessage, terminalFailure, gatewayPreflightKnownUnsent)
+                val originalFailure = coordinatorFailureRecord(assistantMessage, terminalFailure, gatewayPreflightKnownUnsent)
+                    ?: assistantMessage.timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.takeIf { providerWaitScheduling != null }
+                if (providerWaitScheduling == null && providerWaitDecisionRequired(null, originalFailure)) {
+                    retainWaitDecision(null, ProviderWaitSchedulingResult.refused(ProviderWaitSchedulingResult.NoWaitReason.DECISION_UNAVAILABLE))
+                }
+                val typedFailure = originalFailure?.let { failure -> providerWaitScheduling?.retain(failure) ?: failure }
                 val status = when {
                     revokedWait -> AgentRunStatus.INTERRUPTED
+                    providerWaitScheduling?.persisted == null && providerWaitScheduling != null -> AgentRunStatus.BLOCKED
                     typedFailure?.category in ProviderRecoveryFailure.CODES -> AgentRunStatus.BLOCKED
                     typedFailure?.isUnsentSetup == true -> AgentRunStatus.BLOCKED
                     else -> acceptanceFailureStatus(message)

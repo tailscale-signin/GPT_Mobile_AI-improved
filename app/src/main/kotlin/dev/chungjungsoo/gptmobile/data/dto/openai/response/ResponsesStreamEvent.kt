@@ -324,7 +324,10 @@ data class ResponseError(
     val code: String? = null,
 
     @SerialName("message")
-    val message: String
+    val message: String,
+
+    @SerialName("type")
+    val type: String? = null
 )
 
 @Serializable

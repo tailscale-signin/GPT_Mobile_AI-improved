@@ -560,6 +560,14 @@ class McpClientManagerTest {
             manager.listTools(config)
             assertEquals(1, server.methods.count { it == "tools/list" })
 
+            dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance(invalidateCatalogues = false)
+            assertTrue(manager.peekTools(config)?.isNotEmpty() == true)
+            manager.listTools(config)
+            assertEquals(1, server.methods.count { it == "tools/list" })
+
+            dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance(reason = "PROFILE_AUTHORITY_CHANGED")
+            assertEquals(null, manager.peekTools(config))
+            assertFalse(manager.catalogueAvailability(config).executionAvailable)
             manager.listTools(config, forceRefresh = true)
             assertEquals(2, server.methods.count { it == "tools/list" })
             manager.closeAll()

@@ -209,7 +209,6 @@ internal fun GatewayConversationsScreen(
                             isServerChat = true,
                             isGitHub = chat.id in state.gitHubChatIds,
                             isResearch = chat.id in state.researchChatIds,
-                            showGatewayMode = true,
                             onItemClick = { viewModel.openLocalChat(chat, onOpenLocalChat) },
                             onItemLongClick = { viewModel.openLocalChat(chat, onOpenLocalChat) }
                         )

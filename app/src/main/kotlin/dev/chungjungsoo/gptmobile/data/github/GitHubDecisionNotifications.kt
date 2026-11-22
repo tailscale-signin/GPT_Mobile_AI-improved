@@ -29,13 +29,17 @@ internal fun gitHubDecisionTitle(question: String): String = question.lineSequen
 @Singleton
 class GitHubDecisionNotifications @Inject constructor(private val notifications: NotificationManager, private val settings: SettingRepository) {
     suspend fun offered(decision: GitHubChatDecision) {
-        prompt(decision.id, decision.chatId, decision.sourceMessageId, decision.question)
+        prompt(decision.id, decision.chatId, decision.sourceMessageId, decision.question, action = "All choices", choices = decision.notificationActions())
     }
-    suspend fun prompt(id: String, chatId: Int, messageId: Int, question: String, title: String = gitHubDecisionTitle(question), action: String = "Respond") {
+    suspend fun prompt(id: String, chatId: Int, messageId: Int, question: String, title: String = gitHubDecisionTitle(question), action: String = "Respond", choices: List<GitHubDecisionNotificationAction> = emptyList()) {
         if (settings.getFeatureSettings().responseNotifications && GitHubChatPresence.shouldNotify(chatId, !AppForegroundTracker.isBackgrounded)) {
             // Notification denial cannot turn a pending question into an answer or fail the task.
-            runCatching { notifications.showGitHubDecision(id, chatId, messageId, question, title, action) }
+            runCatching { notifications.showGitHubDecision(id, chatId, messageId, question, title, action, choices) }
         }
+    }
+    suspend fun choiceSaved(decision: GitHubChatDecision, waiting: Boolean) {
+        dismiss(decision.id)
+        if (!waiting) prompt(decision.id, decision.chatId, decision.sourceMessageId, "Your choice is saved. Open the conversation to continue the retained task.", title = "Choice saved", action = "Continue")
     }
     fun dismiss(id: String) {
         runCatching { notifications.dismissGitHubDecision(id) }

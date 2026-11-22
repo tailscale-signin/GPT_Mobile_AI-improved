@@ -1297,7 +1297,7 @@ private fun ChatScreenContent(
                         ) {
                             GatewayMergeInteractions(chatRoom.id)
                             bottomInteractionContent?.invoke()
-                            visibleGitHubDecisions.forEach { decision ->
+                            GitHubDecisionQueue(visibleGitHubDecisions) { decision ->
                                 key(decision.id) {
                                     val timing = remember(decision.id, decision.offeredAtMillis, agentRunsById, invocationsByRun, toolEventsByRun) {
                                         val runs = agentRunsById.values.filter { it.userMessageId == decision.sourceMessageId && it.profileUid == decision.profileUid }
@@ -1320,7 +1320,7 @@ private fun ChatScreenContent(
                                     }
                                     GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer ->
                                         chatViewModel.answerGitHubDecision(decision.id, option, answer)
-                                    }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) }, runStartedMs = timing.first, observedWorkMs = timing.second)
+                                    }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) }, runStartedMs = timing.first, observedWorkMs = timing.second, compact = true)
                                 }
                             }
                             approvals.forEach { approval ->

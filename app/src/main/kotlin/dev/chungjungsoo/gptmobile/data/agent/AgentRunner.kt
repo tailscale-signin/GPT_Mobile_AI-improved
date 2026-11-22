@@ -1971,7 +1971,9 @@ class AgentRunner(
                 val gatewayOutcomeUnknown = GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)
                 val localCircuitRejection = (error as? dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException)
                     ?.takeUnless { gatewayOutcomeUnknown }
-                val typedRejection = AgentFailureEvidence.exception(error, providerPayloadObserved)
+                val persistenceFailure = generateSequence(error) { it.cause }.take(12)
+                    .filterIsInstance<dev.chungjungsoo.gptmobile.data.workspace.WorkspaceEvidenceConflict>().firstOrNull()
+                val typedRejection = persistenceFailure?.event() ?: AgentFailureEvidence.exception(error, providerPayloadObserved)
                 val classifiedCode = ToolFailureMetadata.classify(error)
                 // This boundary invokes the model, not an AgentTool. An unknown
                 // exception cannot establish a tool failure or authorize replay.

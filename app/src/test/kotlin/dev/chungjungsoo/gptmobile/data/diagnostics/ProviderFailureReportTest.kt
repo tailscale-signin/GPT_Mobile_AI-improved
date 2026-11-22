@@ -539,6 +539,52 @@ class ProviderFailureReportTest {
         assertEquals(JsonPrimitive(3), fields["provider_consecutive_rejections"])
         val foreign = ProviderFailureReport.fields("run", failure.copy(providerLimit = limit.copy(profileUid = "other")), receipt)
         assertNull(foreign["provider_wait_eligible"])
+        assertEquals(JsonPrimitive("ROUTE_MISMATCH"), foreign["provider_wait_no_wait_reason"])
+    }
+
+    @Test fun everyRateLimitReportExplainsMissingOrUnsafeWaitDecisionsIncludingStreamed429() {
+        for (httpStatus in listOf(200, 429)) {
+            val failure = ProviderEvent.Failed(
+                "Provider request limit reached.",
+                errorCode = "429",
+                failureDetails = buildJsonObject {
+                    put("http_status", httpStatus)
+                    put("provider_failure_kind", "RATE_LIMIT")
+                    put("provider_semantic_status", 429)
+                    put("failed_stage", "response_stream")
+                }
+            )
+            val missing = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
+            assertEquals(JsonPrimitive(httpStatus), missing["http_status"])
+            assertEquals(JsonPrimitive(429), missing["provider_semantic_status"])
+            assertEquals(JsonPrimitive("INELIGIBLE"), missing["provider_wait_decision_state"])
+            assertEquals(JsonPrimitive("DECISION_UNAVAILABLE"), missing["provider_wait_no_wait_reason"])
+            assertNull(missing["provider_wait_persisted"])
+            val decision = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("LLAMA", profile.uid, profile.model, 2_000, "quota", "PROVIDER_RATE_LIMITED", false)
+            val rejected = failure.copy(providerLimit = decision)
+            val unsafe = ProviderFailureReport.fields("run", rejected, ProviderFailureReceipt.from(profile, "primary", rejected))
+            assertEquals(JsonPrimitive("REJECTION_NOT_REPLAY_SAFE"), unsafe["provider_wait_no_wait_reason"])
+            val eligible = rejected.copy(providerLimit = decision.copy(knownNotAccepted = true))
+            val offered = ProviderFailureReport.fields("run", eligible, ProviderFailureReceipt.from(profile, "primary", eligible))
+            assertEquals(JsonPrimitive("ELIGIBLE"), offered["provider_wait_decision_state"])
+            assertNull(offered["provider_wait_no_wait_reason"])
+            assertNull(offered["provider_wait_persisted"])
+        }
+    }
+
+    @Test fun billingSemanticsOnHttp429CannotAcquireQuotaWaitEvidence() {
+        val failure = ProviderEvent.Failed(
+            "Provider allowance exhausted.",
+            errorCode = "BILLING_UNAVAILABLE",
+            failureDetails = buildJsonObject {
+                put("http_status", 429)
+                put("provider_failure_kind", "BUDGET")
+            }
+        )
+        val fields = ProviderFailureReport.fields("run", failure, ProviderFailureReceipt.from(profile, "primary", failure))
+        assertEquals(JsonPrimitive(429), fields["http_status"])
+        assertNull(fields["provider_wait_decision_state"])
+        assertNull(fields["provider_wait_no_wait_reason"])
     }
 
     @Test fun actualStreamExportsCompletionBudgetCauseCapAndOwnedUsageWithoutAnotherRequest() = runBlocking {

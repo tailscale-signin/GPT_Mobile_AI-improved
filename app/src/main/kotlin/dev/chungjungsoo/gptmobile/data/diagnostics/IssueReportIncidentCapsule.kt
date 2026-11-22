@@ -270,7 +270,7 @@ internal object IssueReportIncidentCapsule {
         "receipt_exclusion_reasons" to setOf("WRONG_OPERATION", "WRONG_ACTION", "WRONG_REVISION", "WRONG_SCOPE", "PRECHECK_ONLY", "NOT_SUCCESSFUL", "UNKNOWN_OUTCOME", "STALE", "MISSING_IDENTITY", "UNVERIFIED")
     )
     val coreFields = listOf("incident_phase", "causal_id_hash", "causal_provenance", "incident_evidence_status")
-    val priorityFields = coreFields.toSet() + recoveryCauseFields + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes", "sqlite_constraint_kind") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields + remotePaginationFields + prContextRaceFields + GitHubAcceptancePublicationEvidence.fields
+    val priorityFields = coreFields.toSet() + ExecutionCompletionDiagnostics.fields + recoveryCauseFields + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes", "sqlite_constraint_kind") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields + remotePaginationFields + prContextRaceFields + GitHubAcceptancePublicationEvidence.fields
 
     enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, CHAT_REPOSITORY_PREFLIGHT, OPENAI_ADAPTER_STREAM_CATCH, PROVIDER_ADAPTER_STREAM_CATCH, CHAT_REPOSITORY_ERROR_VALUE, CHAT_FLOW_EMPTY_ANSWER, AGENT_FAILED_EVENT, AGENT_ROUND_CATCH, GITHUB_VERIFICATION_CATCH, OUTPUT_CONTINUATION_OPEN_CATCH }
 
@@ -332,7 +332,7 @@ internal object IssueReportIncidentCapsule {
         return if (prefix == null || prefix == observed || prefix == "UNIQUE" && observed == "PRIMARY_KEY") observed else "UNKNOWN"
     }
 
-    fun fieldsFor(area: String): Set<String> = common + when (area) {
+    fun fieldsFor(area: String): Set<String> = common + (if (area in setOf("INCIDENT", "PROVIDER")) ExecutionCompletionDiagnostics.fields else emptySet()) + when (area) {
         "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields + repeatHistoryFields + LAST_UNSENT_CODE + inventoryPaginationFields
         "INCIDENT" -> setOf("github_prerequisite_observation", "app_search_readiness") + combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure", "provider_error_code_state", "provider_error_origin")
         "ACCEPTANCE" -> setOf("github_prerequisite_observation") + acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + policyResponseFields + GitHubAcceptancePublicationEvidence.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
@@ -344,6 +344,7 @@ internal object IssueReportIncidentCapsule {
     }
 
     fun validValue(key: String, value: JsonElement): JsonElement? {
+        if (key in ExecutionCompletionDiagnostics.fields) return ExecutionCompletionDiagnostics.validValue(key, value)
         if (key in GitHubAcceptancePublicationEvidence.fields) return GitHubAcceptancePublicationEvidence.validValue(key, value)
         if (key in repeatHistoryListFields) {
             val items = value as? JsonArray ?: return null
@@ -496,6 +497,8 @@ internal object IssueReportIncidentCapsule {
     /** No latest-run lookup: this projection uses only the failure's own typed fields. */
     fun fields(feature: ReportFeature, source: String, code: String, fields: Map<String, Any?>): Map<String, Any?> = buildMap {
         putAll(fields)
+        ExecutionCompletionDiagnostics.newFields.forEach(::remove)
+        putAll(ExecutionCompletionDiagnostics.publicFields(code, fields))
         remove("provider_wait_observed_checkpoint_hash")
         if (IssueReportContext.localRecoveryCode(fields) != null) {
             text(fields["observed_checkpoint_digest"])?.takeIf(HASH::matches)

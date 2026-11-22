@@ -231,7 +231,8 @@ class AgentToolResolver @Inject constructor(
                     current?.enabled == true && !current.disableAllTools && !current.disableLocalTools && selected?.sameWorkspace(decisionWorkspace) == true
                 },
                 offered = { gitHubDecisionNotifications?.offered(it) },
-                useSuggestion = { settingRepository.getFeatureSettings().githubDecisionMode(userMessage.chatId, decisionWorkspace) != GitHubDecisionMode.ASK }
+                useSuggestion = { settingRepository.getFeatureSettings().githubDecisionMode(userMessage.chatId, decisionWorkspace) != GitHubDecisionMode.ASK },
+                conversationIdentity = settingRepository.ensureConversationIdentity(userMessage.chatId)
             )
             resolved += ResolvedAgentTool(tool, null, "GitHub decisions", tool.definition.name, tool.definition.name)
         }

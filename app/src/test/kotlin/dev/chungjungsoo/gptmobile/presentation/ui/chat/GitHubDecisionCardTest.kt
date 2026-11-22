@@ -5,7 +5,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -13,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.Density
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecision
 import dev.chungjungsoo.gptmobile.data.github.GitHubDecisionOption
 import org.junit.Assert.assertEquals
@@ -46,5 +49,27 @@ class GitHubDecisionCardTest {
         compose.runOnIdle { assertEquals("Compact with expandable details", answer) }
         compose.onNodeWithText("Stop this task").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, stops) }
+    }
+
+    @Test fun compactQueueShowsOneChoiceAndKeepsDetailsAndAllChoicesReachableAtLargeFont() {
+        val second = question.copy(id = "second", question = "Which colour?")
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f, 1.5f)) {
+                MaterialTheme {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        GitHubDecisionQueue(listOf(question, second)) { decision -> GitHubDecisionCard(decision, true, { _, _ -> }, {}, {}, compact = true) }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("Choice 1 of 2").assertExists()
+        compose.onNodeWithTag("github_decision_test").assertExists()
+        compose.onNodeWithTag("github_decision_second").assertDoesNotExist()
+        compose.onNodeWithText(question.context).assertDoesNotExist()
+        compose.onNodeWithTag("github_decision_details").performScrollTo().performClick()
+        compose.onNodeWithText(question.context).assertExists()
+        compose.onNodeWithTag("github_decision_next").performScrollTo().performClick()
+        compose.onNodeWithTag("github_decision_second").assertExists()
+        compose.onNodeWithTag("github_decision_test").assertDoesNotExist()
     }
 }

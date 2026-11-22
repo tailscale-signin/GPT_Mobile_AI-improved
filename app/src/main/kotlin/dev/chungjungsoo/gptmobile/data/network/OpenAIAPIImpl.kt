@@ -47,6 +47,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 class OpenAIAPIImpl @Inject constructor(
@@ -286,6 +287,23 @@ class OpenAIAPIImpl @Inject constructor(
                                     receivedAssistantPayload = receivedAssistantPayload || saved.hasAssistantStreamPayload()
                                     receivedTerminal = true
                                     emit(saved.copy(providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
+                                    return@execute
+                                }
+                                providerBudgetFailure(errorBody, response.status.value, failureDetails, responseObserver.snapshot().serverRequestId, receivedAssistantPayload)?.let { denied ->
+                                    val uncertain = receivedGatewayToolActivity || dispatchRetryGuard.remoteOutcomeUnknown
+                                    emit(
+                                        ChatCompletionChunk(
+                                            providerResponseTiming = responseObserver.snapshot(),
+                                            reasoningControlReceipt = reasoningControlReceipt,
+                                            error = ErrorDetail(
+                                                message = if (uncertain) uncertainGatewayFailureMessage(denied.message) else denied.message,
+                                                code = if (uncertain) "GATEWAY_OUTCOME_UNKNOWN" else denied.code,
+                                                type = if (uncertain) "gateway_outcome_unknown" else "provider_billing_error",
+                                                retryable = false,
+                                                failureDetails = if (uncertain) uncertainGatewayFailureDetails(denied.failureDetails, responseObserver.snapshot(), denied.code) else denied.failureDetails
+                                            )
+                                        )
+                                    )
                                     return@execute
                                 }
                             }
@@ -889,6 +907,30 @@ class OpenAIAPIImpl @Inject constructor(
                                 effectiveConfig.freeDiagnostics?.responded()
                                 if (!response.status.isSuccess()) {
                                     val errorBody = readProviderErrorBody(response, 256 * 1024)
+                                    providerBudgetFailure(
+                                        errorBody,
+                                        response.status.value,
+                                        JsonObject(
+                                            mapOf("failed_stage" to JsonPrimitive("model_invocation")) +
+                                                ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.OPENAI_RESPONSES, endpoint) +
+                                                structuredProviderFailure(errorBody, response.status.value).orEmpty()
+                                        ),
+                                        responseObserver.snapshot().serverRequestId,
+                                        receivedResponsePayload
+                                    )?.let { denied ->
+                                        emit(
+                                            if (dispatchRetryGuard.remoteOutcomeUnknown) {
+                                                denied.copy(
+                                                    message = uncertainGatewayFailureMessage(denied.message),
+                                                    code = "GATEWAY_OUTCOME_UNKNOWN",
+                                                    failureDetails = uncertainGatewayFailureDetails(denied.failureDetails, responseObserver.snapshot(), denied.code)
+                                                )
+                                            } else {
+                                                denied
+                                            }
+                                        )
+                                        return@execute
+                                    }
                                     val parameter = rejectedSamplingParameter(errorBody)
                                     if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown) {
                                         val sanitized = when (parameter) {
@@ -985,7 +1027,15 @@ class OpenAIAPIImpl @Inject constructor(
                                         is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> decoded.response.error?.code
                                         else -> null
                                     }
-                                    if (errorCode in setOf("429", "rate_limit_exceeded") &&
+                                    val semanticFailure = when (decoded) {
+                                        is ResponseErrorEvent -> dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.fromValues(response.status.value, decoded.code, decoded.message)
+                                        is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> decoded.response.error?.let {
+                                            dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.fromValues(response.status.value, it.code, it.message, it.type)
+                                        }
+                                        else -> null
+                                    }
+                                    if (semanticFailure?.kind == dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind.RATE_LIMIT &&
+                                        dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.retainedProviderCode(errorCode) == null &&
                                         ProviderCooldown.durableRateLimits() &&
                                         !dispatchRetryGuard.remoteOutcomeUnknown &&
                                         !effectiveConfig.requireGatewayConversation &&
@@ -1000,29 +1050,48 @@ class OpenAIAPIImpl @Inject constructor(
                                             knownNotAccepted = !receivedResponsePayload,
                                             rateReset = response.headers["X-RateLimit-Reset"],
                                             errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                            errorType = errorCode,
-                                            checkpointContinuationAllowed = true
+                                            errorType = semanticFailure.code ?: errorCode,
+                                            checkpointContinuationAllowed = true,
+                                            observedHttpStatus = response.status.value,
+                                            serverRequestId = responseObserver.snapshot().serverRequestId
                                         )
                                     }
                                     val streamEvent = when (decoded) {
                                         is ResponseErrorEvent -> {
                                             val reportedMessage = effectiveConfig.readableProviderError(providerErrorDetails(data, decoded.message, effectiveConfig.token), decoded.code)
+                                            val classified = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
+                                                decoded.code,
+                                                reportedMessage,
+                                                details = structuredResponsesFailure(data, response.status.value),
+                                                httpStatus = response.status.value,
+                                                serverRequestId = responseObserver.snapshot().serverRequestId,
+                                                responsePayloadObserved = receivedResponsePayload
+                                            )
                                             if (dispatchRetryGuard.remoteOutcomeUnknown) {
-                                                decoded.copy(message = uncertainGatewayFailureMessage(reportedMessage), code = "GATEWAY_OUTCOME_UNKNOWN", failureDetails = uncertainGatewayFailureDetails(decoded.failureDetails ?: structuredResponsesFailure(data, response.status.value), responseObserver.snapshot(), decoded.code))
+                                                classified.copy(message = uncertainGatewayFailureMessage(classified.message), code = "GATEWAY_OUTCOME_UNKNOWN", failureDetails = uncertainGatewayFailureDetails(classified.failureDetails, responseObserver.snapshot(), decoded.code))
                                             } else {
-                                                decoded.copy(message = reportedMessage)
+                                                classified
                                             }
                                         }
                                         is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent -> {
+                                            val reported = decoded.response.error
+                                            val classified = dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
+                                                reported?.code,
+                                                effectiveConfig.readableProviderError(providerErrorDetails(data, reported?.message ?: "Response failed", effectiveConfig.token), reported?.code),
+                                                reported?.type,
+                                                details = structuredResponsesFailure(data, response.status.value),
+                                                httpStatus = response.status.value,
+                                                serverRequestId = responseObserver.snapshot().serverRequestId,
+                                                responsePayloadObserved = receivedResponsePayload
+                                            )
                                             if (dispatchRetryGuard.remoteOutcomeUnknown) {
-                                                val reported = decoded.response.error
-                                                ResponseErrorEvent(
-                                                    message = uncertainGatewayFailureMessage(effectiveConfig.readableProviderError(providerErrorDetails(data, reported?.message ?: "Response failed", effectiveConfig.token), reported?.code)),
+                                                classified.copy(
+                                                    message = uncertainGatewayFailureMessage(classified.message),
                                                     code = "GATEWAY_OUTCOME_UNKNOWN",
-                                                    failureDetails = uncertainGatewayFailureDetails(structuredResponsesFailure(data, response.status.value), responseObserver.snapshot(), reported?.code)
+                                                    failureDetails = uncertainGatewayFailureDetails(classified.failureDetails, responseObserver.snapshot(), reported?.code)
                                                 )
                                             } else {
-                                                decoded
+                                                classified
                                             }
                                         }
                                         else -> decoded
@@ -1137,6 +1206,23 @@ class OpenAIAPIImpl @Inject constructor(
             )
         }
     }.flowOn(Dispatchers.IO)
+}
+
+/** An explicit account allowance denial cannot become a timed HTTP 429 retry. */
+private fun providerBudgetFailure(body: String, status: Int, details: JsonObject?, serverRequestId: String?, receivedPayload: Boolean): ResponseErrorEvent? {
+    val failure = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(status, body)
+    if (failure.kind != dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind.BUDGET) return null
+    val root = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+    val error = root?.get("error") as? JsonObject ?: root
+    return dev.chungjungsoo.gptmobile.data.network.error.ProviderStreamFailure.event(
+        ((error?.get("code") ?: root?.get("code") ?: root?.get("rc")) as? JsonPrimitive)?.contentOrNull,
+        (error?.get("message") as? JsonPrimitive)?.contentOrNull ?: failure.message(),
+        (error?.get("type") as? JsonPrimitive)?.contentOrNull,
+        details = details,
+        httpStatus = status,
+        serverRequestId = serverRequestId,
+        responsePayloadObserved = receivedPayload
+    )
 }
 
 private fun rateLimitErrorType(body: String): String? = runCatching {

@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentRepairScope
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GitHubArgumentProvenance
+import dev.chungjungsoo.gptmobile.data.github.GitHubSearchOptions
 import dev.chungjungsoo.gptmobile.data.github.GitHubSourceReadRecovery
 import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import kotlinx.coroutines.currentCoroutineContext
@@ -85,9 +86,38 @@ internal class GitHubOperationTool(
                 selectorIncomplete -> "GITHUB_REPOSITORY_SELECTOR_INCOMPLETE"
                 operation == "github_search" && query.isNullOrBlank() -> "GITHUB_SEARCH_QUERY_EMPTY"
                 operation == "github_search" && (query?.length ?: 0) > 200 -> "GITHUB_SEARCH_QUERY_TOO_LONG"
+                operation == "github_search" && arguments["fuzzy_match"] == JsonPrimitive(true) && !GitHubSearchOptions.supportsFuzzyQuery(query.orEmpty()) -> "GITHUB_SEARCH_FUZZY_QUERY_INVALID"
                 else -> "GITHUB_ARGUMENT_PRECHECK_UNCLASSIFIED"
             }
+            val correction = arguments.takeIf {
+                reason == "GITHUB_SEARCH_FUZZY_QUERY_INVALID" &&
+                    it.keys.none { key -> key in setOf("view_cursor", "search_id") } &&
+                    it["index_cursor"] in setOf(null, JsonPrimitive(0)) &&
+                    it["page"] in setOf(null, JsonPrimitive(1))
+            }?.let { JsonObject((it - "fuzzy_threshold") + ("fuzzy_match" to JsonPrimitive(false))) }
             observed.copy(
+                content = if (reason == "GITHUB_SEARCH_FUZZY_QUERY_INVALID") {
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("schema", "github.argument-rejection.v1")
+                            put("operation", operation)
+                            put("error_code", "INVALID_ARGUMENTS")
+                            put("reason_code", reason)
+                            put("message", "Fuzzy search accepts one identifier of 2–80 characters. Retain the phrase and use fuzzy_match=false for a literal search.")
+                            correction?.let { corrected ->
+                                put(
+                                    "correction_call",
+                                    buildJsonObject {
+                                        put("tool", definition.name)
+                                        put("arguments", corrected)
+                                    }
+                                )
+                            }
+                        }
+                    )
+                } else {
+                    observed.content
+                },
                 executionReceipt = JsonObject(
                     observed.executionReceipt.orEmpty() + buildJsonObject {
                         put("reason_code", reason)
@@ -1077,7 +1107,10 @@ internal class GitHubOperationTool(
                     properties["file_extension"] = field("string")
                     properties["path_suffix"] = field("string")
                     properties["case_sensitive"] = field("boolean")
-                    properties["fuzzy_match"] = field("boolean")
+                    properties["fuzzy_match"] = buildJsonObject {
+                        put("type", "boolean")
+                        put("description", "Use true only for one identifier matching [A-Za-z_][A-Za-z_0-9]{1,79}. Use false for phrases, paths with punctuation, or pattern searches.")
+                    }
                     properties["fuzzy_threshold"] = buildJsonObject {
                         put("type", "number")
                         put("minimum", 0.5)
@@ -1439,7 +1472,7 @@ internal class GitHubOperationTool(
             val description = when (operation) {
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
-                "github_search" -> "Search pinned repository by query. Omit action or use search. Follow continuation_call."
+                "github_search" -> "Search pinned repository by query. Omit action or use search. Follow exact continuation_call. Fuzzy matching accepts one identifier only; use literal matching for phrases and paths mode to discover filenames. Reuse retained matching paths before repeating discovery."
                 "github_read" -> "Read bounded ranges: end_line or max_lines. Use source_coverage.next_action."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."

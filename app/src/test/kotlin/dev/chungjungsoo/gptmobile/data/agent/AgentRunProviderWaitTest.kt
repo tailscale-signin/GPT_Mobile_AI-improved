@@ -34,6 +34,83 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class AgentRunProviderWaitTest {
+    @Test fun preflightPersistenceExceptionRecordsItsUnknownOutcomeBeforeAnyModelDispatch() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val chats = mockk<ChatRepository>()
+        val settings = mockk<SettingRepository>()
+        val waits = mockk<ProviderWaitStore>()
+        val platform = PlatformV2(uid = "p", name = "Primary", compatibleType = ClientType.CUSTOM, model = "model", apiUrl = "https://writer.example/v1", token = "preflight-${java.util.UUID.randomUUID()}")
+        val user = MessageV2(id = 1, chatId = 1, content = "Original task", platformType = null)
+        val answer = MessageV2(id = 2, chatId = 1, content = "", platformType = "p", currentRunId = "run", ownershipFence = 1)
+        val request = AgentRunRequest("run", 1, answer, platform, listOf(user), listOf(listOf(answer)))
+        dev.chungjungsoo.gptmobile.data.network.ProviderCooldown.defer(dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(platform.apiUrl, platform.token), "60")
+        val committed = CompletableDeferred<MessageV2>()
+        coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(backgroundGeneration = false)
+        coEvery { waits.deferResult(any()) } returns ProviderWaitSchedulingResult.uncertain(IOException("unconfirmed persistence"))
+        coEvery { chats.commitAgentRun(any(), "run", "BLOCKED", any(), any()) } coAnswers {
+            committed.complete(firstArg())
+            true
+        }
+        val coordinator = AgentRunCoordinator(context, chats, mockk(), settings, mockk(), providerWaits = waits)
+        coordinator.resumeProviderRequests(listOf(request))
+        val saved = withTimeout(10_000) { committed.await() }
+        val failure = requireNotNull(saved.timeline.last().profileFailure)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("PERSISTENCE_OUTCOME_UNKNOWN"), failure.recoveryDetails?.get("provider_wait_no_wait_reason"))
+        assertEquals(false, failure.retryAllowed)
+        assertEquals(false, failure.requestReplayAllowed)
+        assertTrue(coordinator.activeRuns.value.isEmpty())
+        coVerify(exactly = 0) { chats.markAgentRunRunning(any(), any()) }
+        coVerify(exactly = 0) { chats.completeChat(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun terminalQuotaPathsRetainTheirExactNoWaitReasonWithTheOriginalFailure() = runBlocking {
+        for (reason in listOf("DECISION_UNAVAILABLE", "REJECTION_NOT_REPLAY_SAFE", "WAIT_STORE_UNAVAILABLE")) {
+            val context = RuntimeEnvironment.getApplication()
+            val chats = mockk<ChatRepository>()
+            val settings = mockk<SettingRepository>()
+            val platform = PlatformV2(uid = "p", name = "Primary", compatibleType = ClientType.CUSTOM, model = "model", apiUrl = "https://writer.example/v1")
+            val user = MessageV2(id = 1, chatId = 1, content = "Original task", platformType = null)
+            val answer = MessageV2(id = 2, chatId = 1, content = "", platformType = "p", currentRunId = "run", ownershipFence = 1)
+            val request = AgentRunRequest("run", 1, answer, platform, listOf(user), listOf(listOf(answer)))
+            val decision = ProviderLimitDecision("TEST", "p", "model", 1000, "scope", "PROVIDER_RATE_LIMITED", reason != "REJECTION_NOT_REPLAY_SAFE")
+                .takeUnless { reason == "DECISION_UNAVAILABLE" }
+            val committed = CompletableDeferred<MessageV2>()
+            coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(backgroundGeneration = false)
+            coEvery { chats.markAgentRunRunning("run", any()) } returns true
+            coEvery { chats.updateAgentMessage(any()) } returns Unit
+            coEvery { chats.completeChat(any(), any(), any(), "run", any(), any()) } returns flow {
+                emit(ApiState.Success("Retained source findings."))
+                emit(
+                    ApiState.Error(
+                        "Provider request limit reached.",
+                        providerLimit = decision,
+                        errorCode = "429",
+                        failureDetails = kotlinx.serialization.json.buildJsonObject {
+                            put("http_status", kotlinx.serialization.json.JsonPrimitive(200))
+                            put("provider_failure_kind", kotlinx.serialization.json.JsonPrimitive("RATE_LIMIT"))
+                            put("provider_semantic_status", kotlinx.serialization.json.JsonPrimitive(429))
+                        }
+                    )
+                )
+            }
+            coEvery { chats.commitAgentRun(any(), "run", any(), any(), any()) } coAnswers {
+                committed.complete(firstArg())
+                true
+            }
+            val coordinator = AgentRunCoordinator(context, chats, mockk(), settings, mockk())
+            coordinator.resumeProviderRequests(listOf(request))
+            val saved = withTimeout(10_000) { committed.await() }
+            withTimeout(10_000) { coordinator.activeRuns.first { it.isEmpty() } }
+            assertEquals("Retained source findings.", saved.content)
+            val failure = requireNotNull(saved.timeline.lastOrNull { it.profileFailure != null }?.profileFailure)
+            assertEquals("RATE_LIMIT", failure.category)
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(reason), failure.recoveryDetails?.get("provider_wait_no_wait_reason"))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.recoveryDetails?.get("provider_wait_persisted"))
+            assertEquals(false, failure.retryAllowed)
+            coVerify(exactly = 1) { chats.completeChat(any(), any(), any(), "run", any(), any()) }
+        }
+    }
+
     @Test fun localRecoveryRefusalPublishesTypedBlockedStateBeforeAnyRetainedCombinedFallback() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val chats = mockk<ChatRepository>()
@@ -131,7 +208,7 @@ class AgentRunProviderWaitTest {
                 emit(ApiState.Success("Previously completed research paragraph."))
                 throw deferred
             }
-            coEvery { waits.deferRunning(any(), decision, deferred.checkpoint) } throws pauseFailure
+            coEvery { waits.deferRunningResult(any(), decision, deferred.checkpoint) } throws pauseFailure
             coEvery { waits.reconcileTerminalCheckpointSafely("run") } coAnswers {
                 reconciled.complete(Unit)
                 false
@@ -145,13 +222,17 @@ class AgentRunProviderWaitTest {
             val (saved, status, reason) = withTimeout(10_000) { committed.await() }
             withTimeout(10_000) { reconciled.await() }
             withTimeout(10_000) { coordinator.activeRuns.first { it.isEmpty() } }
-            assertEquals("FAILED", status)
+            assertEquals("BLOCKED", status)
             assertEquals(pauseFailure.message, reason)
             assertEquals("Previously completed research paragraph.", saved.content)
             assertTrue(saved.timeline.any { it.runError == pauseFailure.message })
-            coVerify(exactly = 1) { waits.deferRunning(any(), decision, deferred.checkpoint) }
+            val retained = requireNotNull(saved.timeline.last().profileFailure)
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("PERSISTENCE_OUTCOME_UNKNOWN"), retained.recoveryDetails?.get("provider_wait_no_wait_reason"))
+            assertEquals(false, retained.retryAllowed)
+            assertEquals(false, retained.requestReplayAllowed)
+            coVerify(exactly = 1) { waits.deferRunningResult(any(), decision, deferred.checkpoint) }
             coVerify(exactly = 1) { waits.reconcileTerminalCheckpointSafely("run") }
-            coVerify(exactly = 1) { chats.commitAgentRun(any(), "run", "FAILED", any(), pauseFailure.message) }
+            coVerify(exactly = 1) { chats.commitAgentRun(any(), "run", "BLOCKED", any(), pauseFailure.message) }
         }
     }
 }

@@ -23,7 +23,13 @@ internal object GitHubExecutionLimits {
         }
         put("task_deadline_observation", state)
         if (start != null && end != null && end >= start && start >= 0) {
+            put("task_deadline_clock", "WALL_CLOCK")
+            put("task_deadline_renewed", (contract?.get("grant_message_id") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.let { it > 0 } == true)
             ((end - start) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_window_seconds", it) }
+            if (observedAt >= start) {
+                ((observedAt - start) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_elapsed_seconds", it) }
+                ((end - observedAt).coerceAtLeast(0) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_remaining_seconds", it) }
+            }
             if (observedAt >= end) {
                 ((observedAt - end) / 1000).takeIf { it <= 16_000_000 }?.let { put("task_deadline_overdue_seconds", it) }
             }
@@ -54,6 +60,7 @@ internal object GitHubExecutionLimits {
             put("failure_domain", "APPLICATION_VERIFICATION")
             put("stop_reason", "ACCEPTED_TASK_DEADLINE_REACHED")
             put("recovery_action", "AUTHORIZE_NEW_TIME_WINDOW")
+            put("time_window_counts_waits", true)
             put("resume_allowed", false)
             put("dispatched", false)
             put("retryable", false)

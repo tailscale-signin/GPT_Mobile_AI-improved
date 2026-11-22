@@ -113,7 +113,10 @@ class GitHubIntegrationAcceptanceTest {
 
     @Test fun classificationIsPersistedBeforeBulkReadsAndNeverBackfilled() = kotlinx.coroutines.runBlocking {
         val saved = mutableMapOf<String, JsonObject>()
-        val book = GitHubEvidenceBook("binding", "owner/repo", "main", tools.map { it.name }.toSet(), load = { saved[it] }, save = { key, value -> saved[key] = value })
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", tools.map { it.name }.toSet(), load = { saved[it] }, save = { key, value ->
+            if (!GitHubEvidenceBook.currentSnapshot(key) && key in saved) assertEquals("Immutable evidence changed", saved[key], value)
+            saved[key] = value
+        })
         val discovery = mapOf("catalog-0" to catalog(0, tools.size))
         val request = task.replace("- Exercise permitted", "- Classify each capability before bulk execution\n- Exercise permitted")
         val initial = book.fixtureApprovalPreflight()

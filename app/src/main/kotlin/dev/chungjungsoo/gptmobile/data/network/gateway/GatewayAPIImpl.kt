@@ -69,6 +69,7 @@ class GatewayAPIImpl internal constructor(
             shareConcurrentRefresh = !owned
         ) {
             val runtime = GatewayClientDiagnostics.runtimeEpoch(config)
+            if (forceRefresh) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.apiUrl)
             try {
                 val value = readCapabilities(config, forceRefresh || owned)
                 CapabilityAttempt(value?.instanceId ?: GatewayClientDiagnostics.runtimeEpoch(config), value)

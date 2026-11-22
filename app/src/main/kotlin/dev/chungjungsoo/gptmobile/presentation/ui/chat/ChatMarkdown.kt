@@ -495,6 +495,7 @@ private fun ChatMarkdownContent(
             }
         }
     }
+    val plainTextAllowed = memoryRanges.isEmpty() && provenance == null && wording == null && highlightSentence.isNullOrBlank() && inlineMathByPlaceholder.isEmpty()
     val components = remember(
         streaming,
         isDarkTheme,
@@ -508,7 +509,8 @@ private fun ChatMarkdownContent(
         wording,
         combinedMarkdown,
         interactionOwner,
-        renderedDigest
+        renderedDigest,
+        plainTextAllowed
     ) {
         // Read the animation clock only in the graphics layer. A fade tick must not
         // rebuild annotations, reparse Markdown, or measure settled paragraphs.
@@ -652,7 +654,7 @@ private fun ChatMarkdownContent(
                     }
                 } else {
                     Column(Modifier.streamFade(model.node.startOffset)) {
-                        DefaultParagraph(model.content, model.node, model.typography.paragraph, annotator)
+                        DefaultParagraph(model.content, model.node, model.typography.paragraph, annotator, plainTextAllowed = plainTextAllowed)
                         CombinedSharedSourceMarkers(combinedMarkdown, profileIndex.overlapping(model.node.startOffset, model.node.endOffset), wording) { passage, owners -> if (interactionOwner.accepts(renderedDigest)) attributionSelection = passage to owners }
                     }
                 }
@@ -737,13 +739,15 @@ private fun ChatMarkdownContent(
             Box(Modifier.heightIn(min = if (awaitingContent) minimumPendingHeight else 0.dp), propagateMinConstraints = true) {
                 if (formattingFailed || parserTimedOut || parserFailed) {
                     val fallbackContent = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)
-                    val fallbackPages = remember(fallbackContent) { paragraphPages(AnnotatedString(fallbackContent)) }
+                    val fallbackSource = remember(fallbackContent) { AnnotatedString(fallbackContent) }
+                    val fallbackPages = remember(fallbackContent) { paragraphPageRanges(fallbackContent) }
                     var visibleFallbackPages by remember(contentIdentity) { mutableIntStateOf(1) }
                     Column(modifier) {
-                        fallbackPages.take(visibleFallbackPages).forEachIndexed { index, page ->
+                        fallbackPages.take(visibleFallbackPages).forEachIndexed { index, range ->
+                            val page = remember(fallbackSource, range) { fallbackSource.subSequence(range.first, range.last + 1) }
                             Text(
                                 page,
-                                onTextLayout = rememberGitHubTextLayout("fallback:$index", fallbackPages.take(index).sumOf { it.length }, firstAppearanceAddsLines = index == 0),
+                                onTextLayout = rememberGitHubTextLayout("fallback:$index", range.first, firstAppearanceAddsLines = index == 0),
                                 style = answerBodyStyle(),
                                 color = normalTextColor,
                                 modifier = Modifier.drawWithContent {
@@ -1137,7 +1141,8 @@ private fun DefaultParagraph(
     node: org.intellij.markdown.ast.ASTNode,
     style: TextStyle,
     annotator: MarkdownAnnotator,
-    lineOffset: Int = node.startOffset
+    lineOffset: Int = node.startOffset,
+    plainTextAllowed: Boolean = false
 ) {
     val linkStyle = LocalMarkdownTypography.current.textLink
     val inlineCodeStyle = LocalMarkdownTypography.current.inlineCode.toSpanStyle()
@@ -1155,26 +1160,36 @@ private fun DefaultParagraph(
     // paragraphs, and do not hand a pathological unbroken answer to one layout.
     // annotatorSettings creates a new identity on every composition; key this
     // cache by its actual inputs so unrelated updates do not rebuild spans.
-    val annotated = remember(content, node, style, linkStyle, inlineCodeStyle, annotator, referenceHandler, uriHandler) {
-        AnnotatedString.Builder().apply {
-            pushStyle(style.toSpanStyle())
-            buildMarkdownAnnotatedString(content, node, settings)
-            pop()
-        }.toAnnotatedString()
+    val literal = remember(content, node, plainTextAllowed) { if (plainTextAllowed) literalMarkdownParagraph(content, node) else null }
+    val annotated = if (literal != null) {
+        // Settled plain paragraphs keep the same text/span object when a later
+        // paragraph grows. Rich, linked and attributed text retains the full parser.
+        remember(literal) { AnnotatedString(literal) }
+    } else {
+        remember(content, node, style, linkStyle, inlineCodeStyle, annotator, referenceHandler, uriHandler) {
+            AnnotatedString.Builder().apply {
+                pushStyle(style.toSpanStyle())
+                buildMarkdownAnnotatedString(content, node, settings)
+                pop()
+            }.toAnnotatedString()
+        }
     }
-    val pages = remember(annotated, node) {
-        // Image promotion uses offsets into the complete paragraph. Keep that
-        // path intact; ordinary prose retains all inline annotations per page.
+    val containsImage = remember(node) {
         fun hasImage(current: org.intellij.markdown.ast.ASTNode): Boolean =
             current.type == org.intellij.markdown.MarkdownElementTypes.IMAGE || current.children.any(::hasImage)
-        if (hasImage(node)) listOf(annotated) else paragraphPages(annotated)
+        hasImage(node)
     }
-    val pageOffsets = remember(pages) { pages.runningFold(0) { offset, page -> offset + page.length } }
+    val pages = remember(annotated, containsImage) {
+        // Image promotion uses offsets into the complete paragraph. Keep that
+        // path intact; ordinary prose retains all inline annotations per page.
+        if (containsImage) listOf(0 until annotated.length) else paragraphPageRanges(annotated)
+    }
     var visiblePages by remember(node.startOffset) { mutableIntStateOf(1) }
     Column {
-        pages.take(visiblePages).forEachIndexed { index, page ->
+        pages.take(visiblePages).forEachIndexed { index, range ->
             key(index) {
-                val reportLayout = rememberGitHubTextLayout("source:$lineOffset:$index", lineOffset + pageOffsets[index], firstAppearanceAddsLines = index == 0)
+                val page = remember(annotated, range) { annotated.subSequence(range.first, range.last + 1) }
+                val reportLayout = rememberGitHubTextLayout("source:$lineOffset:$index", lineOffset + range.first, firstAppearanceAddsLines = index == 0)
                 MarkdownText(page, node, Modifier, style, onTextLayout = { result, _ -> reportLayout(result) }, sourceContent = content)
             }
         }

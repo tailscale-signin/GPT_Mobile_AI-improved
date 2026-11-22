@@ -130,6 +130,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                     dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore.requireUnprotectedTransport()
                 }
                 require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
+                val mechanicalReasoning = GitHubReasoningPolicy.supportsOpenAiMechanicalEffort(platform.model) && GitHubReasoningPolicy.mechanicalContinuation(constraints, tools, exchanges)
                 val effectiveOutputTokens = constraints.outputLimit(platform.maxTokens)
                 if (constraints.maxOutputTokens != null) {
                     emit(
@@ -190,7 +191,16 @@ class OpenAIResponsesAdapter @Inject constructor(
                     temperature = if (platform.reasoning || constraints.maximizeReasoning && GitHubReasoningPolicy.openAiEffort(platform.model) != null) null else platform.temperature,
                     topP = if (platform.reasoning || constraints.maximizeReasoning && GitHubReasoningPolicy.openAiEffort(platform.model) != null) null else platform.topP,
                     reasoning = if (constraints.allowReasoning && (platform.reasoning || constraints.maximizeReasoning && GitHubReasoningPolicy.openAiEffort(platform.model) != null)) {
-                        ReasoningConfig(effort = if (constraints.maximizeReasoning) GitHubReasoningPolicy.openAiEffort(platform.model) ?: "high" else "medium", summary = "auto")
+                        ReasoningConfig(
+                            effort = if (mechanicalReasoning) {
+                                "low"
+                            } else if (constraints.maximizeReasoning) {
+                                GitHubReasoningPolicy.openAiEffort(platform.model) ?: "high"
+                            } else {
+                                "medium"
+                            },
+                            summary = "auto"
+                        )
                     } else {
                         null
                     },
@@ -232,7 +242,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                         requireKnownCapacity = constraints.requireKnownCapacity,
                         reasoningMode = constraints.reasoningModeOverride ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,
                         allowReasoning = constraints.allowReasoning,
-                        maximizeReasoning = constraints.maximizeReasoning
+                        maximizeReasoning = constraints.maximizeReasoning && !mechanicalReasoning
                     )
                     val assembler = OpenAIResponsesEventAssembler()
                     val roundCalls = mutableMapOf<String, ProviderToolInvocation>()
@@ -496,7 +506,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
                 .forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true
 
-        fun requestConfiguration(activeKey: String, requestTools: List<ChatFunctionTool>?, freshOnce: Boolean, llamaGatewayHeaders: Map<String, String>): ProviderRequestConfig = ProviderRequestConfig(
+        fun requestConfiguration(activeKey: String, requestTools: List<ChatFunctionTool>?, freshOnce: Boolean, llamaGatewayHeaders: Map<String, String>, mechanicalReasoning: Boolean): ProviderRequestConfig = ProviderRequestConfig(
             apiUrl = platform.apiUrl,
             profileUid = platform.uid,
             profileName = platform.name,
@@ -511,7 +521,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             permissionRevision = constraints.permissionRevision,
             requireKnownCapacity = constraints.requireKnownCapacity,
             reasoningMode = llamaReasoning,
-            maximizeReasoning = constraints.maximizeReasoning,
+            maximizeReasoning = constraints.maximizeReasoning && !mechanicalReasoning,
             allowReasoning = constraints.allowReasoning,
             token = activeKey.takeIf { it.isNotBlank() && (platform.compatibleType != ClientType.FREE || dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform).acceptsUserToken) },
             queueScope = constraints.queueScope ?: constraints.combined?.rootBudgetId ?: constraints.attemptId,
@@ -546,7 +556,8 @@ class OpenAICompatibleAdapter @Inject constructor(
             currentRequestMessages: List<ChatMessage>,
             requestTools: List<ChatFunctionTool>?,
             gatewayToolsAllowed: Boolean,
-            effectiveOutputTokens: Int?
+            effectiveOutputTokens: Int?,
+            mechanicalReasoning: Boolean
         ): ChatCompletionRequest = ChatCompletionRequest(
             model = platform.model,
             messages = currentRequestMessages,
@@ -569,7 +580,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 if ((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning) {
                     OpenRouterReasoning(
                         effort = when {
-                            lowExtractionReasoning -> "low"
+                            lowExtractionReasoning || mechanicalReasoning -> "low"
                             constraints.maximizeReasoning -> "high"
                             else -> "medium"
                         }
@@ -810,6 +821,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                         }
                     )
                 }
+                val mechanicalReasoning = isOpenRouter &&
+                    dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
+                        .forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)?.reasoningControlAdvertised == true &&
+                    GitHubReasoningPolicy.mechanicalContinuation(constraints, tools, exchanges)
                 restoredGatewayJob?.let { binding ->
                     providerExchanges = binding.restoreProviderInvocations(providerExchanges)
                     providerExchanges.flatMap { it.calls }.forEach { call ->
@@ -897,7 +912,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
-                    val config = requestConfiguration(activeKey, requestTools, freshOnce, llamaGatewayHeaders)
+                    val config = requestConfiguration(activeKey, requestTools, freshOnce, llamaGatewayHeaders, mechanicalReasoning)
                     var roundFailed = false
                     var canRotate = false
 
@@ -935,7 +950,7 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                     while (true) {
                         val requestConfig = delegatedLlamaRequestConfig(config, isLlama, effectiveOutputTokens, constraints.copy(allowGatewayLocalTools = gatewayToolsAllowed)).copy(captureGenerationReceipt = true)
-                        val request = completionRequest(config, currentRequestMessages, requestTools, gatewayToolsAllowed, effectiveOutputTokens)
+                        val request = completionRequest(config, currentRequestMessages, requestTools, gatewayToolsAllowed, effectiveOutputTokens, mechanicalReasoning)
                         val assembler = ChatCompletionsEventAssembler()
                         var lastFinishReason: String? = null
                         var terminalReceived = false

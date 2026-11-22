@@ -4,6 +4,10 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 internal object IssueReportCodes {
     val allowed = setOf(
         "APP_ERROR",
+        "WORKSPACE_EVIDENCE_CONFLICT",
+        "BILLING_UNAVAILABLE",
+        "PROVIDER_CONTENT_POLICY",
+        "PROVIDER_GENERATION_FAILED",
         "CHAT_FAILED",
         "RESEARCH_PARTIAL",
         "FREE_PROFILE_UNAVAILABLE",

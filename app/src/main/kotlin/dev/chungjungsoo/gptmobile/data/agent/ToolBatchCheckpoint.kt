@@ -123,16 +123,29 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             val receipts = GitHubProviderReplayEvidence.receipts(saved.settledExchanges())
             ProviderRecoveryFailure.require(
                 saved.entries.values.none { it.started && it.result == null } && receipts.none { it.requiresReconciliation },
-                "PROVIDER_WAIT_OUTCOME_UNKNOWN"
+                "PROVIDER_WAIT_OUTCOME_UNKNOWN",
+                providerRecoveryCorrelation(saved, receipts, "TOOL_OUTCOME_UNKNOWN")
             )
+            val settled = saved.entries.values.all { it.result != null }
+            val matches = if (expectedProviderJournalDigest != null) {
+                GitHubProviderReplayEvidence.journalDigest(receipts) == expectedProviderJournalDigest
+            } else {
+                GitHubProviderReplayEvidence.digest(receipts) == expectedProviderEvidenceDigest
+            }
             ProviderRecoveryFailure.require(
-                saved.entries.values.all { it.result != null } &&
-                    if (expectedProviderJournalDigest != null) {
-                        GitHubProviderReplayEvidence.journalDigest(receipts) == expectedProviderJournalDigest
+                settled && matches,
+                "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+                providerRecoveryCorrelation(
+                    saved,
+                    receipts,
+                    if (!settled) {
+                        "TOOL_RESULTS_PENDING"
+                    } else if (expectedProviderJournalDigest != null) {
+                        "TOOL_JOURNAL_CHANGED"
                     } else {
-                        GitHubProviderReplayEvidence.digest(receipts) == expectedProviderEvidenceDigest
-                    },
-                "PROVIDER_WAIT_CHECKPOINT_CHANGED"
+                        "TOOL_RECEIPTS_CHANGED"
+                    }
+                )
             )
         }
         if (initialJob != null && saved.jobContext != null) {
@@ -158,6 +171,19 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             }
         }
         return if (saved.jobContext == null && initialJob != null) saved.copy(jobContext = initialJob) else saved
+    }
+
+    private fun providerRecoveryCorrelation(state: State, receipts: List<ToolHandoffReceipt>, reason: String): JsonObject = buildJsonObject {
+        put("checkpoint_validation_stage", "TOOL_JOURNAL")
+        put("checkpoint_mismatch_reason", reason)
+        put("tool_checkpoint_binding_sha256", dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(binding))
+        expectedProviderEvidenceDigest?.let { put("expected_tool_evidence_digest", it) }
+        expectedProviderJournalDigest?.let { put("expected_tool_journal_digest", it) }
+        put("observed_tool_evidence_digest", GitHubProviderReplayEvidence.digest(receipts))
+        GitHubProviderReplayEvidence.journalDigest(receipts)?.let { put("observed_tool_journal_digest", it) }
+        put("queued_tool_count", state.entries.values.count { !it.started && it.result == null })
+        put("unsettled_tool_count", state.entries.values.count { it.started && it.result == null } + receipts.count { it.requiresReconciliation })
+        put("settled_tool_count", receipts.size)
     }
     private fun write(state: State) {
         val bytes = json.encodeToString(state.copy(schemaVersion = 2)).toByteArray()
@@ -306,14 +332,23 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             )
         }
         if (expectedProviderEvidenceDigest != null || expectedProviderJournalDigest != null) {
-            locked {
+            val current = locked {
+                val observed = read()
                 if (!providerRecoveryValidated) {
-                    ProviderRecoveryFailure.require(read() == state, "PROVIDER_WAIT_CHECKPOINT_CHANGED")
+                    // Consumption/display metadata may change while payloads are
+                    // hydrated. Only the bound execution journal fences this retry.
+                    ProviderRecoveryFailure.require(
+                        observed.entries == state.entries && observed.pending == state.pending && observed.batches == state.batches,
+                        "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+                        providerRecoveryCorrelation(observed, GitHubProviderReplayEvidence.receipts(observed.settledExchanges()), "TOOL_JOURNAL_CHANGED_DURING_RESTORE")
+                    )
                 }
+                observed
             }
             // Both dispatcher handoffs must complete before releasing the guard.
             // A cancelled snapshot must leave the next restoration fenced.
             providerRecoveryValidated = true
+            return snapshot.copy(consumedCallIds = current.consumedCallIds, jobContext = current.jobContext)
         }
         return snapshot
     }

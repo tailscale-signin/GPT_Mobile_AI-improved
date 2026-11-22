@@ -604,6 +604,7 @@ object StagedDiagnosticCapture {
             return JsonObject(existing + ("reusedCheckpoint" to JsonPrimitive(true)))
         }
         val started = System.currentTimeMillis()
+        val startedNanos = System.nanoTime()
         val memoryBefore = options.memorySampler()
         val progressFile = File(session, "${stage.id}.progress.json")
         val receiptFile = File(session, "${stage.id}.receipt.json")
@@ -738,6 +739,7 @@ object StagedDiagnosticCapture {
         }
         val summary = if (destination.isFile) measure(destination, options.maxArchiveBytes) else FileMeasure(0, 0, digestText(""))
         check(summary.bytes == bytes && summary.records == records) { "DIAGNOSTIC_STAGE_VALIDATION_FAILED" }
+        val memoryAfter = options.memorySampler()
         val receipt = buildJsonObject {
             put("id", stage.id)
             put("fileName", stage.fileName)
@@ -766,6 +768,7 @@ object StagedDiagnosticCapture {
             put("recordChainSha256", summary.recordChainSha256)
             put("startedAtMillis", started)
             put("completedAtMillis", System.currentTimeMillis())
+            put("durationMillis", (System.nanoTime() - startedNanos).coerceAtLeast(0) / 1_000_000)
             put("omissionReason", reason?.let(::JsonPrimitive) ?: JsonNull)
             put("errorClass", failure?.javaClass?.simpleName?.take(96)?.let(::JsonPrimitive) ?: JsonNull)
             put("reusedCheckpoint", progress != null)
@@ -775,7 +778,8 @@ object StagedDiagnosticCapture {
             put("continuedFrom", continuedFrom ?: JsonNull)
             put("sourceReference", sourceReference ?: JsonNull)
             put("memoryBefore", memoryBefore.json())
-            put("memoryAfter", options.memorySampler().json())
+            put("memoryAfter", memoryAfter.json())
+            put("processMemoryInterval", memoryAfter.intervalSince(memoryBefore))
             put("heapDeferral", sink?.heapDeferral ?: JsonNull)
             put("cooperativeHeapRecovery", options.cooperativeHeapRecovery)
             put("memoryGuard", sink?.memoryGuardEvidence() ?: JsonNull)

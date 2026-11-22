@@ -183,14 +183,15 @@ INSTRUMENTATION_STATUS_CODE: 0
         self.assertIn('optional_assumption_reasons=aosp_tts_assumptions', acceptance)
 
 
-    def test_current_scoped_release_includes_exact_aosp_smoke_fixes_and_no_generic_scripts(self):
+    def test_scoped_release_allows_exact_aosp_smoke_fixes_and_no_generic_scripts(self):
         root = Path(__file__).resolve().parents[2]
         manifest = json.loads((root / 'release-scope.json').read_text())
         required = ['scripts/check_native_memory_smoke.py', 'scripts/tests/test_native_memory_smoke.py']
+        # Exercise the exact-path contract independently of which files the next
+        # version changes. Historical fixes already in its base need no re-release.
+        self.assertNotIn('scripts/', manifest['allowedPaths'])
+        manifest = {**manifest, 'allowedPaths': required}
         self.assertEqual('scoped', release_scope.validate(root, manifest, required))
-        for path in required:
-            with self.subTest(path=path):
-                self.assertIn(path, manifest['allowedPaths'])
         self.assertNotIn('scripts/', manifest['allowedPaths'])
         with self.assertRaisesRegex(ValueError, 'Changes outside release scope'):
             release_scope.validate(root, manifest, required + ['scripts/unrelated-regression.py'])

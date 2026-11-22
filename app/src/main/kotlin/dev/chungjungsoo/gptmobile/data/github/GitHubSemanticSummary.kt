@@ -15,7 +15,8 @@ internal object GitHubSemanticSummary {
 
     fun from(operation: String, request: JsonObject, source: JsonObject): JsonObject {
         val data = data(source)
-        val action = GitHubActionIdentity.canonicalArguments(operation, request).text("action")
+        val canonicalRequest = GitHubActionIdentity.canonicalArguments(operation, request)
+        val action = canonicalRequest.text("action")
         val repository = data["repository"] as? JsonObject
         val branch = data["branch"]
         val checks = (data["check_details"] as? JsonObject) ?: (data["checks"] as? JsonObject) ?: data.takeIf { "check_runs" in it }
@@ -65,6 +66,20 @@ internal object GitHubSemanticSummary {
                             }
                         )
                     }
+                }
+                if (operation.githubOperationFamily() == "github_context" && action == "branches") {
+                    val rows = ((data["branches"] ?: data["items"]) as? JsonArray).orEmpty()
+                    val branches = rows.take(4).filterIsInstance<JsonObject>().mapNotNull { row ->
+                        val name = row.text("name").takeIf { it.isNotBlank() && it.length <= 256 } ?: return@mapNotNull null
+                        buildJsonObject {
+                            put("name", name)
+                            ((row["commit"] as? JsonObject)?.text("sha") ?: row.text("sha")).takeIf(sha::matches)?.let { put("sha", it) }
+                        }
+                    }
+                    if (branches.isNotEmpty()) put("branch_observations", JsonArray(branches))
+                    put("branches_observed", rows.size)
+                    put("branch_preview_complete", branches.size == rows.size)
+                    put("branch_inventory_complete", data["has_more"] == JsonPrimitive(false) && ((data["page"] as? JsonPrimitive)?.intOrNull ?: 1) == 1)
                 }
                 if (operation.githubOperationFamily() == "github_ci" && action == "workflows") {
                     val progress = data["pagination_progress"] as? JsonObject
@@ -164,6 +179,15 @@ internal object GitHubSemanticSummary {
                     if (excerpts.isNotEmpty()) put("source_excerpts", JsonArray(excerpts))
                 }
                 if (family == "github_search") {
+                    put(
+                        "search_identity",
+                        buildJsonObject {
+                            for (key in listOf("query", "mode", "path_prefix", "file_extension", "path_suffix", "case_sensitive", "fuzzy_match", "fuzzy_threshold", "min_lines", "max_lines")) {
+                                val value = data[key] ?: canonicalRequest[key] ?: continue
+                                if (value is JsonPrimitive && value.toString().length <= 512) put(key, value)
+                            }
+                        }
+                    )
                     put("search_complete", data["matches_complete"] == JsonPrimitive(true))
                     listOf("scanned_files", "returned", "interval_start", "interval_end", "total_candidate_files", "stop_reason", "total_deferred_files", "no_progress_attempts").forEach { key -> data[key]?.let { put(key, it) } }
                     (data["deferred_files"] as? JsonArray)?.takeIf { it.isNotEmpty() }?.let { deferred ->
@@ -192,6 +216,24 @@ internal object GitHubSemanticSummary {
                         }
                     }
                     if (matches.isNotEmpty()) put("search_observations", JsonArray(matches))
+                    if (sha.matches(data.text("commit_sha"))) {
+                        val paths = (data["items"] as? JsonArray).orEmpty().mapIndexedNotNull { index, raw ->
+                            val row = raw as? JsonObject ?: return@mapIndexedNotNull null
+                            val path = row.text("path").takeIf(String::isNotBlank) ?: return@mapIndexedNotNull null
+                            buildJsonObject {
+                                put("path", path.take(384))
+                                put("path_complete", path.length <= 384)
+                                row.text("sha").takeIf(sha::matches)?.let { put("sha", it) }
+                                put("pointer", "$prefix/items/$index")
+                            }
+                        }
+                        if (paths.isNotEmpty()) {
+                            put("path_observations", JsonArray(paths.take(8)))
+                            put("paths_observed", paths.size)
+                            put("path_preview_complete", paths.size <= 8)
+                            put("source_read_verified", false)
+                        }
+                    }
                 }
             }
         )
@@ -201,22 +243,29 @@ internal object GitHubSemanticSummary {
     internal fun bounded(summary: JsonObject, maxCharacters: Int = MAX_SUMMARY_CHARACTERS): JsonObject {
         if (summary.toString().length <= maxCharacters) return summary
         val retained = summary.toMutableMap()
-        for (key in listOf("resource_observations", "source_excerpts", "search_observations", "deferred_files", "pending_check_names")) {
+        for (key in listOf("resource_observations", "source_excerpts", "search_observations", "path_observations", "branch_observations", "deferred_files", "pending_check_names")) {
             val rows = (retained[key] as? JsonArray)?.toMutableList() ?: continue
             while (rows.size > 1 && JsonObject(retained).toString().length > maxCharacters) {
                 rows.removeAt(rows.lastIndex)
                 retained[key] = JsonArray(rows)
                 retained["summary_truncated"] = JsonPrimitive(true)
+                if (key == "path_observations") retained["path_preview_complete"] = JsonPrimitive(false)
+                if (key == "branch_observations") retained["branch_preview_complete"] = JsonPrimitive(false)
             }
         }
         if (JsonObject(retained).toString().length <= maxCharacters) return JsonObject(retained)
         // Legacy or malformed summaries cannot consume an unbounded replay. Keep
         // identity and the first useful observation, not an all-or-nothing placeholder.
-        val priority = listOf("schema", "operation", "action", "commit_sha", "head_sha", "base_sha", "source_result_sha256", "scope", "resource_observations", "source_excerpts", "source_range", "search_complete", "total_deferred_files", "no_progress_attempts", "deferred_files", "search_observations", "check_counts", "required_checks_state")
+        val priority = listOf("schema", "operation", "action", "commit_sha", "head_sha", "base_sha", "source_result_sha256", "search_identity", "search_complete", "path_observations", "paths_observed", "path_preview_complete", "source_read_verified", "branch_observations", "branch_inventory_complete", "scope", "resource_observations", "source_excerpts", "source_range", "total_deferred_files", "no_progress_attempts", "deferred_files", "search_observations", "check_counts", "required_checks_state")
         val bounded = linkedMapOf<String, kotlinx.serialization.json.JsonElement>("summary_truncated" to JsonPrimitive(true))
         for (key in priority + retained.keys) {
-            val value = retained[key] ?: continue
             if (key in bounded) continue
+            val original = retained[key] ?: continue
+            val value = when {
+                key == "path_preview_complete" && "path_observations" !in bounded -> JsonPrimitive(false)
+                key == "branch_preview_complete" && "branch_observations" !in bounded -> JsonPrimitive(false)
+                else -> original
+            }
             if (JsonObject(bounded + (key to value)).toString().length <= maxCharacters) bounded[key] = value
         }
         return JsonObject(bounded)

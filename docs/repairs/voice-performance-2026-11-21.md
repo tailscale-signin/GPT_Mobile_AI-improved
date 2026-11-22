@@ -131,6 +131,13 @@ helpers without importing FastAPI, NumPy or ORT.
 
 The current check results and publication receipt are tracked in
 [`voice-performance-2026-11-21-task.json`](voice-performance-2026-11-21-task.json).
+The integrated diagnostic timing reader also uses indexed attribution instead of
+repeated whole-history searches when an expanded diagnostic trace is displayed.
+Its 19 actual-source tests retain first-event, ownership, timestamp-tie,
+fingerprint and overflow behavior. A deterministic 4,096-event incomplete-history
+regression reduced event reads from 16,789,504 to 32,768. This measures bounded
+lookup work; it is not a phone latency or voice rendering benchmark.
+
 Host tests and compilation do not establish phone latency, microphone acoustics,
 battery use, physical frame pacing, QNN kernel compatibility or CUDA throughput.
 No physical phone or CUDA device is attached to this implementation environment.

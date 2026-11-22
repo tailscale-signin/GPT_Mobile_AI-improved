@@ -13,7 +13,7 @@
     "focused_host": "PASS: 31 JUnit tests (18 new motion/highlight and 13 existing caption/layout cases), compiled actual changed source with Kotlin2.4.20/JUnit4.13.2. VoiceState/VoicePhase/VoiceRecoveryAction declarations were copied verbatim from current production VoiceSession into the bounded host harness; no Android UI execution is claimed.",
     "canonical_fast": "PASS: 603 host tests plus generated-source, metadata, dependency, regex, resource, secret and policy checks. Inventory was regenerated for the worktree; root will regenerate the combined tree.",
     "formatting": "PASS: ktlint1.3.1 for all changed caption sources/tests; git diff --check.",
-    "android": "NOT_RUN locally: no Android SDK or Compose dependency classpath. Instrumented regression now checks actually rendered theme pixels, unchanged glyph geometry, settled row bounds and silence. Required full Android CI remains outstanding.",
+    "android": "NOT_RUN locally: no Android SDK or Compose dependency classpath. Instrumented regressions check actually rendered theme pixels, unchanged glyph geometry, settled row bounds, silence, explicit return to the current spoken line without audio mutation, continued following, paused return, fixed viewport bounds, and exact listening copy. Required full Android CI remains outstanding.",
     "physical_device": "NOT_RUN: physical ROG Phone9Pro unavailable. No on-device rendering/latency or acceleration qualification is claimed."
   },
   "implementation": [
@@ -21,6 +21,15 @@
     "Retargetable 240-420ms Hermite motion preserves position/velocity; pause/refill freezes movement; manual reading and source-anchor reflow retained.",
     "250ms word colour onset and120ms cosmetic release; one active bold range; reduced-motion immediate highlight.",
     "Cached normal/bold contextual glyph drawing preserves word advances and selection text; font-resolution changes invalidate layout, while animation frames do not reshape text.",
-    "Additive root-owned VoiceCaptionTiming contract consumed without editing session/audio producers."
-  ]
+    "Additive root-owned VoiceCaptionTiming contract consumed without editing session/audio producers.",
+    "Explicit themed Return to live control preserves the fractional reading position and retargets the current spoken line, including while audio is paused; its reserved footer keeps the viewport fixed.",
+    "Themed listening hint uses the exact approved copy: Go ahead, I’m listening."
+  ],
+  "follow_up": {
+    "intent": "Add an explicit Return to live control after root review of integrated commit1aebcc478; preserve manual fractional reading and audio state.",
+    "status": "IMPLEMENTED_AWAITING_ANDROID_CI",
+    "validation": "PASS: ktlint1.3.1, git diff --check and canonical fast603tests. Added Android click/state regression; it awaits required Android CI, with no local device execution claimed.",
+    "last_observed_remote_main_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+    "last_observed_remote_working_sha": "2d42f3970d65cf169c600c3d4cc3cccc949ef14a"
+  }
 }

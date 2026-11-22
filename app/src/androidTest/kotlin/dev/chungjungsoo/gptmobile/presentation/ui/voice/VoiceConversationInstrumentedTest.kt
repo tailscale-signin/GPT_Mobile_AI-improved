@@ -227,6 +227,52 @@ class VoiceConversationInstrumentedTest {
         assertTrue("An automatic move must keep following later spoken words", range().value() > middlePosition)
     }
 
+    @Test fun returnToLiveUsesTheCurrentSpokenLineAndDoesNotChangePlayback() {
+        val reply = (1..40).joinToString("\n") { "Line $it" }
+        fun spoken(line: Int): IntRange {
+            val start = reply.indexOf("Line $line\n")
+            return start until start + "Line $line".length
+        }
+        val session = mutableStateOf(VoiceState(phase = VoicePhase.SPEAKING, reply = reply, spokenRange = spoken(12)))
+        compose.setContent { MaterialTheme { VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp)) } }
+        val caption = compose.onNodeWithTag("voice_caption_text")
+        val returnToLive = compose.onNodeWithTag("voice_caption_return_to_live")
+        fun range() = caption.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+        compose.waitForIdle()
+        val lineStep = range().maxValue() / 39f
+        val viewport = caption.fetchSemanticsNode().boundsInRoot
+        returnToLive.assertDoesNotExist()
+        caption.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -2.5f * lineStep) }
+        compose.waitForIdle()
+        val readingPosition = range().value()
+        assertEquals(8.5f * lineStep, readingPosition, 1f)
+        returnToLive.assertIsDisplayed().assertTextEquals("Return to live")
+        assertEquals("Showing the control must not move the caption viewport", viewport, caption.fetchSemanticsNode().boundsInRoot)
+        compose.runOnIdle { session.value = session.value.copy(spokenRange = spoken(23)) }
+        compose.waitForIdle()
+        assertEquals(readingPosition, range().value(), 1f)
+        val beforeReturn = session.value
+        returnToLive.performClick()
+        compose.waitForIdle()
+        assertEquals("The control only changes the reader; audio state stays untouched", beforeReturn, session.value)
+        assertEquals(22f * lineStep, range().value(), 1f)
+        assertTrue("Return to live must use the spoken line, not the end of the reply", range().value() < range().maxValue())
+        returnToLive.assertDoesNotExist()
+        compose.runOnIdle { session.value = session.value.copy(spokenRange = spoken(27)) }
+        compose.waitForIdle()
+        assertEquals(26f * lineStep, range().value(), 1f)
+        compose.runOnIdle { session.value = session.value.copy(phase = VoicePhase.PAUSED, spokenRange = null) }
+        compose.waitForIdle()
+        caption.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -2.5f * lineStep) }
+        compose.waitForIdle()
+        val paused = session.value
+        returnToLive.assertIsDisplayed().performClick()
+        compose.waitForIdle()
+        assertEquals("Returning while paused must not resume audio", paused, session.value)
+        assertEquals(26f * lineStep, range().value(), 1f)
+        returnToLive.assertDoesNotExist()
+    }
+
     @Test fun correctedCaptionTextKeepsTheReadersPositionAndControlsStable() {
         val original = (1..40).joinToString("\n") { "Recognized phrase $it" }
         val session = mutableStateOf(VoiceState(phase = VoicePhase.LISTENING, transcript = original))
@@ -262,6 +308,7 @@ class VoiceConversationInstrumentedTest {
             }
         }
         compose.onNodeWithTag("voice_microphone_toggle").assertIsDisplayed()
+        compose.onNodeWithText("Go ahead, I’m listening.").assertIsDisplayed()
         capture("listening-dark")
         compose.runOnIdle {
             dark.value = false

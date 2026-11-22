@@ -7,11 +7,15 @@ import androidx.compose.foundation.gestures.rememberScrollableState
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -127,6 +131,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
         val lineHeight = with(density) { base.lineHeight.toPx() }
         val scrollStep = lineHeight * 1.75f
         var reader by remember { mutableStateOf(VoiceCaptionReader()) }
+        var returningToLive by remember { mutableStateOf(false) }
         val target = reader.position(liveLine, lastLine)
         val motion = remember { VoiceCaptionMotion(target) }
         val highlights = remember { VoiceCaptionHighlights() }
@@ -138,6 +143,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
             val before = drawnPosition.floatValue
             val next = (before + pixels / scrollStep).coerceIn(0f, lastLine.toFloat())
             if (next != before) {
+                returningToLive = false
                 reader = reader.scroll(next, lastLine)
                 motion.seek(next, frameNanos.longValue)
                 drawnPosition.floatValue = next
@@ -146,7 +152,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
         }
 
         val scrolling = rememberScrollableState(::move)
-        LaunchedEffect(lines, target, active, speaking, animate, reader.following, timing?.playing) {
+        LaunchedEffect(lines, target, active, speaking, animate, reader.following, returningToLive, timing?.playing) {
             var now = withFrameNanos { it }
             if (previousLines !== lines) {
                 val current = motion.sample(now).position
@@ -156,7 +162,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                 previousLines = lines
             }
             val playbackMoving = when {
-                !reader.following -> true
+                !reader.following || returningToLive -> true
                 caption.speaker == "AI reply" && lastSpoken >= 0 && !speaking -> false
                 else -> timing?.playing != false
             }
@@ -174,6 +180,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                 if (!motion.moving(now) && !highlights.animating(now)) break
                 now = withFrameNanos { it }
             } while (true)
+            if (returningToLive) returningToLive = false
         }
 
         val visible by remember(lines) {
@@ -182,45 +189,62 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, spea
                 (center - 3..center + 3).filter { it in lines.indices }
             }
         }
-        SelectionContainer(
-            Modifier.fillMaxWidth().clipToBounds()
-                .scrollable(scrolling, Orientation.Vertical, reverseDirection = true)
-                .clearAndSetSemantics {
-                    testTag = "voice_caption_text"
-                    text = accessibleText
-                    if (caption.speaker.isNotEmpty()) stateDescription = caption.speaker
-                    verticalScrollAxisRange = ScrollAxisRange(
-                        value = { drawnPosition.floatValue * scrollStep },
-                        maxValue = { lastLine * scrollStep }
-                    )
-                    scrollBy { _, y -> move(y) != 0f }
-                }
-        ) {
-            Box(Modifier.fillMaxWidth().height(with(density) { (lineHeight * 7).toDp() }).clipToBounds()) {
-                for (index in visible) {
-                    val line = lines[index]
-                    key(line.start, normalTypeface, boldTypeface) {
-                        VoiceCaptionDrawnLine(
-                            text = caption.text.substring(line.start, line.end),
-                            sourceStart = line.start,
-                            style = focusStyle,
-                            width = width,
-                            measurer = measurer,
-                            ink = ink,
-                            accent = accent,
-                            highlights = highlights,
-                            nowNanos = { frameNanos.longValue },
-                            modifier = Modifier.align(Alignment.Center).fillMaxWidth()
-                                .height(with(density) { (lineHeight * 2).toDp() })
-                                .graphicsLayer {
-                                    val distance = index - drawnPosition.floatValue
-                                    val scale = captionLineScale(distance) / 2f
-                                    scaleX = scale
-                                    scaleY = scale
-                                    translationY = captionLineDisplacement(distance) * lineHeight
-                                    alpha = captionLineAlpha(distance)
-                                }
+        Column(Modifier.fillMaxWidth()) {
+            SelectionContainer(
+                Modifier.fillMaxWidth().clipToBounds()
+                    .scrollable(scrolling, Orientation.Vertical, reverseDirection = true)
+                    .clearAndSetSemantics {
+                        testTag = "voice_caption_text"
+                        text = accessibleText
+                        if (caption.speaker.isNotEmpty()) stateDescription = caption.speaker
+                        verticalScrollAxisRange = ScrollAxisRange(
+                            value = { drawnPosition.floatValue * scrollStep },
+                            maxValue = { lastLine * scrollStep }
                         )
+                        scrollBy { _, y -> move(y) != 0f }
+                    }
+            ) {
+                Box(Modifier.fillMaxWidth().height(with(density) { (lineHeight * 7).toDp() }).clipToBounds()) {
+                    for (index in visible) {
+                        val line = lines[index]
+                        key(line.start, normalTypeface, boldTypeface) {
+                            VoiceCaptionDrawnLine(
+                                text = caption.text.substring(line.start, line.end),
+                                sourceStart = line.start,
+                                style = focusStyle,
+                                width = width,
+                                measurer = measurer,
+                                ink = ink,
+                                accent = accent,
+                                highlights = highlights,
+                                nowNanos = { frameNanos.longValue },
+                                modifier = Modifier.align(Alignment.Center).fillMaxWidth()
+                                    .height(with(density) { (lineHeight * 2).toDp() })
+                                    .graphicsLayer {
+                                        val distance = index - drawnPosition.floatValue
+                                        val scale = captionLineScale(distance) / 2f
+                                        scaleX = scale
+                                        scaleY = scale
+                                        translationY = captionLineDisplacement(distance) * lineHeight
+                                        alpha = captionLineAlpha(distance)
+                                    }
+                            )
+                        }
+                    }
+                }
+            }
+            // Reserve a touch-sized footer so entering manual reading never shifts the ribbon.
+            Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) {
+                if (!reader.following) {
+                    TextButton(
+                        onClick = {
+                            returningToLive = true
+                            reader = VoiceCaptionReader()
+                        },
+                        modifier = Modifier.testTag("voice_caption_return_to_live"),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text("Return to live", color = accent, style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }

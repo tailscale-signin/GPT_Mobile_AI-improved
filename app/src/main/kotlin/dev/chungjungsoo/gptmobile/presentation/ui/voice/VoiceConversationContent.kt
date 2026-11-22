@@ -297,7 +297,7 @@ private fun VoiceConversationRecovery(state: VoiceConversationUiState, actions: 
 private fun voiceListeningHint(state: VoiceState, handsFreeInterruption: Boolean): String = when {
     state.phase == VoicePhase.PREPARING -> "Your reply is getting ready to play"
     state.phase == VoicePhase.SPEAKING -> if (handsFreeInterruption) "Speak to interrupt when echo cancellation is available" else "Listening resumes after the reply"
-    state.phase == VoicePhase.LISTENING -> "Go ahead, I’m listening"
+    state.phase == VoicePhase.LISTENING -> "Go ahead, I’m listening."
     state.phase == VoicePhase.THINKING -> "Preparing your reply"
     state.muted -> "Unmute when you’re ready to speak"
     else -> "Use the microphone when you are ready"

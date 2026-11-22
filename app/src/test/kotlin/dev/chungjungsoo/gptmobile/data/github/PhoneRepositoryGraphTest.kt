@@ -301,30 +301,56 @@ class PhoneRepositoryGraphTest {
     }
 
     @Test fun longPathPreservesItsRequestedStartAndEndAcrossResultPages() {
-        val source = callChain(150)
+        val source = callChain(250)
         val tree = tree("Long.kt")
         val cache = cached(mapOf("Long.kt" to source))
         fun symbol(name: String) = execute(tree, cache, "node", buildJsonObject { put("symbol", name) }).objects("candidates").single().text("id")
-        val result = execute(
-            tree,
-            cache,
-            "path",
-            buildJsonObject {
-                put("source", "f0")
-                put("target", "f150")
-                put("budget_bytes", 32000)
-            },
-            complete = true
-        )
-        val path = result["path"]!!.jsonArray.map { it.jsonPrimitive.content }
-        assertEquals(151, path.size)
-        assertEquals(symbol("f0"), path.first())
-        assertEquals(symbol("f150"), path.last())
-        assertEquals("f0", result.objects("nodes").first().text("name"))
-        assertEquals("true", result.text("has_more"))
-        assertEquals("true", result.text("path_search_complete"))
-        assertEquals("false", result["graph"]!!.jsonObject.text("graph_truncated"))
-        assertTrue(result.toString().toByteArray(Charsets.UTF_8).size <= 32000)
+        val sourceId = symbol("f0")
+        val targetId = symbol("f250")
+        val path = mutableListOf<String>()
+        val names = mutableListOf<String>()
+        val cursors = mutableSetOf<String>()
+        var cursor = ""
+        var pages = 0
+        do {
+            val result = execute(
+                tree,
+                cache,
+                "path",
+                buildJsonObject {
+                    put("source", "f0")
+                    put("target", "f250")
+                    put("budget_bytes", 16000)
+                    if (cursor.isNotBlank()) put("result_cursor", cursor)
+                },
+                complete = true
+            )
+            val page = result["path"]!!.jsonArray.map { it.jsonPrimitive.content }
+            val pageNodes = result.objects("nodes")
+            assertTrue(page.isNotEmpty())
+            assertEquals(pageNodes.map { it.text("id") }, page)
+            assertEquals("251", result.text("path_total_nodes"))
+            assertEquals(path.size.toString(), result.text("path_start_offset"))
+            assertEquals(path.size.toString(), result.text("result_offset"))
+            assertEquals((path.size + page.size).toString(), result.text("path_end_offset_exclusive"))
+            assertEquals(sourceId, result.text("path_source_id"))
+            assertEquals(targetId, result.text("path_target_id"))
+            assertEquals("true", result.text("path_search_complete"))
+            assertEquals("false", result["graph"]!!.jsonObject.text("graph_truncated"))
+            assertTrue(result.toString().toByteArray(Charsets.UTF_8).size <= 16000)
+            path += page
+            names += pageNodes.map { it.text("name") }
+            cursor = result.text("next_cursor")
+            assertEquals(cursor.isNotBlank(), result.text("has_more") == "true")
+            if (cursor.isNotBlank()) assertTrue("A continuation cursor must advance", cursors.add(cursor))
+            assertTrue("Path pagination must terminate", ++pages <= 251)
+        } while (cursor.isNotBlank())
+        assertTrue(pages > 1)
+        assertEquals(251, path.size)
+        assertEquals(251, path.toSet().size)
+        assertEquals((0..250).map { "f$it" }, names)
+        assertEquals(sourceId, path.first())
+        assertEquals(targetId, path.last())
     }
 
     @Test fun pathSearchExaminesTargetsAlreadyQueuedAtTheVisitLimit() {

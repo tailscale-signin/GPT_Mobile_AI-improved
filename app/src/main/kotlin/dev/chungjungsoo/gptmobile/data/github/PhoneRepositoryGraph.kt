@@ -348,9 +348,19 @@ internal object PhoneRepositoryGraph {
             val ids = selected.mapTo(mutableSetOf()) { it.text("id") }
             val visibleEdges = edges.filter { it.text("source") in ids && it.text("target") in ids }
             val external = edges.count { (it.text("source") in ids) xor (it.text("target") in ids) }
-            val safeExtra = extra.filterKeys { it !in setOf("candidates", "paths") }.toMutableMap()
+            val safeExtra = extra.filterKeys { it !in setOf("candidates", "paths", "path") }.toMutableMap()
             (extra["candidates"] as? JsonArray)?.let { candidates -> safeExtra["candidates"] = JsonArray(candidates.filter { (it as? JsonObject)?.text("id") in ids }) }
             (extra["paths"] as? JsonArray)?.let { paths -> safeExtra["paths"] = JsonArray(paths.filter { (it as? JsonObject)?.text("path") in selected.map { it.text("path") } }.take(80)) }
+            (extra["path"] as? JsonArray)?.let { path ->
+                // Path nodes already follow traversal order. Page their IDs together so
+                // a full path cannot consume the budget before its first page fits.
+                safeExtra["path"] = JsonArray(path.subList(offset, end))
+                safeExtra["path_total_nodes"] = JsonPrimitive(path.size)
+                safeExtra["path_start_offset"] = JsonPrimitive(offset)
+                safeExtra["path_end_offset_exclusive"] = JsonPrimitive(end)
+                path.firstOrNull()?.let { safeExtra["path_source_id"] = it }
+                path.lastOrNull()?.let { safeExtra["path_target_id"] = it }
+            }
             return buildJsonObject {
                 base.forEach { (key, value) -> put(key, value) }
                 safeExtra.forEach { (key, value) -> put(key, value) }

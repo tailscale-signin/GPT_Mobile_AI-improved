@@ -1,9 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import android.content.Context
+import android.content.SharedPreferences
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.network.PrivateExternalServiceGate
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
+import dev.chungjungsoo.gptmobile.data.privacy.PrivacyModeStore
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import io.ktor.client.HttpClient
@@ -13,6 +18,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
@@ -20,9 +26,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class PhoneRepositoryGraphRepositoryTest {
@@ -40,8 +48,23 @@ class PhoneRepositoryGraphRepositoryTest {
     private val headers = headersOf("Content-Type", "application/json")
     private var requests = 0
     private var repositoryReads = 0
+    private var privacyEnabled = false
+    private var afterRepository: (() -> Unit)? = null
     private var afterTree: (() -> Unit)? = null
     private var repositoryStatus = HttpStatusCode.OK
+
+    @Before fun initializePrivacyPolicy() {
+        val context = mockk<Context>()
+        val preferences = mockk<SharedPreferences>()
+        every { context.applicationContext } returns context
+        every { context.getSharedPreferences("device_privacy", Context.MODE_PRIVATE) } returns preferences
+        every { preferences.getBoolean("privacy_mode_enabled", false) } answers { privacyEnabled }
+        PrivacyModeStore.initialize(context)
+    }
+
+    @After fun clearPrivacyPolicy() {
+        privacyEnabled = false
+    }
 
     private fun http() = HttpClient(
         MockEngine { request ->
@@ -51,6 +74,7 @@ class PhoneRepositoryGraphRepositoryTest {
             when {
                 request.url.encodedPath == "/repos/owner/repo" -> {
                     repositoryReads++
+                    afterRepository?.invoke()
                     respond("""{"full_name":"owner/repo"}""", repositoryStatus, headers)
                 }
                 "/commits/" in request.url.encodedPath -> respond("""{"sha":"${context.commitSha}","commit":{"tree":{"sha":"${"b".repeat(40)}"}}}""", HttpStatusCode.OK, headers)
@@ -61,7 +85,10 @@ class PhoneRepositoryGraphRepositoryTest {
                 else -> error("The phone map must never contact a Gateway or download source for status: ${request.url.encodedPath}")
             }
         }
-    ) { install(HttpTimeout) }
+    ) {
+        install(HttpTimeout)
+        install(PrivateExternalServiceGate)
+    }
 
     private fun repository(http: HttpClient): PhoneRepositoryGraphRepository {
         coEvery { settings.fetchPlatformV2s() } coAnswers { profiles }
@@ -93,6 +120,31 @@ class PhoneRepositoryGraphRepositoryTest {
             val failure = runCatching { repository(transport).executeForMap(context, action("status")) }.exceptionOrNull() as GatewayGraphOperationException
             assertEquals("PERMISSION_DENIED", failure.failureCode)
             assertEquals(0, requests)
+        }
+    }
+
+    @Test fun privacyGateRejectsBeforeTransportWithoutLosingTheTypedFailure() = runTest {
+        privacyEnabled = true
+        http().use { transport ->
+            val failure = runCatching { repository(transport).executeForMap(context, action("status")) }.exceptionOrNull() as GatewayGraphOperationException
+            assertTrue(failure.isLocalPrivacyPolicyRejection())
+            assertEquals("PRIVACY_SERVICE_UNVERIFIED", failure.failureCode)
+            assertEquals("REVIEW_PRIVACY_MODE", failure.repairAction)
+            assertFalse(failure.indexOutcomeUnknown)
+            assertEquals(0, requests)
+        }
+    }
+
+    @Test fun privacyEnabledAfterRepositoryCheckBlocksTheNextSourceRequest() = runTest {
+        afterRepository = { privacyEnabled = true }
+        http().use { transport ->
+            val failure = runCatching { repository(transport).executeForMap(context, action("status")) }.exceptionOrNull() as GatewayGraphOperationException
+            assertTrue(failure.isLocalPrivacyPolicyRejection())
+            assertEquals("PRIVACY_SERVICE_UNVERIFIED", failure.failureCode)
+            assertEquals("REVIEW_PRIVACY_MODE", failure.repairAction)
+            assertFalse(failure.indexOutcomeUnknown)
+            assertEquals(1, repositoryReads)
+            assertEquals(1, requests)
         }
     }
 

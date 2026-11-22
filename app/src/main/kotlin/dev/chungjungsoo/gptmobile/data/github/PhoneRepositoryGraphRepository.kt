@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import javax.inject.Inject
@@ -103,9 +104,10 @@ class PhoneRepositoryGraphRepository internal constructor(
                 failure,
                 "",
                 "On this phone",
-                when (failure) {
-                    is GatewayGraphAdmissionException -> failure.repairAction
-                    is GatewayGraphResultException -> failure.repairAction
+                when {
+                    failure.isLocalPrivacyPolicyRejection() -> "REVIEW_PRIVACY_MODE"
+                    failure is GatewayGraphAdmissionException -> failure.repairAction
+                    failure is GatewayGraphResultException -> failure.repairAction
                     else -> null
                 },
                 false,

@@ -28,6 +28,14 @@ most 16 batches or 90 seconds in one foreground session, reports progress, allow
 Pause and resumes saved work at the same revision. Cancellation cannot create an
 unknown remote job because this route never submits one.
 
+The entire tree preparation and cached-shard projection runs off the UI dispatcher.
+Typed local Privacy Mode rejections retain their policy code and recovery action.
+Each native map tool invocation records actual GitHub requests: a locally blocked
+first send is not dispatched, while a later blocked request preserves earlier
+observed reads. The rejection stops queued tool authority without enabling a
+different map route. The interface retains the matching map and asks the user to
+review Privacy Mode before refreshing.
+
 Cached source contributes definitions, imports and call candidates. The existing
 map exposes architecture browsing, text search, source navigation, node inspection,
 possible callers/callees, paths, possible impact and metrics. Source confidence,
@@ -73,3 +81,23 @@ unsupported, dynamic and unscanned relationships can remain unknown.
 - Ktlint 1.3.1 passed for all 27 changed Kotlin files, and scoped release validation passed.
 - The combined change preserves concurrent commits through
   `26560d62a29b9d9cc628d5d5bf2bc64554222e9d`.
+
+## Concurrent integration follow-up
+
+The combined branch preserves the privacy and UI work through
+`b8ac69dcac38f7d71d6fbe00135dae1c34302ad2`. Current follow-up validation passed
+98 focused tests: 30 engine, 47 ViewModel/presentation and 21 provider/tool/Gateway
+fallback tests. The production privacy store, HTTP privacy gate and request
+accounting are included; Android platform and unrelated service boundaries remain
+isolated. Actual Compose compilation and the canonical 615-test host checks passed.
+
+The long-path regression failed on the concurrent baseline with
+`PHONE_GRAPH_RESULT_TOO_LARGE` before returning its first page. The fix pages
+ordered path IDs together with their nodes and reports whole-path endpoints and
+page offsets. A 250-hop path now returns every one of its 251 unique nodes, in
+order, within the model tool's 16,000-byte limit on each page.
+
+Privacy UI coverage retains the selected source and last matching map. If an
+older Gateway index remains unconfirmed, the interface asks for Privacy Mode
+review followed by a saved-status refresh and retains the existing indexing fence.
+The new rendered UI cases still require the hosted Android suite.

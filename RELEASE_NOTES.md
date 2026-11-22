@@ -45,6 +45,7 @@ Capability receipts are limited to 24 entries. Successful measurements expire af
 - Build source relationships progressively on the phone using the encrypted source cache and reusable per-blob index. Each foreground session advances through bounded batches, reports coverage, supports Pause and resumes saved progress at the same revision.
 - Distinguish observed tree structure from lexical symbol, import and call candidates. Keep unsupported files, missing sources, truncation and partial coverage visible instead of presenting an incomplete map as compiler-resolved analysis.
 - Make the phone map available to authorized native GitHub model tools without requiring an engineering Gateway or persistent engineering memory. Account, connection, profile, permission and revision checks apply to cached reads and pagination as well as downloads.
+- Preserve Privacy Mode rejection and recovery guidance in the map. Record whether any GitHub request actually left the phone, retain earlier completed reads, and stop queued tool authority when the policy rejects a request.
 - Retain Gateway as an explicit optional source for its additional analysis and durable background indexing. Source switches discard stale results and cursors, and failures never silently change the selected provider.
 
 ## Execution, GitHub and diagnostic reliability

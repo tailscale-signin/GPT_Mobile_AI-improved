@@ -354,6 +354,58 @@ class GitHubStatusDashboardRenderTest {
         captureRepositoryMap("repository-map-phone-no-gateway")
     }
 
+    @Test fun privacyBlockedMapRetainsSourcesAndRequestsPrivacyReviewOnEitherSource() {
+        val context = GitHubConversationContext("github", "mobile", "app", "main", "f".repeat(40), "selected-profile")
+        val map = Json.parseToJsonElement("""{"nodes":[{"id":"src/File.kt","kind":"file","path":"src/File.kt","name":"File.kt"}],"has_more":false}""") as JsonObject
+        var source by mutableStateOf("phone")
+        var unknownIndex by mutableStateOf(false)
+        var refreshes = 0
+        var repairs = 0
+        renderRepositoryMap(
+            context,
+            {
+                RepositoryGraphUiState(
+                    mapSource = source,
+                    architecture = map,
+                    error = "Privacy Mode blocked this connection.",
+                    errorCode = "PRIVACY_SERVICE_UNVERIFIED",
+                    repairAction = if (unknownIndex) {
+                        "CHECK_SAVED_INDEX"
+                    } else if (source == "phone") {
+                        "REVIEW_PRIVACY_MODE"
+                    } else {
+                        null
+                    },
+                    indexOutcomeUnknown = unknownIndex,
+                    indexCursor = "saved-index".takeIf { unknownIndex }
+                )
+            },
+            ThemeMode.DARK,
+            onRefresh = { refreshes++ },
+            onConfigure = { repairs++ }
+        )
+        for (selected in listOf("phone", "gateway")) {
+            compose.runOnIdle { source = selected }
+            compose.onNodeWithText("Review Privacy Mode").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("github_repository_map_configure").assertDoesNotExist()
+            compose.onNodeWithTag("github_repository_node_src/File.kt").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("github_repository_map_search_submit").assertIsNotEnabled()
+            compose.onNodeWithText("Refresh after review").performScrollTo().performClick()
+        }
+        compose.runOnIdle {
+            assertEquals(2, refreshes)
+            assertEquals(0, repairs)
+            unknownIndex = true
+        }
+        compose.onNodeWithText("Review Privacy Mode").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("The previous build remains unconfirmed", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("github_repository_map_index").assertDoesNotExist()
+        compose.onNodeWithTag("github_repository_map_search_submit").assertIsNotEnabled()
+        compose.onNodeWithText("Check saved index after review").performScrollTo().performClick()
+        compose.onNodeWithTag("github_repository_node_src/File.kt").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { assertEquals(3, refreshes) }
+    }
+
     private fun renderRepositoryMap(context: GitHubConversationContext, state: () -> RepositoryGraphUiState, theme: ThemeMode, configured: Boolean = true, onRefresh: () -> Unit = {}, onIndex: () -> Unit = {}, onStop: () -> Unit = {}, onConfigure: () -> Unit = {}, clipboard: (ClipboardManager) -> Unit = {}) {
         compose.setContent {
             GPTMobileTheme(themeMode = theme) {

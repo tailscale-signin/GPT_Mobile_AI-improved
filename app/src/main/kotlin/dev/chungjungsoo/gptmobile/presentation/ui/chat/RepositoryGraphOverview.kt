@@ -94,6 +94,7 @@ internal fun RepositoryGraphStatusContent(
     val indexedEmpty = map != null && graph.nodes.isEmpty()
     val canContinue = !state.indexingOnGateway && (state.indexCursor != null || state.indexingPaused || state.indexJob?.graphText("state") in setOf("PAUSED", "INTERRUPTED"))
     val queryRecoverable = state.repairAction in setOf("NARROW_GRAPH_QUERY", "RESTART_MAP_SEARCH")
+    val privacyBlocked = state.errorCode == "PRIVACY_SERVICE_UNVERIFIED" || state.repairAction == "REVIEW_PRIVACY_MODE"
     val sourceConfigured = state.onPhone || gatewayConfigured
     val blocked = state.error != null && !queryRecoverable || !sourceConfigured || state.indexOutcomeUnknown
     val label = when {
@@ -164,6 +165,18 @@ internal fun RepositoryGraphStatusContent(
                     onConfigureGateway,
                     onRefresh,
                     allowRefresh = false
+                )
+                privacyBlocked -> RepositoryGraphRepair(
+                    "Review Privacy Mode",
+                    if (state.indexOutcomeUnknown) {
+                        "Review Privacy Mode for the selected connection, then refresh the saved index status. The previous build remains unconfirmed; continue only after its saved result is reconciled."
+                    } else {
+                        "Review Privacy Mode for the selected connection before refreshing. Your map source stays selected, and the last matching map remains visible."
+                    },
+                    state,
+                    null,
+                    onRefresh,
+                    refreshLabel = if (state.indexOutcomeUnknown) "Check saved index after review" else "Refresh after review"
                 )
                 state.indexOutcomeUnknown -> RepositoryGraphRepair(
                     "Check the saved index first",

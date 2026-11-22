@@ -10,10 +10,14 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphPrerequisite
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
+import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
 import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.isLocalPrivacyPolicyRejection
 import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
+import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -45,13 +49,14 @@ internal class RepositoryGraphTool(
         }
         val mapSource = arguments["map_source"] ?: JsonPrimitive("phone")
         val phone = mapSource == JsonPrimitive("phone")
+        val accounting = if (phone) GitHubDispatchAccounting() else null
         val started = System.nanoTime()
-        return try {
+        val result = try {
             val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000), "map_source" to mapSource))
-            val observed = query(payload)
+            val observed = if (accounting == null) query(payload) else withContext(accounting) { query(payload) }
             // GatewayGraphRepository replaces this object with its typed local observation.
             // Remote graph results cannot author checkpoint join or confirmation evidence.
-            val checkpoint = observed["index_checkpoint"] as? JsonObject
+            val checkpoint = (observed["index_checkpoint"] as? JsonObject)?.takeUnless { phone }
             val unresolved = checkpoint?.get("index_outcome_unknown") == JsonPrimitive(true)
             val attemptHash = checkpoint?.hash("graph_index_attempt_hash")
             val confirmedAttemptHash = checkpoint?.hash("confirmed_index_attempt_hash")
@@ -82,11 +87,13 @@ internal class RepositoryGraphTool(
                 }
             )
         } catch (cancelled: CancellationException) {
+            accounting?.cancelled()
             throw cancelled
         } catch (failure: Exception) {
             val elapsedMillis = (System.nanoTime() - started) / 1_000_000
             val operation = failure as? GatewayGraphOperationException
             val cause = operation?.cause ?: failure
+            val privacyDenied = failure.isLocalPrivacyPolicyRejection()
             val admission = cause as? GatewayGraphAdmissionException
             val prerequisite = cause as? GatewayGraphUnavailableException
             val httpStatus = when (cause) {
@@ -101,17 +108,26 @@ internal class RepositoryGraphTool(
                 else -> null
             }
             val rateLimitObservation = (cause as? GatewayGraphHttpFailure)?.rateLimitObservation
-            val unresolved = operation?.indexOutcomeUnknown == true
-            val currentIndexUnknown = arguments["action"] == JsonPrimitive("index") && operation?.currentIndexOutcomeUnknown == true
-            val repairAction = if (unresolved) "CHECK_SAVED_INDEX" else operation?.repairAction ?: admission?.repairAction ?: prerequisite?.prerequisites?.firstOrNull()?.nextAction
-            val code = admission?.code ?: (cause as? dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException)?.code ?: "REPOSITORY_GRAPH_UNAVAILABLE"
+            val unresolved = !phone && operation?.indexOutcomeUnknown == true
+            val currentIndexUnknown = !phone && arguments["action"] == JsonPrimitive("index") && operation?.currentIndexOutcomeUnknown == true
+            val repairAction = if (unresolved) {
+                "CHECK_SAVED_INDEX"
+            } else if (privacyDenied) {
+                "REVIEW_PRIVACY_MODE"
+            } else {
+                operation?.repairAction ?: admission?.repairAction ?: prerequisite?.prerequisites?.firstOrNull()?.nextAction
+            }
+            val code = if (privacyDenied) UnverifiedServiceTransport.CODE else admission?.code ?: (cause as? dev.chungjungsoo.gptmobile.data.github.GatewayGraphResultException)?.code ?: "REPOSITORY_GRAPH_UNAVAILABLE"
             val readAction = arguments["action"] !in setOf(JsonPrimitive("index"), JsonPrimitive("note"))
             // A transport/readiness failure of a status read may trigger one independent,
             // authorized native read. Typed readiness does not include graph policy,
             // identity or permission rejection. Indexing and notes are never replayed.
-            val unavailable = cause is GatewayGraphUnavailableException ||
-                cause is java.io.IOException &&
-                cause !is javax.net.ssl.SSLException
+            val unavailable = !privacyDenied &&
+                (
+                    cause is GatewayGraphUnavailableException ||
+                        cause is java.io.IOException &&
+                        cause !is javax.net.ssl.SSLException
+                    )
             val fallback = if (!phone && arguments["action"] == JsonPrimitive("status") && unavailable) {
                 try {
                     nativeStatus?.invoke("$callId-native-status")
@@ -133,7 +149,7 @@ internal class RepositoryGraphTool(
                         put("elapsed_ms", elapsedMillis)
                         operation?.targetRevision?.let { put("target_revision", it) }
                         (cause as? GatewayGraphHttpFailure)?.requestId?.let { put("gateway_http_request_id", it) }
-                        if (readAction && !unresolved && admission == null) {
+                        if (readAction && !unresolved && admission == null && !privacyDenied) {
                             put(
                                 "recheck_after_recovery",
                                 buildJsonObject {
@@ -148,7 +164,7 @@ internal class RepositoryGraphTool(
                                 "failure_category",
                                 if (unresolved && admission?.code == "GRAPH_INDEX_OUTCOME_UNKNOWN") {
                                     "RECONCILIATION_REQUIRED"
-                                } else if (admission != null) {
+                                } else if (admission != null || privacyDenied) {
                                     "LOCAL_POLICY_OR_CONFIGURATION"
                                 } else if (cause is java.io.IOException && cause !is javax.net.ssl.SSLException) {
                                     "TRANSPORT_UNAVAILABLE"
@@ -163,6 +179,8 @@ internal class RepositoryGraphTool(
                             "state",
                             if (admission != null) {
                                 "PRECHECK_REJECTED"
+                            } else if (privacyDenied) {
+                                "POLICY_BLOCKED"
                             } else if (fallback?.isError == false) {
                                 "DEGRADED"
                             } else {
@@ -173,6 +191,8 @@ internal class RepositoryGraphTool(
                             "recovery_kind",
                             if (unresolved) {
                                 "RECONCILE_SAVED_INDEX"
+                            } else if (privacyDenied) {
+                                "REVIEW_PRIVACY_MODE"
                             } else if (rateLimitObservation != null) {
                                 "WAIT_FOR_REPORTED_RATE_LIMIT"
                             } else if (admission != null) {
@@ -190,6 +210,8 @@ internal class RepositoryGraphTool(
                             "next_action",
                             if (unresolved) {
                                 "The earlier index request remains unconfirmed. Wait for the reported retry delay if present, then read status on this same gateway and revision to reconcile its saved checkpoint; do not repeat indexing until the checkpoint is acknowledged."
+                            } else if (privacyDenied) {
+                                "Review Privacy Mode for the selected connection, then resume this repository map under the current settings. Completed reads remain recorded."
                             } else if (rateLimitObservation != null) {
                                 "GitHub request capacity is temporarily unavailable. Wait for the reported retry delay, then refresh saved status on this gateway and revision before continuing. The observed upstream request does not establish the outcome of other graph work."
                             } else if (admission != null) {
@@ -262,7 +284,12 @@ internal class RepositoryGraphTool(
                     httpStatus?.takeIf { it in 100..599 }?.let { put("http_status", it) }
                     retryAfterMillis?.takeIf { it in 0..86_400_000 }?.let { put("retry_after_ms", it) }
                     rateLimitObservation?.let { put("graph_rate_limit", it) }
-                    (prerequisite?.prerequisites?.firstOrNull()?.name ?: admission?.code ?: operation?.failureCode ?: (cause as? GatewayGraphHttpFailure)?.code)?.let { put("reason_code", it) }
+                    (if (privacyDenied) code else prerequisite?.prerequisites?.firstOrNull()?.name ?: admission?.code ?: operation?.failureCode ?: (cause as? GatewayGraphHttpFailure)?.code)?.let { put("reason_code", it) }
+                    if (privacyDenied) {
+                        put("authority_invalidation_code", code)
+                        put("authority_failed_stage", "tool_execution")
+                        put("resume_required", true)
+                    }
                     if (prerequisite?.prerequisites?.firstOrNull() == GatewayGraphPrerequisite.TRANSPORT_UNAVAILABLE) {
                         val ioCause = generateSequence<Throwable>(prerequisite) { it.cause }.take(16).filterIsInstance<IOException>().firstOrNull()
                         ioCause?.let(::networkFailureKind)?.takeUnless { it == NetworkFailureKind.CANCELLED }?.let {
@@ -273,6 +300,54 @@ internal class RepositoryGraphTool(
                 }
             )
         }
+        return if (accounting == null) result else phoneResult(accounting, result, arguments)
+    }
+
+    /** The rejected request cannot erase earlier reads or turn local indexing into a remote write. */
+    private fun phoneResult(accounting: GitHubDispatchAccounting, result: AgentToolResult, arguments: JsonObject): AgentToolResult {
+        val observed = accounting.finish(result.copy(dispatched = false), mutation = false)
+        val privacyDenied = result.errorCode == UnverifiedServiceTransport.CODE
+        val failedStage = if (observed.dispatched) "tool_execution" else "tool_precheck"
+        val content = (result.content as? ToolResultContent.Json)?.value as? JsonObject
+        return observed.copy(
+            content = if (result.isError && content != null) {
+                ToolResultContent.Json(
+                    JsonObject(
+                        content + when {
+                            !observed.dispatched -> mapOf("state" to JsonPrimitive("PRECHECK_REJECTED"))
+                            privacyDenied || content["state"] == JsonPrimitive("PRECHECK_REJECTED") -> mapOf("state" to JsonPrimitive("POLICY_BLOCKED"))
+                            else -> emptyMap()
+                        }
+                    )
+                )
+            } else {
+                result.content
+            },
+            executionReceipt = buildJsonObject {
+                result.executionReceipt?.forEach { (key, value) -> put(key, value) }
+                observed.executionReceipt?.forEach { (key, value) -> put(key, value) }
+                put("schema", RECEIPT_SCHEMA)
+                put("call_id", result.callId)
+                put("action", requireNotNull(arguments["action"]))
+                put("map_source", "phone")
+                put(
+                    "phase",
+                    if (!result.isError) {
+                        "COMPLETED"
+                    } else if (observed.dispatched) {
+                        "FAILED"
+                    } else {
+                        "PRECHECK_REJECTED"
+                    }
+                )
+                put("dispatched", observed.dispatched)
+                if (result.isError) put("failed_stage", failedStage)
+                put("requires_reconciliation", false)
+                put("index_outcome_unknown", false)
+                put("current_index_outcome_unknown", false)
+                if (privacyDenied) put("authority_failed_stage", failedStage)
+            }
+        )
     }
 
     private fun JsonObject.hash(key: String): String? = (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.matches(HASH) }

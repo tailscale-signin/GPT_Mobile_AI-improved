@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphResponse
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.RepositoryMapRepository
+import dev.chungjungsoo.gptmobile.data.privacy.UnverifiedServiceTransport
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -655,6 +656,45 @@ class RepositoryGraphViewModelTest {
         model.nextMapPage()
         advanceUntilIdle()
         coVerify(exactly = 0) { graphs.executeForMap(any(), match { it.graphText("result_cursor") == "old-map-cursor" }, any(), any()) }
+    }
+
+    @Test fun privacyRejectionRetainsTheMatchingMapAndItsRepairWithoutChangingSource() = runTest {
+        for (source in listOf("phone", "gateway")) {
+            val status = json("""{"has_more":true,"index_cursor":"saved-$source","graph":{"commit_sha":"${context.commitSha}"}}""")
+            val map = json("""{"nodes":[{"id":"$source-file","path":"src/File.kt"}],"has_more":false}""")
+            fun observed(value: JsonObject, operation: String) = GatewayGraphResponse(value, operation, if (source == "phone") "" else "configured-gateway", source)
+            coEvery { graphs.executeForMap(context, match { it.graphText("map_source") == source && it.graphText("action") == "status" }, "configured-gateway", any()) } returns observed(status, "status")
+            coEvery { graphs.executeForMap(context, match { it.graphText("map_source") == source && it.graphText("action") == "architecture" }, "configured-gateway", any()) } returns observed(map, "architecture")
+            val model = RepositoryGraphViewModel(graphs)
+            model.selectSource(source)
+            model.bind(context, "configured-gateway")
+            advanceUntilIdle()
+            assertEquals(map, model.state.value.visibleMap)
+            val blocked = GatewayGraphOperationException(
+                UnverifiedServiceTransport(),
+                if (source == "phone") "" else "configured-gateway",
+                source,
+                if (source == "phone") "REVIEW_PRIVACY_MODE" else null,
+                false,
+                failureCode = UnverifiedServiceTransport.CODE,
+                targetRevision = context.commitSha
+            )
+            coEvery { graphs.executeForMap(context, match { it.graphText("map_source") == source && it.graphText("action") == "status" }, "configured-gateway", any()) } throws blocked
+            model.request("status")
+            advanceUntilIdle()
+            assertEquals(source, model.state.value.mapSource)
+            assertEquals(map, model.state.value.visibleMap)
+            assertEquals(status, model.state.value.indexStatus)
+            assertEquals("saved-$source", model.state.value.indexCursor)
+            assertEquals("PRIVACY_SERVICE_UNVERIFIED", model.state.value.errorCode)
+            assertEquals(if (source == "phone") "REVIEW_PRIVACY_MODE" else null, model.state.value.repairAction)
+            assertEquals(blocked.message, model.state.value.error)
+            assertEquals("configured-gateway", model.state.value.gatewayProfileUid)
+            assertFalse(model.state.value.indexOutcomeUnknown)
+            assertFalse(model.state.value.busy)
+            coVerify(exactly = 3) { graphs.executeForMap(context, match { it.graphText("map_source") == source }, "configured-gateway", any()) }
+            model.stop()
+        }
     }
 
     private fun gatewayModel() = RepositoryGraphViewModel(graphs).apply { selectSource("gateway") }

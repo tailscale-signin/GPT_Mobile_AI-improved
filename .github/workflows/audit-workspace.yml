@@ -99,6 +99,21 @@ jobs:
           set -o pipefail
           chmod +x gradlew
           python3 scripts/build_metrics.py --label audit-ksp --output build/reports/profile/audit-ksp-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee audit-ksp.log
+      - name: Verify exported Room schemas
+        if: always()
+        run: python3 scripts/check_room_schemas.py
+      - name: Upload generated Room schemas
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: audit-room-schemas-${{ github.run_attempt }}
+          path: |
+            app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/*.json
+            app/schemas/dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsDatabase/*.json
+            app/schemas/dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase/*.json
+            app/schemas/dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringDatabase/*.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Generate annotation sources in a separate process
         timeout-minutes: 10
         shell: bash

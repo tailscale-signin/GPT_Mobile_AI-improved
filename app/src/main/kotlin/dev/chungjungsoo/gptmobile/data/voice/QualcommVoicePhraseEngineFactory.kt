@@ -121,7 +121,7 @@ internal class QualcommVoicePhraseEngineFactory(
         threads: Int
     ): VoicePhraseEngine {
         var failure = initialFailure
-        var observed: VoiceSpeechExecutionEvidence? = null
+        var observed: VoiceSpeechExecutionEvidence? = initialFailure?.let(::failureEvidence)
         fun wrap(native: TimedKokoro, selected: VoiceSpeechBackend): VoicePhraseEngine = object : VoicePhraseEngine {
             override val executionProvider: String get() = provider(selected)
             override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed

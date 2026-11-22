@@ -121,7 +121,8 @@ class AgentRunner(
     private val remainingTaskMillis: (suspend () -> Long?)? = null,
     private val replayDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val diagnosticRunId: String? = null,
-    private val prepareToolSelection: (suspend () -> Unit)? = null
+    private val prepareToolSelection: (suspend () -> Unit)? = null,
+    private val verificationOnlyRequested: Boolean = false
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
     private val replayCompactionLogGate = ReplayCompactionLogGate()
@@ -161,6 +162,19 @@ class AgentRunner(
     }
 
     private fun runWithRepairScope(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): Flow<AgentRunEvent> = flow {
+        if (verificationOnlyRequested && session.handlesToolsInternally) {
+            // An opaque backend can execute before exposing a ToolCall event.
+            // Verification must use a session whose tool dispatch remains local.
+            emit(
+                AgentRunEvent.Provider(
+                    verificationOnlyFailure(
+                        "This session executes tools internally and cannot verify saved results without starting work. Saved evidence and unfinished operations remain retained.",
+                        false
+                    )
+                )
+            )
+            return@flow
+        }
         val acceptedAtEntry = remainingTaskMillis?.invoke()
         if (minOf(limits.runTimeoutMillis, acceptedAtEntry ?: Long.MAX_VALUE) <= 0L) {
             // An expired accepted task may deliver retained evidence, but must not
@@ -188,7 +202,7 @@ class AgentRunner(
             }
             return@flow
         }
-        if (tools.isNotEmpty() && !session.handlesToolsInternally && effectiveReplayTokens <= 0) {
+        if (!verificationOnlyRequested && tools.isNotEmpty() && !session.handlesToolsInternally && effectiveReplayTokens <= 0) {
             emit(
                 AgentRunEvent.Provider(
                     ProviderEvent.Failed(
@@ -216,7 +230,7 @@ class AgentRunner(
         var exposedDefinitions = tools.map { it.definition }
         val exchanges = mutableListOf<AgentToolExchange>()
         var rounds = 0
-        if (retryUndispatchedBudgetFailures) checkpoint?.prepareExplicitBudgetRetry()
+        if (!verificationOnlyRequested && retryUndispatchedBudgetFailures) checkpoint?.prepareExplicitBudgetRetry()
         val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
         // Reopening an undispatched refusal does not renew the accepted allowance.
         // Only a separate explicit grant may start a new bounded tranche.
@@ -265,6 +279,10 @@ class AgentRunner(
         dynamicTools: () -> List<AgentTool>,
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>
     ) {
+        if (verificationOnlyRequested) {
+            verifyRetainedResults(session, toolByName, recovery, exchanges)
+            return
+        }
         prepareToolSelection?.invoke()
         val initialSchemaTokens = selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
         val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
@@ -516,6 +534,84 @@ class AgentRunner(
         }
     }
 
+    /** Verification can read settled receipts, but cannot advance the saved execution journal. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.verifyRetainedResults(
+        session: AgentProviderSession,
+        toolByName: Map<String, AgentTool>,
+        recovery: ToolBatchRecoverySnapshot?,
+        exchanges: MutableList<AgentToolExchange>
+    ) {
+        val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
+        val state = LoopState(emptyMap(), emptyList(), 0, recovery?.dispatchedCount ?: 0, false, false, recovery, retainedUnknownOutcome, diagnosticRunId)
+        if (!restoreCompletedExchanges(recovery, toolByName, exchanges, state)) return
+        if (recovery?.unsettledCalls.orEmpty().isNotEmpty()) {
+            emit(
+                AgentRunEvent.Provider(
+                    verificationOnlyFailure(
+                        "A saved operation has an unresolved outcome. Reconcile it before verifying completion; no operation was dispatched again.",
+                        true
+                    )
+                )
+            )
+            return
+        }
+        // A queued batch, saved-result continuation, CI investigation, or provider
+        // tool request is execution work. None may precede the verifier's guard.
+        val round = collectRound(
+            session,
+            emptyList(),
+            exchanges,
+            0,
+            false,
+            emptySet(),
+            state.consumedCallIds,
+            retainedUnknownOutcome || state.unknownOutcomes.isNotEmpty()
+        )
+        if (round.failure != null) {
+            emit(
+                AgentRunEvent.Provider(
+                    ProviderEvent.Failed(
+                        round.failure,
+                        errorCode = round.errorCode,
+                        progressDeadline = round.progressDeadline,
+                        transportComplete = round.failureTransportComplete,
+                        providerLimit = round.providerLimit,
+                        taskOutcome = round.taskOutcome,
+                        failureDetails = round.failureDetails,
+                        invocationId = round.invocationId
+                    )
+                )
+            )
+        } else if (round.completed && round.textEmitted) {
+            // Completion belongs to verification only. Pending operations and
+            // their original call grouping remain available for reconciliation.
+            emit(AgentRunEvent.Provider(ProviderEvent.Completed))
+        } else {
+            emit(
+                AgentRunEvent.Provider(
+                    verificationOnlyFailure(
+                        "Verification returned no final answer. Saved evidence and unfinished operations remain retained; no tool work was started.",
+                        retainedUnknownOutcome || state.unknownOutcomes.isNotEmpty()
+                    )
+                )
+            )
+        }
+    }
+
+    private fun verificationOnlyFailure(message: String, hasUnknownOutcome: Boolean): ProviderEvent.Failed = ProviderEvent.Failed(
+        message,
+        errorCode = "GITHUB_TASK_INCOMPLETE",
+        taskOutcome = "BLOCKED",
+        failureDetails = buildJsonObject {
+            put("failed_stage", "verification")
+            put("dispatched", false)
+            put("resume_allowed", false)
+            put("request_replay_allowed", false)
+            put("logical_continuation_allowed", false)
+            if (hasUnknownOutcome) put("requires_reconciliation", true)
+        }
+    )
+
     private fun resumeGitHubInvestigation(
         progress: GitHubInvestigationProgress,
         ci: GitHubCiInvestigationRecovery,
@@ -600,7 +696,7 @@ class AgentRunner(
             val retained = completed + listOfNotNull(pendingCompleted)
             // Keep partial receipts in their original assistant call group.
             restoredCompleted = pendingCompleted?.results.orEmpty().associateBy { it.callId }
-            if (limits.githubTask) {
+            if (limits.githubTask || verificationOnlyRequested) {
                 if (retained.isEmpty()) return true
                 // Restore current authorization/evidence once, before provider work.
                 // Completion callbacks persist new work and must not replay here.
@@ -796,7 +892,7 @@ class AgentRunner(
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishFromRetained(session: AgentProviderSession, failure: ProviderEvent.Failed, hasResults: Boolean) {
         if (limits.githubTask && hasResults) {
             session.retainedFailureResponse(failure).collect { event ->
-                if (event is ProviderEvent.Completed) checkpoint?.finish()
+                if (event is ProviderEvent.Completed && !verificationOnlyRequested) checkpoint?.finish()
                 emit(AgentRunEvent.Provider(event))
             }
         } else {
@@ -1909,7 +2005,15 @@ class AgentRunner(
                 }
             }
         }.transformWhile { event ->
-            if (event is ProviderEvent.Failed && GatewayOutcomeRecovery.requiresReconciliation(event.message, event.errorCode)) {
+            if (verificationOnlyRequested && (event is ProviderEvent.ToolCall || event is ProviderEvent.ToolResult)) {
+                emit(
+                    verificationOnlyFailure(
+                        "Verification requested tool work. The request was blocked; saved receipts and unfinished operations remain unchanged.",
+                        hasUnknownOutcome
+                    )
+                )
+                false
+            } else if (event is ProviderEvent.Failed && GatewayOutcomeRecovery.requiresReconciliation(event.message, event.errorCode)) {
                 emit(event)
                 false
             } else if (event is ProviderEvent.ToolCall && !admission.admit(event)) {
@@ -2011,7 +2115,7 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
-        if (completed && failure == null && deliveredCallIds.any { it !in consumedCallIds }) {
+        if (!verificationOnlyRequested && completed && failure == null && deliveredCallIds.any { it !in consumedCallIds }) {
             checkpoint?.markConsumed(deliveredCallIds)
             consumedCallIds += deliveredCallIds
         }

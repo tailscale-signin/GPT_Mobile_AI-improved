@@ -120,6 +120,46 @@ the client does not discard approved evidence or silently choose another
 destination. The compatibility regression checks both zero dispatch to an
 unsupported service and byte-for-byte submission to a compatible service.
 
+## Combined-branch integration corrections
+
+The incoming approved design adds request-byte budgeting, frozen independent
+issue groups, recovery controls and settled journal compaction. Reviewing those
+changes against the existing execution paths exposed additional integration
+failures, now covered by focused behavior regressions.
+
+Verification-only recovery is fenced in the runner before any saved queued call
+or synthesized recovery operation can execute. It may restore settled evidence
+through the existing authorization callback, but it cannot dispatch tools,
+reopen rejected work, mark results consumed or finish the execution checkpoint.
+A session that executes tools internally is rejected before its callbacks run.
+Unsettled remote operations still require reconciliation. Newly observed
+evidence cannot turn a verifier-only decision into automatic execution.
+
+A complete trusted live intake with no open issues can satisfy an issue-only
+obligation without inventing a code change or test run. Extra conditions and
+unrelated work retain their separate acceptance requirements. A closure-only
+request requires guarded closure and fresh readback for every frozen issue;
+repair requests retain diagnosis, a published implementation or targeted
+diagnostic improvement, revision-bound tests and closure. The actual wording
+“close them once fixed” remains a repair request, as do equivalent bounded
+conditional repair phrases. Quoted examples and unrelated file fixes do not
+change the issue work type.
+
+Settled journal maintenance tracks each active invocation rather than treating
+a late finish observation as permanently active work. Matching finishes release
+only their own invocation. Unknown starts, unmatched finishes, pending writes
+and changed privacy or capture epochs remain conservative. Export preparation
+keeps caller admission callbacks outside the write mutex, preventing privacy
+clearing or revocation from deadlocking when saved checkpoints are present;
+cancellation and the subsequent privacy and epoch checks remain enforced.
+
+The request-byte failure code requires `REQUEST_BYTE_BUDGET_V1` even when no byte
+count fields were captured. The merged reporter tests cover every retained code
+location, each byte field, omitted fields, UTF-8 approved payload preservation
+and a free-text mention that must not invent a capability requirement. An older
+reporter receives no POST; a compatible reporter receives the unchanged
+approved payload.
+
 ## Issue disposition map
 
 The issue record should link the final implementation and its checks before
@@ -177,6 +217,31 @@ issue resolutions.
 The merge gate requires successful checks for the final PR revision, an
 up-to-date base and GitHub's current merge policy. A passed check from the starting
 revision does not validate these changes.
+
+### Final combined-source local checks
+
+The follow-up correction is integrated on the full-scope revision
+`e66e9665402b388a673dd42dc3ddc70fe3e3ea29`. The canonical fast gate passes
+**601 tests**; all **14** changed non-generated Kotlin source/test files pass
+formatting. The regenerated source inventory contains **2,834 files / 26 areas**,
+and the complete **571-path** pending release scope is checked without expanding
+its qualification claims.
+
+Focused actual-source selections pass **31** runner/recovery tests, **36** issue
+obligation tests, **114** journal/report tests, **51** catalog tests and **7**
+effective-recovery policy tests. These selections overlap. The missing-saved-task
+incident regression also passes on the actual Robolectric Android 34 runtime,
+including its zero-provider-call and approved incident privacy assertions.
+The telemetry schema regression is repaired by shortening four descriptions:
+its estimate changes from **2,026 to 1,992 tokens**, while the original
+**2,000-token bound** and every non-description schema constraint remain intact.
+
+The preceding full Android run compiled production and tests, then identified
+three remaining assertions. The combined correction addresses the schema budget
+and the two outdated expectations for current report capability and typed
+missing-task recovery. These local results do not claim a full final-head
+Android pass. The unchanged required and applicable CI gates must validate the
+published combined correction before merge and issue closure.
 
 ## Limits
 

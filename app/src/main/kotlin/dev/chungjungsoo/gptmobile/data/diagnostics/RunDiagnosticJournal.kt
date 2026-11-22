@@ -6,6 +6,8 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -125,7 +127,7 @@ internal class RunDiagnosticJournal(
     private val writes = kotlinx.coroutines.sync.Mutex()
     private val sequences = mutableMapOf<String, Long>()
     private val terminals = mutableSetOf<String>()
-    private val generationAfterTerminal = mutableSetOf<String>()
+    private val activeInvocations = mutableMapOf<String, MutableSet<String?>>()
     private val compactedVersions = mutableMapOf<String, Long>()
     private val compaction = RunJournalCompaction(vault, now)
     private val lastObservedStages = mutableMapOf<String, dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage>()
@@ -289,8 +291,24 @@ internal class RunDiagnosticJournal(
         }
     }
 
-    /** Called only under lock. New work after an earlier terminal is never treated as idle. */
-    private fun compactionIdle() = !privateSession && pending.isEmpty() && inFlight.isEmpty() && sequences.keys.none { it in permittedRuns && (it !in terminals || it in generationAfterTerminal) }
+    /** Called only under lock. Late observations do not reopen work; a resumed invocation does. */
+    private fun compactionIdle() = !privateSession && pending.isEmpty() && inFlight.isEmpty() && sequences.keys.none { it in permittedRuns && (it !in terminals || !activeInvocations[it].isNullOrEmpty()) }
+
+    private fun observeInvocationActivity(runId: String, kind: RunDiagnosticKind, invocationId: String?) {
+        when (kind) {
+            RunDiagnosticKind.INVOCATION_STARTED -> activeInvocations.getOrPut(runId) { mutableSetOf() }.add(invocationId)
+            RunDiagnosticKind.INVOCATION_FINISHED -> {
+                // An uncorrelated finish cannot settle a different or unidentified invocation.
+                if (invocationId != null) {
+                    activeInvocations[runId]?.let { active ->
+                        active.remove(invocationId)
+                        if (active.isEmpty()) activeInvocations.remove(runId)
+                    }
+                }
+            }
+            else -> Unit
+        }
+    }
 
     /** Unknown privacy scopes cannot persist diagnostics; revocation is sticky for this run. */
     fun setRunPrivacy(runId: String, isTemporary: Boolean) = synchronized(lock) {
@@ -300,6 +318,7 @@ internal class RunDiagnosticJournal(
             pending.removeAll { it.runId == runId }
             outputLineage.removeRun(runId)
             outputCheckpoints.keys.removeAll { it.runId == runId }
+            activeInvocations.remove(runId)
             compactedVersions.remove(runId)
             firstVisible.removeAll { it.runId == runId }
             lastObservedStages.remove(runId)
@@ -411,6 +430,9 @@ internal class RunDiagnosticJournal(
             }
             val sequence = prior + 1L
             sequences[runId] = sequence
+            // Activity is observed even if bounded telemetry admission drops this row.
+            // Such a gap cannot make a running invocation eligible for maintenance.
+            observeInvocationActivity(runId, kind, invocationId)
             val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), monotonicNanos = System.nanoTime(), kind = kind, role = role, invocationId = lineage.invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase, cacheHits = cacheHits, cacheMisses = cacheMisses, staleCacheReads = staleCacheReads, physicalAttemptId = physicalAttemptId, progressStage = progressStage, progressDeadline = progressDeadline, outputBoundary = outputBoundary, outputRepresentation = outputRepresentation, outputFingerprint = outputFingerprint, outputPartId = outputPartId, outputOrigin = lineage.origin, localAdmissionReceipt = localAdmissionReceipt, providerFailure = providerFailure)
             val critical = kind in criticalKinds
             if (!critical && pending.size >= 480) {
@@ -432,7 +454,6 @@ internal class RunDiagnosticJournal(
                 capacityDropped.incrementAndGet()
             }
             if (kind == RunDiagnosticKind.RUN_TERMINAL) terminals += runId
-            if (runId in terminals && (kind !in settledOutputKinds || outputBoundary == OutputTraceBoundary.PROVIDER_VISIBLE)) generationAfterTerminal += runId
             val observedStage = progressStage ?: when (kind) {
                 RunDiagnosticKind.FIRST_TEXT -> dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.ANSWER
                 RunDiagnosticKind.FIRST_REASONING -> dev.chungjungsoo.gptmobile.data.agent.ObservedProgressStage.REASONING
@@ -594,6 +615,7 @@ internal class RunDiagnosticJournal(
 
     private suspend fun freezeRuns(runIds: Set<String>, beforeRead: suspend () -> Unit): Map<String, FrozenJournalBoundary> {
         beforeRead()
+        val captureContext = currentCoroutineContext()
         val capturedAt = now()
         val boundaryRequestedNanos = System.nanoTime()
         // Freeze the checkpoint VALUES with reference names. A mutable checkpoint may advance
@@ -620,7 +642,9 @@ internal class RunDiagnosticJournal(
                 var unreadableCheckpoints = 0
                 var checkpointReadDecodeNanos = 0L
                 for (reference in checkpoints[runId].orEmpty()) {
-                    beforeRead()
+                    // Caller admission can clear/revoke the journal and cannot run
+                    // inside writes. Preserve cancellation during this atomic freeze.
+                    captureContext.ensureActive()
                     val readStartedNanos = System.nanoTime()
                     try {
                         val bytes = requireNotNull(vault.read(reference))
@@ -649,7 +673,9 @@ internal class RunDiagnosticJournal(
             }
             val compacted = mutableMapOf<String, RunJournalCompaction.Index?>()
             for (runId in runIds) {
-                beforeRead()
+                // This bounded immutable-cache lookup is inside writes. A caller's
+                // admission callback may clear the journal and must not reenter it here.
+                captureContext.ensureActive()
                 compacted[runId] = compaction.index(runId, references, sortedBatches[runId].orEmpty())
             }
             synchronized(lock) {
@@ -801,7 +827,7 @@ internal class RunDiagnosticJournal(
             inFlight = emptyList()
             sequences.clear()
             terminals.clear()
-            generationAfterTerminal.clear()
+            activeInvocations.clear()
             compactedVersions.clear()
             lastObservedStages.clear()
             firstVisible.clear()
@@ -868,8 +894,6 @@ internal class RunDiagnosticJournal(
             // Read-cache cleanup is independent of original journal durability.
         }
     }
-
-    private val settledOutputKinds = setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.OUTPUT_CHECKPOINT, RunDiagnosticKind.FIRST_VISIBLE_TEXT, RunDiagnosticKind.FIRST_APPLICATION_REPORT, RunDiagnosticKind.FIRST_VISIBLE_ANSWER, RunDiagnosticKind.FIRST_SYSTEM_ERROR, RunDiagnosticKind.FIRST_RETAINED_CONTENT, RunDiagnosticKind.FIRST_UNATTRIBUTED_OUTPUT)
 
     private val minimalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INVOCATION_STARTED, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.FIRST_TEXT, RunDiagnosticKind.FIRST_REASONING, RunDiagnosticKind.FIRST_TOOL, RunDiagnosticKind.FIRST_PROGRESS, RunDiagnosticKind.FIRST_VISIBLE_ANSWER, RunDiagnosticKind.FIRST_SYSTEM_ERROR, RunDiagnosticKind.FIRST_APPLICATION_REPORT, RunDiagnosticKind.FIRST_RETAINED_CONTENT, RunDiagnosticKind.FIRST_UNATTRIBUTED_OUTPUT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.TOOL_ADMITTED, RunDiagnosticKind.TOOL_RESULT, RunDiagnosticKind.TOOL_RESULTS_RESTORED, RunDiagnosticKind.CONTINUATION_SELECTED, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE, RunDiagnosticKind.RUN_TERMINAL)
     private val criticalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE) + setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.SEGMENT_COMMITTED, RunDiagnosticKind.PROGRESS_DEADLINE, RunDiagnosticKind.CAPTURE_GAP)

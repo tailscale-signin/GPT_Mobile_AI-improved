@@ -5013,7 +5013,8 @@ class ChatRepositoryImpl(
         toolCallsAlreadyUsed: Int?,
         reviewEvidence: dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence?,
         verifiedEvidence: dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook?,
-        outputContinuation: dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession?
+        outputContinuation: dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession?,
+        verificationOnlyRequested: Boolean
     ): dev.chungjungsoo.gptmobile.data.agent.AgentRunner {
         val githubTask = verifiedEvidence != null || chatToolConfig?.github != null
         val acceptedObjective = verifiedEvidence?.acceptedTaskRequest() ?: githubEffectiveTask
@@ -5060,6 +5061,7 @@ class ChatRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, binding, persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false, jobContext = checkpointJob, expectedProviderEvidenceDigest = outputContinuation?.toolCheckpointEvidenceDigest, expectedProviderJournalDigest = outputContinuation?.toolCheckpointJournalDigest)
             },
             healthCatalog = catalog,
+            verificationOnlyRequested = verificationOnlyRequested,
             retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures,
             resumeToolBudget = resumeToolBudget,
             initialToolCallCountOverride = toolCallsAlreadyUsed,
@@ -6340,7 +6342,7 @@ class ChatRepositoryImpl(
             delegationSettings, effectiveTools, githubEffectiveTask, resolvedOutputCap, admission.toolContext, reservedFinalToolCalls,
             toolBudgetSourceMessageId, dispatchAuthority, catalog, retryUndispatchedBudgetFailures,
             resumeToolBudget, toolCallsAlreadyUsed, reviewEvidence, verifiedEvidence,
-            outputContinuation
+            outputContinuation, verificationOnlyRequested
         )
         if (chatToolConfig?.github != null && latestUser != null && agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false) {
             val policy = dev.chungjungsoo.gptmobile.data.github.GitHubRunPolicySnapshot.capture(

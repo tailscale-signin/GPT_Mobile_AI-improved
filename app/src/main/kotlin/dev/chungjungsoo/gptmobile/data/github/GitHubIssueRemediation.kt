@@ -16,22 +16,67 @@ internal object GitHubIssueRemediation {
     private const val MAX_ISSUES = 256
     const val INVENTORY_REQUIREMENT = "Freeze the complete observed open-issue cohort before reporting this bulk repair complete"
     private val bulk = Regex("(?i)(?:the\\s+)?(?:all|every|each|open|remaining|repository)\\s+(?:[a-z-]+\\s+){0,2}issues?\\b")
-    private val command = Regex("(?im)(?:^|[.!?;\\n,]|\\band(?:\\s+then)?|\\bthen|\\balso)\\s*(?:please\\s+)?(?:(?:can|could|would|will) you (?:please )?|i (?:want|need|would like) you to )?(?:fix|repair|resolve|close)\\s+")
+    private val command = Regex("(?im)(?:^|[.!?;\\n,]|\\band(?:\\s+then)?|\\bthen|\\balso)\\s*(?:please\\s+)?(?:(?:can|could|would|will) you (?:please )?|i (?:want|need|would like) you to )?((?:fix|repair|resolve|close)(?:\\s+(?:(?:and|then)\\s+)*(?:fix|repair|resolve|close))*)\\s+")
     private val pronoun = Regex("(?i)^(?:them(?:\\s+all)?|all(?:\\s+of\\s+them)?)\\b")
     private val quoted = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"[^\"\\r\\n]*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'|(?m)^\\s*>[^\\r\\n]*")
+    private val repairVerb = Regex("(?i)\\b(?:fix|repair|resolve)\\b")
+    private val conditionalRepair = Regex("(?i)^\\s*,?\\s*(?:only\\s+)?(?:once|after|when)\\s+(?:(?:(?:they|these(?:\\s+issues?)?|those(?:\\s+issues?)?|the\\s+issues?)\\s+(?:are|is|have\\s+been|has\\s+been)\\s+)?(?:fixed|repaired|resolved)|(?:(?:you|we)\\s+)?(?:fix(?:ing)?|repair(?:ing)?|resolv(?:e|ing))\\s+(?:them(?:\\s+all)?|all\\s+of\\s+them|(?:the\\s+)?(?:issues?|(?:all|every|each|open|remaining)\\s+(?:open\\s+)?issues?)))\\b(?=\\s*(?:$|[.!?,;]|and\\b|then\\b))")
+    private val issueClause = Regex("(?i)^\\s*(?:please\\s+)?(?:(?:can|could|would|will) you (?:please )?|i (?:want|need|would like) you to )?((?:review|inspect|examine|list|fix|repair|resolve|close)(?:\\s+(?:(?:and|then)\\s+)*(?:review|inspect|examine|list|fix|repair|resolve|close))*)\\s+((?:the\\s+)?(?:(?:all|every|each)(?:\\s+(?:open|remaining))?|open|remaining|repository)\\s+issues?\\b|them(?:\\s+all)?\\b|all(?:\\s+of\\s+them)?\\b)(?:\\s+in\\s+(?:repository\\s+)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?")
+    private val issueSeparator = Regex("(?i)^(?:\\s*[,;.]?\\s*(?:and(?:\\s+then)?|then|also)\\s+|\\s*[,;.\\n]\\s*)")
+
+    private enum class WorkKind { REPAIR_AND_CLOSE, CLOSURE_ONLY }
 
     data class Context(val cohort: JsonObject, val previous: List<JsonObject> = emptyList()) {
         val groups: List<JsonObject> get() = (cohort["groups"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+
+        // Older snapshots retain their original repair obligations.
+        val closureOnly: Boolean get() = cohort["work_kind"] == JsonPrimitive(WorkKind.CLOSURE_ONLY.name)
     }
 
-    fun requested(task: String): Boolean {
+    fun requested(task: String): Boolean = workKind(task) != null
+
+    private fun workKind(task: String): WorkKind? {
         val request = GitHubTaskContinuity.request(task).replace(quoted, " ")
-        return command.findAll(request).any { found ->
+        val directives = command.findAll(request).filter { found ->
             val objectText = request.substring(found.range.last + 1)
             bulk.find(objectText)?.range?.first == 0 ||
                 pronoun.containsMatchIn(objectText) &&
                 bulk.containsMatchIn(request.substring(0, found.range.first))
+        }.toList()
+        if (directives.isEmpty()) return null
+        val repair = directives.any { directive ->
+            if (repairVerb.containsMatchIn(directive.groupValues[1])) return@any true
+            val objectText = request.substring(directive.range.last + 1)
+            val target = bulk.find(objectText)?.takeIf { it.range.first == 0 } ?: pronoun.find(objectText) ?: return@any false
+            // The condition must immediately qualify these issues. A later fix
+            // of an unrelated file, or quoted example text, is not repair intent.
+            conditionalRepair.containsMatchIn(objectText.substring(target.range.last + 1).take(512))
         }
+        return if (repair) WorkKind.REPAIR_AND_CLOSE else WorkKind.CLOSURE_ONLY
+    }
+
+    /** Consume the whole obligation; extra criteria or conditions cannot inherit issue-only acceptance. */
+    private fun issueOnlyObligation(requirement: String, repository: String): Boolean {
+        var remaining = GitHubTaskContinuity.request(requirement).trim().removePrefix("- ").trimEnd('.', '!', '?').trim()
+        var issueTarget = false
+        var action = false
+        while (remaining.isNotBlank()) {
+            val clause = issueClause.find(remaining) ?: return false
+            val target = clause.groupValues[2]
+            if (Regex("(?i)\\bissues?$").containsMatchIn(target)) {
+                issueTarget = true
+            } else if (!issueTarget) {
+                return false
+            }
+            if (clause.groupValues[3].isNotBlank() && !repository.equals(clause.groupValues[3], true)) return false
+            action = action || Regex("(?i)\\b(?:fix|repair|resolve|close)\\b").containsMatchIn(clause.groupValues[1])
+            remaining = remaining.substring(clause.range.last + 1)
+            if (remaining.isBlank()) return issueTarget && action
+            val separator = issueSeparator.find(remaining) ?: return false
+            remaining = remaining.substring(separator.range.last + 1)
+            if (remaining.isBlank()) return false
+        }
+        return false
     }
 
     fun valid(cohort: JsonObject, task: String, binding: String, repository: String): Boolean =
@@ -39,6 +84,7 @@ internal object GitHubIssueRemediation {
             cohort["binding"] == JsonPrimitive(binding) &&
             cohort["repository"] == JsonPrimitive(repository) &&
             cohort["request_digest"] == JsonPrimitive(GitHubEvidenceBook.digest(GitHubTaskContinuity.request(task))) &&
+            (cohort["work_kind"] == null || cohort["work_kind"] == workKind(task)?.let { JsonPrimitive(it.name) }) &&
             (cohort["groups"] as? JsonArray)?.let { groups ->
                 groups.size <= MAX_ISSUES &&
                     groups.all { row ->
@@ -88,6 +134,7 @@ internal object GitHubIssueRemediation {
                 put("binding", binding)
                 put("repository", repository)
                 put("request_digest", GitHubEvidenceBook.digest(GitHubTaskContinuity.request(task)))
+                put("work_kind", requireNotNull(workKind(task)).name)
                 put("inventory_receipt_ids", JsonArray(traversal.pages.map { JsonPrimitive(it.first) }))
                 put("cohort_scope", "First complete observed open-issue inventory for this accepted task; not an atomic GitHub snapshot. Later issues require a new intake.")
                 put("grouping", "Independent issue groups; shared repair/test receipts may link related issues without assuming their root causes match.")
@@ -109,11 +156,53 @@ internal object GitHubIssueRemediation {
         return null
     }
 
-    fun requirement(group: JsonObject, context: Context): String =
+    fun requirement(group: JsonObject, context: Context): String = if (context.closureOnly) {
+        "Close issue #${number(group["issue_number"])} in ${context.cohort.text("repository")} and verify its final state."
+    } else {
         "Resolve issue #${number(group["issue_number"])} in ${context.cohort.text("repository")}: diagnose the report, publish a fix or targeted diagnostic improvement, verify tests at that revision, and verify closure."
+    }
 
     fun requirements(task: String, context: Context?): List<String> =
         if (requested(task)) listOf(INVENTORY_REQUIREMENT) + context?.groups?.map { requirement(it, context) }.orEmpty() else emptyList()
+
+    fun obligationAssessment(
+        requirement: String,
+        task: String,
+        context: Context?,
+        acceptance: JsonObject?,
+        citedIds: Set<String>,
+        receipts: Map<String, JsonObject>,
+        now: Long
+    ): GitHubRequestCompletion.Assessment? {
+        if (context == null || !issueOnlyObligation(requirement, context.cohort.text("repository"))) return null
+        if (context.groups.isNotEmpty() && !context.closureOnly) return null
+        val binding = context.cohort.text("binding")
+        val repository = context.cohort.text("repository")
+        val inventoryIds = (context.cohort["inventory_receipt_ids"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content }
+        val inventoryReceipts = inventoryIds.mapNotNull { id -> receipts[id]?.let { id to it } }.toMap()
+        val frozen = freeze(task, binding, repository, inventoryReceipts)
+        val sameInventory = if (context.cohort["work_kind"] == null) frozen?.filterKeys { it != "work_kind" } == context.cohort else frozen == context.cohort
+        if (!valid(context.cohort, task, binding, repository) || inventoryIds.isEmpty() || !sameInventory) {
+            return GitHubRequestCompletion.Assessment(GitHubAcceptanceLedger.State.NOT_TESTED, "The complete frozen issue inventory must remain backed by its trusted live receipts")
+        }
+        if (context.groups.isEmpty()) {
+            return if (citedIds.containsAll(inventoryIds)) {
+                GitHubRequestCompletion.Assessment(GitHubAcceptanceLedger.State.PASS, "The complete verified live intake contains no open issues; this issue-only obligation requires no code or closure mutation")
+            } else {
+                GitHubRequestCompletion.Assessment(GitHubAcceptanceLedger.State.NOT_TESTED, "Link the checked empty-cohort finding to every receipt in the complete issue intake")
+            }
+        }
+        val rows = context.groups.map { group ->
+            val mapping = acceptance?.get(GitHubRequestCompletion.id(this.requirement(group, context))) as? JsonObject
+            assess(group, context, mapping, emptySet(), false, receipts, now)
+        }
+        val incomplete = rows.firstOrNull { it["acceptance_state"] != JsonPrimitive(GitHubAcceptanceLedger.State.PASS.name) }
+        return if (incomplete == null) {
+            GitHubRequestCompletion.Assessment(GitHubAcceptanceLedger.State.PASS, "Every issue in the frozen cohort has an authorized guarded closure and a verified subsequent live readback")
+        } else {
+            GitHubRequestCompletion.Assessment(GitHubAcceptanceLedger.State.entries.first { it.name == incomplete.text("acceptance_state") }, incomplete.text("acceptance"))
+        }
+    }
 
     fun inventory(context: Context?): JsonObject = buildJsonObject {
         val pass = context != null
@@ -183,9 +272,9 @@ internal object GitHubIssueRemediation {
         val repository = context.cohort.text("repository")
         val issue = requireNotNull(number(group["issue_number"]))
         fun good(receipt: JsonObject) = eligible(receipt, binding, repository)
-        val currentDiagnosis = citedIds.filter { receipts[it]?.let(::good) == true }
+        val currentDiagnosis = citedIds.filter { !context.closureOnly && receipts[it]?.let(::good) == true }
         val savedDiagnosis = (prior?.get("diagnosis_proof") as? JsonObject).orEmpty().filter { (receiptId, digest) ->
-            receipts[receiptId]?.let { good(it) && digest == JsonPrimitive(diagnosisDigest(it)) } == true
+            !context.closureOnly && receipts[receiptId]?.let { good(it) && digest == JsonPrimitive(diagnosisDigest(it)) } == true
         }.keys
         val diagnosisIds = savedDiagnosis + if (claimsCovered) currentDiagnosis else emptyList()
         val issueEvidence = diagnosisIds.any { receiptId ->
@@ -205,7 +294,7 @@ internal object GitHubIssueRemediation {
             issueEvidence && sourceEvidence -> GitHubRequestCompletion.Assessment(GitHubAcceptanceLedger.State.PASS, "The diagnosis or explicit missing-cause finding links this issue's report and pinned source observations")
             else -> GitHubRequestCompletion.Assessment(GitHubAcceptanceLedger.State.NOT_TESTED, "Link verified diagnosis findings to this issue's context receipt and pinned source; a title or unrelated read is insufficient")
         }
-        val implementationIds = ids(mapping, "implementation_receipts")
+        val implementationIds = if (context.closureOnly) emptyList() else ids(mapping, "implementation_receipts")
         val published = implementationIds.filter { receiptId -> receipts[receiptId]?.let { good(it) && publishedRevision(it) != null } == true }
         val revisions = JsonArray(published.mapNotNull { receipts[it]?.let(::publishedRevision) }.distinct().map(::JsonPrimitive))
         val change = if (published.isNotEmpty() && published.size == implementationIds.size) {
@@ -232,25 +321,28 @@ internal object GitHubIssueRemediation {
         val closureMapping = JsonObject(mapping + ("operation_receipts" to JsonArray(guardedOperations.map(::JsonPrimitive))))
         val closed = GitHubOperationAcceptance.evaluate("Close issue #$issue in $repository", closureMapping, receipts.filterValues(::good), now)
         val closure = GitHubRequestCompletion.Assessment(closed?.state ?: GitHubAcceptanceLedger.State.NOT_TESTED, closed?.reason ?: "Link the guarded close operation and subsequent live readback")
-        val stages = linkedMapOf("DIAGNOSIS" to diagnosis, "CHANGE" to change, "TEST" to tests, "CLOSURE" to closure)
+        val stages = if (context.closureOnly) linkedMapOf("CLOSURE" to closure) else linkedMapOf("DIAGNOSIS" to diagnosis, "CHANGE" to change, "TEST" to tests, "CLOSURE" to closure)
         val state = when {
             stages.values.all { it.state == GitHubAcceptanceLedger.State.PASS } -> GitHubAcceptanceLedger.State.PASS
             stages.values.any { it.state == GitHubAcceptanceLedger.State.FAIL } -> GitHubAcceptanceLedger.State.FAIL
             stages.values.any { it.state == GitHubAcceptanceLedger.State.BLOCKED } -> GitHubAcceptanceLedger.State.BLOCKED
             else -> GitHubAcceptanceLedger.State.NOT_TESTED
         }
-        val evidence = diagnosisIds + listOf("implementation_receipts", "test_receipts", "operation_receipts", "verification_receipts").flatMap { ids(mapping, it) }.filter { receipts[it]?.let(::good) == true }
+        val evidenceRoles = if (context.closureOnly) listOf("operation_receipts", "verification_receipts") else listOf("implementation_receipts", "test_receipts", "operation_receipts", "verification_receipts")
+        val evidence = diagnosisIds + evidenceRoles.flatMap { ids(mapping, it) }.filter { receipts[it]?.let(::good) == true }
         return buildJsonObject {
             put("id", id)
             put("requirement", requirement)
             put("issue_group", group.getValue("id"))
             put("issue_number", issue)
-            put("issue_revisions", revisions)
-            put("issue_test_revision_scope", "PUBLISHED_FIX_REVISION; overall task and release acceptance still require the current repository head")
+            if (!context.closureOnly) {
+                put("issue_revisions", revisions)
+                put("issue_test_revision_scope", "PUBLISHED_FIX_REVISION; overall task and release acceptance still require the current repository head")
+            }
             put("issue_cohort_digest", cohortDigest)
             put("issue_acceptance", mapping)
             put("issue_verification_attempted", acceptance != null || claimsCovered || prior?.get("issue_verification_attempted") == JsonPrimitive(true))
-            put("diagnosis_proof", buildJsonObject { if (diagnosis.state == GitHubAcceptanceLedger.State.PASS) diagnosisIds.forEach { put(it, diagnosisDigest(receipts.getValue(it))) } })
+            if (!context.closureOnly) put("diagnosis_proof", buildJsonObject { if (diagnosis.state == GitHubAcceptanceLedger.State.PASS) diagnosisIds.forEach { put(it, diagnosisDigest(receipts.getValue(it))) } })
             put(
                 "issue_phases",
                 JsonArray(
@@ -273,10 +365,10 @@ internal object GitHubIssueRemediation {
                 }
             )
             put("acceptance_state", state.name)
-            put("acceptance", stages.values.firstOrNull { it.state != GitHubAcceptanceLedger.State.PASS }?.reason ?: "Diagnosis, concrete code action, exact-revision tests and issue closure are independently verified")
+            put("acceptance", stages.values.firstOrNull { it.state != GitHubAcceptanceLedger.State.PASS }?.reason ?: if (context.closureOnly) "Guarded issue closure and its subsequent live readback are verified" else "Diagnosis, concrete code action, exact-revision tests and issue closure are independently verified")
             put("receipt_ids", JsonArray(evidence.sorted().map(::JsonPrimitive)))
             put("missing_evidence_ids", JsonArray(emptyList()))
-            put("acceptance_evaluator_branch", "REVISION_TEST_ACCEPTANCE")
+            put("acceptance_evaluator_branch", if (context.closureOnly) "OPERATION_ACCEPTANCE" else "REVISION_TEST_ACCEPTANCE")
         }
     }
 

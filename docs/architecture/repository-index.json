@@ -383,6 +383,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationStopReasonTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationV2Test.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryObservationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIssueObligationCompletionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIssueRemediationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLiveProcessTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubMcpRepositoryToolTest.kt",

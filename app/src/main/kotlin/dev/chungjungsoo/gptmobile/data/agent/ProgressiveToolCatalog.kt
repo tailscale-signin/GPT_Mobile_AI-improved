@@ -207,7 +207,7 @@ class ProgressiveToolCatalog(
     }
     override val definition = AgentToolDefinition(
         NAME,
-        "List authorized tools with {}. Omit unused fields. Supply query as text or names as an array of strings. For GitHub, one name plus action returns its action schema. Omit action for all. Follow continuation_call exactly. Tools appear next round.",
+        "List authorized tools with {}. Use query or names (string array). One GitHub name plus action selects its schema; omit action for all. Copy continuation_call exactly. Schemas appear next round.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -232,14 +232,14 @@ class ProgressiveToolCatalog(
                         "action",
                         buildJsonObject {
                             put("type", "string")
-                            put("description", "GitHub action for one named tool.")
+                            put("description", "Action for one GitHub name.")
                         }
                     )
                     put(
                         "catalog_only",
                         buildJsonObject {
                             put("type", "boolean")
-                            put("description", "Search only the currently authorized visible catalog; do not acquire tools from other connections.")
+                            put("description", "Use only the visible catalog; never acquire from other connections.")
                         }
                     )
                     put(
@@ -254,7 +254,7 @@ class ProgressiveToolCatalog(
                         "inventory_version",
                         buildJsonObject {
                             put("type", "string")
-                            put("description", "Omit on page one. Copy the opaque version from the previous page.")
+                            put("description", "Copy from continuation_call; omit on the first page.")
                         }
                     )
                 }

@@ -68,6 +68,41 @@ class GitHubEffectiveRecoveryTest {
         assertEquals(details["recovery_action"], metadata["recovery_action"])
     }
 
+    @Test fun freshEvidenceCannotTurnAnExplicitVerifierPassIntoAutomaticExecution() {
+        val receipts = mapOf(
+            "fresh-read" to buildJsonObject {
+                put("trusted", true)
+                put("success", true)
+                put("tool", "github_read")
+            }
+        )
+        val verification = JsonObject(
+            fault() + mapOf(
+                "failure_code" to JsonPrimitive("GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION"),
+                "execution_ledger" to buildJsonObject {
+                    put("recovery", "RESUME_VERIFICATION")
+                    put("remaining_criteria", 1)
+                }
+            )
+        )
+        assertTrue(GitHubEffectiveRecovery.resolve(verification).verificationOnly)
+        assertFalse(GitHubExecutionContinuation.canResume(verification, receipts, 100, 60000, allowVerificationResume = true))
+
+        val work = JsonObject(
+            verification + mapOf(
+                "failure_code" to JsonPrimitive("GITHUB_TASK_INCOMPLETE"),
+                "resume_allowed" to JsonPrimitive(true),
+                "retryable_without_new_input" to JsonPrimitive(true),
+                "execution_ledger" to buildJsonObject {
+                    put("recovery", "RESUME_UNFINISHED_WORK")
+                    put("remaining_criteria", 1)
+                }
+            )
+        )
+        assertTrue(GitHubEffectiveRecovery.resolve(work).continueWork)
+        assertTrue(GitHubExecutionContinuation.canResume(work, receipts, 100, 60000, allowVerificationResume = true))
+    }
+
     @Test fun unresolvedWritesTakePrecedenceOverDeadlineApprovalAndVerifierRecovery() {
         val report = JsonObject(
             fault() + mapOf(

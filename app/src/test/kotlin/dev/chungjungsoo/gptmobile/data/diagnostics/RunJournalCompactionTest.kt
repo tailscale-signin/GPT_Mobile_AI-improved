@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -61,6 +62,139 @@ class RunJournalCompactionTest {
         assertEquals((1L..22L).toList(), events.map { it.sequence })
         assertEquals("new-invocation", events.last().invocationId)
         assertEquals(0L, coverage.missingSequences)
+    }
+
+    @Test fun lateFinishedAndObservationalEventsDoNotStarveAnUnrelatedSettledRun() = runTest {
+        val vault = Vault()
+        val journal = journal(vault)
+        fragment(journal)
+        journal.record("run", RunDiagnosticKind.RUN_TERMINAL)
+        runCurrent()
+        journal.record("run", RunDiagnosticKind.INVOCATION_FINISHED, invocationId = "already-finished", successful = true)
+        journal.record("run", RunDiagnosticKind.CACHE_OBSERVATION)
+        journal.traceOutput("run", OutputTraceBoundary.PROVIDER_VISIBLE, "retained provider output", invocationId = "already-finished", outputOrigin = OutputOrigin.MODEL_TEXT)
+        runCurrent()
+        journal.setRunPrivacy("another-run", false)
+        repeat(5) {
+            journal.record("another-run", RunDiagnosticKind.REQUEST_SERIALIZED)
+            runCurrent()
+        }
+        journal.record("another-run", RunDiagnosticKind.RUN_TERMINAL)
+        runCurrent()
+        assertTrue(vault.rows.keys.any { it.startsWith("journalpackindex-${RunJournalCompaction.identity("another-run")}-") })
+        val events = mutableListOf<RunDiagnosticEvent>()
+        val coverage = journal.stream("run", {}) { events += it }
+        assertEquals((1L..24L).toList(), events.map { it.sequence })
+        assertEquals(0L, coverage.missingSequences)
+        assertFalse(coverage.storageFailed)
+    }
+
+    @Test fun resumedInvocationsPauseMaintenanceUntilEveryMatchingInvocationFinishes() = runTest {
+        val vault = Vault()
+        val journal = journal(vault)
+        fragment(journal)
+        journal.record("run", RunDiagnosticKind.RUN_TERMINAL)
+        runCurrent()
+        val indexes = vault.rows.keys.filter { it.startsWith("journalpackindex-") }.toSet()
+        journal.record("run", RunDiagnosticKind.INVOCATION_STARTED, invocationId = "first-recovery", fence = 2)
+        journal.record("run", RunDiagnosticKind.INVOCATION_STARTED, invocationId = "second-recovery", fence = 2)
+        runCurrent()
+        journal.record("run", RunDiagnosticKind.INVOCATION_FINISHED, invocationId = "unrelated", successful = true)
+        journal.record("run", RunDiagnosticKind.INVOCATION_FINISHED, successful = true)
+        journal.record("run", RunDiagnosticKind.INVOCATION_FINISHED, invocationId = "first-recovery", successful = true)
+        runCurrent()
+        assertEquals(indexes, vault.rows.keys.filter { it.startsWith("journalpackindex-") }.toSet())
+        journal.record("run", RunDiagnosticKind.INVOCATION_FINISHED, invocationId = "second-recovery", successful = true)
+        runCurrent()
+        assertTrue(vault.rows.keys.filter { it.startsWith("journalpackindex-") }.toSet().size > indexes.size)
+        val events = mutableListOf<RunDiagnosticEvent>()
+        val coverage = journal.stream("run", {}) { events += it }
+        assertEquals((1L..27L).toList(), events.map { it.sequence })
+        assertEquals(0L, coverage.missingSequences)
+    }
+
+    @Test fun anInvocationStillFinishingAfterTerminalKeepsMaintenancePaused() = runTest {
+        val vault = Vault()
+        val journal = journal(vault)
+        fragment(journal)
+        journal.record("run", RunDiagnosticKind.INVOCATION_STARTED, invocationId = "finishing")
+        journal.record("run", RunDiagnosticKind.RUN_TERMINAL)
+        runCurrent()
+        assertTrue(vault.rows.keys.none(RunJournalCompaction::isCache))
+        journal.record("run", RunDiagnosticKind.INVOCATION_FINISHED, invocationId = "finishing", successful = true)
+        runCurrent()
+        assertTrue(vault.rows.keys.any { it.startsWith("journalpackindex-") })
+    }
+
+    @Test fun droppedStartTelemetryCannotAuthorizeCompactionWhileTheInvocationIsActive() = runTest {
+        val vault = Vault()
+        val journal = journal(vault)
+        fragment(journal)
+        journal.record("run", RunDiagnosticKind.RUN_TERMINAL)
+        runCurrent()
+        val indexes = vault.rows.keys.filter { it.startsWith("journalpackindex-") }.toSet()
+        repeat(480) { journal.record("run", RunDiagnosticKind.REQUEST_SERIALIZED) }
+        assertEquals(null, journal.record("run", RunDiagnosticKind.INVOCATION_STARTED, invocationId = "dropped-start"))
+        runCurrent()
+        assertEquals(indexes, vault.rows.keys.filter { it.startsWith("journalpackindex-") }.toSet())
+        journal.record("run", RunDiagnosticKind.INVOCATION_FINISHED, invocationId = "dropped-start", successful = true)
+        runCurrent()
+        assertTrue(vault.rows.keys.filter { it.startsWith("journalpackindex-") }.toSet().size > indexes.size)
+        val events = mutableListOf<RunDiagnosticEvent>()
+        val coverage = journal.stream("run", {}) { events += it }
+        assertEquals(1L, coverage.missingSequences)
+        assertTrue(events.any { it.kind == RunDiagnosticKind.INVOCATION_FINISHED && it.invocationId == "dropped-start" })
+    }
+
+    @Test fun anUnidentifiedStartStaysBusyUntilItsPrivacyScopeIsRevoked() = runTest {
+        val vault = Vault()
+        val journal = journal(vault)
+        fragment(journal)
+        journal.record("run", RunDiagnosticKind.INVOCATION_STARTED)
+        journal.record("run", RunDiagnosticKind.RUN_TERMINAL)
+        journal.record("run", RunDiagnosticKind.INVOCATION_FINISHED)
+        runCurrent()
+        assertTrue(vault.rows.keys.none(RunJournalCompaction::isCache))
+        journal.revokeRun("run")
+        journal.setRunPrivacy("another-run", false)
+        repeat(5) {
+            journal.record("another-run", RunDiagnosticKind.REQUEST_SERIALIZED)
+            runCurrent()
+        }
+        journal.record("another-run", RunDiagnosticKind.RUN_TERMINAL)
+        runCurrent()
+        assertTrue(vault.rows.keys.any { it.startsWith("journalpackindex-${RunJournalCompaction.identity("another-run")}-") })
+        assertTrue(vault.rows.keys.none { it.contains(RunJournalCompaction.identity("run")) })
+    }
+
+    @Test fun clearingFromAReadGuardWithSavedCheckpointsCannotDeadlockOrPublish() = runTest {
+        invalidationFromCheckpointGuard(revoke = false)
+    }
+
+    @Test fun revokingFromAReadGuardWithSavedCheckpointsCannotDeadlockOrPublish() = runTest {
+        invalidationFromCheckpointGuard(revoke = true)
+    }
+
+    private suspend fun TestScope.invalidationFromCheckpointGuard(revoke: Boolean) {
+        val vault = Vault()
+        val journal = journal(vault)
+        journal.record("run", RunDiagnosticKind.TOOL_RESULT)
+        runCurrent()
+        assertTrue(vault.rows.keys.any { it.startsWith("journalcheckpoint-") })
+        var reads = 0
+        val events = mutableListOf<RunDiagnosticEvent>()
+        val failure = runCatching {
+            withTimeout(1_000) {
+                journal.stream("run", {
+                    if (++reads == 2) {
+                        if (revoke) journal.revokeRun("run") else journal.clear()
+                    }
+                }) { events += it }
+            }
+        }.exceptionOrNull()
+        assertEquals("JOURNAL_CAPTURE_REVOKED", failure?.message)
+        assertTrue(events.isEmpty())
+        assertTrue(vault.rows.isEmpty())
     }
 
     @Test fun boundedCompactionKeepsUnpackedTailAndFallsBackAfterAnAlreadyEmittedPackedPrefix() = runTest {

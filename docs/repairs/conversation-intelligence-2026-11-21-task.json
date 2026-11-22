@@ -7,7 +7,7 @@
   "source_sha": "ad26151b2916bf25feb20bcb99c5f233e7de790d",
   "working_branch": "fix/offline-kokoro-release-publication-2026-11-21",
   "intent": "Implement the part-6 conversation/intelligence audit and every current open diagnostic issue. Preserve concurrent work on the existing PR. For unresolved runtime causes, improve targeted incident collection before closing the intake report. Merge only after current-head required verification and GitHub merge policy pass.",
-  "status": "IMPLEMENTED_AWAITING_CI",
+  "status": "FINAL_CORRECTION_LOCALLY_VERIFIED_CI_PENDING",
   "intake_issues": [
     2214,
     2215,
@@ -70,7 +70,7 @@
     {
       "id": "integration",
       "title": "Preserve source/approval/replay fences, run behavior regressions and canonical validation",
-      "status": "IN_PROGRESS"
+      "status": "IMPLEMENTED_LOCAL_GATES_PASS_CI_PENDING"
     },
     {
       "id": "closure",
@@ -174,7 +174,128 @@
       "ec829b5f0",
       "af904cbda526f7e89d273fec51a440ccf8fa7b77"
     ],
-    "additional_scope": "Concurrent approved design work remains on the same PR; its latest head and final checks must be integrated before merge."
+    "additional_scope": "Concurrent approved design work remains on the same PR; its latest head and final checks must be integrated before merge.",
+    "integrated_full_scope_head": "e66e9665402b388a673dd42dc3ddc70fe3e3ea29"
   },
-  "disposition_policy": "Close each current intake only after its code repair or targeted diagnostic improvement is verified. Unknown historic causes and missing physical-device proof remain explicitly disclosed in the issue resolution."
+  "disposition_policy": "Close each current intake only after its code repair or targeted diagnostic improvement is verified. Unknown historic causes and missing physical-device proof remain explicitly disclosed in the issue resolution.",
+  "integration_review": {
+    "reviewed_source": "d6fa416bab448b9407f5c29e08a976ad3c785bf3",
+    "repair_checkout_base": "dd4a57b874c5ed91acf18921e9bbbf70a543dc26",
+    "public_repair_head": "34f3e83fb2fa27ca9648a270840d8d0f610e7465",
+    "findings": [
+      {
+        "id": "verification_execution_fence",
+        "finding": "Restored queued calls and automatic execution can run before a verifier-only session guard.",
+        "status": "IMPLEMENTED_FOCUSED_TESTS_PASS",
+        "reproduction": "Actual AgentRunner/ToolBatchCheckpoint queued safe fake tool dispatched before verification-only guard.",
+        "policy_regression": "PASS: all seven effective-recovery tests; fresh observations cannot elevate verifier-only recovery into automatic execution."
+      },
+      {
+        "id": "empty_issue_cohort",
+        "finding": "A verified complete empty issue-only intake still demands a code change.",
+        "status": "IMPLEMENTED_FOCUSED_TESTS_PASS"
+      },
+      {
+        "id": "closure_only_intent",
+        "finding": "A closure-only request acquires unrequested diagnosis, implementation and testing obligations.",
+        "status": "IMPLEMENTED_FOCUSED_TESTS_PASS"
+      },
+      {
+        "id": "code_only_report_readiness",
+        "finding": "REQUEST_BYTES_EXCEEDED without diagnostic fields omits the required hosted capability.",
+        "status": "IMPLEMENTED_FOCUSED_TESTS_PASS"
+      },
+      {
+        "id": "late_terminal_compaction",
+        "finding": "A late finished invocation on a terminal run permanently blocks unrelated settled journal compaction.",
+        "status": "IMPLEMENTED_FOCUSED_TESTS_PASS"
+      },
+      {
+        "id": "privacy_export_reentrancy",
+        "finding": "A privacy-clear or revoke callback with saved output checkpoints reenters the journal write mutex during export preparation.",
+        "status": "IMPLEMENTED_FOCUSED_TESTS_PASS",
+        "reproduction": "Both actual-source saved-checkpoint clear/revoke regressions reached their timeout before the bounded callback fix."
+      }
+    ],
+    "limits": [
+      "Same-owner final-report draw coverage can remain unmeasured; no false-latency result was demonstrated and no speculative timing repair is included.",
+      "An expired provider-deadline review label alone is not treated as replay authorization or a proven runtime defect."
+    ],
+    "publication_policy": "Final correction is integrated on the existing PR head e66e9665402b388a673dd42dc3ddc70fe3e3ea29; publish on the same branch, then mark ready and require unchanged exact final combined-head gates before merge.",
+    "validation": {
+      "verification_runner": {
+        "status": "PASS",
+        "tests": 31,
+        "production_sources": 20,
+        "test_classes": 6
+      },
+      "chat_repository_integration": {
+        "status": "PASS",
+        "sources": 5
+      },
+      "issue_obligations": {
+        "status": "PASS",
+        "tests": 36
+      },
+      "effective_recovery_policy": {
+        "status": "PASS",
+        "tests": 7
+      },
+      "diagnostics_reporting": {
+        "status": "PASS",
+        "tests": 114,
+        "production_sources": 11,
+        "test_classes": 6,
+        "source_hashes_verified": 17
+      },
+      "scope": "Current actual-source host overlays, not full Android CI; overlapping selections are not a unique total.",
+      "missing_saved_task_incident": {
+        "status": "PASS",
+        "tests": 1,
+        "runtime": "Actual Robolectric SDK34",
+        "assertions": "Typed local refusal, no provider calls or replay, retained approved incident privacy boundaries."
+      },
+      "catalog_schema": {
+        "status": "PASS",
+        "tests": 51,
+        "tokens_before": 2026,
+        "tokens_after": 1992,
+        "unchanged_limit": 2000,
+        "non_description_schema_elements": "IDENTICAL"
+      },
+      "repository_fast": {
+        "status": "PASS",
+        "tests": 601
+      },
+      "changed_kotlin_formatting": {
+        "status": "PASS",
+        "files": 14
+      },
+      "source_inventory": {
+        "status": "PASS",
+        "files": 2834,
+        "areas": 26
+      },
+      "pending_release_scope": {
+        "status": "PASS",
+        "combined_paths": 571,
+        "committed_scope_recheck": "REQUIRED_AFTER_PUBLICATION"
+      }
+    },
+    "ci_triage": {
+      "published_head": "34f3e83fb2fa27ca9648a270840d8d0f610e7465",
+      "preview_job_id": 137030905978,
+      "tests": 11948,
+      "failures": 3,
+      "skips": 5,
+      "production_and_test_compilation": "PASS",
+      "status": "REPAIRS_IMPLEMENTED_AWAITING_FINAL_COMBINED_HEAD_CI",
+      "corrected_findings": [
+        "Four concise discovery descriptions reduce the actual schema estimate from 2026 to 1992 tokens; all 51 catalog regressions pass, original 2000-token guard and every non-description constraint unchanged.",
+        "Reporter readiness fixture correction retained from incoming scope; merged byte negotiation and journal selection passes 114 tests.",
+        "Typed no-saved-task fixture corrected; actual Robolectric SDK34 regression passed with no provider dispatch or replay."
+      ]
+    },
+    "integrated_incoming_head": "e66e9665402b388a673dd42dc3ddc70fe3e3ea29"
+  }
 }

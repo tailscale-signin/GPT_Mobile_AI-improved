@@ -68,6 +68,33 @@ class RequestByteBudgetReportSubmissionTest {
         }
     }
 
+    @Test fun originalByteFailureCodeRequiresItsOwnCapabilityWithoutByteCounts() {
+        val context = IssueReportContext.fromFields(
+            "CHAT_FAILURE",
+            mapOf("failure_origin" to "local_recovery", "recovery_code" to "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", "original_interruption" to mapOf("code" to code)),
+            1_000L
+        )
+        assertEquals(code, context.originalFailureCode)
+        assertNegotiatedWithoutRewriting(report.copy(context = context), "originalFailureCode")
+    }
+
+    @Test fun aCodeMentionInApprovedFreeTextDoesNotInventARequiredCapability() {
+        val approved = report.copy(description = "A note mentioning $code.")
+        val payload = approved.approvedPayload()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            assertEquals("POST", request.method)
+            assertArrayEquals(payload.encodeToByteArray(), Buffer().also { requireNotNull(request.body).writeTo(it) }.readByteArray())
+            val body = buildJsonObject {
+                put("reportId", approved.reportId)
+                put("number", 81)
+            }.toString()
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("Fixture")
+                .body(body.toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        assertEquals(IssueReportSubmission.Confirmed(81), IssueReportSubmission(origin, client).send(approved.reportId, payload))
+    }
+
     private fun assertNegotiatedWithoutRewriting(approved: IssueReport, variant: String) {
         val payload = approved.approvedPayload()
         val approvedBytes = payload.encodeToByteArray()

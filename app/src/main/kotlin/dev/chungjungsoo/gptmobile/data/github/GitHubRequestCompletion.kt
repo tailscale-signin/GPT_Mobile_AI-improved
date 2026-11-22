@@ -249,7 +249,8 @@ internal object GitHubRequestCompletion {
             val recommendationClaimed = selectedClaims.any { it["kind"] == JsonPrimitive("recommendation") && it["status"] == JsonPrimitive("INFERRED") }
             val covered = claimsCovered && (!sessionReview || linkedReceiptIds.isNotEmpty()) && (!recommendationRequirement || recommendationClaimed)
             var acceptanceBranch = "ACCEPTANCE_MAPPING_REQUIRED"
-            val assessment = acceptance?.let {
+            val issueAssessment = GitHubIssueRemediation.obligationAssessment(requirement, task, issueWork, answer["acceptance"] as? JsonObject, citedReceiptIds, receipts, now)
+            val assessment = issueAssessment?.also { acceptanceBranch = "OPERATION_ACCEPTANCE" } ?: acceptance?.let {
                 GitHubOperationAcceptance.evaluate(requirement, it, receipts, now)?.let { operation ->
                     if (operation.state == GitHubAcceptanceLedger.State.PASS && GitHubRepositoryLifecycle.intent(requirement) != null && GitHubRepositoryAcceptance.requiresAdditionalEvidence(requirement)) {
                         acceptanceBranch = "REVISION_TEST_ACCEPTANCE"

@@ -22,6 +22,8 @@ Diagnostic exports reduce repeated encoding and can clear disposable rendering c
 
 REQUEST_BYTE_BUDGET_V1 is required for hosted byte diagnostics. Saved-job identity, partial output, uncertain writes and changed authority prevent automatic replay. Missing diagnostic archive dependencies remain explicitly incomplete. Frame/heap windows describe overlapping process observations, not causal per-run ownership or measured physical-device speedups.
 
+Verification-only recovery also blocks saved queued calls before execution begins and leaves the execution checkpoint intact. Empty verified issue inventories require no invented changes; closure-only requests retain their guarded closure and live readback checks, while “close them once fixed” retains the full repair requirements. Late completed invocations no longer prevent later settled journal maintenance, and privacy clearing during saved-checkpoint export no longer deadlocks.
+
 Complete design and test coverage: [17-repair / 16-improvement implementation map](docs/repairs/full-approved-scope-2026-11-21.md).
 
 ## Voice performance and speech backends

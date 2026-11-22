@@ -34,7 +34,9 @@ data class ChatMcpToolConfig(
     val research: MultiSearchResearchSelection? = null,
     val combined: CombinedExecutionContext? = null,
     val github: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
-    val githubDraftRepair: GitHubDraftRepair? = null
+    val githubDraftRepair: GitHubDraftRepair? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val voiceResponsePolicy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy? = null
 ) {
     fun effectiveDelegation(defaults: ModelDelegationSettings): ModelDelegationSettings =
         (delegation?.applyTo(defaults) ?: defaults.normalized()).let { research?.applyTo(it) ?: it }

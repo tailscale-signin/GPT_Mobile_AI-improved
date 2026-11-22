@@ -155,6 +155,25 @@ class CombinedWriterRequestPlanTest {
         assertEquals("COMBINED_WRITER_PLAN_HISTORY_CHANGED", runCatching { snapshot.copy(replies = listOf(listOf(replies.single().single().copy(content = "Revised answer"))), inputDigest = "").seal().bindAcceptedStage() }.exceptionOrNull()?.message)
     }
 
+    @Test fun frozenVoiceWriterRetainsItsPolicyAndRejectsPromptDriftAfterReload() {
+        val policy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy.CONVERSATIONAL
+        val user = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.attach(MessageV2(id = 3, chatId = 1, platformType = null, content = "Explain the result"), policy)
+        val base = "Use the selected profile's expertise."
+        val system = combinedWriterSystemPrompt(base, "PASSAGES_V3", user.content, voiceResponsePolicy = policy)
+        val plan = CombinedWriterRequestPlan.freeze(profile, user.content, "Frozen contributions", system, emptyList(), "PASSAGES_V3", 8192)
+        val snapshot = CombinedInputSnapshot(
+            version = 6, userMessage = user, history = emptyList(), replies = emptyList(), sources = emptyList(), prompt = "Frozen contributions",
+            profileUid = profile.uid, model = profile.model, systemPrompt = base, configKey = "config", deliveryProtocol = "PASSAGES_V3",
+            snapshotId = "voice-snapshot", writerRequestPlan = plan, acceptedTools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(voiceResponsePolicy = policy)
+        ).seal()
+        val reloaded = kotlinx.serialization.json.Json.decodeFromString<CombinedInputSnapshot>(snapshot.encode())
+        plan.validate(reloaded)
+        assertEquals(system, combinedWriterSystemPrompt(reloaded.systemPrompt, reloaded.deliveryProtocol, reloaded.userMessage.content, voiceResponsePolicy = reloaded.acceptedTools?.voiceResponsePolicy))
+        assertTrue(system.startsWith(base))
+        assertEquals(1, Regex(Regex.escape(policy.instruction())).findAll(system).count())
+        assertEquals("COMBINED_WRITER_PLAN_SYSTEM_CHANGED", runCatching { plan.validate(reloaded.copy(acceptedTools = reloaded.acceptedTools!!.copy(voiceResponsePolicy = null))) }.exceptionOrNull()?.message)
+    }
+
     @Test fun capturedNativeAttachmentsCannotBeRemovedOrReplacedAfterThePlan() {
         val attachment = dev.chungjungsoo.gptmobile.data.model.ChatAttachment("/accepted/image.png", "", "image.png", "image/png", 24)
         val user = MessageV2(id = 2, chatId = 1, platformType = null, content = "Explain this image", attachments = listOf(attachment))

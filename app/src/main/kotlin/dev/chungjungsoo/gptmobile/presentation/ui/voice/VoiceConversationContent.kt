@@ -277,7 +277,7 @@ private fun VoiceConversationRecovery(state: VoiceConversationUiState, actions: 
         TextButton(onClick = actions.listen, enabled = state.enabled && state.voiceReady && state.preferencesApplied) { Text("Review captured text") }
     }
     if (state.session.phase == VoicePhase.REVIEWING) {
-        OutlinedTextField(state.draft, actions.changeDraft, label = { Text("Your message") }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), minLines = 2, maxLines = 20)
+        OutlinedTextField(state.draft, actions.changeDraft, label = { Text("Heard text · editable") }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), minLines = 2, maxLines = 20)
         Button(onClick = actions.sendDraft, enabled = state.draft.isNotBlank()) { Text("Send") }
         TextButton(onClick = actions.recordAgain) { Text("Record again") }
     }

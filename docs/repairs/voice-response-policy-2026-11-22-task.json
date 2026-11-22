@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "parent_pr": 2254,
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
+  "working_branch": "voice-prompt-20261122",
+  "intent": "Persist voice response policy across typed and microphone turns, queues, retries and continuations; compose a dedicated conversational system instruction; segregate documented inline reasoning at the provider stream boundary.",
+  "status": "ready_for_parent_integration",
+  "constraints": [
+    "Preserve selected AI profile, tools, privacy, task scope and authority.",
+    "Do not infer or rewrite user words or facts to satisfy voice brevity.",
+    "No GitHub mutation by this worker; parent integrates the local commit.",
+    "No physical latency or accelerator qualification is inferred from host tests."
+  ],
+  "validation": [
+    {
+      "check": "host production parser/assembler/SendAttemptTrace JUnit",
+      "status": "passed",
+      "tests": 27,
+      "scope": "Production parser, assembler, tool stream guard, trace and policy with unrelated provider DTO/log boundary fixtures."
+    },
+    {
+      "check": "host production policy/persistence JUnit",
+      "status": "passed",
+      "tests": 7,
+      "scope": "Production MessageV2, timeline, config, pending prompt serialization, policy, recovery, GitHub continuity; unrelated model/annotation boundaries are fixtures."
+    },
+    {
+      "check": "Kotlin formatting and git diff --check",
+      "status": "passed"
+    },
+    {
+      "check": "bash scripts/validate-local.sh fast",
+      "status": "passed_after_temporary_inventory_regeneration",
+      "detail": "Initial run correctly stopped at stale app audit inventory from added sources. Regenerated locally and reran canonical host suite successfully; generated inventory files restored before commit at parent request so integration regenerates once for all workers."
+    },
+    {
+      "check": "Combined frozen writer voice digest regression",
+      "status": "added_not_run_locally",
+      "detail": "Included in CombinedWriterRequestPlanTest for the integrated Android Gradle test gate."
+    }
+  ],
+  "remaining": [
+    "Parent integrates commit against latest PR head and regenerates shared audit inventories.",
+    "Parent runs integrated full Android compilation/unit tests, current-head required hosted checks and publication workflow.",
+    "Physical phone speech CPU/GPU/NPU measurements belong to the benchmark work and are not inferred from these host checks."
+  ],
+  "observed_parent_head": "fea1a6ac82756817aad485b6267e4294873bfb8b",
+  "implementation": [
+    "askVoiceQuestion() for typed voice composer; microphone uses the same frozen CONVERSATIONAL policy.",
+    "Nullable typed policy in existing queue/config and user timeline JSON; old snapshots omit the new fields. Retry and related continuation recover it without changing user text, profile, tool grants or reasoning preference.",
+    "Dedicated spoken-answer prompt plus optional nonspoken details through normal/direct/local-fallback generation and frozen Combined writer/retry/successor envelopes.",
+    "Shared compatible-provider assembler routes leading split think blocks and typed reasoning to Thinking; truncated reasoning cannot become answer text; quoted/fenced/escaped literals and tool arguments are retained."
+  ]
+}

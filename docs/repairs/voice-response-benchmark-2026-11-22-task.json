@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
+  "target_base_branch": "main",
+  "target_base_sha": "c023735c02368fef4c748cf7be97b9fcfe2cd513",
+  "parent_pr": 2254,
+  "working_branch": "voice-integration-20261122",
+  "intent": "Implement the approved voice-response prompt, durable presentation policy, speakable-answer boundary, readable details/replay, pronunciation and streaming improvements, and CPU/GPU/NPU speech benchmark; preserve concurrent work and complete gated merge and publication.",
+  "status": "IMPLEMENTED_LOCALLY_VALIDATED_AWAITING_EXACT_HEAD_CI",
+  "requirements": [
+    {
+      "id": "VOICE_POLICY",
+      "title": "Concise natural spoken answers and one useful clarification, preserved through queued/recovered/tool turns and selected profiles",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "ANSWER_ROUTING",
+      "title": "Keep typed and explicit inline reasoning outside conversational answer and speech, including streaming boundaries",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "SPEECH_DETAILS",
+      "title": "Shared live/replay/caption speech projection with optional rich details and explicit Read full details",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "RECOGNITION",
+      "title": "Editable captured transcript, truthful recognition evidence, concise contextual clarification",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "PRONUNCIATION",
+      "title": "Contextual names/numbers/dates/units with preserved source and caption mapping",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "STREAMING",
+      "title": "Useful first clauses, bounded adaptive PCM, warm reuse, cancellation and thermal-aware CPU allocation",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "BENCHMARK",
+      "title": "Runnable CPU/GPU/NPU comparisons, Quick/Full, measured cold/warm timing, RTF, actual execution/fallback, cancellation, saved results and export",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "QUALIFICATION",
+      "title": "Hardware claims tied to real device evidence; unmeasured playback, energy and unsupported capabilities explicitly unknown",
+      "status": "IMPLEMENTED"
+    },
+    {
+      "id": "INTEGRATION",
+      "title": "Focused behavior regressions, generated inventories, canonical checks and exact-current-head CI",
+      "status": "HOST_VALIDATED_CI_PENDING"
+    },
+    {
+      "id": "PUBLICATION",
+      "title": "Draft integration, rules-compliant merge, green main and verified signed Android/Gateway publication",
+      "status": "PENDING_HOSTED_GATES"
+    }
+  ],
+  "validation": {
+    "host": "PASS: canonical fast validation (616 Python tests plus policy, metadata, inventory, dependency, secret, regex, resource and provenance checks); 80 integrated Session/caption/buffer tests; 27 parser/send-trace and 7 durable policy tests; 43 projection/pronunciation tests; 15 benchmark/Auto tests; 3 real AtomicFile Robolectric tests; ktlint on56 changed Kotlin files; scoped-release validation and diff check.",
+    "android": "PASS: focused Android37/Compose signature compilation for benchmark runtime/UI, spoken answer and message controls (four instrumentation methods compiled only), and actual Kokoro output/context/privacy bridge. Whole local Gradle daemon disappeared after KSP while entering KAPT; this is not a successful whole-app build. Full exact-head hosted Android/Hilt/Room/Compose/native gates remain required.",
+    "physical_device": "NOT_RUN: no physical phone is attached. The in-app benchmark records actual CPU/GPU/NPU observations when run on a compatible device; no device speedup or acoustic/battery result is claimed.",
+    "publication": "PENDING: expected-head push to draft PR2254, exact-current-head PR checks, rules-compliant merge, green main and signed Android0.9.66.13/Gateway18.1.1 publication. Final hosted gate and publication receipts belong to the PR and release workflows, not this pre-publication source snapshot."
+  },
+  "concurrency": "Preserved original0885 and diagnostic fea1a6 work; merged permanent conversation privacy6e788 with both scopes and instructions retained. Root compares the remote head before every ref update and merge, uses expected-head leases without force pushes, and never edits another worker checkout. Preserved concurrent MCP/read-recovery and phone-map integration commitdda6f5; voice source hashes and tested behavior remain unchanged.",
+  "integrated_remote_head": "dda6f5ce35956cab9fabf728a2d3acbec790eabd",
+  "feature_sources_reviewed_at": "52a6749e41e4298f0f4de6ca4a8c4ea6b1bea8d4",
+  "final_results_location": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/2254"
+}

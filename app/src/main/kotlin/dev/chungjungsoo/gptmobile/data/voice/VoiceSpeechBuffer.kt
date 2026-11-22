@@ -1,18 +1,21 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
 /** Only stable text is spoken. Repeated snapshots add no queue entries. */
-internal class VoiceSpeechBuffer(private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
+internal class VoiceSpeechBuffer(
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val includeDetails: Boolean = false
+) {
+    constructor(clock: () -> Long) : this(clock, false)
     private var previous = ""
     private var previousSpeech = ""
     private var consumed = 0
     private var startedSpeech = false
-    private var announcedLimit = false
     private var firstPendingAt: Long? = null
     fun append(text: String, final: Boolean, earlyStart: Boolean = false, followUpWords: Int = 12, feedback: VoiceSynthesisFeedback? = null, adaptive: Boolean = false): List<String>? {
         val end = minOf(text.length, 12000).let { if (it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
         val boundedText = text.substring(0, end)
         if (!final && boundedText == previous && !adaptive) return emptyList()
-        val visible = VoiceSpeechText.project(text, final = final)
+        val visible = VoiceSpeechText.project(text, final = final, includeDetails = includeDetails)
         // Captions and unspoken words can be revised. Only the part already queued for
         // playback is irrevocable, including a final persistence trim of trailing space.
         val shared = minOf(consumed, visible.length)
@@ -28,7 +31,9 @@ internal class VoiceSpeechBuffer(private val now: () -> Long = { System.nanoTime
             while (consumed < speechEnd) {
                 val tail = visible.substring(consumed)
                 val wordLimit = if (!startedSpeech) {
-                    4
+                    // Prefer the completed opening clause over a four-word fragment.
+                    // A bounded eight-word fallback still starts long/unpunctuated answers.
+                    8
                 } else if (adaptive) {
                     (feedback?.suggestedFollowUpWords ?: 12).coerceIn(6, 24)
                 } else {
@@ -37,7 +42,12 @@ internal class VoiceSpeechBuffer(private val now: () -> Long = { System.nanoTime
                 val characterLimit = if (adaptive) 128 else 240
                 val words = completeWord.findAll(tail).take(wordLimit).toList()
                 val wordEnd = words.takeIf { it.size == wordLimit }?.last()?.range?.last?.plus(1)
-                val clause = (if (startedSpeech && followUpWords > 12) phraseEnd else clauseEnd).find(tail)?.range?.last?.plus(1)
+                val clause = (if (startedSpeech && followUpWords > 12) phraseEnd else clauseEnd).findAll(tail)
+                    .firstOrNull { boundary ->
+                        startedSpeech ||
+                            boundary.value.any { it in ".!?" } ||
+                            completeWord.findAll(tail.substring(0, boundary.range.last + 1)).take(3).count() >= 3
+                    }?.range?.last?.plus(1)
                 val bounded = words.lastOrNull { it.range.last < characterLimit }?.range?.last?.plus(1)?.takeIf { tail.length >= characterLimit }
                 val budgetMs = if ((feedback?.bufferedAudioMs ?: 0) < 300) 200 else 500
                 val arrivalBoundary = words.lastOrNull()?.range?.last?.plus(1)?.takeIf {
@@ -54,10 +64,6 @@ internal class VoiceSpeechBuffer(private val now: () -> Long = { System.nanoTime
                 chunks += speechChunks(visible.substring(consumed))
                 consumed = speechEnd
             }
-            if (final && text.length > 12000 && !announcedLimit) {
-                announcedLimit = true
-                chunks += "The rest of this response is available in the chat."
-            }
             return chunks.filter(String::isNotBlank)
         }
         val stableEnd = if (final) {
@@ -70,10 +76,6 @@ internal class VoiceSpeechBuffer(private val now: () -> Long = { System.nanoTime
         }
         val chunks = speechChunks(visible.substring(consumed, stableEnd)).filter(String::isNotBlank)
         consumed = stableEnd
-        if (final && text.length > 12000 && !announcedLimit) {
-            announcedLimit = true
-            return chunks + "The rest of this response is available in the chat."
-        }
         return chunks
     }
 

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
+import dev.chungjungsoo.gptmobile.data.voice.VoiceSpeechText
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import java.text.BreakIterator
 import java.util.Locale
@@ -48,10 +49,13 @@ internal data class VoiceCaption(val text: String, val speaker: String, val live
 
     companion object {
         fun from(state: VoiceState): VoiceCaption? {
-            if (state.phase == VoicePhase.THINKING || state.phase == VoicePhase.PREPARING) return null
             val capturing = state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING) || state.hasDraft
             val response = !capturing && state.reply.isNotBlank()
-            val text = if (response) state.playbackCaption ?: state.reply else state.transcript
+            val text = if (response) {
+                state.playbackCaption ?: VoiceSpeechText.project(state.reply, final = state.replyComplete || !state.awaitingReply, includeDetails = state.readingDetails)
+            } else {
+                state.transcript
+            }
             if (text.isBlank()) return null
             val live = if (response) {
                 state.phase == VoicePhase.SPEAKING

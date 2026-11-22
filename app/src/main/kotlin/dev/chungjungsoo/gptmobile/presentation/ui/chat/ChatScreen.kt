@@ -250,6 +250,9 @@ private fun ChatScreenContent(
     viewportHeight: Dp
 ) {
     val voiceControls = dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoiceMessageControls.current
+    fun submitQuestion() {
+        if (voiceControls != null) chatViewModel.askVoiceQuestion() else chatViewModel.askQuestion()
+    }
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     dev.chungjungsoo.gptmobile.presentation.common.PrivateConversationScreenProtection(chatRoom.privacyModeLocked)
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
@@ -634,7 +637,7 @@ private fun ChatScreenContent(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted && sendAfterLocalNetworkPermission) {
-            chatViewModel.askQuestion()
+            submitQuestion()
         } else if (!granted) {
             Toast.makeText(context, R.string.local_network_permission_required, Toast.LENGTH_SHORT).show()
         }
@@ -652,7 +655,7 @@ private fun ChatScreenContent(
                 sendAfterLocalNetworkPermission = true
                 localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
             } else {
-                chatViewModel.askQuestion()
+                submitQuestion()
             }
         }
         sendAfterNotificationPermission = false
@@ -1437,7 +1440,7 @@ private fun ChatScreenContent(
                             sendAfterLocalNetworkPermission = true
                             localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
                         } else {
-                            chatViewModel.askQuestion()
+                            submitQuestion()
                         }
                     }
                     if (chatViewModel.enabledPlatformsInChat.size > 1 || chatRoom.conversationMode == ConversationMode.COMBINED) {

@@ -1,0 +1,41 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-execution-completion-2026-11-22",
+  "base_sha": "0885b3cc6aa681e4d84ca4d431f979d1e8dd7024",
+  "working_branch": "voice-format-20261122",
+  "parent_pr": 2254,
+  "intent": "Share a stream-safe spoken answer projection across live playback, replay and captions; omit explicitly nonspoken reasoning, sources and tables by default; preserve normalized numbers, units and pronunciation ranges.",
+  "state": "READY_FOR_INTEGRATION",
+  "validation": [
+    {
+      "check": "Kotlin 2.4.20 standalone JVM compile of production formatter, normalizer and voice dependencies",
+      "result": "PASS"
+    },
+    {
+      "check": "VoiceSpeechTextTest and KokoroSpeechTextTest",
+      "result": "PASS",
+      "tests": 38,
+      "integration_note": "Compiled with the benchmark worktree VoiceSpeechBuffer (shared projection includeDetails, eight-word first phrase and centralized truncation notice). speechChunks was extracted unchanged from production VoiceSession for this host-only test harness."
+    },
+    {
+      "check": "ktlint 1.3.1 four changed Kotlin files",
+      "result": "PASS"
+    },
+    {
+      "check": "git diff --check",
+      "result": "PASS"
+    },
+    {
+      "check": "Android application integration and physical device playback",
+      "result": "NOT_RUN",
+      "reason": "Parent integration task owns Android validation and publication; no compatible physical phone was available to this subtask."
+    }
+  ],
+  "integration_contract": {
+    "projection": "VoiceSpeechText.project(input, final=true, includeDetails=false)",
+    "details": "VoiceSpeechText.hasDetails(input), richDetails(input, final=true), withoutReasoning(input, final=true)",
+    "truncation": "The shared projection appends LIMIT_NOTICE exactly once at final completion beyond 12000 UTF-16 code units; callers must not append another notice.",
+    "source_ranges": "Kokoro normalization maps every expanded word to its exact original token span in projected speech; no original-Markdown privacy proof is inferred.",
+    "tables": "Pipe-prefixed and explicitly wrapped detail tables are nonspoken by default; bare unmarked headers remain stable instead of retracting already streamed words."
+  }
+}

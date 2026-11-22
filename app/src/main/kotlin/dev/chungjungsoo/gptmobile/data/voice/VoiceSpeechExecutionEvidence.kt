@@ -108,7 +108,11 @@ internal data class VoiceBackendCapability(
 ) {
     val scoreMs: Long?
         get() = sampleMs.takeIf { it.size >= 2 && it.all { value -> value in 1..300_000 } }
-            ?.sorted()?.let { it[it.size / 2] }
+            ?.let { samples ->
+                // Three-shape comparisons include all preparation in their cost, rather than
+                // dropping the expensive first shape as a median outlier. Keep legacy pairs conservative.
+                if (samples.size >= 3) (samples.sum() + samples.size - 1) / samples.size else samples.max()
+            }
 
     fun current(now: Long): Boolean {
         val ttl = if (failure == null) 7 * 24 * 60 * 60_000L else 6 * 60 * 60_000L

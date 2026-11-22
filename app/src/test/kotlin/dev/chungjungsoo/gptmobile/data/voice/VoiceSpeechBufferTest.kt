@@ -8,14 +8,42 @@ import org.junit.Test
 
 class VoiceSpeechBufferTest {
     @Test fun conversationalModesKeepTheFirstPhraseShortAndUseLargerFollowups() {
-        val first = "One two three four "
-        val followUp = "five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty "
+        val first = "One two three four five six seven eight "
+        val followUp = "nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo twentythree twentyfour "
         val buffer = VoiceSpeechBuffer()
         val words = VoicePerformanceMode.BALANCED.followUpWords
         assertEquals(listOf(first), buffer.append(first, final = false, earlyStart = true, followUpWords = words))
-        assertEquals(emptyList<String>(), buffer.append(first + "five six seven ", final = false, earlyStart = true, followUpWords = words))
+        assertEquals(emptyList<String>(), buffer.append(first + "nine ten eleven ", final = false, earlyStart = true, followUpWords = words))
         assertEquals(listOf(followUp), buffer.append(first + followUp, final = false, earlyStart = true, followUpWords = words))
         assertEquals(listOf("Finished."), buffer.append(first + followUp + "Finished.", final = true, earlyStart = true, followUpWords = words))
+    }
+
+    @Test fun openingPrefersTheCompleteClauseOverAnArbitraryFourWordFragment() {
+        val buffer = VoiceSpeechBuffer()
+        assertEquals(emptyList<String>(), buffer.append("The current season of ", final = false, earlyStart = true))
+        assertEquals(listOf("The current season of this show is confirmed. "), buffer.append("The current season of this show is confirmed. ", final = false, earlyStart = true))
+    }
+
+    @Test fun shortCompleteAnswerStartsWithoutWaitingForEightWords() {
+        assertEquals(listOf("Yes, it is. "), VoiceSpeechBuffer().append("Yes, it is. ", final = false, earlyStart = true))
+        assertEquals(listOf("Yes. "), VoiceSpeechBuffer().append("Yes. ", final = false, earlyStart = true))
+    }
+
+    @Test fun readFullDetailsUsesTheExplicitProjectionWhileDefaultKeepsThemSilent() {
+        val reply = "Short answer. <details><summary>More</summary>Extra detail.</details>"
+        val normal = requireNotNull(VoiceSpeechBuffer().append(reply, true)).joinToString("")
+        val full = requireNotNull(VoiceSpeechBuffer(includeDetails = true).append(reply, true)).joinToString("")
+        assertFalse(normal.contains("Extra detail"))
+        assertTrue(full.contains("Extra detail"))
+    }
+
+    @Test fun finalSizeNoticeIsProjectedOnceAndNeverAddedAsAnUnmappedExtraChunk() {
+        val reply = "word ".repeat(3000)
+        val buffer = VoiceSpeechBuffer()
+        val spoken = requireNotNull(buffer.append(reply, false, earlyStart = true)) + requireNotNull(buffer.append(reply, true, earlyStart = true))
+        assertEquals(VoiceSpeechText.project(reply), spoken.joinToString(""))
+        assertEquals(1, Regex("The rest of this response is available in the chat\\.").findAll(spoken.joinToString("")).count())
+        assertEquals(emptyList<String>(), buffer.append(reply, true, earlyStart = true))
     }
 
     @Test fun quietLimiterPreservesNonQuietSamplesAndCapsSilenceAcrossNativeBatches() {
@@ -34,7 +62,7 @@ class VoiceSpeechBufferTest {
         val input = "See https://private.example/path?token=opaque, " +
             "[these clear reference words describe the useful documentation for this answer](https://hidden.example/a_(b)?key=secret) " +
             "and <http://another.example/details>. The answer continues."
-        val expected = "See link, these clear reference words describe the useful documentation for this answer and link. The answer continues."
+        val expected = "See , these clear reference words describe the useful documentation for this answer and . The answer continues."
         val spoken = mutableListOf<String>()
         for (end in 1..input.length) {
             val snapshot = input.substring(0, end)
@@ -118,10 +146,7 @@ class VoiceSpeechBufferTest {
         val link = VoiceSpeechBuffer()
         val unfinished = "Keep this sentence. [Useful label](https://private.example/" + "opaque".repeat(3000)
         assertEquals(listOf("Keep this sentence. "), link.append(unfinished, false, earlyStart = true))
-        assertEquals(
-            listOf("Useful label", "The rest of this response is available in the chat."),
-            link.append(unfinished, true, earlyStart = true)
-        )
+        assertEquals("Useful label The rest of this response is available in the chat.", requireNotNull(link.append(unfinished, true, earlyStart = true)).joinToString("").trim())
         val code = VoiceSpeechBuffer()
         assertEquals("Keep this sentence. Code is available in the chat.", requireNotNull(code.append("Keep this sentence. ```unclosed code", true, earlyStart = true)).joinToString("").trim())
         assertEquals("Code is available in the chat.", requireNotNull(VoiceSpeechBuffer().append("```only code", true, earlyStart = true)).joinToString("").trim())

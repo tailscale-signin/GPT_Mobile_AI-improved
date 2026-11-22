@@ -163,7 +163,7 @@ class VoiceSynthesisPerformanceTest {
         val buffer = VoiceSpeechBuffer()
         val text = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
         val parts = requireNotNull(buffer.append(text, false, true, feedback = VoiceSynthesisFeedback(suggestedFollowUpWords = 6), adaptive = true))
-        assertEquals(listOf("one two three four ", "five six seven eight nine ten "), parts)
+        assertEquals(listOf("one two three four five six seven eight ", "nine ten eleven twelve thirteen fourteen "), parts)
         val tail = requireNotNull(buffer.append(text, true, true, feedback = VoiceSynthesisFeedback(suggestedFollowUpWords = 6), adaptive = true))
         assertEquals(text, (parts + tail).joinToString(""))
     }

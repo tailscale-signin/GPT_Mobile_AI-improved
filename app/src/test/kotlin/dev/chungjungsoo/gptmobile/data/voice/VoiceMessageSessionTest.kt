@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceCaption
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -12,6 +14,10 @@ class VoiceMessageSessionTest {
         var captures = 0
         var stops = 0
         var listener: VoiceAudio.Listener? = null
+        var spokenRange: ((Int, String, IntRange) -> Unit)? = null
+        override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
+            spokenRange = spoken
+        }
         override fun listen(listener: VoiceAudio.Listener) {
             captures++
             this.listener = listener
@@ -25,6 +31,60 @@ class VoiceMessageSessionTest {
             stops++
         }
         override fun close() = Unit
+    }
+
+    @Test fun completedOneWordReplyRemainsVisibleWhileItsAudioIsStillDraining() {
+        val audio = Audio()
+        val session = VoiceSession(audio, { error("Manual replay must not send a prompt") }, {})
+        session.access(true, false, true)
+        assertTrue(session.beginMessage("reply", manual = true))
+        session.reply("reply", "Yes.")
+
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        assertTrue(session.state.awaitingReply)
+        assertTrue(session.state.replyComplete)
+        val caption = requireNotNull(VoiceCaption.from(session.state))
+        assertEquals("Yes.", caption.text)
+        assertTrue(caption.live)
+        assertNull(caption.highlightRange(session.state.spokenRange))
+
+        requireNotNull(audio.spokenRange).invoke(0, "Yes.", 0..2)
+        assertEquals(0..2, VoiceCaption.from(session.state)?.highlightRange(session.state.spokenRange))
+        audio.completed.single().invoke()
+        assertFalse(session.state.awaitingReply)
+        assertEquals("Yes.", VoiceCaption.from(session.state)?.text)
+
+        assertTrue(session.beginMessage("next", manual = true))
+        assertFalse(session.state.replyComplete)
+        assertNull(VoiceCaption.from(session.state))
+    }
+
+    @Test fun finalWordCallbackMapsIntoTheCompleteCaptionBeforePlaybackFinishes() {
+        val audio = Audio()
+        val session = VoiceSession(audio, { error("Manual playback must not send a prompt") }, {})
+        session.access(true, false, true)
+        session.beginMessage("reply", manual = true)
+        val opening = "First complete sentence. "
+        session.streamReply("reply", opening)
+        assertEquals(listOf(opening), audio.spoken)
+        assertFalse(session.state.replyComplete)
+        requireNotNull(audio.spokenRange).invoke(0, opening, 0..4)
+
+        val ending = "Final word."
+        session.reply("reply", opening + ending)
+        assertTrue(session.state.replyComplete)
+        assertTrue(session.state.awaitingReply)
+        assertEquals(opening + ending, VoiceCaption.from(session.state)?.text)
+        audio.completed.first().invoke()
+        assertEquals(listOf(opening, ending), audio.spoken)
+
+        requireNotNull(audio.spokenRange).invoke(0, ending, 6..9)
+        val expected = opening.length + 6..opening.length + 9
+        val caption = requireNotNull(VoiceCaption.from(session.state))
+        assertTrue(session.state.awaitingReply)
+        assertEquals(expected, session.state.spokenRange)
+        assertEquals(expected, caption.highlightRange(session.state.spokenRange))
+        assertEquals("word", caption.text.substring(requireNotNull(caption.highlightRange(session.state.spokenRange))))
     }
 
     @Test fun manualAndAutomaticOutputDoNotRequireRecordingPermission() {
@@ -104,11 +164,12 @@ class VoiceMessageSessionTest {
         val session = VoiceSession(audio, { true }, {})
         session.access(true, false, true)
         session.beginMessage("reply")
-        session.streamReply("reply", "Here are four words ")
+        val opening = "Here are eight complete words before the answer "
+        session.streamReply("reply", opening)
         session.stopSpeaking()
         session.beginMessage("reply", manual = true)
         session.reply("reply", "Here is the complete response.")
-        assertEquals(listOf("Here are four words ", "Here is the complete response."), audio.spoken)
+        assertEquals(listOf(opening, "Here is the complete response."), audio.spoken)
     }
 
     @Test fun microphoneRevocationLeavesOutputPlayingButBackgroundingStopsIt() {

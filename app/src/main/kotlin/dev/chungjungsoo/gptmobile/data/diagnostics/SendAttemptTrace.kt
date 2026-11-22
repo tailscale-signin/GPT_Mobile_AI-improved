@@ -8,7 +8,8 @@ internal class SendAttemptTrace(
     val requestId: String = UUID.randomUUID().toString(),
     private val record: (String) -> Unit = { AppLogRecorder.record("Send", it) },
     private val onOutcome: (String) -> Unit = {},
-    private val onAccepted: (List<String>, Int, Int) -> Unit = { _, _, _ -> }
+    private val onAccepted: (List<String>, Int, Int) -> Unit = { _, _, _ -> },
+    val voiceResponsePolicy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy? = null
 ) {
     private val closed = AtomicBoolean()
 
@@ -23,7 +24,7 @@ internal class SendAttemptTrace(
         }
     }
 
-    fun queuedContinuation() = SendAttemptTrace(requestId, record, onOutcome, onAccepted)
+    fun queuedContinuation() = SendAttemptTrace(requestId, record, onOutcome, onAccepted, voiceResponsePolicy)
 
     fun accepted(runIds: List<String>, chatId: Int, messageId: Int) {
         if (!closed.compareAndSet(false, true)) return

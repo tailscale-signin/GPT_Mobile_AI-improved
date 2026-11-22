@@ -63,7 +63,7 @@ import kotlinx.coroutines.flow.StateFlow
 internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Modifier = Modifier, cursor: StateFlow<VoiceCaptionCursor>? = null) {
     val liveCursor = cursor?.collectAsStateWithLifecycle()?.value
     val observed = if (liveCursor == null) state else state.copy(spokenRange = liveCursor.range, playbackCaption = liveCursor.projectedText)
-    val caption = remember(observed.phase, observed.transcript, observed.reply, observed.playbackCaption, observed.hasDraft) {
+    val caption = remember(observed.phase, observed.transcript, observed.reply, observed.playbackCaption, observed.hasDraft, observed.awaitingReply, observed.readingDetails, observed.replyComplete) {
         VoiceCaption.from(observed)
     }
     if (caption == null) return

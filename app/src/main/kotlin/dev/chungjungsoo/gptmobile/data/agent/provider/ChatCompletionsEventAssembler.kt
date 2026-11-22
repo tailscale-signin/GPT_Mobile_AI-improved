@@ -3,7 +3,9 @@ package dev.chungjungsoo.gptmobile.data.agent.provider
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolBatchOversizeException
 import dev.chungjungsoo.gptmobile.data.agent.ToolStreamGuard
+import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
+import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -29,6 +31,20 @@ class ChatCompletionsEventAssembler {
     private val shape = ArrayDeque<String>()
     private var rejected: ToolBatchOversizeException? = null
     private var completedCalls = 0
+    private val contentParsers = mutableMapOf<Int, GroqReasoningParser>()
+
+    private fun textEvents(states: List<ApiState>): List<ProviderEvent> = states.mapNotNull { state ->
+        when (state) {
+            is ApiState.Thinking -> ProviderEvent.ThinkingDelta(state.thinkingChunk)
+            is ApiState.Success -> ProviderEvent.TextDelta(state.textChunk, state.lineage.copy(reportedModelId = reportedModelId))
+            else -> null
+        }
+    }
+
+    private fun flushContent(choiceIndex: Int? = null): List<ProviderEvent> =
+        contentParsers.keys.filter { choiceIndex == null || it == choiceIndex }.flatMap { index ->
+            textEvents(requireNotNull(contentParsers.remove(index)).flush())
+        }
 
     fun accept(
         content: String?,
@@ -38,9 +54,11 @@ class ChatCompletionsEventAssembler {
         choiceIndex: Int = 0
     ): List<ProviderEvent> {
         rejected?.let { throw it }
+        require(choiceIndex >= 0) { "TOOL_STREAM_INVALID: negative choice index; dispatched=false" }
         val events = mutableListOf<ProviderEvent>()
-        reasoning?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.ThinkingDelta(it) }
-        content?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.TextDelta(it, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.MODEL_TEXT, reportedModelId = reportedModelId)) }
+        if (!content.isNullOrEmpty() || !reasoning.isNullOrEmpty()) {
+            events += textEvents(contentParsers.getOrPut(choiceIndex) { GroqReasoningParser() }.append(content, reasoning))
+        }
         toolCalls.orEmpty().forEach { delta ->
             require(choiceIndex >= 0 && delta.index >= 0) { "TOOL_STREAM_INVALID: negative choice/tool index; dispatched=false" }
             val key = choiceIndex to delta.index
@@ -92,6 +110,7 @@ class ChatCompletionsEventAssembler {
     /** Called only for a completed choice or an explicit SSE [DONE]. */
     fun finish(choiceIndex: Int? = null): List<ProviderEvent> {
         if (rejected != null) return emptyList()
+        val text = flushContent(choiceIndex)
         val completed = pending.filterKeys { choiceIndex == null || it.first == choiceIndex }
         val events = completed.values.map { call ->
             val name = call.name
@@ -105,7 +124,7 @@ class ChatCompletionsEventAssembler {
         }
         completed.keys.forEach(pending::remove)
         val invalid = events.filterIsInstance<ProviderEvent.Failed>()
-        if (invalid.isNotEmpty()) return invalid
+        if (invalid.isNotEmpty()) return text + invalid
         val count = completedCalls + events.size
         val limit = ProviderToolBatchPolicy.PREFERRED_MAX_CALLS
         if (count > limit) {
@@ -115,13 +134,14 @@ class ChatCompletionsEventAssembler {
             throw incident
         }
         completedCalls = count
-        return events
+        return text + events
     }
 
     fun discardIncomplete(): List<ProviderEvent> {
-        if (pending.isEmpty()) return emptyList()
+        val text = flushContent()
+        if (pending.isEmpty()) return text
         pending.clear()
-        return listOf(invalidToolFrame("Provider stopped before completing the tool call. No incomplete tool was run.", "UNFINISHED_STREAM"))
+        return text + invalidToolFrame("Provider stopped before completing the tool call. No incomplete tool was run.", "UNFINISHED_STREAM")
     }
 }
 

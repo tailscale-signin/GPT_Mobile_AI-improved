@@ -60,7 +60,9 @@ data class AssistantTimelineItem(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val outputLineage: dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val privacyProtection: dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt? = null
+    val privacyProtection: dev.chungjungsoo.gptmobile.data.privacy.PrivacyProtectionReceipt? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val voiceResponsePolicy: dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePolicy? = null
 )
 
 // Fallback for callers without a resource context; keep in sync with R.string.legacy_assistant_order_unavailable.

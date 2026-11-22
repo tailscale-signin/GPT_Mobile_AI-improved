@@ -2036,6 +2036,9 @@ class ChatRepositoryImpl(
         rebuildFence: dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence,
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = channelFlow {
+        val voicePolicy = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.resolve(userMessages, chatToolConfig?.voiceResponsePolicy)
+        val chatToolConfig = chatToolConfig?.copy(voiceResponsePolicy = voicePolicy)
+            ?: voicePolicy?.let { ChatMcpToolConfig(voiceResponsePolicy = it) }
         if (chatToolConfig?.github?.let { it.mainProfileUid != platform.uid } == true) {
             send(localAdmissionError("GITHUB_PROFILE_LOCKED", "GitHub chat can dispatch only its selected AI profile.", "provider_admission"))
             return@channelFlow
@@ -2357,7 +2360,10 @@ class ChatRepositoryImpl(
                     val projectInstructions = dispatchPreparation.projectInstructions
                     val quickRepliesEnabled = dispatchPreparation.quickRepliesEnabled
                     val promptContextTokens = dispatchPreparation.promptContextTokens
-                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, promptContextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true, chatToolConfig?.github != null) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty(), promptContextTokens) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
+                    fun baseSystemPrompt(): String {
+                        val base = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, promptContextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true, chatToolConfig?.github != null) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty(), promptContextTokens) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
+                        return dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.compose(base, chatToolConfig?.voiceResponsePolicy).orEmpty()
+                    }
                     val memorySettings = dispatchPreparation.memory.memorySettings
                     val connectedMemoryTools = dispatchPreparation.memory.connectedMemoryTools
                     val researchMemory = dispatchPreparation.memory.researchMemory
@@ -3315,7 +3321,10 @@ class ChatRepositoryImpl(
             ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext
         val responseFeatures = settingRepository.getFeatureSettings()
         val quickRepliesEnabled = responseFeatures.smartSuggestions
-        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, promptContextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true, chatToolConfig?.github != null) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty(), promptContextTokens) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
+        fun baseSystemPrompt(): String {
+            val base = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, promptContextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true, chatToolConfig?.github != null) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty(), promptContextTokens) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty() + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext.forRequest(latestUser?.content.orEmpty(), resolvedTools.mapNotNull { it.gitHubPlanningContext }.distinct()))
+            return dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.compose(base, chatToolConfig?.voiceResponsePolicy).orEmpty()
+        }
         val memoryPreparation = preparePrimaryDispatchMemory(input, admission, toolPreparation, recallPreparation, taskRoutedTools)
         val researchMemory = memoryPreparation.researchMemory
         val documentContext = memoryPreparation.documentContext
@@ -5466,7 +5475,7 @@ class ChatRepositoryImpl(
                 providerSessions.openSession(sessionTurns, profile, if (privateTextOnly) constraints.withoutTools() else constraints) {
                     dev.chungjungsoo.gptmobile.data.agent.provider.LocalProviderSessionOptions(
                         tools = if (textOnly || privateTextOnly) emptyList() else effectiveTools.map(::bindGitHubTarget),
-                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true, researchReport = chatToolConfig?.research?.researchToggle == true),
+                        fallbackSystemPrompt = dev.chungjungsoo.gptmobile.data.voice.VoiceResponsePresentation.compose(liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true, researchReport = chatToolConfig?.research?.researchToggle == true), chatToolConfig?.voiceResponsePolicy).orEmpty(),
                         advertisedTools = if (textOnly || privateTextOnly) emptyList() else contextPlan.tools,
                         progressSettings = progressSettings,
                         githubMode = chatToolConfig?.github != null && !textOnly

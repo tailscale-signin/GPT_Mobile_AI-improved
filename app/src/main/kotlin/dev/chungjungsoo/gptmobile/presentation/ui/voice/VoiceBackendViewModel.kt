@@ -177,7 +177,7 @@ internal class VoiceBackendViewModel internal constructor(
         VoiceSpeechBackend.AUTO -> Prepared(
             QualcommVoicePhraseEngineFactory(context, value.backend, report, calibrateAll = retest),
             if (retest) {
-                "The next reply compares CPU, GPU and NPU with two speech samples. Playback starts after the comparison."
+                "The next reply compares CPU, GPU and NPU with three speech samples. Playback starts after the comparison."
             } else {
                 "Auto uses the fastest verified measurement on this phone, or CPU until you compare engines."
             }

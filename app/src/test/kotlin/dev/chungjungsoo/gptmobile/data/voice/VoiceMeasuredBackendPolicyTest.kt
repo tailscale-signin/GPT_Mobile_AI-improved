@@ -69,6 +69,13 @@ class VoiceMeasuredBackendPolicyTest {
         assertEquals(200L, receipt(VoiceSpeechBackend.QNN_GPU, 10).copy(sampleMs = listOf(10, 200)).scoreMs)
     }
 
+    @Test fun threeShapeComparisonIncludesColdPreparationAndEveryShapeCost() {
+        val cpu = receipt(VoiceSpeechBackend.CPU, 100).copy(sampleMs = listOf(100, 100, 100))
+        val gpu = receipt(VoiceSpeechBackend.QNN_GPU, 10).copy(sampleMs = listOf(1000, 10, 10))
+        assertEquals(340L, gpu.scoreMs)
+        assertEquals(VoiceSpeechBackend.CPU, VoiceMeasuredBackendPolicy.choose(listOf(cpu, gpu), now))
+    }
+
     @Test fun diagnosticEvidencePreservesFailedAndEffectiveProvidersWithoutRawText() {
         val evidence = VoiceSpeechExecutionEvidence(
             VoiceSpeechBackend.QNN_HTP, "cpu", "model", "runtime", "device",

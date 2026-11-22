@@ -732,6 +732,9 @@ internal class KokoroVoiceOutput(
             val silence = playback.pause.maxQuietMs?.let { VoiceQuietLimiter(sampleRate, it) }
             output.execute { play(playback, playbackAttributes, sampleRate) }
             var segmentIndex = -1
+            // This worker consumes one playback's ordered queue. Its bounded pronunciation
+            // context dies with that playback, including cancellation or a failed phrase.
+            val speechContext = KokoroSpeechContext()
             while (active === playback) {
                 playback.synthesizing = false
                 val segment = playback.segments.poll(INPUT_WAIT_MS, TimeUnit.MILLISECONDS)
@@ -741,7 +744,7 @@ internal class KokoroVoiceOutput(
                 }
                 playback.synthesizing = true
                 val bufferedMs = bufferedAudioMs(playback)
-                val projection = KokoroSpeechText.withPolicy(
+                val projection = speechContext.project(
                     segment,
                     model.words::contains,
                     pronunciations,

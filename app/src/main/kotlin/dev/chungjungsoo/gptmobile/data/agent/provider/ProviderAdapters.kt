@@ -980,8 +980,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             return@flow
                         }
 
-                        // NVIDIA NIMs can return reasoning_content or inline <think> blocks.
-                        val llamaReasoningParser = if (isLlama || isNvidia) GroqReasoningParser() else null
+                        // The shared assembler separates typed/leading inline reasoning for every compatible route.
                         var deliveredPayload = false
                         var protocolErrorCode: String? = null
                         var providerLimitDecision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
@@ -1172,30 +1171,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                     val effectiveReasoning =
                                         if (chunk.gatewayProgress == null) choice.effectiveDelta.effectiveReasoning else null
-                                    if (llamaReasoningParser != null) {
-                                        // For Llama endpoints (llama-server), stream reasoning chunks directly or extract <think> tags in content
-                                        llamaReasoningParser.append(
-                                            contentChunk = choice.effectiveDelta.content,
-                                            reasoningChunk = effectiveReasoning
-                                        ).forEach { state ->
-                                            state.toProviderEvent(assembler.reportedModelId)?.let { emit(it) }
-                                        }
-                                        assembler.accept(
-                                            content = null,
-                                            reasoning = null,
-                                            toolCalls = acceptedTools,
-                                            finishReason = acceptedFinish,
-                                            choiceIndex = choice.index
-                                        ).forEach { publishAssembly(it) }
-                                    } else {
-                                        assembler.accept(
-                                            content = choice.effectiveDelta.content,
-                                            reasoning = effectiveReasoning,
-                                            toolCalls = acceptedTools,
-                                            finishReason = acceptedFinish,
-                                            choiceIndex = choice.index
-                                        ).forEach { publishAssembly(it) }
-                                    }
+                                    assembler.accept(
+                                        content = choice.effectiveDelta.content,
+                                        reasoning = effectiveReasoning,
+                                        toolCalls = acceptedTools,
+                                        finishReason = acceptedFinish,
+                                        choiceIndex = choice.index
+                                    ).forEach { publishAssembly(it) }
                                 }
                             }
                         if (dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), protocolErrorCode)) {
@@ -1206,9 +1188,6 @@ class OpenAICompatibleAdapter @Inject constructor(
                             privacyPreflight?.recordRejection(platform.apiUrl.orEmpty(), activeKey, platform.model, parsedRouting, lastFailedMessage.orEmpty())
                         }
                         assembler.discardIncomplete().forEach { publishAssembly(it) }
-                        llamaReasoningParser?.flush()?.forEach { state ->
-                            state.toProviderEvent(assembler.reportedModelId)?.let { emit(it) }
-                        }
 
                         if (observesWriter) {
                             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedWriter", "REASONING_CONTROL_OBSERVED · requestedModel=${platform.model} · resolvedModel=${observedModel ?: "unreported"} · backend=${observedBackend ?: "unreported"} · disabledRequested=true · transmittedControl=${reasoningControl ?: "none"} · providerSupport=$reasoningControlSupport · reasoningReceived=$observedReasoning · answerBytesReceived=$observedVisible")

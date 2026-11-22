@@ -83,7 +83,9 @@ data class VoiceState(
     val recoveryAction: VoiceRecoveryAction? = null,
     val spokenRange: IntRange? = null,
     val submittedDraftRequestId: String? = null,
-    val playbackCaption: String? = null
+    val playbackCaption: String? = null,
+    val readingDetails: Boolean = false,
+    val replyComplete: Boolean = false
 )
 
 /** A state callback may run before Compose delivers the dispatcher's latest admission event. */
@@ -150,10 +152,12 @@ class VoiceSession(
     private var captionSearchFrom = 0
     private var playbackFinished = false
     private var manualPlayback = false
+    private var includeSpeechDetails = false
     private fun resetStream() {
         streamId = null
         streamDiagnosticId = null
         speechBuffer = VoiceSpeechBuffer(now)
+        includeSpeechDetails = false
         queuedSpeech.clear()
         chunkPlaying = false
         streamComplete = false
@@ -215,7 +219,7 @@ class VoiceSession(
         audio.bindDiagnostics(diagnosticProbe)
         waiting = true
         draftPending = awaitsAdmission
-        update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, level = 0f))
+        update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, reply = "", level = 0f, readingDetails = false, replyComplete = false))
         if (submit(prompt)) {
             if (awaitsAdmission) {
                 // The dispatcher publishes its request identity synchronously before returning.
@@ -306,7 +310,7 @@ class VoiceSession(
     }
 
     /** Adopt a typed or explicitly selected reply without acquiring microphone permission. */
-    fun beginMessage(id: String, manual: Boolean = false, diagnosticRunId: String = id, readAloud: Boolean = true): Boolean {
+    fun beginMessage(id: String, manual: Boolean = false, diagnosticRunId: String = id, readAloud: Boolean = true, includeDetails: Boolean = false): Boolean {
         if (!accessAllowed()) return false
         if (!manual && waiting && streamId == id) return true
         if (!manual && waiting && streamId == null) {
@@ -322,6 +326,8 @@ class VoiceSession(
         stopAudio(if (manual) "message_replay_selected" else "message_playback_started")
         resetStream()
         manualPlayback = manual
+        includeSpeechDetails = manual && includeDetails
+        speechBuffer = VoiceSpeechBuffer(now, includeDetails = includeSpeechDetails)
         waiting = true
         lastReply = null
         engaged = true
@@ -331,7 +337,7 @@ class VoiceSession(
         streamDiagnosticId = diagnosticRunId
         streamAudio = playbackAllowed() && (state.speaker || manualPlayback) && (readAloud || manualPlayback)
         audio.bindReply(diagnosticRunId)
-        update(state.copy(phase = VoicePhase.THINKING, reply = "", notice = null, spokenRange = null, level = 0f))
+        update(state.copy(phase = VoicePhase.THINKING, reply = "", notice = null, spokenRange = null, level = 0f, readingDetails = includeSpeechDetails, replyComplete = false))
         return true
     }
     private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED", error: Throwable? = null, reportFailure: Boolean = true, failureFields: Map<String, Any?> = emptyMap()) {
@@ -565,8 +571,8 @@ class VoiceSession(
             audio.bindReply(id)
             streamAudio = playbackAllowed() && (state.speaker || manualPlayback)
         }
-        update(state.copy(reply = text))
         streamComplete = complete
+        update(state.copy(reply = text, readingDetails = includeSpeechDetails, replyComplete = complete))
         // While generating, start after a stable phrase. A completed response or explicit
         // replay already has its full text and can retain natural sentence boundaries.
         val chunks = if (complete || speakWhileGenerating) {
@@ -667,7 +673,7 @@ class VoiceSession(
                 if (index < activeUtterance || index == activeUtterance && range.first < lastRangeStart) return
                 // Require an exact visible-text match. Pronunciation and Markdown transforms can change the source.
                 if (index != activeUtterance) {
-                    val projected = VoiceSpeechText.project(state.reply)
+                    val projected = VoiceSpeechText.project(state.reply, final = streamComplete || !waiting, includeDetails = includeSpeechDetails)
                     playbackCaption = projected.takeIf { it != state.reply }
                     utteranceStart = projected.indexOf(utterance, startIndex = captionSearchFrom).takeIf {
                         it >= captionSearchFrom && projected.substring(captionSearchFrom, it).all(Char::isWhitespace)
@@ -802,7 +808,7 @@ class VoiceSession(
             return
         }
         diagnosticProbe.responseText()
-        update(state.copy(reply = text))
+        update(state.copy(reply = text, readingDetails = includeSpeechDetails, replyComplete = true))
         if (!playbackAllowed()) {
             pause()
             return
@@ -811,7 +817,7 @@ class VoiceSession(
             continueTurn()
             return
         }
-        val spoken = VoiceSpeechBuffer().append(text, final = true).orEmpty().joinToString(" ").trim()
+        val spoken = VoiceSpeechBuffer(includeDetails = includeSpeechDetails).append(text, final = true).orEmpty().joinToString(" ").trim()
         if (spoken.isEmpty()) {
             continueTurn()
             return

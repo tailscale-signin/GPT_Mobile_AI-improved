@@ -4,6 +4,11 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 
 ## Voice chat and captions
 
+- Give microphone and typed voice messages a dedicated conversational response policy: answer first in short natural sentences, ask one useful clarification when needed, and retain the selected profile's facts, permissions and privacy rules across queues, retries and recovered turns.
+- Keep provider reasoning and explicit reasoning blocks outside the spoken answer, including split streaming tags and incomplete reasoning. Preserve quoted and code examples as user-facing content.
+- Show the same spoken-answer projection used by playback and captions, with expandable visual details and an explicit **Read full details** action. Ordinary replay stays concise, and selecting a different message cancels the previous output.
+- Improve pronunciation of dates, clock times, signed amounts, measurements, rates and IP addresses while retaining exact caption source ranges. Remove raw URLs and table structure from ordinary speech, preserve descriptive link labels, and retain the full original answer for inspection.
+- Add a **Natural Speech** preset with a 1.1× rate, natural pauses and adaptive phrase pacing. Keep saved choices and the faster preset; prefer complete opening clauses with bounded fallback while speech is generated.
 - Correct live transcription word ranges when recognition replaces an indented phrase, and retain paragraph shaping for supplementary right-to-left scripts during streaming.
 - Keep a continuous five-line caption view with stable line identities, smooth position/scale/opacity changes, manual scrolling and Return to live, while retaining text selection, accessibility and reduced-motion behavior.
 - Fade spoken words into the theme colour over 250 ms and release their colour over 120 ms; keep only the current word bold and reuse glyph geometry so emphasis does not shift or rewrap neighbouring words.
@@ -20,7 +25,16 @@ Version code: **147**. Coordinated publication with Gateway **18.1.1**; retains 
 - Retire a failed accelerator and retry only its current unplayed phrase on CPU; preserve typed source, target, outcome and original failure when CPU or permitted Android system speech recovery occurs, including optional Gateway CUDA failures. Fence duplicate and stale fallback callbacks.
 - Move deferred speech preference reads off the UI path and retain explicit cancellation origins, bounded cleanup and separate synthesis/playback ownership.
 
-Capability receipts are limited to 24 entries. Successful measurements expire after seven days and failed qualifications after six hours; clock rollback invalidates the receipt. **Compare engines on next reply** measures CPU, GPU and NPU with two phrase shapes, including preparation. **Recheck engine on next reply** explicitly retries the selected backend. Per-shape profiles identify actual accelerator and CPU participation; selecting an engine alone does not qualify it.
+Capability receipts are limited to 24 entries. Successful measurements expire after seven days and failed qualifications after six hours; clock rollback invalidates the receipt. **Compare engines on next reply** measures CPU, GPU and NPU with three phrase shapes, including preparation. **Recheck engine on next reply** explicitly retries the selected backend. Per-shape profiles identify actual accelerator and CPU participation; selecting an engine alone does not qualify it.
+
+## CPU, GPU and NPU speech benchmark
+
+- Run **Quick** or **Full** comparisons from Voice settings using the same fixed short, medium and long samples for every selected processor. Keep cold session/graph preparation separate from warm synthesis, and show first PCM, real-time factor, median and p95 results.
+- Report requested versus actual execution, accelerator and CPU kernel counts and timings, thermal state and typed failures. Mixed CPU/accelerator work is visible; CPU fallback cannot count as a successful GPU or NPU result.
+- Stop from settings or when leaving the foreground, release native resources, and pause live voice while a benchmark owns the runtime. Save the latest five reports and export bounded JSON without conversation text, audio or exported device identifiers.
+- Bind comparison results to the model, runtime, voice, rate, thread setting and app build. Show configuration changes and a measured recommendation; keep the normal Auto selection gate and its minimum 10% measured benefit.
+
+The speech benchmark measures silent inference. First PCM is the completed phrase's first returned audio buffer, not sound reaching the speaker; acoustic latency, playback underruns, battery consumption and hardware utilization percentages remain unmeasured. GPU/NPU results require a compatible real device and actual accelerator execution; unsupported or failed trials retain their observed status.
 
 ## Setup, model routes and recovery
 

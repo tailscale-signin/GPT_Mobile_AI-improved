@@ -33,6 +33,36 @@ internal class QualcommVoicePhraseEngineFactory(
         runCatching { pending.get()?.cancel() }
     }
 
+    /** A benchmark measures the requested backend without hidden probes or CPU recovery. */
+    fun createBenchmarkEngine(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
+        require(backend in LOCAL_BACKENDS)
+        val ticket = generation.get()
+        val native = open(directory, lexicon, threads, backend)
+        try {
+            checkTicket(ticket)
+            var observed: VoiceSpeechExecutionEvidence? = null
+            return object : VoicePhraseEngine {
+                override val executionProvider: String get() = provider(backend)
+                override val executionEvidence: VoiceSpeechExecutionEvidence? get() = observed
+                override fun generate(text: String, speaker: Int, speed: Float): VoicePhraseAudio {
+                    val audio = native.generate(text, speaker, speed)
+                    val receipt = native.evidence()
+                    val actual = if (backend != VoiceSpeechBackend.CPU && receipt.acceleratorKernels == 0 && receipt.cpuKernels > 0) "cpu" else executionProvider
+                    observed = evidence(receipt, actual, null)
+                    return VoicePhraseAudio(audio.samples, audio.durations, audio.wordTokens)
+                }
+                override fun resetCancellation() = native.resetCancellation()
+                override fun cancel() = native.cancel()
+                override fun close() = native.close()
+            }
+        } catch (error: Exception) {
+            native.close()
+            throw error
+        } finally {
+            pending.compareAndSet(native, null)
+        }
+    }
+
     override fun create(directory: File, lexicon: String, threads: Int): VoicePhraseEngine {
         val ticket = generation.get()
         if (backend == VoiceSpeechBackend.AUTO && calibrateAll && calibrated.compareAndSet(false, true)) {
@@ -40,7 +70,7 @@ internal class QualcommVoicePhraseEngineFactory(
                 checkTicket(ticket)
                 var trial: TimedKokoro? = null
                 try {
-                    notify("Comparing ${candidate.label} with two phrase shapes…")
+                    notify("Comparing ${candidate.label} with three phrase shapes…")
                     val started = System.nanoTime()
                     trial = open(directory, lexicon, threads, candidate)
                     measure(trial, candidate, lexicon, threads, ticket, started)
@@ -245,7 +275,7 @@ internal class QualcommVoicePhraseEngineFactory(
     companion object {
         private val ACCELERATORS = setOf(VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP)
         private val LOCAL_BACKENDS = listOf(VoiceSpeechBackend.CPU, VoiceSpeechBackend.QNN_GPU, VoiceSpeechBackend.QNN_HTP)
-        private val PROBES = listOf("hello there.", "speech should stay smooth while the next phrase is prepared.")
+        private val PROBES = VoiceSpeechBenchmarkFixture.entries.map { it.text }
         private fun provider(value: VoiceSpeechBackend) = when (value) {
             VoiceSpeechBackend.CPU -> "cpu"
             VoiceSpeechBackend.QNN_GPU -> "qnn-gpu"
